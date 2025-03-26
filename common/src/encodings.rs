@@ -1,12 +1,22 @@
 use std::ops::Range;
 
+use num_traits::ToPrimitive;
+
+use crate::str::StrKind;
+use crate::wtf8::{Wtf8, Wtf8Buf};
+
 pub type EncodeErrorResult<S, B, E> = Result<(EncodeReplace<S, B>, usize), E>;
 
 pub type DecodeErrorResult<S, B, E> = Result<(S, Option<B>, usize), E>;
 
-pub trait StrBuffer: AsRef<str> {
-    fn is_ascii(&self) -> bool {
-        self.as_ref().is_ascii()
+pub trait StrBuffer: AsRef<Wtf8> {
+    fn is_compatible_with(&self, kind: StrKind) -> bool {
+        let s = self.as_ref();
+        match kind {
+            StrKind::Ascii => s.is_ascii(),
+            StrKind::Utf8 => s.is_utf8(),
+            StrKind::Wtf8 => true,
+        }
     }
 }
 
@@ -16,7 +26,7 @@ pub trait ErrorHandler {
     type BytesBuf: AsRef<[u8]>;
     fn handle_encode_error(
         &self,
-        data: &str,
+        data: &Wtf8,
         char_range: Range<usize>,
         reason: &str,
     ) -> EncodeErrorResult<Self::StrBuf, Self::BytesBuf, Self::Error>;
@@ -27,7 +37,7 @@ pub trait ErrorHandler {
         reason: &str,
     ) -> DecodeErrorResult<Self::StrBuf, Self::BytesBuf, Self::Error>;
     fn error_oob_restart(&self, i: usize) -> Self::Error;
-    fn error_encoding(&self, data: &str, char_range: Range<usize>, reason: &str) -> Self::Error;
+    fn error_encoding(&self, data: &Wtf8, char_range: Range<usize>, reason: &str) -> Self::Error;
 }
 pub enum EncodeReplace<S, B> {
     Str(S),
@@ -63,19 +73,19 @@ fn decode_utf8_compatible<E: ErrorHandler, DecodeF, ErrF>(
     errors: &E,
     decode: DecodeF,
     handle_error: ErrF,
-) -> Result<(String, usize), E::Error>
+) -> Result<(Wtf8Buf, usize), E::Error>
 where
     DecodeF: Fn(&[u8]) -> Result<&str, DecodeError<'_>>,
     ErrF: Fn(&[u8], Option<usize>) -> HandleResult<'_>,
 {
     if data.is_empty() {
-        return Ok((String::new(), 0));
+        return Ok((Wtf8Buf::new(), 0));
     }
     // we need to coerce the lifetime to that of the function body rather than the
     // anonymous input lifetime, so that we can assign it data borrowed from data_from_err
     let mut data = data;
     let mut data_from_err: E::BytesBuf;
-    let mut out = String::with_capacity(data.len());
+    let mut out = Wtf8Buf::with_capacity(data.len());
     let mut remaining_index = 0;
     let mut remaining_data = data;
     loop {
@@ -98,7 +108,7 @@ where
                             err_idx..err_len.map_or_else(|| data.len(), |len| err_idx + len);
                         let (replace, new_data, restart) =
                             errors.handle_decode_error(data, err_range, reason)?;
-                        out.push_str(replace.as_ref());
+                        out.push_wtf8(replace.as_ref());
                         if let Some(new_data) = new_data {
                             data_from_err = new_data;
                             data = data_from_err.as_ref();
@@ -116,21 +126,68 @@ where
     Ok((out, remaining_index))
 }
 
+#[inline]
+fn encode_utf8_compatible<E: ErrorHandler>(
+    s: &Wtf8,
+    errors: &E,
+    err_reason: &str,
+    target_kind: StrKind,
+) -> Result<Vec<u8>, E::Error> {
+    let full_data = s;
+    let mut data = s;
+    let mut char_data_index = 0;
+    let mut out = Vec::<u8>::new();
+    while let Some((char_i, (byte_i, _))) = data
+        .code_point_indices()
+        .enumerate()
+        .find(|(_, (_, c))| !target_kind.can_encode(*c))
+    {
+        out.extend_from_slice(&data.as_bytes()[..byte_i]);
+        let char_start = char_data_index + char_i;
+
+        // number of non-compatible chars between the first non-compatible char and the next compatible char
+        let non_compat_run_length = data[byte_i..]
+            .code_points()
+            .take_while(|c| !target_kind.can_encode(*c))
+            .count();
+        let char_range = char_start..char_start + non_compat_run_length;
+        let (replace, char_restart) =
+            errors.handle_encode_error(full_data, char_range.clone(), err_reason)?;
+        match replace {
+            EncodeReplace::Str(s) => {
+                if s.is_compatible_with(target_kind) {
+                    out.extend_from_slice(s.as_ref().as_bytes());
+                } else {
+                    return Err(errors.error_encoding(full_data, char_range, err_reason));
+                }
+            }
+            EncodeReplace::Bytes(b) => {
+                out.extend_from_slice(b.as_ref());
+            }
+        }
+        data = crate::str::try_get_codepoints(full_data, char_restart..)
+            .ok_or_else(|| errors.error_oob_restart(char_restart))?;
+        char_data_index = char_restart;
+    }
+    out.extend_from_slice(data.as_bytes());
+    Ok(out)
+}
+
 pub mod utf8 {
     use super::*;
 
     pub const ENCODING_NAME: &str = "utf-8";
 
     #[inline]
-    pub fn encode<E: ErrorHandler>(s: &str, _errors: &E) -> Result<Vec<u8>, E::Error> {
-        Ok(s.as_bytes().to_vec())
+    pub fn encode<E: ErrorHandler>(s: &Wtf8, errors: &E) -> Result<Vec<u8>, E::Error> {
+        encode_utf8_compatible(s, errors, "surrogates not allowed", StrKind::Utf8)
     }
 
     pub fn decode<E: ErrorHandler>(
         data: &[u8],
         errors: &E,
         final_decode: bool,
-    ) -> Result<(String, usize), E::Error> {
+    ) -> Result<(Wtf8Buf, usize), E::Error> {
         decode_utf8_compatible(
             data,
             errors,
@@ -180,14 +237,14 @@ pub mod latin_1 {
     const ERR_REASON: &str = "ordinal not in range(256)";
 
     #[inline]
-    pub fn encode<E: ErrorHandler>(s: &str, errors: &E) -> Result<Vec<u8>, E::Error> {
+    pub fn encode<E: ErrorHandler>(s: &Wtf8, errors: &E) -> Result<Vec<u8>, E::Error> {
         let full_data = s;
         let mut data = s;
         let mut char_data_index = 0;
         let mut out = Vec::<u8>::new();
         loop {
             match data
-                .char_indices()
+                .code_point_indices()
                 .enumerate()
                 .find(|(_, (_, c))| !c.is_ascii())
             {
@@ -198,17 +255,16 @@ pub mod latin_1 {
                 Some((char_i, (byte_i, ch))) => {
                     out.extend_from_slice(&data.as_bytes()[..byte_i]);
                     let char_start = char_data_index + char_i;
-                    if (ch as u32) <= 255 {
-                        out.push(ch as u8);
-                        let char_restart = char_start + 1;
-                        data = crate::str::try_get_chars(full_data, char_restart..)
-                            .ok_or_else(|| errors.error_oob_restart(char_restart))?;
-                        char_data_index = char_restart;
+                    if let Some(byte) = ch.to_u32().to_u8() {
+                        out.push(byte);
+                        // if the codepoint is between 128..=255, it's utf8-length is 2
+                        data = &data[byte_i + 2..];
+                        char_data_index = char_start + 1;
                     } else {
                         // number of non-latin_1 chars between the first non-latin_1 char and the next latin_1 char
                         let non_latin_1_run_length = data[byte_i..]
-                            .chars()
-                            .take_while(|c| (*c as u32) > 255)
+                            .code_points()
+                            .take_while(|c| c.to_u32() > 255)
                             .count();
                         let char_range = char_start..char_start + non_latin_1_run_length;
                         let (replace, char_restart) = errors.handle_encode_error(
@@ -218,7 +274,7 @@ pub mod latin_1 {
                         )?;
                         match replace {
                             EncodeReplace::Str(s) => {
-                                if s.as_ref().chars().any(|c| (c as u32) > 255) {
+                                if s.as_ref().code_points().any(|c| c.to_u32() > 255) {
                                     return Err(
                                         errors.error_encoding(full_data, char_range, ERR_REASON)
                                     );
@@ -229,7 +285,7 @@ pub mod latin_1 {
                                 out.extend_from_slice(b.as_ref());
                             }
                         }
-                        data = crate::str::try_get_chars(full_data, char_restart..)
+                        data = crate::str::try_get_codepoints(full_data, char_restart..)
                             .ok_or_else(|| errors.error_oob_restart(char_restart))?;
                         char_data_index = char_restart;
                     }
@@ -240,10 +296,10 @@ pub mod latin_1 {
         Ok(out)
     }
 
-    pub fn decode<E: ErrorHandler>(data: &[u8], _errors: &E) -> Result<(String, usize), E::Error> {
+    pub fn decode<E: ErrorHandler>(data: &[u8], _errors: &E) -> Result<(Wtf8Buf, usize), E::Error> {
         let out: String = data.iter().map(|c| *c as char).collect();
         let out_len = out.len();
-        Ok((out, out_len))
+        Ok((out.into(), out_len))
     }
 }
 
@@ -256,54 +312,11 @@ pub mod ascii {
     const ERR_REASON: &str = "ordinal not in range(128)";
 
     #[inline]
-    pub fn encode<E: ErrorHandler>(s: &str, errors: &E) -> Result<Vec<u8>, E::Error> {
-        let full_data = s;
-        let mut data = s;
-        let mut char_data_index = 0;
-        let mut out = Vec::<u8>::new();
-        loop {
-            match data
-                .char_indices()
-                .enumerate()
-                .find(|(_, (_, c))| !c.is_ascii())
-            {
-                None => {
-                    out.extend_from_slice(data.as_bytes());
-                    break;
-                }
-                Some((char_i, (byte_i, _))) => {
-                    out.extend_from_slice(&data.as_bytes()[..byte_i]);
-                    let char_start = char_data_index + char_i;
-                    // number of non-ascii chars between the first non-ascii char and the next ascii char
-                    let non_ascii_run_length =
-                        data[byte_i..].chars().take_while(|c| !c.is_ascii()).count();
-                    let char_range = char_start..char_start + non_ascii_run_length;
-                    let (replace, char_restart) =
-                        errors.handle_encode_error(full_data, char_range.clone(), ERR_REASON)?;
-                    match replace {
-                        EncodeReplace::Str(s) => {
-                            if !s.is_ascii() {
-                                return Err(
-                                    errors.error_encoding(full_data, char_range, ERR_REASON)
-                                );
-                            }
-                            out.extend_from_slice(s.as_ref().as_bytes());
-                        }
-                        EncodeReplace::Bytes(b) => {
-                            out.extend_from_slice(b.as_ref());
-                        }
-                    }
-                    data = crate::str::try_get_chars(full_data, char_restart..)
-                        .ok_or_else(|| errors.error_oob_restart(char_restart))?;
-                    char_data_index = char_restart;
-                    continue;
-                }
-            }
-        }
-        Ok(out)
+    pub fn encode<E: ErrorHandler>(s: &Wtf8, errors: &E) -> Result<Vec<u8>, E::Error> {
+        encode_utf8_compatible(s, errors, ERR_REASON, StrKind::Ascii)
     }
 
-    pub fn decode<E: ErrorHandler>(data: &[u8], errors: &E) -> Result<(String, usize), E::Error> {
+    pub fn decode<E: ErrorHandler>(data: &[u8], errors: &E) -> Result<(Wtf8Buf, usize), E::Error> {
         decode_utf8_compatible(
             data,
             errors,

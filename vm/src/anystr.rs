@@ -7,26 +7,11 @@ use crate::{
 use num_traits::{cast::ToPrimitive, sign::Signed};
 
 #[derive(FromArgs)]
-pub struct SplitArgs<T: TryFromObject + AnyStrWrapper> {
+pub struct SplitArgs<T: TryFromObject> {
     #[pyarg(any, default)]
     sep: Option<T>,
     #[pyarg(any, default = "-1")]
     maxsplit: isize,
-}
-
-impl<T: TryFromObject + AnyStrWrapper> SplitArgs<T> {
-    pub fn get_value(self, vm: &VirtualMachine) -> PyResult<(Option<T>, isize)> {
-        let sep = if let Some(s) = self.sep {
-            let sep = s.as_ref();
-            if sep.is_empty() {
-                return Err(vm.new_value_error("empty separator".to_owned()));
-            }
-            Some(s)
-        } else {
-            None
-        };
-        Ok((sep, self.maxsplit))
-    }
 }
 
 #[derive(FromArgs)]
@@ -132,9 +117,9 @@ impl StringRange for std::ops::Range<usize> {
     }
 }
 
-pub trait AnyStrWrapper {
-    type Str: ?Sized + AnyStr;
-    fn as_ref(&self) -> &Self::Str;
+pub trait AnyStrWrapper<S: AnyStr + ?Sized> {
+    fn as_ref(&self) -> Option<&S>;
+    fn is_empty(&self) -> bool;
 }
 
 pub trait AnyStrContainer<S>
@@ -146,15 +131,18 @@ where
     fn push_str(&mut self, s: &S);
 }
 
-pub trait AnyStr {
-    type Char: Copy;
-    type Container: AnyStrContainer<Self> + Extend<Self::Char>;
+pub trait AnyChar: Copy {
+    fn is_lowercase(self) -> bool;
+    fn is_uppercase(self) -> bool;
+    fn bytes_len(self) -> usize;
+}
 
-    fn element_bytes_len(c: Self::Char) -> usize;
+pub trait AnyStr {
+    type Char: AnyChar;
+    type Container: AnyStrContainer<Self> + Extend<Self::Char>;
 
     fn to_container(&self) -> Self::Container;
     fn as_bytes(&self) -> &[u8];
-    fn chars(&self) -> impl Iterator<Item = char>;
     fn elements(&self) -> impl Iterator<Item = Self::Char>;
     fn get_bytes(&self, range: std::ops::Range<usize>) -> &Self;
     // FIXME: get_chars is expensive for str
@@ -172,29 +160,35 @@ pub trait AnyStr {
         new
     }
 
-    fn py_split<T, SP, SN, SW, R>(
+    fn py_split<T, SP, SN, SW>(
         &self,
         args: SplitArgs<T>,
         vm: &VirtualMachine,
+        full_obj: impl FnOnce() -> PyObjectRef,
         split: SP,
         splitn: SN,
         splitw: SW,
-    ) -> PyResult<Vec<R>>
+    ) -> PyResult<Vec<PyObjectRef>>
     where
-        T: TryFromObject + AnyStrWrapper<Str = Self>,
-        SP: Fn(&Self, &Self, &VirtualMachine) -> Vec<R>,
-        SN: Fn(&Self, &Self, usize, &VirtualMachine) -> Vec<R>,
-        SW: Fn(&Self, isize, &VirtualMachine) -> Vec<R>,
+        T: TryFromObject + AnyStrWrapper<Self>,
+        SP: Fn(&Self, &Self, &VirtualMachine) -> Vec<PyObjectRef>,
+        SN: Fn(&Self, &Self, usize, &VirtualMachine) -> Vec<PyObjectRef>,
+        SW: Fn(&Self, isize, &VirtualMachine) -> Vec<PyObjectRef>,
     {
-        let (sep, maxsplit) = args.get_value(vm)?;
-        let splits = if let Some(pattern) = sep {
-            if maxsplit < 0 {
-                split(self, pattern.as_ref(), vm)
+        if args.sep.as_ref().is_some_and(|sep| sep.is_empty()) {
+            return Err(vm.new_value_error("empty separator".to_owned()));
+        }
+        let splits = if let Some(pattern) = args.sep {
+            let Some(pattern) = pattern.as_ref() else {
+                return Ok(vec![full_obj()]);
+            };
+            if args.maxsplit < 0 {
+                split(self, pattern, vm)
             } else {
-                splitn(self, pattern.as_ref(), (maxsplit + 1) as usize, vm)
+                splitn(self, pattern, (args.maxsplit + 1) as usize, vm)
             }
         } else {
-            splitw(self, maxsplit, vm)
+            splitw(self, args.maxsplit, vm)
         };
         Ok(splits)
     }
@@ -242,13 +236,19 @@ pub trait AnyStr {
         func_default: FD,
     ) -> &'a Self
     where
-        S: AnyStrWrapper<Str = Self>,
+        S: AnyStrWrapper<Self>,
         FC: Fn(&'a Self, &Self) -> &'a Self,
         FD: Fn(&'a Self) -> &'a Self,
     {
         let chars = chars.flatten();
         match chars {
-            Some(chars) => func_chars(self, chars.as_ref()),
+            Some(chars) => {
+                if let Some(chars) = chars.as_ref() {
+                    func_chars(self, chars)
+                } else {
+                    self
+                }
+            }
             None => func_default(self),
         }
     }
@@ -281,7 +281,7 @@ pub trait AnyStr {
 
     fn py_pad(&self, left: usize, right: usize, fillchar: Self::Char) -> Self::Container {
         let mut u = Self::Container::with_capacity(
-            (left + right) * Self::element_bytes_len(fillchar) + self.bytes_len(),
+            (left + right) * fillchar.bytes_len() + self.bytes_len(),
         );
         u.extend(std::iter::repeat(fillchar).take(left));
         u.push_str(self);
@@ -305,19 +305,17 @@ pub trait AnyStr {
 
     fn py_join(
         &self,
-        mut iter: impl std::iter::Iterator<
-            Item = PyResult<impl AnyStrWrapper<Str = Self> + TryFromObject>,
-        >,
+        mut iter: impl std::iter::Iterator<Item = PyResult<impl AnyStrWrapper<Self> + TryFromObject>>,
     ) -> PyResult<Self::Container> {
         let mut joined = if let Some(elem) = iter.next() {
-            elem?.as_ref().to_container()
+            elem?.as_ref().unwrap().to_container()
         } else {
             return Ok(Self::Container::new());
         };
         for elem in iter {
             let elem = elem?;
             joined.push_str(self);
-            joined.push_str(elem.as_ref());
+            joined.push_str(elem.as_ref().unwrap());
         }
         Ok(joined)
     }
@@ -403,25 +401,34 @@ pub trait AnyStr {
         rustpython_common::str::zfill(self.as_bytes(), width)
     }
 
-    fn py_iscase<F, G>(&self, is_case: F, is_opposite: G) -> bool
-    where
-        F: Fn(char) -> bool,
-        G: Fn(char) -> bool,
-    {
-        // Unified form of CPython functions:
-        //  _Py_bytes_islower
-        //   Py_bytes_isupper
-        //  unicode_islower_impl
-        //  unicode_isupper_impl
-        let mut cased = false;
-        for c in self.chars() {
-            if is_opposite(c) {
+    // Unified form of CPython functions:
+    //  _Py_bytes_islower
+    //  unicode_islower_impl
+    fn py_islower(&self) -> bool {
+        let mut lower = false;
+        for c in self.elements() {
+            if c.is_uppercase() {
                 return false;
-            } else if !cased && is_case(c) {
-                cased = true
+            } else if !lower && c.is_lowercase() {
+                lower = true
             }
         }
-        cased
+        lower
+    }
+
+    // Unified form of CPython functions:
+    //   Py_bytes_isupper
+    //  unicode_isupper_impl
+    fn py_isupper(&self) -> bool {
+        let mut upper = false;
+        for c in self.elements() {
+            if c.is_lowercase() {
+                return false;
+            } else if !upper && c.is_uppercase() {
+                upper = true
+            }
+        }
+        upper
     }
 }
 

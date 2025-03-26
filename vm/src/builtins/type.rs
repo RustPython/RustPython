@@ -768,7 +768,7 @@ impl PyType {
                 value.class().slot_name(),
             ))
         })?;
-        if name.as_str().as_bytes().contains(&0) {
+        if name.as_bytes().contains(&0) {
             return Err(vm.new_value_error("type name must not contain null characters".to_owned()));
         }
 
@@ -811,7 +811,7 @@ impl Constructor for PyType {
         let (name, bases, dict, kwargs): (PyStrRef, PyTupleRef, PyDictRef, KwArgs) =
             args.clone().bind(vm)?;
 
-        if name.as_str().as_bytes().contains(&0) {
+        if name.as_bytes().contains(&0) {
             return Err(vm.new_value_error("type name must not contain null characters".to_owned()));
         }
 

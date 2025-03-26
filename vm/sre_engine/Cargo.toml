@@ -15,6 +15,7 @@ name = "benches"
 harness = false
 
 [dependencies]
+rustpython-common = { workspace = true }
 num_enum = { workspace = true }
 bitflags = { workspace = true }
 optional = "0.5"

@@ -5,7 +5,7 @@ use crate::{
     function::PyStr,
     protocol::PyBuffer,
 };
-use std::{ffi::OsStr, path::PathBuf};
+use std::{borrow::Cow, ffi::OsStr, path::PathBuf};
 
 #[derive(Clone)]
 pub enum FsPath {
@@ -26,7 +26,7 @@ impl FsPath {
         let match1 = |obj: PyObjectRef| {
             let pathlike = match_class!(match obj {
                 s @ PyStr => {
-                    check_nul(s.as_str().as_bytes())?;
+                    check_nul(s.as_bytes())?;
                     FsPath::Str(s)
                 }
                 b @ PyBytes => {
@@ -58,26 +58,26 @@ impl FsPath {
         })
     }
 
-    pub fn as_os_str(&self, vm: &VirtualMachine) -> PyResult<&OsStr> {
+    pub fn as_os_str(&self, vm: &VirtualMachine) -> PyResult<Cow<'_, OsStr>> {
         // TODO: FS encodings
         match self {
-            FsPath::Str(s) => Ok(s.as_str().as_ref()),
-            FsPath::Bytes(b) => Self::bytes_as_osstr(b.as_bytes(), vm),
+            FsPath::Str(s) => vm.fsencode(s),
+            FsPath::Bytes(b) => Self::bytes_as_osstr(b.as_bytes(), vm).map(Cow::Borrowed),
         }
     }
 
     pub fn as_bytes(&self) -> &[u8] {
         // TODO: FS encodings
         match self {
-            FsPath::Str(s) => s.as_str().as_bytes(),
+            FsPath::Str(s) => s.as_bytes(),
             FsPath::Bytes(b) => b.as_bytes(),
         }
     }
 
-    pub fn as_str(&self) -> &str {
+    pub fn to_string_lossy(&self) -> Cow<'_, str> {
         match self {
-            FsPath::Bytes(b) => std::str::from_utf8(b).unwrap(),
-            FsPath::Str(s) => s.as_str(),
+            FsPath::Str(s) => s.to_string_lossy(),
+            FsPath::Bytes(s) => String::from_utf8_lossy(s),
         }
     }
 

@@ -163,7 +163,7 @@ mod tests {
             let b = vm.new_pyobj(4_i32);
             let res = vm._mul(&a, &b).unwrap();
             let value = res.payload::<PyStr>().unwrap();
-            assert_eq!(value.as_ref(), "Hello Hello Hello Hello ")
+            assert_eq!(value.as_str(), "Hello Hello Hello Hello ")
         })
     }
 }

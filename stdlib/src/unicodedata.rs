@@ -65,6 +65,7 @@ mod unicodedata {
         function::OptionalArg,
     };
     use itertools::Itertools;
+    use rustpython_common::wtf8::{CodePoint, Wtf8Buf};
     use ucd::{Codepoint, EastAsianWidth};
     use unic_char_property::EnumeratedCharProperty;
     use unic_normal::StrNormalForm;
@@ -84,14 +85,23 @@ mod unicodedata {
             Self { unic_version }
         }
 
-        fn check_age(&self, c: char) -> bool {
-            Age::of(c).is_some_and(|age| age.actual() <= self.unic_version)
+        fn check_age(&self, c: CodePoint) -> bool {
+            c.to_char()
+                .is_none_or(|c| Age::of(c).is_some_and(|age| age.actual() <= self.unic_version))
         }
 
-        fn extract_char(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<Option<char>> {
-            let c = character.as_str().chars().exactly_one().map_err(|_| {
-                vm.new_type_error("argument must be an unicode character, not str".to_owned())
-            })?;
+        fn extract_char(
+            &self,
+            character: PyStrRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<CodePoint>> {
+            let c = character
+                .as_wtf8()
+                .code_points()
+                .exactly_one()
+                .map_err(|_| {
+                    vm.new_type_error("argument must be an unicode character, not str".to_owned())
+                })?;
 
             Ok(self.check_age(c).then_some(c))
         }
@@ -103,7 +113,10 @@ mod unicodedata {
         fn category(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
             Ok(self
                 .extract_char(character, vm)?
-                .map_or(GeneralCategory::Unassigned, GeneralCategory::of)
+                .map_or(GeneralCategory::Unassigned, |c| {
+                    c.to_char()
+                        .map_or(GeneralCategory::Surrogate, GeneralCategory::of)
+                })
                 .abbr_name()
                 .to_owned())
         }
@@ -111,7 +124,7 @@ mod unicodedata {
         #[pymethod]
         fn lookup(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
             if let Some(character) = unicode_names2::character(name.as_str()) {
-                if self.check_age(character) {
+                if self.check_age(character.into()) {
                     return Ok(character.to_string());
                 }
             }
@@ -129,7 +142,7 @@ mod unicodedata {
 
             if let Some(c) = c {
                 if self.check_age(c) {
-                    if let Some(name) = unicode_names2::name(c) {
+                    if let Some(name) = c.to_char().and_then(unicode_names2::name) {
                         return Ok(vm.ctx.new_str(name.to_string()).into());
                     }
                 }
@@ -144,7 +157,10 @@ mod unicodedata {
             vm: &VirtualMachine,
         ) -> PyResult<&'static str> {
             let bidi = match self.extract_char(character, vm)? {
-                Some(c) => BidiClass::of(c).abbr_name(),
+                Some(c) => c
+                    .to_char()
+                    .map_or(BidiClass::LeftToRight, BidiClass::of)
+                    .abbr_name(),
                 None => "",
             };
             Ok(bidi)
@@ -159,19 +175,20 @@ mod unicodedata {
         ) -> PyResult<&'static str> {
             Ok(self
                 .extract_char(character, vm)?
+                .and_then(|c| c.to_char())
                 .map_or(EastAsianWidth::Neutral, |c| c.east_asian_width())
                 .abbr_name())
         }
 
         #[pymethod]
-        fn normalize(&self, form: super::NormalizeForm, unistr: PyStrRef) -> PyResult<String> {
+        fn normalize(&self, form: super::NormalizeForm, unistr: PyStrRef) -> PyResult<Wtf8Buf> {
             use super::NormalizeForm::*;
-            let text = unistr.as_str();
+            let text = unistr.as_wtf8();
             let normalized_text = match form {
-                Nfc => text.nfc().collect::<String>(),
-                Nfkc => text.nfkc().collect::<String>(),
-                Nfd => text.nfd().collect::<String>(),
-                Nfkd => text.nfkd().collect::<String>(),
+                Nfc => text.map_utf8(|s| s.nfc()).collect(),
+                Nfkc => text.map_utf8(|s| s.nfkc()).collect(),
+                Nfd => text.map_utf8(|s| s.nfd()).collect(),
+                Nfkd => text.map_utf8(|s| s.nfkd()).collect(),
             };
             Ok(normalized_text)
         }

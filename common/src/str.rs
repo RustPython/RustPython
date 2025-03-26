@@ -1,9 +1,9 @@
-use crate::{
-    atomic::{PyAtomic, Radium},
-    format::CharLen,
-    hash::PyHash,
-};
-use ascii::AsciiString;
+use crate::atomic::{PyAtomic, Radium};
+use crate::format::CharLen;
+use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
+use ascii::{AsciiChar, AsciiStr, AsciiString};
+use core::fmt;
+use core::sync::atomic::Ordering::Relaxed;
 use std::ops::{Bound, RangeBounds};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -14,133 +14,323 @@ pub type wchar_t = libc::wchar_t;
 pub type wchar_t = u32;
 
 /// Utf8 + state.ascii (+ PyUnicode_Kind in future)
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum PyStrKind {
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum StrKind {
     Ascii,
     Utf8,
+    Wtf8,
 }
 
-impl std::ops::BitOr for PyStrKind {
+impl std::ops::BitOr for StrKind {
     type Output = Self;
     fn bitor(self, other: Self) -> Self {
+        use StrKind::*;
         match (self, other) {
-            (Self::Ascii, Self::Ascii) => Self::Ascii,
-            _ => Self::Utf8,
+            (Wtf8, _) | (_, Wtf8) => Wtf8,
+            (Utf8, _) | (_, Utf8) => Utf8,
+            (Ascii, Ascii) => Ascii,
         }
     }
 }
 
-impl PyStrKind {
-    #[inline]
-    pub fn new_data(self) -> PyStrKindData {
+impl StrKind {
+    pub fn is_ascii(&self) -> bool {
+        matches!(self, Self::Ascii)
+    }
+
+    pub fn is_utf8(&self) -> bool {
+        matches!(self, Self::Ascii | Self::Utf8)
+    }
+
+    #[inline(always)]
+    pub fn can_encode(&self, code: CodePoint) -> bool {
         match self {
-            PyStrKind::Ascii => PyStrKindData::Ascii,
-            PyStrKind::Utf8 => PyStrKindData::Utf8(Radium::new(usize::MAX)),
+            StrKind::Ascii => code.is_ascii(),
+            StrKind::Utf8 => code.to_char().is_some(),
+            StrKind::Wtf8 => true,
         }
+    }
+}
+
+pub trait DeduceStrKind {
+    fn str_kind(&self) -> StrKind;
+}
+
+impl DeduceStrKind for str {
+    fn str_kind(&self) -> StrKind {
+        if self.is_ascii() {
+            StrKind::Ascii
+        } else {
+            StrKind::Utf8
+        }
+    }
+}
+
+impl DeduceStrKind for Wtf8 {
+    fn str_kind(&self) -> StrKind {
+        if self.is_ascii() {
+            StrKind::Ascii
+        } else if self.is_utf8() {
+            StrKind::Utf8
+        } else {
+            StrKind::Wtf8
+        }
+    }
+}
+
+impl DeduceStrKind for String {
+    fn str_kind(&self) -> StrKind {
+        (**self).str_kind()
+    }
+}
+
+impl DeduceStrKind for Wtf8Buf {
+    fn str_kind(&self) -> StrKind {
+        (**self).str_kind()
+    }
+}
+
+impl<T: DeduceStrKind + ?Sized> DeduceStrKind for &T {
+    fn str_kind(&self) -> StrKind {
+        (**self).str_kind()
+    }
+}
+
+impl<T: DeduceStrKind + ?Sized> DeduceStrKind for Box<T> {
+    fn str_kind(&self) -> StrKind {
+        (**self).str_kind()
     }
 }
 
 #[derive(Debug)]
-pub enum PyStrKindData {
-    Ascii,
-    // uses usize::MAX as a sentinel for "uncomputed"
-    Utf8(PyAtomic<usize>),
+pub enum PyKindStr<'a> {
+    Ascii(&'a AsciiStr),
+    Utf8(&'a str),
+    Wtf8(&'a Wtf8),
 }
 
-impl PyStrKindData {
-    #[inline]
-    pub fn kind(&self) -> PyStrKind {
-        match self {
-            PyStrKindData::Ascii => PyStrKind::Ascii,
-            PyStrKindData::Utf8(_) => PyStrKind::Utf8,
-        }
+#[derive(Debug, Clone)]
+pub struct StrData {
+    data: Box<Wtf8>,
+    kind: StrKind,
+    len: StrLen,
+}
+
+struct StrLen(PyAtomic<usize>);
+
+impl From<usize> for StrLen {
+    #[inline(always)]
+    fn from(value: usize) -> Self {
+        Self(Radium::new(value))
     }
 }
 
-pub struct BorrowedStr<'a> {
-    bytes: &'a [u8],
-    kind: PyStrKindData,
-    #[allow(dead_code)]
-    hash: PyAtomic<PyHash>,
-}
-
-impl<'a> BorrowedStr<'a> {
-    /// # Safety
-    /// `s` have to be an ascii string
-    #[inline]
-    pub unsafe fn from_ascii_unchecked(s: &'a [u8]) -> Self {
-        debug_assert!(s.is_ascii());
-        Self {
-            bytes: s,
-            kind: PyStrKind::Ascii.new_data(),
-            hash: PyAtomic::<PyHash>::new(0),
-        }
-    }
-
-    #[inline]
-    pub fn from_bytes(s: &'a [u8]) -> Self {
-        let k = if s.is_ascii() {
-            PyStrKind::Ascii.new_data()
+impl fmt::Debug for StrLen {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let len = self.0.load(Relaxed);
+        if len == usize::MAX {
+            f.write_str("<uncomputed>")
         } else {
-            PyStrKind::Utf8.new_data()
-        };
+            len.fmt(f)
+        }
+    }
+}
+
+impl StrLen {
+    #[inline(always)]
+    fn zero() -> Self {
+        0usize.into()
+    }
+    #[inline(always)]
+    fn uncomputed() -> Self {
+        usize::MAX.into()
+    }
+}
+
+impl Clone for StrLen {
+    fn clone(&self) -> Self {
+        Self(self.0.load(Relaxed).into())
+    }
+}
+
+impl Default for StrData {
+    fn default() -> Self {
         Self {
-            bytes: s,
-            kind: k,
-            hash: PyAtomic::<PyHash>::new(0),
+            data: <Box<Wtf8>>::default(),
+            kind: StrKind::Ascii,
+            len: StrLen::zero(),
+        }
+    }
+}
+
+impl From<Box<Wtf8>> for StrData {
+    fn from(value: Box<Wtf8>) -> Self {
+        // doing the check is ~10x faster for ascii, and is actually only 2% slower worst case for
+        // non-ascii; see https://github.com/RustPython/RustPython/pull/2586#issuecomment-844611532
+        let kind = value.str_kind();
+        unsafe { Self::new_str_unchecked(value, kind) }
+    }
+}
+
+impl From<Box<str>> for StrData {
+    #[inline]
+    fn from(value: Box<str>) -> Self {
+        // doing the check is ~10x faster for ascii, and is actually only 2% slower worst case for
+        // non-ascii; see https://github.com/RustPython/RustPython/pull/2586#issuecomment-844611532
+        let kind = value.str_kind();
+        unsafe { Self::new_str_unchecked(value.into(), kind) }
+    }
+}
+
+impl From<Box<AsciiStr>> for StrData {
+    #[inline]
+    fn from(value: Box<AsciiStr>) -> Self {
+        Self {
+            len: value.len().into(),
+            data: value.into(),
+            kind: StrKind::Ascii,
+        }
+    }
+}
+
+impl From<AsciiChar> for StrData {
+    fn from(ch: AsciiChar) -> Self {
+        AsciiString::from(ch).into_boxed_ascii_str().into()
+    }
+}
+
+impl From<char> for StrData {
+    fn from(ch: char) -> Self {
+        if let Ok(ch) = ascii::AsciiChar::from_ascii(ch) {
+            ch.into()
+        } else {
+            Self {
+                data: ch.to_string().into(),
+                kind: StrKind::Utf8,
+                len: 1.into(),
+            }
+        }
+    }
+}
+
+impl From<CodePoint> for StrData {
+    fn from(ch: CodePoint) -> Self {
+        if let Some(ch) = ch.to_char() {
+            ch.into()
+        } else {
+            Self {
+                data: Wtf8Buf::from(ch).into(),
+                kind: StrKind::Wtf8,
+                len: 1.into(),
+            }
+        }
+    }
+}
+
+impl StrData {
+    /// # Safety
+    ///
+    /// Given `bytes` must be valid data for given `kind`
+    pub unsafe fn new_str_unchecked(data: Box<Wtf8>, kind: StrKind) -> Self {
+        let len = match kind {
+            StrKind::Ascii => data.len().into(),
+            _ => StrLen::uncomputed(),
+        };
+        Self { data, kind, len }
+    }
+
+    /// # Safety
+    ///
+    /// `char_len` must be accurate.
+    pub unsafe fn new_with_char_len(data: Box<Wtf8>, kind: StrKind, char_len: usize) -> Self {
+        Self {
+            data,
+            kind,
+            len: char_len.into(),
         }
     }
 
     #[inline]
-    pub fn as_str(&self) -> &str {
-        unsafe {
-            // SAFETY: Both PyStrKind::{Ascii, Utf8} are valid utf8 string
-            std::str::from_utf8_unchecked(self.bytes)
+    pub fn as_wtf8(&self) -> &Wtf8 {
+        &self.data
+    }
+
+    #[inline]
+    pub fn as_str(&self) -> Option<&str> {
+        self.kind
+            .is_utf8()
+            .then(|| unsafe { std::str::from_utf8_unchecked(self.data.as_bytes()) })
+    }
+
+    pub fn as_ascii(&self) -> Option<&AsciiStr> {
+        self.kind
+            .is_ascii()
+            .then(|| unsafe { AsciiStr::from_ascii_unchecked(self.data.as_bytes()) })
+    }
+
+    pub fn kind(&self) -> StrKind {
+        self.kind
+    }
+
+    #[inline]
+    pub fn as_str_kind(&self) -> PyKindStr<'_> {
+        match self.kind {
+            StrKind::Ascii => {
+                PyKindStr::Ascii(unsafe { AsciiStr::from_ascii_unchecked(self.data.as_bytes()) })
+            }
+            StrKind::Utf8 => {
+                PyKindStr::Utf8(unsafe { std::str::from_utf8_unchecked(self.data.as_bytes()) })
+            }
+            StrKind::Wtf8 => PyKindStr::Wtf8(&self.data),
         }
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
     }
 
     #[inline]
     pub fn char_len(&self) -> usize {
-        match self.kind {
-            PyStrKindData::Ascii => self.bytes.len(),
-            PyStrKindData::Utf8(ref len) => match len.load(core::sync::atomic::Ordering::Relaxed) {
-                usize::MAX => self._compute_char_len(),
-                len => len,
-            },
+        match self.len.0.load(Relaxed) {
+            usize::MAX => self._compute_char_len(),
+            len => len,
         }
     }
 
     #[cold]
     fn _compute_char_len(&self) -> usize {
-        match self.kind {
-            PyStrKindData::Utf8(ref char_len) => {
-                let len = self.as_str().chars().count();
-                // len cannot be usize::MAX, since vec.capacity() < sys.maxsize
-                char_len.store(len, core::sync::atomic::Ordering::Relaxed);
-                len
-            }
-            _ => unsafe {
-                debug_assert!(false); // invalid for non-utf8 strings
-                std::hint::unreachable_unchecked()
-            },
+        let len = if let Some(s) = self.as_str() {
+            // utf8 chars().count() is optimized
+            s.chars().count()
+        } else {
+            self.data.code_points().count()
+        };
+        // len cannot be usize::MAX, since vec.capacity() < sys.maxsize
+        self.len.0.store(len, Relaxed);
+        len
+    }
+
+    pub fn nth_char(&self, index: usize) -> CodePoint {
+        match self.as_str_kind() {
+            PyKindStr::Ascii(s) => s[index].into(),
+            PyKindStr::Utf8(s) => s.chars().nth(index).unwrap().into(),
+            PyKindStr::Wtf8(w) => w.code_points().nth(index).unwrap(),
         }
     }
 }
 
-impl std::ops::Deref for BorrowedStr<'_> {
-    type Target = str;
-    fn deref(&self) -> &str {
-        self.as_str()
-    }
-}
-
-impl std::fmt::Display for BorrowedStr<'_> {
+impl std::fmt::Display for StrData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.as_str().fmt(f)
+        self.data.fmt(f)
     }
 }
 
-impl CharLen for BorrowedStr<'_> {
+impl CharLen for StrData {
     fn char_len(&self) -> usize {
         self.char_len()
     }
@@ -175,6 +365,41 @@ pub fn char_range_end(s: &str, nchars: usize) -> Option<usize> {
         Some(last_char_index) => {
             let (index, c) = s.char_indices().nth(last_char_index)?;
             index + c.len_utf8()
+        }
+        None => 0,
+    };
+    Some(i)
+}
+
+pub fn try_get_codepoints(w: &Wtf8, range: impl RangeBounds<usize>) -> Option<&Wtf8> {
+    let mut chars = w.code_points();
+    let start = match range.start_bound() {
+        Bound::Included(&i) => i,
+        Bound::Excluded(&i) => i + 1,
+        Bound::Unbounded => 0,
+    };
+    for _ in 0..start {
+        chars.next()?;
+    }
+    let s = chars.as_wtf8();
+    let range_len = match range.end_bound() {
+        Bound::Included(&i) => i + 1 - start,
+        Bound::Excluded(&i) => i - start,
+        Bound::Unbounded => return Some(s),
+    };
+    codepoint_range_end(s, range_len).map(|end| &s[..end])
+}
+
+pub fn get_codepoints(w: &Wtf8, range: impl RangeBounds<usize>) -> &Wtf8 {
+    try_get_codepoints(w, range).unwrap()
+}
+
+#[inline]
+pub fn codepoint_range_end(s: &Wtf8, nchars: usize) -> Option<usize> {
+    let i = match nchars.checked_sub(1) {
+        Some(last_char_index) => {
+            let (index, c) = s.code_point_indices().nth(last_char_index)?;
+            index + c.len_wtf8()
         }
         None => 0,
     };

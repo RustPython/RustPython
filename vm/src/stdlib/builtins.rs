@@ -31,7 +31,9 @@ mod builtins {
         stdlib::sys,
         types::PyComparisonOp,
     };
+    use itertools::Itertools;
     use num_traits::{Signed, ToPrimitive};
+    use rustpython_common::wtf8::CodePoint;
 
     #[cfg(not(feature = "rustpython-compiler"))]
     const CODEGEN_NOT_SUPPORTED: &str =
@@ -85,13 +87,13 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn chr(i: PyIntRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn chr(i: PyIntRef, vm: &VirtualMachine) -> PyResult<CodePoint> {
         let value = i
             .try_to_primitive::<isize>(vm)?
             .to_u32()
-            .and_then(char::from_u32)
+            .and_then(CodePoint::from_u32)
             .ok_or_else(|| vm.new_value_error("chr() arg not in range(0x110000)".to_owned()))?;
-        Ok(value.to_string())
+        Ok(value)
     }
 
     #[derive(FromArgs)]
@@ -153,7 +155,7 @@ mod builtins {
                     return ast::compile(
                         vm,
                         args.source,
-                        args.filename.as_str(),
+                        &args.filename.to_string_lossy(),
                         mode,
                         Some(optimize),
                     );
@@ -202,7 +204,7 @@ mod builtins {
                             .compile_with_opts(
                                 source,
                                 mode,
-                                args.filename.as_str().to_owned(),
+                                args.filename.to_string_lossy().into_owned(),
                                 opts,
                             )
                             .map_err(|err| (err, Some(source)).to_pyexception(vm))?;
@@ -618,21 +620,15 @@ mod builtins {
                 }
                 Ok(u32::from(bytes[0]))
             }),
-            Either::B(string) => {
-                let string = string.as_str();
-                let string_len = string.chars().count();
-                if string_len != 1 {
-                    return Err(vm.new_type_error(format!(
+            Either::B(string) => match string.as_wtf8().code_points().exactly_one() {
+                Ok(character) => Ok(character.to_u32()),
+                Err(_) => {
+                    let string_len = string.char_len();
+                    Err(vm.new_type_error(format!(
                         "ord() expected a character, but string of length {string_len} found"
-                    )));
+                    )))
                 }
-                match string.chars().next() {
-                    Some(character) => Ok(character as u32),
-                    None => Err(vm.new_type_error(
-                        "ord() could not guess the integer representing this character".to_owned(),
-                    )),
-                }
-            }
+            },
         }
     }
 

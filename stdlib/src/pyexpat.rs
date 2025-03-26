@@ -136,7 +136,7 @@ mod _pyexpat {
 
         #[pymethod(name = "Parse")]
         fn parse(&self, data: PyStrRef, _isfinal: OptionalArg<bool>, vm: &VirtualMachine) {
-            let reader = Cursor::<Vec<u8>>::new(data.as_str().as_bytes().to_vec());
+            let reader = Cursor::<Vec<u8>>::new(data.as_bytes().to_vec());
             let parser = self.create_config().create_reader(reader);
             self.do_parse(vm, parser);
         }

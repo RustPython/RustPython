@@ -355,13 +355,11 @@ impl PyBytesInner {
     }
 
     pub fn islower(&self) -> bool {
-        self.elements
-            .py_iscase(char::is_lowercase, char::is_uppercase)
+        self.elements.py_islower()
     }
 
     pub fn isupper(&self) -> bool {
-        self.elements
-            .py_iscase(char::is_uppercase, char::is_lowercase)
+        self.elements.py_isupper()
     }
 
     pub fn isspace(&self) -> bool {
@@ -654,6 +652,7 @@ impl PyBytesInner {
         let elements = self.elements.py_split(
             options,
             vm,
+            || convert(&self.elements, vm),
             |v, s, vm| v.split_str(s).map(|v| convert(v, vm)).collect(),
             |v, s, n, vm| v.splitn_str(n, s).map(|v| convert(v, vm)).collect(),
             |v, n, vm| v.py_split_whitespace(n, |v| convert(v, vm)),
@@ -673,6 +672,7 @@ impl PyBytesInner {
         let mut elements = self.elements.py_split(
             options,
             vm,
+            || convert(&self.elements, vm),
             |v, s, vm| v.rsplit_str(s).map(|v| convert(v, vm)).collect(),
             |v, s, n, vm| v.rsplitn_str(n, s).map(|v| convert(v, vm)).collect(),
             |v, n, vm| v.py_rsplit_whitespace(n, |v| convert(v, vm)),
@@ -998,10 +998,12 @@ pub trait ByteOr: ToPrimitive {
 
 impl ByteOr for BigInt {}
 
-impl AnyStrWrapper for PyBytesInner {
-    type Str = [u8];
-    fn as_ref(&self) -> &[u8] {
-        &self.elements
+impl AnyStrWrapper<[u8]> for PyBytesInner {
+    fn as_ref(&self) -> Option<&[u8]> {
+        Some(&self.elements)
+    }
+    fn is_empty(&self) -> bool {
+        self.elements.is_empty()
     }
 }
 
@@ -1021,13 +1023,21 @@ impl AnyStrContainer<[u8]> for Vec<u8> {
 
 const ASCII_WHITESPACES: [u8; 6] = [0x20, 0x09, 0x0a, 0x0c, 0x0d, 0x0b];
 
+impl anystr::AnyChar for u8 {
+    fn is_lowercase(self) -> bool {
+        self.is_ascii_lowercase()
+    }
+    fn is_uppercase(self) -> bool {
+        self.is_ascii_uppercase()
+    }
+    fn bytes_len(self) -> usize {
+        1
+    }
+}
+
 impl AnyStr for [u8] {
     type Char = u8;
     type Container = Vec<u8>;
-
-    fn element_bytes_len(_: u8) -> usize {
-        1
-    }
 
     fn to_container(&self) -> Self::Container {
         self.to_vec()
@@ -1035,10 +1045,6 @@ impl AnyStr for [u8] {
 
     fn as_bytes(&self) -> &[u8] {
         self
-    }
-
-    fn chars(&self) -> impl Iterator<Item = char> {
-        bstr::ByteSlice::chars(self)
     }
 
     fn elements(&self) -> impl Iterator<Item = u8> {
