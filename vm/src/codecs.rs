@@ -1,13 +1,27 @@
-use rustpython_common::wtf8::{CodePoint, Wtf8Buf};
+use rustpython_common::{
+    borrow::BorrowedValue,
+    encodings::{
+        CodecContext, DecodeContext, DecodeErrorHandler, EncodeContext, EncodeErrorHandler,
+        EncodeReplace, StrBuffer, StrSize, errors,
+    },
+    str::StrKind,
+    wtf8::{CodePoint, Wtf8, Wtf8Buf},
+};
 
 use crate::{
-    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyBaseExceptionRef, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef},
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
+    TryFromObject, VirtualMachine,
+    builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef},
     common::{ascii, lock::PyRwLock},
     convert::ToPyObject,
-    function::PyMethodDef,
+    function::{ArgBytesLike, PyMethodDef},
 };
-use std::{borrow::Cow, collections::HashMap, fmt::Write, ops::Range};
+use once_cell::unsync::OnceCell;
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    ops::{self, Range},
+};
 
 pub struct CodecsRegistry {
     inner: PyRwLock<RegistryInner>,
@@ -360,6 +374,676 @@ fn normalize_encoding_name(encoding: &str) -> Cow<'_, str> {
     }
 }
 
+#[derive(Eq, PartialEq)]
+enum StandardEncoding {
+    Utf8,
+    Utf16Be,
+    Utf16Le,
+    Utf32Be,
+    Utf32Le,
+}
+
+impl StandardEncoding {
+    #[cfg(target_endian = "little")]
+    const UTF_16_NE: Self = Self::Utf16Le;
+    #[cfg(target_endian = "big")]
+    const UTF_16_NE: Self = Self::Utf16Be;
+
+    #[cfg(target_endian = "little")]
+    const UTF_32_NE: Self = Self::Utf32Le;
+    #[cfg(target_endian = "big")]
+    const UTF_32_NE: Self = Self::Utf32Be;
+
+    fn parse(encoding: &str) -> Option<Self> {
+        if let Some(encoding) = encoding.to_lowercase().strip_prefix("utf") {
+            let encoding = encoding
+                .strip_prefix(|c| ['-', '_'].contains(&c))
+                .unwrap_or(encoding);
+            if encoding == "8" {
+                Some(Self::Utf8)
+            } else if let Some(encoding) = encoding.strip_prefix("16") {
+                if encoding.is_empty() {
+                    return Some(Self::UTF_16_NE);
+                }
+                let encoding = encoding.strip_prefix(['-', '_']).unwrap_or(encoding);
+                match encoding {
+                    "be" => Some(Self::Utf16Be),
+                    "le" => Some(Self::Utf16Le),
+                    _ => None,
+                }
+            } else if let Some(encoding) = encoding.strip_prefix("32") {
+                if encoding.is_empty() {
+                    return Some(Self::UTF_32_NE);
+                }
+                let encoding = encoding.strip_prefix(['-', '_']).unwrap_or(encoding);
+                match encoding {
+                    "be" => Some(Self::Utf32Be),
+                    "le" => Some(Self::Utf32Le),
+                    _ => return None,
+                }
+            } else {
+                None
+            }
+        } else if encoding == "CP_UTF8" {
+            Some(Self::Utf8)
+        } else {
+            None
+        }
+    }
+}
+
+struct SurrogatePass;
+
+impl<'a> EncodeErrorHandler<PyEncodeContext<'a>> for SurrogatePass {
+    fn handle_encode_error(
+        &self,
+        ctx: &mut PyEncodeContext<'a>,
+        range: Range<StrSize>,
+        reason: Option<&str>,
+    ) -> PyResult<(EncodeReplace<PyEncodeContext<'a>>, StrSize)> {
+        let standard_encoding = StandardEncoding::parse(ctx.encoding)
+            .ok_or_else(|| ctx.error_encoding(range.clone(), reason))?;
+        let err_str = &ctx.full_data()[range.start.bytes..range.end.bytes];
+        let num_chars = range.end.chars - range.start.chars;
+        let mut out: Vec<u8> = Vec::with_capacity(num_chars * 4);
+        for ch in err_str.code_points() {
+            let c = ch.to_u32();
+            let 0xd800..=0xdfff = c else {
+                // Not a surrogate, fail with original exception
+                return Err(ctx.error_encoding(range, reason));
+            };
+            match standard_encoding {
+                StandardEncoding::Utf8 => out.extend(ch.encode_wtf8(&mut [0; 4]).as_bytes()),
+                StandardEncoding::Utf16Le => out.extend((c as u16).to_le_bytes()),
+                StandardEncoding::Utf16Be => out.extend((c as u16).to_be_bytes()),
+                StandardEncoding::Utf32Le => out.extend(c.to_le_bytes()),
+                StandardEncoding::Utf32Be => out.extend(c.to_be_bytes()),
+            }
+        }
+        Ok((EncodeReplace::Bytes(ctx.bytes(out)), range.end))
+    }
+}
+
+impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for SurrogatePass {
+    fn handle_decode_error(
+        &self,
+        ctx: &mut PyDecodeContext<'a>,
+        byte_range: Range<usize>,
+        reason: Option<&str>,
+    ) -> PyResult<(PyStrRef, usize)> {
+        let standard_encoding = StandardEncoding::parse(ctx.encoding)
+            .ok_or_else(|| ctx.error_decoding(byte_range.clone(), reason))?;
+
+        let s = ctx.full_data();
+        debug_assert!(byte_range.start <= 0.max(s.len() - 1));
+        debug_assert!(byte_range.end >= 1.min(s.len()));
+        debug_assert!(byte_range.end <= s.len());
+
+        // Try decoding a single surrogate character. If there are more,
+        // let the codec call us again.
+        let p = &s[byte_range.start..];
+
+        fn slice<const N: usize>(p: &[u8]) -> Option<[u8; N]> {
+            p.get(..N).map(|x| x.try_into().unwrap())
+        }
+
+        let c = match standard_encoding {
+            StandardEncoding::Utf8 => {
+                // it's a three-byte code
+                slice::<3>(p)
+                    .filter(|&[a, b, c]| {
+                        (u32::from(a) & 0xf0) == 0xe0
+                            && (u32::from(b) & 0xc0) == 0x80
+                            && (u32::from(c) & 0xc0) == 0x80
+                    })
+                    .map(|[a, b, c]| {
+                        ((u32::from(a) & 0x0f) << 12)
+                            + ((u32::from(b) & 0x3f) << 6)
+                            + (u32::from(c) & 0x3f)
+                    })
+            }
+            StandardEncoding::Utf16Le => slice(p).map(u16::from_le_bytes).map(u32::from),
+            StandardEncoding::Utf16Be => slice(p).map(u16::from_be_bytes).map(u32::from),
+            StandardEncoding::Utf32Le => slice(p).map(u32::from_le_bytes),
+            StandardEncoding::Utf32Be => slice(p).map(u32::from_be_bytes),
+        };
+        let byte_length = match standard_encoding {
+            StandardEncoding::Utf8 => 3,
+            StandardEncoding::Utf16Be | StandardEncoding::Utf16Le => 2,
+            StandardEncoding::Utf32Be | StandardEncoding::Utf32Le => 4,
+        };
+
+        // !Py_UNICODE_IS_SURROGATE
+        let c = c
+            .and_then(CodePoint::from_u32)
+            .filter(|c| matches!(c.to_u32(), 0xd800..=0xdfff))
+            .ok_or_else(|| ctx.error_decoding(byte_range.clone(), reason))?;
+
+        Ok((ctx.string(c.into()), byte_range.start + byte_length))
+    }
+}
+
+pub struct PyEncodeContext<'a> {
+    vm: &'a VirtualMachine,
+    encoding: &'a str,
+    data: &'a Py<PyStr>,
+    pos: StrSize,
+    exception: OnceCell<PyBaseExceptionRef>,
+}
+
+impl<'a> PyEncodeContext<'a> {
+    pub fn new(encoding: &'a str, data: &'a Py<PyStr>, vm: &'a VirtualMachine) -> Self {
+        Self {
+            vm,
+            encoding,
+            data,
+            pos: StrSize::default(),
+            exception: OnceCell::new(),
+        }
+    }
+}
+
+impl CodecContext for PyEncodeContext<'_> {
+    type Error = PyBaseExceptionRef;
+    type StrBuf = PyStrRef;
+    type BytesBuf = PyBytesRef;
+
+    fn string(&self, s: Wtf8Buf) -> Self::StrBuf {
+        self.vm.ctx.new_str(s)
+    }
+
+    fn bytes(&self, b: Vec<u8>) -> Self::BytesBuf {
+        self.vm.ctx.new_bytes(b)
+    }
+}
+impl EncodeContext for PyEncodeContext<'_> {
+    fn full_data(&self) -> &Wtf8 {
+        self.data.as_wtf8()
+    }
+
+    fn data_len(&self) -> StrSize {
+        StrSize {
+            bytes: self.data.byte_len(),
+            chars: self.data.char_len(),
+        }
+    }
+
+    fn remaining_data(&self) -> &Wtf8 {
+        &self.full_data()[self.pos.bytes..]
+    }
+
+    fn position(&self) -> StrSize {
+        self.pos
+    }
+
+    fn restart_from(&mut self, pos: StrSize) -> Result<(), Self::Error> {
+        if pos.chars > self.data.char_len() {
+            return Err(self.vm.new_index_error(format!(
+                "position {} from error handler out of bounds",
+                pos.chars
+            )));
+        }
+        assert!(
+            self.data.as_wtf8().is_code_point_boundary(pos.bytes),
+            "invalid pos {pos:?} for {:?}",
+            self.data.as_wtf8()
+        );
+        self.pos = pos;
+        Ok(())
+    }
+
+    fn error_encoding(&self, range: Range<StrSize>, reason: Option<&str>) -> Self::Error {
+        let vm = self.vm;
+        match self.exception.get() {
+            Some(exc) => {
+                match update_unicode_error_attrs(
+                    exc.as_object(),
+                    range.start.chars,
+                    range.end.chars,
+                    reason,
+                    vm,
+                ) {
+                    Ok(()) => exc.clone(),
+                    Err(e) => e,
+                }
+            }
+            None => self
+                .exception
+                .get_or_init(|| {
+                    let reason = reason.expect(
+                        "should only ever pass reason: None if an exception is already set",
+                    );
+                    vm.new_unicode_encode_error_real(
+                        vm.ctx.new_str(self.encoding),
+                        self.data.to_owned(),
+                        range.start.chars,
+                        range.end.chars,
+                        vm.ctx.new_str(reason),
+                    )
+                })
+                .clone(),
+        }
+    }
+}
+
+pub struct PyDecodeContext<'a> {
+    vm: &'a VirtualMachine,
+    encoding: &'a str,
+    data: PyDecodeData<'a>,
+    orig_bytes: Option<&'a Py<PyBytes>>,
+    pos: usize,
+    exception: OnceCell<PyBaseExceptionRef>,
+}
+enum PyDecodeData<'a> {
+    Original(BorrowedValue<'a, [u8]>),
+    Modified(PyBytesRef),
+}
+impl ops::Deref for PyDecodeData<'_> {
+    type Target = [u8];
+    fn deref(&self) -> &Self::Target {
+        match self {
+            PyDecodeData::Original(data) => data,
+            PyDecodeData::Modified(data) => data,
+        }
+    }
+}
+
+impl<'a> PyDecodeContext<'a> {
+    pub fn new(encoding: &'a str, data: &'a ArgBytesLike, vm: &'a VirtualMachine) -> Self {
+        Self {
+            vm,
+            encoding,
+            data: PyDecodeData::Original(data.borrow_buf()),
+            orig_bytes: data.as_object().downcast_ref(),
+            pos: 0,
+            exception: OnceCell::new(),
+        }
+    }
+}
+
+impl CodecContext for PyDecodeContext<'_> {
+    type Error = PyBaseExceptionRef;
+    type StrBuf = PyStrRef;
+    type BytesBuf = PyBytesRef;
+
+    fn string(&self, s: Wtf8Buf) -> Self::StrBuf {
+        self.vm.ctx.new_str(s)
+    }
+
+    fn bytes(&self, b: Vec<u8>) -> Self::BytesBuf {
+        self.vm.ctx.new_bytes(b)
+    }
+}
+impl DecodeContext for PyDecodeContext<'_> {
+    fn full_data(&self) -> &[u8] {
+        &self.data
+    }
+
+    fn remaining_data(&self) -> &[u8] {
+        &self.data[self.pos..]
+    }
+
+    fn position(&self) -> usize {
+        self.pos
+    }
+
+    fn advance(&mut self, by: usize) {
+        self.pos += by;
+    }
+
+    fn restart_from(&mut self, pos: usize) -> Result<(), Self::Error> {
+        if pos > self.data.len() {
+            return Err(self
+                .vm
+                .new_index_error(format!("position {pos} from error handler out of bounds",)));
+        }
+        self.pos = pos;
+        Ok(())
+    }
+
+    fn error_decoding(&self, byte_range: Range<usize>, reason: Option<&str>) -> Self::Error {
+        let vm = self.vm;
+
+        match self.exception.get() {
+            Some(exc) => {
+                match update_unicode_error_attrs(
+                    exc.as_object(),
+                    byte_range.start,
+                    byte_range.end,
+                    reason,
+                    vm,
+                ) {
+                    Ok(()) => exc.clone(),
+                    Err(e) => e,
+                }
+            }
+            None => self
+                .exception
+                .get_or_init(|| {
+                    let reason = reason.expect(
+                        "should only ever pass reason: None if an exception is already set",
+                    );
+                    let data = if let Some(bytes) = self.orig_bytes {
+                        bytes.to_owned()
+                    } else {
+                        vm.ctx.new_bytes(self.data.to_vec())
+                    };
+                    vm.new_unicode_decode_error_real(
+                        vm.ctx.new_str(self.encoding),
+                        data,
+                        byte_range.start,
+                        byte_range.end,
+                        vm.ctx.new_str(reason),
+                    )
+                })
+                .clone(),
+        }
+    }
+}
+
+#[derive(strum_macros::EnumString)]
+#[strum(serialize_all = "lowercase")]
+enum StandardError {
+    Strict,
+    Ignore,
+    Replace,
+    XmlCharRefReplace,
+    BackslashReplace,
+    SurrogatePass,
+    SurrogateEscape,
+}
+
+impl<'a> EncodeErrorHandler<PyEncodeContext<'a>> for StandardError {
+    fn handle_encode_error(
+        &self,
+        ctx: &mut PyEncodeContext<'a>,
+        range: Range<StrSize>,
+        reason: Option<&str>,
+    ) -> PyResult<(EncodeReplace<PyEncodeContext<'a>>, StrSize)> {
+        use StandardError::*;
+        // use errors::*;
+        match self {
+            Strict => errors::Strict.handle_encode_error(ctx, range, reason),
+            Ignore => errors::Ignore.handle_encode_error(ctx, range, reason),
+            Replace => errors::Replace.handle_encode_error(ctx, range, reason),
+            XmlCharRefReplace => errors::XmlCharRefReplace.handle_encode_error(ctx, range, reason),
+            BackslashReplace => errors::BackslashReplace.handle_encode_error(ctx, range, reason),
+            SurrogatePass => SurrogatePass.handle_encode_error(ctx, range, reason),
+            SurrogateEscape => errors::SurrogateEscape.handle_encode_error(ctx, range, reason),
+        }
+    }
+}
+
+impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for StandardError {
+    fn handle_decode_error(
+        &self,
+        ctx: &mut PyDecodeContext<'a>,
+        byte_range: Range<usize>,
+        reason: Option<&str>,
+    ) -> PyResult<(PyStrRef, usize)> {
+        use StandardError::*;
+        match self {
+            Strict => errors::Strict.handle_decode_error(ctx, byte_range, reason),
+            Ignore => errors::Ignore.handle_decode_error(ctx, byte_range, reason),
+            Replace => errors::Replace.handle_decode_error(ctx, byte_range, reason),
+            XmlCharRefReplace => Err(ctx.vm.new_type_error(
+                "don't know how to handle UnicodeDecodeError in error callback".to_owned(),
+            )),
+            BackslashReplace => {
+                errors::BackslashReplace.handle_decode_error(ctx, byte_range, reason)
+            }
+            SurrogatePass => self::SurrogatePass.handle_decode_error(ctx, byte_range, reason),
+            SurrogateEscape => errors::SurrogateEscape.handle_decode_error(ctx, byte_range, reason),
+        }
+    }
+}
+
+pub struct ErrorsHandler<'a> {
+    errors: &'a Py<PyStr>,
+    resolved: OnceCell<ResolvedError>,
+}
+enum ResolvedError {
+    Standard(StandardError),
+    Handler(PyObjectRef),
+}
+
+impl<'a> ErrorsHandler<'a> {
+    #[inline]
+    pub fn new(errors: Option<&'a Py<PyStr>>, vm: &VirtualMachine) -> Self {
+        match errors {
+            Some(errors) => Self {
+                errors,
+                resolved: OnceCell::new(),
+            },
+            None => Self {
+                errors: identifier!(vm, strict).as_ref(),
+                resolved: OnceCell::with_value(ResolvedError::Standard(StandardError::Strict)),
+            },
+        }
+    }
+    #[inline]
+    fn resolve(&self, vm: &VirtualMachine) -> PyResult<&ResolvedError> {
+        self.resolved.get_or_try_init(|| {
+            if let Ok(standard) = self.errors.as_str().parse() {
+                Ok(ResolvedError::Standard(standard))
+            } else {
+                vm.state
+                    .codec_registry
+                    .lookup_error(self.errors.as_str(), vm)
+                    .map(ResolvedError::Handler)
+            }
+        })
+    }
+}
+impl StrBuffer for PyStrRef {
+    fn is_compatible_with(&self, kind: StrKind) -> bool {
+        self.kind() <= kind
+    }
+}
+impl<'a> EncodeErrorHandler<PyEncodeContext<'a>> for ErrorsHandler<'_> {
+    fn handle_encode_error(
+        &self,
+        ctx: &mut PyEncodeContext<'a>,
+        range: Range<StrSize>,
+        reason: Option<&str>,
+    ) -> PyResult<(EncodeReplace<PyEncodeContext<'a>>, StrSize)> {
+        let vm = ctx.vm;
+        let handler = match self.resolve(vm)? {
+            ResolvedError::Standard(standard) => {
+                return standard.handle_encode_error(ctx, range, reason);
+            }
+            ResolvedError::Handler(handler) => handler,
+        };
+        let encode_exc = ctx.error_encoding(range.clone(), reason);
+        let res = handler.call((encode_exc.clone(),), vm)?;
+        let tuple_err = || {
+            vm.new_type_error(
+                "encoding error handler must return (str/bytes, int) tuple".to_owned(),
+            )
+        };
+        let (replace, restart) = match res.payload::<PyTuple>().map(|tup| tup.as_slice()) {
+            Some([replace, restart]) => (replace.clone(), restart),
+            _ => return Err(tuple_err()),
+        };
+        let replace = match_class!(match replace {
+            s @ PyStr => EncodeReplace::Str(s),
+            b @ PyBytes => EncodeReplace::Bytes(b),
+            _ => return Err(tuple_err()),
+        });
+        let restart = isize::try_from_borrowed_object(vm, restart).map_err(|_| tuple_err())?;
+        let restart = if restart < 0 {
+            // will still be out of bounds if it underflows ¯\_(ツ)_/¯
+            ctx.data.char_len().wrapping_sub(restart.unsigned_abs())
+        } else {
+            restart as usize
+        };
+        let restart = if restart == range.end.chars {
+            range.end
+        } else {
+            StrSize {
+                chars: restart,
+                bytes: ctx
+                    .data
+                    .as_wtf8()
+                    .code_point_indices()
+                    .nth(restart)
+                    .map_or(ctx.data.byte_len(), |(i, _)| i),
+            }
+        };
+        Ok((replace, restart))
+    }
+}
+impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for ErrorsHandler<'_> {
+    fn handle_decode_error(
+        &self,
+        ctx: &mut PyDecodeContext<'a>,
+        byte_range: Range<usize>,
+        reason: Option<&str>,
+    ) -> PyResult<(PyStrRef, usize)> {
+        let vm = ctx.vm;
+        let handler = match self.resolve(vm)? {
+            ResolvedError::Standard(standard) => {
+                return standard.handle_decode_error(ctx, byte_range, reason);
+            }
+            ResolvedError::Handler(handler) => handler,
+        };
+        let decode_exc = ctx.error_decoding(byte_range.clone(), reason);
+        let data_bytes: PyObjectRef = decode_exc.as_object().get_attr("object", vm)?;
+        let res = handler.call((decode_exc.clone(),), vm)?;
+        let new_data = decode_exc.as_object().get_attr("object", vm)?;
+        if !new_data.is(&data_bytes) {
+            let new_data: PyBytesRef = new_data
+                .downcast()
+                .map_err(|_| vm.new_type_error("object attribute must be bytes".to_owned()))?;
+            ctx.data = PyDecodeData::Modified(new_data);
+        }
+        let data = &*ctx.data;
+        let tuple_err =
+            || vm.new_type_error("decoding error handler must return (str, int) tuple".to_owned());
+        match res.payload::<PyTuple>().map(|tup| tup.as_slice()) {
+            Some([replace, restart]) => {
+                let replace = replace
+                    .downcast_ref::<PyStr>()
+                    .ok_or_else(tuple_err)?
+                    .to_owned();
+                let restart =
+                    isize::try_from_borrowed_object(vm, restart).map_err(|_| tuple_err())?;
+                let restart = if restart < 0 {
+                    // will still be out of bounds if it underflows ¯\_(ツ)_/¯
+                    data.len().wrapping_sub(restart.unsigned_abs())
+                } else {
+                    restart as usize
+                };
+                Ok((replace, restart))
+            }
+            _ => Err(tuple_err()),
+        }
+    }
+}
+
+fn call_native_encode_error<E>(
+    handler: E,
+    err: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<(PyObjectRef, usize)>
+where
+    for<'a> E: EncodeErrorHandler<PyEncodeContext<'a>>,
+{
+    // let err = err.
+    let range = extract_unicode_error_range(&err, vm)?;
+    let s = PyStrRef::try_from_object(vm, err.get_attr("object", vm)?)?;
+    let s_encoding = PyStrRef::try_from_object(vm, err.get_attr("encoding", vm)?)?;
+    let mut ctx = PyEncodeContext {
+        vm,
+        encoding: s_encoding.as_str(),
+        data: &s,
+        pos: StrSize::default(),
+        exception: OnceCell::with_value(err.downcast().unwrap()),
+    };
+    let mut iter = s.as_wtf8().code_point_indices();
+    let start = StrSize {
+        chars: range.start,
+        bytes: iter.nth(range.start).unwrap().0,
+    };
+    let end = StrSize {
+        chars: range.end,
+        bytes: if let Some(n) = range.len().checked_sub(1) {
+            iter.nth(n).map_or(s.byte_len(), |(i, _)| i)
+        } else {
+            start.bytes
+        },
+    };
+    let (replace, restart) = handler.handle_encode_error(&mut ctx, start..end, None)?;
+    let replace = match replace {
+        EncodeReplace::Str(s) => s.into(),
+        EncodeReplace::Bytes(b) => b.into(),
+    };
+    Ok((replace, restart.chars))
+}
+
+fn call_native_decode_error<E>(
+    handler: E,
+    err: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<(PyObjectRef, usize)>
+where
+    for<'a> E: DecodeErrorHandler<PyDecodeContext<'a>>,
+{
+    let range = extract_unicode_error_range(&err, vm)?;
+    let s = ArgBytesLike::try_from_object(vm, err.get_attr("object", vm)?)?;
+    let s_encoding = PyStrRef::try_from_object(vm, err.get_attr("encoding", vm)?)?;
+    let mut ctx = PyDecodeContext {
+        vm,
+        encoding: s_encoding.as_str(),
+        data: PyDecodeData::Original(s.borrow_buf()),
+        orig_bytes: s.as_object().downcast_ref(),
+        pos: 0,
+        exception: OnceCell::with_value(err.downcast().unwrap()),
+    };
+    let (replace, restart) = handler.handle_decode_error(&mut ctx, range, None)?;
+    Ok((replace.into(), restart))
+}
+
+// this is a hack, for now
+fn call_native_translate_error<E>(
+    handler: E,
+    err: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<(PyObjectRef, usize)>
+where
+    for<'a> E: EncodeErrorHandler<PyEncodeContext<'a>>,
+{
+    // let err = err.
+    let range = extract_unicode_error_range(&err, vm)?;
+    let s = PyStrRef::try_from_object(vm, err.get_attr("object", vm)?)?;
+    let mut ctx = PyEncodeContext {
+        vm,
+        encoding: "",
+        data: &s,
+        pos: StrSize::default(),
+        exception: OnceCell::with_value(err.downcast().unwrap()),
+    };
+    let mut iter = s.as_wtf8().code_point_indices();
+    let start = StrSize {
+        chars: range.start,
+        bytes: iter.nth(range.start).unwrap().0,
+    };
+    let end = StrSize {
+        chars: range.end,
+        bytes: if let Some(n) = range.len().checked_sub(1) {
+            iter.nth(n).map_or(s.byte_len(), |(i, _)| i)
+        } else {
+            start.bytes
+        },
+    };
+    let (replace, restart) = handler.handle_encode_error(&mut ctx, start..end, None)?;
+    let replace = match replace {
+        EncodeReplace::Str(s) => s.into(),
+        EncodeReplace::Bytes(b) => b.into(),
+    };
+    Ok((replace, restart.chars))
+}
+
 // TODO: exceptions with custom payloads
 fn extract_unicode_error_range(err: &PyObject, vm: &VirtualMachine) -> PyResult<Range<usize>> {
     let start = err.get_attr("start", vm)?;
@@ -369,14 +1053,32 @@ fn extract_unicode_error_range(err: &PyObject, vm: &VirtualMachine) -> PyResult<
     Ok(Range { start, end })
 }
 
+fn update_unicode_error_attrs(
+    err: &PyObject,
+    start: usize,
+    end: usize,
+    reason: Option<&str>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    err.set_attr("start", start.to_pyobject(vm), vm)?;
+    err.set_attr("end", end.to_pyobject(vm), vm)?;
+    if let Some(reason) = reason {
+        err.set_attr("reason", reason.to_pyobject(vm), vm)?;
+    }
+    Ok(())
+}
+
+#[inline]
+fn is_encode_err(err: &PyObject, vm: &VirtualMachine) -> bool {
+    err.fast_isinstance(vm.ctx.exceptions.unicode_encode_error)
+}
 #[inline]
 fn is_decode_err(err: &PyObject, vm: &VirtualMachine) -> bool {
     err.fast_isinstance(vm.ctx.exceptions.unicode_decode_error)
 }
 #[inline]
-fn is_encode_ish_err(err: &PyObject, vm: &VirtualMachine) -> bool {
-    err.fast_isinstance(vm.ctx.exceptions.unicode_encode_error)
-        || err.fast_isinstance(vm.ctx.exceptions.unicode_translate_error)
+fn is_translate_err(err: &PyObject, vm: &VirtualMachine) -> bool {
+    err.fast_isinstance(vm.ctx.exceptions.unicode_translate_error)
 }
 
 fn bad_err_type(err: PyObjectRef, vm: &VirtualMachine) -> PyBaseExceptionRef {
@@ -394,7 +1096,7 @@ fn strict_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 }
 
 fn ignore_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef, usize)> {
-    if is_encode_ish_err(&err, vm) || is_decode_err(&err, vm) {
+    if is_encode_err(&err, vm) || is_decode_err(&err, vm) || is_translate_err(&err, vm) {
         let range = extract_unicode_error_range(&err, vm)?;
         Ok((vm.ctx.new_str(ascii!("")).into(), range.end))
     } else {
@@ -402,325 +1104,71 @@ fn ignore_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef
     }
 }
 
-fn replace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
-    // char::REPLACEMENT_CHARACTER as a str
-    let replacement_char = "\u{FFFD}";
-    let replace = if err.fast_isinstance(vm.ctx.exceptions.unicode_encode_error) {
-        "?"
-    } else if err.fast_isinstance(vm.ctx.exceptions.unicode_decode_error) {
+fn replace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef, usize)> {
+    if is_encode_err(&err, vm) {
+        call_native_encode_error(errors::Replace, err, vm)
+    } else if is_decode_err(&err, vm) {
+        call_native_decode_error(errors::Replace, err, vm)
+    } else if is_translate_err(&err, vm) {
+        // char::REPLACEMENT_CHARACTER as a str
+        let replacement_char = "\u{FFFD}";
         let range = extract_unicode_error_range(&err, vm)?;
-        return Ok((replacement_char.to_owned(), range.end));
-    } else if err.fast_isinstance(vm.ctx.exceptions.unicode_translate_error) {
-        replacement_char
+        let replace = replacement_char.repeat(range.end - range.start);
+        Ok((replace.to_pyobject(vm), range.end))
     } else {
         return Err(bad_err_type(err, vm));
-    };
-    let range = extract_unicode_error_range(&err, vm)?;
-    let replace = replace.repeat(range.end - range.start);
-    Ok((replace, range.end))
+    }
 }
 
-fn xmlcharrefreplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
-    if !is_encode_ish_err(&err, vm) {
-        return Err(bad_err_type(err, vm));
-    }
-    let range = extract_unicode_error_range(&err, vm)?;
-    let s = PyStrRef::try_from_object(vm, err.get_attr("object", vm)?)?;
-    let s_after_start =
-        crate::common::str::try_get_codepoints(s.as_wtf8(), range.start..).unwrap_or_default();
-    let num_chars = range.len();
-    // capacity rough guess; assuming that the codepoints are 3 digits in decimal + the &#;
-    let mut out = String::with_capacity(num_chars * 6);
-    for c in s_after_start.code_points().take(num_chars) {
-        write!(out, "&#{};", c.to_u32()).unwrap()
-    }
-    Ok((out, range.end))
-}
-
-fn backslashreplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
-    if is_decode_err(&err, vm) {
-        let range = extract_unicode_error_range(&err, vm)?;
-        let b = PyBytesRef::try_from_object(vm, err.get_attr("object", vm)?)?;
-        let mut replace = String::with_capacity(4 * range.len());
-        for &c in &b[range.clone()] {
-            write!(replace, "\\x{c:02x}").unwrap();
-        }
-        return Ok((replace, range.end));
-    } else if !is_encode_ish_err(&err, vm) {
-        return Err(bad_err_type(err, vm));
-    }
-    let range = extract_unicode_error_range(&err, vm)?;
-    let s = PyStrRef::try_from_object(vm, err.get_attr("object", vm)?)?;
-    let s_after_start =
-        crate::common::str::try_get_codepoints(s.as_wtf8(), range.start..).unwrap_or_default();
-    let num_chars = range.len();
-    // minimum 4 output bytes per char: \xNN
-    let mut out = String::with_capacity(num_chars * 4);
-    for c in s_after_start.code_points().take(num_chars) {
-        let c = c.to_u32();
-        if c >= 0x10000 {
-            write!(out, "\\U{c:08x}").unwrap();
-        } else if c >= 0x100 {
-            write!(out, "\\u{c:04x}").unwrap();
-        } else {
-            write!(out, "\\x{c:02x}").unwrap();
-        }
-    }
-    Ok((out, range.end))
-}
-
-fn namereplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(String, usize)> {
-    if err.fast_isinstance(vm.ctx.exceptions.unicode_encode_error) {
-        let range = extract_unicode_error_range(&err, vm)?;
-        let s = PyStrRef::try_from_object(vm, err.get_attr("object", vm)?)?;
-        let s_after_start =
-            crate::common::str::try_get_codepoints(s.as_wtf8(), range.start..).unwrap_or_default();
-        let num_chars = range.len();
-        let mut out = String::with_capacity(num_chars * 4);
-        for c in s_after_start.code_points().take(num_chars) {
-            let c_u32 = c.to_u32();
-            if let Some(c_name) = unicode_names2::name(c.to_char_lossy()) {
-                write!(out, "\\N{{{c_name}}}").unwrap();
-            } else if c_u32 >= 0x10000 {
-                write!(out, "\\U{c_u32:08x}").unwrap();
-            } else if c_u32 >= 0x100 {
-                write!(out, "\\u{c_u32:04x}").unwrap();
-            } else {
-                write!(out, "\\x{c_u32:02x}").unwrap();
-            }
-        }
-        Ok((out, range.end))
+fn xmlcharrefreplace_errors(
+    err: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<(PyObjectRef, usize)> {
+    if is_encode_err(&err, vm) {
+        call_native_encode_error(errors::XmlCharRefReplace, err, vm)
     } else {
         Err(bad_err_type(err, vm))
     }
 }
 
-#[derive(Eq, PartialEq)]
-enum StandardEncoding {
-    Utf8,
-    Utf16Be,
-    Utf16Le,
-    Utf32Be,
-    Utf32Le,
-    Unknown,
+fn backslashreplace_errors(
+    err: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<(PyObjectRef, usize)> {
+    if is_decode_err(&err, vm) {
+        call_native_decode_error(errors::BackslashReplace, err, vm)
+    } else if is_encode_err(&err, vm) {
+        call_native_encode_error(errors::BackslashReplace, err, vm)
+    } else if is_translate_err(&err, vm) {
+        call_native_translate_error(errors::BackslashReplace, err, vm)
+    } else {
+        Err(bad_err_type(err, vm))
+    }
 }
 
-fn get_standard_encoding(encoding: &str) -> (usize, StandardEncoding) {
-    if let Some(encoding) = encoding.to_lowercase().strip_prefix("utf") {
-        let mut byte_length: usize = 0;
-        let mut standard_encoding = StandardEncoding::Unknown;
-        let encoding = encoding
-            .strip_prefix(|c| ['-', '_'].contains(&c))
-            .unwrap_or(encoding);
-        if encoding == "8" {
-            byte_length = 3;
-            standard_encoding = StandardEncoding::Utf8;
-        } else if let Some(encoding) = encoding.strip_prefix("16") {
-            byte_length = 2;
-            if encoding.is_empty() {
-                if cfg!(target_endian = "little") {
-                    standard_encoding = StandardEncoding::Utf16Le;
-                } else if cfg!(target_endian = "big") {
-                    standard_encoding = StandardEncoding::Utf16Be;
-                }
-                if standard_encoding != StandardEncoding::Unknown {
-                    return (byte_length, standard_encoding);
-                }
-            }
-            let encoding = encoding
-                .strip_prefix(|c| ['-', '_'].contains(&c))
-                .unwrap_or(encoding);
-            standard_encoding = match encoding {
-                "be" => StandardEncoding::Utf16Be,
-                "le" => StandardEncoding::Utf16Le,
-                _ => StandardEncoding::Unknown,
-            }
-        } else if let Some(encoding) = encoding.strip_prefix("32") {
-            byte_length = 4;
-            if encoding.is_empty() {
-                if cfg!(target_endian = "little") {
-                    standard_encoding = StandardEncoding::Utf32Le;
-                } else if cfg!(target_endian = "big") {
-                    standard_encoding = StandardEncoding::Utf32Be;
-                }
-                if standard_encoding != StandardEncoding::Unknown {
-                    return (byte_length, standard_encoding);
-                }
-            }
-            let encoding = encoding
-                .strip_prefix(|c| ['-', '_'].contains(&c))
-                .unwrap_or(encoding);
-            standard_encoding = match encoding {
-                "be" => StandardEncoding::Utf32Be,
-                "le" => StandardEncoding::Utf32Le,
-                _ => StandardEncoding::Unknown,
-            }
-        }
-        return (byte_length, standard_encoding);
-    } else if encoding == "CP_UTF8" {
-        return (3, StandardEncoding::Utf8);
+fn namereplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef, usize)> {
+    if is_encode_err(&err, vm) {
+        call_native_encode_error(errors::NameReplace, err, vm)
+    } else {
+        Err(bad_err_type(err, vm))
     }
-    (0, StandardEncoding::Unknown)
 }
 
 fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef, usize)> {
-    if err.fast_isinstance(vm.ctx.exceptions.unicode_encode_error) {
-        let range = extract_unicode_error_range(&err, vm)?;
-        let s = PyStrRef::try_from_object(vm, err.get_attr("object", vm)?)?;
-        let s_encoding = PyStrRef::try_from_object(vm, err.get_attr("encoding", vm)?)?;
-        let (_, standard_encoding) = get_standard_encoding(s_encoding.as_str());
-        if let StandardEncoding::Unknown = standard_encoding {
-            // Not supported, fail with original exception
-            return Err(err.downcast().unwrap());
-        }
-        let s_after_start =
-            crate::common::str::try_get_codepoints(s.as_wtf8(), range.start..).unwrap_or_default();
-        let num_chars = range.len();
-        let mut out: Vec<u8> = Vec::with_capacity(num_chars * 4);
-        for c in s_after_start.code_points().take(num_chars) {
-            let c = c.to_u32();
-            if !(0xd800..=0xdfff).contains(&c) {
-                // Not a surrogate, fail with original exception
-                return Err(err.downcast().unwrap());
-            }
-            match standard_encoding {
-                StandardEncoding::Utf8 => {
-                    out.push((0xe0 | (c >> 12)) as u8);
-                    out.push((0x80 | ((c >> 6) & 0x3f)) as u8);
-                    out.push((0x80 | (c & 0x3f)) as u8);
-                }
-                StandardEncoding::Utf16Le => {
-                    out.push(c as u8);
-                    out.push((c >> 8) as u8);
-                }
-                StandardEncoding::Utf16Be => {
-                    out.push((c >> 8) as u8);
-                    out.push(c as u8);
-                }
-                StandardEncoding::Utf32Le => {
-                    out.push(c as u8);
-                    out.push((c >> 8) as u8);
-                    out.push((c >> 16) as u8);
-                    out.push((c >> 24) as u8);
-                }
-                StandardEncoding::Utf32Be => {
-                    out.push((c >> 24) as u8);
-                    out.push((c >> 16) as u8);
-                    out.push((c >> 8) as u8);
-                    out.push(c as u8);
-                }
-                StandardEncoding::Unknown => {
-                    unreachable!("NOTE: RUSTPYTHON, should've bailed out earlier")
-                }
-            }
-        }
-        Ok((vm.ctx.new_bytes(out).into(), range.end))
+    if is_encode_err(&err, vm) {
+        call_native_encode_error(SurrogatePass, err, vm)
     } else if is_decode_err(&err, vm) {
-        let range = extract_unicode_error_range(&err, vm)?;
-        let s = PyBytesRef::try_from_object(vm, err.get_attr("object", vm)?)?;
-        let s_encoding = PyStrRef::try_from_object(vm, err.get_attr("encoding", vm)?)?;
-        let (byte_length, standard_encoding) = get_standard_encoding(s_encoding.as_str());
-        if let StandardEncoding::Unknown = standard_encoding {
-            // Not supported, fail with original exception
-            return Err(err.downcast().unwrap());
-        }
-
-        debug_assert!(range.start <= 0.max(s.len() - 1));
-        debug_assert!(range.end >= 1.min(s.len()));
-        debug_assert!(range.end <= s.len());
-
-        let mut c: u32 = 0;
-        // Try decoding a single surrogate character. If there are more,
-        // let the codec call us again.
-        let p = &s.as_bytes()[range.start..];
-        if p.len().overflowing_sub(range.start).0 >= byte_length {
-            match standard_encoding {
-                StandardEncoding::Utf8 => {
-                    if (p[0] as u32 & 0xf0) == 0xe0
-                        && (p[1] as u32 & 0xc0) == 0x80
-                        && (p[2] as u32 & 0xc0) == 0x80
-                    {
-                        // it's a three-byte code
-                        c = ((p[0] as u32 & 0x0f) << 12)
-                            + ((p[1] as u32 & 0x3f) << 6)
-                            + (p[2] as u32 & 0x3f);
-                    }
-                }
-                StandardEncoding::Utf16Le => {
-                    c = ((p[1] as u32) << 8) | p[0] as u32;
-                }
-                StandardEncoding::Utf16Be => {
-                    c = ((p[0] as u32) << 8) | p[1] as u32;
-                }
-                StandardEncoding::Utf32Le => {
-                    c = ((p[3] as u32) << 24)
-                        | ((p[2] as u32) << 16)
-                        | ((p[1] as u32) << 8)
-                        | p[0] as u32;
-                }
-                StandardEncoding::Utf32Be => {
-                    c = ((p[0] as u32) << 24)
-                        | ((p[1] as u32) << 16)
-                        | ((p[2] as u32) << 8)
-                        | p[3] as u32;
-                }
-                StandardEncoding::Unknown => {
-                    unreachable!("NOTE: RUSTPYTHON, should've bailed out earlier")
-                }
-            }
-        }
-        // !Py_UNICODE_IS_SURROGATE
-        if !(0xd800..=0xdfff).contains(&c) {
-            // Not a surrogate, fail with original exception
-            return Err(err.downcast().unwrap());
-        }
-
-        Ok((
-            vm.new_pyobj(CodePoint::from_u32(c).unwrap()),
-            range.start + byte_length,
-        ))
+        call_native_decode_error(SurrogatePass, err, vm)
     } else {
         Err(bad_err_type(err, vm))
     }
 }
 
 fn surrogateescape_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef, usize)> {
-    if err.fast_isinstance(vm.ctx.exceptions.unicode_encode_error) {
-        let range = extract_unicode_error_range(&err, vm)?;
-        let object = PyStrRef::try_from_object(vm, err.get_attr("object", vm)?)?;
-        let s_after_start = crate::common::str::try_get_codepoints(object.as_wtf8(), range.start..)
-            .unwrap_or_default();
-        let mut out: Vec<u8> = Vec::with_capacity(range.len());
-        for ch in s_after_start.code_points().take(range.len()) {
-            let ch = ch.to_u32();
-            if !(0xdc80..=0xdcff).contains(&ch) {
-                // Not a UTF-8b surrogate, fail with original exception
-                return Err(err.downcast().unwrap());
-            }
-            out.push((ch - 0xdc00) as u8);
-        }
-        let out = vm.ctx.new_bytes(out);
-        Ok((out.into(), range.end))
+    if is_encode_err(&err, vm) {
+        call_native_encode_error(errors::SurrogateEscape, err, vm)
     } else if is_decode_err(&err, vm) {
-        let range = extract_unicode_error_range(&err, vm)?;
-        let object = err.get_attr("object", vm)?;
-        let object = PyBytesRef::try_from_object(vm, object)?;
-        let p = &object.as_bytes()[range.clone()];
-        let mut consumed = 0;
-        let mut replace = Wtf8Buf::with_capacity(4 * range.len());
-        while consumed < 4 && consumed < range.len() {
-            let c = p[consumed] as u16;
-            // Refuse to escape ASCII bytes
-            if c < 128 {
-                break;
-            }
-            replace.push(CodePoint::from(0xdc00 + c));
-            consumed += 1;
-        }
-        if consumed == 0 {
-            return Err(err.downcast().unwrap());
-        }
-        Ok((vm.new_pyobj(replace), range.start + consumed))
+        call_native_decode_error(errors::SurrogateEscape, err, vm)
     } else {
         Err(bad_err_type(err, vm))
     }

@@ -1086,11 +1086,13 @@ def charmapencode_output(c, mapping):
     rep = mapping[c]
     if isinstance(rep, int) or isinstance(rep, int):
         if rep < 256:
-            return rep
+            return [rep]
         else:
             raise TypeError("character mapping must be in range(256)")
     elif isinstance(rep, str):
-        return ord(rep)
+        return [ord(rep)]
+    elif isinstance(rep, bytes):
+        return rep
     elif rep == None:
         raise KeyError("character maps to <undefined>")
     else:
@@ -1113,12 +1115,13 @@ def PyUnicode_EncodeCharmap(p, size, mapping='latin-1', errors='strict'):
         #/* try to encode it */
         try:
             x = charmapencode_output(ord(p[inpos]), mapping)
-            res += [x]
+            res += x
         except KeyError:
             x = unicode_call_errorhandler(errors, "charmap",
             "character maps to <undefined>", p, inpos, inpos+1, False)
             try:
-                res += [charmapencode_output(ord(y), mapping) for y in x[0]]
+                for y in x[0]:
+                    res += charmapencode_output(ord(y), mapping)
             except KeyError:
                 raise UnicodeEncodeError("charmap", p, inpos, inpos+1,
                                         "character maps to <undefined>")

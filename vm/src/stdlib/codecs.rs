@@ -2,16 +2,15 @@ pub(crate) use _codecs::make_module;
 
 #[pymodule]
 mod _codecs {
+    use crate::codecs::{ErrorsHandler, PyDecodeContext, PyEncodeContext};
     use crate::common::encodings;
-    use crate::common::str::StrKind;
-    use crate::common::wtf8::{Wtf8, Wtf8Buf};
+    use crate::common::wtf8::Wtf8Buf;
     use crate::{
-        AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple},
+        AsObject, PyObjectRef, PyResult, VirtualMachine,
+        builtins::PyStrRef,
         codecs,
         function::{ArgBytesLike, FuncArgs},
     };
-    use std::ops::Range;
 
     #[pyfunction]
     fn register(search_function: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -79,164 +78,6 @@ mod _codecs {
         vm.state.codec_registry.lookup_error(name.as_str(), vm)
     }
 
-    struct ErrorsHandler<'a> {
-        vm: &'a VirtualMachine,
-        encoding: &'a str,
-        errors: Option<PyStrRef>,
-        handler: once_cell::unsync::OnceCell<PyObjectRef>,
-    }
-    impl<'a> ErrorsHandler<'a> {
-        #[inline]
-        fn new(encoding: &'a str, errors: Option<PyStrRef>, vm: &'a VirtualMachine) -> Self {
-            ErrorsHandler {
-                vm,
-                encoding,
-                errors,
-                handler: Default::default(),
-            }
-        }
-        #[inline]
-        fn handler_func(&self) -> PyResult<&PyObject> {
-            let vm = self.vm;
-            Ok(self.handler.get_or_try_init(|| {
-                let errors = self.errors.as_ref().map_or("strict", |s| s.as_str());
-                vm.state.codec_registry.lookup_error(errors, vm)
-            })?)
-        }
-    }
-    impl encodings::StrBuffer for PyStrRef {
-        fn is_compatible_with(&self, kind: StrKind) -> bool {
-            self.kind() <= kind
-        }
-    }
-    impl encodings::ErrorHandler for ErrorsHandler<'_> {
-        type Error = PyBaseExceptionRef;
-        type StrBuf = PyStrRef;
-        type BytesBuf = PyBytesRef;
-
-        fn handle_encode_error(
-            &self,
-            data: &Wtf8,
-            char_range: Range<usize>,
-            reason: &str,
-        ) -> PyResult<(encodings::EncodeReplace<PyStrRef, PyBytesRef>, usize)> {
-            let vm = self.vm;
-            let data_str = vm.ctx.new_str(data).into();
-            let encode_exc = vm.new_exception(
-                vm.ctx.exceptions.unicode_encode_error.to_owned(),
-                vec![
-                    vm.ctx.new_str(self.encoding).into(),
-                    data_str,
-                    vm.ctx.new_int(char_range.start).into(),
-                    vm.ctx.new_int(char_range.end).into(),
-                    vm.ctx.new_str(reason).into(),
-                ],
-            );
-            let res = self.handler_func()?.call((encode_exc,), vm)?;
-            let tuple_err = || {
-                vm.new_type_error(
-                    "encoding error handler must return (str/bytes, int) tuple".to_owned(),
-                )
-            };
-            let (replace, restart) = match res.payload::<PyTuple>().map(|tup| tup.as_slice()) {
-                Some([replace, restart]) => (replace.clone(), restart),
-                _ => return Err(tuple_err()),
-            };
-            let replace = match_class!(match replace {
-                s @ PyStr => encodings::EncodeReplace::Str(s),
-                b @ PyBytes => encodings::EncodeReplace::Bytes(b),
-                _ => return Err(tuple_err()),
-            });
-            let restart = isize::try_from_borrowed_object(vm, restart).map_err(|_| tuple_err())?;
-            let restart = if restart < 0 {
-                // will still be out of bounds if it underflows ¯\_(ツ)_/¯
-                data.len().wrapping_sub(restart.unsigned_abs())
-            } else {
-                restart as usize
-            };
-            Ok((replace, restart))
-        }
-
-        fn handle_decode_error(
-            &self,
-            data: &[u8],
-            byte_range: Range<usize>,
-            reason: &str,
-        ) -> PyResult<(PyStrRef, Option<PyBytesRef>, usize)> {
-            let vm = self.vm;
-            let data_bytes: PyObjectRef = vm.ctx.new_bytes(data.to_vec()).into();
-            let decode_exc = vm.new_exception(
-                vm.ctx.exceptions.unicode_decode_error.to_owned(),
-                vec![
-                    vm.ctx.new_str(self.encoding).into(),
-                    data_bytes.clone(),
-                    vm.ctx.new_int(byte_range.start).into(),
-                    vm.ctx.new_int(byte_range.end).into(),
-                    vm.ctx.new_str(reason).into(),
-                ],
-            );
-            let handler = self.handler_func()?;
-            let res = handler.call((decode_exc.clone(),), vm)?;
-            let new_data = decode_exc
-                .get_arg(1)
-                .ok_or_else(|| vm.new_type_error("object attribute not set".to_owned()))?;
-            let new_data = if new_data.is(&data_bytes) {
-                None
-            } else {
-                let new_data: PyBytesRef = new_data
-                    .downcast()
-                    .map_err(|_| vm.new_type_error("object attribute must be bytes".to_owned()))?;
-                Some(new_data)
-            };
-            let data = new_data.as_ref().map_or(data, |s| s.as_ref());
-            let tuple_err = || {
-                vm.new_type_error("decoding error handler must return (str, int) tuple".to_owned())
-            };
-            match res.payload::<PyTuple>().map(|tup| tup.as_slice()) {
-                Some([replace, restart]) => {
-                    let replace = replace
-                        .downcast_ref::<PyStr>()
-                        .ok_or_else(tuple_err)?
-                        .to_owned();
-                    let restart =
-                        isize::try_from_borrowed_object(vm, restart).map_err(|_| tuple_err())?;
-                    let restart = if restart < 0 {
-                        // will still be out of bounds if it underflows ¯\_(ツ)_/¯
-                        data.len().wrapping_sub(restart.unsigned_abs())
-                    } else {
-                        restart as usize
-                    };
-                    Ok((replace, new_data, restart))
-                }
-                _ => Err(tuple_err()),
-            }
-        }
-
-        fn error_oob_restart(&self, i: usize) -> PyBaseExceptionRef {
-            self.vm
-                .new_index_error(format!("position {i} from error handler out of bounds"))
-        }
-
-        fn error_encoding(
-            &self,
-            data: &Wtf8,
-            char_range: Range<usize>,
-            reason: &str,
-        ) -> Self::Error {
-            let vm = self.vm;
-            vm.new_exception(
-                vm.ctx.exceptions.unicode_encode_error.to_owned(),
-                vec![
-                    vm.ctx.new_str(self.encoding).into(),
-                    vm.ctx.new_str(data).into(),
-                    vm.ctx.new_int(char_range.start).into(),
-                    vm.ctx.new_int(char_range.end).into(),
-                    vm.ctx.new_str(reason).into(),
-                ],
-            )
-        }
-    }
-
     type EncodeResult = PyResult<(Vec<u8>, usize)>;
 
     #[derive(FromArgs)]
@@ -249,12 +90,13 @@ mod _codecs {
 
     impl EncodeArgs {
         #[inline]
-        fn encode<'a, F>(self, name: &'a str, encode: F, vm: &'a VirtualMachine) -> EncodeResult
+        fn encode<'a, F>(&'a self, name: &'a str, encode: F, vm: &'a VirtualMachine) -> EncodeResult
         where
-            F: FnOnce(&Wtf8, &ErrorsHandler<'a>) -> PyResult<Vec<u8>>,
+            F: FnOnce(PyEncodeContext<'a>, &ErrorsHandler<'a>) -> PyResult<Vec<u8>>,
         {
-            let errors = ErrorsHandler::new(name, self.errors, vm);
-            let encoded = encode(self.s.as_wtf8(), &errors)?;
+            let ctx = PyEncodeContext::new(name, &self.s, vm);
+            let errors = ErrorsHandler::new(self.errors.as_deref(), vm);
+            let encoded = encode(ctx, &errors)?;
             Ok((encoded, self.s.char_len()))
         }
     }
@@ -273,13 +115,13 @@ mod _codecs {
 
     impl DecodeArgs {
         #[inline]
-        fn decode<'a, F>(self, name: &'a str, decode: F, vm: &'a VirtualMachine) -> DecodeResult
+        fn decode<'a, F>(&'a self, name: &'a str, decode: F, vm: &'a VirtualMachine) -> DecodeResult
         where
-            F: FnOnce(&[u8], &ErrorsHandler<'a>, bool) -> DecodeResult,
+            F: FnOnce(PyDecodeContext<'a>, &ErrorsHandler<'a>, bool) -> DecodeResult,
         {
-            let data = self.data.borrow_buf();
-            let errors = ErrorsHandler::new(name, self.errors, vm);
-            decode(&data, &errors, self.final_decode)
+            let ctx = PyDecodeContext::new(name, &self.data, vm);
+            let errors = ErrorsHandler::new(self.errors.as_deref(), vm);
+            decode(ctx, &errors, self.final_decode)
         }
     }
 
@@ -293,13 +135,13 @@ mod _codecs {
 
     impl DecodeArgsNoFinal {
         #[inline]
-        fn decode<'a, F>(self, name: &'a str, decode: F, vm: &'a VirtualMachine) -> DecodeResult
+        fn decode<'a, F>(&'a self, name: &'a str, decode: F, vm: &'a VirtualMachine) -> DecodeResult
         where
-            F: FnOnce(&[u8], &ErrorsHandler<'a>) -> DecodeResult,
+            F: FnOnce(PyDecodeContext<'a>, &ErrorsHandler<'a>) -> DecodeResult,
         {
-            let data = self.data.borrow_buf();
-            let errors = ErrorsHandler::new(name, self.errors, vm);
-            decode(&data, &errors)
+            let ctx = PyDecodeContext::new(name, &self.data, vm);
+            let errors = ErrorsHandler::new(self.errors.as_deref(), vm);
+            decode(ctx, &errors)
         }
     }
 

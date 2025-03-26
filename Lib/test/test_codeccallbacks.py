@@ -203,8 +203,6 @@ class CodecCallbackTest(unittest.TestCase):
         self.assertRaises(UnicodeDecodeError, sin.decode,
                           "utf-8", "test.relaxedutf8")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_charmapencode(self):
         # For charmap encodings the replacement string will be
         # mapped through the encoding again. This means, that
@@ -329,8 +327,6 @@ class CodecCallbackTest(unittest.TestCase):
         exc = exctype(*args)
         self.assertEqual(str(exc), msg)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unicodeencodeerror(self):
         self.check_exceptionobjectargs(
             UnicodeEncodeError,
@@ -363,8 +359,6 @@ class CodecCallbackTest(unittest.TestCase):
             "'ascii' codec can't encode character '\\U00010000' in position 0: ouch"
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unicodedecodeerror(self):
         self.check_exceptionobjectargs(
             UnicodeDecodeError,
@@ -377,8 +371,6 @@ class CodecCallbackTest(unittest.TestCase):
             "'ascii' codec can't decode bytes in position 1-2: ouch"
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unicodetranslateerror(self):
         self.check_exceptionobjectargs(
             UnicodeTranslateError,
@@ -467,8 +459,6 @@ class CodecCallbackTest(unittest.TestCase):
             ("", 2)
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_badandgoodreplaceexceptions(self):
         # "replace" complains about a non-exception passed in
         self.assertRaises(
@@ -509,8 +499,6 @@ class CodecCallbackTest(unittest.TestCase):
             ("\ufffd", 2)
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_badandgoodxmlcharrefreplaceexceptions(self):
         # "xmlcharrefreplace" complains about a non-exception passed in
         self.assertRaises(
@@ -1017,8 +1005,6 @@ class CodecCallbackTest(unittest.TestCase):
         self.assertRaises(ValueError, codecs.charmap_decode, b"\xff", "strict", D())
         self.assertRaises(TypeError, codecs.charmap_decode, b"\xff", "strict", {0xff: sys.maxunicode+1})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_encodehelper(self):
         # enhance coverage of:
         # Objects/unicodeobject.c::unicode_encode_call_errorhandler()

@@ -70,6 +70,12 @@ impl From<ArgBytesLike> for PyBuffer {
     }
 }
 
+impl From<ArgBytesLike> for PyObjectRef {
+    fn from(buffer: ArgBytesLike) -> Self {
+        buffer.as_object().to_owned()
+    }
+}
+
 impl<'a> TryFromBorrowedObject<'a> for ArgBytesLike {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         let buffer = PyBuffer::try_from_borrowed_object(vm, obj)?;
