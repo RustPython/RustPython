@@ -19,8 +19,7 @@ use crate::{
     utils::collection_repr,
     vm::VirtualMachine,
 };
-use once_cell::sync::Lazy;
-use std::{fmt, marker::PhantomData};
+use std::{fmt, marker::PhantomData, sync::LazyLock};
 
 #[pyclass(module = false, name = "tuple", traverse)]
 pub struct PyTuple {
@@ -351,7 +350,7 @@ impl PyTuple {
 
 impl AsMapping for PyTuple {
     fn as_mapping() -> &'static PyMappingMethods {
-        static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
+        static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
             length: atomic_func!(|mapping, _vm| Ok(PyTuple::mapping_downcast(mapping).len())),
             subscript: atomic_func!(
                 |mapping, needle, vm| PyTuple::mapping_downcast(mapping)._getitem(needle, vm)
@@ -364,7 +363,7 @@ impl AsMapping for PyTuple {
 
 impl AsSequence for PyTuple {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
+        static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PyTuple::sequence_downcast(seq).len())),
             concat: atomic_func!(|seq, other, vm| {
                 let zelf = PyTuple::sequence_downcast(seq);

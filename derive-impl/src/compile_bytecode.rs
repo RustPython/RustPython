@@ -14,10 +14,10 @@
 //! ```
 
 use crate::Diagnostic;
-use once_cell::sync::Lazy;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use rustpython_compiler_core::{Mode, bytecode::CodeObject, frozen};
+use std::sync::LazyLock;
 use std::{
     collections::HashMap,
     env, fs,
@@ -29,7 +29,7 @@ use syn::{
     spanned::Spanned,
 };
 
-static CARGO_MANIFEST_DIR: Lazy<PathBuf> = Lazy::new(|| {
+static CARGO_MANIFEST_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"))
 });
 

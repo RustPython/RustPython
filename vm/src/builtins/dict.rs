@@ -23,9 +23,9 @@ use crate::{
     },
     vm::VirtualMachine,
 };
-use once_cell::sync::Lazy;
 use rustpython_common::lock::PyMutex;
 use std::fmt;
+use std::sync::LazyLock;
 
 pub type DictContentType = dictdatatype::Dict;
 
@@ -443,7 +443,7 @@ impl AsMapping for PyDict {
 
 impl AsSequence for PyDict {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
+        static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             contains: atomic_func!(|seq, target, vm| PyDict::sequence_downcast(seq)
                 .entries
                 .contains(vm, target)),
@@ -1133,7 +1133,7 @@ impl Comparable for PyDictKeys {
 
 impl AsSequence for PyDictKeys {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
+        static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PyDictKeys::sequence_downcast(seq).len())),
             contains: atomic_func!(|seq, target, vm| {
                 PyDictKeys::sequence_downcast(seq)
@@ -1196,7 +1196,7 @@ impl Comparable for PyDictItems {
 
 impl AsSequence for PyDictItems {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
+        static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PyDictItems::sequence_downcast(seq).len())),
             contains: atomic_func!(|seq, target, vm| {
                 let needle: &Py<PyTuple> = match target.downcast_ref() {
@@ -1246,7 +1246,7 @@ impl Unconstructible for PyDictValues {}
 
 impl AsSequence for PyDictValues {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
+        static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PyDictValues::sequence_downcast(seq).len())),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });

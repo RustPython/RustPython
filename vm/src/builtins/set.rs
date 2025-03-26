@@ -23,11 +23,11 @@ use crate::{
     utils::collection_repr,
     vm::VirtualMachine,
 };
-use once_cell::sync::Lazy;
 use rustpython_common::{
     atomic::{Ordering, PyAtomic, Radium},
     hash,
 };
+use std::sync::LazyLock;
 use std::{fmt, ops::Deref};
 
 pub type SetContentType = dictdatatype::Dict<()>;
@@ -794,7 +794,7 @@ impl Initializer for PySet {
 
 impl AsSequence for PySet {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
+        static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PySet::sequence_downcast(seq).len())),
             contains: atomic_func!(|seq, needle, vm| PySet::sequence_downcast(seq)
                 .inner
@@ -1112,7 +1112,7 @@ impl PyFrozenSet {
 
 impl AsSequence for PyFrozenSet {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
+        static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PyFrozenSet::sequence_downcast(seq).len())),
             contains: atomic_func!(|seq, needle, vm| PyFrozenSet::sequence_downcast(seq)
                 .inner

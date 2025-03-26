@@ -27,7 +27,7 @@ use crate::{
     },
 };
 use bstr::ByteSlice;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use std::{mem::size_of, ops::Deref};
 
 #[pyclass(module = false, name = "bytes")]
@@ -568,7 +568,7 @@ impl AsBuffer for PyBytes {
 
 impl AsMapping for PyBytes {
     fn as_mapping() -> &'static PyMappingMethods {
-        static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
+        static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
             length: atomic_func!(|mapping, _vm| Ok(PyBytes::mapping_downcast(mapping).len())),
             subscript: atomic_func!(
                 |mapping, needle, vm| PyBytes::mapping_downcast(mapping)._getitem(needle, vm)
@@ -581,7 +581,7 @@ impl AsMapping for PyBytes {
 
 impl AsSequence for PyBytes {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
+        static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PyBytes::sequence_downcast(seq).len())),
             concat: atomic_func!(|seq, other, vm| {
                 PyBytes::sequence_downcast(seq)
