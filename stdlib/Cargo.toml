@@ -65,14 +65,14 @@ blake2 = "0.10.4"
 unicode_names2 = { workspace = true }
 # TODO: use unic for this; needed for title case:
 # https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
-unicode-casing = "0.1.0"
+unicode-casing = { workspace = true }
 # update version all at the same time
-unic-char-property = "0.9.0"
-unic-normal        = "0.9.0"
-unic-ucd-bidi      = "0.9.0"
-unic-ucd-category  = "0.9.0"
-unic-ucd-age       = "0.9.0"
-unic-ucd-ident     = "0.9.0"
+unic-char-property = { workspace = true }
+unic-normal        = { workspace = true }
+unic-ucd-bidi      = { workspace = true }
+unic-ucd-category  = { workspace = true }
+unic-ucd-age       = { workspace = true }
+unic-ucd-ident     = { workspace = true }
 ucd = "0.1.1"
 
 # compression
