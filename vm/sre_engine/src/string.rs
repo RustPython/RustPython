@@ -1,4 +1,4 @@
-use rustpython_common::wtf8::Wtf8;
+use rustpython_wtf8::Wtf8;
 
 #[derive(Debug, Clone, Copy)]
 pub struct StringCursor {

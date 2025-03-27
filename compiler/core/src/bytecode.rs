@@ -8,7 +8,7 @@ use num_complex::Complex64;
 pub use ruff_python_ast::ConversionFlag;
 // use rustpython_parser_core::source_code::{OneIndexed, SourceLocation};
 use ruff_source_file::{OneIndexed, SourceLocation};
-use rustpython_common::wtf8::{Wtf8, Wtf8Buf};
+use rustpython_wtf8::{Wtf8, Wtf8Buf};
 use std::marker::PhantomData;
 use std::{collections::BTreeSet, fmt, hash, mem};
 

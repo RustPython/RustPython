@@ -28,7 +28,7 @@ use ruff_python_ast::{
 };
 use ruff_source_file::OneIndexed;
 use ruff_text_size::{Ranged, TextRange};
-use rustpython_common::wtf8::Wtf8Buf;
+use rustpython_wtf8::Wtf8Buf;
 // use rustpython_ast::located::{self as located_ast, Located};
 use rustpython_compiler_core::{
     Mode,
@@ -3529,7 +3529,7 @@ impl EmitArg<bytecode::Label> for ir::BlockIdx {
 /// The code has been ported from `_PyCompile_CleanDoc` in cpython.
 /// `inspect.cleandoc` is also a good reference, but has a few incompatibilities.
 fn clean_doc(doc: &str) -> String {
-    let doc = rustpython_common::str::expandtabs(doc, 8);
+    let doc = expandtabs(doc, 8);
     // First pass: find minimum indentation of any non-blank lines
     // after first line.
     let margin = doc
@@ -3556,6 +3556,37 @@ fn clean_doc(doc: &str) -> String {
     } else {
         doc.to_owned()
     }
+}
+
+// copied from rustpython_common::str, so we don't have to depend on it just for this function
+fn expandtabs(input: &str, tab_size: usize) -> String {
+    let tab_stop = tab_size;
+    let mut expanded_str = String::with_capacity(input.len());
+    let mut tab_size = tab_stop;
+    let mut col_count = 0usize;
+    for ch in input.chars() {
+        match ch {
+            '\t' => {
+                let num_spaces = tab_size - col_count;
+                col_count += num_spaces;
+                let expand = " ".repeat(num_spaces);
+                expanded_str.push_str(&expand);
+            }
+            '\r' | '\n' => {
+                expanded_str.push(ch);
+                col_count = 0;
+                tab_size = 0;
+            }
+            _ => {
+                expanded_str.push(ch);
+                col_count += 1;
+            }
+        }
+        if col_count >= tab_size {
+            tab_size += tab_stop;
+        }
+    }
+    expanded_str
 }
 
 fn split_doc<'a>(body: &'a [Stmt], opts: &CompileOpts) -> (Option<String>, &'a [Stmt]) {

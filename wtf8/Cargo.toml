@@ -1,0 +1,15 @@
+[package]
+name = "rustpython-wtf8"
+description = "An implementation of WTF-8 for use in RustPython"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+ascii = { workspace = true }
+bstr = { workspace = true }
+itertools = { workspace = true }
+memchr = { workspace = true }

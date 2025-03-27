@@ -2,7 +2,7 @@ use crate::bytecode::*;
 use malachite_bigint::{BigInt, Sign};
 use num_complex::Complex64;
 use ruff_source_file::{OneIndexed, SourceLocation};
-use rustpython_common::wtf8::Wtf8;
+use rustpython_wtf8::Wtf8;
 use std::convert::Infallible;
 
 pub const FORMAT_VERSION: u32 = 4;

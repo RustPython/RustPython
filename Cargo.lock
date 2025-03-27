@@ -2327,9 +2327,9 @@ dependencies = [
  "ruff_python_parser",
  "ruff_source_file",
  "ruff_text_size",
- "rustpython-common",
  "rustpython-compiler-core",
  "rustpython-compiler-source",
+ "rustpython-wtf8",
  "thiserror 2.0.11",
  "unicode_names2",
 ]
@@ -2355,6 +2355,7 @@ dependencies = [
  "radium",
  "rand 0.9.0",
  "rustpython-literal",
+ "rustpython-wtf8",
  "siphasher 0.3.11",
  "unicode_names2",
  "volatile",
@@ -2388,7 +2389,7 @@ dependencies = [
  "ruff_python_ast",
  "ruff_python_parser",
  "ruff_source_file",
- "rustpython-common",
+ "rustpython-wtf8",
  "serde",
 ]
 
@@ -2476,7 +2477,7 @@ dependencies = [
  "criterion",
  "num_enum",
  "optional",
- "rustpython-common",
+ "rustpython-wtf8",
 ]
 
 [[package]]
@@ -2632,6 +2633,16 @@ dependencies = [
  "windows",
  "windows-sys 0.59.0",
  "winreg",
+]
+
+[[package]]
+name = "rustpython-wtf8"
+version = "0.4.0"
+dependencies = [
+ "ascii",
+ "bstr",
+ "itertools 0.14.0",
+ "memchr",
 ]
 
 [[package]]
