@@ -18,7 +18,7 @@ harness = false
 rustpython-common = { workspace = true }
 num_enum = { workspace = true }
 bitflags = { workspace = true }
-optional = "0.5"
+optional = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

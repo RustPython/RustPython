@@ -81,7 +81,7 @@ caseless = "0.2.2"
 flamer = { version = "0.4", optional = true }
 half = "2"
 memoffset = "0.9.1"
-optional = "0.5.0"
+optional = { workspace = true }
 result-like = "0.5.0"
 timsort = "0.1.2"
 
@@ -89,11 +89,11 @@ timsort = "0.1.2"
 unicode_names2 = { workspace = true }
 # TODO: use unic for this; needed for title case:
 # https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
-unicode-casing = "0.1.0"
+unicode-casing = { workspace = true }
 # update version all at the same time
-unic-ucd-bidi = "0.9.0"
-unic-ucd-category = "0.9.0"
-unic-ucd-ident = "0.9.0"
+unic-ucd-bidi = { workspace = true }
+unic-ucd-category = { workspace = true }
+unic-ucd-ident = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { workspace = true }
@@ -107,7 +107,7 @@ errno = "0.3"
 widestring = { workspace = true }
 
 [target.'cfg(all(any(target_os = "linux", target_os = "macos", target_os = "windows"), not(any(target_env = "musl", target_env = "sgx"))))'.dependencies]
-libffi = "3.2"
+libffi = { workspace = true, features = ["system"] }
 libloading = "0.8"
 
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
