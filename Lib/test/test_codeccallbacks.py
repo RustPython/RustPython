@@ -536,8 +536,6 @@ class CodecCallbackTest(unittest.TestCase):
             ("".join("&#%d;" % c for c in cs), 1 + len(s))
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_badandgoodbackslashreplaceexceptions(self):
         # "backslashreplace" complains about a non-exception passed in
         self.assertRaises(
@@ -596,8 +594,6 @@ class CodecCallbackTest(unittest.TestCase):
                     (r, 2)
                 )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_badandgoodnamereplaceexceptions(self):
         # "namereplace" complains about a non-exception passed in
         self.assertRaises(
@@ -644,8 +640,6 @@ class CodecCallbackTest(unittest.TestCase):
                     (r, 1 + len(s))
                 )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_badandgoodsurrogateescapeexceptions(self):
         surrogateescape_errors = codecs.lookup_error('surrogateescape')
         # "surrogateescape" complains about a non-exception passed in

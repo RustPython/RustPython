@@ -8,6 +8,7 @@ use num_complex::Complex64;
 pub use ruff_python_ast::ConversionFlag;
 // use rustpython_parser_core::source_code::{OneIndexed, SourceLocation};
 use ruff_source_file::{OneIndexed, SourceLocation};
+use rustpython_common::wtf8::{Wtf8, Wtf8Buf};
 use std::marker::PhantomData;
 use std::{collections::BTreeSet, fmt, hash, mem};
 
@@ -678,7 +679,7 @@ pub enum ConstantData {
     Float { value: f64 },
     Complex { value: Complex64 },
     Boolean { value: bool },
-    Str { value: String },
+    Str { value: Wtf8Buf },
     Bytes { value: Vec<u8> },
     Code { code: Box<CodeObject> },
     None,
@@ -738,7 +739,7 @@ pub enum BorrowedConstant<'a, C: Constant> {
     Float { value: f64 },
     Complex { value: Complex64 },
     Boolean { value: bool },
-    Str { value: &'a str },
+    Str { value: &'a Wtf8 },
     Bytes { value: &'a [u8] },
     Code { code: &'a CodeObject<C> },
     Tuple { elements: &'a [C] },

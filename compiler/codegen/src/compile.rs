@@ -21,13 +21,14 @@ use ruff_python_ast::{
     Alias, Arguments, BoolOp, CmpOp, Comprehension, ConversionFlag, DebugText, Decorator, DictItem,
     ExceptHandler, ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprFString,
     ExprList, ExprName, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp, FString,
-    FStringElement, FStringElements, FStringPart, Int, Keyword, MatchCase, ModExpression,
-    ModModule, Operator, Parameters, Pattern, PatternMatchAs, PatternMatchValue, Stmt, StmtExpr,
-    TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams, UnaryOp,
-    WithItem,
+    FStringElement, FStringElements, FStringFlags, FStringPart, Int, Keyword, MatchCase,
+    ModExpression, ModModule, Operator, Parameters, Pattern, PatternMatchAs, PatternMatchValue,
+    Stmt, StmtExpr, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple,
+    TypeParams, UnaryOp, WithItem,
 };
 use ruff_source_file::OneIndexed;
 use ruff_text_size::{Ranged, TextRange};
+use rustpython_common::wtf8::Wtf8Buf;
 // use rustpython_ast::located::{self as located_ast, Located};
 use rustpython_compiler_core::{
     Mode,
@@ -375,7 +376,9 @@ impl Compiler<'_> {
 
         let (doc, statements) = split_doc(&body.body, &self.opts);
         if let Some(value) = doc {
-            self.emit_load_const(ConstantData::Str { value });
+            self.emit_load_const(ConstantData::Str {
+                value: value.into(),
+            });
             let doc = self.name("__doc__");
             emit!(self, Instruction::StoreGlobal(doc))
         }
@@ -636,14 +639,12 @@ impl Compiler<'_> {
                             statement.range(),
                         ));
                     }
-                    vec![ConstantData::Str {
-                        value: "*".to_owned(),
-                    }]
+                    vec![ConstantData::Str { value: "*".into() }]
                 } else {
                     names
                         .iter()
                         .map(|n| ConstantData::Str {
-                            value: n.name.to_string(),
+                            value: n.name.as_str().into(),
                         })
                         .collect()
                 };
@@ -954,7 +955,7 @@ impl Compiler<'_> {
                     self.pop_symbol_table();
                 }
                 self.emit_load_const(ConstantData::Str {
-                    value: name_string.clone(),
+                    value: name_string.clone().into(),
                 });
                 emit!(self, Instruction::TypeAlias);
                 self.store_name(&name_string)?;
@@ -1028,7 +1029,7 @@ impl Compiler<'_> {
             let default_kw_count = kw_with_defaults.len();
             for (arg, default) in kw_with_defaults.iter() {
                 self.emit_load_const(ConstantData::Str {
-                    value: arg.name.to_string(),
+                    value: arg.name.as_str().into(),
                 });
                 self.compile_expression(default)?;
             }
@@ -1101,7 +1102,7 @@ impl Compiler<'_> {
                     if let Some(expr) = &bound {
                         self.compile_expression(expr)?;
                         self.emit_load_const(ConstantData::Str {
-                            value: name.to_string(),
+                            value: name.as_str().into(),
                         });
                         emit!(self, Instruction::TypeVarWithBound);
                         emit!(self, Instruction::Duplicate);
@@ -1109,7 +1110,7 @@ impl Compiler<'_> {
                     } else {
                         // self.store_name(type_name.as_str())?;
                         self.emit_load_const(ConstantData::Str {
-                            value: name.to_string(),
+                            value: name.as_str().into(),
                         });
                         emit!(self, Instruction::TypeVar);
                         emit!(self, Instruction::Duplicate);
@@ -1118,7 +1119,7 @@ impl Compiler<'_> {
                 }
                 TypeParam::ParamSpec(TypeParamParamSpec { name, .. }) => {
                     self.emit_load_const(ConstantData::Str {
-                        value: name.to_string(),
+                        value: name.as_str().into(),
                     });
                     emit!(self, Instruction::ParamSpec);
                     emit!(self, Instruction::Duplicate);
@@ -1126,7 +1127,7 @@ impl Compiler<'_> {
                 }
                 TypeParam::TypeVarTuple(TypeParamTypeVarTuple { name, .. }) => {
                     self.emit_load_const(ConstantData::Str {
-                        value: name.to_string(),
+                        value: name.as_str().into(),
                     });
                     emit!(self, Instruction::TypeVarTuple);
                     emit!(self, Instruction::Duplicate);
@@ -1363,7 +1364,7 @@ impl Compiler<'_> {
         if let Some(annotation) = returns {
             // key:
             self.emit_load_const(ConstantData::Str {
-                value: "return".to_owned(),
+                value: "return".into(),
             });
             // value:
             self.compile_annotation(annotation)?;
@@ -1380,7 +1381,7 @@ impl Compiler<'_> {
         for param in parameters_iter {
             if let Some(annotation) = &param.annotation {
                 self.emit_load_const(ConstantData::Str {
-                    value: self.mangle(param.name.as_str()).into_owned(),
+                    value: self.mangle(param.name.as_str()).into_owned().into(),
                 });
                 self.compile_annotation(annotation)?;
                 num_annotations += 1;
@@ -1410,7 +1411,7 @@ impl Compiler<'_> {
             code: Box::new(code),
         });
         self.emit_load_const(ConstantData::Str {
-            value: qualified_name,
+            value: qualified_name.into(),
         });
 
         // Turn code object into function object:
@@ -1418,7 +1419,9 @@ impl Compiler<'_> {
 
         if let Some(value) = doc_str {
             emit!(self, Instruction::Duplicate);
-            self.emit_load_const(ConstantData::Str { value });
+            self.emit_load_const(ConstantData::Str {
+                value: value.into(),
+            });
             emit!(self, Instruction::Rotate2);
             let doc = self.name("__doc__");
             emit!(self, Instruction::StoreAttr { idx: doc });
@@ -1547,7 +1550,7 @@ impl Compiler<'_> {
         let dunder_module = self.name("__module__");
         emit!(self, Instruction::StoreLocal(dunder_module));
         self.emit_load_const(ConstantData::Str {
-            value: qualified_name,
+            value: qualified_name.into(),
         });
         let qualname = self.name("__qualname__");
         emit!(self, Instruction::StoreLocal(qualname));
@@ -1608,16 +1611,12 @@ impl Compiler<'_> {
         self.emit_load_const(ConstantData::Code {
             code: Box::new(code),
         });
-        self.emit_load_const(ConstantData::Str {
-            value: name.to_owned(),
-        });
+        self.emit_load_const(ConstantData::Str { value: name.into() });
 
         // Turn code object into function object:
         emit!(self, Instruction::MakeFunction(func_flags));
 
-        self.emit_load_const(ConstantData::Str {
-            value: name.to_owned(),
-        });
+        self.emit_load_const(ConstantData::Str { value: name.into() });
 
         // Call the __build_class__ builtin
         let call = if let Some(arguments) = arguments {
@@ -1638,7 +1637,7 @@ impl Compiler<'_> {
 
         // Doc string value:
         self.emit_load_const(match doc_str {
-            Some(doc) => ConstantData::Str { value: doc },
+            Some(doc) => ConstantData::Str { value: doc.into() },
             None => ConstantData::None, // set docstring None if not declared
         });
     }
@@ -2031,7 +2030,7 @@ impl Compiler<'_> {
             let ident = Default::default();
             let codegen = ruff_python_codegen::Generator::new(&ident, Default::default());
             self.emit_load_const(ConstantData::Str {
-                value: codegen.expr(annotation),
+                value: codegen.expr(annotation).into(),
             });
         } else {
             self.compile_expression(annotation)?;
@@ -2063,7 +2062,7 @@ impl Compiler<'_> {
             let annotations = self.name("__annotations__");
             emit!(self, Instruction::LoadNameAny(annotations));
             self.emit_load_const(ConstantData::Str {
-                value: self.mangle(id.as_str()).into_owned(),
+                value: self.mangle(id.as_str()).into_owned().into(),
             });
             emit!(self, Instruction::StoreSubscript);
         } else {
@@ -2538,7 +2537,7 @@ impl Compiler<'_> {
                 self.emit_load_const(ConstantData::Code {
                     code: Box::new(code),
                 });
-                self.emit_load_const(ConstantData::Str { value: name });
+                self.emit_load_const(ConstantData::Str { value: name.into() });
                 // Turn code object into function object:
                 emit!(self, Instruction::MakeFunction(func_flags));
 
@@ -2679,9 +2678,23 @@ impl Compiler<'_> {
                 self.compile_expr_fstring(fstring)?;
             }
             Expr::StringLiteral(string) => {
-                self.emit_load_const(ConstantData::Str {
-                    value: string.value.to_str().to_owned(),
-                });
+                let value = string.value.to_str();
+                if value.contains(char::REPLACEMENT_CHARACTER) {
+                    let value = string
+                        .value
+                        .iter()
+                        .map(|lit| {
+                            let source = self.source_code.get_range(lit.range);
+                            crate::string_parser::parse_string_literal(source, lit.flags.into())
+                        })
+                        .collect();
+                    // might have a surrogate literal; should reparse to be sure
+                    self.emit_load_const(ConstantData::Str { value });
+                } else {
+                    self.emit_load_const(ConstantData::Str {
+                        value: value.into(),
+                    });
+                }
             }
             Expr::BytesLiteral(bytes) => {
                 let iter = bytes.value.iter().flat_map(|x| x.iter().copied());
@@ -2732,7 +2745,7 @@ impl Compiler<'_> {
                 for keyword in sub_keywords {
                     if let Some(name) = &keyword.arg {
                         self.emit_load_const(ConstantData::Str {
-                            value: name.to_string(),
+                            value: name.as_str().into(),
                         });
                         self.compile_expression(&keyword.value)?;
                         sub_size += 1;
@@ -2822,7 +2835,7 @@ impl Compiler<'_> {
             for keyword in &arguments.keywords {
                 if let Some(name) = &keyword.arg {
                     kwarg_names.push(ConstantData::Str {
-                        value: name.to_string(),
+                        value: name.as_str().into(),
                     });
                 } else {
                     // This means **kwargs!
@@ -3058,9 +3071,7 @@ impl Compiler<'_> {
         });
 
         // List comprehension function name:
-        self.emit_load_const(ConstantData::Str {
-            value: name.to_owned(),
-        });
+        self.emit_load_const(ConstantData::Str { value: name.into() });
 
         // Turn code object into function object:
         emit!(self, Instruction::MakeFunction(func_flags));
@@ -3358,9 +3369,19 @@ impl Compiler<'_> {
     fn compile_fstring_part(&mut self, part: &FStringPart) -> CompileResult<()> {
         match part {
             FStringPart::Literal(string) => {
-                self.emit_load_const(ConstantData::Str {
-                    value: string.value.to_string(),
-                });
+                if string.value.contains(char::REPLACEMENT_CHARACTER) {
+                    // might have a surrogate literal; should reparse to be sure
+                    let source = self.source_code.get_range(string.range);
+                    let value =
+                        crate::string_parser::parse_string_literal(source, string.flags.into());
+                    self.emit_load_const(ConstantData::Str {
+                        value: value.into(),
+                    });
+                } else {
+                    self.emit_load_const(ConstantData::Str {
+                        value: string.value.to_string().into(),
+                    });
+                }
                 Ok(())
             }
             FStringPart::FString(fstring) => self.compile_fstring(fstring),
@@ -3368,19 +3389,32 @@ impl Compiler<'_> {
     }
 
     fn compile_fstring(&mut self, fstring: &FString) -> CompileResult<()> {
-        self.compile_fstring_elements(&fstring.elements)
+        self.compile_fstring_elements(fstring.flags, &fstring.elements)
     }
 
     fn compile_fstring_elements(
         &mut self,
+        flags: FStringFlags,
         fstring_elements: &FStringElements,
     ) -> CompileResult<()> {
         for element in fstring_elements {
             match element {
                 FStringElement::Literal(string) => {
-                    self.emit_load_const(ConstantData::Str {
-                        value: string.value.to_string(),
-                    });
+                    if string.value.contains(char::REPLACEMENT_CHARACTER) {
+                        // might have a surrogate literal; should reparse to be sure
+                        let source = self.source_code.get_range(string.range);
+                        let value = crate::string_parser::parse_fstring_literal_element(
+                            source.into(),
+                            flags.into(),
+                        );
+                        self.emit_load_const(ConstantData::Str {
+                            value: value.into(),
+                        });
+                    } else {
+                        self.emit_load_const(ConstantData::Str {
+                            value: string.value.to_string().into(),
+                        });
+                    }
                 }
                 FStringElement::Expression(fstring_expr) => {
                     let mut conversion = fstring_expr.conversion;
@@ -3393,11 +3427,13 @@ impl Compiler<'_> {
                             let source = source.to_string();
 
                             self.emit_load_const(ConstantData::Str {
-                                value: leading.to_string(),
+                                value: leading.to_string().into(),
                             });
-                            self.emit_load_const(ConstantData::Str { value: source });
                             self.emit_load_const(ConstantData::Str {
-                                value: trailing.to_string(),
+                                value: source.into(),
+                            });
+                            self.emit_load_const(ConstantData::Str {
+                                value: trailing.to_string().into(),
                             });
 
                             3
@@ -3407,7 +3443,7 @@ impl Compiler<'_> {
                     match &fstring_expr.format_spec {
                         None => {
                             self.emit_load_const(ConstantData::Str {
-                                value: String::new(),
+                                value: Wtf8Buf::new(),
                             });
                             // Match CPython behavior: If debug text is present, apply repr conversion.
                             // See: https://github.com/python/cpython/blob/f61afca262d3a0aa6a8a501db0b1936c60858e35/Parser/action_helpers.c#L1456
@@ -3416,7 +3452,7 @@ impl Compiler<'_> {
                             }
                         }
                         Some(format_spec) => {
-                            self.compile_fstring_elements(&format_spec.elements)?;
+                            self.compile_fstring_elements(flags, &format_spec.elements)?;
                         }
                     }
 
@@ -3449,7 +3485,7 @@ impl Compiler<'_> {
         if element_count == 0 {
             // ensure to put an empty string on the stack if there aren't any fstring elements
             self.emit_load_const(ConstantData::Str {
-                value: String::new(),
+                value: Wtf8Buf::new(),
             });
         } else if element_count > 1 {
             emit!(

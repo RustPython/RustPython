@@ -1815,6 +1815,18 @@ impl AsRef<str> for PyExact<PyStr> {
     }
 }
 
+impl AsRef<Wtf8> for PyRefExact<PyStr> {
+    fn as_ref(&self) -> &Wtf8 {
+        self.as_wtf8()
+    }
+}
+
+impl AsRef<Wtf8> for PyExact<PyStr> {
+    fn as_ref(&self) -> &Wtf8 {
+        self.as_wtf8()
+    }
+}
+
 impl AnyStrWrapper<Wtf8> for PyStrRef {
     fn as_ref(&self) -> Option<&Wtf8> {
         Some(self.as_wtf8())

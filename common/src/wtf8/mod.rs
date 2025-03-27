@@ -574,6 +574,12 @@ impl<W: AsRef<Wtf8>> FromIterator<W> for Wtf8Buf {
     }
 }
 
+impl Hash for Wtf8Buf {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Wtf8::hash(self, state)
+    }
+}
+
 impl AsRef<Wtf8> for Wtf8Buf {
     fn as_ref(&self) -> &Wtf8 {
         self
@@ -692,6 +698,13 @@ impl Default for &Wtf8 {
     }
 }
 
+impl Hash for Wtf8 {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.as_bytes());
+        state.write_u8(0xff);
+    }
+}
+
 impl Wtf8 {
     /// Creates a WTF-8 slice from a UTF-8 `&str` slice.
     ///
@@ -720,6 +733,32 @@ impl Wtf8 {
     unsafe fn from_mut_bytes_unchecked(value: &mut [u8]) -> &mut Wtf8 {
         // SAFETY: start with &mut [u8], end with fancy &mut [u8]
         unsafe { &mut *(value as *mut [u8] as *mut Wtf8) }
+    }
+
+    /// Create a WTF-8 slice from a WTF-8 byte slice.
+    //
+    // whooops! using WTF-8 for interchange!
+    #[inline]
+    pub fn from_bytes(b: &[u8]) -> Option<&Self> {
+        let mut rest = b;
+        while let Err(e) = std::str::from_utf8(rest) {
+            rest = &rest[e.valid_up_to()..];
+            Self::decode_surrogate(rest)?;
+            rest = &rest[3..];
+        }
+        Some(unsafe { Wtf8::from_bytes_unchecked(b) })
+    }
+
+    fn decode_surrogate(b: &[u8]) -> Option<CodePoint> {
+        let [a, b, c, ..] = *b else { return None };
+        if (a & 0xf0) == 0xe0 && (b & 0xc0) == 0x80 && (c & 0xc0) == 0x80 {
+            // it's a three-byte code
+            let c = ((a as u32 & 0x0f) << 12) + ((b as u32 & 0x3f) << 6) + (c as u32 & 0x3f);
+            let 0xD800..=0xDFFF = c else { return None };
+            Some(CodePoint { value: c })
+        } else {
+            None
+        }
     }
 
     /// Returns the length, in WTF-8 bytes.
@@ -872,6 +911,14 @@ impl Wtf8 {
                 iter.next();
                 pos += 4;
             }
+        }
+    }
+
+    #[inline]
+    fn final_lead_surrogate(&self) -> Option<u16> {
+        match self.bytes {
+            [.., 0xED, b2 @ 0xA0..=0xAF, b3] => Some(decode_surrogate(b2, b3)),
+            _ => None,
         }
     }
 
@@ -1478,6 +1525,12 @@ impl From<Box<Wtf8>> for Box<[u8]> {
 impl From<Wtf8Buf> for Box<Wtf8> {
     fn from(w: Wtf8Buf) -> Self {
         w.into_box()
+    }
+}
+
+impl From<Box<Wtf8>> for Wtf8Buf {
+    fn from(w: Box<Wtf8>) -> Self {
+        Wtf8Buf::from_box(w)
     }
 }
 

@@ -10,6 +10,7 @@ mod decl {
             PyBool, PyByteArray, PyBytes, PyCode, PyComplex, PyDict, PyEllipsis, PyFloat,
             PyFrozenSet, PyInt, PyList, PyNone, PySet, PyStopIteration, PyStr, PyTuple,
         },
+        common::wtf8::Wtf8,
         convert::ToPyObject,
         function::{ArgBytesLike, OptionalArg},
         object::AsObject,
@@ -53,7 +54,7 @@ mod decl {
                     f(Complex(pycomplex.to_complex64()))
                 }
                 ref pystr @ PyStr => {
-                    f(Str(pystr.as_str()))
+                    f(Str(pystr.as_wtf8()))
                 }
                 ref pylist @ PyList => {
                     f(List(&pylist.borrow_vec()))
@@ -139,7 +140,7 @@ mod decl {
         fn make_complex(&self, value: Complex64) -> Self::Value {
             self.0.ctx.new_complex(value).into()
         }
-        fn make_str(&self, value: &str) -> Self::Value {
+        fn make_str(&self, value: &Wtf8) -> Self::Value {
             self.0.ctx.new_str(value).into()
         }
         fn make_bytes(&self, value: &[u8]) -> Self::Value {

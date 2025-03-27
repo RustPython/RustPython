@@ -1,3 +1,5 @@
+use rustpython_common::wtf8::{Wtf8, Wtf8Buf};
+
 use crate::{
     AsObject, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, VirtualMachine,
     builtins::{PyStr, PyStrInterned, PyTypeRef},
@@ -86,29 +88,29 @@ pub struct CachedPyStrRef {
 
 impl std::hash::Hash for CachedPyStrRef {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.inner.as_str().hash(state)
+        self.inner.as_wtf8().hash(state)
     }
 }
 
 impl PartialEq for CachedPyStrRef {
     fn eq(&self, other: &Self) -> bool {
-        self.inner.as_str() == other.inner.as_str()
+        self.inner.as_wtf8() == other.inner.as_wtf8()
     }
 }
 
 impl Eq for CachedPyStrRef {}
 
-impl std::borrow::Borrow<str> for CachedPyStrRef {
+impl std::borrow::Borrow<Wtf8> for CachedPyStrRef {
     #[inline]
-    fn borrow(&self) -> &str {
-        self.inner.as_str()
+    fn borrow(&self) -> &Wtf8 {
+        self.as_wtf8()
     }
 }
 
-impl AsRef<str> for CachedPyStrRef {
+impl AsRef<Wtf8> for CachedPyStrRef {
     #[inline]
-    fn as_ref(&self) -> &str {
-        self.as_str()
+    fn as_ref(&self) -> &Wtf8 {
+        self.as_wtf8()
     }
 }
 
@@ -121,8 +123,8 @@ impl CachedPyStrRef {
     }
 
     #[inline]
-    fn as_str(&self) -> &str {
-        self.inner.as_str()
+    fn as_wtf8(&self) -> &Wtf8 {
+        self.inner.as_wtf8()
     }
 }
 
@@ -209,6 +211,8 @@ impl<T: PyPayload> ToPyObject for &'static PyInterned<T> {
 }
 
 mod sealed {
+    use rustpython_common::wtf8::{Wtf8, Wtf8Buf};
+
     use crate::{
         builtins::PyStr,
         object::{Py, PyExact, PyRefExact},
@@ -218,11 +222,14 @@ mod sealed {
 
     impl SealedInternable for String {}
     impl SealedInternable for &str {}
+    impl SealedInternable for Wtf8Buf {}
+    impl SealedInternable for &Wtf8 {}
     impl SealedInternable for PyRefExact<PyStr> {}
 
     pub trait SealedMaybeInterned {}
 
     impl SealedMaybeInterned for str {}
+    impl SealedMaybeInterned for Wtf8 {}
     impl SealedMaybeInterned for PyExact<PyStr> {}
     impl SealedMaybeInterned for Py<PyStr> {}
 }
@@ -250,6 +257,21 @@ impl InternableString for &str {
     }
 }
 
+impl InternableString for Wtf8Buf {
+    type Interned = Wtf8;
+    fn into_pyref_exact(self, str_type: PyTypeRef) -> PyRefExact<PyStr> {
+        let obj = PyRef::new_ref(PyStr::from(self), str_type, None);
+        unsafe { PyRefExact::new_unchecked(obj) }
+    }
+}
+
+impl InternableString for &Wtf8 {
+    type Interned = Wtf8;
+    fn into_pyref_exact(self, str_type: PyTypeRef) -> PyRefExact<PyStr> {
+        self.to_owned().into_pyref_exact(str_type)
+    }
+}
+
 impl InternableString for PyRefExact<PyStr> {
     type Interned = Py<PyStr>;
     #[inline]
@@ -259,12 +281,19 @@ impl InternableString for PyRefExact<PyStr> {
 }
 
 pub trait MaybeInternedString:
-    AsRef<str> + crate::dictdatatype::DictKey + sealed::SealedMaybeInterned
+    AsRef<Wtf8> + crate::dictdatatype::DictKey + sealed::SealedMaybeInterned
 {
     fn as_interned(&self) -> Option<&'static PyStrInterned>;
 }
 
 impl MaybeInternedString for str {
+    #[inline(always)]
+    fn as_interned(&self) -> Option<&'static PyStrInterned> {
+        None
+    }
+}
+
+impl MaybeInternedString for Wtf8 {
     #[inline(always)]
     fn as_interned(&self) -> Option<&'static PyStrInterned> {
         None
@@ -296,7 +325,7 @@ impl PyObject {
         if self.is_interned() {
             s.unwrap().as_interned()
         } else if let Some(s) = s {
-            vm.ctx.interned_str(s.as_str())
+            vm.ctx.interned_str(s.as_wtf8())
         } else {
             None
         }
