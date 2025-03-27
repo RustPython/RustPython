@@ -1,4 +1,5 @@
 use crate::common::{boxvec::BoxVec, lock::PyMutex};
+use crate::protocol::PyMapping;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
@@ -520,6 +521,7 @@ impl ExecutingFrame<'_> {
         }
 
         match instruction {
+            bytecode::Instruction::Nop => Ok(None),
             bytecode::Instruction::LoadConst { idx } => {
                 self.push_value(self.code.constants[idx.get(arg) as usize].clone().into());
                 Ok(None)
@@ -670,11 +672,37 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::Subscript => self.execute_subscript(vm),
             bytecode::Instruction::StoreSubscript => self.execute_store_subscript(vm),
             bytecode::Instruction::DeleteSubscript => self.execute_delete_subscript(vm),
+            bytecode::Instruction::CopyItem { index } => {
+                let value = self
+                    .state
+                    .stack
+                    .len()
+                    .checked_sub(index.get(arg) as usize)
+                    .map(|i| &self.state.stack[i])
+                    .unwrap();
+                self.push_value(value.clone());
+                Ok(None)
+            }
             bytecode::Instruction::Pop => {
                 // Pop value from stack and ignore.
                 self.pop_value();
                 Ok(None)
             }
+            bytecode::Instruction::Swap { index } => {
+                let len = self.state.stack.len();
+                let i = len - 1;
+                let j = len - 1 - index.get(arg) as usize;
+                self.state.stack.swap(i, j);
+                Ok(None)
+            }
+            // bytecode::Instruction::ToBool => {
+            //     dbg!("Shouldn't be called outside of match statements for now")
+            //     let value = self.pop_value();
+            //     // call __bool__
+            //     let result = value.try_to_bool(vm)?;
+            //     self.push_value(vm.ctx.new_bool(result).into());
+            //     Ok(None)
+            // }
             bytecode::Instruction::Duplicate => {
                 // Duplicate top of stack
                 let value = self.top_value();
@@ -1220,6 +1248,49 @@ impl ExecutingFrame<'_> {
                         .into_ref(&vm.ctx)
                         .into();
                 self.push_value(type_var_tuple);
+                Ok(None)
+            }
+            bytecode::Instruction::MatchMapping => {
+                // Pop the subject from stack
+                let subject = self.pop_value();
+
+                // Decide if it's a mapping, push True/False or handle error
+                let is_mapping = PyMapping::check(&subject);
+                self.push_value(vm.ctx.new_bool(is_mapping).into());
+                Ok(None)
+            }
+            bytecode::Instruction::MatchSequence => {
+                // Pop the subject from stack
+                let subject = self.pop_value();
+
+                // Decide if it's a sequence (but not a mapping)
+                let is_sequence = subject.to_sequence().check();
+                self.push_value(vm.ctx.new_bool(is_sequence).into());
+                Ok(None)
+            }
+            bytecode::Instruction::MatchKeys => {
+                // Typically we pop a sequence of keys first
+                let _keys = self.pop_value();
+                let subject = self.pop_value();
+
+                // Check if subject is a dict (or mapping) and all keys match
+                if let Ok(_dict) = subject.downcast::<PyDict>() {
+                    // Example: gather the values corresponding to keys
+                    // If keys match, push the matched values & success
+                    self.push_value(vm.ctx.new_bool(true).into());
+                } else {
+                    // Push a placeholder to indicate no match
+                    self.push_value(vm.ctx.new_bool(false).into());
+                }
+                Ok(None)
+            }
+            bytecode::Instruction::MatchClass => {
+                // Pop the subject from stack
+                let subject = self.pop_value();
+
+                // Possibly also pop the class or do a direct type check
+                let is_class = subject.class().is(vm.ctx.types.type_type.as_object());
+                self.push_value(vm.ctx.new_bool(is_class).into());
                 Ok(None)
             }
         }

@@ -1,0 +1,38 @@
+---
+source: compiler/codegen/src/compile.rs
+expression: "compile_exec(\"\\\ni = 0\nz = 1\nmatch i:\n    case 0:\n        z = 0\n    case 1:\n        z = 2\n\nassert z == 0\n\")"
+---
+  1           0 LoadConst            (0)
+              1 StoreLocal           (0, i)
+
+  2           2 LoadConst            (1)
+              3 StoreLocal           (1, z)
+
+  3           4 LoadNameAny          (0, i)
+              5 CopyItem             (1)
+
+  4           6 LoadConst            (0)
+              7 CompareOperation     (Equal)
+              8 JumpIfFalse          (13)
+              9 Pop
+
+  5          10 LoadConst            (0)
+             11 StoreLocal           (1, z)
+             12 Jump                 (19)
+
+  6     >>   13 LoadConst            (1)
+             14 CompareOperation     (Equal)
+             15 JumpIfFalse          (19)
+
+  7          16 LoadConst            (2)
+             17 StoreLocal           (1, z)
+             18 Jump                 (19)
+
+  9     >>   19 LoadNameAny          (1, z)
+             20 LoadConst            (0)
+             21 CompareOperation     (Equal)
+             22 JumpIfTrue           (26)
+             23 LoadGlobal           (2, AssertionError)
+             24 CallFunctionPositional(0)
+             25 Raise                (Raise)
+        >>   26 ReturnConst          (None)
