@@ -30,6 +30,8 @@ num-complex = { workspace = true }
 num-traits = { workspace = true }
 thiserror = { workspace = true }
 malachite-bigint = { workspace = true }
+memchr = { workspace = true }
+unicode_names2 = { workspace = true }
 
 [dev-dependencies]
 # rustpython-parser = { workspace = true }

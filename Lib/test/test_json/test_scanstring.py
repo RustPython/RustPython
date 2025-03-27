@@ -86,8 +86,6 @@ class TestScanstring:
             scanstring('["Bad value", truth]', 2, True),
             ('Bad value', 12))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_surrogates(self):
         scanstring = self.json.decoder.scanstring
         def assertScan(given, expect):

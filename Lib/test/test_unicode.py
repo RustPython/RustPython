@@ -608,8 +608,6 @@ class UnicodeTest(string_tests.CommonTest,
             self.assertEqual('abc' == bytearray(b'abc'), False)
             self.assertEqual('abc' != bytearray(b'abc'), True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_comparison(self):
         # Comparisons:
         self.assertEqual('abc', 'abc')
@@ -830,8 +828,6 @@ class UnicodeTest(string_tests.CommonTest,
             warnings.simplefilter('ignore', DeprecationWarning)
             self.assertTrue(_testcapi.unicode_legacy_string(u).isidentifier())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_isprintable(self):
         self.assertTrue("".isprintable())
         self.assertTrue(" ".isprintable())
@@ -847,8 +843,6 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertTrue('\U0001F46F'.isprintable())
         self.assertFalse('\U000E0020'.isprintable())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_surrogates(self):
         for s in ('a\uD800b\uDFFF', 'a\uDFFFb\uD800',
                   'a\uD800b\uDFFFa', 'a\uDFFFb\uD800a'):
@@ -1827,8 +1821,6 @@ class UnicodeTest(string_tests.CommonTest,
                                     'ill-formed sequence'):
             b'+@'.decode('utf-7')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_codecs_utf8(self):
         self.assertEqual(''.encode('utf-8'), b'')
         self.assertEqual('\u20ac'.encode('utf-8'), b'\xe2\x82\xac')

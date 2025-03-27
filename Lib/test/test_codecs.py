@@ -869,6 +869,11 @@ class UTF16Test(ReadTest, unittest.TestCase):
         with reader:
             self.assertEqual(reader.read(), s1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_incremental_surrogatepass(self):
+        super().test_incremental_surrogatepass()
+
 class UTF16LETest(ReadTest, unittest.TestCase):
     encoding = "utf-16-le"
     ill_formed_sequence = b"\x80\xdc"
@@ -916,6 +921,11 @@ class UTF16LETest(ReadTest, unittest.TestCase):
                          b'\x00\xd8\x03\xde')
         self.assertEqual(b'\x00\xd8\x03\xde'.decode(self.encoding),
                          "\U00010203")
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_incremental_surrogatepass(self):
+        super().test_incremental_surrogatepass()
 
 class UTF16BETest(ReadTest, unittest.TestCase):
     encoding = "utf-16-be"
@@ -965,6 +975,11 @@ class UTF16BETest(ReadTest, unittest.TestCase):
         self.assertEqual(b'\xd8\x00\xde\x03'.decode(self.encoding),
                          "\U00010203")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_incremental_surrogatepass(self):
+        super().test_incremental_surrogatepass()
+
 class UTF8Test(ReadTest, unittest.TestCase):
     encoding = "utf-8"
     ill_formed_sequence = b"\xed\xb2\x80"
@@ -998,8 +1013,6 @@ class UTF8Test(ReadTest, unittest.TestCase):
         self.check_state_handling_decode(self.encoding,
                                          u, u.encode(self.encoding))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decode_error(self):
         for data, error_handler, expected in (
             (b'[\x80\xff]', 'ignore', '[]'),
@@ -1026,8 +1039,6 @@ class UTF8Test(ReadTest, unittest.TestCase):
         exc = cm.exception
         self.assertEqual(exc.object[exc.start:exc.end], '\uD800\uDFFF')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_surrogatepass_handler(self):
         self.assertEqual("abc\ud800def".encode(self.encoding, "surrogatepass"),
                          self.BOM + b"abc\xed\xa0\x80def")
@@ -2884,8 +2895,6 @@ class EscapeEncodeTest(unittest.TestCase):
 
 class SurrogateEscapeTest(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_utf8(self):
         # Bad byte
         self.assertEqual(b"foo\x80bar".decode("utf-8", "surrogateescape"),
@@ -2898,8 +2907,6 @@ class SurrogateEscapeTest(unittest.TestCase):
         self.assertEqual("\udced\udcb0\udc80".encode("utf-8", "surrogateescape"),
                          b"\xed\xb0\x80")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_ascii(self):
         # bad byte
         self.assertEqual(b"foo\x80bar".decode("ascii", "surrogateescape"),
@@ -2916,8 +2923,6 @@ class SurrogateEscapeTest(unittest.TestCase):
         self.assertEqual("foo\udca5bar".encode("iso-8859-3", "surrogateescape"),
                          b"foo\xa5bar")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_latin1(self):
         # Issue6373
         self.assertEqual("\udce4\udceb\udcef\udcf6\udcfc".encode("latin-1", "surrogateescape"),
@@ -3561,8 +3566,6 @@ class ASCIITest(unittest.TestCase):
     def test_encode(self):
         self.assertEqual('abc123'.encode('ascii'), b'abc123')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_encode_error(self):
         for data, error_handler, expected in (
             ('[\x80\xff\u20ac]', 'ignore', b'[]'),
@@ -3585,8 +3588,6 @@ class ASCIITest(unittest.TestCase):
     def test_decode(self):
         self.assertEqual(b'abc'.decode('ascii'), 'abc')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decode_error(self):
         for data, error_handler, expected in (
             (b'[\x80\xff]', 'ignore', '[]'),
@@ -3609,8 +3610,6 @@ class Latin1Test(unittest.TestCase):
             with self.subTest(data=data, expected=expected):
                 self.assertEqual(data.encode('latin1'), expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_encode_errors(self):
         for data, error_handler, expected in (
             ('[\u20ac\udc80]', 'ignore', b'[]'),

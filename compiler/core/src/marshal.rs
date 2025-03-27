@@ -2,6 +2,7 @@ use crate::bytecode::*;
 use malachite_bigint::{BigInt, Sign};
 use num_complex::Complex64;
 use ruff_source_file::{OneIndexed, SourceLocation};
+use rustpython_common::wtf8::Wtf8;
 use std::convert::Infallible;
 
 pub const FORMAT_VERSION: u32 = 4;
@@ -116,6 +117,9 @@ pub trait Read {
     }
     fn read_str(&mut self, len: u32) -> Result<&str> {
         Ok(std::str::from_utf8(self.read_slice(len)?)?)
+    }
+    fn read_wtf8(&mut self, len: u32) -> Result<&Wtf8> {
+        Wtf8::from_bytes(self.read_slice(len)?).ok_or(MarshalError::InvalidUtf8)
     }
     fn read_u8(&mut self) -> Result<u8> {
         Ok(u8::from_le_bytes(*self.read_array()?))
@@ -262,7 +266,7 @@ pub trait MarshalBag: Copy {
     fn make_ellipsis(&self) -> Self::Value;
     fn make_float(&self, value: f64) -> Self::Value;
     fn make_complex(&self, value: Complex64) -> Self::Value;
-    fn make_str(&self, value: &str) -> Self::Value;
+    fn make_str(&self, value: &Wtf8) -> Self::Value;
     fn make_bytes(&self, value: &[u8]) -> Self::Value;
     fn make_int(&self, value: BigInt) -> Self::Value;
     fn make_tuple(&self, elements: impl Iterator<Item = Self::Value>) -> Self::Value;
@@ -299,7 +303,7 @@ impl<Bag: ConstantBag> MarshalBag for Bag {
     fn make_complex(&self, value: Complex64) -> Self::Value {
         self.make_constant::<Bag::Constant>(BorrowedConstant::Complex { value })
     }
-    fn make_str(&self, value: &str) -> Self::Value {
+    fn make_str(&self, value: &Wtf8) -> Self::Value {
         self.make_constant::<Bag::Constant>(BorrowedConstant::Str { value })
     }
     fn make_bytes(&self, value: &[u8]) -> Self::Value {
@@ -368,7 +372,7 @@ pub fn deserialize_value<R: Read, Bag: MarshalBag>(rdr: &mut R, bag: Bag) -> Res
         }
         Type::Ascii | Type::Unicode => {
             let len = rdr.read_u32()?;
-            let value = rdr.read_str(len)?;
+            let value = rdr.read_wtf8(len)?;
             bag.make_str(value)
         }
         Type::Tuple => {
@@ -422,7 +426,7 @@ pub enum DumpableValue<'a, D: Dumpable> {
     Float(f64),
     Complex(Complex64),
     Boolean(bool),
-    Str(&'a str),
+    Str(&'a Wtf8),
     Bytes(&'a [u8]),
     Code(&'a CodeObject<D::Constant>),
     Tuple(&'a [D]),

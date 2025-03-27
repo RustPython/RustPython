@@ -122,18 +122,18 @@ impl CodePoint {
 
     /// Returns the numeric value of the code point if it is a leading surrogate.
     #[inline]
-    pub fn to_lead_surrogate(self) -> Option<u16> {
+    pub fn to_lead_surrogate(self) -> Option<LeadSurrogate> {
         match self.value {
-            lead @ 0xD800..=0xDBFF => Some(lead as u16),
+            lead @ 0xD800..=0xDBFF => Some(LeadSurrogate(lead as u16)),
             _ => None,
         }
     }
 
     /// Returns the numeric value of the code point if it is a trailing surrogate.
     #[inline]
-    pub fn to_trail_surrogate(self) -> Option<u16> {
+    pub fn to_trail_surrogate(self) -> Option<TrailSurrogate> {
         match self.value {
-            trail @ 0xDC00..=0xDFFF => Some(trail as u16),
+            trail @ 0xDC00..=0xDFFF => Some(TrailSurrogate(trail as u16)),
             _ => None,
         }
     }
@@ -216,6 +216,18 @@ impl PartialEq<CodePoint> for char {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct LeadSurrogate(u16);
+
+#[derive(Clone, Copy)]
+pub struct TrailSurrogate(u16);
+
+impl LeadSurrogate {
+    pub fn merge(self, trail: TrailSurrogate) -> char {
+        decode_surrogate_pair(self.0, trail.0)
+    }
+}
+
 /// An owned, growable string of well-formed WTF-8 data.
 ///
 /// Similar to `String`, but can additionally contain surrogate code points
@@ -289,6 +301,14 @@ impl Wtf8Buf {
     #[inline]
     pub unsafe fn from_bytes_unchecked(value: Vec<u8>) -> Wtf8Buf {
         Wtf8Buf { bytes: value }
+    }
+
+    /// Create a WTF-8 string from a WTF-8 byte vec.
+    pub fn from_bytes(value: Vec<u8>) -> Result<Self, Vec<u8>> {
+        match Wtf8::from_bytes(&value) {
+            Some(_) => Ok(unsafe { Self::from_bytes_unchecked(value) }),
+            None => Err(value),
+        }
     }
 
     /// Creates a WTF-8 string from a UTF-8 `String`.
@@ -574,6 +594,12 @@ impl<W: AsRef<Wtf8>> FromIterator<W> for Wtf8Buf {
     }
 }
 
+impl Hash for Wtf8Buf {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Wtf8::hash(self, state)
+    }
+}
+
 impl AsRef<Wtf8> for Wtf8Buf {
     fn as_ref(&self) -> &Wtf8 {
         self
@@ -692,6 +718,13 @@ impl Default for &Wtf8 {
     }
 }
 
+impl Hash for Wtf8 {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.as_bytes());
+        state.write_u8(0xff);
+    }
+}
+
 impl Wtf8 {
     /// Creates a WTF-8 slice from a UTF-8 `&str` slice.
     ///
@@ -720,6 +753,27 @@ impl Wtf8 {
     unsafe fn from_mut_bytes_unchecked(value: &mut [u8]) -> &mut Wtf8 {
         // SAFETY: start with &mut [u8], end with fancy &mut [u8]
         unsafe { &mut *(value as *mut [u8] as *mut Wtf8) }
+    }
+
+    /// Create a WTF-8 slice from a WTF-8 byte slice.
+    //
+    // whooops! using WTF-8 for interchange!
+    #[inline]
+    pub fn from_bytes(b: &[u8]) -> Option<&Self> {
+        let mut rest = b;
+        while let Err(e) = std::str::from_utf8(rest) {
+            rest = &rest[e.valid_up_to()..];
+            let _ = Self::decode_surrogate(rest)?;
+            rest = &rest[3..];
+        }
+        Some(unsafe { Wtf8::from_bytes_unchecked(b) })
+    }
+
+    fn decode_surrogate(b: &[u8]) -> Option<CodePoint> {
+        let [0xed, b2 @ (0xa0..), b3, ..] = *b else {
+            return None;
+        };
+        Some(decode_surrogate(b2, b3).into())
     }
 
     /// Returns the length, in WTF-8 bytes.
@@ -1175,6 +1229,12 @@ fn decode_surrogate(second_byte: u8, third_byte: u8) -> u16 {
     0xD800 | (second_byte as u16 & 0x3F) << 6 | third_byte as u16 & 0x3F
 }
 
+#[inline]
+fn decode_surrogate_pair(lead: u16, trail: u16) -> char {
+    let code_point = 0x10000 + ((((lead - 0xD800) as u32) << 10) | (trail - 0xDC00) as u32);
+    unsafe { char::from_u32_unchecked(code_point) }
+}
+
 /// Copied from str::is_char_boundary
 #[inline]
 fn is_code_point_boundary(slice: &Wtf8, index: usize) -> bool {
@@ -1478,6 +1538,12 @@ impl From<Box<Wtf8>> for Box<[u8]> {
 impl From<Wtf8Buf> for Box<Wtf8> {
     fn from(w: Wtf8Buf) -> Self {
         w.into_box()
+    }
+}
+
+impl From<Box<Wtf8>> for Wtf8Buf {
+    fn from(w: Box<Wtf8>) -> Self {
+        Wtf8Buf::from_box(w)
     }
 }
 

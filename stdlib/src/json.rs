@@ -13,6 +13,7 @@ mod _json {
         types::{Callable, Constructor},
     };
     use malachite_bigint::BigInt;
+    use rustpython_common::wtf8::Wtf8Buf;
     use std::str::FromStr;
 
     #[pyattr(name = "make_scanner")]
@@ -253,8 +254,8 @@ mod _json {
         end: usize,
         strict: OptionalArg<bool>,
         vm: &VirtualMachine,
-    ) -> PyResult<(String, usize)> {
-        machinery::scanstring(s.as_str(), end, strict.unwrap_or(true))
+    ) -> PyResult<(Wtf8Buf, usize)> {
+        machinery::scanstring(s.as_wtf8(), end, strict.unwrap_or(true))
             .map_err(|e| py_decode_error(e, s, vm))
     }
 }

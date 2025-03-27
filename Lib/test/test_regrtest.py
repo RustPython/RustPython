@@ -945,7 +945,6 @@ class ArgsTestCase(BaseTestCase):
         """)
         self.check_leak(code, 'file descriptors')
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON Windows')
     def test_list_tests(self):
         # test --list-tests
         tests = [self.create_test() for i in range(5)]
@@ -953,7 +952,6 @@ class ArgsTestCase(BaseTestCase):
         self.assertEqual(output.rstrip().splitlines(),
                          tests)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON Windows')
     def test_list_cases(self):
         # test --list-cases
         code = textwrap.dedent("""

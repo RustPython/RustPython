@@ -327,8 +327,12 @@ mod decl {
          * raises an error if unsupported format is supplied.
          * If error happens, we set result as input arg.
          */
-        write!(&mut formatted_time, "{}", instant.format(format.as_str()))
-            .unwrap_or_else(|_| formatted_time = format.to_string());
+        write!(
+            &mut formatted_time,
+            "{}",
+            instant.format(format.try_to_str(vm)?)
+        )
+        .unwrap_or_else(|_| formatted_time = format.to_string());
         Ok(vm.ctx.new_str(formatted_time).into())
     }
 

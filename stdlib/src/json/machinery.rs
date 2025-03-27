@@ -28,6 +28,9 @@
 
 use std::io;
 
+use itertools::Itertools;
+use rustpython_common::wtf8::{CodePoint, Wtf8, Wtf8Buf};
+
 static ESCAPE_CHARS: [&str; 0x20] = [
     "\\u0000", "\\u0001", "\\u0002", "\\u0003", "\\u0004", "\\u0005", "\\u0006", "\\u0007", "\\b",
     "\\t", "\\n", "\\u000", "\\f", "\\r", "\\u000e", "\\u000f", "\\u0010", "\\u0011", "\\u0012",
@@ -111,22 +114,22 @@ impl DecodeError {
 }
 
 enum StrOrChar<'a> {
-    Str(&'a str),
-    Char(char),
+    Str(&'a Wtf8),
+    Char(CodePoint),
 }
 impl StrOrChar<'_> {
     fn len(&self) -> usize {
         match self {
             StrOrChar::Str(s) => s.len(),
-            StrOrChar::Char(c) => c.len_utf8(),
+            StrOrChar::Char(c) => c.len_wtf8(),
         }
     }
 }
 pub fn scanstring<'a>(
-    s: &'a str,
+    s: &'a Wtf8,
     end: usize,
     strict: bool,
-) -> Result<(String, usize), DecodeError> {
+) -> Result<(Wtf8Buf, usize), DecodeError> {
     let mut chunks: Vec<StrOrChar<'a>> = Vec::new();
     let mut output_len = 0usize;
     let mut push_chunk = |chunk: StrOrChar<'a>| {
@@ -134,16 +137,16 @@ pub fn scanstring<'a>(
         chunks.push(chunk);
     };
     let unterminated_err = || DecodeError::new("Unterminated string starting at", end - 1);
-    let mut chars = s.char_indices().enumerate().skip(end).peekable();
+    let mut chars = s.code_point_indices().enumerate().skip(end).peekable();
     let &(_, (mut chunk_start, _)) = chars.peek().ok_or_else(unterminated_err)?;
     while let Some((char_i, (byte_i, c))) = chars.next() {
-        match c {
+        match c.to_char_lossy() {
             '"' => {
                 push_chunk(StrOrChar::Str(&s[chunk_start..byte_i]));
-                let mut out = String::with_capacity(output_len);
+                let mut out = Wtf8Buf::with_capacity(output_len);
                 for x in chunks {
                     match x {
-                        StrOrChar::Str(s) => out.push_str(s),
+                        StrOrChar::Str(s) => out.push_wtf8(s),
                         StrOrChar::Char(c) => out.push(c),
                     }
                 }
@@ -152,7 +155,7 @@ pub fn scanstring<'a>(
             '\\' => {
                 push_chunk(StrOrChar::Str(&s[chunk_start..byte_i]));
                 let (_, (_, c)) = chars.next().ok_or_else(unterminated_err)?;
-                let esc = match c {
+                let esc = match c.to_char_lossy() {
                     '"' => "\"",
                     '\\' => "\\",
                     '/' => "/",
@@ -162,41 +165,33 @@ pub fn scanstring<'a>(
                     'r' => "\r",
                     't' => "\t",
                     'u' => {
-                        let surrogate_err = || DecodeError::new("unpaired surrogate", char_i);
                         let mut uni = decode_unicode(&mut chars, char_i)?;
                         chunk_start = byte_i + 6;
-                        if (0xd800..=0xdbff).contains(&uni) {
+                        if let Some(lead) = uni.to_lead_surrogate() {
                             // uni is a surrogate -- try to find its pair
-                            if let Some(&(pos2, (_, '\\'))) = chars.peek() {
-                                // ok, the next char starts an escape
-                                chars.next();
-                                if let Some((_, (_, 'u'))) = chars.peek() {
-                                    // ok, it's a unicode escape
-                                    chars.next();
-                                    let uni2 = decode_unicode(&mut chars, pos2)?;
+                            let mut chars2 = chars.clone();
+                            if let Some(((pos2, _), (_, _))) = chars2
+                                .next_tuple()
+                                .filter(|((_, (_, c1)), (_, (_, c2)))| *c1 == '\\' && *c2 == 'u')
+                            {
+                                let uni2 = decode_unicode(&mut chars2, pos2)?;
+                                if let Some(trail) = uni2.to_trail_surrogate() {
+                                    // ok, we found what we were looking for -- \uXXXX\uXXXX, both surrogates
+                                    uni = lead.merge(trail).into();
                                     chunk_start = pos2 + 6;
-                                    if (0xdc00..=0xdfff).contains(&uni2) {
-                                        // ok, we found what we were looking for -- \uXXXX\uXXXX, both surrogates
-                                        uni = 0x10000 + (((uni - 0xd800) << 10) | (uni2 - 0xdc00));
-                                    } else {
-                                        // if we don't find a matching surrogate, error -- until str
-                                        // isn't utf8 internally, we can't parse surrogates
-                                        return Err(surrogate_err());
-                                    }
-                                } else {
-                                    return Err(surrogate_err());
+                                    chars = chars2;
                                 }
                             }
                         }
-                        push_chunk(StrOrChar::Char(
-                            std::char::from_u32(uni).ok_or_else(surrogate_err)?,
-                        ));
+                        push_chunk(StrOrChar::Char(uni));
                         continue;
                     }
-                    _ => return Err(DecodeError::new(format!("Invalid \\escape: {c:?}"), char_i)),
+                    _ => {
+                        return Err(DecodeError::new(format!("Invalid \\escape: {c:?}"), char_i));
+                    }
                 };
                 chunk_start = byte_i + 2;
-                push_chunk(StrOrChar::Str(esc));
+                push_chunk(StrOrChar::Str(esc.as_ref()));
             }
             '\x00'..='\x1f' if strict => {
                 return Err(DecodeError::new(
@@ -211,16 +206,16 @@ pub fn scanstring<'a>(
 }
 
 #[inline]
-fn decode_unicode<I>(it: &mut I, pos: usize) -> Result<u32, DecodeError>
+fn decode_unicode<I>(it: &mut I, pos: usize) -> Result<CodePoint, DecodeError>
 where
-    I: Iterator<Item = (usize, (usize, char))>,
+    I: Iterator<Item = (usize, (usize, CodePoint))>,
 {
     let err = || DecodeError::new("Invalid \\uXXXX escape", pos);
     let mut uni = 0;
     for x in (0..4).rev() {
         let (_, (_, c)) = it.next().ok_or_else(err)?;
-        let d = c.to_digit(16).ok_or_else(err)?;
-        uni += d * 16u32.pow(x);
+        let d = c.to_char().and_then(|c| c.to_digit(16)).ok_or_else(err)? as u16;
+        uni += d * 16u16.pow(x);
     }
-    Ok(uni)
+    Ok(uni.into())
 }

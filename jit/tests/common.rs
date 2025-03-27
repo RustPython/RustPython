@@ -53,7 +53,9 @@ enum StackValue {
 impl From<ConstantData> for StackValue {
     fn from(value: ConstantData) -> Self {
         match value {
-            ConstantData::Str { value } => StackValue::String(value),
+            ConstantData::Str { value } => {
+                StackValue::String(value.into_string().expect("surrogate in test code"))
+            }
             ConstantData::None => StackValue::None,
             ConstantData::Code { code } => StackValue::Code(code),
             c => unimplemented!("constant {:?} isn't yet supported in py_function!", c),

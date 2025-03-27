@@ -1198,8 +1198,6 @@ class ProcessTestCase(BaseTestCase):
             stdout, stderr = popen.communicate(input='')
             self.assertEqual(stdout, '1\n2\n3\n4')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_communicate_errors(self):
         for errors, expected in [
             ('ignore', ''),
