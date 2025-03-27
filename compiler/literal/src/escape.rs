@@ -1,3 +1,5 @@
+use rustpython_wtf8::{CodePoint, Wtf8};
+
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash, is_macro::Is)]
 pub enum Quote {
     Single,
@@ -35,20 +37,32 @@ pub struct EscapeLayout {
     pub len: Option<usize>,
 }
 
-pub trait Escape {
+/// Represents string types that can be escape-printed.
+///
+/// # Safety
+///
+/// `source_len` and `layout` must be accurate, and `layout.len` must not be equal
+/// to `Some(source_len)` if the string contains non-printable characters.
+pub unsafe trait Escape {
     fn source_len(&self) -> usize;
     fn layout(&self) -> &EscapeLayout;
     fn changed(&self) -> bool {
         self.layout().len != Some(self.source_len())
     }
 
-    fn write_source(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result;
+    /// Write the body of the string directly to the formatter.
+    ///
+    /// # Safety
+    ///
+    /// This string must only contain printable characters.
+    unsafe fn write_source(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result;
     fn write_body_slow(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result;
     fn write_body(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
         if self.changed() {
             self.write_body_slow(formatter)
         } else {
-            self.write_source(formatter)
+            // SAFETY: verified the string contains only printable characters.
+            unsafe { self.write_source(formatter) }
         }
     }
 }
@@ -75,23 +89,23 @@ pub(crate) const fn choose_quote(
 }
 
 pub struct UnicodeEscape<'a> {
-    source: &'a str,
+    source: &'a Wtf8,
     layout: EscapeLayout,
 }
 
 impl<'a> UnicodeEscape<'a> {
     #[inline]
-    pub fn with_forced_quote(source: &'a str, quote: Quote) -> Self {
+    pub fn with_forced_quote(source: &'a Wtf8, quote: Quote) -> Self {
         let layout = EscapeLayout { quote, len: None };
         Self { source, layout }
     }
     #[inline]
-    pub fn with_preferred_quote(source: &'a str, quote: Quote) -> Self {
+    pub fn with_preferred_quote(source: &'a Wtf8, quote: Quote) -> Self {
         let layout = Self::repr_layout(source, quote);
         Self { source, layout }
     }
     #[inline]
-    pub fn new_repr(source: &'a str) -> Self {
+    pub fn new_repr(source: &'a Wtf8) -> Self {
         Self::with_preferred_quote(source, Quote::Single)
     }
     #[inline]
@@ -126,14 +140,14 @@ impl std::fmt::Display for StrRepr<'_, '_> {
 impl UnicodeEscape<'_> {
     const REPR_RESERVED_LEN: usize = 2; // for quotes
 
-    pub fn repr_layout(source: &str, preferred_quote: Quote) -> EscapeLayout {
+    pub fn repr_layout(source: &Wtf8, preferred_quote: Quote) -> EscapeLayout {
         Self::output_layout_with_checker(source, preferred_quote, |a, b| {
             Some((a as isize).checked_add(b as isize)? as usize)
         })
     }
 
     fn output_layout_with_checker(
-        source: &str,
+        source: &Wtf8,
         preferred_quote: Quote,
         length_add: impl Fn(usize, usize) -> Option<usize>,
     ) -> EscapeLayout {
@@ -141,17 +155,17 @@ impl UnicodeEscape<'_> {
         let mut single_count = 0;
         let mut double_count = 0;
 
-        for ch in source.chars() {
-            let incr = match ch {
-                '\'' => {
+        for ch in source.code_points() {
+            let incr = match ch.to_char() {
+                Some('\'') => {
                     single_count += 1;
                     1
                 }
-                '"' => {
+                Some('"') => {
                     double_count += 1;
                     1
                 }
-                c => Self::escaped_char_len(c),
+                _ => Self::escaped_char_len(ch),
             };
             let Some(new_len) = length_add(out_len, incr) else {
                 #[cold]
@@ -182,7 +196,9 @@ impl UnicodeEscape<'_> {
         }
     }
 
-    fn escaped_char_len(ch: char) -> usize {
+    fn escaped_char_len(ch: CodePoint) -> usize {
+        // surrogates are \uHHHH
+        let Some(ch) = ch.to_char() else { return 6 };
         match ch {
             '\\' | '\t' | '\r' | '\n' => 2,
             ch if ch < ' ' || ch as u32 == 0x7f => 4, // \xHH
@@ -198,10 +214,13 @@ impl UnicodeEscape<'_> {
     }
 
     fn write_char(
-        ch: char,
+        ch: CodePoint,
         quote: Quote,
         formatter: &mut impl std::fmt::Write,
     ) -> std::fmt::Result {
+        let Some(ch) = ch.to_char() else {
+            return write!(formatter, "\\u{:04x}", ch.to_u32());
+        };
         match ch {
             '\n' => formatter.write_str("\\n"),
             '\t' => formatter.write_str("\\t"),
@@ -232,7 +251,7 @@ impl UnicodeEscape<'_> {
     }
 }
 
-impl Escape for UnicodeEscape<'_> {
+unsafe impl Escape for UnicodeEscape<'_> {
     fn source_len(&self) -> usize {
         self.source.len()
     }
@@ -241,13 +260,16 @@ impl Escape for UnicodeEscape<'_> {
         &self.layout
     }
 
-    fn write_source(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
-        formatter.write_str(self.source)
+    unsafe fn write_source(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
+        formatter.write_str(unsafe {
+            // SAFETY: this function must be called only when source is printable characters (i.e. no surrogates)
+            std::str::from_utf8_unchecked(self.source.as_bytes())
+        })
     }
 
     #[cold]
     fn write_body_slow(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
-        for ch in self.source.chars() {
+        for ch in self.source.code_points() {
             Self::write_char(ch, self.layout().quote, formatter)?;
         }
         Ok(())
@@ -373,7 +395,7 @@ impl AsciiEscape<'_> {
     }
 }
 
-impl Escape for AsciiEscape<'_> {
+unsafe impl Escape for AsciiEscape<'_> {
     fn source_len(&self) -> usize {
         self.source.len()
     }
@@ -382,7 +404,7 @@ impl Escape for AsciiEscape<'_> {
         &self.layout
     }
 
-    fn write_source(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
+    unsafe fn write_source(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
         formatter.write_str(unsafe {
             // SAFETY: this function must be called only when source is printable ascii characters
             std::str::from_utf8_unchecked(self.source)
@@ -429,7 +451,7 @@ mod unicode_escape_tests {
     #[test]
     fn changed() {
         fn test(s: &str) -> bool {
-            UnicodeEscape::new_repr(s).changed()
+            UnicodeEscape::new_repr(s.as_ref()).changed()
         }
         assert!(!test("hello"));
         assert!(!test("'hello'"));

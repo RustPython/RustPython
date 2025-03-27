@@ -69,6 +69,7 @@ mod array {
     };
     use itertools::Itertools;
     use num_traits::ToPrimitive;
+    use rustpython_common::wtf8::{CodePoint, Wtf8, Wtf8Buf};
     use std::{cmp::Ordering, fmt, os::raw};
 
     macro_rules! def_array_enum {
@@ -590,21 +591,12 @@ mod array {
         }
     }
 
-    fn u32_to_char(ch: u32) -> Result<char, String> {
-        if ch > 0x10ffff {
-            return Err(format!(
-                "character U+{ch:4x} is not in range [U+0000; U+10ffff]"
-            ));
-        };
-        char::from_u32(ch).ok_or_else(|| {
-            format!(
-                "'utf-8' codec can't encode character '\\u{ch:x}' \
-                in position 0: surrogates not allowed"
-            )
-        })
+    fn u32_to_char(ch: u32) -> Result<CodePoint, String> {
+        CodePoint::from_u32(ch)
+            .ok_or_else(|| format!("character U+{ch:4x} is not in range [U+0000; U+10ffff]"))
     }
 
-    impl TryFrom<WideChar> for char {
+    impl TryFrom<WideChar> for CodePoint {
         type Error = String;
 
         fn try_from(ch: WideChar) -> Result<Self, Self::Error> {
@@ -615,10 +607,9 @@ mod array {
 
     impl ToPyResult for WideChar {
         fn to_pyresult(self, vm: &VirtualMachine) -> PyResult {
-            Ok(
-                String::from(char::try_from(self).map_err(|e| vm.new_unicode_encode_error(e))?)
-                    .to_pyobject(vm),
-            )
+            Ok(CodePoint::try_from(self)
+                .map_err(|e| vm.new_unicode_encode_error(e))?
+                .to_pyobject(vm))
         }
     }
 
@@ -694,9 +685,9 @@ mod array {
                             }
                         }
                     }
-                } else if let Some(utf8) = init.payload::<PyStr>() {
+                } else if let Some(wtf8) = init.payload::<PyStr>() {
                     if spec == 'u' {
-                        let bytes = Self::_unicode_to_wchar_bytes(utf8.as_str(), array.itemsize());
+                        let bytes = Self::_unicode_to_wchar_bytes(wtf8.as_wtf8(), array.itemsize());
                         array.frombytes_move(bytes);
                     } else {
                         return Err(vm.new_type_error(format!(
@@ -794,7 +785,7 @@ mod array {
             bytes: &[u8],
             item_size: usize,
             vm: &VirtualMachine,
-        ) -> PyResult<String> {
+        ) -> PyResult<Wtf8Buf> {
             if item_size == 2 {
                 // safe because every configuration of bytes for the types we support are valid
                 let utf16 = unsafe {
@@ -803,7 +794,7 @@ mod array {
                         bytes.len() / std::mem::size_of::<u16>(),
                     )
                 };
-                Ok(String::from_utf16_lossy(utf16))
+                Ok(Wtf8Buf::from_wide(utf16))
             } else {
                 // safe because every configuration of bytes for the types we support are valid
                 let chars = unsafe {
@@ -822,21 +813,19 @@ mod array {
             }
         }
 
-        fn _unicode_to_wchar_bytes(utf8: &str, item_size: usize) -> Vec<u8> {
+        fn _unicode_to_wchar_bytes(wtf8: &Wtf8, item_size: usize) -> Vec<u8> {
             if item_size == 2 {
-                utf8.encode_utf16()
-                    .flat_map(|ch| ch.to_ne_bytes())
-                    .collect()
+                wtf8.encode_wide().flat_map(|ch| ch.to_ne_bytes()).collect()
             } else {
-                utf8.chars()
-                    .flat_map(|ch| (ch as u32).to_ne_bytes())
+                wtf8.code_points()
+                    .flat_map(|ch| ch.to_u32().to_ne_bytes())
                     .collect()
             }
         }
 
         #[pymethod]
         fn fromunicode(zelf: &Py<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let utf8: &str = obj.try_to_value(vm).map_err(|_| {
+            let wtf8: &Wtf8 = obj.try_to_value(vm).map_err(|_| {
                 vm.new_type_error(format!(
                     "fromunicode() argument must be str, not {}",
                     obj.class().name()
@@ -848,13 +837,13 @@ mod array {
                 ));
             }
             let mut w = zelf.try_resizable(vm)?;
-            let bytes = Self::_unicode_to_wchar_bytes(utf8, w.itemsize());
+            let bytes = Self::_unicode_to_wchar_bytes(wtf8, w.itemsize());
             w.frombytes_move(bytes);
             Ok(())
         }
 
         #[pymethod]
-        fn tounicode(&self, vm: &VirtualMachine) -> PyResult<String> {
+        fn tounicode(&self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             let array = self.array.read();
             if array.typecode() != 'u' {
                 return Err(vm.new_value_error(
@@ -1184,7 +1173,7 @@ mod array {
             let typecode = vm.ctx.new_str(array.typecode_str());
             let values = if array.typecode() == 'u' {
                 let s = Self::_wchar_bytes_to_string(array.get_bytes(), array.itemsize(), vm)?;
-                s.chars().map(|x| x.to_pyobject(vm)).collect()
+                s.code_points().map(|x| x.to_pyobject(vm)).collect()
             } else {
                 array.get_objects(vm)
             };
@@ -1656,11 +1645,11 @@ mod array {
                 let s = String::from_utf16(&utf16).map_err(|_| {
                     vm.new_unicode_encode_error("items cannot decode as utf16".into())
                 })?;
-                let bytes = PyArray::_unicode_to_wchar_bytes(&s, array.itemsize());
+                let bytes = PyArray::_unicode_to_wchar_bytes((*s).as_ref(), array.itemsize());
                 array.frombytes_move(bytes);
             }
             MachineFormatCode::Utf32 { big_endian } => {
-                let s: String = chunks
+                let s: Wtf8Buf = chunks
                     .map(|b| chunk_to_obj!(b, u32, big_endian))
                     .map(|ch| u32_to_char(ch).map_err(|msg| vm.new_value_error(msg)))
                     .try_collect()?;

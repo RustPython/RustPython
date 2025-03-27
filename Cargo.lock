@@ -2457,6 +2457,7 @@ dependencies = [
  "lexical-parse-float",
  "num-traits",
  "rand 0.9.0",
+ "rustpython-wtf8",
  "unic-ucd-category",
 ]
 
