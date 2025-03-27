@@ -1,3 +1,5 @@
+// cspell:disable
+
 use crate::vm::{PyRef, VirtualMachine, builtins::PyModule};
 #[cfg(feature = "ssl")]
 pub(super) use _socket::{PySocket, SelectKind, sock_select, timeout_error_msg};

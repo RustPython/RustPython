@@ -1,3 +1,5 @@
+// cspell:disable
+
 pub(crate) use _overlapped::make_module;
 
 #[allow(non_snake_case)]

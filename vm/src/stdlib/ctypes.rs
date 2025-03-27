@@ -1,3 +1,5 @@
+// cspell:disable
+
 pub(crate) mod array;
 pub(crate) mod base;
 pub(crate) mod function;

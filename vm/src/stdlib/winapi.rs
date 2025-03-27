@@ -1,3 +1,5 @@
+// cspell:disable
+
 #![allow(non_snake_case)]
 pub(crate) use _winapi::make_module;
 
