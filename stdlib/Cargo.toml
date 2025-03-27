@@ -81,6 +81,7 @@ crc32fast = "1.3.2"
 flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
 libz-sys = { package = "libz-rs-sys", version = "0.4" }
 bzip2 = { version = "0.4", optional = true }
+libm = "0.2.11"
 
 # tkinter
 tk = { version = "0.1.10", optional = true }
