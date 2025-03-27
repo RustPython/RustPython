@@ -179,9 +179,12 @@ impl Constructor for PyComplex {
                             "complex() can't take second arg if first is a string".to_owned(),
                         ));
                     }
-                    let value = parse_str(s.as_str().trim()).ok_or_else(|| {
-                        vm.new_value_error("complex() arg is a malformed string".to_owned())
-                    })?;
+                    let value = s
+                        .to_str()
+                        .and_then(|s| parse_str(s.trim()))
+                        .ok_or_else(|| {
+                            vm.new_value_error("complex() arg is a malformed string".to_owned())
+                        })?;
                     return Self::from(value)
                         .into_ref_with_type(vm, cls)
                         .map(Into::into);

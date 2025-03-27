@@ -1,3 +1,5 @@
+use rustpython_common::wtf8::Wtf8;
+
 use crate::{
     PyObjectRef, PyResult, VirtualMachine,
     builtins::PyStr,
@@ -18,9 +20,9 @@ impl ToPyObject for std::convert::Infallible {
     }
 }
 
-pub trait ToCString: AsRef<str> {
+pub trait ToCString: AsRef<Wtf8> {
     fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<std::ffi::CString> {
-        std::ffi::CString::new(self.as_ref()).map_err(|err| err.to_pyexception(vm))
+        std::ffi::CString::new(self.as_ref().as_bytes()).map_err(|err| err.to_pyexception(vm))
     }
     fn ensure_no_nul(&self, vm: &VirtualMachine) -> PyResult<()> {
         if self.as_ref().as_bytes().contains(&b'\0') {

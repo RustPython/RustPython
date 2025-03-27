@@ -53,8 +53,6 @@ class UserStringTest(
         str3 = ustr3('TEST')
         self.assertEqual(fmt2 % str3, 'value is TEST')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_encode_default_args(self):
         self.checkequal(b'hello', 'hello', 'encode')
         # Check that encoding defaults to utf-8
@@ -62,8 +60,6 @@ class UserStringTest(
         # Check that errors defaults to 'strict'
         self.checkraises(UnicodeError, '\ud800', 'encode')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_encode_explicit_none_args(self):
         self.checkequal(b'hello', 'hello', 'encode', None, None)
         # Check that encoding defaults to utf-8

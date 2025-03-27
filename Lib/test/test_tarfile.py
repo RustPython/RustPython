@@ -2086,11 +2086,6 @@ class UstarUnicodeTest(UnicodeTest, unittest.TestCase):
 
     format = tarfile.USTAR_FORMAT
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_uname_unicode(self):
-        super().test_uname_unicode()
-
     # Test whether the utf-8 encoded version of a filename exceeds the 100
     # bytes name field limit (every occurrence of '\xff' will be expanded to 2
     # bytes).
@@ -2170,13 +2165,6 @@ class GNUUnicodeTest(UnicodeTest, unittest.TestCase):
 
     format = tarfile.GNU_FORMAT
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_uname_unicode(self):
-        super().test_uname_unicode()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bad_pax_header(self):
         # Test for issue #8633. GNU tar <= 1.23 creates raw binary fields
         # without a hdrcharset=BINARY header.
@@ -2198,8 +2186,6 @@ class PAXUnicodeTest(UnicodeTest, unittest.TestCase):
     # PAX_FORMAT ignores encoding in write mode.
     test_unicode_filename_error = None
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_binary_header(self):
         # Test a POSIX.1-2008 compatible header with a hdrcharset=BINARY field.
         for encoding, name in (

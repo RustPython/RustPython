@@ -2245,7 +2245,7 @@ mod _io {
 
             let newline = args.newline.unwrap_or_default();
             let (encoder, decoder) =
-                Self::find_coder(&buffer, encoding.as_str(), &errors, newline, vm)?;
+                Self::find_coder(&buffer, encoding.try_to_str(vm)?, &errors, newline, vm)?;
 
             *data = Some(TextIOData {
                 buffer,
@@ -2345,7 +2345,7 @@ mod _io {
                 if let Some(encoding) = args.encoding {
                     let (encoder, decoder) = Self::find_coder(
                         &data.buffer,
-                        encoding.as_str(),
+                        encoding.try_to_str(vm)?,
                         &data.errors,
                         data.newline,
                         vm,
@@ -3468,9 +3468,9 @@ mod _io {
 
         // return the entire contents of the underlying
         #[pymethod]
-        fn getvalue(&self, vm: &VirtualMachine) -> PyResult<String> {
+        fn getvalue(&self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             let bytes = self.buffer(vm)?.getvalue();
-            String::from_utf8(bytes)
+            Wtf8Buf::from_bytes(bytes)
                 .map_err(|_| vm.new_value_error("Error Retrieving Value".to_owned()))
         }
 
@@ -3491,10 +3491,10 @@ mod _io {
         // If k is undefined || k == -1, then we read all bytes until the end of the file.
         // This also increments the stream position by the value of k
         #[pymethod]
-        fn read(&self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<String> {
+        fn read(&self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             let data = self.buffer(vm)?.read(size.to_usize()).unwrap_or_default();
 
-            let value = String::from_utf8(data)
+            let value = Wtf8Buf::from_bytes(data)
                 .map_err(|_| vm.new_value_error("Error Retrieving Value".to_owned()))?;
             Ok(value)
         }
@@ -3505,11 +3505,11 @@ mod _io {
         }
 
         #[pymethod]
-        fn readline(&self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<String> {
+        fn readline(&self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             // TODO size should correspond to the number of characters, at the moments its the number of
             // bytes.
             let input = self.buffer(vm)?.readline(size.to_usize(), vm)?;
-            String::from_utf8(input)
+            Wtf8Buf::from_bytes(input)
                 .map_err(|_| vm.new_value_error("Error Retrieving Value".to_owned()))
         }
 

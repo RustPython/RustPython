@@ -161,7 +161,7 @@ impl Constructor for PyFloat {
 fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
     let (bytearray, buffer, buffer_lock);
     let b = if let Some(s) = val.payload_if_subclass::<PyStr>(vm) {
-        s.as_str().trim().as_bytes()
+        s.as_wtf8().trim().as_bytes()
     } else if let Some(bytes) = val.payload_if_subclass::<PyBytes>(vm) {
         bytes.as_bytes()
     } else if let Some(buf) = val.payload_if_subclass::<PyByteArray>(vm) {

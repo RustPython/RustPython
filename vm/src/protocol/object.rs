@@ -224,7 +224,7 @@ impl PyObject {
         dict: Option<PyDictRef>,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        let name = name_str.as_str();
+        let name = name_str.as_wtf8();
         let obj_cls = self.class();
         let cls_attr_name = vm.ctx.interned_str(name_str);
         let cls_attr = match cls_attr_name.and_then(|name| obj_cls.get_attr(name)) {
