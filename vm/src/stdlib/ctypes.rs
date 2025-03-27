@@ -10,16 +10,16 @@ pub(crate) mod union;
 
 use crate::builtins::PyModule;
 use crate::class::PyClassImpl;
-use crate::stdlib::ctypes::base::{PyCData, PyCSimple, PySimpleMeta};
+use crate::stdlib::ctypes::base::{PyCData, PyCSimple, PyCSimpleType};
 use crate::{Py, PyRef, VirtualMachine};
 
 pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
     let ctx = &vm.ctx;
-    PySimpleMeta::make_class(ctx);
+    PyCSimpleType::make_class(ctx);
+    array::PyCArrayType::make_class(ctx);
     extend_module!(vm, module, {
         "_CData" => PyCData::make_class(ctx),
         "_SimpleCData" => PyCSimple::make_class(ctx),
-        "ArrayType" => array::PyCArrayType::make_class(ctx),
         "Array" => array::PyCArray::make_class(ctx),
         "CFuncPtr" => function::PyCFuncPtr::make_class(ctx),
         "_Pointer" => pointer::PyCPointer::make_class(ctx),

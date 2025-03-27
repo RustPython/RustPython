@@ -160,10 +160,10 @@ pub struct PyCData {
 impl PyCData {}
 
 #[pyclass(module = "_ctypes", name = "PyCSimpleType", base = "PyType")]
-pub struct PySimpleMeta {}
+pub struct PyCSimpleType {}
 
 #[pyclass(flags(BASETYPE))]
-impl PySimpleMeta {
+impl PyCSimpleType {
     #[allow(clippy::new_ret_no_self)]
     #[pymethod]
     fn new(cls: PyTypeRef, _: OptionalArg, vm: &VirtualMachine) -> PyResult {
@@ -176,10 +176,10 @@ impl PySimpleMeta {
 }
 
 #[pyclass(
+    module = "_ctypes",
     name = "_SimpleCData",
     base = "PyCData",
-    module = "_ctypes",
-    metaclass = "PySimpleMeta"
+    metaclass = "PyCSimpleType"
 )]
 #[derive(PyPayload)]
 pub struct PyCSimple {

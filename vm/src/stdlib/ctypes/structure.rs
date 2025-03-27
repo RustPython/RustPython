@@ -1,3 +1,4 @@
+use super::base::PyCData;
 use crate::builtins::{PyList, PyStr, PyTuple, PyTypeRef};
 use crate::function::FuncArgs;
 use crate::types::GetAttr;
@@ -7,7 +8,7 @@ use rustpython_vm::types::Constructor;
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-#[pyclass(name = "Structure", module = "_ctypes")]
+#[pyclass(module = "_ctypes", name = "Structure", base = "PyCData")]
 #[derive(PyPayload, Debug)]
 pub struct PyCStructure {
     #[allow(dead_code)]

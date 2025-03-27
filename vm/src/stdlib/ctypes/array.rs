@@ -1,13 +1,16 @@
 use crate::builtins::PyBytes;
 use crate::types::Callable;
 use crate::{Py, PyObjectRef, PyPayload};
-use crate::{PyResult, VirtualMachine, builtins::PyTypeRef, types::Constructor};
+use crate::{
+    PyResult, VirtualMachine,
+    builtins::{PyType, PyTypeRef},
+    types::Constructor,
+};
 use crossbeam_utils::atomic::AtomicCell;
 use rustpython_common::lock::PyRwLock;
-use rustpython_vm::stdlib::ctypes::base::PyCSimple;
+use rustpython_vm::stdlib::ctypes::base::PyCData;
 
-// TODO: make it metaclass
-#[pyclass(name = "ArrayType", module = "_ctypes")]
+#[pyclass(name = "PyCArrayType", base = "PyType", module = "_ctypes")]
 #[derive(PyPayload)]
 pub struct PyCArrayType {
     pub(super) inner: PyCArray,
@@ -44,7 +47,12 @@ impl Constructor for PyCArrayType {
 #[pyclass(flags(IMMUTABLETYPE), with(Callable, Constructor))]
 impl PyCArrayType {}
 
-#[pyclass(name = "Array", base = "PyCSimple", module = "_ctypes")]
+#[pyclass(
+    name = "Array",
+    base = "PyCData",
+    metaclass = "PyCArrayType",
+    module = "_ctypes"
+)]
 #[derive(PyPayload)]
 pub struct PyCArray {
     pub(super) typ: PyRwLock<PyTypeRef>,
