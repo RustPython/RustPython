@@ -730,7 +730,7 @@ impl SymbolTableBuilder<'_> {
                     SymbolTableType::Class,
                     self.line_index_start(*range),
                 );
-                let prev_class = std::mem::replace(&mut self.class_name, Some(name.to_string()));
+                let prev_class = self.class_name.replace(name.to_string());
                 self.register_name("__module__", SymbolUsage::Assigned, *range)?;
                 self.register_name("__qualname__", SymbolUsage::Assigned, *range)?;
                 self.register_name("__doc__", SymbolUsage::Assigned, *range)?;

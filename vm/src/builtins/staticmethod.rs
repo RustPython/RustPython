@@ -27,8 +27,7 @@ impl GetDescriptor for PyStaticMethod {
         vm: &VirtualMachine,
     ) -> PyResult {
         let (zelf, _obj) = Self::_unwrap(&zelf, obj, vm)?;
-        let x = Ok(zelf.callable.lock().clone());
-        x
+        Ok(zelf.callable.lock().clone())
     }
 }
 

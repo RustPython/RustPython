@@ -1147,7 +1147,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::FormatValue { conversion } => {
                 self.format_value(conversion.get(arg), vm)
             }
-            bytecode::Instruction::PopException {} => {
+            bytecode::Instruction::PopException => {
                 let block = self.pop_block();
                 if let BlockType::ExceptHandler { prev_exc } = block.typ {
                     vm.set_exception(prev_exc);

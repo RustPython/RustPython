@@ -608,11 +608,7 @@ impl PyRangeIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
         let index = self.index.load();
-        if index < self.length {
-            self.length - index
-        } else {
-            0
-        }
+        self.length.saturating_sub(index)
     }
 
     #[pymethod(magic)]

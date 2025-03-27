@@ -716,7 +716,7 @@ mod decl {
                     vm,
                 ));
             }
-            let mut res = Vec::<u8>::with_capacity(2 + ((length + 2) / 3) * 4);
+            let mut res = Vec::<u8>::with_capacity(2 + length.div_ceil(3) * 4);
             res.push(uu_b2a(length as u8, backtick));
 
             for chunk in b.chunks(3) {
