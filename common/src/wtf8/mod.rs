@@ -763,7 +763,7 @@ impl Wtf8 {
         let mut rest = b;
         while let Err(e) = std::str::from_utf8(rest) {
             rest = &rest[e.valid_up_to()..];
-            Self::decode_surrogate(rest)?;
+            let _ = Self::decode_surrogate(rest)?;
             rest = &rest[3..];
         }
         Some(unsafe { Wtf8::from_bytes_unchecked(b) })
