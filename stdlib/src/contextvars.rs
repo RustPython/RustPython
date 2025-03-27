@@ -33,7 +33,7 @@ mod _contextvars {
     };
     use crossbeam_utils::atomic::AtomicCell;
     use indexmap::IndexMap;
-    use once_cell::sync::Lazy;
+    use std::sync::LazyLock;
     use std::{
         cell::{Cell, RefCell, UnsafeCell},
         sync::atomic::Ordering,
@@ -274,7 +274,7 @@ mod _contextvars {
 
     impl AsSequence for PyContext {
         fn as_sequence() -> &'static PySequenceMethods {
-            static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
+            static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
                 contains: atomic_func!(|seq, target, vm| {
                     let target = target.try_to_value(vm)?;
                     PyContext::sequence_downcast(seq).contains(target)

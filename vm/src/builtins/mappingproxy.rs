@@ -12,7 +12,7 @@ use crate::{
         Representable,
     },
 };
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 #[pyclass(module = false, name = "mappingproxy", traverse)]
 #[derive(Debug)]
@@ -221,7 +221,7 @@ impl Comparable for PyMappingProxy {
 
 impl AsMapping for PyMappingProxy {
     fn as_mapping() -> &'static PyMappingMethods {
-        static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
+        static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
             length: atomic_func!(|mapping, vm| PyMappingProxy::mapping_downcast(mapping).len(vm)),
             subscript: atomic_func!(|mapping, needle, vm| {
                 PyMappingProxy::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
@@ -234,7 +234,7 @@ impl AsMapping for PyMappingProxy {
 
 impl AsSequence for PyMappingProxy {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
+        static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             contains: atomic_func!(
                 |seq, target, vm| PyMappingProxy::sequence_downcast(seq)._contains(target, vm)
             ),

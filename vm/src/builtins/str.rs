@@ -28,7 +28,6 @@ use ascii::{AsciiChar, AsciiStr, AsciiString};
 use bstr::ByteSlice;
 use itertools::Itertools;
 use num_traits::ToPrimitive;
-use once_cell::sync::Lazy;
 use rustpython_common::{
     ascii,
     atomic::{self, PyAtomic, Radium},
@@ -38,6 +37,7 @@ use rustpython_common::{
     str::DeduceStrKind,
     wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Chunk},
 };
+use std::sync::LazyLock;
 use std::{borrow::Cow, char, fmt, ops::Range};
 use unic_ucd_bidi::BidiClass;
 use unic_ucd_category::GeneralCategory;
@@ -1495,7 +1495,7 @@ impl Iterable for PyStr {
 
 impl AsMapping for PyStr {
     fn as_mapping() -> &'static PyMappingMethods {
-        static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
+        static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
             length: atomic_func!(|mapping, _vm| Ok(PyStr::mapping_downcast(mapping).len())),
             subscript: atomic_func!(
                 |mapping, needle, vm| PyStr::mapping_downcast(mapping)._getitem(needle, vm)
@@ -1524,7 +1524,7 @@ impl AsNumber for PyStr {
 
 impl AsSequence for PyStr {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
+        static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PyStr::sequence_downcast(seq).len())),
             concat: atomic_func!(|seq, other, vm| {
                 let zelf = PyStr::sequence_downcast(seq);

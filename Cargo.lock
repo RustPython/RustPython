@@ -2413,7 +2413,6 @@ version = "0.4.0"
 dependencies = [
  "itertools 0.14.0",
  "maplit",
- "once_cell",
  "proc-macro2",
  "quote",
  "rustpython-compiler-core",
@@ -2516,7 +2515,6 @@ dependencies = [
  "num-integer",
  "num-traits",
  "num_enum",
- "once_cell",
  "openssl",
  "openssl-probe",
  "openssl-sys",

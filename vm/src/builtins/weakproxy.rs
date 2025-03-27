@@ -11,7 +11,7 @@ use crate::{
         PyComparisonOp, Representable, SetAttr,
     },
 };
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 #[pyclass(module = false, name = "weakproxy", unhashable = true, traverse)]
 #[derive(Debug)]
@@ -186,7 +186,7 @@ impl Comparable for PyWeakProxy {
 
 impl AsSequence for PyWeakProxy {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
+        static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, vm| PyWeakProxy::sequence_downcast(seq).len(vm)),
             contains: atomic_func!(|seq, needle, vm| {
                 PyWeakProxy::sequence_downcast(seq).contains(needle.to_owned(), vm)

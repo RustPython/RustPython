@@ -107,8 +107,8 @@ pub struct PyGlobalState {
 }
 
 pub fn process_hash_secret_seed() -> u32 {
-    use once_cell::sync::OnceCell;
-    static SEED: OnceCell<u32> = OnceCell::new();
+    use std::sync::OnceLock;
+    static SEED: OnceLock<u32> = OnceLock::new();
     *SEED.get_or_init(rand::random)
 }
 

@@ -17,8 +17,8 @@ use crossbeam_utils::atomic::AtomicCell;
 use malachite_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
-use once_cell::sync::Lazy;
 use std::cmp::max;
+use std::sync::LazyLock;
 
 // Search flag passed to iter_search
 enum SearchType {
@@ -385,7 +385,7 @@ impl PyRange {
 
 impl AsMapping for PyRange {
     fn as_mapping() -> &'static PyMappingMethods {
-        static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
+        static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
             length: atomic_func!(
                 |mapping, vm| PyRange::mapping_downcast(mapping).protocol_length(vm)
             ),
@@ -400,7 +400,7 @@ impl AsMapping for PyRange {
 
 impl AsSequence for PyRange {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
+        static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, vm| PyRange::sequence_downcast(seq).protocol_length(vm)),
             item: atomic_func!(|seq, i, vm| {
                 PyRange::sequence_downcast(seq)

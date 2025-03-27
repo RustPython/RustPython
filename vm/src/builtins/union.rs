@@ -10,8 +10,8 @@ use crate::{
     protocol::{PyMappingMethods, PyNumberMethods},
     types::{AsMapping, AsNumber, Comparable, GetAttr, Hashable, PyComparisonOp, Representable},
 };
-use once_cell::sync::Lazy;
 use std::fmt;
+use std::sync::LazyLock;
 
 const CLS_ATTRS: &[&str] = &["__module__"];
 
@@ -219,7 +219,7 @@ impl PyUnion {
 
 impl AsMapping for PyUnion {
     fn as_mapping() -> &'static PyMappingMethods {
-        static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
+        static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
             subscript: atomic_func!(|mapping, needle, vm| {
                 PyUnion::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
             }),

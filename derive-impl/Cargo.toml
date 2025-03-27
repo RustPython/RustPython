@@ -14,7 +14,6 @@ rustpython-compiler-core = { workspace = true }
 rustpython-doc = { workspace = true }
 
 itertools = { workspace = true }
-once_cell = { workspace = true }
 syn = { workspace = true, features = ["full", "extra-traits"] }
 
 maplit = "1.0.2"

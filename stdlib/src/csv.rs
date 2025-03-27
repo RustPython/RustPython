@@ -12,9 +12,9 @@ mod _csv {
     };
     use csv_core::Terminator;
     use itertools::{self, Itertools};
-    use once_cell::sync::Lazy;
     use parking_lot::Mutex;
     use rustpython_vm::match_class;
+    use std::sync::LazyLock;
     use std::{collections::HashMap, fmt};
 
     #[pyattr]
@@ -41,11 +41,11 @@ mod _csv {
         )
     }
 
-    static GLOBAL_HASHMAP: Lazy<Mutex<HashMap<String, PyDialect>>> = Lazy::new(|| {
+    static GLOBAL_HASHMAP: LazyLock<Mutex<HashMap<String, PyDialect>>> = LazyLock::new(|| {
         let m = HashMap::new();
         Mutex::new(m)
     });
-    static GLOBAL_FIELD_LIMIT: Lazy<Mutex<isize>> = Lazy::new(|| Mutex::new(131072));
+    static GLOBAL_FIELD_LIMIT: LazyLock<Mutex<isize>> = LazyLock::new(|| Mutex::new(131072));
 
     fn new_csv_error(vm: &VirtualMachine, msg: String) -> PyBaseExceptionRef {
         vm.new_exception_msg(super::_csv::error(vm), msg)

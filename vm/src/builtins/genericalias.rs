@@ -1,4 +1,4 @@
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 use super::type_;
 use crate::{
@@ -325,7 +325,7 @@ pub fn subs_parameters<F: Fn(&VirtualMachine) -> PyResult<String>>(
 
 impl AsMapping for PyGenericAlias {
     fn as_mapping() -> &'static PyMappingMethods {
-        static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
+        static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
             subscript: atomic_func!(|mapping, needle, vm| {
                 PyGenericAlias::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
             }),
