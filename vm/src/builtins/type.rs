@@ -323,12 +323,12 @@ impl PyType {
     // This is used for class initialisation where the vm is not yet available.
     pub fn set_str_attr<V: Into<PyObjectRef>>(
         &self,
-        attr_name: &str,
+        attr_name: &'static str,
         value: V,
         ctx: impl AsRef<Context>,
     ) {
         let ctx = ctx.as_ref();
-        let attr_name = ctx.intern_str(attr_name);
+        let attr_name = ctx.intern_static_str(attr_name);
         self.set_attr(attr_name, value.into())
     }
 

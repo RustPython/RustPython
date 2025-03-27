@@ -68,7 +68,7 @@ impl PyDict {
             Err(other) => other,
         };
         let dict = &self.entries;
-        if let Some(keys) = vm.get_method(other.clone(), vm.ctx.intern_str("keys")) {
+        if let Some(keys) = vm.get_method(other.clone(), vm.ctx.interned_str("keys").unwrap()) {
             let keys = keys?.call((), vm)?.get_iter(vm)?;
             while let PyIterReturn::Return(key) = keys.next(vm)? {
                 let val = other.get_item(&*key, vm)?;
@@ -509,7 +509,7 @@ impl Representable for PyDict {
 
             vm.ctx.new_str(format!("{{{}}}", str_parts.join(", ")))
         } else {
-            vm.ctx.intern_str("{...}").to_owned()
+            vm.ctx.intern_static_str("{...}").to_owned()
         };
         Ok(s)
     }
@@ -797,7 +797,7 @@ macro_rules! dict_view {
                     vm.ctx
                         .new_str(format!("{}([{}])", Self::NAME, str_parts.join(", ")))
                 } else {
-                    vm.ctx.intern_str("{...}").to_owned()
+                    vm.ctx.intern_static_str("{...}").to_owned()
                 };
                 Ok(s)
             }
