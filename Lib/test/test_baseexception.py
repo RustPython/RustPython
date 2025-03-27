@@ -18,8 +18,6 @@ class ExceptionClassTests(unittest.TestCase):
                     "%s missing %s attribute" %
                         (ins.__class__.__name__, attr))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_inheritance(self):
         # Make sure the inheritance hierarchy matches the documentation
         exc_set = set()
