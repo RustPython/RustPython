@@ -710,8 +710,6 @@ class StrTest(unittest.TestCase, BaseStrTest):
     # original (Py_UCS2) one
     # There's also some overallocation when resizing the ascii() result
     # that isn't taken into account here.
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @bigmemtest(size=_2G // 5 + 1, memuse=ucs2_char_size +
                                           ucs4_char_size + ascii_char_size * 6)
     def test_unicode_repr(self, size):

@@ -9,6 +9,8 @@ license = { workspace = true }
 rust-version = { workspace = true }
 
 [dependencies]
+rustpython-wtf8 = { workspace = true }
+
 hexf-parse = "0.2.1"
 is-macro.workspace = true
 lexical-parse-float = { version = "0.8.0", features = ["format"] }

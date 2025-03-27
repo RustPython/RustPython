@@ -57,6 +57,13 @@ impl<'a> TryFromBorrowedObject<'a> for &'a str {
     }
 }
 
+impl<'a> TryFromBorrowedObject<'a> for &'a Wtf8 {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
+        let pystr: &Py<PyStr> = TryFromBorrowedObject::try_from_borrowed_object(vm, obj)?;
+        Ok(pystr.as_wtf8())
+    }
+}
+
 #[pyclass(module = false, name = "str")]
 pub struct PyStr {
     data: StrData,
@@ -607,11 +614,7 @@ impl PyStr {
     #[inline]
     pub(crate) fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         use crate::literal::escape::UnicodeEscape;
-        if !self.kind().is_utf8() {
-            return Ok(format!("{:?}", self.as_wtf8()));
-        }
-        let escape = UnicodeEscape::new_repr(self.as_str());
-        escape
+        UnicodeEscape::new_repr(self.as_wtf8())
             .str_repr()
             .to_string()
             .ok_or_else(|| vm.new_overflow_error("string is too long to generate repr".to_owned()))
