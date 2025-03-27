@@ -72,6 +72,9 @@ mod decl {
             .map_err(|e| vm.new_value_error(format!("Time error: {e:?}")))
     }
 
+    #[pyattr]
+    pub const _STRUCT_TM_ITEMS: usize = 11;
+
     // TODO: implement proper monotonic time for wasm/wasi.
     #[cfg(not(any(unix, windows)))]
     fn get_monotonic_time(vm: &VirtualMachine) -> PyResult<Duration> {
