@@ -115,7 +115,7 @@ template = "installer-config/installer.wxs"
 resolver = "2"
 members = [
     "compiler", "compiler/core", "compiler/codegen", "compiler/literal", "compiler/source",
-    ".", "common", "derive", "jit", "vm", "vm/sre_engine", "pylib", "stdlib", "derive-impl",
+    ".", "common", "derive", "jit", "vm", "vm/sre_engine", "pylib", "stdlib", "derive-impl", "wtf8",
     "wasm/lib",
 ]
 
@@ -141,6 +141,7 @@ rustpython-vm = { path = "vm", default-features = false, version = "0.4.0" }
 rustpython-pylib = { path = "pylib", version = "0.4.0" }
 rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.4.0" }
 rustpython-sre_engine = { path = "vm/sre_engine", version = "0.4.0" }
+rustpython-wtf8 = { path = "wtf8", version = "0.4.0" }
 rustpython-doc = { git = "https://github.com/RustPython/__doc__", tag = "0.3.0", version = "0.3.0" }
 
 ruff_python_parser = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }

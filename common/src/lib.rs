@@ -29,7 +29,8 @@ pub mod static_cell;
 pub mod str;
 #[cfg(windows)]
 pub mod windows;
-pub mod wtf8;
+
+pub use rustpython_wtf8 as wtf8;
 
 pub mod vendored {
     pub use ascii;

@@ -13,6 +13,7 @@ threading = ["parking_lot"]
 
 [dependencies]
 rustpython-literal = { workspace = true }
+rustpython-wtf8 = { workspace = true }
 
 ascii = { workspace = true }
 bitflags = { workspace = true }

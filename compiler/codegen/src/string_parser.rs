@@ -8,7 +8,7 @@
 use std::convert::Infallible;
 
 use ruff_python_ast::{AnyStringFlags, StringFlags};
-use rustpython_common::wtf8::{CodePoint, Wtf8, Wtf8Buf};
+use rustpython_wtf8::{CodePoint, Wtf8, Wtf8Buf};
 
 // use ruff_python_parser::{LexicalError, LexicalErrorType};
 type LexicalError = Infallible;
