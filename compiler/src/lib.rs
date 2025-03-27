@@ -119,7 +119,14 @@ fn _compile(
     mode: Mode,
     opts: CompileOpts,
 ) -> Result<CodeObject, CompileError> {
-    let parsed = parser::parse(source_code.text, parser::Mode::from(mode).into())
+    let parser_mode = match mode {
+        Mode::Exec => parser::Mode::Module,
+        Mode::Eval => parser::Mode::Expression,
+        // ruff does not have an interactive mode, which is fine,
+        // since these are only different in terms of compilation
+        Mode::Single | Mode::BlockExpr => parser::Mode::Module,
+    };
+    let parsed = parser::parse(source_code.text, parser_mode.into())
         .map_err(|err| CompileError::from_ruff_parse_error(err, &source_code))?;
     let ast = parsed.into_syntax();
     compile::compile_top(ast, source_code, mode, opts).map_err(|e| e.into())

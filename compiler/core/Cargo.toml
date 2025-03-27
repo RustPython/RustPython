@@ -10,8 +10,6 @@ license.workspace = true
 
 [dependencies]
 # rustpython-parser-core = { workspace = true, features=["location"] }
-ruff_python_ast = { workspace = true }
-ruff_python_parser = { workspace = true }
 ruff_source_file = { workspace = true }
 rustpython-wtf8 = { workspace = true }
 

@@ -5,14 +5,24 @@ use bitflags::bitflags;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
-pub use ruff_python_ast::ConversionFlag;
-// use rustpython_parser_core::source_code::{OneIndexed, SourceLocation};
 use ruff_source_file::{OneIndexed, SourceLocation};
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
 use std::marker::PhantomData;
 use std::{collections::BTreeSet, fmt, hash, mem};
 
-// pub use rustpython_parser_core::ConversionFlag;
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[repr(i8)]
+#[allow(clippy::cast_possible_wrap)]
+pub enum ConversionFlag {
+    /// No conversion
+    None = -1, // CPython uses -1
+    /// Converts by calling `str(<value>)`.
+    Str = b's' as i8,
+    /// Converts by calling `ascii(<value>)`.
+    Ascii = b'a' as i8,
+    /// Converts by calling `repr(<value>)`.
+    Repr = b'r' as i8,
+}
 
 pub trait Constant: Sized {
     type Name: AsRef<str>;

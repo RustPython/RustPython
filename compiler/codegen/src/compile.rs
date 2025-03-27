@@ -3458,12 +3458,13 @@ impl Compiler<'_> {
 
                     self.compile_expression(&fstring_expr.expression)?;
 
-                    emit!(
-                        self,
-                        Instruction::FormatValue {
-                            conversion: conversion
-                        }
-                    );
+                    let conversion = match conversion {
+                        ConversionFlag::None => bytecode::ConversionFlag::None,
+                        ConversionFlag::Str => bytecode::ConversionFlag::Str,
+                        ConversionFlag::Ascii => bytecode::ConversionFlag::Ascii,
+                        ConversionFlag::Repr => bytecode::ConversionFlag::Repr,
+                    };
+                    emit!(self, Instruction::FormatValue { conversion });
 
                     // concatenate formatted string and debug text (if present)
                     if debug_text_count > 0 {

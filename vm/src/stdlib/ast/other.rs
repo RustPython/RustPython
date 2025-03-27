@@ -1,5 +1,6 @@
 use super::*;
 use num_traits::ToPrimitive;
+use rustpython_compiler_core::bytecode;
 
 impl Node for ruff::ConversionFlag {
     fn ast_to_object(self, vm: &VirtualMachine, _source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -13,7 +14,13 @@ impl Node for ruff::ConversionFlag {
     ) -> PyResult<Self> {
         i32::try_from_object(vm, object)?
             .to_u32()
-            .and_then(ruff::ConversionFlag::from_op_arg)
+            .and_then(bytecode::ConversionFlag::from_op_arg)
+            .map(|flag| match flag {
+                bytecode::ConversionFlag::None => Self::None,
+                bytecode::ConversionFlag::Str => Self::Str,
+                bytecode::ConversionFlag::Ascii => Self::Ascii,
+                bytecode::ConversionFlag::Repr => Self::Repr,
+            })
             .ok_or_else(|| vm.new_value_error("invalid conversion flag".to_owned()))
     }
 }
