@@ -494,37 +494,7 @@ impl Representable for PyComplex {
         // TODO: when you fix this, move it to rustpython_common::complex::repr and update
         //       ast/src/unparse.rs + impl Display for Constant in ast/src/constant.rs
         let Complex64 { re, im } = zelf.value;
-        // integer => drop ., fractional => float_ops
-        let mut im_part = if im.fract() == 0.0 {
-            im.to_string()
-        } else {
-            crate::literal::float::to_string(im)
-        };
-        im_part.push('j');
-
-        // positive empty => return im_part, integer => drop ., fractional => float_ops
-        let re_part = if re == 0.0 {
-            if re.is_sign_positive() {
-                return Ok(im_part);
-            } else {
-                re.to_string()
-            }
-        } else if re.fract() == 0.0 {
-            re.to_string()
-        } else {
-            crate::literal::float::to_string(re)
-        };
-        let mut result = String::with_capacity(
-            re_part.len() + im_part.len() + 2 + im.is_sign_positive() as usize,
-        );
-        result.push('(');
-        result.push_str(&re_part);
-        if im.is_sign_positive() || im.is_nan() {
-            result.push('+');
-        }
-        result.push_str(&im_part);
-        result.push(')');
-        Ok(result)
+        Ok(rustpython_literal::float::complex_to_string(re, im))
     }
 }
 

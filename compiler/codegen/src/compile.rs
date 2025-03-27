@@ -12,6 +12,7 @@ use crate::{
     error::{CodegenError, CodegenErrorType},
     ir,
     symboltable::{self, SymbolFlags, SymbolScope, SymbolTable},
+    unparse::unparse_expr,
 };
 use itertools::Itertools;
 use malachite_bigint::BigInt;
@@ -2026,11 +2027,10 @@ impl Compiler<'_> {
 
     fn compile_annotation(&mut self, annotation: &Expr) -> CompileResult<()> {
         if self.future_annotations {
-            // FIXME: codegen?
-            let ident = Default::default();
-            let codegen = ruff_python_codegen::Generator::new(&ident, Default::default());
             self.emit_load_const(ConstantData::Str {
-                value: codegen.expr(annotation).into(),
+                value: unparse_expr(annotation, &self.source_code)
+                    .to_string()
+                    .into(),
             });
         } else {
             self.compile_expression(annotation)?;
@@ -3397,7 +3397,9 @@ impl Compiler<'_> {
         flags: FStringFlags,
         fstring_elements: &FStringElements,
     ) -> CompileResult<()> {
+        let mut element_count = 0;
         for element in fstring_elements {
+            element_count += 1;
             match element {
                 FStringElement::Literal(string) => {
                     if string.value.contains(char::REPLACEMENT_CHARACTER) {
@@ -3419,26 +3421,14 @@ impl Compiler<'_> {
                 FStringElement::Expression(fstring_expr) => {
                     let mut conversion = fstring_expr.conversion;
 
-                    let debug_text_count = match &fstring_expr.debug_text {
-                        None => 0,
-                        Some(DebugText { leading, trailing }) => {
-                            let range = fstring_expr.expression.range();
-                            let source = self.source_code.get_range(range);
-                            let source = source.to_string();
+                    if let Some(DebugText { leading, trailing }) = &fstring_expr.debug_text {
+                        let range = fstring_expr.expression.range();
+                        let source = self.source_code.get_range(range);
+                        let text = [leading, source, trailing].concat();
 
-                            self.emit_load_const(ConstantData::Str {
-                                value: leading.to_string().into(),
-                            });
-                            self.emit_load_const(ConstantData::Str {
-                                value: source.into(),
-                            });
-                            self.emit_load_const(ConstantData::Str {
-                                value: trailing.to_string().into(),
-                            });
-
-                            3
-                        }
-                    };
+                        self.emit_load_const(ConstantData::Str { value: text.into() });
+                        element_count += 1;
+                    }
 
                     match &fstring_expr.format_spec {
                         None => {
@@ -3447,7 +3437,9 @@ impl Compiler<'_> {
                             });
                             // Match CPython behavior: If debug text is present, apply repr conversion.
                             // See: https://github.com/python/cpython/blob/f61afca262d3a0aa6a8a501db0b1936c60858e35/Parser/action_helpers.c#L1456
-                            if conversion == ConversionFlag::None && debug_text_count > 0 {
+                            if conversion == ConversionFlag::None
+                                && fstring_expr.debug_text.is_some()
+                            {
                                 conversion = ConversionFlag::Repr;
                             }
                         }
@@ -3465,24 +3457,10 @@ impl Compiler<'_> {
                         ConversionFlag::Repr => bytecode::ConversionFlag::Repr,
                     };
                     emit!(self, Instruction::FormatValue { conversion });
-
-                    // concatenate formatted string and debug text (if present)
-                    if debug_text_count > 0 {
-                        emit!(
-                            self,
-                            Instruction::BuildString {
-                                size: debug_text_count + 1
-                            }
-                        );
-                    }
                 }
             }
         }
 
-        let element_count: u32 = fstring_elements
-            .len()
-            .try_into()
-            .expect("BuildString size overflowed");
         if element_count == 0 {
             // ensure to put an empty string on the stack if there aren't any fstring elements
             self.emit_load_const(ConstantData::Str {

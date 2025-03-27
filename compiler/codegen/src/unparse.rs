@@ -1,8 +1,13 @@
-use crate::{
-    Arg, ArgWithDefault, Arguments, BoolOp, Comprehension, Constant, ConversionFlag, Expr,
-    Identifier, Operator, PythonArguments,
+use ruff_python_ast as ruff;
+use ruff_text_size::Ranged;
+use rustpython_compiler_source::SourceCode;
+use rustpython_literal::escape::{AsciiEscape, UnicodeEscape};
+use std::fmt::{self, Display as _};
+
+use ruff::{
+    Arguments, BoolOp, Comprehension, ConversionFlag, Expr, Identifier, Operator, Parameter,
+    ParameterWithDefault, Parameters,
 };
-use std::fmt;
 
 mod precedence {
     macro_rules! precedence {
@@ -22,13 +27,13 @@ mod precedence {
     pub const EXPR: u8 = BOR;
 }
 
-#[repr(transparent)]
-struct Unparser<'a> {
-    f: fmt::Formatter<'a>,
+struct Unparser<'a, 'b, 'c> {
+    f: &'b mut fmt::Formatter<'a>,
+    source: &'c SourceCode<'c>,
 }
-impl<'a> Unparser<'a> {
-    fn new<'b>(f: &'b mut fmt::Formatter<'a>) -> &'b mut Unparser<'a> {
-        unsafe { &mut *(f as *mut fmt::Formatter<'a> as *mut Unparser<'a>) }
+impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
+    fn new(f: &'b mut fmt::Formatter<'a>, source: &'c SourceCode<'c>) -> Self {
+        Unparser { f, source }
     }
 
     fn p(&mut self, s: &str) -> fmt::Result {
@@ -50,7 +55,7 @@ impl<'a> Unparser<'a> {
         self.f.write_fmt(f)
     }
 
-    fn unparse_expr<U>(&mut self, ast: &Expr<U>, level: u8) -> fmt::Result {
+    fn unparse_expr(&mut self, ast: &Expr, level: u8) -> fmt::Result {
         macro_rules! op_prec {
             ($op_ty:ident, $x:expr, $enu:path, $($var:ident($op:literal, $prec:ident)),*$(,)?) => {
                 match $x {
@@ -74,7 +79,7 @@ impl<'a> Unparser<'a> {
             }};
         }
         match &ast {
-            Expr::BoolOp(crate::ExprBoolOp {
+            Expr::BoolOp(ruff::ExprBoolOp {
                 op,
                 values,
                 range: _range,
@@ -88,7 +93,7 @@ impl<'a> Unparser<'a> {
                     }
                 })
             }
-            Expr::NamedExpr(crate::ExprNamedExpr {
+            Expr::Named(ruff::ExprNamed {
                 target,
                 value,
                 range: _range,
@@ -99,7 +104,7 @@ impl<'a> Unparser<'a> {
                     self.unparse_expr(value, precedence::ATOM)?;
                 })
             }
-            Expr::BinOp(crate::ExprBinOp {
+            Expr::BinOp(ruff::ExprBinOp {
                 left,
                 op,
                 right,
@@ -130,7 +135,7 @@ impl<'a> Unparser<'a> {
                     self.unparse_expr(right, prec + !right_associative as u8)?;
                 })
             }
-            Expr::UnaryOp(crate::ExprUnaryOp {
+            Expr::UnaryOp(ruff::ExprUnaryOp {
                 op,
                 operand,
                 range: _range,
@@ -138,7 +143,7 @@ impl<'a> Unparser<'a> {
                 let (op, prec) = op_prec!(
                     un,
                     op,
-                    crate::UnaryOp,
+                    ruff::UnaryOp,
                     Invert("~", FACTOR),
                     Not("not ", NOT),
                     UAdd("+", FACTOR),
@@ -149,19 +154,22 @@ impl<'a> Unparser<'a> {
                     self.unparse_expr(operand, prec)?;
                 })
             }
-            Expr::Lambda(crate::ExprLambda {
-                args,
+            Expr::Lambda(ruff::ExprLambda {
+                parameters,
                 body,
                 range: _range,
             }) => {
                 group_if!(precedence::TEST, {
-                    let pos = args.args.len() + args.posonlyargs.len();
-                    self.p(if pos > 0 { "lambda " } else { "lambda" })?;
-                    self.unparse_arguments(args)?;
-                    write!(self, ": {}", **body)?;
+                    if let Some(parameters) = parameters {
+                        self.p("lambda ")?;
+                        self.unparse_arguments(parameters)?;
+                    } else {
+                        self.p("lambda")?;
+                    }
+                    write!(self, ": {}", unparse_expr(body, self.source))?;
                 })
             }
-            Expr::IfExp(crate::ExprIfExp {
+            Expr::If(ruff::ExprIf {
                 test,
                 body,
                 orelse,
@@ -175,29 +183,24 @@ impl<'a> Unparser<'a> {
                     self.unparse_expr(orelse, precedence::TEST)?;
                 })
             }
-            Expr::Dict(crate::ExprDict {
-                keys,
-                values,
+            Expr::Dict(ruff::ExprDict {
+                items,
                 range: _range,
             }) => {
                 self.p("{")?;
                 let mut first = true;
-                let (packed, unpacked) = values.split_at(keys.len());
-                for (k, v) in keys.iter().zip(packed) {
+                for item in items {
                     self.p_delim(&mut first, ", ")?;
-                    if let Some(k) = k {
-                        write!(self, "{}: {}", *k, *v)?;
+                    if let Some(k) = &item.key {
+                        write!(self, "{}: ", unparse_expr(k, self.source))?;
                     } else {
-                        write!(self, "**{}", *v)?;
+                        self.p("**")?;
                     }
-                }
-                for d in unpacked {
-                    self.p_delim(&mut first, ", ")?;
-                    write!(self, "**{}", *d)?;
+                    self.unparse_expr(&item.value, level)?;
                 }
                 self.p("}")?;
             }
-            Expr::Set(crate::ExprSet {
+            Expr::Set(ruff::ExprSet {
                 elts,
                 range: _range,
             }) => {
@@ -209,7 +212,7 @@ impl<'a> Unparser<'a> {
                 }
                 self.p("}")?;
             }
-            Expr::ListComp(crate::ExprListComp {
+            Expr::ListComp(ruff::ExprListComp {
                 elt,
                 generators,
                 range: _range,
@@ -219,7 +222,7 @@ impl<'a> Unparser<'a> {
                 self.unparse_comp(generators)?;
                 self.p("]")?;
             }
-            Expr::SetComp(crate::ExprSetComp {
+            Expr::SetComp(ruff::ExprSetComp {
                 elt,
                 generators,
                 range: _range,
@@ -229,7 +232,7 @@ impl<'a> Unparser<'a> {
                 self.unparse_comp(generators)?;
                 self.p("}")?;
             }
-            Expr::DictComp(crate::ExprDictComp {
+            Expr::DictComp(ruff::ExprDictComp {
                 key,
                 value,
                 generators,
@@ -242,7 +245,8 @@ impl<'a> Unparser<'a> {
                 self.unparse_comp(generators)?;
                 self.p("}")?;
             }
-            Expr::GeneratorExp(crate::ExprGeneratorExp {
+            Expr::Generator(ruff::ExprGenerator {
+                parenthesized: _,
                 elt,
                 generators,
                 range: _range,
@@ -252,7 +256,7 @@ impl<'a> Unparser<'a> {
                 self.unparse_comp(generators)?;
                 self.p(")")?;
             }
-            Expr::Await(crate::ExprAwait {
+            Expr::Await(ruff::ExprAwait {
                 value,
                 range: _range,
             }) => {
@@ -261,23 +265,23 @@ impl<'a> Unparser<'a> {
                     self.unparse_expr(value, precedence::ATOM)?;
                 })
             }
-            Expr::Yield(crate::ExprYield {
+            Expr::Yield(ruff::ExprYield {
                 value,
                 range: _range,
             }) => {
                 if let Some(value) = value {
-                    write!(self, "(yield {})", **value)?;
+                    write!(self, "(yield {})", unparse_expr(value, self.source))?;
                 } else {
                     self.p("(yield)")?;
                 }
             }
-            Expr::YieldFrom(crate::ExprYieldFrom {
+            Expr::YieldFrom(ruff::ExprYieldFrom {
                 value,
                 range: _range,
             }) => {
-                write!(self, "(yield from {})", **value)?;
+                write!(self, "(yield from {})", unparse_expr(value, self.source))?;
             }
-            Expr::Compare(crate::ExprCompare {
+            Expr::Compare(ruff::ExprCompare {
                 left,
                 ops,
                 comparators,
@@ -294,20 +298,22 @@ impl<'a> Unparser<'a> {
                     }
                 })
             }
-            Expr::Call(crate::ExprCall {
+            Expr::Call(ruff::ExprCall {
                 func,
-                args,
-                keywords,
+                arguments: Arguments { args, keywords, .. },
                 range: _range,
             }) => {
                 self.unparse_expr(func, precedence::ATOM)?;
                 self.p("(")?;
                 if let (
-                    [Expr::GeneratorExp(crate::ExprGeneratorExp {
-                        elt,
-                        generators,
-                        range: _range,
-                    })],
+                    [
+                        Expr::Generator(ruff::ExprGenerator {
+                            elt,
+                            generators,
+                            range: _range,
+                            ..
+                        }),
+                    ],
                     [],
                 ) = (&**args, &**keywords)
                 {
@@ -333,40 +339,46 @@ impl<'a> Unparser<'a> {
                 }
                 self.p(")")?;
             }
-            Expr::FormattedValue(crate::ExprFormattedValue {
-                value,
-                conversion,
-                format_spec,
-                range: _range,
-            }) => self.unparse_formatted(value, *conversion, format_spec.as_deref())?,
-            Expr::JoinedStr(crate::ExprJoinedStr {
-                values,
-                range: _range,
-            }) => self.unparse_joined_str(values, false)?,
-            Expr::Constant(crate::ExprConstant {
-                value,
-                kind,
-                range: _range,
-            }) => {
-                if let Some(kind) = kind {
-                    self.p(kind)?;
+            Expr::FString(ruff::ExprFString { value, .. }) => self.unparse_fstring(value)?,
+            Expr::StringLiteral(ruff::ExprStringLiteral { value, .. }) => {
+                if value.is_unicode() {
+                    self.p("u")?
                 }
-                assert_eq!(f64::MAX_10_EXP, 308);
+                UnicodeEscape::new_repr(value.to_str().as_ref())
+                    .str_repr()
+                    .fmt(self.f)?
+            }
+            Expr::BytesLiteral(ruff::ExprBytesLiteral { value, .. }) => {
+                AsciiEscape::new_repr(&value.bytes().collect::<Vec<_>>())
+                    .bytes_repr()
+                    .fmt(self.f)?
+            }
+            Expr::NumberLiteral(ruff::ExprNumberLiteral { value, .. }) => {
+                const { assert!(f64::MAX_10_EXP == 308) };
                 let inf_str = "1e309";
                 match value {
-                    Constant::Float(f) if f.is_infinite() => self.p(inf_str)?,
-                    Constant::Complex { real, imag }
-                        if real.is_infinite() || imag.is_infinite() =>
-                    {
-                        self.p(&value.to_string().replace("inf", inf_str))?
+                    ruff::Number::Int(int) => int.fmt(self.f)?,
+                    &ruff::Number::Float(fp) => {
+                        if fp.is_infinite() {
+                            self.p(inf_str)?
+                        } else {
+                            self.p(&rustpython_literal::float::to_string(fp))?
+                        }
                     }
-                    _ => fmt::Display::fmt(value, &mut self.f)?,
+                    &ruff::Number::Complex { real, imag } => self
+                        .p(&rustpython_literal::float::complex_to_string(real, imag)
+                            .replace("inf", inf_str))?,
                 }
             }
-            Expr::Attribute(crate::ExprAttribute { value, attr, .. }) => {
+            Expr::BooleanLiteral(ruff::ExprBooleanLiteral { value, .. }) => {
+                self.p(if *value { "True" } else { "False" })?
+            }
+            Expr::NoneLiteral(ruff::ExprNoneLiteral { .. }) => self.p("None")?,
+            Expr::EllipsisLiteral(ruff::ExprEllipsisLiteral { .. }) => self.p("...")?,
+            Expr::Attribute(ruff::ExprAttribute { value, attr, .. }) => {
                 self.unparse_expr(value, precedence::ATOM)?;
-                let period = if let Expr::Constant(crate::ExprConstant {
-                    value: Constant::Int(_),
+                let period = if let Expr::NumberLiteral(ruff::ExprNumberLiteral {
+                    value: ruff::Number::Int(_),
                     ..
                 }) = value.as_ref()
                 {
@@ -377,19 +389,19 @@ impl<'a> Unparser<'a> {
                 self.p(period)?;
                 self.p_id(attr)?;
             }
-            Expr::Subscript(crate::ExprSubscript { value, slice, .. }) => {
+            Expr::Subscript(ruff::ExprSubscript { value, slice, .. }) => {
                 self.unparse_expr(value, precedence::ATOM)?;
                 let lvl = precedence::TUPLE;
                 self.p("[")?;
                 self.unparse_expr(slice, lvl)?;
                 self.p("]")?;
             }
-            Expr::Starred(crate::ExprStarred { value, .. }) => {
+            Expr::Starred(ruff::ExprStarred { value, .. }) => {
                 self.p("*")?;
                 self.unparse_expr(value, precedence::EXPR)?;
             }
-            Expr::Name(crate::ExprName { id, .. }) => self.p_id(id)?,
-            Expr::List(crate::ExprList { elts, .. }) => {
+            Expr::Name(ruff::ExprName { id, .. }) => self.p(id.as_str())?,
+            Expr::List(ruff::ExprList { elts, .. }) => {
                 self.p("[")?;
                 let mut first = true;
                 for elt in elts {
@@ -398,7 +410,7 @@ impl<'a> Unparser<'a> {
                 }
                 self.p("]")?;
             }
-            Expr::Tuple(crate::ExprTuple { elts, .. }) => {
+            Expr::Tuple(ruff::ExprTuple { elts, .. }) => {
                 if elts.is_empty() {
                     self.p("()")?;
                 } else {
@@ -412,7 +424,7 @@ impl<'a> Unparser<'a> {
                     })
                 }
             }
-            Expr::Slice(crate::ExprSlice {
+            Expr::Slice(ruff::ExprSlice {
                 lower,
                 upper,
                 step,
@@ -430,11 +442,12 @@ impl<'a> Unparser<'a> {
                     self.unparse_expr(step, precedence::TEST)?;
                 }
             }
+            Expr::IpyEscapeCommand(_) => {}
         }
         Ok(())
     }
 
-    fn unparse_arguments<U>(&mut self, args: &Arguments<U>) -> fmt::Result {
+    fn unparse_arguments(&mut self, args: &Parameters) -> fmt::Result {
         let mut first = true;
         for (i, arg) in args.posonlyargs.iter().chain(&args.args).enumerate() {
             self.p_delim(&mut first, ", ")?;
@@ -459,63 +472,23 @@ impl<'a> Unparser<'a> {
         }
         Ok(())
     }
-    fn unparse_function_arg<U>(&mut self, arg: &ArgWithDefault<U>) -> fmt::Result {
-        self.p_id(&arg.def.arg)?;
-        if let Some(ann) = &arg.def.annotation {
-            write!(self, ": {}", **ann)?;
-        }
+    fn unparse_function_arg(&mut self, arg: &ParameterWithDefault) -> fmt::Result {
+        self.unparse_arg(&arg.parameter)?;
         if let Some(default) = &arg.default {
-            write!(self, "={}", default)?;
+            write!(self, "={}", unparse_expr(default, self.source))?;
         }
         Ok(())
     }
 
-    #[allow(dead_code)]
-    fn unparse_python_arguments<U>(&mut self, args: &PythonArguments<U>) -> fmt::Result {
-        let mut first = true;
-        let defaults_start = args.posonlyargs.len() + args.args.len() - args.defaults.len();
-        for (i, arg) in args.posonlyargs.iter().chain(&args.args).enumerate() {
-            self.p_delim(&mut first, ", ")?;
-            self.unparse_arg(arg)?;
-            if let Some(i) = i.checked_sub(defaults_start) {
-                write!(self, "={}", &args.defaults[i])?;
-            }
-            self.p_if(i + 1 == args.posonlyargs.len(), ", /")?;
-        }
-        if args.vararg.is_some() || !args.kwonlyargs.is_empty() {
-            self.p_delim(&mut first, ", ")?;
-            self.p("*")?;
-        }
-        if let Some(vararg) = &args.vararg {
-            self.unparse_arg(vararg)?;
-        }
-        let defaults_start = args.kwonlyargs.len() - args.kw_defaults.len();
-        for (i, kwarg) in args.kwonlyargs.iter().enumerate() {
-            self.p_delim(&mut first, ", ")?;
-            self.unparse_arg(kwarg)?;
-            if let Some(default) = i
-                .checked_sub(defaults_start)
-                .and_then(|i| args.kw_defaults.get(i))
-            {
-                write!(self, "={default}")?;
-            }
-        }
-        if let Some(kwarg) = &args.kwarg {
-            self.p_delim(&mut first, ", ")?;
-            self.p("**")?;
-            self.unparse_arg(kwarg)?;
-        }
-        Ok(())
-    }
-    fn unparse_arg<U>(&mut self, arg: &Arg<U>) -> fmt::Result {
-        self.p_id(&arg.arg)?;
+    fn unparse_arg(&mut self, arg: &Parameter) -> fmt::Result {
+        self.p_id(&arg.name)?;
         if let Some(ann) = &arg.annotation {
-            write!(self, ": {}", **ann)?;
+            write!(self, ": {}", unparse_expr(ann, self.source))?;
         }
         Ok(())
     }
 
-    fn unparse_comp<U>(&mut self, generators: &[Comprehension<U>]) -> fmt::Result {
+    fn unparse_comp(&mut self, generators: &[Comprehension]) -> fmt::Result {
         for comp in generators {
             self.p(if comp.is_async {
                 " async for "
@@ -533,20 +506,28 @@ impl<'a> Unparser<'a> {
         Ok(())
     }
 
-    fn unparse_fstring_body<U>(&mut self, values: &[Expr<U>], is_spec: bool) -> fmt::Result {
-        for value in values {
-            self.unparse_fstring_elem(value, is_spec)?;
+    fn unparse_fstring_body(&mut self, elements: &[ruff::FStringElement]) -> fmt::Result {
+        for elem in elements {
+            self.unparse_fstring_elem(elem)?;
         }
         Ok(())
     }
 
-    fn unparse_formatted<U>(
+    fn unparse_formatted(
         &mut self,
-        val: &Expr<U>,
+        val: &Expr,
+        debug_text: Option<&ruff::DebugText>,
         conversion: ConversionFlag,
-        spec: Option<&Expr<U>>,
+        spec: Option<&ruff::FStringFormatSpec>,
     ) -> fmt::Result {
-        let buffered = to_string_fmt(|f| Unparser::new(f).unparse_expr(val, precedence::TEST + 1));
+        let buffered = to_string_fmt(|f| {
+            Unparser::new(f, self.source).unparse_expr(val, precedence::TEST + 1)
+        });
+        if let Some(ruff::DebugText { leading, trailing }) = debug_text {
+            self.p(leading)?;
+            self.p(self.source.get_range(val.range()))?;
+            self.p(trailing)?;
+        }
         let brace = if buffered.starts_with('{') {
             // put a space to avoid escaping the bracket
             "{ "
@@ -566,7 +547,7 @@ impl<'a> Unparser<'a> {
 
         if let Some(spec) = spec {
             self.p(":")?;
-            self.unparse_fstring_elem(spec, true)?;
+            self.unparse_fstring_body(&spec.elements)?;
         }
 
         self.p("}")?;
@@ -574,26 +555,23 @@ impl<'a> Unparser<'a> {
         Ok(())
     }
 
-    fn unparse_fstring_elem<U>(&mut self, expr: &Expr<U>, is_spec: bool) -> fmt::Result {
-        match &expr {
-            Expr::Constant(crate::ExprConstant { value, .. }) => {
-                if let Constant::Str(s) = value {
-                    self.unparse_fstring_str(s)
-                } else {
-                    unreachable!()
-                }
-            }
-            Expr::JoinedStr(crate::ExprJoinedStr {
-                values,
-                range: _range,
-            }) => self.unparse_joined_str(values, is_spec),
-            Expr::FormattedValue(crate::ExprFormattedValue {
-                value,
+    fn unparse_fstring_elem(&mut self, elem: &ruff::FStringElement) -> fmt::Result {
+        match elem {
+            ruff::FStringElement::Expression(ruff::FStringExpressionElement {
+                expression,
+                debug_text,
                 conversion,
                 format_spec,
-                range: _range,
-            }) => self.unparse_formatted(value, *conversion, format_spec.as_deref()),
-            _ => unreachable!(),
+                ..
+            }) => self.unparse_formatted(
+                expression,
+                debug_text.as_ref(),
+                *conversion,
+                format_spec.as_deref(),
+            ),
+            ruff::FStringElement::Literal(ruff::FStringLiteralElement { value, .. }) => {
+                self.unparse_fstring_str(value)
+            }
         }
     }
 
@@ -602,29 +580,42 @@ impl<'a> Unparser<'a> {
         self.p(&s)
     }
 
-    fn unparse_joined_str<U>(&mut self, values: &[Expr<U>], is_spec: bool) -> fmt::Result {
-        if is_spec {
-            self.unparse_fstring_body(values, is_spec)
-        } else {
-            self.p("f")?;
-            let body = to_string_fmt(|f| Unparser::new(f).unparse_fstring_body(values, is_spec));
-            rustpython_literal::escape::UnicodeEscape::new_repr(&body)
-                .str_repr()
-                .write(&mut self.f)
-        }
+    fn unparse_fstring(&mut self, value: &ruff::FStringValue) -> fmt::Result {
+        self.p("f")?;
+        let body = to_string_fmt(|f| {
+            value.iter().try_for_each(|part| match part {
+                ruff::FStringPart::Literal(lit) => f.write_str(lit),
+                ruff::FStringPart::FString(ruff::FString { elements, .. }) => {
+                    Unparser::new(f, self.source).unparse_fstring_body(elements)
+                }
+            })
+        });
+        // .unparse_fstring_body(elements));
+        UnicodeEscape::new_repr(body.as_str().as_ref())
+            .str_repr()
+            .write(self.f)
     }
 }
 
-impl<U> fmt::Display for Expr<U> {
+pub struct UnparseExpr<'a> {
+    expr: &'a Expr,
+    source: &'a SourceCode<'a>,
+}
+
+pub fn unparse_expr<'a>(expr: &'a Expr, source: &'a SourceCode<'a>) -> UnparseExpr<'a> {
+    UnparseExpr { expr, source }
+}
+
+impl fmt::Display for UnparseExpr<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Unparser::new(f).unparse_expr(self, precedence::TEST)
+        Unparser::new(f, self.source).unparse_expr(self.expr, precedence::TEST)
     }
 }
 
-fn to_string_fmt(f: impl FnOnce(&mut fmt::Formatter) -> fmt::Result) -> String {
+fn to_string_fmt(f: impl FnOnce(&mut fmt::Formatter<'_>) -> fmt::Result) -> String {
     use std::cell::Cell;
     struct Fmt<F>(Cell<Option<F>>);
-    impl<F: FnOnce(&mut fmt::Formatter) -> fmt::Result> fmt::Display for Fmt<F> {
+    impl<F: FnOnce(&mut fmt::Formatter<'_>) -> fmt::Result> fmt::Display for Fmt<F> {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             self.0.take().unwrap()(f)
         }
