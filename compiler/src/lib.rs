@@ -159,7 +159,7 @@ pub fn _compile_symtable(
 #[test]
 fn test_compile() {
     let code = "x = 'abc'";
-    let compiled = compile(&code, Mode::Single, "<>", CompileOpts::default());
+    let compiled = compile(code, Mode::Single, "<>", CompileOpts::default());
     dbg!(compiled.expect("compile error"));
 }
 
@@ -172,7 +172,7 @@ def main():
 if __name__ == '__main__':
     main()
 "#;
-    let compiled = compile(&code, Mode::Exec, "<>", CompileOpts::default());
+    let compiled = compile(code, Mode::Exec, "<>", CompileOpts::default());
     dbg!(compiled.expect("compile error"));
 }
 
@@ -188,7 +188,7 @@ elif False:
 else:
     pass
 "#;
-    let compiled = compile(&code, Mode::Exec, "<>", CompileOpts::default());
+    let compiled = compile(code, Mode::Exec, "<>", CompileOpts::default());
     dbg!(compiled.expect("compile error"));
 }
 
@@ -197,7 +197,7 @@ fn test_compile_lambda() {
     let code = r#"
 lambda: 'a'
 "#;
-    let compiled = compile(&code, Mode::Exec, "<>", CompileOpts::default());
+    let compiled = compile(code, Mode::Exec, "<>", CompileOpts::default());
     dbg!(compiled.expect("compile error"));
 }
 
@@ -206,7 +206,7 @@ fn test_compile_lambda2() {
     let code = r#"
 (lambda x: f'hello, {x}')('world}')
 "#;
-    let compiled = compile(&code, Mode::Exec, "<>", CompileOpts::default());
+    let compiled = compile(code, Mode::Exec, "<>", CompileOpts::default());
     dbg!(compiled.expect("compile error"));
 }
 
@@ -223,7 +223,7 @@ def f():
     else:
         return g
 "#;
-    let compiled = compile(&code, Mode::Exec, "<>", CompileOpts::default());
+    let compiled = compile(code, Mode::Exec, "<>", CompileOpts::default());
     dbg!(compiled.expect("compile error"));
 }
 
@@ -232,7 +232,7 @@ fn test_compile_int() {
     let code = r#"
 a = 0xFF
 "#;
-    let compiled = compile(&code, Mode::Exec, "<>", CompileOpts::default());
+    let compiled = compile(code, Mode::Exec, "<>", CompileOpts::default());
     dbg!(compiled.expect("compile error"));
 }
 
@@ -241,7 +241,7 @@ fn test_compile_bigint() {
     let code = r#"
 a = 0xFFFFFFFFFFFFFFFFFFFFFFFF
 "#;
-    let compiled = compile(&code, Mode::Exec, "<>", CompileOpts::default());
+    let compiled = compile(code, Mode::Exec, "<>", CompileOpts::default());
     dbg!(compiled.expect("compile error"));
 }
 
@@ -250,36 +250,36 @@ fn test_compile_fstring() {
     let code1 = r#"
 assert f"1" == '1'
     "#;
-    let compiled = compile(&code1, Mode::Exec, "<>", CompileOpts::default());
+    let compiled = compile(code1, Mode::Exec, "<>", CompileOpts::default());
     dbg!(compiled.expect("compile error"));
 
     let code2 = r#"
 assert f"{1}" == '1'
     "#;
-    let compiled = compile(&code2, Mode::Exec, "<>", CompileOpts::default());
+    let compiled = compile(code2, Mode::Exec, "<>", CompileOpts::default());
     dbg!(compiled.expect("compile error"));
     let code3 = r#"
 assert f"{1+1}" == '2'
     "#;
-    let compiled = compile(&code3, Mode::Exec, "<>", CompileOpts::default());
+    let compiled = compile(code3, Mode::Exec, "<>", CompileOpts::default());
     dbg!(compiled.expect("compile error"));
 
     let code4 = r#"
 assert f"{{{(lambda: f'{1}')}" == '{1'
     "#;
-    let compiled = compile(&code4, Mode::Exec, "<>", CompileOpts::default());
+    let compiled = compile(code4, Mode::Exec, "<>", CompileOpts::default());
     dbg!(compiled.expect("compile error"));
 
     let code5 = r#"
 assert f"a{1}" == 'a1'
     "#;
-    let compiled = compile(&code5, Mode::Exec, "<>", CompileOpts::default());
+    let compiled = compile(code5, Mode::Exec, "<>", CompileOpts::default());
     dbg!(compiled.expect("compile error"));
 
     let code6 = r#"
 assert f"{{{(lambda x: f'hello, {x}')('world}')}" == '{hello, world}'
     "#;
-    let compiled = compile(&code6, Mode::Exec, "<>", CompileOpts::default());
+    let compiled = compile(code6, Mode::Exec, "<>", CompileOpts::default());
     dbg!(compiled.expect("compile error"));
 }
 
@@ -293,6 +293,6 @@ class RegexFlag:
     DEBUG = 1
 print(RegexFlag.NOFLAG & RegexFlag.DEBUG)
 "#;
-    let compiled = compile(&code, Mode::Exec, "<string>", CompileOpts::default());
+    let compiled = compile(code, Mode::Exec, "<string>", CompileOpts::default());
     dbg!(compiled.expect("compile error"));
 }

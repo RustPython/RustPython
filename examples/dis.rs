@@ -1,10 +1,10 @@
-/// This an example usage of the rustpython_compiler crate.
-/// This program reads, parses, and compiles a file you provide
-/// to RustPython bytecode, and then displays the output in the
-/// `dis.dis` format.
-///
-/// example usage:
-/// $ cargo run --release --example dis demo*.py
+//! This an example usage of the rustpython_compiler crate.
+//! This program reads, parses, and compiles a file you provide
+//! to RustPython bytecode, and then displays the output in the
+//! `dis.dis` format.
+//!
+//! example usage:
+//! $ cargo run --release --example dis demo*.py
 
 #[macro_use]
 extern crate log;
@@ -53,10 +53,7 @@ fn main() -> Result<(), lexopt::Error> {
         return Err("expected at least one argument".into());
     }
 
-    let opts = compiler::CompileOpts {
-        optimize,
-        ..Default::default()
-    };
+    let opts = compiler::CompileOpts { optimize };
 
     for script in &scripts {
         if script.exists() && script.is_file() {

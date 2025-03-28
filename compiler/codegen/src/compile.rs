@@ -3660,7 +3660,7 @@ mod tests {
                 flags,
             }),
         });
-        assert_eq!(Compiler::contains_await(not_present), false);
+        assert!(!Compiler::contains_await(not_present));
 
         // f'{await x}'
         let expr_await_x = Expr::Await(ExprAwait {
@@ -3686,7 +3686,7 @@ mod tests {
                 flags,
             }),
         });
-        assert_eq!(Compiler::contains_await(present), true);
+        assert!(Compiler::contains_await(present));
 
         // f'{x:{await y}}'
         let expr_x = Expr::Name(ExprName {
@@ -3727,7 +3727,7 @@ mod tests {
                 flags,
             }),
         });
-        assert_eq!(Compiler::contains_await(present), true);
+        assert!(Compiler::contains_await(present));
     }
 }
 
