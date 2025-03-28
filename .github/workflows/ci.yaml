@@ -141,7 +141,7 @@ jobs:
         if: runner.os == 'macOS'
 
       - name: run clippy
-        run: cargo clippy ${{ env.CARGO_ARGS }} --workspace  --exclude rustpython_wasm -- -Dwarnings
+        run: cargo clippy ${{ env.CARGO_ARGS }} --workspace --all-targets --exclude rustpython_wasm -- -Dwarnings
 
       - name: run rust tests
         run: cargo test --workspace --exclude rustpython_wasm --verbose --features threading ${{ env.CARGO_ARGS }}

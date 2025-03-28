@@ -4,8 +4,6 @@ use criterion::{
     criterion_main,
 };
 use rustpython_compiler::Mode;
-use rustpython_parser::Parse;
-use rustpython_parser::ast;
 use rustpython_vm::{Interpreter, PyResult, Settings};
 use std::collections::HashMap;
 use std::path::Path;
@@ -50,7 +48,7 @@ pub fn benchmark_file_execution(group: &mut BenchmarkGroup<WallTime>, name: &str
 pub fn benchmark_file_parsing(group: &mut BenchmarkGroup<WallTime>, name: &str, contents: &str) {
     group.throughput(Throughput::Bytes(contents.len() as u64));
     group.bench_function(BenchmarkId::new("rustpython", name), |b| {
-        b.iter(|| ast::Suite::parse(contents, name).unwrap())
+        b.iter(|| ruff_python_parser::parse_module(contents).unwrap())
     });
     group.bench_function(BenchmarkId::new("cpython", name), |b| {
         use pyo3::types::PyAnyMethods;
