@@ -223,6 +223,39 @@ pub fn to_string(value: f64) -> String {
     }
 }
 
+pub fn complex_to_string(re: f64, im: f64) -> String {
+    // integer => drop ., fractional => float_ops
+    let mut im_part = if im.fract() == 0.0 {
+        im.to_string()
+    } else {
+        to_string(im)
+    };
+    im_part.push('j');
+
+    // positive empty => return im_part, integer => drop ., fractional => float_ops
+    let re_part = if re == 0.0 {
+        if re.is_sign_positive() {
+            return im_part;
+        } else {
+            re.to_string()
+        }
+    } else if re.fract() == 0.0 {
+        re.to_string()
+    } else {
+        to_string(re)
+    };
+    let mut result =
+        String::with_capacity(re_part.len() + im_part.len() + 2 + im.is_sign_positive() as usize);
+    result.push('(');
+    result.push_str(&re_part);
+    if im.is_sign_positive() || im.is_nan() {
+        result.push('+');
+    }
+    result.push_str(&im_part);
+    result.push(')');
+    result
+}
+
 pub fn from_hex(s: &str) -> Option<f64> {
     if let Ok(f) = hexf_parse::parse_hexf64(s, false) {
         return Some(f);

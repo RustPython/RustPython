@@ -1,10 +1,9 @@
-pub use ruff_python_parser::ModeParseError;
-
 #[derive(Clone, Copy)]
 pub enum Mode {
     Exec,
     Eval,
     Single,
+    /// Returns the value of the last statement in the statement list.
     BlockExpr,
 }
 
@@ -22,14 +21,12 @@ impl std::str::FromStr for Mode {
     }
 }
 
-impl From<Mode> for ruff_python_parser::Mode {
-    fn from(mode: Mode) -> Self {
-        match mode {
-            Mode::Exec => Self::Module,
-            Mode::Eval => Self::Expression,
-            // TODO: Improve ruff API
-            // ruff does not have an interactive mode
-            Mode::Single | Mode::BlockExpr => Self::Ipython,
-        }
+/// Returned when a given mode is not valid.
+#[derive(Debug)]
+pub struct ModeParseError;
+
+impl std::fmt::Display for ModeParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, r#"mode must be "exec", "eval", or "single""#)
     }
 }
