@@ -32,7 +32,7 @@ __all__ = [
     "captured_stdin", "captured_stderr",
     # unittest
     "is_resource_enabled", "requires", "requires_freebsd_version",
-    "requires_linux_version", "requires_mac_ver",
+    "requires_gil_enabled", "requires_linux_version", "requires_mac_ver",
     "check_syntax_error",
     "run_unittest", "run_doctest",
     "requires_gzip", "requires_bz2", "requires_lzma",
@@ -2572,3 +2572,9 @@ class BrokenIter:
         if self.iter_raises:
             1/0
         return self
+
+Py_GIL_DISABLED = bool(sysconfig.get_config_var('Py_GIL_DISABLED'))
+
+def requires_gil_enabled(msg="needs the GIL enabled"):
+    """Decorator for skipping tests on the free-threaded build."""
+    return unittest.skipIf(Py_GIL_DISABLED, msg)
