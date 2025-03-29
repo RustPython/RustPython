@@ -1,13 +1,14 @@
 use crate::{
     AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    builtins::{PyTuple, PyTupleRef, PyType},
+    builtins::{PyBaseExceptionRef, PyTuple, PyTupleRef, PyType},
     class::{PyClassImpl, StaticType},
     vm::Context,
 };
 
 #[pyclass]
 pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
-    const FIELD_NAMES: &'static [&'static str];
+    const REQUIRED_FIELD_NAMES: &'static [&'static str];
+    const OPTIONAL_FIELD_NAMES: &'static [&'static str];
 
     fn into_tuple(self, vm: &VirtualMachine) -> PyTuple;
 
@@ -17,10 +18,16 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             .unwrap()
     }
 
-    fn try_elements_from<const FIELD_LEN: usize>(
-        obj: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<[PyObjectRef; FIELD_LEN]> {
+    fn try_elements_from(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        #[cold]
+        fn sequence_length_error(
+            name: &str,
+            len: usize,
+            vm: &VirtualMachine,
+        ) -> PyBaseExceptionRef {
+            vm.new_type_error(format!("{name} takes a sequence of length {len}"))
+        }
+
         let typ = Self::static_type();
         // if !obj.fast_isinstance(typ) {
         //     return Err(vm.new_type_error(format!(
@@ -30,13 +37,13 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         //     )));
         // }
         let seq: Vec<PyObjectRef> = obj.try_into_value(vm)?;
-        let seq: [PyObjectRef; FIELD_LEN] = seq.try_into().map_err(|_| {
-            vm.new_type_error(format!(
-                "{} takes a sequence of length {}",
-                typ.name(),
-                FIELD_LEN
-            ))
-        })?;
+        if seq.len() < Self::REQUIRED_FIELD_NAMES.len() {
+            return Err(sequence_length_error(
+                &typ.name(),
+                Self::REQUIRED_FIELD_NAMES.len(),
+                vm,
+            ));
+        }
         Ok(seq)
     }
 
@@ -49,14 +56,14 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         let (body, suffix) = if let Some(_guard) =
             rustpython_vm::recursion::ReprGuard::enter(vm, zelf.as_object())
         {
-            if Self::FIELD_NAMES.len() == 1 {
+            if Self::REQUIRED_FIELD_NAMES.len() == 1 {
                 let value = zelf.first().unwrap();
-                let formatted = format_field((value, Self::FIELD_NAMES[0]))?;
+                let formatted = format_field((value, Self::REQUIRED_FIELD_NAMES[0]))?;
                 (formatted, ",")
             } else {
                 let fields: PyResult<Vec<_>> = zelf
                     .iter()
-                    .zip(Self::FIELD_NAMES.iter().copied())
+                    .zip(Self::REQUIRED_FIELD_NAMES.iter().copied())
                     .map(format_field)
                     .collect();
                 (fields?.join(", "), "")
@@ -74,7 +81,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
 
     #[extend_class]
     fn extend_pyclass(ctx: &Context, class: &'static Py<PyType>) {
-        for (i, &name) in Self::FIELD_NAMES.iter().enumerate() {
+        for (i, &name) in Self::REQUIRED_FIELD_NAMES.iter().enumerate() {
             // cast i to a u8 so there's less to store in the getter closure.
             // Hopefully there's not struct sequences with >=256 elements :P
             let i = i as u8;
@@ -90,7 +97,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         class.set_attr(
             identifier!(ctx, __match_args__),
             ctx.new_tuple(
-                Self::FIELD_NAMES
+                Self::REQUIRED_FIELD_NAMES
                     .iter()
                     .map(|&name| ctx.new_str(name).into())
                     .collect::<Vec<_>>(),
