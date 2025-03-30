@@ -17,9 +17,20 @@ pub mod _hashlib {
     use digest::{ExtendableOutput, Update};
     use dyn_clone::{DynClone, clone_trait_object};
     use md5::Md5;
+    use rustpython_vm::function::Either;
     use sha1::Sha1;
     use sha2::{Sha224, Sha256, Sha384, Sha512};
     use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512, Shake128, Shake256};
+
+    #[pyattr(name = "UnsupportedDigestmodError", once)]
+    fn unsupported_digestmod_error(vm: &VirtualMachine) -> PyTypeRef {
+        vm.ctx.new_exception_type(
+            "_hashlib",
+            "UnsupportedDigestmodError",
+            Some(vec![vm.ctx.exceptions.exception_type.to_owned()]),
+        )
+    }
+
 
     #[derive(FromArgs, Debug)]
     #[allow(unused)]
@@ -324,19 +335,33 @@ pub mod _hashlib {
         Ok((a_hash == b_hash).to_pyobject(vm))
     }
 
+    enum HashType {
+        Evp,            // usedforsecurity=True / default
+        EvpNosecurity, // usedforsecurity=False
+        Hmac,            // HMAC
+        Pbkdf2,         // PKBDF2
+    }    
+
+    fn digest_by_digestmod(name: String, hash_type: HashType) {
+        unimplemented!()
+    }
+
     #[derive(FromArgs, Debug)]
     #[allow(unused)]
     pub struct NewHMACHashArgs {
         #[pyarg(positional)]
-        name: PyBuffer,
+        key: PyBuffer,
         #[pyarg(any, optional)]
-        data: OptionalArg<ArgBytesLike>,
-        #[pyarg(named, default = "true")]
-        digestmod: bool, // TODO: RUSTPYTHON support functions & name functions
+        msg: OptionalArg<ArgBytesLike>,
+        #[pyarg(named, default = "None")]
+        digestmod: Option<String>,
     }
 
     #[pyfunction]
-    fn hmac_new(_args: NewHMACHashArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn hmac_new(args: NewHMACHashArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        if args.key.obj_bytes().len() > (std::i32::MAX as usize) {
+            return Err(vm.new_overflow_error("key is too long".to_string()))
+        }
         Err(vm.new_type_error("cannot create 'hmac' instances".into())) // TODO: RUSTPYTHON support hmac
     }
 
