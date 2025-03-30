@@ -4,7 +4,7 @@ import unittest
 import binascii
 import array
 import re
-from test.support import bigmemtest, _1G, _4G, warnings_helper
+from test.support import bigmemtest, _1G, _4G
 
 
 # Note: "*_hex" functions are aliases for "(un)hexlify"
@@ -430,6 +430,14 @@ class BinASCIITest(unittest.TestCase):
                          b'aGVsbG8=\n')
         self.assertEqual(binascii.b2a_base64(b, newline=False),
                          b'aGVsbG8=')
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_c_contiguity(self):
+        m = memoryview(bytearray(b'noncontig'))
+        noncontig_writable = m[::-2]
+        with self.assertRaises(BufferError):
+            binascii.b2a_hex(noncontig_writable)
 
 
 class ArrayBinASCIITest(BinASCIITest):
