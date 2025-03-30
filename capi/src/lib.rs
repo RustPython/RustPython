@@ -29,7 +29,8 @@ pub struct PyStatus {
     pub exitcode: ffi::c_int,
 }
 
-#[allow(clippy::missing_safety_doc)]
+/// # Safety
+/// err_msg and func are null.
 #[unsafe(export_name = "PyStatus_Ok")]
 pub unsafe extern "C" fn status_ok() -> PyStatus {
     PyStatus {
@@ -56,9 +57,10 @@ thread_local! {
 }
 
 #[unsafe(export_name = "Py_Initialize")]
-pub unsafe extern "C" fn initialize() {
+pub extern "C" fn initialize() {
     // TODO: This sort of reimplemented what has already been done in the bin/lib crate, try reusing that.
     let settings = vm::Settings::default();
+    #[allow(clippy::type_complexity)]
     let init_hooks: Vec<Box<dyn FnOnce(&mut vm::VirtualMachine)>> = vec![];
     let interp = vm::Interpreter::with_init(settings, |vm| {
         for hook in init_hooks {
@@ -74,12 +76,12 @@ pub unsafe extern "C" fn initialize() {
 }
 
 #[unsafe(export_name = "Py_IsInitialized")]
-pub unsafe extern "C" fn is_initialized() -> i32 {
+pub extern "C" fn is_initialized() -> i32 {
     VM.with(|vm_ref| vm_ref.borrow().is_some() as i32)
 }
 
 #[unsafe(export_name = "Py_Finalize")]
-pub unsafe extern "C" fn finalize() {
+pub extern "C" fn finalize() {
     VM.with(|vm_ref| {
         *vm_ref.borrow_mut() = None;
     });
