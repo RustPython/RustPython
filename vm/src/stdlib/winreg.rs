@@ -266,7 +266,7 @@ mod winreg {
                 Registry::RegConnectRegistryW(
                     wide_computer_name.as_ptr(),
                     *key.hkey.read(),
-                    &mut ret_key
+                    &mut ret_key,
                 )
             };
             if res == 0 {
@@ -277,11 +277,7 @@ mod winreg {
         } else {
             let mut ret_key = std::ptr::null_mut();
             let res = unsafe {
-                Registry::RegConnectRegistryW(
-                    std::ptr::null_mut(),
-                    *key.hkey.read(),
-                    &mut ret_key
-                )
+                Registry::RegConnectRegistryW(std::ptr::null_mut(), *key.hkey.read(), &mut ret_key)
             };
             if res == 0 {
                 Ok(PyHKEYObject::new(ret_key))
@@ -436,18 +432,15 @@ mod winreg {
             )
         };
         if rc != 0 {
-            return Err(vm.new_os_error(format!(
-                "RegQueryInfoKeyW failed with error code {}",
-                rc
-            )));
+            return Err(vm.new_os_error(format!("RegQueryInfoKeyW failed with error code {}", rc)));
         }
-    
+
         // Include room for null terminators.
         ret_value_size += 1;
         ret_data_size += 1;
         let mut buf_value_size = ret_value_size;
         let mut buf_data_size = ret_data_size;
-    
+
         // Allocate buffers.
         let mut ret_value_buf: Vec<u16> = vec![0; ret_value_size as usize];
         let mut ret_data_buf: Vec<u8> = vec![0; ret_data_size as usize];
@@ -484,12 +477,9 @@ mod winreg {
                 continue;
             }
             if rc != 0 {
-                return Err(vm.new_os_error(format!(
-                    "RegEnumValueW failed with error code {}",
-                    rc
-                )));
+                return Err(vm.new_os_error(format!("RegEnumValueW failed with error code {}", rc)));
             }
-    
+
             // At this point, current_value_size and current_data_size have been updated.
             // Retrieve the registry type.
             let mut reg_type: u32 = 0;
@@ -505,7 +495,7 @@ mod winreg {
                     &mut current_data_size as *mut u32,
                 )
             };
-    
+
             // Convert the registry value name from UTF‑16.
             let name_len = ret_value_buf
                 .iter()
@@ -513,17 +503,20 @@ mod winreg {
                 .unwrap_or(ret_value_buf.len());
             let name = String::from_utf16(&ret_value_buf[..name_len])
                 .map_err(|e| vm.new_value_error(format!("UTF16 conversion error: {}", e)))?;
-    
+
             // Slice the data buffer to the actual size returned.
             let data_slice = &ret_data_buf[..current_data_size as usize];
             let py_data = reg_to_py(vm, data_slice, reg_type)?;
-    
+
             // Return tuple (value_name, data, type)
-            return Ok(vm.ctx.new_tuple(vec![
-                vm.ctx.new_str(name).into(),
-                py_data,
-                vm.ctx.new_int(reg_type).into(),
-            ]).into());
+            return Ok(vm
+                .ctx
+                .new_tuple(vec![
+                    vm.ctx.new_str(name).into(),
+                    py_data,
+                    vm.ctx.new_int(reg_type).into(),
+                ])
+                .into());
         }
     }
 
@@ -614,8 +607,13 @@ mod winreg {
         if err != 0 {
             return Err(vm.new_os_error(format!("error code: {}", err)));
         }
-        let l: u64 = (lpftlastwritetime.dwHighDateTime as u64) << 32 | lpftlastwritetime.dwLowDateTime as u64;
-        let tup: Vec<PyObjectRef> = vec![vm.ctx.new_int(lpcsubkeys).into(), vm.ctx.new_int(lpcvalues).into(), vm.ctx.new_int(l).into()];
+        let l: u64 = (lpftlastwritetime.dwHighDateTime as u64) << 32
+            | lpftlastwritetime.dwLowDateTime as u64;
+        let tup: Vec<PyObjectRef> = vec![
+            vm.ctx.new_int(lpcsubkeys).into(),
+            vm.ctx.new_int(lpcvalues).into(),
+            vm.ctx.new_int(l).into(),
+        ];
         Ok(vm.ctx.new_tuple(tup))
     }
 
@@ -642,7 +640,11 @@ mod winreg {
     }
 
     #[pyfunction]
-    fn QueryValueEx(key: PyRef<PyHKEYObject>, name: String, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn QueryValueEx(
+        key: PyRef<PyHKEYObject>,
+        name: String,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
         let wide_name = to_utf16(name);
         let mut buf_size = 0;
         let res = unsafe {
@@ -693,11 +695,17 @@ mod winreg {
     }
 
     #[pyfunction]
-    fn SetValue(key: PyRef<PyHKEYObject>, sub_key: String, typ: u32, value: String, vm: &VirtualMachine) -> PyResult<()> {
+    fn SetValue(
+        key: PyRef<PyHKEYObject>,
+        sub_key: String,
+        typ: u32,
+        value: String,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         if typ != Registry::REG_SZ {
             return Err(vm.new_type_error("type must be winreg.REG_SZ".to_string()));
         }
-    
+
         let wide_sub_key = to_utf16(sub_key);
 
         // TODO: Value check
@@ -753,7 +761,10 @@ mod winreg {
                     std::slice::from_raw_parts(ret_data.as_ptr() as *const u16, u16_count)
                 };
                 // Only use characters up to the first NUL.
-                let len = u16_slice.iter().position(|&c| c == 0).unwrap_or(u16_slice.len());
+                let len = u16_slice
+                    .iter()
+                    .position(|&c| c == 0)
+                    .unwrap_or(u16_slice.len());
                 let s = String::from_utf16(&u16_slice[..len])
                     .map_err(|e| vm.new_value_error(format!("UTF16 error: {}", e)))?;
                 Ok(vm.ctx.new_str(s).into())
@@ -814,10 +825,14 @@ mod winreg {
             }
             // REG_SZ is fallthrough
             REG_EXPAND_SZ => {
-                return Err(vm.new_type_error("TODO: RUSTPYTHON REG_EXPAND_SZ is not supported".to_string()));
+                return Err(vm.new_type_error(
+                    "TODO: RUSTPYTHON REG_EXPAND_SZ is not supported".to_string(),
+                ));
             }
             REG_MULTI_SZ => {
-                return Err(vm.new_type_error("TODO: RUSTPYTHON REG_MULTI_SZ is not supported".to_string()));
+                return Err(
+                    vm.new_type_error("TODO: RUSTPYTHON REG_MULTI_SZ is not supported".to_string())
+                );
             }
             // REG_BINARY is fallthrough
             _ => {
@@ -856,7 +871,7 @@ mod winreg {
                 if res != 0 {
                     return Err(vm.new_os_error(format!("error code: {}", res)));
                 }
-            },
+            }
             Ok(None) => {
                 let len = 0;
                 let ptr = std::ptr::null();
@@ -874,7 +889,7 @@ mod winreg {
                 if res != 0 {
                     return Err(vm.new_os_error(format!("error code: {}", res)));
                 }
-            },
+            }
             Err(_) => return Err(vm.new_type_error("value must be an integer".to_string())),
         }
         Ok(())
