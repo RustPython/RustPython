@@ -223,6 +223,12 @@ pub struct PatternContext {
     pub on_top: usize,
 }
 
+impl Default for PatternContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PatternContext {
     pub fn new() -> Self {
         PatternContext {
@@ -1919,7 +1925,7 @@ impl Compiler<'_> {
             emit!(
                 self,
                 Instruction::Swap {
-                    index: count as u32
+                    index: u32::try_from(count).unwrap()
                 }
             );
             count -= 1;
@@ -1977,8 +1983,8 @@ impl Compiler<'_> {
                         // return self.compiler_error(loc, "too many expressions in star-unpacking sequence pattern");
                     }
                     let args = UnpackExArgs {
-                        before: i as u8,
-                        after: (n - i - 1) as u8,
+                        before: u8::try_from(i).unwrap(),
+                        after: u8::try_from(n - i - 1).unwrap(),
                     };
                     emit!(self, Instruction::UnpackEx { args });
                     seen_star = true;
@@ -1990,7 +1996,12 @@ impl Compiler<'_> {
             }
         }
         if !seen_star {
-            emit!(self, Instruction::UnpackSequence { size: n as u32 });
+            emit!(
+                self,
+                Instruction::UnpackSequence {
+                    size: u32::try_from(n).unwrap()
+                }
+            );
         }
         Ok(())
     }
@@ -2005,7 +2016,7 @@ impl Compiler<'_> {
         self.pattern_unpack_helper(patterns)?;
         let size = patterns.len();
         // Increase the on_top counter for the newly unpacked subjects.
-        pc.on_top += size as usize;
+        pc.on_top += size;
         // For each unpacked subject, compile its subpattern.
         for pattern in patterns {
             // Decrement on_top for each subject as it is consumed.
@@ -2023,9 +2034,7 @@ impl Compiler<'_> {
     ) -> CompileResult<()> {
         // Keep the subject around for extracting elements.
         pc.on_top += 1;
-        let size = patterns.len();
-        for i in 0..size {
-            let pattern = &patterns[i];
+        for (i, pattern) in patterns.iter().enumerate() {
             // if pattern.is_wildcard() {
             // continue;
             // }
@@ -2035,7 +2044,7 @@ impl Compiler<'_> {
                 continue;
             }
             // Duplicate the subject.
-            emit!(self, Instruction::CopyItem { index: 1 as u32 });
+            emit!(self, Instruction::CopyItem { index: 1_u32 });
             if i < star {
                 // For indices before the star, use a nonnegative index equal to i.
                 self.emit_load_const(ConstantData::Integer { value: i.into() });
@@ -2044,7 +2053,7 @@ impl Compiler<'_> {
                 // index = len(subject) - (size - i)
                 emit!(self, Instruction::GetLen);
                 self.emit_load_const(ConstantData::Integer {
-                    value: (size - 1).into(),
+                    value: (patterns.len() - 1).into(),
                 });
                 // Subtract to compute the correct index.
                 emit!(
@@ -2108,7 +2117,7 @@ impl Compiler<'_> {
 
         // Otherwise, there is a sub-pattern. Duplicate the object on top of the stack.
         pc.on_top += 1;
-        emit!(self, Instruction::CopyItem { index: 1 as u32 });
+        emit!(self, Instruction::CopyItem { index: 1_u32 });
         // Compile the sub-pattern.
         self.compile_pattern(p.pattern.as_ref().unwrap(), pc)?;
         // After success, decrement the on_top counter.
@@ -2143,8 +2152,8 @@ impl Compiler<'_> {
                 return Err(self.compile_error_forbidden_name(attr));
             }
             // Check for duplicates: compare with every subsequent attribute.
-            for j in (i + 1)..nattrs {
-                let other = attrs[j].as_str();
+            for ident in attrs.iter().take(nattrs).skip(i + 1) {
+                let other = ident.as_str();
                 if attr == other {
                     todo!();
                     // return Err(self.compiler_error(
@@ -2221,7 +2230,7 @@ impl Compiler<'_> {
             elements: attr_names,
         });
         // 2. Emit MATCH_CLASS with nargs.
-        emit!(self, Instruction::MatchClass(nargs as u32));
+        emit!(self, Instruction::MatchClass(u32::try_from(nargs).unwrap()));
         // 3. Duplicate the top of the stack.
         emit!(self, Instruction::CopyItem { index: 1_u32 });
         // 4. Load None.
@@ -2235,7 +2244,12 @@ impl Compiler<'_> {
 
         // Unpack the tuple into (nargs + nattrs) items.
         let total = nargs + nattrs;
-        emit!(self, Instruction::UnpackSequence { size: total as u32 });
+        emit!(
+            self,
+            Instruction::UnpackSequence {
+                size: u32::try_from(total).unwrap()
+            }
+        );
         pc.on_top += total;
         pc.on_top -= 1;
 
@@ -2405,7 +2419,7 @@ impl Compiler<'_> {
             pc.fail_pop.clear();
             pc.on_top = 0;
             // Emit a COPY(1) instruction before compiling the alternative.
-            emit!(self, Instruction::CopyItem { index: 1 as u32 });
+            emit!(self, Instruction::CopyItem { index: 1_u32 });
             self.compile_pattern(alt, pc)?;
 
             let nstores = pc.stores.len();
@@ -2558,9 +2572,9 @@ impl Compiler<'_> {
             // Patterns like: [] / [_] / [_, _] / [*_] / [_, *_] / [_, _, *_] / etc.
             emit!(self, Instruction::Pop);
         } else if star_wildcard {
-            self.pattern_helper_sequence_subscr(&patterns, star.unwrap(), pc)?;
+            self.pattern_helper_sequence_subscr(patterns, star.unwrap(), pc)?;
         } else {
-            self.pattern_helper_sequence_unpack(&patterns, star, pc)?;
+            self.pattern_helper_sequence_unpack(patterns, star, pc)?;
         }
         Ok(())
     }
@@ -2656,12 +2670,10 @@ impl Compiler<'_> {
         let has_default = cases.iter().last().unwrap().pattern.is_match_star() && num_cases > 1;
 
         let case_count = num_cases - if has_default { 1 } else { 0 };
-        for i in 0..case_count {
-            let m = &cases[i];
-
+        for (i, m) in cases.iter().enumerate().take(case_count) {
             // Only copy the subject if not on the last case
             if i != case_count - 1 {
-                emit!(self, Instruction::CopyItem { index: 1 as u32 });
+                emit!(self, Instruction::CopyItem { index: 1_u32 });
             }
 
             pattern_context.stores = Vec::with_capacity(1);
