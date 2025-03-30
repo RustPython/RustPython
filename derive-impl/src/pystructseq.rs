@@ -80,16 +80,19 @@ fn field_names(input: &mut DeriveInput) -> Result<(Vec<Ident>, Vec<Ident>)> {
 }
 
 pub(crate) fn impl_pystruct_sequence(mut input: DeriveInput) -> Result<TokenStream> {
-    let (not_skipped_fields, _skipped_fields) = field_names(&mut input)?;
+    let (not_skipped_fields, skipped_fields) = field_names(&mut input)?;
     let ty = &input.ident;
     let ret = quote! {
         impl ::rustpython_vm::types::PyStructSequence for #ty {
-            const FIELD_NAMES: &'static [&'static str] = &[#(stringify!(#not_skipped_fields)),*];
+            const REQUIRED_FIELD_NAMES: &'static [&'static str] = &[#(stringify!(#not_skipped_fields),)*];
+            const OPTIONAL_FIELD_NAMES: &'static [&'static str] = &[#(stringify!(#skipped_fields),)*];
             fn into_tuple(self, vm: &::rustpython_vm::VirtualMachine) -> ::rustpython_vm::builtins::PyTuple {
-                let items = vec![#(::rustpython_vm::convert::ToPyObject::to_pyobject(
-                    self.#not_skipped_fields,
-                    vm,
-                )),*];
+                let items = vec![
+                    #(::rustpython_vm::convert::ToPyObject::to_pyobject(
+                        self.#not_skipped_fields,
+                        vm,
+                    ),)*
+                ];
                 ::rustpython_vm::builtins::PyTuple::new_unchecked(items.into_boxed_slice())
             }
         }
@@ -110,17 +113,14 @@ pub(crate) fn impl_pystruct_sequence_try_from_object(
     let ret = quote! {
         impl ::rustpython_vm::TryFromObject for #ty {
             fn try_from_object(vm: &::rustpython_vm::VirtualMachine, seq: ::rustpython_vm::PyObjectRef) -> ::rustpython_vm::PyResult<Self> {
-                const LEN: usize = #ty::FIELD_NAMES.len();
-                let seq = Self::try_elements_from::<LEN>(seq, vm)?;
-                // TODO: this is possible to be written without iterator
+                let seq = Self::try_elements_from(seq, vm)?;
                 let mut iter = seq.into_iter();
                 Ok(Self {
-                #(
-                    #not_skipped_fields: iter.next().unwrap().clone().try_into_value(vm)?,
-                )*
-                #(
-                    #skipped_fields: vm.ctx.none(),
-                )*
+                    #(#not_skipped_fields: iter.next().unwrap().clone().try_into_value(vm)?,)*
+                    #(#skipped_fields: match iter.next() {
+                        Some(v) => v.clone().try_into_value(vm)?,
+                        None => vm.ctx.none(),
+                    },)*
                 })
             }
         }
