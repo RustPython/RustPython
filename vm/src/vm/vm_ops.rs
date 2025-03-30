@@ -470,7 +470,7 @@ impl VirtualMachine {
     }
 
     pub fn _invert(&self, a: &PyObject) -> PyResult {
-        const STR: &'static str = "Bitwise inversion '~' on bool is deprecated and will be removed in Python 3.16. \
+        const STR: &str = "Bitwise inversion '~' on bool is deprecated and will be removed in Python 3.16. \
             This returns the bitwise inversion of the underlying int object and is usually not what you expect from negating a bool. \
             Use the 'not' operator for boolean negation or ~int(x) if you really want the bitwise inversion of the underlying int.";
         if a.fast_isinstance(self.ctx.types.bool_type) {
