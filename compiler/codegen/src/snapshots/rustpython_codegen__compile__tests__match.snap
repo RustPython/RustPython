@@ -1,6 +1,5 @@
 ---
 source: compiler/codegen/src/compile.rs
-assertion_line: 4553
 expression: "compile_exec(\"\\\nclass Test:\n    pass\n\nt = Test()\nmatch t:\n    case Test():\n        assert True\n    case _:\n        assert False\n\")"
 ---
   2           0 LoadBuildClass

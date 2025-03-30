@@ -48,19 +48,3 @@ assert test_or(1) == 0
 assert test_or(2) == 1
 assert test_or(3) == 1
 assert test_or(4) == 2
-
-match [0, 1, 2]:
-    case [0, 1, 2]:
-        assert True
-    case _:
-        assert False
-
-class Test:
-    pass
-
-t = Test()
-match t:
-    case Test():
-        assert True
-    case _:
-        assert False

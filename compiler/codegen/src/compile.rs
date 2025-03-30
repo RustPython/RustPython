@@ -2170,7 +2170,6 @@ impl Compiler<'_> {
         p: &PatternMatchClass,
         pc: &mut PatternContext,
     ) -> CompileResult<()> {
-        dbg!();
         // Extract components from the MatchClass pattern.
         let match_class = p;
         let patterns = &match_class.arguments.patterns;
@@ -4540,13 +4539,10 @@ mod tests {
 
     fn compile_exec(source: &str) -> CodeObject {
         let opts = CompileOpts::default();
-        let mode = Mode::Exec;
         let source_code = SourceCode::new("source_path", source);
-        let parsed = ruff_python_parser::parse(
-            source_code.text,
-            ruff_python_parser::Mode::from(mode).into(),
-        )
-        .unwrap();
+        let parsed =
+            ruff_python_parser::parse(source_code.text, ruff_python_parser::Mode::Module.into())
+                .unwrap();
         let ast = parsed.into_syntax();
         let ast = match ast {
             ruff_python_ast::Mod::Module(stmts) => stmts,
