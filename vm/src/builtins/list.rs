@@ -91,7 +91,7 @@ pub(crate) struct SortOptions {
     #[pyarg(named, default)]
     key: Option<PyObjectRef>,
     #[pytraverse(skip)]
-    #[pyarg(named, default = "false")]
+    #[pyarg(named, default = false)]
     reverse: bool,
 }
 

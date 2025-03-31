@@ -163,9 +163,9 @@ mod _sre {
     #[derive(FromArgs)]
     struct StringArgs {
         string: PyObjectRef,
-        #[pyarg(any, default = "0")]
+        #[pyarg(any, default = 0)]
         pos: usize,
-        #[pyarg(any, default = "sys::MAXSIZE as usize")]
+        #[pyarg(any, default = sys::MAXSIZE as usize)]
         endpos: usize,
     }
 
@@ -174,14 +174,14 @@ mod _sre {
         // repl: Either<ArgCallable, PyStrRef>,
         repl: PyObjectRef,
         string: PyObjectRef,
-        #[pyarg(any, default = "0")]
+        #[pyarg(any, default = 0)]
         count: usize,
     }
 
     #[derive(FromArgs)]
     struct SplitArgs {
         string: PyObjectRef,
-        #[pyarg(any, default = "0")]
+        #[pyarg(any, default = 0)]
         maxsplit: isize,
     }
 

@@ -529,9 +529,9 @@ mod decl {
 
         #[derive(FromArgs)]
         pub struct EpollNewArgs {
-            #[pyarg(any, default = "-1")]
+            #[pyarg(any, default = -1)]
             sizehint: i32,
-            #[pyarg(any, default = "0")]
+            #[pyarg(any, default = 0)]
             flags: i32,
         }
 
@@ -555,7 +555,7 @@ mod decl {
         struct EpollPollArgs {
             #[pyarg(any, default)]
             timeout: poll::TimeoutArg<false>,
-            #[pyarg(any, default = "-1")]
+            #[pyarg(any, default = -1)]
             maxevents: i32,
         }
 

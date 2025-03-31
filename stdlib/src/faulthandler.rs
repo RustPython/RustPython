@@ -34,7 +34,7 @@ mod decl {
     struct EnableArgs {
         #[pyarg(any, default)]
         file: Option<i64>,
-        #[pyarg(any, default = "true")]
+        #[pyarg(any, default = true)]
         all_threads: bool,
     }
 
@@ -50,9 +50,9 @@ mod decl {
         signum: i64,
         #[pyarg(any, default)]
         file: Option<i64>,
-        #[pyarg(any, default = "true")]
+        #[pyarg(any, default = true)]
         all_threads: bool,
-        #[pyarg(any, default = "false")]
+        #[pyarg(any, default = false)]
         chain: bool,
     }
 

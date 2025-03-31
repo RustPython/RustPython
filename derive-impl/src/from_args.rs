@@ -76,7 +76,6 @@ impl ArgAttribute {
                 return Err(meta.error("Default already set"));
             }
             let val = meta.value()?;
-            let val = val.parse::<syn::LitStr>()?;
             self.default = Some(Some(val.parse()?))
         } else if meta.path.is_ident("default") || meta.path.is_ident("optional") {
             if self.default.is_none() {
@@ -138,9 +137,10 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream> {
         .map(|x| ::rustpython_vm::convert::TryFromObject::try_from_object(vm, x)).transpose()?
     };
     let ending = if let Some(default) = attr.default {
+        let ty = &field.ty;
         let default = default.unwrap_or_else(|| parse_quote!(::std::default::Default::default()));
         quote! {
-            .map(::rustpython_vm::function::FromArgOptional::from_inner)
+            .map(<#ty as ::rustpython_vm::function::FromArgOptional>::from_inner)
             .unwrap_or_else(|| #default)
         }
     } else {

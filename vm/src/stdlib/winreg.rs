@@ -149,9 +149,9 @@ mod winreg {
     struct OpenKeyArgs {
         key: Hkey,
         sub_key: Option<PyStrRef>,
-        #[pyarg(any, default = "0")]
+        #[pyarg(any, default = 0)]
         reserved: i32,
-        #[pyarg(any, default = "::winreg::enums::KEY_READ")]
+        #[pyarg(any, default = ::winreg::enums::KEY_READ)]
         access: u32,
     }
 

@@ -3822,7 +3822,7 @@ mod _io {
 
     #[derive(FromArgs)]
     pub struct OpenArgs {
-        #[pyarg(any, default = "-1")]
+        #[pyarg(any, default = -1)]
         pub buffering: isize,
         #[pyarg(any, default)]
         pub encoding: Option<PyStrRef>,
@@ -3830,7 +3830,7 @@ mod _io {
         pub errors: Option<PyStrRef>,
         #[pyarg(any, default)]
         pub newline: Option<PyStrRef>,
-        #[pyarg(any, default = "true")]
+        #[pyarg(any, default = true)]
         pub closefd: bool,
         #[pyarg(any, default)]
         pub opener: Option<PyObjectRef>,
@@ -4165,7 +4165,7 @@ mod fileio {
         name: PyObjectRef,
         #[pyarg(any, default)]
         mode: Option<PyStrRef>,
-        #[pyarg(any, default = "true")]
+        #[pyarg(any, default = true)]
         closefd: bool,
         #[pyarg(any, default)]
         opener: Option<PyObjectRef>,

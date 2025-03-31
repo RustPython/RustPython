@@ -224,7 +224,7 @@ pub(crate) mod _signal {
     #[derive(FromArgs)]
     struct SetWakeupFdArgs {
         fd: WakeupFd,
-        #[pyarg(named, default = "true")]
+        #[pyarg(named, default = true)]
         warn_on_full_buffer: bool,
     }
 

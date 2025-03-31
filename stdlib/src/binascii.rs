@@ -143,7 +143,7 @@ mod decl {
 
     #[derive(FromArgs)]
     struct NewlineArg {
-        #[pyarg(named, default = "true")]
+        #[pyarg(named, default = true)]
         newline: bool,
     }
 
@@ -151,7 +151,7 @@ mod decl {
     struct A2bBase64Args {
         #[pyarg(any)]
         s: ArgAsciiBuffer,
-        #[pyarg(named, default = "false")]
+        #[pyarg(named, default = false)]
         strict_mode: bool,
     }
 
@@ -298,7 +298,7 @@ mod decl {
     struct A2bQpArgs {
         #[pyarg(any)]
         data: ArgAsciiBuffer,
-        #[pyarg(named, default = "false")]
+        #[pyarg(named, default = false)]
         header: bool,
     }
     #[pyfunction]
@@ -366,11 +366,11 @@ mod decl {
     struct B2aQpArgs {
         #[pyarg(any)]
         data: ArgAsciiBuffer,
-        #[pyarg(named, default = "false")]
+        #[pyarg(named, default = false)]
         quotetabs: bool,
-        #[pyarg(named, default = "true")]
+        #[pyarg(named, default = true)]
         istext: bool,
-        #[pyarg(named, default = "false")]
+        #[pyarg(named, default = false)]
         header: bool,
     }
 
@@ -689,7 +689,7 @@ mod decl {
 
     #[derive(FromArgs)]
     struct BacktickArg {
-        #[pyarg(named, default = "false")]
+        #[pyarg(named, default = false)]
         backtick: bool,
     }
 

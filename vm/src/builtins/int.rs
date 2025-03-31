@@ -826,7 +826,7 @@ pub struct IntOptions {
 #[derive(FromArgs)]
 struct IntFromByteArgs {
     bytes: PyBytesInner,
-    #[pyarg(any, default = "ArgByteOrder::Big")]
+    #[pyarg(any, default = ArgByteOrder::Big)]
     byteorder: ArgByteOrder,
     #[pyarg(named, optional)]
     signed: OptionalArg<ArgIntoBool>,
@@ -834,9 +834,9 @@ struct IntFromByteArgs {
 
 #[derive(FromArgs)]
 struct IntToByteArgs {
-    #[pyarg(any, default = "1")]
+    #[pyarg(any, default = 1)]
     length: usize,
-    #[pyarg(any, default = "ArgByteOrder::Big")]
+    #[pyarg(any, default = ArgByteOrder::Big)]
     byteorder: ArgByteOrder,
     #[pyarg(named, optional)]
     signed: OptionalArg<ArgIntoBool>,

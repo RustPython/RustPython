@@ -43,7 +43,7 @@ pub fn errno_err(vm: &VirtualMachine) -> PyBaseExceptionRef {
 #[allow(dead_code)]
 #[derive(FromArgs, Default)]
 pub struct TargetIsDirectory {
-    #[pyarg(any, default = "false")]
+    #[pyarg(any, default = false)]
     pub(crate) target_is_directory: bool,
 }
 
@@ -117,7 +117,7 @@ impl<const AVAILABLE: usize> FromArgs for DirFd<AVAILABLE> {
 
 #[derive(FromArgs)]
 pub(super) struct FollowSymlinks(
-    #[pyarg(named, name = "follow_symlinks", default = "true")] pub bool,
+    #[pyarg(named, name = "follow_symlinks", default = true)] pub bool,
 );
 
 fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsStr> {

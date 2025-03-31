@@ -28,7 +28,7 @@ pub mod _hashlib {
         name: PyStrRef,
         #[pyarg(any, optional)]
         data: OptionalArg<ArgBytesLike>,
-        #[pyarg(named, default = "true")]
+        #[pyarg(named, default = true)]
         usedforsecurity: bool,
     }
 
@@ -37,7 +37,7 @@ pub mod _hashlib {
     pub struct BlakeHashArgs {
         #[pyarg(positional, optional)]
         pub data: OptionalArg<ArgBytesLike>,
-        #[pyarg(named, default = "true")]
+        #[pyarg(named, default = true)]
         usedforsecurity: bool,
     }
 
@@ -55,7 +55,7 @@ pub mod _hashlib {
     pub struct HashArgs {
         #[pyarg(any, optional)]
         pub string: OptionalArg<ArgBytesLike>,
-        #[pyarg(named, default = "true")]
+        #[pyarg(named, default = true)]
         usedforsecurity: bool,
     }
 
@@ -331,7 +331,7 @@ pub mod _hashlib {
         name: PyBuffer,
         #[pyarg(any, optional)]
         data: OptionalArg<ArgBytesLike>,
-        #[pyarg(named, default = "true")]
+        #[pyarg(named, default = true)]
         digestmod: bool, // TODO: RUSTPYTHON support functions & name functions
     }
 
