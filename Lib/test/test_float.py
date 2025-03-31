@@ -35,8 +35,6 @@ class OtherFloatSubclass(float):
 
 class GeneralFloatCases(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_float(self):
         self.assertEqual(float(3.14), 3.14)
         self.assertEqual(float(314), 314.0)
