@@ -94,17 +94,6 @@ jobs:
           name: rustpython-installer-msi-${{ runner.os }}-${{ matrix.platform.target }}
           path: installer/*.msi
 
-      - name: Generate DMG
-        if: runner.os == 'macOS'
-        run: cargo packager -f dmg --release -o installer
-
-      - name: Upload DMG
-        if: runner.os == 'macOS'
-        uses: actions/upload-artifact@v4
-        with:
-          name: rustpython-installer-dmg-${{ runner.os }}-${{ matrix.platform.target }}
-          path: installer/*.dmg
-
       - name: Upload Binary Artifacts
         uses: actions/upload-artifact@v4
         with:
