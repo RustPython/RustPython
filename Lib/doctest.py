@@ -102,7 +102,7 @@ import re
 import sys
 import traceback
 import unittest
-from io import StringIO  # XXX: RUSTPYTHON; , IncrementalNewlineDecoder
+from io import StringIO, IncrementalNewlineDecoder
 from collections import namedtuple
 
 TestResults = namedtuple('TestResults', 'failed attempted')
@@ -230,9 +230,7 @@ def _load_testfile(filename, package, module_relative, encoding):
             # get_data() opens files as 'rb', so one must do the equivalent
             # conversion as universal newlines would do.
 
-            # TODO: RUSTPYTHON; use _newline_convert once io.IncrementalNewlineDecoder is implemented
-            return file_contents.replace(os.linesep, '\n'), filename
-            # return _newline_convert(file_contents), filename
+            return _newline_convert(file_contents), filename
     with open(filename, encoding=encoding) as f:
         return f.read(), filename
 
