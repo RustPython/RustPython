@@ -663,7 +663,7 @@ mod builtins {
         sep: Option<PyStrRef>,
         #[pyarg(named, default)]
         end: Option<PyStrRef>,
-        #[pyarg(named, default = "ArgIntoBool::FALSE")]
+        #[pyarg(named, default = ArgIntoBool::FALSE)]
         flush: ArgIntoBool,
         #[pyarg(named, default)]
         file: Option<PyObjectRef>,

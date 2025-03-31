@@ -2390,6 +2390,7 @@ dependencies = [
 name = "rustpython-derive"
 version = "0.4.0"
 dependencies = [
+ "proc-macro2",
  "rustpython-compiler",
  "rustpython-derive-impl",
  "syn 2.0.98",

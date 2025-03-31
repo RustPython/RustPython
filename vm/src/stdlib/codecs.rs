@@ -109,7 +109,7 @@ mod _codecs {
         data: ArgBytesLike,
         #[pyarg(positional, optional)]
         errors: Option<PyStrRef>,
-        #[pyarg(positional, default = "false")]
+        #[pyarg(positional, default = false)]
         final_decode: bool,
     }
 

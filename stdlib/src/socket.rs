@@ -1908,13 +1908,13 @@ mod _socket {
         #[pyarg(positional)]
         port: Option<Either<PyStrRef, i32>>,
 
-        #[pyarg(positional, default = "c::AF_UNSPEC")]
+        #[pyarg(positional, default = c::AF_UNSPEC)]
         family: i32,
-        #[pyarg(positional, default = "0")]
+        #[pyarg(positional, default = 0)]
         ty: i32,
-        #[pyarg(positional, default = "0")]
+        #[pyarg(positional, default = 0)]
         proto: i32,
-        #[pyarg(positional, default = "0")]
+        #[pyarg(positional, default = 0)]
         flags: i32,
     }
 

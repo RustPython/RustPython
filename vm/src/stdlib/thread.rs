@@ -52,9 +52,9 @@ pub(crate) mod _thread {
 
     #[derive(FromArgs)]
     struct AcquireArgs {
-        #[pyarg(any, default = "true")]
+        #[pyarg(any, default = true)]
         blocking: bool,
-        #[pyarg(any, default = "Either::A(-1.0)")]
+        #[pyarg(any, default = Either::A(-1.0))]
         timeout: Either<f64, i64>,
     }
 

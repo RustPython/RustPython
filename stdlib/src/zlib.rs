@@ -74,9 +74,9 @@ mod zlib {
     struct PyFuncCompressArgs {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        #[pyarg(any, default = "Level::new(Z_DEFAULT_COMPRESSION)")]
+        #[pyarg(any, default = Level::new(Z_DEFAULT_COMPRESSION))]
         level: Level,
-        #[pyarg(any, default = "ArgPrimitiveIndex { value: MAX_WBITS }")]
+        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS })]
         wbits: ArgPrimitiveIndex<i8>,
     }
 
@@ -269,9 +269,9 @@ mod zlib {
     struct PyFuncDecompressArgs {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        #[pyarg(any, default = "ArgPrimitiveIndex { value: MAX_WBITS }")]
+        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS })]
         wbits: ArgPrimitiveIndex<i8>,
-        #[pyarg(any, default = "ArgPrimitiveIndex { value: DEF_BUF_SIZE }")]
+        #[pyarg(any, default = ArgPrimitiveIndex { value: DEF_BUF_SIZE })]
         bufsize: ArgPrimitiveIndex<usize>,
     }
 
@@ -299,7 +299,7 @@ mod zlib {
 
     #[derive(FromArgs)]
     struct DecompressobjArgs {
-        #[pyarg(any, default = "ArgPrimitiveIndex { value: MAX_WBITS }")]
+        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS })]
         wbits: ArgPrimitiveIndex<i8>,
         #[pyarg(any, optional)]
         zdict: OptionalArg<ArgBytesLike>,
@@ -450,16 +450,16 @@ mod zlib {
     #[derive(FromArgs)]
     #[allow(dead_code)] // FIXME: use args
     struct CompressobjArgs {
-        #[pyarg(any, default = "Level::new(Z_DEFAULT_COMPRESSION)")]
+        #[pyarg(any, default = Level::new(Z_DEFAULT_COMPRESSION))]
         level: Level,
         // only DEFLATED is valid right now, it's w/e
-        #[pyarg(any, default = "DEFLATED")]
+        #[pyarg(any, default = DEFLATED)]
         method: i32,
-        #[pyarg(any, default = "ArgPrimitiveIndex { value: MAX_WBITS }")]
+        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS })]
         wbits: ArgPrimitiveIndex<i8>,
-        #[pyarg(any, name = "memLevel", default = "DEF_MEM_LEVEL")]
+        #[pyarg(any, name = "memLevel", default = DEF_MEM_LEVEL)]
         mem_level: u8,
-        #[pyarg(any, default = "Z_DEFAULT_STRATEGY")]
+        #[pyarg(any, default = Z_DEFAULT_STRATEGY)]
         strategy: i32,
         #[pyarg(any, optional)]
         zdict: Option<ArgBytesLike>,

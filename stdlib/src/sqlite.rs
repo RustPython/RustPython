@@ -297,21 +297,21 @@ mod _sqlite {
     struct ConnectArgs {
         #[pyarg(any)]
         database: FsPath,
-        #[pyarg(any, default = "5.0")]
+        #[pyarg(any, default = 5.0)]
         timeout: f64,
-        #[pyarg(any, default = "0")]
+        #[pyarg(any, default = 0)]
         detect_types: c_int,
-        #[pyarg(any, default = "Some(vm.ctx.empty_str.to_owned())")]
+        #[pyarg(any, default = Some(vm.ctx.empty_str.to_owned()))]
         isolation_level: Option<PyStrRef>,
-        #[pyarg(any, default = "true")]
+        #[pyarg(any, default = true)]
         check_same_thread: bool,
-        #[pyarg(any, default = "Connection::class(&vm.ctx).to_owned()")]
+        #[pyarg(any, default = Connection::class(&vm.ctx).to_owned())]
         factory: PyTypeRef,
         // TODO: cache statements
         #[allow(dead_code)]
-        #[pyarg(any, default = "0")]
+        #[pyarg(any, default = 0)]
         cached_statements: c_int,
-        #[pyarg(any, default = "false")]
+        #[pyarg(any, default = false)]
         uri: bool,
     }
 
@@ -326,13 +326,13 @@ mod _sqlite {
     struct BackupArgs {
         #[pyarg(any)]
         target: PyRef<Connection>,
-        #[pyarg(named, default = "-1")]
+        #[pyarg(named, default = -1)]
         pages: c_int,
         #[pyarg(named, optional)]
         progress: Option<ArgCallable>,
         #[pyarg(named, optional)]
         name: Option<PyStrRef>,
-        #[pyarg(named, default = "0.250")]
+        #[pyarg(named, default = 0.250)]
         sleep: f64,
     }
 
@@ -375,7 +375,7 @@ mod _sqlite {
         row: i64,
         #[pyarg(named, default)]
         readonly: bool,
-        #[pyarg(named, default = "vm.ctx.new_str(stringify!(main))")]
+        #[pyarg(named, default = vm.ctx.new_str("main"))]
         name: PyStrRef,
     }
 

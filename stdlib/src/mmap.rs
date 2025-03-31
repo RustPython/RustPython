@@ -191,13 +191,13 @@ mod mmap {
         fileno: RawFd,
         #[pyarg(any)]
         length: isize,
-        #[pyarg(any, default = "MAP_SHARED")]
+        #[pyarg(any, default = MAP_SHARED)]
         flags: libc::c_int,
-        #[pyarg(any, default = "PROT_WRITE|PROT_READ")]
+        #[pyarg(any, default = PROT_WRITE|PROT_READ)]
         prot: libc::c_int,
-        #[pyarg(any, default = "AccessMode::Default")]
+        #[pyarg(any, default = AccessMode::Default)]
         access: AccessMode,
-        #[pyarg(any, default = "0")]
+        #[pyarg(any, default = 0)]
         offset: libc::off_t,
     }
 

@@ -1628,7 +1628,7 @@ pub mod module {
         fd: i32,
         #[pyarg(positional)]
         fd2: i32,
-        #[pyarg(any, default = "true")]
+        #[pyarg(any, default = true)]
         inheritable: bool,
     }
 

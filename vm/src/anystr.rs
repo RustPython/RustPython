@@ -10,19 +10,19 @@ use num_traits::{cast::ToPrimitive, sign::Signed};
 pub struct SplitArgs<T: TryFromObject> {
     #[pyarg(any, default)]
     sep: Option<T>,
-    #[pyarg(any, default = "-1")]
+    #[pyarg(any, default = -1)]
     maxsplit: isize,
 }
 
 #[derive(FromArgs)]
 pub struct SplitLinesArgs {
-    #[pyarg(any, default = "false")]
+    #[pyarg(any, default = false)]
     pub keepends: bool,
 }
 
 #[derive(FromArgs)]
 pub struct ExpandTabsArgs {
-    #[pyarg(any, default = "8")]
+    #[pyarg(any, default = 8)]
     tabsize: isize,
 }
 
