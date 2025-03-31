@@ -1212,7 +1212,7 @@ pub(super) mod types {
         function::{ArgBytesLike, FuncArgs},
         types::{Constructor, Initializer},
     };
-    use crate::{PyPayload, builtins::PyListRef, class::StaticType, common::lock::PyRwLock};
+    use crate::{builtins::PyListRef, common::lock::PyRwLock, convert::IntoObject, PyPayload};
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use rustpython_common::str::UnicodeEscapeCodepoint;
@@ -1255,7 +1255,7 @@ pub(super) mod types {
     impl PyBaseExceptionGroup {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let (message, exceptions) = args.bind(vm)?;
+            let (message, exceptions): (PyStrRef, PyObjectRef) = args.bind(vm)?;
             let exceptions = exceptions.to_sequence();
             let len = exceptions.length(vm)?;
             if len == 0 {
@@ -1264,7 +1264,7 @@ pub(super) mod types {
                 ));
             }
             for i in 0..len {
-                let item = exceptions.get_item(i, vm)?;
+                let item = exceptions.get_item(i as isize, vm)?;
                 if !item.is_instance(PyBaseException::class(&vm.ctx).into(), vm)? {
                     return Err(vm.new_value_error(format!(
                         "Item {i} of second argument (exceptions) is not an exception"
@@ -1275,8 +1275,8 @@ pub(super) mod types {
             let is_subclass = !(cls.is(PyBaseExceptionGroup::class(&vm.ctx))
                 || cls.is(PyExceptionGroup::class(&vm.ctx)));
             for i in 0..len {
-                let item = exceptions.get_item(i, vm)?;
-                if item.is_instance(PyBaseExceptionGroup::class(&vm.ctx), vm)? {
+                let item = exceptions.get_item(i as isize, vm)?;
+                if item.is_instance(PyBaseExceptionGroup::class(&vm.ctx).into(), vm)? {
                     if is_subclass {
                         return Err(vm.new_type_error(format!(
                             "Cannot nest BaseExceptions in {}",
@@ -1291,13 +1291,13 @@ pub(super) mod types {
             }
             let mut exceptions_vec = Vec::with_capacity(len);
             for i in 0..len {
-                let item = exceptions.get_item(i, vm)?;
+                let item = exceptions.get_item(i as isize, vm)?;
                 exceptions_vec.push(item.clone());
             }
-            let args = Vec::with_capacity(1 + len);
+            let mut args = Vec::with_capacity(1 + len);
             args.push(message.clone().into_object());
             for i in 0..len {
-                let item = exceptions.get_item(i, vm)?;
+                let item = exceptions.get_item(i as isize, vm)?;
                 args.push(item.clone());
             }
             Ok(PyBaseExceptionGroup {
@@ -1310,34 +1310,29 @@ pub(super) mod types {
                 exceptions: PyRwLock::new(exceptions_vec),
                 notes: PyRwLock::new(None),
             }
-            .into_pyobject(vm)?)
+            .into_pyobject(vm))
         }
 
         #[pygetset]
-        fn message(&self, vm: &VirtualMachine) -> PyStrRef {
+        fn message(&self) -> PyStrRef {
             self.message
                 .read()
-                .as_ref()
-                .map_or_else(|| vm.ctx.new_str("".to_owned()), |x| x.clone())
+                .clone()
         }
         #[pygetset]
         fn exceptions(&self, vm: &VirtualMachine) -> PyTupleRef {
-            self.exceptions
-                .read()
-                .as_ref()
-                .map_or_else(|| vm.ctx.new_tuple(vec![]), |x| x.clone())
+            let exceptions = self.exceptions
+                .read();
+            vm.ctx.new_tuple(exceptions.clone())
         }
 
         #[pymethod]
-        fn add_note(&self, note: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            if !note.is_instance(PyStrRef::class(&vm.ctx), vm)? {
-                return Err(vm.new_type_error("add_note() argument must be a string".to_owned()));
-            }
+        fn add_note(&self, note: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
             let mut notes = self.notes.write();
             if notes.is_none() {
                 *notes = Some(vm.ctx.new_list(vec![]));
             }
-            notes.as_mut().unwrap().append(note);
+            notes.as_mut().unwrap().append(note.into());
             Ok(())
         }
 
@@ -1345,10 +1340,8 @@ pub(super) mod types {
         fn str(&self, vm: &VirtualMachine) -> PyStrRef {
             let msg = self
                 .message
-                .read()
-                .as_ref()
-                .map_or_else(|| vm.ctx.new_str("".to_owned()), |x| x.clone());
-            let num_excs = self.exceptions.read().as_ref().map_or(0, |x| x.len());
+                .read();
+            let num_excs = self.exceptions.read().len();
             let s = format!(
                 "{msg} ({num_excs} sub-exception{p})",
                 p = if num_excs == 1 { "" } else { "s" }
@@ -1360,12 +1353,10 @@ pub(super) mod types {
         fn repr(&self, vm: &VirtualMachine) -> PyStrRef {
             let msg = self
                 .message
-                .read()
-                .as_ref()
-                .map_or_else(|| vm.ctx.new_str("".to_owned()), |x| x.clone());
-            let num_excs = self.exceptions.read().as_ref().map_or(0, |x| x.len());
+                .read();
+            let num_excs = self.exceptions.read().len();
             // TODO: repr of message
-            let s = format!("{}({msg}, {num_excs})", self.class().name());
+            let s = format!("{}({msg}, {num_excs})", Self::class(&vm.ctx).name());
             vm.ctx.new_str(s)
         }
     }
