@@ -43,7 +43,7 @@ num_enum = { workspace = true }
 parking_lot = { workspace = true }
 
 memchr = { workspace = true }
-base64 = "0.13.0"
+base64 = "0.22"
 csv-core = "0.1.11"
 dyn-clone = "1.0.10"
 puruspe = "0.4.0"
