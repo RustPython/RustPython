@@ -39,12 +39,12 @@ mod _tkinter {
     }
 
     #[pyattr(once, name = "TK_VERSION")]
-    fn tk_version(vm: &VirtualMachine) -> String {
+    fn tk_version(_vm: &VirtualMachine) -> String {
         format!("{}.{}", 8, 6)
     }
 
     #[pyattr(once, name = "TCL_VERSION")]
-    fn tcl_version(vm: &VirtualMachine) -> String {
+    fn tcl_version(_vm: &VirtualMachine) -> String {
         format!(
             "{}.{}",
             tk_sys::TCL_MAJOR_VERSION,
@@ -137,7 +137,7 @@ mod _tkinter {
         type Args = TkAppConstructorArgs;
 
         fn py_new(
-            zelf: PyRef<PyType>,
+            _zelf: PyRef<PyType>,
             args: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
@@ -155,7 +155,7 @@ mod _tkinter {
             return Ok(str.as_str().to_string());
         }
 
-        if let Some(tcl_obj) = obj.downcast_ref::<TclObject>() {
+        if let Some(_tcl_obj) = obj.downcast_ref::<TclObject>() {
             // Assume that the Tcl object has a method to retrieve a string.
             // return tcl_obj.
             todo!();

@@ -125,7 +125,7 @@ dependencies = [
  "bitflags 2.9.0",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.11.0",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -1077,15 +1077,6 @@ name = "itertools"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1c173a5686ce8bfa551b3563d0c2170bf24ca44da99c7ca4bfdab5418c3fe57"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
 dependencies = [
  "either",
 ]
@@ -2819,9 +2810,10 @@ checksum = "e502f78cdbb8ba4718f566c418c52bc729126ffd16baee5baa718cf25dd5a69a"
 [[package]]
 name = "tcl-sys"
 version = "0.1.0"
-source = "git+https://github.com/arihant2math/tkinter.git?tag=rustpython-tkinter-pt2#6f8db26d86feafde872becf60c5736ae900801ca"
+source = "git+https://github.com/arihant2math/tkinter.git?tag=v0.1.0#09a4f62e894df64692b34e6c7f81af1e1ae376dd"
 dependencies = [
  "bindgen",
+ "pkg-config",
 ]
 
 [[package]]
@@ -2952,10 +2944,10 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 [[package]]
 name = "tk-sys"
 version = "0.1.0"
-source = "git+https://github.com/arihant2math/tkinter.git?tag=rustpython-tkinter-pt2#6f8db26d86feafde872becf60c5736ae900801ca"
+source = "git+https://github.com/arihant2math/tkinter.git?tag=v0.1.0#09a4f62e894df64692b34e6c7f81af1e1ae376dd"
 dependencies = [
  "bindgen",
- "tcl-sys",
+ "pkg-config",
 ]
 
 [[package]]
