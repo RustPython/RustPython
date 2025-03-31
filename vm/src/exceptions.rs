@@ -1212,7 +1212,7 @@ pub(super) mod types {
         function::{ArgBytesLike, FuncArgs},
         types::{Constructor, Initializer},
     };
-    use crate::{builtins::PyListRef, common::lock::PyRwLock, convert::IntoObject, PyPayload};
+    use crate::{PyPayload, builtins::PyListRef, common::lock::PyRwLock, convert::IntoObject};
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use rustpython_common::str::UnicodeEscapeCodepoint;
@@ -1316,14 +1316,11 @@ pub(super) mod types {
 
         #[pygetset]
         fn message(&self) -> PyStrRef {
-            self.message
-                .read()
-                .clone()
+            self.message.read().clone()
         }
         #[pygetset]
         fn exceptions(&self, vm: &VirtualMachine) -> PyTupleRef {
-            let exceptions = self.exceptions
-                .read();
+            let exceptions = self.exceptions.read();
             vm.ctx.new_tuple(exceptions.clone())
         }
 
@@ -1339,9 +1336,7 @@ pub(super) mod types {
 
         #[pymethod(magic)]
         fn str(&self, vm: &VirtualMachine) -> PyStrRef {
-            let msg = self
-                .message
-                .read();
+            let msg = self.message.read();
             let num_excs = self.exceptions.read().len();
             let s = format!(
                 "{msg} ({num_excs} sub-exception{p})",
@@ -1352,9 +1347,7 @@ pub(super) mod types {
 
         #[pymethod(magic)]
         fn repr(&self, vm: &VirtualMachine) -> PyStrRef {
-            let msg = self
-                .message
-                .read();
+            let msg = self.message.read();
             let num_excs = self.exceptions.read().len();
             // TODO: repr of message
             let s = format!("{}({msg}, {num_excs})", Self::class(&vm.ctx).name());
