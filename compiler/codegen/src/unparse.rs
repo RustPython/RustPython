@@ -366,7 +366,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                         }
                     }
                     &ruff::Number::Complex { real, imag } => self
-                        .p(&rustpython_literal::float::complex_to_string(real, imag)
+                        .p(&rustpython_literal::complex::to_string(real, imag)
                             .replace("inf", inf_str))?,
                 }
             }
