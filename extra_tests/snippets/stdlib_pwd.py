@@ -1,3 +1,8 @@
+import sys
+# windows doesn't support pwd
+if sys.platform.startswith("win"):
+    exit(0)
+
 from testutils import assert_raises
 import pwd
 
