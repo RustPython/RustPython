@@ -15,7 +15,7 @@ pub fn to_string(re: f64, im: f64) -> String {
         if re.is_sign_positive() {
             return im_part;
         } else {
-            re.to_string()
+            "-0".to_owned()
         }
     } else if re.fract() == 0.0 {
         re.to_string()
