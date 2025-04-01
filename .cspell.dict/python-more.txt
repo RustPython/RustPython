@@ -5,6 +5,7 @@ arrayiterator
 arraytype
 asend
 athrow
+baserepl
 basicsize
 cformat
 classcell
