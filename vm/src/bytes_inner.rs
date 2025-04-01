@@ -379,6 +379,10 @@ impl PyBytesInner {
     }
 
     pub fn istitle(&self) -> bool {
+        if self.elements.is_empty() {
+            return false;
+        }
+
         std::iter::once(&b' ')
             .chain(self.elements.iter())
             .zip(self.elements.iter())
