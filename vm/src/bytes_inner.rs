@@ -379,35 +379,19 @@ impl PyBytesInner {
     }
 
     pub fn istitle(&self) -> bool {
-        if self.elements.is_empty() {
-            return false;
-        }
-
-        let mut iter = self.elements.iter().peekable();
-        let mut prev_cased = false;
-
-        while let Some(c) = iter.next() {
-            let current = char::from(*c);
-            let next = if let Some(k) = iter.peek() {
-                char::from(**k)
-            } else if current.is_uppercase() {
-                return !prev_cased;
-            } else {
-                return prev_cased;
-            };
-
-            let is_cased = current.to_uppercase().next().unwrap() != current
-                || current.to_lowercase().next().unwrap() != current;
-            if (is_cased && next.is_uppercase() && !prev_cased)
-                || (!is_cased && next.is_lowercase())
-            {
-                return false;
-            }
-
-            prev_cased = is_cased;
-        }
-
-        true
+        std::iter::once(&b' ')
+            .chain(self.elements.iter())
+            .zip(self.elements.iter())
+            .map(|(a, b)| (char::from(*a), char::from(*b)))
+            .all(|(prev, current)| {
+                return if prev.is_alphabetic() {
+                    return !current.is_ascii_uppercase();
+                } else if prev.is_ascii_whitespace() {
+                    current.is_ascii_uppercase() || current.is_numeric()
+                } else {
+                    true
+                };
+            })
     }
 
     pub fn lower(&self) -> Vec<u8> {
