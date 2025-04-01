@@ -55,6 +55,12 @@ def parse_args():
         action="store_true",
         help="print output as JSON (instead of line by line)",
     )
+    parser.add_argument(
+        "--features",
+        action="store",
+        help="which features to enable when building RustPython (default: ssl)",
+        default="ssl",
+    )
 
     args = parser.parse_args()
     return args
@@ -413,9 +419,9 @@ with open(GENERATED_FILE, "w", encoding='utf-8') as f:
     f.write(output + "\n")
 
 
-subprocess.run(["cargo", "build", "--release", "--features=ssl"], check=True)
+subprocess.run(["cargo", "build", "--release", f"--features={args.features}"], check=True)
 result = subprocess.run(
-    ["cargo", "run", "--release", "--features=ssl", "-q", "--", GENERATED_FILE],
+    ["cargo", "run", "--release", f"--features={args.features}", "-q", "--", GENERATED_FILE],
     env={**os.environ.copy(), "RUSTPYTHONPATH": "Lib"},
     text=True,
     capture_output=True,
