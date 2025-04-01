@@ -4,8 +4,7 @@
 use crate::{PyRef, VirtualMachine, builtins::PyModule};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    let module = winreg::make_module(vm);
-    module
+    winreg::make_module(vm)
 }
 
 #[pymodule]
@@ -53,6 +52,7 @@ mod winreg {
     #[pyattr(once)]
     fn HKEY_CLASSES_ROOT(_vm: &VirtualMachine) -> PyHKEYObject {
         PyHKEYObject {
+            #[allow(clippy::arc_with_non_send_sync)]
             hkey: Arc::new(PyRwLock::new(Registry::HKEY_CLASSES_ROOT)),
         }
     }
@@ -60,6 +60,7 @@ mod winreg {
     #[pyattr(once)]
     fn HKEY_CURRENT_USER(_vm: &VirtualMachine) -> PyHKEYObject {
         PyHKEYObject {
+            #[allow(clippy::arc_with_non_send_sync)]
             hkey: Arc::new(PyRwLock::new(Registry::HKEY_CURRENT_USER)),
         }
     }
@@ -67,6 +68,7 @@ mod winreg {
     #[pyattr(once)]
     fn HKEY_LOCAL_MACHINE(_vm: &VirtualMachine) -> PyHKEYObject {
         PyHKEYObject {
+            #[allow(clippy::arc_with_non_send_sync)]
             hkey: Arc::new(PyRwLock::new(Registry::HKEY_LOCAL_MACHINE)),
         }
     }
@@ -74,6 +76,7 @@ mod winreg {
     #[pyattr(once)]
     fn HKEY_USERS(_vm: &VirtualMachine) -> PyHKEYObject {
         PyHKEYObject {
+            #[allow(clippy::arc_with_non_send_sync)]
             hkey: Arc::new(PyRwLock::new(Registry::HKEY_USERS)),
         }
     }
@@ -81,6 +84,7 @@ mod winreg {
     #[pyattr(once)]
     fn HKEY_PERFORMANCE_DATA(_vm: &VirtualMachine) -> PyHKEYObject {
         PyHKEYObject {
+            #[allow(clippy::arc_with_non_send_sync)]
             hkey: Arc::new(PyRwLock::new(Registry::HKEY_PERFORMANCE_DATA)),
         }
     }
@@ -88,6 +92,7 @@ mod winreg {
     #[pyattr(once)]
     fn HKEY_CURRENT_CONFIG(_vm: &VirtualMachine) -> PyHKEYObject {
         PyHKEYObject {
+            #[allow(clippy::arc_with_non_send_sync)]
             hkey: Arc::new(PyRwLock::new(Registry::HKEY_CURRENT_CONFIG)),
         }
     }
@@ -95,6 +100,7 @@ mod winreg {
     #[pyattr(once)]
     fn HKEY_DYN_DATA(_vm: &VirtualMachine) -> PyHKEYObject {
         PyHKEYObject {
+            #[allow(clippy::arc_with_non_send_sync)]
             hkey: Arc::new(PyRwLock::new(Registry::HKEY_DYN_DATA)),
         }
     }
@@ -825,14 +831,14 @@ mod winreg {
             }
             // REG_SZ is fallthrough
             REG_EXPAND_SZ => {
-                return Err(vm.new_type_error(
+                Err(vm.new_type_error(
                     "TODO: RUSTPYTHON REG_EXPAND_SZ is not supported".to_string(),
-                ));
+                ))
             }
             REG_MULTI_SZ => {
-                return Err(
+                Err(
                     vm.new_type_error("TODO: RUSTPYTHON REG_MULTI_SZ is not supported".to_string())
-                );
+                )
             }
             // REG_BINARY is fallthrough
             _ => {
