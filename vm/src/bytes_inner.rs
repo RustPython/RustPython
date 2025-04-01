@@ -384,13 +384,13 @@ impl PyBytesInner {
             .zip(self.elements.iter())
             .map(|(a, b)| (char::from(*a), char::from(*b)))
             .all(|(prev, current)| {
-                return if prev.is_alphabetic() {
-                    return !current.is_ascii_uppercase();
+                if prev.is_alphabetic() {
+                    !current.is_ascii_uppercase()
                 } else if prev.is_ascii_whitespace() {
                     current.is_ascii_uppercase() || current.is_numeric()
                 } else {
                     true
-                };
+                }
             })
     }
 
