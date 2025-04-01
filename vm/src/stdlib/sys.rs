@@ -316,9 +316,9 @@ mod sys {
         let mut source = String::new();
         handle
             .read_to_string(&mut source)
-            .map_err(|e| vm.new_os_error(format!("Error reading from stdin: {}", e.to_string())))?;
+            .map_err(|e| vm.new_os_error(format!("Error reading from stdin: {}", e)))?;
         vm.compile(&source, crate::compiler::Mode::Single, "<stdin>".to_owned())
-            .map_err(|e| vm.new_os_error(format!("Error running stdin: {}", e.to_string())))?;
+            .map_err(|e| vm.new_os_error(format!("Error running stdin: {}", e)))?;
         Ok(())
     }
 
