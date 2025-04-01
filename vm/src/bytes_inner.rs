@@ -364,11 +364,18 @@ impl PyBytesInner {
     }
 
     pub fn isspace(&self) -> bool {
+        // What CPython considers whitespace is a bit different from what Rust.
+        // In particular, Rust does not consider vertical tabulation (\x0B) to be a whitespace.
+        // See https://docs.python.org/3/library/stdtypes.html#bytearray.isspace
+        // See https://doc.rust-lang.org/std/primitive.char.html#method.is_ascii_whitespace
+        // Note that str.isspace uses a different definition too.
+        // See https://docs.python.org/3/library/stdtypes.html#str.isspace
         !self.elements.is_empty()
             && self
                 .elements
                 .iter()
-                .all(|x| char::from(*x).is_ascii_whitespace())
+                .map(|c| char::from(*c))
+                .all(|c| c.is_ascii_whitespace() || c == '\x0b')
     }
 
     pub fn istitle(&self) -> bool {

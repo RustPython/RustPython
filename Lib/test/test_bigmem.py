@@ -786,17 +786,6 @@ class BytesTest(unittest.TestCase, BaseStrTest):
     def test_swapcase(self, size):
         self._test_swapcase(size)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    @bigmemtest(size=_2G, memuse=2)
-    def test_isspace(self, size):
-        super().test_isspace(size)
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    @bigmemtest(size=_2G, memuse=2)
-    def test_istitle(self, size):
-        super().test_istitle(size)
 
 class BytearrayTest(unittest.TestCase, BaseStrTest):
 
@@ -822,18 +811,6 @@ class BytearrayTest(unittest.TestCase, BaseStrTest):
 
     test_hash = None
     test_split_large = None
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    @bigmemtest(size=_2G, memuse=2)
-    def test_isspace(self, size):
-        super().test_isspace(size)
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    @bigmemtest(size=_2G, memuse=2)
-    def test_istitle(self, size):
-        super().test_istitle(size)
 
 class TupleTest(unittest.TestCase):
 

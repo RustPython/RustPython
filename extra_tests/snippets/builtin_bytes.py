@@ -669,3 +669,6 @@ b = B1.fromhex('a0a1a2')
 assert b.foo == 'bar'
 
 skip_if_unsupported(3,11,test__bytes__)
+
+assert " \f\n\r\t\v".encode("utf-8").isspace()
+assert " \f\n\r\t\v".encode("latin-1").isspace()
