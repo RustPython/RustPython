@@ -831,14 +831,11 @@ mod winreg {
             }
             // REG_SZ is fallthrough
             REG_EXPAND_SZ => {
-                Err(vm.new_type_error(
-                    "TODO: RUSTPYTHON REG_EXPAND_SZ is not supported".to_string(),
-                ))
+                Err(vm
+                    .new_type_error("TODO: RUSTPYTHON REG_EXPAND_SZ is not supported".to_string()))
             }
             REG_MULTI_SZ => {
-                Err(
-                    vm.new_type_error("TODO: RUSTPYTHON REG_MULTI_SZ is not supported".to_string())
-                )
+                Err(vm.new_type_error("TODO: RUSTPYTHON REG_MULTI_SZ is not supported".to_string()))
             }
             // REG_BINARY is fallthrough
             _ => {
