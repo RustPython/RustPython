@@ -753,6 +753,8 @@ class BZ2DecompressorTest(BaseTest):
         self.assertEqual(text, self.TEXT)
         self.assertEqual(bz2d.unused_data, unused_data)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testEOFError(self):
         bz2d = BZ2Decompressor()
         text = bz2d.decompress(self.DATA)

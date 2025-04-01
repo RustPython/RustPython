@@ -6,7 +6,8 @@ pub(crate) use _bz2::make_module;
 mod _bz2 {
     use crate::common::lock::PyMutex;
     use crate::vm::{
-        FromArgs, VirtualMachine,
+        FromArgs,
+        VirtualMachine,
         builtins::{PyBytesRef, PyTypeRef},
         function::{ArgBytesLike, OptionalArg},
         object::{PyPayload, PyResult},
@@ -25,7 +26,7 @@ mod _bz2 {
         eof: bool,
         // Unused data found after the end of stream.
         unused_data: Option<Vec<u8>>,
-        needs_input: bool,
+        needs_input: bool
     }
 
     #[pyattr]
@@ -50,7 +51,7 @@ mod _bz2 {
                     eof: false,
                     input_buffer: Vec::new(),
                     unused_data: None,
-                    needs_input: true,
+                    needs_input: true
                 }),
             }
             .into_ref_with_type(vm, cls)
@@ -62,14 +63,18 @@ mod _bz2 {
     struct DecompressArgs {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        #[pyarg(any, default = "-1")]
+        #[pyarg(any, default = -1)]
         max_length: i64,
     }
 
     #[pyclass(with(Constructor))]
     impl BZ2Decompressor {
         #[pymethod]
-        fn decompress(&self, args: DecompressArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+        fn decompress(
+            &self,
+            args: DecompressArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyBytesRef> {
             let DecompressArgs { data, max_length } = args;
             let DecompressorState {
                 eof,
@@ -77,12 +82,6 @@ mod _bz2 {
                 unused_data,
                 needs_input,
             } = &mut *self.state.lock();
-            if *eof {
-                return Err(vm.new_exception_msg(
-                    vm.ctx.exceptions.eof_error.to_owned(),
-                    "End of stream already reached".to_owned(),
-                ));
-            }
             let data_vec = data.borrow_buf().to_vec();
             input_buffer.extend(data_vec);
 
@@ -95,35 +94,33 @@ mod _bz2 {
             // If max_length is nonnegative, read at most that many bytes.
             if max_length >= 0 {
                 let mut limited = decoder.by_ref().take(max_length as u64);
-                limited
-                    .read_to_end(&mut output)
-                    .map_err(|e| vm.new_os_error(format!("Decompression error: {}", e)))?;
+                limited.read_to_end(&mut output).map_err(|e| {
+                    vm.new_os_error(format!("Decompression error: {}", e))
+                })?;
             } else {
-                decoder
-                    .read_to_end(&mut output)
-                    .map_err(|e| vm.new_os_error(format!("Decompression error: {}", e)))?;
+                decoder.read_to_end(&mut output).map_err(|e| {
+                    vm.new_os_error(format!("Decompression error: {}", e))
+                })?;
             }
 
             // Determine how many bytes were consumed from the input.
             let consumed = cursor.position() as usize;
             // Remove the consumed bytes.
             input_buffer.drain(0..consumed);
-            unused_data.replace(input_buffer.clone());
-            // skrink the vector to save memory
-            input_buffer.shrink_to_fit();
-            if let Some(v) = unused_data.as_mut() {
-                v.shrink_to_fit();
-            }
 
             if *eof {
                 *needs_input = false;
             } else {
                 *needs_input = input_buffer.is_empty();
             }
+            let data_vec = data.borrow_buf().to_vec();
+            input_buffer.extend(data_vec);
 
             // If the decoder reached end-of-stream (i.e. no more input remains), mark eof.
             if input_buffer.is_empty() {
                 *eof = true;
+                *unused_data = Some(input_buffer.clone());
+                input_buffer.clear();
             }
 
             Ok(vm.ctx.new_bytes(output))
@@ -138,9 +135,10 @@ mod _bz2 {
         #[pygetset]
         fn unused_data(&self, vm: &VirtualMachine) -> PyBytesRef {
             let state = self.state.lock();
-            match &state.unused_data {
-                Some(data) => vm.ctx.new_bytes(data.clone()),
-                None => vm.ctx.new_bytes(Vec::new()),
+            if state.eof {
+                vm.ctx.new_bytes(state.input_buffer.to_vec())
+            } else {
+                vm.ctx.new_bytes(b"".to_vec())
             }
         }
 

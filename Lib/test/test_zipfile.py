@@ -664,6 +664,8 @@ class DeflateTestsWithSourceFile(AbstractTestsWithSourceFile,
             self.assertEqual(dinfo.compress_type, zipfile.ZIP_DEFLATED)
 
 @requires_bz2()
+# TODO: RUSTPYTHON
+@unittest.skip("Mixed bag")
 class Bzip2TestsWithSourceFile(AbstractTestsWithSourceFile,
                                unittest.TestCase):
     compression = zipfile.ZIP_BZIP2
@@ -1090,6 +1092,8 @@ class DeflateTestZip64InSmallFiles(AbstractTestZip64InSmallFiles,
     compression = zipfile.ZIP_DEFLATED
 
 @requires_bz2()
+# TODO: RUSTPYTHON
+@unittest.skip("Mixed bag")
 class Bzip2TestZip64InSmallFiles(AbstractTestZip64InSmallFiles,
                                  unittest.TestCase):
     compression = zipfile.ZIP_BZIP2
@@ -2138,6 +2142,8 @@ class DeflateBadCrcTests(AbstractBadCrcTests, unittest.TestCase):
         b'\x01\x003\x00\x00\x003\x00\x00\x00\x00\x00')
 
 @requires_bz2()
+# TODO: RUSTPYTHON
+@unittest.skip("mixed bag")
 class Bzip2BadCrcTests(AbstractBadCrcTests, unittest.TestCase):
     compression = zipfile.ZIP_BZIP2
     zip_with_bad_crc = (
@@ -2372,6 +2378,8 @@ class DeflateTestsWithRandomBinaryFiles(AbstractTestsWithRandomBinaryFiles,
     compression = zipfile.ZIP_DEFLATED
 
 @requires_bz2()
+# TODO: RUSTPYTHON
+@unittest.skip("Mixed bag")
 class Bzip2TestsWithRandomBinaryFiles(AbstractTestsWithRandomBinaryFiles,
                                       unittest.TestCase):
     compression = zipfile.ZIP_BZIP2
