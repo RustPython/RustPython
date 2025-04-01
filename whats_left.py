@@ -62,46 +62,13 @@ def parse_args():
 
 args = parse_args()
 
-
-# modules suggested for deprecation by PEP 594 (www.python.org/dev/peps/pep-0594/)
-# some of these might be implemented, but they are not a priority
-PEP_594_MODULES = {
-    "aifc",
-    "asynchat",
-    "asyncore",
-    "audioop",
-    "binhex",
-    "cgi",
-    "cgitb",
-    "chunk",
-    "crypt",
-    "formatter",
-    "fpectl",
-    "imghdr",
-    "imp",
-    "macpath",
-    "msilib",
-    "nntplib",
-    "nis",
-    "ossaudiodev",
-    "parser",
-    "pipes",
-    "smtpd",
-    "sndhdr",
-    "spwd",
-    "sunau",
-    "telnetlib",
-    "uu",
-    "xdrlib",
-}
-
 # CPython specific modules (mostly consisting of templates/tests)
 CPYTHON_SPECIFIC_MODS = {
     'xxmodule', 'xxsubtype', 'xxlimited', '_xxtestfuzz',
     '_testbuffer', '_testcapi', '_testimportmultiple', '_testinternalcapi', '_testmultiphase', '_testlimitedcapi'
 }
 
-IGNORED_MODULES = {"this", "antigravity"} | PEP_594_MODULES | CPYTHON_SPECIFIC_MODS
+IGNORED_MODULES = {"this", "antigravity"} | CPYTHON_SPECIFIC_MODS
 
 sys.path = [
     path
