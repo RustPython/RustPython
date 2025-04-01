@@ -22,6 +22,7 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
         "_SimpleCData" => PyCSimple::make_class(ctx),
         "Array" => array::PyCArray::make_class(ctx),
         "CFuncPtr" => function::PyCFuncPtr::make_class(ctx),
+        "PyCPointerType" => pointer::PyCPointerType::make_class(ctx),
         "_Pointer" => pointer::PyCPointer::make_class(ctx),
         "_pointer_type_cache" => ctx.new_dict(),
         "Structure" => structure::PyCStructure::make_class(ctx),
