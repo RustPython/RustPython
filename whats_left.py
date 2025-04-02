@@ -55,6 +55,12 @@ def parse_args():
         action="store_true",
         help="print output as JSON (instead of line by line)",
     )
+    parser.add_argument(
+        "--features",
+        action="store",
+        help="which features to enable when building RustPython (default: ssl)",
+        default="ssl",
+    )
 
     args = parser.parse_args()
     return args
@@ -62,46 +68,13 @@ def parse_args():
 
 args = parse_args()
 
-
-# modules suggested for deprecation by PEP 594 (www.python.org/dev/peps/pep-0594/)
-# some of these might be implemented, but they are not a priority
-PEP_594_MODULES = {
-    "aifc",
-    "asynchat",
-    "asyncore",
-    "audioop",
-    "binhex",
-    "cgi",
-    "cgitb",
-    "chunk",
-    "crypt",
-    "formatter",
-    "fpectl",
-    "imghdr",
-    "imp",
-    "macpath",
-    "msilib",
-    "nntplib",
-    "nis",
-    "ossaudiodev",
-    "parser",
-    "pipes",
-    "smtpd",
-    "sndhdr",
-    "spwd",
-    "sunau",
-    "telnetlib",
-    "uu",
-    "xdrlib",
-}
-
 # CPython specific modules (mostly consisting of templates/tests)
 CPYTHON_SPECIFIC_MODS = {
     'xxmodule', 'xxsubtype', 'xxlimited', '_xxtestfuzz',
     '_testbuffer', '_testcapi', '_testimportmultiple', '_testinternalcapi', '_testmultiphase', '_testlimitedcapi'
 }
 
-IGNORED_MODULES = {"this", "antigravity"} | PEP_594_MODULES | CPYTHON_SPECIFIC_MODS
+IGNORED_MODULES = {"this", "antigravity"} | CPYTHON_SPECIFIC_MODS
 
 sys.path = [
     path
@@ -446,9 +419,9 @@ with open(GENERATED_FILE, "w", encoding='utf-8') as f:
     f.write(output + "\n")
 
 
-subprocess.run(["cargo", "build", "--release", "--features=ssl"], check=True)
+subprocess.run(["cargo", "build", "--release", f"--features={args.features}"], check=True)
 result = subprocess.run(
-    ["cargo", "run", "--release", "--features=ssl", "-q", "--", GENERATED_FILE],
+    ["cargo", "run", "--release", f"--features={args.features}", "-q", "--", GENERATED_FILE],
     env={**os.environ.copy(), "RUSTPYTHONPATH": "Lib"},
     text=True,
     capture_output=True,
