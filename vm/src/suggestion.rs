@@ -1,3 +1,6 @@
+//! This module provides functionality to suggest similar names for attributes or variables.
+//! This is used during tracebacks.
+
 use crate::{
     AsObject, Py, PyObjectRef, VirtualMachine,
     builtins::{PyStr, PyStrRef},

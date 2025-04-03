@@ -19,7 +19,7 @@
 //!
 //! We use WTF-8 over something more similar to CPython's string implementation
 //! because of its compatibility with UTF-8, meaning that in the case where a
-//! string has no surrogates, it can be viewed as a UTF-8 Rust [`str`] without
+//! string has no surrogates, it can be viewed as a UTF-8 Rust [`prim@str`] without
 //! needing any copies or re-encoding.
 //!
 //! This implementation is mostly copied from the WTF-8 implementation in the

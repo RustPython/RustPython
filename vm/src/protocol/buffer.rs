@@ -1,5 +1,5 @@
 //! Buffer protocol
-//! https://docs.python.org/3/c-api/buffer.html
+//! <https://docs.python.org/3/c-api/buffer.html>
 
 use crate::{
     Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,

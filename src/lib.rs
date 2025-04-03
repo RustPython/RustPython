@@ -1,9 +1,9 @@
 //! This is the `rustpython` binary. If you're looking to embed RustPython into your application,
-//! you're likely looking for the [`rustpython-vm`](https://docs.rs/rustpython-vm) crate.
+//! you're likely looking for the [`rustpython_vm`] crate.
 //!
 //! You can install `rustpython` with `cargo install rustpython`, or if you'd like to inject your
 //! own native modules you can make a binary crate that depends on the `rustpython` crate (and
-//! probably `rustpython-vm`, too), and make a `main.rs` that looks like:
+//! probably [`rustpython_vm`], too), and make a `main.rs` that looks like:
 //!
 //! ```no_run
 //! use rustpython_vm::{pymodule, py_freeze};

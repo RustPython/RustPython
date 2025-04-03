@@ -65,7 +65,7 @@ const fn zst_ref_out_of_thin_air<T: 'static>(x: T) -> &'static T {
     }
 }
 
-/// Get the [`STATIC_FUNC`](IntoPyNativeFn::STATIC_FUNC) of the passed function. The same
+/// Get the STATIC_FUNC of the passed function. The same
 /// requirements of zero-sizedness apply, see that documentation for details.
 ///
 /// Equivalent to [`IntoPyNativeFn::into_func()`], but usable in a const context. This is only

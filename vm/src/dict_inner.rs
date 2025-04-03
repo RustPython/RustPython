@@ -1,7 +1,7 @@
 //! Ordered dictionary implementation.
-//! Inspired by: https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html
-//! And: https://www.youtube.com/watch?v=p33CVV29OG8
-//! And: http://code.activestate.com/recipes/578375/
+//! Inspired by: <https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html>
+//! And: <https://www.youtube.com/watch?v=p33CVV29OG8>
+//! And: <http://code.activestate.com/recipes/578375/>
 
 use crate::{
     AsObject, Py, PyExact, PyObject, PyObjectRef, PyRefExact, PyResult, VirtualMachine,
