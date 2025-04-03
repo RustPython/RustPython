@@ -14,6 +14,7 @@ pub struct PyStaticMethod {
 }
 
 impl PyPayload for PyStaticMethod {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.staticmethod_type
     }

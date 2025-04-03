@@ -68,6 +68,7 @@ pub struct PyRange {
 }
 
 impl PyPayload for PyRange {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.range_type
     }
@@ -533,6 +534,7 @@ pub struct PyLongRangeIterator {
 }
 
 impl PyPayload for PyLongRangeIterator {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.long_range_iterator_type
     }
@@ -598,6 +600,7 @@ pub struct PyRangeIterator {
 }
 
 impl PyPayload for PyRangeIterator {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.range_iterator_type
     }

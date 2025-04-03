@@ -45,6 +45,7 @@ impl PyMethodDescriptor {
 }
 
 impl PyPayload for PyMethodDescriptor {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.method_descriptor_type
     }
@@ -225,6 +226,7 @@ pub struct PyMemberDescriptor {
 }
 
 impl PyPayload for PyMemberDescriptor {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.member_descriptor_type
     }

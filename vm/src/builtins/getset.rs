@@ -39,6 +39,7 @@ impl std::fmt::Debug for PyGetSet {
 }
 
 impl PyPayload for PyGetSet {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.getset_type
     }

@@ -276,6 +276,7 @@ unsafe impl Traverse for PyStrIterator {
 }
 
 impl PyPayload for PyStrIterator {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.str_iterator_type
     }
@@ -1589,6 +1590,7 @@ pub(crate) fn encode_string(
 }
 
 impl PyPayload for PyStr {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.str_type
     }

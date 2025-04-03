@@ -36,6 +36,7 @@ unsafe impl Traverse for MappingProxyInner {
 }
 
 impl PyPayload for PyMappingProxy {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.mappingproxy_type
     }

@@ -356,6 +356,7 @@ impl PyFunction {
 }
 
 impl PyPayload for PyFunction {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.function_type
     }
@@ -691,6 +692,7 @@ impl PyBoundMethod {
 }
 
 impl PyPayload for PyBoundMethod {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.bound_method_type
     }
@@ -723,6 +725,7 @@ pub(crate) struct PyCell {
 pub(crate) type PyCellRef = PyRef<PyCell>;
 
 impl PyPayload for PyCell {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.cell_type
     }

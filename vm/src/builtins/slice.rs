@@ -22,6 +22,7 @@ pub struct PySlice {
 }
 
 impl PyPayload for PySlice {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.slice_type
     }
@@ -304,6 +305,7 @@ impl Representable for PySlice {
 pub struct PyEllipsis;
 
 impl PyPayload for PyEllipsis {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.ellipsis_type
     }

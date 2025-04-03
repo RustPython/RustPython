@@ -42,6 +42,7 @@ impl fmt::Debug for PyGenericAlias {
 }
 
 impl PyPayload for PyGenericAlias {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.generic_alias_type
     }

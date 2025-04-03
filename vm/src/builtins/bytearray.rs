@@ -61,6 +61,7 @@ impl From<Vec<u8>> for PyByteArray {
 }
 
 impl PyPayload for PyByteArray {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.bytearray_type
     }
@@ -878,6 +879,7 @@ pub struct PyByteArrayIterator {
 }
 
 impl PyPayload for PyByteArrayIterator {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.bytearray_iterator_type
     }

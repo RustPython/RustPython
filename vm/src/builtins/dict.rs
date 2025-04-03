@@ -15,6 +15,7 @@ use crate::{
     dict_inner::{self, DictKey},
     function::{ArgIterable, KwArgs, OptionalArg, PyArithmeticValue::*, PyComparisonValue},
     iter::PyExactSizeIterator,
+    object::SuperDefault,
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
     types::{
@@ -44,6 +45,7 @@ impl fmt::Debug for PyDict {
 }
 
 impl PyPayload for PyDict {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.dict_type
     }
@@ -728,7 +730,7 @@ impl ExactSizeIterator for DictIter<'_> {
 
 #[pyclass]
 trait DictView: PyPayload + PyClassDef + Iterable + Representable {
-    type ReverseIter: PyPayload;
+    type ReverseIter: PyPayload<Super: SuperDefault>;
 
     fn dict(&self) -> &PyDictRef;
     fn item(vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef) -> PyObjectRef;
@@ -780,6 +782,7 @@ macro_rules! dict_view {
         }
 
         impl PyPayload for $name {
+            type Super = crate::builtins::PyBaseObject;
             fn class(ctx: &Context) -> &'static Py<PyType> {
                 ctx.types.$class
             }
@@ -816,6 +819,7 @@ macro_rules! dict_view {
         }
 
         impl PyPayload for $iter_name {
+            type Super = crate::builtins::PyBaseObject;
             fn class(ctx: &Context) -> &'static Py<PyType> {
                 ctx.types.$iter_class
             }
@@ -889,6 +893,7 @@ macro_rules! dict_view {
         }
 
         impl PyPayload for $reverse_iter_name {
+            type Super = crate::builtins::PyBaseObject;
             fn class(ctx: &Context) -> &'static Py<PyType> {
                 ctx.types.$reverse_iter_class
             }

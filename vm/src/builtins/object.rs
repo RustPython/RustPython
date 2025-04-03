@@ -18,10 +18,11 @@ use itertools::Itertools;
 /// When called, it accepts no arguments and returns a new featureless
 /// instance that has no instance attributes and cannot be given any.
 #[pyclass(module = false, name = "object")]
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PyBaseObject;
 
 impl PyPayload for PyBaseObject {
+    type Super = crate::object::PyObjHeader;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.object_type
     }
@@ -422,10 +423,14 @@ impl PyBaseObject {
                     .flags
                     .has_feature(PyTypeFlags::IMMUTABLETYPE)
                     && !cls.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE);
-                // FIXME(#1979) cls instances might have a payload
                 if both_mutable || both_module {
-                    instance.set_class(cls, vm);
-                    Ok(())
+                    instance.set_class(cls, vm).map_err(|cls| {
+                        vm.new_type_error(format!(
+                            "__class__ assignment: '{}' object layout differs from '{}'",
+                            cls.name(),
+                            instance.class().name(),
+                        ))
+                    })
                 } else {
                     Err(vm.new_type_error(
                         "__class__ assignment only supported for mutable types or ModuleType subclasses"

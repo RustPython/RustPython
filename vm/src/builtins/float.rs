@@ -33,6 +33,7 @@ impl PyFloat {
 }
 
 impl PyPayload for PyFloat {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.float_type
     }

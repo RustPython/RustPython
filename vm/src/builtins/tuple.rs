@@ -34,6 +34,7 @@ impl fmt::Debug for PyTuple {
 }
 
 impl PyPayload for PyTuple {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.tuple_type
     }
@@ -457,6 +458,7 @@ pub(crate) struct PyTupleIterator {
 }
 
 impl PyPayload for PyTupleIterator {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.tuple_iterator_type
     }

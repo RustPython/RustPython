@@ -184,6 +184,7 @@ pub struct PySequenceIterator {
 }
 
 impl PyPayload for PySequenceIterator {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.iter_type
     }
@@ -247,6 +248,7 @@ pub struct PyCallableIterator {
 }
 
 impl PyPayload for PyCallableIterator {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.callable_iterator
     }

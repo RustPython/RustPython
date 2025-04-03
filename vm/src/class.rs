@@ -1,5 +1,7 @@
 //! Utilities to define a new Python class
 
+use std::any::TypeId;
+
 use crate::{
     builtins::{PyBaseObject, PyType, PyTypeRef},
     function::PyMethodDef,
@@ -10,9 +12,10 @@ use crate::{
 };
 use rustpython_common::static_cell;
 
-pub trait StaticType {
+pub unsafe trait StaticType {
     // Ideally, saving PyType is better than PyTypeRef
     fn static_cell() -> &'static static_cell::StaticCell<PyTypeRef>;
+    fn type_id() -> Option<TypeId>;
     fn static_metaclass() -> &'static Py<PyType> {
         PyType::static_type()
     }
@@ -44,13 +47,19 @@ pub trait StaticType {
     where
         Self: PyClassImpl,
     {
-        PyType::new_static(
-            Self::static_baseclass().to_owned(),
-            Default::default(),
-            Self::make_slots(),
-            Self::static_metaclass().to_owned(),
-        )
-        .unwrap()
+        let base = Self::static_baseclass();
+        let type_id = Self::type_id().unwrap_or(base.type_id);
+        // SAFETY: TypeId is accurate
+        unsafe {
+            PyType::new_static(
+                base.to_owned(),
+                type_id,
+                Default::default(),
+                Self::make_slots(),
+                Self::static_metaclass().to_owned(),
+            )
+            .unwrap()
+        }
     }
 }
 

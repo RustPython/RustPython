@@ -153,12 +153,14 @@ impl fmt::Debug for PyFrozenSet {
 }
 
 impl PyPayload for PySet {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.set_type
     }
 }
 
 impl PyPayload for PyFrozenSet {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.frozenset_type
     }
@@ -1271,6 +1273,7 @@ impl fmt::Debug for PySetIterator {
 }
 
 impl PyPayload for PySetIterator {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.set_iterator_type
     }

@@ -17,6 +17,7 @@ pub struct PyCoroutine {
 }
 
 impl PyPayload for PyCoroutine {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.coroutine_type
     }
@@ -127,6 +128,7 @@ pub struct PyCoroutineWrapper {
 }
 
 impl PyPayload for PyCoroutineWrapper {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.coroutine_wrapper_type
     }

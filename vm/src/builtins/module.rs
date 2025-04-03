@@ -8,7 +8,7 @@ use crate::{
     types::{GetAttr, Initializer, Representable},
 };
 
-#[pyclass(module = false, name = "module")]
+// #[pyclass(module = false, name = "module")]
 #[derive(Debug)]
 pub struct PyModuleDef {
     // pub index: usize,
@@ -54,6 +54,7 @@ pub struct PyModule {
 }
 
 impl PyPayload for PyModule {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.module_type
     }

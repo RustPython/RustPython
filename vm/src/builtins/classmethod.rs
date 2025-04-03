@@ -41,6 +41,7 @@ impl From<PyObjectRef> for PyClassMethod {
 }
 
 impl PyPayload for PyClassMethod {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.classmethod_type
     }

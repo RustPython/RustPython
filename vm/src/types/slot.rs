@@ -8,6 +8,7 @@ use crate::{
         Either, FromArgs, FuncArgs, OptionalArg, PyComparisonValue, PyMethodDef, PySetterValue,
     },
     identifier,
+    object::SuperDefault,
     protocol::{
         PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyNumber, PyNumberMethods,
         PyNumberSlots, PySequence, PySequenceMethods,
@@ -782,7 +783,7 @@ pub trait Constructor: PyPayload {
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult;
 }
 
-pub trait DefaultConstructor: PyPayload + Default {
+pub trait DefaultConstructor: PyPayload<Super: SuperDefault> + Default {
     fn construct_and_init(args: Self::Args, vm: &VirtualMachine) -> PyResult<PyRef<Self>>
     where
         Self: Initializer,

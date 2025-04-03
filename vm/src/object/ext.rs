@@ -1,4 +1,5 @@
 use super::{
+    SuperDefault,
     core::{Py, PyObject, PyObjectRef, PyRef},
     payload::{PyObjectPayload, PyPayload},
 };
@@ -564,7 +565,7 @@ impl ToPyObject for &PyObject {
 // explicitly implementing `ToPyObject`.
 impl<T> ToPyObject for T
 where
-    T: PyPayload + Sized,
+    T: PyPayload<Super: SuperDefault> + Sized,
 {
     #[inline(always)]
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {

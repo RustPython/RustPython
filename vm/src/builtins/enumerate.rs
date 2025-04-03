@@ -22,6 +22,7 @@ pub struct PyEnumerate {
 }
 
 impl PyPayload for PyEnumerate {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.enumerate_type
     }
@@ -92,6 +93,7 @@ pub struct PyReverseSequenceIterator {
 }
 
 impl PyPayload for PyReverseSequenceIterator {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.reverse_iter_type
     }

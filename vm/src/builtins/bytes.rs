@@ -78,6 +78,7 @@ impl AsRef<[u8]> for PyBytesRef {
 }
 
 impl PyPayload for PyBytes {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.bytes_type
     }
@@ -683,6 +684,7 @@ pub struct PyBytesIterator {
 }
 
 impl PyPayload for PyBytesIterator {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.bytes_iterator_type
     }

@@ -17,6 +17,7 @@ pub struct PyNativeFunction {
 }
 
 impl PyPayload for PyNativeFunction {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.builtin_function_or_method_type
     }
@@ -179,6 +180,7 @@ impl PyNativeMethod {
 }
 
 impl PyPayload for PyNativeMethod {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.builtin_method_type
     }

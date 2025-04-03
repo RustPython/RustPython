@@ -19,6 +19,7 @@ pub struct PyTraceback {
 pub type PyTracebackRef = PyRef<PyTraceback>;
 
 impl PyPayload for PyTraceback {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.traceback_type
     }

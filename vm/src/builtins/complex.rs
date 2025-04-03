@@ -34,6 +34,7 @@ impl PyComplex {
 }
 
 impl PyPayload for PyComplex {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.complex_type
     }

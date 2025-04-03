@@ -16,6 +16,7 @@ pub struct PyMap {
 }
 
 impl PyPayload for PyMap {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.map_type
     }

@@ -22,6 +22,7 @@ pub struct PyProperty {
 }
 
 impl PyPayload for PyProperty {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.property_type
     }

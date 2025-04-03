@@ -31,11 +31,14 @@ use crate::{
 };
 use indexmap::{IndexMap, map::Entry};
 use itertools::Itertools;
-use std::{borrow::Borrow, collections::HashSet, fmt, ops::Deref, pin::Pin, ptr::NonNull};
+use std::{
+    any::TypeId, borrow::Borrow, collections::HashSet, fmt, ops::Deref, pin::Pin, ptr::NonNull,
+};
 
 #[pyclass(module = false, name = "type", traverse = "manual")]
 pub struct PyType {
     pub base: Option<PyTypeRef>,
+    pub(crate) type_id: TypeId,
     pub bases: PyRwLock<Vec<PyTypeRef>>,
     pub mro: PyRwLock<Vec<PyTypeRef>>,
     pub subclasses: PyRwLock<Vec<PyRef<PyWeak>>>,
@@ -137,6 +140,7 @@ impl fmt::Debug for PyType {
 }
 
 impl PyPayload for PyType {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.type_type
     }
@@ -226,6 +230,7 @@ impl PyType {
 
         let new_type = PyRef::new_ref(
             PyType {
+                type_id: base.type_id,
                 base: Some(base),
                 bases: PyRwLock::new(bases),
                 mro: PyRwLock::new(mro),
@@ -253,8 +258,12 @@ impl PyType {
         Ok(new_type)
     }
 
-    pub fn new_static(
+    /// # Safety
+    ///
+    /// `type_id` must be accurate.
+    pub unsafe fn new_static(
         base: PyRef<Self>,
+        type_id: TypeId,
         attrs: PyAttributes,
         mut slots: PyTypeSlots,
         metaclass: PyRef<Self>,
@@ -271,6 +280,7 @@ impl PyType {
 
         let new_type = PyRef::new_ref(
             PyType {
+                type_id,
                 base: Some(base),
                 bases,
                 mro: PyRwLock::new(mro),

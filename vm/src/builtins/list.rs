@@ -50,6 +50,7 @@ impl FromIterator<PyObjectRef> for PyList {
 }
 
 impl PyPayload for PyList {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.list_type
     }
@@ -534,6 +535,7 @@ pub struct PyListIterator {
 }
 
 impl PyPayload for PyListIterator {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.list_iterator_type
     }
@@ -579,6 +581,7 @@ pub struct PyListReverseIterator {
 }
 
 impl PyPayload for PyListReverseIterator {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.list_reverseiterator_type
     }

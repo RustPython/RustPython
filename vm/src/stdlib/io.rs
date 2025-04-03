@@ -600,7 +600,7 @@ mod _io {
     }
 
     #[pyattr]
-    #[pyclass(name = "_RawIOBase", base = "_IOBase")]
+    #[pyclass(name = "_RawIOBase", base = "_IOBase", no_payload)]
     pub(super) struct _RawIOBase;
 
     #[pyclass(flags(BASETYPE, HAS_DICT))]
@@ -658,7 +658,7 @@ mod _io {
     }
 
     #[pyattr]
-    #[pyclass(name = "_BufferedIOBase", base = "_IOBase")]
+    #[pyclass(name = "_BufferedIOBase", base = "_IOBase", no_payload)]
     struct _BufferedIOBase;
 
     #[pyclass(flags(BASETYPE))]

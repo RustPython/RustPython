@@ -1049,6 +1049,7 @@ impl Hashable for PyMemoryView {
 }
 
 impl PyPayload for PyMemoryView {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.memoryview_type
     }
@@ -1129,6 +1130,7 @@ pub struct PyMemoryViewIterator {
 }
 
 impl PyPayload for PyMemoryViewIterator {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.memoryviewiterator_type
     }

@@ -11,12 +11,15 @@
 //! [`PyRef<PyWeak>`] may looking like to be called as PyObjectWeak by the rule,
 //! but not to do to remember it is a PyRef object.
 use super::{
-    PyAtomicRef,
+    PyAtomicRef, PyDefault, SuperDefault, SuperPyDefault,
     ext::{AsObject, PyRefExact, PyResult},
-    payload::PyObjectPayload,
+    payload::PyPayload,
 };
-use crate::object::traverse::{Traverse, TraverseFn};
-use crate::object::traverse_object::PyObjVTable;
+use crate::{
+    Context,
+    builtins::{PyBaseExceptionRef, PyBaseObject},
+    object::traverse::{Traverse, TraverseFn},
+};
 use crate::{
     builtins::{PyDictRef, PyType, PyTypeRef},
     common::{
@@ -27,6 +30,7 @@ use crate::{
     },
     vm::VirtualMachine,
 };
+use crate::{object::traverse_object::PyObjVTable, types::PyTypeFlags};
 use itertools::Itertools;
 use std::{
     any::TypeId,
@@ -39,7 +43,7 @@ use std::{
     ptr::{self, NonNull},
 };
 
-// so, PyObjectRef is basically equivalent to `PyRc<PyInner<dyn PyObjectPayload>>`, except it's
+// so, PyObjectRef is basically equivalent to `PyRc<PyInner<dyn PyPayload>>`, except it's
 // only one pointer in width rather than 2. We do that by manually creating a vtable, and putting
 // a &'static reference to it inside the `PyRc` rather than adjacent to it, like trait objects do.
 // This can lead to faster code since there's just less data to pass around, as well as because of
@@ -54,16 +58,16 @@ use std::{
 // | 0x00 | 0x01 | 0x02 | 0x03 | 0x04 | 0x05 | 0x06 | 0x07 |
 // +-------------+-------------+---------------------------+
 // There has to be padding in the space between the 2 fields. But, if that field is a trait object
-// (like `dyn PyObjectPayload`) we don't *know* how much padding there is between the `payload`
+// (like `dyn PyPayload`) we don't *know* how much padding there is between the `payload`
 // field and the previous field. So, Rust has to consult the vtable to know the exact offset of
-// `payload` in `PyInner<dyn PyObjectPayload>`, which has a huge performance impact when *every
+// `payload` in `PyInner<dyn PyPayload>`, which has a huge performance impact when *every
 // single payload access* requires a vtable lookup. Thankfully, we're able to avoid that because of
 // the way we use PyObjectRef, in that whenever we want to access the payload we (almost) always
 // access it from a generic function. So, rather than doing
 //
 // - check vtable for payload offset
 // - get offset in PyInner struct
-// - call as_any() method of PyObjectPayload
+// - call as_any() method of PyPayload
 // - call downcast_ref() method of Any
 // we can just do
 // - check vtable that typeid matches
@@ -72,60 +76,188 @@ use std::{
 // and at that point the compiler can know the offset of `payload` for us because **we've given it a
 // concrete type to work with before we ever access the `payload` field**
 
-/// A type to just represent "we've erased the type of this object, cast it before you use it"
-#[derive(Debug)]
-pub(super) struct Erased;
-
-pub(super) unsafe fn drop_dealloc_obj<T: PyObjectPayload>(x: *mut PyObject) {
-    drop(unsafe { Box::from_raw(x as *mut PyInner<T>) });
+pub(super) unsafe fn drop_dealloc_obj<T: PyPayload>(x: *mut PyObject) {
+    drop(unsafe { Box::from_raw(x as *mut PyObjRepr<T>) });
 }
-pub(super) unsafe fn debug_obj<T: PyObjectPayload>(
+pub(super) unsafe fn debug_obj<T: PyPayload>(
     x: &PyObject,
     f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result {
-    let x = unsafe { &*(x as *const PyObject as *const PyInner<T>) };
+    let x = unsafe { &*(x as *const PyObject as *const PyObjRepr<T>) };
     fmt::Debug::fmt(x, f)
 }
 
 /// Call `try_trace` on payload
-pub(super) unsafe fn try_trace_obj<T: PyObjectPayload>(
-    x: &PyObject,
-    tracer_fn: &mut TraverseFn<'_>,
-) {
-    let x = unsafe { &*(x as *const PyObject as *const PyInner<T>) };
-    let payload = &x.payload;
-    payload.try_traverse(tracer_fn)
+pub(super) unsafe fn try_trace_obj<T: PyPayload>(x: &PyObject, tracer_fn: &mut TraverseFn<'_>) {
+    let x = unsafe { &*(x as *const PyObject as *const PyObjRepr<T>) };
+    x.repr_try_traverse(tracer_fn)
 }
 
-/// This is an actual python object. It consists of a `typ` which is the
-/// python class, and carries some rust payload optionally. This rust
-/// payload can be a rust float or rust int in case of float and int objects.
+/// The header of a python object.
+///
+/// Not public API; only `pub` because it's specified as
+/// `<PyBaseObject as PyPayload>::Super` but it shouldn't be reexported from
+/// `crate::object`.
+#[doc(hidden)]
+pub struct PyObjHeader {
+    ref_count: RefCount,
+    vtable: &'static PyObjVTable,
+
+    typ: PyAtomicRef<PyType>, // __class__ member
+    dict: Option<InstanceDict>,
+    weak_list: WeakRefList,
+    slots: Box<[PyRwLock<Option<PyObjectRef>>]>,
+}
+
+fn traverse_object_head(header: &PyObjHeader, tracer_fn: &mut TraverseFn<'_>) {
+    // 1. trace `dict` and `slots` field(`typ` can't trace for it's a AtomicRef while is leaked by design)
+    // 2. call vtable's trace function to trace payload
+    // self.typ.trace(tracer_fn);
+    header.dict.traverse(tracer_fn);
+    // weak_list keeps a *pointer* to a struct for maintaince weak ref, so no ownership, no trace
+    header.slots.traverse(tracer_fn);
+}
+
+/// The layout of an object and its superclass.
+///
+/// Is marked public, but is not public API.
 #[repr(C)]
-pub(super) struct PyInner<T> {
-    pub(super) ref_count: RefCount,
-    // TODO: move typeid into vtable once TypeId::of is const
-    pub(super) typeid: TypeId,
-    pub(super) vtable: &'static PyObjVTable,
-
-    pub(super) typ: PyAtomicRef<PyType>, // __class__ member
-    pub(super) dict: Option<InstanceDict>,
-    pub(super) weak_list: WeakRefList,
-    pub(super) slots: Box<[PyRwLock<Option<PyObjectRef>>]>,
-
-    pub(super) payload: T,
+pub struct PyObjRepr<T: PyPayload> {
+    sup: <T::Super as SuperPayload>::Repr,
+    payload: T,
 }
 
-impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
+impl<T: PyPayload> Deref for PyObjRepr<T> {
+    type Target = T;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.payload
+    }
+}
+
+impl<T: PyPayload + Default> From<PyObjHeader> for PyObjRepr<T>
+where
+    <T::Super as SuperPayload>::Repr: From<super::PyObjHeader>,
+{
+    fn from(header: PyObjHeader) -> Self {
+        Self {
+            sup: header.into(),
+            payload: T::default(),
+        }
+    }
+}
+
+impl<T: Default + PyPayload<Super: SuperPyDefault>> SuperPyDefault for T {
+    fn py_from_header(header: PyObjHeader, ctx: &Context) -> Self::Repr {
+        PyObjRepr {
+            sup: T::Super::py_from_header(header, ctx),
+            payload: T::py_default(ctx),
+        }
+    }
+}
+
+impl SuperPyDefault for PyObjHeader {
+    fn py_from_header(header: PyObjHeader, _ctx: &Context) -> Self::Repr {
+        header
+    }
+}
+
+impl<T: Default + PyPayload<Super: SuperDefault>> SuperDefault for T {
+    fn from_header(header: PyObjHeader) -> Self::Repr {
+        PyObjRepr {
+            sup: T::Super::from_header(header),
+            payload: T::default(),
+        }
+    }
+}
+
+impl SuperDefault for PyObjHeader {
+    fn from_header(header: PyObjHeader) -> Self::Repr {
+        header
+    }
+}
+
+impl<T: PyPayload> PyObjRepr<T> {
+    fn header(&self) -> &PyObjHeader {
+        self.sup.as_header()
+    }
+}
+
+/// A type that can be the supertype of a `PyPayload`.
+///
+/// This trait is a bit weird, as `PyPayload::Super` implies that every type
+/// has a supertype, but obviously `object` does not. So, `PyBaseObject::Super`
+/// is `ObjectHead`, which implements this trait but *not* `PyPayload`, and
+/// thus stops that infinite chain.
+#[doc(hidden)]
+pub trait SuperPayload {
+    /// The actual in-memory layout of this type. `PyObjRepr<Self>` for
+    /// a `PyPayload`, and `ObjectHead` for `ObjectHead`.
+    type Repr: super::core::PayloadRepr;
+}
+
+/// `PayloadRepr` represents the actual layout of a `SuperPayload`.
+///
+/// Mainly exists to unify `PyObjtRepr<T>` and `ObjectHead`.
+///
+/// # Safety
+///
+/// The implementing type's layout must have `ObjectHead` at the very start.
+pub unsafe trait PayloadRepr {
+    /// Access the header of this payload.
+    ///
+    /// Should always compile down to a no-op, since `ObjectHead` should always
+    /// get laid out at the start of any given `PyObjRepr<T>`
+    fn as_header(&self) -> &PyObjHeader;
+
+    /// Like `MaybeTraverse::try_traverse`, except it doesn't traverse the
+    /// object header - that's done separately. Once dict and weak_ref_list
+    /// are no longer stored in the header, this can be simplified.
+    fn repr_try_traverse(&self, tracer_fn: &mut TraverseFn<'_>);
+}
+
+impl<T: PyPayload> SuperPayload for T {
+    type Repr = PyObjRepr<Self>;
+}
+
+impl SuperPayload for PyObjHeader {
+    type Repr = Self;
+}
+
+// SAFETY: layout must start with `ObjectHead`:
+// `PyObjRepr` is `repr(C)`, and its first field also implements `PayloadRepr`.
+unsafe impl<T: PyPayload> PayloadRepr for PyObjRepr<T> {
+    fn as_header(&self) -> &PyObjHeader {
+        self.sup.as_header()
+    }
+
+    fn repr_try_traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self.sup.repr_try_traverse(tracer_fn);
+        self.payload.try_traverse(tracer_fn);
+    }
+}
+
+// SAFETY: `ObjectHead` starts with `ObjectHead`
+unsafe impl PayloadRepr for PyObjHeader {
+    fn as_header(&self) -> &PyObjHeader {
+        self
+    }
+
+    fn repr_try_traverse(&self, _tracer_fn: &mut TraverseFn<'_>) {}
+}
+
+impl<T: PyPayload + fmt::Debug> fmt::Debug for PyObjRepr<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[PyObject {:?}]", &self.payload)
     }
 }
 
-unsafe impl<T: PyObjectPayload> Traverse for Py<T> {
+unsafe impl<T: PyPayload> Traverse for Py<T> {
     /// DO notice that call `trace` on `Py<T>` means apply `tracer_fn` on `Py<T>`'s children,
     /// not like call `trace` on `PyRef<T>` which apply `tracer_fn` on `PyRef<T>` itself
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        self.0.traverse(tracer_fn)
+        traverse_object_head(self.header(), tracer_fn);
+        self.0.repr_try_traverse(tracer_fn)
     }
 }
 
@@ -133,7 +265,10 @@ unsafe impl Traverse for PyObject {
     /// DO notice that call `trace` on `PyObject` means apply `tracer_fn` on `PyObject`'s children,
     /// not like call `trace` on `PyObjectRef` which apply `tracer_fn` on `PyObjectRef` itself
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        self.0.traverse(tracer_fn)
+        traverse_object_head(&self.0, tracer_fn);
+        if let Some(f) = self.header().vtable.trace {
+            unsafe { f(self, tracer_fn) }
+        }
     }
 }
 
@@ -195,7 +330,7 @@ impl WeakRefList {
         if is_generic {
             if let Some(generic_weakref) = inner.generic_weakref {
                 let generic_weakref = unsafe { generic_weakref.as_ref() };
-                if generic_weakref.0.ref_count.get() != 0 {
+                if generic_weakref.header().ref_count.get() != 0 {
                     return generic_weakref.to_owned();
                 }
             }
@@ -297,7 +432,9 @@ impl WeakRefList {
 
 impl WeakListInner {
     fn iter(&self) -> impl Iterator<Item = &Py<PyWeak>> {
-        self.list.iter().filter(|wr| wr.0.ref_count.get() > 0)
+        self.list
+            .iter()
+            .filter(|wr| wr.header().ref_count.get() > 0)
     }
 }
 
@@ -369,11 +506,11 @@ impl PyWeak {
     fn drop_inner(&self) {
         let dealloc = {
             let mut guard = unsafe { self.parent.as_ref().lock() };
-            let offset = std::mem::offset_of!(PyInner<PyWeak>, payload);
+            let offset = std::mem::offset_of!(PyObjRepr<PyWeak>, payload);
             let py_inner = (self as *const Self)
                 .cast::<u8>()
                 .wrapping_sub(offset)
-                .cast::<PyInner<Self>>();
+                .cast::<PyObjRepr<Self>>();
             let node_ptr = unsafe { NonNull::new_unchecked(py_inner as *mut Py<Self>) };
             // the list doesn't have ownership over its PyRef<PyWeak>! we're being dropped
             // right now so that should be obvious!!
@@ -443,22 +580,134 @@ impl InstanceDict {
     }
 }
 
-impl<T: PyObjectPayload> PyInner<T> {
-    fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> Box<Self> {
+impl<T: PyPayload> PyObjRepr<T> {
+    fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> Box<Self>
+    where
+        T::Super: SuperDefault,
+    {
         let member_count = typ.slots.member_count;
-        Box::new(PyInner {
+        let header = PyObjHeader {
             ref_count: RefCount::new(),
-            typeid: TypeId::of::<T>(),
             vtable: PyObjVTable::of::<T>(),
             typ: PyAtomicRef::from(typ),
             dict: dict.map(InstanceDict::new),
             weak_list: WeakRefList::new(),
-            payload,
             slots: std::iter::repeat_with(|| PyRwLock::new(None))
                 .take(member_count)
                 .collect_vec()
                 .into_boxed_slice(),
+        };
+        Box::new(PyObjRepr {
+            sup: T::Super::from_header(header),
+            payload,
         })
+    }
+}
+
+#[doc(hidden)]
+pub trait Builder<T: SuperPayload> {
+    fn build_repr(self, header: PyObjHeader, ctx: &Context) -> T::Repr;
+}
+
+pub struct PyDefaultBuilder;
+
+impl<T: SuperPyDefault> Builder<T> for PyDefaultBuilder {
+    fn build_repr(self, header: PyObjHeader, ctx: &Context) -> T::Repr {
+        T::py_from_header(header, ctx)
+    }
+}
+
+pub struct PyObjectBuilder<Super: Builder<T::Super>, T: PyPayload> {
+    sup: Super,
+    payload: T,
+}
+
+impl<T: PyPayload<Super: SuperPyDefault>> PyObjectBuilder<PyDefaultBuilder, T> {
+    pub fn new(payload: T) -> Self {
+        Self {
+            sup: PyDefaultBuilder,
+            payload,
+        }
+    }
+}
+
+impl<Super, T> Builder<T> for PyObjectBuilder<Super, T>
+where
+    T: PyPayload,
+    Super: Builder<T::Super>,
+{
+    fn build_repr(self, header: PyObjHeader, ctx: &Context) -> <T as SuperPayload>::Repr {
+        let PyObjectBuilder { sup, payload } = self;
+        PyObjRepr {
+            sup: sup.build_repr(header, ctx),
+            payload,
+        }
+    }
+}
+
+impl<Super, T> PyObjectBuilder<Super, T>
+where
+    T: PyPayload,
+    Super: Builder<T::Super>,
+{
+    pub fn subclass<Sub: PyPayload<Super = T>>(self, payload: Sub) -> PyObjectBuilder<Self, Sub> {
+        PyObjectBuilder { sup: self, payload }
+    }
+    fn _build(self, typ: PyTypeRef, ctx: &Context) -> PyRef<T> {
+        let member_count = typ.slots.member_count;
+        let dict = if typ.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
+            Some(ctx.new_dict())
+        } else {
+            None
+        };
+        let header = PyObjHeader {
+            ref_count: RefCount::new(),
+            vtable: PyObjVTable::of::<T>(),
+            typ: PyAtomicRef::from(typ),
+            dict: dict.map(InstanceDict::new),
+            weak_list: WeakRefList::new(),
+            slots: std::iter::repeat_with(|| PyRwLock::new(None))
+                .take(member_count)
+                .collect_vec()
+                .into_boxed_slice(),
+        };
+        PyRef::from_repr(Box::new(self.build_repr(header, ctx)))
+    }
+
+    pub fn build(self, ctx: &Context) -> PyRef<T> {
+        self._build(T::class(&ctx).to_owned(), ctx)
+    }
+
+    pub fn build_exact(self, ctx: &Context) -> PyRefExact<T> {
+        let obj = self.build(ctx);
+        // build() provides T::class as the type, so it's always exact
+        unsafe { PyRefExact::new_unchecked(obj) }
+    }
+
+    #[inline]
+    pub fn build_with_type(self, cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyRef<T>> {
+        let exact_class = T::class(&vm.ctx);
+        if cls.fast_issubclass(exact_class) {
+            // TODO: not checking this allows for unsoundness at the moment
+            // assert!(cls.type_id == exact_class.type_id);
+            Ok(self._build(cls, &vm.ctx))
+        } else {
+            #[cold]
+            #[inline(never)]
+            fn _build_with_type_error(
+                vm: &VirtualMachine,
+                cls: PyTypeRef,
+                exact_class: &Py<PyType>,
+            ) -> PyBaseExceptionRef {
+                vm.new_type_error(format!(
+                    "'{}' is not a subtype of '{}'",
+                    &cls.name(),
+                    exact_class.name()
+                ))
+            }
+
+            Err(_build_with_type_error(vm, cls, exact_class))
+        }
     }
 }
 
@@ -487,7 +736,7 @@ cfg_if::cfg_if! {
 }
 
 #[repr(transparent)]
-pub struct PyObject(PyInner<Erased>);
+pub struct PyObject(PyObjHeader);
 
 impl Deref for PyObjectRef {
     type Target = PyObject;
@@ -532,7 +781,7 @@ impl PyObjectRef {
     /// If the downcast fails, the original ref is returned in as `Err` so
     /// another downcast can be attempted without unnecessary cloning.
     #[inline(always)]
-    pub fn downcast<T: PyObjectPayload>(self) -> Result<PyRef<T>, Self> {
+    pub fn downcast<T: PyPayload>(self) -> Result<PyRef<T>, Self> {
         if self.payload_is::<T>() {
             Ok(unsafe { self.downcast_unchecked() })
         } else {
@@ -541,7 +790,7 @@ impl PyObjectRef {
     }
 
     #[inline(always)]
-    pub fn downcast_ref<T: PyObjectPayload>(&self) -> Option<&Py<T>> {
+    pub fn downcast_ref<T: PyPayload>(&self) -> Option<&Py<T>> {
         if self.payload_is::<T>() {
             // SAFETY: just checked that the payload is T, and PyRef is repr(transparent) over
             // PyObjectRef
@@ -556,22 +805,13 @@ impl PyObjectRef {
     /// # Safety
     /// T must be the exact payload type
     #[inline(always)]
-    pub unsafe fn downcast_unchecked<T: PyObjectPayload>(self) -> PyRef<T> {
+    pub unsafe fn downcast_unchecked<T: PyPayload>(self) -> PyRef<T> {
         // PyRef::from_obj_unchecked(self)
         // manual impl to avoid assertion
         let obj = ManuallyDrop::new(self);
         PyRef {
             ptr: obj.ptr.cast(),
         }
-    }
-
-    /// # Safety
-    /// T must be the exact payload type
-    #[inline(always)]
-    pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &Py<T> {
-        debug_assert!(self.payload_is::<T>());
-        // SAFETY: requirements forwarded from caller
-        unsafe { &*(self as *const PyObjectRef as *const PyRef<T>) }
     }
 
     // ideally we'd be able to define these in pyobject.rs, but method visibility rules are weird
@@ -581,7 +821,7 @@ impl PyObjectRef {
     /// If the downcast fails, the original ref is returned in as `Err` so
     /// another downcast can be attempted without unnecessary cloning.
     #[inline]
-    pub fn downcast_exact<T: PyObjectPayload + crate::PyPayload>(
+    pub fn downcast_exact<T: PyPayload + crate::PyPayload>(
         self,
         vm: &VirtualMachine,
     ) -> Result<PyRefExact<T>, Self> {
@@ -600,6 +840,11 @@ impl PyObjectRef {
 }
 
 impl PyObject {
+    #[inline(always)]
+    fn header(&self) -> &PyObjHeader {
+        &self.0
+    }
+
     #[inline(always)]
     fn weak_ref_list(&self) -> Option<&WeakRefList> {
         Some(&self.0.weak_list)
@@ -653,8 +898,10 @@ impl PyObject {
     }
 
     #[inline(always)]
-    pub fn payload_is<T: PyObjectPayload>(&self) -> bool {
-        self.0.typeid == TypeId::of::<T>()
+    pub fn payload_is<T: PyPayload>(&self) -> bool {
+        self.class()
+            .iter_base_chain()
+            .any(|t| t.type_id == TypeId::of::<T>())
     }
 
     /// Force to return payload as T.
@@ -662,15 +909,15 @@ impl PyObject {
     /// # Safety
     /// The actual payload type must be T.
     #[inline(always)]
-    pub unsafe fn payload_unchecked<T: PyObjectPayload>(&self) -> &T {
+    pub unsafe fn payload_unchecked<T: PyPayload>(&self) -> &T {
         // we cast to a PyInner<T> first because we don't know T's exact offset because of
         // varying alignment, but once we get a PyInner<T> the compiler can get it for us
-        let inner = unsafe { &*(&self.0 as *const PyInner<Erased> as *const PyInner<T>) };
+        let inner = unsafe { &*(&self.0 as *const PyObjHeader as *const PyObjRepr<T>) };
         &inner.payload
     }
 
     #[inline(always)]
-    pub fn payload<T: PyObjectPayload>(&self) -> Option<&T> {
+    pub fn payload<T: PyPayload>(&self) -> Option<&T> {
         if self.payload_is::<T>() {
             Some(unsafe { self.payload_unchecked() })
         } else {
@@ -683,12 +930,16 @@ impl PyObject {
         self.0.typ.deref()
     }
 
-    pub fn set_class(&self, typ: PyTypeRef, vm: &VirtualMachine) {
+    pub fn set_class(&self, typ: PyTypeRef, vm: &VirtualMachine) -> Result<(), PyTypeRef> {
+        if self.class().type_id != typ.type_id {
+            return Err(typ);
+        }
         self.0.typ.swap_to_temporary_refs(typ, vm);
+        Ok(())
     }
 
     #[inline(always)]
-    pub fn payload_if_exact<T: PyObjectPayload + crate::PyPayload>(
+    pub fn payload_if_exact<T: PyPayload + crate::PyPayload>(
         &self,
         vm: &VirtualMachine,
     ) -> Option<&T> {
@@ -731,7 +982,7 @@ impl PyObject {
     }
 
     #[inline(always)]
-    pub fn downcast_ref<T: PyObjectPayload>(&self) -> Option<&Py<T>> {
+    pub fn downcast_ref<T: PyPayload>(&self) -> Option<&Py<T>> {
         if self.payload_is::<T>() {
             // SAFETY: just checked that the payload is T, and PyRef is repr(transparent) over
             // PyObjectRef
@@ -742,7 +993,7 @@ impl PyObject {
     }
 
     #[inline(always)]
-    pub fn downcast_ref_if_exact<T: PyObjectPayload + crate::PyPayload>(
+    pub fn downcast_ref_if_exact<T: PyPayload + crate::PyPayload>(
         &self,
         vm: &VirtualMachine,
     ) -> Option<&Py<T>> {
@@ -754,9 +1005,12 @@ impl PyObject {
     /// # Safety
     /// T must be the exact payload type
     #[inline(always)]
-    pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &Py<T> {
+    pub unsafe fn downcast_unchecked_ref<T: PyPayload>(&self) -> &Py<T> {
         debug_assert!(self.payload_is::<T>());
-        // SAFETY: requirements forwarded from caller
+        // SAFETY: requirements forwarded from caller. this is possibly a bit
+        // sketchy because we're widening the range of the `&` reference from
+        // just the `PyObjHeader` to the entire object, but under tree borrows
+        // it's fine according to miri, since `RefCount` isn't `Freeze`.
         unsafe { &*(self as *const PyObject as *const Py<T>) }
     }
 
@@ -868,7 +1122,7 @@ impl AsRef<PyObject> for PyObject {
     }
 }
 
-impl<'a, T: PyObjectPayload> From<&'a Py<T>> for &'a PyObject {
+impl<'a, T: PyPayload> From<&'a Py<T>> for &'a PyObject {
     #[inline(always)]
     fn from(py_ref: &'a Py<T>) -> Self {
         py_ref.as_object()
@@ -899,9 +1153,27 @@ impl fmt::Debug for PyObjectRef {
 }
 
 #[repr(transparent)]
-pub struct Py<T: PyObjectPayload>(PyInner<T>);
+pub struct Py<T: PyPayload>(PyObjRepr<T>);
 
-impl<T: PyObjectPayload> Py<T> {
+impl<T: PyPayload> Py<T> {
+    #[inline(always)]
+    fn header(&self) -> &PyObjHeader {
+        self.0.header()
+    }
+
+    #[allow(private_bounds)]
+    pub fn super_(&self) -> &Py<T::Super>
+    where
+        T::Super: PyPayload,
+        // this should really be superfluous - T::Super: PyPayload implies it,
+        // but the current trait solver isn't smart enough
+        T: PyPayload<Super: SuperPayload<Repr = PyObjRepr<T::Super>>>,
+    {
+        let sup: &PyObjRepr<T::Super> = &self.0.sup;
+        // SAFETY:
+        unsafe { &*(sup as *const PyObjRepr<T::Super> as *const Py<T::Super>) }
+    }
+
     pub fn downgrade(
         &self,
         callback: Option<PyObjectRef>,
@@ -914,19 +1186,19 @@ impl<T: PyObjectPayload> Py<T> {
     }
 }
 
-impl<T: PyObjectPayload> ToOwned for Py<T> {
+impl<T: PyPayload> ToOwned for Py<T> {
     type Owned = PyRef<T>;
 
     #[inline(always)]
     fn to_owned(&self) -> Self::Owned {
-        self.0.ref_count.inc();
+        self.header().ref_count.inc();
         PyRef {
             ptr: NonNull::from(self),
         }
     }
 }
 
-impl<T: PyObjectPayload> Deref for Py<T> {
+impl<T: PyPayload> Deref for Py<T> {
     type Target = T;
 
     #[inline(always)]
@@ -935,16 +1207,16 @@ impl<T: PyObjectPayload> Deref for Py<T> {
     }
 }
 
-impl<T: PyObjectPayload> Borrow<PyObject> for Py<T> {
+impl<T: PyPayload> Borrow<PyObject> for Py<T> {
     #[inline(always)]
     fn borrow(&self) -> &PyObject {
-        unsafe { &*(&self.0 as *const PyInner<T> as *const PyObject) }
+        unsafe { &*(&self.0 as *const PyObjRepr<T> as *const PyObject) }
     }
 }
 
 impl<T> std::hash::Hash for Py<T>
 where
-    T: std::hash::Hash + PyObjectPayload,
+    T: std::hash::Hash + PyPayload,
 {
     #[inline]
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -954,7 +1226,7 @@ where
 
 impl<T> PartialEq for Py<T>
 where
-    T: PartialEq + PyObjectPayload,
+    T: PartialEq + PyPayload,
 {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
@@ -962,11 +1234,11 @@ where
     }
 }
 
-impl<T> Eq for Py<T> where T: Eq + PyObjectPayload {}
+impl<T> Eq for Py<T> where T: Eq + PyPayload {}
 
 impl<T> AsRef<PyObject> for Py<T>
 where
-    T: PyObjectPayload,
+    T: PyPayload,
 {
     #[inline(always)]
     fn as_ref(&self) -> &PyObject {
@@ -974,7 +1246,7 @@ where
     }
 }
 
-impl<T: PyObjectPayload> fmt::Debug for Py<T> {
+impl<T: PyPayload> fmt::Debug for Py<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         (**self).fmt(f)
     }
@@ -990,40 +1262,40 @@ impl<T: PyObjectPayload> fmt::Debug for Py<T> {
 /// situations (such as when implementing in-place methods such as `__iadd__`)
 /// where a reference to the same object must be returned.
 #[repr(transparent)]
-pub struct PyRef<T: PyObjectPayload> {
+pub struct PyRef<T: PyPayload> {
     ptr: NonNull<Py<T>>,
 }
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "threading")] {
-        unsafe impl<T: PyObjectPayload> Send for PyRef<T> {}
-        unsafe impl<T: PyObjectPayload> Sync for PyRef<T> {}
+        unsafe impl<T: PyPayload> Send for PyRef<T> {}
+        unsafe impl<T: PyPayload> Sync for PyRef<T> {}
     }
 }
 
-impl<T: PyObjectPayload> fmt::Debug for PyRef<T> {
+impl<T: PyPayload> fmt::Debug for PyRef<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         (**self).fmt(f)
     }
 }
 
-impl<T: PyObjectPayload> Drop for PyRef<T> {
+impl<T: PyPayload> Drop for PyRef<T> {
     #[inline]
     fn drop(&mut self) {
-        if self.0.ref_count.dec() {
+        if self.header().ref_count.dec() {
             unsafe { PyObject::drop_slow(self.ptr.cast::<PyObject>()) }
         }
     }
 }
 
-impl<T: PyObjectPayload> Clone for PyRef<T> {
+impl<T: PyPayload> Clone for PyRef<T> {
     #[inline(always)]
     fn clone(&self) -> Self {
         (**self).to_owned()
     }
 }
 
-impl<T: PyObjectPayload> PyRef<T> {
+impl<T: PyPayload> PyRef<T> {
     #[inline(always)]
     pub(crate) unsafe fn from_raw(raw: *const Py<T>) -> Self {
         Self {
@@ -1042,8 +1314,16 @@ impl<T: PyObjectPayload> PyRef<T> {
     }
 
     #[inline(always)]
-    pub fn new_ref(payload: T, typ: crate::builtins::PyTypeRef, dict: Option<PyDictRef>) -> Self {
-        let inner = Box::into_raw(PyInner::new(payload, typ, dict));
+    pub fn new_ref(payload: T, typ: crate::builtins::PyTypeRef, dict: Option<PyDictRef>) -> Self
+    where
+        T::Super: SuperDefault,
+    {
+        Self::from_repr(PyObjRepr::new(payload, typ, dict))
+    }
+
+    #[inline(always)]
+    fn from_repr(repr: Box<PyObjRepr<T>>) -> Self {
+        let inner = Box::into_raw(repr);
         Self {
             ptr: unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) },
         }
@@ -1058,7 +1338,7 @@ impl<T: PyObjectPayload> PyRef<T> {
 
 impl<T> Borrow<PyObject> for PyRef<T>
 where
-    T: PyObjectPayload,
+    T: PyPayload,
 {
     #[inline(always)]
     fn borrow(&self) -> &PyObject {
@@ -1068,7 +1348,7 @@ where
 
 impl<T> AsRef<PyObject> for PyRef<T>
 where
-    T: PyObjectPayload,
+    T: PyPayload,
 {
     #[inline(always)]
     fn as_ref(&self) -> &PyObject {
@@ -1078,7 +1358,7 @@ where
 
 impl<T> From<PyRef<T>> for PyObjectRef
 where
-    T: PyObjectPayload,
+    T: PyPayload,
 {
     #[inline]
     fn from(value: PyRef<T>) -> Self {
@@ -1089,7 +1369,7 @@ where
 
 impl<T> Borrow<Py<T>> for PyRef<T>
 where
-    T: PyObjectPayload,
+    T: PyPayload,
 {
     #[inline(always)]
     fn borrow(&self) -> &Py<T> {
@@ -1099,7 +1379,7 @@ where
 
 impl<T> AsRef<Py<T>> for PyRef<T>
 where
-    T: PyObjectPayload,
+    T: PyPayload,
 {
     #[inline(always)]
     fn as_ref(&self) -> &Py<T> {
@@ -1109,7 +1389,7 @@ where
 
 impl<T> Deref for PyRef<T>
 where
-    T: PyObjectPayload,
+    T: PyPayload,
 {
     type Target = Py<T>;
 
@@ -1121,7 +1401,7 @@ where
 
 impl<T> std::hash::Hash for PyRef<T>
 where
-    T: std::hash::Hash + PyObjectPayload,
+    T: std::hash::Hash + PyPayload,
 {
     #[inline]
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -1131,7 +1411,7 @@ where
 
 impl<T> PartialEq for PyRef<T>
 where
-    T: PartialEq + PyObjectPayload,
+    T: PartialEq + PyPayload,
 {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
@@ -1139,15 +1419,15 @@ where
     }
 }
 
-impl<T> Eq for PyRef<T> where T: Eq + PyObjectPayload {}
+impl<T> Eq for PyRef<T> where T: Eq + PyPayload {}
 
 #[repr(transparent)]
-pub struct PyWeakRef<T: PyObjectPayload> {
+pub struct PyWeakRef<T: PyPayload> {
     weak: PyRef<PyWeak>,
     _marker: PhantomData<T>,
 }
 
-impl<T: PyObjectPayload> PyWeakRef<T> {
+impl<T: PyPayload> PyWeakRef<T> {
     pub fn upgrade(&self) -> Option<PyRef<T>> {
         self.weak
             .upgrade()
@@ -1160,23 +1440,14 @@ impl<T: PyObjectPayload> PyWeakRef<T> {
 /// either given values or explicitly left uninitialized
 macro_rules! partially_init {
     (
-        $ty:path {$($init_field:ident: $init_value:expr),*$(,)?},
+        $ty:path {$($($init_field:ident).+: $init_value:expr),*$(,)?},
         Uninit { $($uninit_field:ident),*$(,)? }$(,)?
     ) => {{
-        // check all the fields are there but *don't* actually run it
-
-        #[allow(clippy::diverging_sub_expression)]  // FIXME: better way than using `if false`?
-        if false {
-            #[allow(invalid_value, dead_code, unreachable_code)]
-            let _ = {$ty {
-                $($init_field: $init_value,)*
-                $($uninit_field: unreachable!(),)*
-            }};
-        }
+        // FIXME: figure out a way to check that all the fields have been mentioned
         let mut m = ::std::mem::MaybeUninit::<$ty>::uninit();
         #[allow(unused_unsafe)]
         unsafe {
-            $(::std::ptr::write(&mut (*m.as_mut_ptr()).$init_field, $init_value);)*
+            $(::std::ptr::write(&raw mut (*m.as_mut_ptr()).$($init_field).+, $init_value);)*
         }
         m
     }};
@@ -1193,11 +1464,12 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
     let (type_type, object_type) = {
         // We cast between these 2 types, so make sure (at compile time) that there's no change in
         // layout when we wrap PyInner<PyTypeObj> in MaybeUninit<>
-        static_assertions::assert_eq_size!(MaybeUninit<PyInner<PyType>>, PyInner<PyType>);
-        static_assertions::assert_eq_align!(MaybeUninit<PyInner<PyType>>, PyInner<PyType>);
+        static_assertions::assert_eq_size!(MaybeUninit<PyObjRepr<PyType>>, PyObjRepr<PyType>);
+        static_assertions::assert_eq_align!(MaybeUninit<PyObjRepr<PyType>>, PyObjRepr<PyType>);
 
         let type_payload = PyType {
             base: None,
+            type_id: TypeId::of::<PyType>(),
             bases: PyRwLock::default(),
             mro: PyRwLock::default(),
             subclasses: PyRwLock::default(),
@@ -1207,6 +1479,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         };
         let object_payload = PyType {
             base: None,
+            type_id: TypeId::of::<PyBaseObject>(),
             bases: PyRwLock::default(),
             mro: PyRwLock::default(),
             subclasses: PyRwLock::default(),
@@ -1215,40 +1488,46 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             heaptype_ext: None,
         };
         let type_type_ptr = Box::into_raw(Box::new(partially_init!(
-            PyInner::<PyType> {
-                ref_count: RefCount::new(),
-                typeid: TypeId::of::<PyType>(),
-                vtable: PyObjVTable::of::<PyType>(),
-                dict: None,
-                weak_list: WeakRefList::new(),
+            PyObjRepr::<PyType> {
+                sup.payload: PyBaseObject,
+                sup.sup.ref_count: RefCount::new(),
+                sup.sup.vtable: PyObjVTable::of::<PyType>(),
+                sup.sup.dict: None,
+                sup.sup.weak_list: WeakRefList::new(),
                 payload: type_payload,
-                slots: Box::new([]),
+                sup.sup.slots: Box::new([]),
             },
             Uninit { typ }
         )));
         let object_type_ptr = Box::into_raw(Box::new(partially_init!(
-            PyInner::<PyType> {
-                ref_count: RefCount::new(),
-                typeid: TypeId::of::<PyType>(),
-                vtable: PyObjVTable::of::<PyType>(),
-                dict: None,
-                weak_list: WeakRefList::new(),
+            PyObjRepr::<PyType> {
+                sup.payload: PyBaseObject,
+                sup.sup.ref_count: RefCount::new(),
+                sup.sup.vtable: PyObjVTable::of::<PyType>(),
+                sup.sup.dict: None,
+                sup.sup.weak_list: WeakRefList::new(),
                 payload: object_payload,
-                slots: Box::new([]),
+                sup.sup.slots: Box::new([]),
             },
             Uninit { typ },
         )));
 
-        let object_type_ptr = object_type_ptr as *mut PyInner<PyType>;
-        let type_type_ptr = type_type_ptr as *mut PyInner<PyType>;
+        let object_type_ptr = object_type_ptr as *mut PyObjRepr<PyType>;
+        let type_type_ptr = type_type_ptr as *mut PyObjRepr<PyType>;
 
         unsafe {
-            (*type_type_ptr).ref_count.inc();
+            (*type_type_ptr).sup.sup.ref_count.inc();
             let type_type = PyTypeRef::from_raw(type_type_ptr.cast());
-            ptr::write(&mut (*object_type_ptr).typ, PyAtomicRef::from(type_type));
-            (*type_type_ptr).ref_count.inc();
+            ptr::write(
+                &raw mut (*object_type_ptr).sup.sup.typ,
+                PyAtomicRef::from(type_type),
+            );
+            (*type_type_ptr).sup.sup.ref_count.inc();
             let type_type = PyTypeRef::from_raw(type_type_ptr.cast());
-            ptr::write(&mut (*type_type_ptr).typ, PyAtomicRef::from(type_type));
+            ptr::write(
+                &raw mut (*type_type_ptr).sup.sup.typ,
+                PyAtomicRef::from(type_type),
+            );
 
             let object_type = PyTypeRef::from_raw(object_type_ptr.cast());
 
@@ -1264,6 +1543,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
 
     let weakref_type = PyType {
         base: Some(object_type.clone()),
+        type_id: TypeId::of::<PyWeak>(),
         bases: PyRwLock::new(vec![object_type.clone()]),
         mro: PyRwLock::new(vec![object_type.clone()]),
         subclasses: PyRwLock::default(),

@@ -117,6 +117,7 @@ pub struct Frame {
 }
 
 impl PyPayload for Frame {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.frame_type
     }

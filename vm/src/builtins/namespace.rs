@@ -18,6 +18,7 @@ use crate::{
 pub struct PyNamespace {}
 
 impl PyPayload for PyNamespace {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.namespace_type
     }

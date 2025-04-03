@@ -38,6 +38,7 @@ impl std::fmt::Debug for PyBaseException {
 }
 
 impl PyPayload for PyBaseException {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.exceptions.base_exception_type
     }

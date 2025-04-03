@@ -12,7 +12,7 @@ use crate::{
     types::{Callable, Constructor, GetAttr, GetDescriptor, Initializer, Representable},
 };
 
-#[pyclass(module = false, name = "super", traverse)]
+#[pyclass(module = false, name = "super", ctx = "super_type", traverse)]
 #[derive(Debug)]
 pub struct PySuper {
     inner: PyRwLock<PySuperInner>,
@@ -33,12 +33,6 @@ impl PySuperInner {
             Some((obj, obj_type))
         };
         Ok(Self { typ, obj })
-    }
-}
-
-impl PyPayload for PySuper {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.super_type
     }
 }
 

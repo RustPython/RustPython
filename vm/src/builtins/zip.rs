@@ -18,6 +18,7 @@ pub struct PyZip {
 }
 
 impl PyPayload for PyZip {
+    type Super = crate::builtins::PyBaseObject;
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.zip_type
     }
