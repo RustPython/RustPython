@@ -559,7 +559,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
                 Ok(())
             }
-            Instruction::SetupLoop { .. } => {
+            Instruction::SetupLoop => {
                 let loop_head = self.builder.create_block();
                 self.builder.ins().jump(loop_head, &[]);
                 self.builder.switch_to_block(loop_head);
