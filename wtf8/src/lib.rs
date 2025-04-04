@@ -757,7 +757,7 @@ impl Wtf8 {
 
     /// Create a WTF-8 slice from a WTF-8 byte slice.
     //
-    // whooops! using WTF-8 for interchange!
+    // whoops! using WTF-8 for interchange!
     #[inline]
     pub fn from_bytes(b: &[u8]) -> Option<&Self> {
         let mut rest = b;
