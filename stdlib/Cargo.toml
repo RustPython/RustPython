@@ -106,7 +106,7 @@ rustix = { workspace = true }
 gethostname = "1.0.0"
 socket2 = { version = "0.5.8", features = ["all"] }
 dns-lookup = "2"
-openssl = { version = "0.10.66", optional = true }
+openssl = { version = "0.10.72", optional = true }
 openssl-sys = { version = "0.9.80", optional = true }
 openssl-probe = { version = "0.1.5", optional = true }
 foreign-types-shared = { version = "0.1.1", optional = true }
