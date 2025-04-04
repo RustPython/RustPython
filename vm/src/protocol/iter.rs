@@ -125,12 +125,12 @@ impl TryFromObject for PyIter<PyObjectRef> {
     // in the vm when a for loop is entered. Next, it is used when the builtin
     // function 'iter' is called.
     fn try_from_object(vm: &VirtualMachine, iter_target: PyObjectRef) -> PyResult<Self> {
-        let getiter = {
+        let get_iter = {
             let cls = iter_target.class();
             cls.mro_find_map(|x| x.slots.iter.load())
         };
-        if let Some(getiter) = getiter {
-            let iter = getiter(iter_target, vm)?;
+        if let Some(get_iter) = get_iter {
+            let iter = get_iter(iter_target, vm)?;
             if PyIter::check(&iter) {
                 Ok(Self(iter))
             } else {

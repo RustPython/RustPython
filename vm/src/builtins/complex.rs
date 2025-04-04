@@ -53,7 +53,7 @@ impl From<Complex64> for PyComplex {
 
 impl PyObjectRef {
     /// Tries converting a python object into a complex, returns an option of whether the complex
-    /// and whether the  object was a complex originally or coereced into one
+    /// and whether the  object was a complex originally or coerced into one
     pub fn try_complex(&self, vm: &VirtualMachine) -> PyResult<Option<(Complex64, bool)>> {
         if let Some(complex) = self.payload_if_exact::<PyComplex>(vm) {
             return Ok(Some((complex.value, true)));

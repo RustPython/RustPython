@@ -524,13 +524,14 @@ impl PyInt {
 
                     // Malachite division uses floor rounding, Python uses half-even
                     let remainder = &value - &rounded;
-                    let halfpow10 = &pow10 / BigInt::from(2);
-                    let correction =
-                        if remainder > halfpow10 || (remainder == halfpow10 && quotient.is_odd()) {
-                            pow10
-                        } else {
-                            BigInt::from(0)
-                        };
+                    let half_pow10 = &pow10 / BigInt::from(2);
+                    let correction = if remainder > half_pow10
+                        || (remainder == half_pow10 && quotient.is_odd())
+                    {
+                        pow10
+                    } else {
+                        BigInt::from(0)
+                    };
                     let rounded = (rounded + correction) * sign;
                     return Ok(vm.ctx.new_int(rounded));
                 }

@@ -39,13 +39,13 @@ pub fn with_vm<F, R>(obj: &PyObject, f: F) -> Option<R>
 where
     F: Fn(&VirtualMachine) -> R,
 {
-    let vm_owns_obj = |intp: NonNull<VirtualMachine>| {
+    let vm_owns_obj = |interp: NonNull<VirtualMachine>| {
         // SAFETY: all references in VM_STACK should be valid
-        let vm = unsafe { intp.as_ref() };
+        let vm = unsafe { interp.as_ref() };
         obj.fast_isinstance(vm.ctx.types.object_type)
     };
     VM_STACK.with(|vms| {
-        let intp = match vms.borrow().iter().copied().exactly_one() {
+        let interp = match vms.borrow().iter().copied().exactly_one() {
             Ok(x) => {
                 debug_assert!(vm_owns_obj(x));
                 x
@@ -54,7 +54,7 @@ where
         };
         // SAFETY: all references in VM_STACK should be valid, and should not be changed or moved
         // at least until this function returns and the stack unwinds to an enter_vm() call
-        let vm = unsafe { intp.as_ref() };
+        let vm = unsafe { interp.as_ref() };
         let prev = VM_CURRENT.with(|current| current.replace(vm));
         let ret = f(vm);
         VM_CURRENT.with(|current| current.replace(prev));

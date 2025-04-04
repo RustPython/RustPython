@@ -276,7 +276,7 @@ impl ArgumentError {
                 vm.new_type_error(format!("{name} is an invalid keyword argument"))
             }
             ArgumentError::RequiredKeywordArgument(name) => {
-                vm.new_type_error(format!("Required keyqord only argument {name}"))
+                vm.new_type_error(format!("Required keyword only argument {name}"))
             }
             ArgumentError::Exception(ex) => ex,
         }

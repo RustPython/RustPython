@@ -1087,7 +1087,7 @@ mod decl {
     #[derive(Debug, PyPayload)]
     struct PyItertoolsAccumulate {
         iterable: PyIter,
-        binop: Option<PyObjectRef>,
+        bin_op: Option<PyObjectRef>,
         initial: Option<PyObjectRef>,
         acc_value: PyRwLock<Option<PyObjectRef>>,
     }
@@ -1107,7 +1107,7 @@ mod decl {
         fn py_new(cls: PyTypeRef, args: AccumulateArgs, vm: &VirtualMachine) -> PyResult {
             PyItertoolsAccumulate {
                 iterable: args.iterable,
-                binop: args.func.flatten(),
+                bin_op: args.func.flatten(),
                 initial: args.initial.flatten(),
                 acc_value: PyRwLock::new(None),
             }
@@ -1127,7 +1127,7 @@ mod decl {
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
             let class = zelf.class().to_owned();
-            let binop = zelf.binop.clone();
+            let bin_op = zelf.bin_op.clone();
             let it = zelf.iterable.clone();
             let acc_value = zelf.acc_value.read().clone();
             if let Some(initial) = &zelf.initial {
@@ -1136,7 +1136,7 @@ mod decl {
                     source: PyRwLock::new(Some(chain_args.to_pyobject(vm).get_iter(vm).unwrap())),
                     active: PyRwLock::new(None),
                 };
-                let tup = vm.new_tuple((chain, binop));
+                let tup = vm.new_tuple((chain, bin_op));
                 return vm.new_tuple((class, tup, acc_value));
             }
             match acc_value {
@@ -1151,7 +1151,7 @@ mod decl {
                     .into_pyobject(vm);
                     let acc = Self {
                         iterable: PyIter::new(chain),
-                        binop,
+                        bin_op,
                         initial: None,
                         acc_value: PyRwLock::new(None),
                     };
@@ -1161,7 +1161,7 @@ mod decl {
                 }
                 _ => {}
             }
-            let tup = vm.new_tuple((it, binop));
+            let tup = vm.new_tuple((it, bin_op));
             vm.new_tuple((class, tup, acc_value))
         }
     }
@@ -1191,7 +1191,7 @@ mod decl {
                             return Ok(PyIterReturn::StopIteration(v));
                         }
                     };
-                    match &zelf.binop {
+                    match &zelf.bin_op {
                         None => vm._add(&value, &obj)?,
                         Some(op) => op.call((value, obj), vm)?,
                     }

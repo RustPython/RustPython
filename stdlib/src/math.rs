@@ -136,7 +136,7 @@ mod math {
         if base.is_sign_negative() {
             return Err(vm.new_value_error("math domain error".to_owned()));
         }
-        log2(x, vm).map(|logx| logx / base.log2())
+        log2(x, vm).map(|log_x| log_x / base.log2())
     }
 
     #[pyfunction]
@@ -188,7 +188,7 @@ mod math {
 
     #[pyfunction]
     fn log10(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
-        log2(x, vm).map(|logx| logx / 10f64.log2())
+        log2(x, vm).map(|log_x| log_x / 10f64.log2())
     }
 
     #[pyfunction]
@@ -588,16 +588,16 @@ mod math {
     where
         F: Fn(&BigInt, &PyInt) -> BigInt,
     {
-        let argvec = args.into_vec();
+        let arg_vec = args.into_vec();
 
-        if argvec.is_empty() {
+        if arg_vec.is_empty() {
             return default;
-        } else if argvec.len() == 1 {
-            return op(argvec[0].as_bigint(), &argvec[0]);
+        } else if arg_vec.len() == 1 {
+            return op(arg_vec[0].as_bigint(), &arg_vec[0]);
         }
 
-        let mut res = argvec[0].as_bigint().clone();
-        for num in &argvec[1..] {
+        let mut res = arg_vec[0].as_bigint().clone();
+        for num in &arg_vec[1..] {
             res = op(&res, num)
         }
         res
@@ -895,15 +895,15 @@ mod math {
                 return Err(vm.new_value_error("math domain error".to_owned()));
             }
 
-            let absx = x.abs();
-            let absy = y.abs();
-            let modulus = absx % absy;
+            let abs_x = x.abs();
+            let abs_y = y.abs();
+            let modulus = abs_x % abs_y;
 
-            let c = absy - modulus;
+            let c = abs_y - modulus;
             let r = match modulus.partial_cmp(&c) {
                 Some(Ordering::Less) => modulus,
                 Some(Ordering::Greater) => -c,
-                _ => modulus - 2.0 * fmod(0.5 * (absx - modulus), absy),
+                _ => modulus - 2.0 * fmod(0.5 * (abs_x - modulus), abs_y),
             };
 
             return Ok(1.0_f64.copysign(x) * r);

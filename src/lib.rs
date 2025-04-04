@@ -9,13 +9,13 @@
 //! use rustpython_vm::{pymodule, py_freeze};
 //! fn main() {
 //!     rustpython::run(|vm| {
-//!         vm.add_native_module("mymod".to_owned(), Box::new(mymod::make_module));
-//!         vm.add_frozen(py_freeze!(source = "def foo(): pass", module_name = "otherthing"));
+//!         vm.add_native_module("my_mod".to_owned(), Box::new(my_mod::make_module));
+//!         vm.add_frozen(py_freeze!(source = "def foo(): pass", module_name = "other_thing"));
 //!     });
 //! }
 //!
 //! #[pymodule]
-//! mod mymod {
+//! mod my_mod {
 //!     use rustpython_vm::builtins::PyStrRef;
 //TODO: use rustpython_vm::prelude::*;
 //!

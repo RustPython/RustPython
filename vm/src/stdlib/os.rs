@@ -219,7 +219,7 @@ pub(super) mod _os {
         #[cfg(windows)]
         let fd = {
             let [] = dir_fd.0;
-            let name = name.to_widecstring(vm)?;
+            let name = name.to_wide_cstring(vm)?;
             let flags = flags | libc::O_NOINHERIT;
             Fd::wopen(&name, flags, mode)
         };

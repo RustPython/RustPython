@@ -34,7 +34,7 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 ///     - `IMMUTABLETYPE`: class attributes are immutable.
 /// - `with`: which trait implementations are to be included in the python class.
 /// ```rust, ignore
-/// #[pyclass(module = "mymodule", name = "MyClass", base = "BaseClass")]
+/// #[pyclass(module = "my_module", name = "MyClass", base = "BaseClass")]
 /// struct MyStruct {
 ///    x: i32,
 /// }
@@ -161,8 +161,8 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// - `name`: the name of the python module,
 ///   by default, it is the name of the module, but this can be configured.
 /// ```rust, ignore
-/// // This will create a module named `mymodule`
-/// #[pymodule(name = "mymodule")]
+/// // This will create a module named `my_module`
+/// #[pymodule(name = "my_module")]
 /// mod module {
 /// }
 /// ```
@@ -173,7 +173,7 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// }
 ///
 /// #[pymodule(with(submodule))]
-/// mod mymodule {
+/// mod my_module {
 /// }
 /// ```
 /// - `with`: declare the list of submodules that this module contains (see `sub` for example).
@@ -190,7 +190,7 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #### Examples
 /// ```rust, ignore
 /// #[pymodule]
-/// mod mymodule {
+/// mod my_module {
 ///     #[pyattr]
 ///     const MY_CONSTANT: i32 = 42;
 ///     #[pyattr]

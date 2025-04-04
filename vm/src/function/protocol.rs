@@ -76,7 +76,7 @@ impl TryFromObject for ArgCallable {
 /// objects using a generic type parameter that implements `TryFromObject`.
 pub struct ArgIterable<T = PyObjectRef> {
     iterable: PyObjectRef,
-    iterfn: Option<crate::types::IterFunc>,
+    iter_fn: Option<crate::types::IterFunc>,
     _item: PhantomData<T>,
 }
 
@@ -92,7 +92,7 @@ impl<T> ArgIterable<T> {
     /// This operation may fail if an exception is raised while invoking the
     /// `__iter__` method of the iterable object.
     pub fn iter<'a>(&self, vm: &'a VirtualMachine) -> PyResult<PyIterIter<'a, T>> {
-        let iter = PyIter::new(match self.iterfn {
+        let iter = PyIter::new(match self.iter_fn {
             Some(f) => f(self.iterable.clone(), vm)?,
             None => PySequenceIterator::new(self.iterable.clone(), vm)?.into_pyobject(vm),
         });
@@ -105,17 +105,17 @@ where
     T: TryFromObject,
 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let iterfn = {
+        let iter_fn = {
             let cls = obj.class();
-            let iterfn = cls.mro_find_map(|x| x.slots.iter.load());
-            if iterfn.is_none() && !cls.has_attr(identifier!(vm, __getitem__)) {
+            let iter_fn = cls.mro_find_map(|x| x.slots.iter.load());
+            if iter_fn.is_none() && !cls.has_attr(identifier!(vm, __getitem__)) {
                 return Err(vm.new_type_error(format!("'{}' object is not iterable", cls.name())));
             }
-            iterfn
+            iter_fn
         };
         Ok(Self {
             iterable: obj,
-            iterfn,
+            iter_fn,
             _item: PhantomData,
         })
     }

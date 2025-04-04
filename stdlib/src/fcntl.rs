@@ -1,3 +1,5 @@
+// cspell:disable
+
 pub(crate) use fcntl::make_module;
 
 #[pymodule]

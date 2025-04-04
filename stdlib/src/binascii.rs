@@ -1,4 +1,4 @@
-// spell-checker:ignore hexlify unhexlify uuencodes
+// spell-checker:ignore hexlify unhexlify uuencodes CRCTAB
 
 pub(super) use decl::crc32;
 pub(crate) use decl::make_module;
@@ -339,7 +339,7 @@ mod decl {
                             || (buffer[idx + 1] >= b'a' && buffer[idx + 1] <= b'f')
                             || (buffer[idx + 1] >= b'0' && buffer[idx + 1] <= b'9'))
                     {
-                        // hexval
+                        // hex val
                         if let (Some(ch1), Some(ch2)) =
                             (unhex_nibble(buffer[idx]), unhex_nibble(buffer[idx + 1]))
                         {

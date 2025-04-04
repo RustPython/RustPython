@@ -1,3 +1,5 @@
+//cspell:ignore bytesobject
+
 //! Implementation of Printf-Style string formatting
 //! as per the [Python Docs](https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting).
 

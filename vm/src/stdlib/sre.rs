@@ -287,7 +287,7 @@ mod _sre {
             with_sre_str!(zelf, &string_args.string, vm, |s| {
                 let req = s.create_request(&zelf, string_args.pos, string_args.endpos);
                 let state = State::default();
-                let mut matchlist: Vec<PyObjectRef> = Vec::new();
+                let mut match_list: Vec<PyObjectRef> = Vec::new();
                 let mut iter = SearchIter { req, state };
 
                 while iter.next().is_some() {
@@ -301,10 +301,10 @@ mod _sre {
                             .into()
                     };
 
-                    matchlist.push(item);
+                    match_list.push(item);
                 }
 
-                Ok(matchlist)
+                Ok(match_list)
             })
         }
 
@@ -362,7 +362,7 @@ mod _sre {
             with_sre_str!(zelf, &split_args.string, vm, |s| {
                 let req = s.create_request(&zelf, 0, usize::MAX);
                 let state = State::default();
-                let mut splitlist: Vec<PyObjectRef> = Vec::new();
+                let mut split_list: Vec<PyObjectRef> = Vec::new();
                 let mut iter = SearchIter { req, state };
                 let mut n = 0;
                 let mut last = 0;
@@ -370,13 +370,13 @@ mod _sre {
                 while (split_args.maxsplit == 0 || n < split_args.maxsplit) && iter.next().is_some()
                 {
                     /* get segment before this match */
-                    splitlist.push(s.slice(last, iter.state.start, vm));
+                    split_list.push(s.slice(last, iter.state.start, vm));
 
                     let m = Match::new(&mut iter.state, zelf.clone(), split_args.string.clone());
 
                     // add groups (if any)
                     for i in 1..=zelf.groups {
-                        splitlist.push(m.get_slice(i, s, vm).unwrap_or_else(|| vm.ctx.none()));
+                        split_list.push(m.get_slice(i, s, vm).unwrap_or_else(|| vm.ctx.none()));
                     }
 
                     n += 1;
@@ -384,9 +384,9 @@ mod _sre {
                 }
 
                 // get segment following last match (even if empty)
-                splitlist.push(req.string.slice(last, s.count(), vm));
+                split_list.push(req.string.slice(last, s.count(), vm));
 
-                Ok(splitlist)
+                Ok(split_list)
             })
         }
 
@@ -444,7 +444,7 @@ mod _sre {
             with_sre_str!(zelf, &string, vm, |s| {
                 let req = s.create_request(&zelf, 0, usize::MAX);
                 let state = State::default();
-                let mut sublist: Vec<PyObjectRef> = Vec::new();
+                let mut sub_list: Vec<PyObjectRef> = Vec::new();
                 let mut iter = SearchIter { req, state };
                 let mut n = 0;
                 let mut last_pos = 0;
@@ -452,26 +452,26 @@ mod _sre {
                 while (count == 0 || n < count) && iter.next().is_some() {
                     if last_pos < iter.state.start {
                         /* get segment before this match */
-                        sublist.push(s.slice(last_pos, iter.state.start, vm));
+                        sub_list.push(s.slice(last_pos, iter.state.start, vm));
                     }
 
                     match &filter {
-                        FilterType::Literal(literal) => sublist.push(literal.clone()),
+                        FilterType::Literal(literal) => sub_list.push(literal.clone()),
                         FilterType::Callable(callable) => {
                             let m = Match::new(&mut iter.state, zelf.clone(), string.clone())
                                 .into_ref(&vm.ctx);
-                            sublist.push(callable.invoke((m,), vm)?);
+                            sub_list.push(callable.invoke((m,), vm)?);
                         }
                         FilterType::Template(template) => {
                             let m = Match::new(&mut iter.state, zelf.clone(), string.clone());
                             // template.expand(m)?
                             // let mut list = vec![template.literal.clone()];
-                            sublist.push(template.literal.clone());
+                            sub_list.push(template.literal.clone());
                             for (index, literal) in template.items.iter().cloned() {
                                 if let Some(item) = m.get_slice(index, s, vm) {
-                                    sublist.push(item);
+                                    sub_list.push(item);
                                 }
-                                sublist.push(literal);
+                                sub_list.push(literal);
                             }
                         }
                     };
@@ -481,9 +481,9 @@ mod _sre {
                 }
 
                 /* get segment following last match */
-                sublist.push(s.slice(last_pos, iter.req.end, vm));
+                sub_list.push(s.slice(last_pos, iter.req.end, vm));
 
-                let list = PyList::from(sublist).into_pyobject(vm);
+                let list = PyList::from(sub_list).into_pyobject(vm);
 
                 let join_type: PyObjectRef = if zelf.isbytes {
                     vm.ctx.new_bytes(vec![]).into()

@@ -131,7 +131,7 @@ impl PyBuffer {
 
     // drop PyBuffer without calling release
     // after this function, the owner should use forget()
-    // or wrap PyBuffer in the ManaullyDrop to prevent drop()
+    // or wrap PyBuffer in the ManuallyDrop to prevent drop()
     pub(crate) unsafe fn drop_without_release(&mut self) {
         // SAFETY: requirements forwarded from caller
         unsafe {
@@ -267,7 +267,7 @@ impl BufferDescriptor {
         Ok(pos)
     }
 
-    pub fn for_each_segment<F>(&self, try_conti: bool, mut f: F)
+    pub fn for_each_segment<F>(&self, try_contiguous: bool, mut f: F)
     where
         F: FnMut(Range<isize>),
     {
@@ -275,20 +275,20 @@ impl BufferDescriptor {
             f(0..self.itemsize as isize);
             return;
         }
-        if try_conti && self.is_last_dim_contiguous() {
+        if try_contiguous && self.is_last_dim_contiguous() {
             self._for_each_segment::<_, true>(0, 0, &mut f);
         } else {
             self._for_each_segment::<_, false>(0, 0, &mut f);
         }
     }
 
-    fn _for_each_segment<F, const CONTI: bool>(&self, mut index: isize, dim: usize, f: &mut F)
+    fn _for_each_segment<F, const CONTIGUOUS: bool>(&self, mut index: isize, dim: usize, f: &mut F)
     where
         F: FnMut(Range<isize>),
     {
         let (shape, stride, suboffset) = self.dim_desc[dim];
         if dim + 1 == self.ndim() {
-            if CONTI {
+            if CONTIGUOUS {
                 f(index..index + (shape * self.itemsize) as isize);
             } else {
                 for _ in 0..shape {
@@ -300,13 +300,13 @@ impl BufferDescriptor {
             return;
         }
         for _ in 0..shape {
-            self._for_each_segment::<F, CONTI>(index + suboffset, dim + 1, f);
+            self._for_each_segment::<F, CONTIGUOUS>(index + suboffset, dim + 1, f);
             index += stride;
         }
     }
 
     /// zip two BufferDescriptor with the same shape
-    pub fn zip_eq<F>(&self, other: &Self, try_conti: bool, mut f: F)
+    pub fn zip_eq<F>(&self, other: &Self, try_contiguous: bool, mut f: F)
     where
         F: FnMut(Range<isize>, Range<isize>) -> bool,
     {
@@ -314,14 +314,14 @@ impl BufferDescriptor {
             f(0..self.itemsize as isize, 0..other.itemsize as isize);
             return;
         }
-        if try_conti && self.is_last_dim_contiguous() {
+        if try_contiguous && self.is_last_dim_contiguous() {
             self._zip_eq::<_, true>(other, 0, 0, 0, &mut f);
         } else {
             self._zip_eq::<_, false>(other, 0, 0, 0, &mut f);
         }
     }
 
-    fn _zip_eq<F, const CONTI: bool>(
+    fn _zip_eq<F, const CONTIGUOUS: bool>(
         &self,
         other: &Self,
         mut a_index: isize,
@@ -335,7 +335,7 @@ impl BufferDescriptor {
         let (_b_shape, b_stride, b_suboffset) = other.dim_desc[dim];
         debug_assert_eq!(shape, _b_shape);
         if dim + 1 == self.ndim() {
-            if CONTI {
+            if CONTIGUOUS {
                 if f(
                     a_index..a_index + (shape * self.itemsize) as isize,
                     b_index..b_index + (shape * other.itemsize) as isize,
@@ -360,7 +360,7 @@ impl BufferDescriptor {
         }
 
         for _ in 0..shape {
-            self._zip_eq::<F, CONTI>(
+            self._zip_eq::<F, CONTIGUOUS>(
                 other,
                 a_index + a_suboffset,
                 b_index + b_suboffset,

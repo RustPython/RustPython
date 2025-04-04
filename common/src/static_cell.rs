@@ -13,7 +13,7 @@ mod non_threading {
 
     impl<T> StaticCell<T> {
         #[doc(hidden)]
-        pub const fn _from_localkey(inner: &'static LocalKey<OnceCell<&'static T>>) -> Self {
+        pub const fn _from_local_key(inner: &'static LocalKey<OnceCell<&'static T>>) -> Self {
             Self { inner }
         }
 
@@ -58,7 +58,7 @@ mod non_threading {
                 ::std::thread_local! {
                      $vis static $name: $crate::lock::OnceCell<&'static $t> = $crate::lock::OnceCell::new();
                 }
-                $crate::static_cell::StaticCell::_from_localkey(&$name)
+                $crate::static_cell::StaticCell::_from_local_key(&$name)
             };)+
         };
     }

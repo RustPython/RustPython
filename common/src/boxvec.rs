@@ -1,3 +1,4 @@
+// cspell:ignore
 //! An unresizable vector backed by a `Box<[T]>`
 
 #![allow(clippy::needless_lifetimes)]

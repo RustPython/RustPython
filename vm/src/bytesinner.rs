@@ -748,10 +748,10 @@ impl PyBytesInner {
         self.elements.py_zfill(width)
     }
 
-    // len(self)>=1, from="", len(to)>=1, maxcount>=1
-    fn replace_interleave(&self, to: PyBytesInner, maxcount: Option<usize>) -> Vec<u8> {
+    // len(self)>=1, from="", len(to)>=1, max_count>=1
+    fn replace_interleave(&self, to: PyBytesInner, max_count: Option<usize>) -> Vec<u8> {
         let place_count = self.elements.len() + 1;
-        let count = maxcount.map_or(place_count, |v| std::cmp::min(v, place_count)) - 1;
+        let count = max_count.map_or(place_count, |v| std::cmp::min(v, place_count)) - 1;
         let capacity = self.elements.len() + count * to.len();
         let mut result = Vec::with_capacity(capacity);
         let to_slice = to.elements.as_slice();
@@ -764,8 +764,12 @@ impl PyBytesInner {
         result
     }
 
-    fn replace_delete(&self, from: PyBytesInner, maxcount: Option<usize>) -> Vec<u8> {
-        let count = count_substring(self.elements.as_slice(), from.elements.as_slice(), maxcount);
+    fn replace_delete(&self, from: PyBytesInner, max_count: Option<usize>) -> Vec<u8> {
+        let count = count_substring(
+            self.elements.as_slice(),
+            from.elements.as_slice(),
+            max_count,
+        );
         if count == 0 {
             // no matches
             return self.elements.clone();
@@ -793,7 +797,7 @@ impl PyBytesInner {
         &self,
         from: PyBytesInner,
         to: PyBytesInner,
-        maxcount: Option<usize>,
+        max_count: Option<usize>,
     ) -> Vec<u8> {
         let len = from.len();
         let mut iter = self.elements.find_iter(&from.elements);
@@ -801,7 +805,7 @@ impl PyBytesInner {
         let mut new = if let Some(offset) = iter.next() {
             let mut new = self.elements.clone();
             new[offset..offset + len].clone_from_slice(to.elements.as_slice());
-            if maxcount == Some(1) {
+            if max_count == Some(1) {
                 return new;
             } else {
                 new
@@ -810,7 +814,7 @@ impl PyBytesInner {
             return self.elements.clone();
         };
 
-        let mut count = maxcount.unwrap_or(usize::MAX) - 1;
+        let mut count = max_count.unwrap_or(usize::MAX) - 1;
         for offset in iter {
             new[offset..offset + len].clone_from_slice(to.elements.as_slice());
             count -= 1;
@@ -825,10 +829,14 @@ impl PyBytesInner {
         &self,
         from: PyBytesInner,
         to: PyBytesInner,
-        maxcount: Option<usize>,
+        max_count: Option<usize>,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        let count = count_substring(self.elements.as_slice(), from.elements.as_slice(), maxcount);
+        let count = count_substring(
+            self.elements.as_slice(),
+            from.elements.as_slice(),
+            max_count,
+        );
         if count == 0 {
             // no matches, return unchanged
             return Ok(self.elements.clone());
@@ -866,19 +874,19 @@ impl PyBytesInner {
         &self,
         from: PyBytesInner,
         to: PyBytesInner,
-        maxcount: OptionalArg<isize>,
+        max_count: OptionalArg<isize>,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         // stringlib_replace in CPython
-        let maxcount = match maxcount {
-            OptionalArg::Present(maxcount) if maxcount >= 0 => {
-                if maxcount == 0 || (self.elements.is_empty() && !from.is_empty()) {
+        let max_count = match max_count {
+            OptionalArg::Present(max_count) if max_count >= 0 => {
+                if max_count == 0 || (self.elements.is_empty() && !from.is_empty()) {
                     // nothing to do; return the original bytes
                     return Ok(self.elements.clone());
                 } else if self.elements.is_empty() && from.is_empty() {
                     return Ok(to.elements);
                 }
-                Some(maxcount as usize)
+                Some(max_count as usize)
             }
             _ => None,
         };
@@ -892,7 +900,7 @@ impl PyBytesInner {
             // insert the 'to' bytes everywhere.
             //     >>> b"Python".replace(b"", b".")
             //     b'.P.y.t.h.o.n.'
-            return Ok(self.replace_interleave(to, maxcount));
+            return Ok(self.replace_interleave(to, max_count));
         }
 
         // Except for b"".replace(b"", b"A") == b"A" there is no way beyond this
@@ -904,13 +912,13 @@ impl PyBytesInner {
 
         if to.elements.is_empty() {
             // delete all occurrences of 'from' bytes
-            Ok(self.replace_delete(from, maxcount))
+            Ok(self.replace_delete(from, max_count))
         } else if from.len() == to.len() {
             // Handle special case where both bytes have the same length
-            Ok(self.replace_in_place(from, to, maxcount))
+            Ok(self.replace_in_place(from, to, max_count))
         } else {
             // Otherwise use the more generic algorithms
-            self.replace_general(from, to, maxcount, vm)
+            self.replace_general(from, to, max_count, vm)
         }
     }
 
@@ -978,10 +986,10 @@ where
 }
 
 #[inline]
-fn count_substring(haystack: &[u8], needle: &[u8], maxcount: Option<usize>) -> usize {
+fn count_substring(haystack: &[u8], needle: &[u8], max_count: Option<usize>) -> usize {
     let substrings = haystack.find_iter(needle);
-    if let Some(maxcount) = maxcount {
-        std::cmp::min(substrings.take(maxcount).count(), maxcount)
+    if let Some(max_count) = max_count {
+        std::cmp::min(substrings.take(max_count).count(), max_count)
     } else {
         substrings.count()
     }

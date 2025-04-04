@@ -29,7 +29,7 @@ impl PySuperInner {
         let obj = if vm.is_none(&obj) {
             None
         } else {
-            let obj_type = supercheck(typ.clone(), obj.clone(), vm)?;
+            let obj_type = super_check(typ.clone(), obj.clone(), vm)?;
             Some((obj, obj_type))
         };
         Ok(Self { typ, obj })
@@ -236,7 +236,7 @@ impl Representable for PySuper {
     }
 }
 
-fn supercheck(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTypeRef> {
+fn super_check(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTypeRef> {
     if let Ok(cls) = obj.clone().downcast::<PyType>() {
         if cls.fast_issubclass(&ty) {
             return Ok(cls);
