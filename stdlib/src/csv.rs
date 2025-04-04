@@ -277,7 +277,7 @@ mod _csv {
                 .map_err(|_| vm.new_type_error("argument 1 must be a dialect object".to_owned()))?,
             OptionalArg::Missing => opts.result(vm)?,
         };
-        let dialect = opts.update_pydialect(dialect);
+        let dialect = opts.update_py_dialect(dialect);
         GLOBAL_HASHMAP
             .lock()
             .insert(name.as_str().to_owned(), dialect);
@@ -665,7 +665,7 @@ mod _csv {
     }
 
     impl FormatOptions {
-        fn update_pydialect(&self, mut res: PyDialect) -> PyDialect {
+        fn update_py_dialect(&self, mut res: PyDialect) -> PyDialect {
             macro_rules! check_and_fill {
                 ($res:ident, $e:ident) => {{
                     if let Some(t) = self.$e {
@@ -699,18 +699,18 @@ mod _csv {
                 DialectItem::Str(name) => {
                     let g = GLOBAL_HASHMAP.lock();
                     if let Some(dialect) = g.get(name) {
-                        Ok(self.update_pydialect(*dialect))
+                        Ok(self.update_py_dialect(*dialect))
                     } else {
-                        Err(new_csv_error(vm, format!("{} is not registed.", name)))
+                        Err(new_csv_error(vm, format!("{} is not registered.", name)))
                     }
                     // TODO
                     // Maybe need to update the obj from HashMap
                 }
-                DialectItem::Obj(o) => Ok(self.update_pydialect(*o)),
+                DialectItem::Obj(o) => Ok(self.update_py_dialect(*o)),
                 DialectItem::None => {
                     let g = GLOBAL_HASHMAP.lock();
                     let res = *g.get("excel").unwrap();
-                    Ok(self.update_pydialect(res))
+                    Ok(self.update_py_dialect(res))
                 }
             }
         }
@@ -1084,8 +1084,8 @@ mod _csv {
 
             macro_rules! handle_res {
                 ($x:expr) => {{
-                    let (res, nwritten) = $x;
-                    buffer_offset += nwritten;
+                    let (res, n_written) = $x;
+                    buffer_offset += n_written;
                     match res {
                         csv_core::WriteResult::InputEmpty => break,
                         csv_core::WriteResult::OutputFull => resize_buf(buffer),
@@ -1118,10 +1118,10 @@ mod _csv {
                 }
 
                 loop {
-                    let (res, nread, nwritten) =
+                    let (res, n_read, n_written) =
                         writer.field(&data[input_offset..], &mut buffer[buffer_offset..]);
-                    input_offset += nread;
-                    handle_res!((res, nwritten));
+                    input_offset += n_read;
+                    handle_res!((res, n_written));
                 }
             }
 

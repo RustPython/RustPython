@@ -120,8 +120,8 @@ pub(super) struct FollowSymlinks(
     #[pyarg(named, name = "follow_symlinks", default = true)] pub bool,
 );
 
-fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsStr> {
-    rustpython_common::os::bytes_as_osstr(b)
+fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsStr> {
+    rustpython_common::os::bytes_as_os_str(b)
         .map_err(|_| vm.new_unicode_decode_error("can't decode path for utf-8".to_owned()))
 }
 
@@ -393,8 +393,8 @@ pub(super) mod _os {
         if key.is_empty() || key.contains(&b'=') {
             return Err(vm.new_value_error("illegal environment variable name".to_string()));
         }
-        let key = super::bytes_as_osstr(key, vm)?;
-        let value = super::bytes_as_osstr(value, vm)?;
+        let key = super::bytes_as_os_str(key, vm)?;
+        let value = super::bytes_as_os_str(value, vm)?;
         // SAFETY: requirements forwarded from the caller
         unsafe { env::set_var(key, value) };
         Ok(())
@@ -415,7 +415,7 @@ pub(super) mod _os {
                 ),
             ));
         }
-        let key = super::bytes_as_osstr(key, vm)?;
+        let key = super::bytes_as_os_str(key, vm)?;
         // SAFETY: requirements forwarded from the caller
         unsafe { env::remove_var(key) };
         Ok(())

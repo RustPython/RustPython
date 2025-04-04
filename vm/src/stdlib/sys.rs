@@ -513,19 +513,19 @@ mod sys {
             }
 
             // Get the size of the version information block
-            let verblock_size =
+            let ver_block_size =
                 GetFileVersionInfoSizeW(kernel32_path.as_ptr(), std::ptr::null_mut());
-            if verblock_size == 0 {
+            if ver_block_size == 0 {
                 return Err(std::io::Error::last_os_error());
             }
 
             // Allocate a buffer to hold the version information
-            let mut verblock = vec![0u8; verblock_size as usize];
+            let mut ver_block = vec![0u8; ver_block_size as usize];
             if GetFileVersionInfoW(
                 kernel32_path.as_ptr(),
                 0,
-                verblock_size,
-                verblock.as_mut_ptr() as *mut _,
+                ver_block_size,
+                ver_block.as_mut_ptr() as *mut _,
             ) == 0
             {
                 return Err(std::io::Error::last_os_error());
@@ -540,7 +540,7 @@ mod sys {
             let mut ffi_ptr: *mut VS_FIXEDFILEINFO = std::ptr::null_mut();
             let mut ffi_len: u32 = 0;
             if VerQueryValueW(
-                verblock.as_ptr() as *const _,
+                ver_block.as_ptr() as *const _,
                 sub_block.as_ptr(),
                 &mut ffi_ptr as *mut *mut VS_FIXEDFILEINFO as *mut *mut _,
                 &mut ffi_len as *mut u32,
@@ -572,10 +572,10 @@ mod sys {
         let mut version: OSVERSIONINFOEXW = unsafe { std::mem::zeroed() };
         version.dwOSVersionInfoSize = std::mem::size_of::<OSVERSIONINFOEXW>() as u32;
         let result = unsafe {
-            let osvi = &mut version as *mut OSVERSIONINFOEXW as *mut OSVERSIONINFOW;
+            let os_vi = &mut version as *mut OSVERSIONINFOEXW as *mut OSVERSIONINFOW;
             // SAFETY: GetVersionExW accepts a pointer of OSVERSIONINFOW, but windows-sys crate's type currently doesn't allow to do so.
             // https://docs.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getversionexw#parameters
-            GetVersionExW(osvi)
+            GetVersionExW(os_vi)
         };
 
         if result == 0 {

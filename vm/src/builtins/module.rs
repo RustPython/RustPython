@@ -122,7 +122,7 @@ impl Py<PyModule> {
         name.downcast::<PyStr>().ok()
     }
 
-    // TODO: to be replaced by the commented-out dict method above once dictoffsets land
+    // TODO: to be replaced by the commented-out dict method above once dictoffset land
     pub fn dict(&self) -> PyDictRef {
         self.as_object().dict().unwrap()
     }

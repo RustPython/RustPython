@@ -1,4 +1,5 @@
 ahash
+arrayvec
 bidi
 biguint
 bindgen
@@ -14,6 +15,8 @@ cranelift
 cstring
 datelike
 deserializer
+fdiv
+flamescope
 flate2
 fract
 getres
@@ -44,16 +47,21 @@ objclass
 peekable
 powc
 powf
+powi
 prepended
 punct
 puruspe
 replacen
+rmatch
+rposition
 rsplitn
 rustc
 rustfmt
 rustyline
+seedable
 seekfrom
 siphash
+siphasher
 splitn
 subsec
 thiserror
@@ -63,8 +71,10 @@ trai
 ulonglong
 unic
 unistd
+unraw
 unsync
 wasmbind
+wasmtime
 widestring
 winapi
 winsock

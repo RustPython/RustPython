@@ -1,3 +1,4 @@
+// cspell:ignore ddfe
 use itertools::{Itertools, PeekingNext};
 use malachite_bigint::{BigInt, Sign};
 use num_traits::FromPrimitive;

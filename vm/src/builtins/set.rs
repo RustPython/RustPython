@@ -11,7 +11,7 @@ use crate::{
     class::PyClassImpl,
     common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc},
     convert::ToPyResult,
-    dictdatatype::{self, DictSize},
+    dict_inner::{self, DictSize},
     function::{ArgIterable, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue},
     protocol::{PyIterReturn, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
@@ -30,7 +30,7 @@ use rustpython_common::{
 use std::sync::LazyLock;
 use std::{fmt, ops::Deref};
 
-pub type SetContentType = dictdatatype::Dict<()>;
+pub type SetContentType = dict_inner::Dict<()>;
 
 #[pyclass(module = false, name = "set", unhashable = true, traverse)]
 #[derive(Default)]
@@ -460,7 +460,7 @@ impl PySetInner {
         hash = self.content.try_fold_keys(hash, |h, element| {
             Ok(h ^ _shuffle_bits(element.hash(vm)? as u64))
         })?;
-        // Disperse patterns arising in nested frozensets
+        // Disperse patterns arising in nested frozen-sets
         hash ^= (hash >> 11) ^ (hash >> 25);
         hash = hash.wrapping_mul(69069).wrapping_add(907133923);
         // -1 is reserved as an error code

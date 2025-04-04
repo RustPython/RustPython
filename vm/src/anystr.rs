@@ -167,7 +167,7 @@ pub trait AnyStr {
         full_obj: impl FnOnce() -> PyObjectRef,
         split: SP,
         splitn: SN,
-        splitw: SW,
+        split_whitespace: SW,
     ) -> PyResult<Vec<PyObjectRef>>
     where
         T: TryFromObject + AnyStrWrapper<Self>,
@@ -188,7 +188,7 @@ pub trait AnyStr {
                 splitn(self, pattern, (args.maxsplit + 1) as usize, vm)
             }
         } else {
-            splitw(self, args.maxsplit, vm)
+            split_whitespace(self, args.maxsplit, vm)
         };
         Ok(splits)
     }

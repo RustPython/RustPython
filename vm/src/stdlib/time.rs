@@ -243,8 +243,8 @@ mod decl {
         let timestamp = match value {
             Either::A(float) => {
                 let secs = float.trunc() as i64;
-                let nsecs = (float.fract() * 1e9) as u32;
-                DateTime::<chrono::offset::Utc>::from_timestamp(secs, nsecs)
+                let nano_secs = (float.fract() * 1e9) as u32;
+                DateTime::<chrono::offset::Utc>::from_timestamp(secs, nano_secs)
             }
             Either::B(int) => DateTime::<chrono::offset::Utc>::from_timestamp(int, 0),
         };

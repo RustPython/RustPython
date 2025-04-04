@@ -3,7 +3,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromBorrowedObject, VirtualMachine,
     builtins::PyStrRef,
-    bytesinner::PyBytesInner,
+    bytes_inner::PyBytesInner,
     class::PyClassImpl,
     common::{
         format::FormatSpec,

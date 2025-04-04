@@ -360,8 +360,8 @@ pub fn get_chars(s: &str, range: impl RangeBounds<usize>) -> &str {
 }
 
 #[inline]
-pub fn char_range_end(s: &str, nchars: usize) -> Option<usize> {
-    let i = match nchars.checked_sub(1) {
+pub fn char_range_end(s: &str, n_chars: usize) -> Option<usize> {
+    let i = match n_chars.checked_sub(1) {
         Some(last_char_index) => {
             let (index, c) = s.char_indices().nth(last_char_index)?;
             index + c.len_utf8()
@@ -395,8 +395,8 @@ pub fn get_codepoints(w: &Wtf8, range: impl RangeBounds<usize>) -> &Wtf8 {
 }
 
 #[inline]
-pub fn codepoint_range_end(s: &Wtf8, nchars: usize) -> Option<usize> {
-    let i = match nchars.checked_sub(1) {
+pub fn codepoint_range_end(s: &Wtf8, n_chars: usize) -> Option<usize> {
+    let i = match n_chars.checked_sub(1) {
         Some(last_char_index) => {
             let (index, c) = s.code_point_indices().nth(last_char_index)?;
             index + c.len_wtf8()

@@ -43,14 +43,14 @@ mod anystr;
 pub mod buffer;
 pub mod builtins;
 pub mod byte;
-mod bytesinner;
+mod bytes_inner;
 pub mod cformat;
 pub mod class;
 mod codecs;
 pub mod compiler;
 pub mod convert;
 mod coroutine;
-mod dictdatatype;
+mod dict_inner;
 #[cfg(feature = "rustpython-compiler")]
 pub mod eval;
 pub mod exceptions;

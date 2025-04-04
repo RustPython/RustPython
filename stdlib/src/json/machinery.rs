@@ -1,3 +1,4 @@
+// cspell:ignore LOJKINE
 // derived from https://github.com/lovasoa/json_in_type
 
 // BSD 2-Clause License

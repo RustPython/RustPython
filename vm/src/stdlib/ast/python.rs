@@ -19,8 +19,8 @@ pub(crate) mod _ast {
         fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             let fields = zelf.get_attr("_fields", vm)?;
             let fields: Vec<PyStrRef> = fields.try_to_value(vm)?;
-            let numargs = args.args.len();
-            if numargs > fields.len() {
+            let n_args = args.args.len();
+            if n_args > fields.len() {
                 return Err(vm.new_type_error(format!(
                     "{} constructor takes at most {} positional argument{}",
                     zelf.class().name(),
@@ -33,7 +33,7 @@ pub(crate) mod _ast {
             }
             for (key, value) in args.kwargs {
                 if let Some(pos) = fields.iter().position(|f| f.as_str() == key) {
-                    if pos < numargs {
+                    if pos < n_args {
                         return Err(vm.new_type_error(format!(
                             "{} got multiple values for argument '{}'",
                             zelf.class().name(),

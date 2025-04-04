@@ -62,7 +62,7 @@ impl FsPath {
         // TODO: FS encodings
         match self {
             FsPath::Str(s) => vm.fsencode(s),
-            FsPath::Bytes(b) => Self::bytes_as_osstr(b.as_bytes(), vm).map(Cow::Borrowed),
+            FsPath::Bytes(b) => Self::bytes_as_os_str(b.as_bytes(), vm).map(Cow::Borrowed),
         }
     }
 
@@ -84,7 +84,7 @@ impl FsPath {
     pub fn to_path_buf(&self, vm: &VirtualMachine) -> PyResult<PathBuf> {
         let path = match self {
             FsPath::Str(s) => PathBuf::from(s.as_str()),
-            FsPath::Bytes(b) => PathBuf::from(Self::bytes_as_osstr(b, vm)?),
+            FsPath::Bytes(b) => PathBuf::from(Self::bytes_as_os_str(b, vm)?),
         };
         Ok(path)
     }
@@ -99,8 +99,8 @@ impl FsPath {
             .map_err(|err| err.into_pyexception(vm))
     }
 
-    pub fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a std::ffi::OsStr> {
-        rustpython_common::os::bytes_as_osstr(b)
+    pub fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a std::ffi::OsStr> {
+        rustpython_common::os::bytes_as_os_str(b)
             .map_err(|_| vm.new_unicode_decode_error("can't decode path for utf-8".to_owned()))
     }
 }

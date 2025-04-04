@@ -1360,7 +1360,7 @@ mod _io {
         })
     }
 
-    pub fn repr_fileobj_name(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<PyStrRef>> {
+    pub fn repr_file_obj_name(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<PyStrRef>> {
         let name = match obj.get_attr("name", vm) {
             Ok(name) => Some(name),
             Err(e)
@@ -1549,7 +1549,7 @@ mod _io {
 
         #[pyslot]
         fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            let name_repr = repr_fileobj_name(zelf, vm)?;
+            let name_repr = repr_file_obj_name(zelf, vm)?;
             let cls = zelf.class();
             let slot_name = cls.slot_name();
             let repr = if let Some(name_repr) = name_repr {
@@ -4293,7 +4293,7 @@ mod fileio {
             if fd < 0 {
                 return Ok("<_io.FileIO [closed]>".to_owned());
             }
-            let name_repr = repr_fileobj_name(zelf.as_object(), vm)?;
+            let name_repr = repr_file_obj_name(zelf.as_object(), vm)?;
             let mode = zelf.mode();
             let closefd = if zelf.closefd.load() { "True" } else { "False" };
             let repr = if let Some(name_repr) = name_repr {

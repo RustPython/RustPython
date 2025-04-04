@@ -70,12 +70,12 @@ pub fn file_readline(obj: &PyObject, size: Option<usize>, vm: &VirtualMachine) -
     };
     let ret = match_class!(match ret {
         s @ PyStr => {
-            let sval = s.as_str();
-            if sval.is_empty() {
+            let s_val = s.as_str();
+            if s_val.is_empty() {
                 return Err(eof_err());
             }
-            if let Some(nonl) = sval.strip_suffix('\n') {
-                vm.ctx.new_str(nonl).into()
+            if let Some(no_nl) = s_val.strip_suffix('\n') {
+                vm.ctx.new_str(no_nl).into()
             } else {
                 s.into()
             }

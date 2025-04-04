@@ -334,8 +334,8 @@ pub(crate) mod _thread {
                 );
             }
         }
-        SENTINELS.with(|sents| {
-            for lock in sents.replace(Default::default()) {
+        SENTINELS.with(|sentinels| {
+            for lock in sentinels.replace(Default::default()) {
                 if lock.mu.is_locked() {
                     unsafe { lock.mu.unlock() };
                 }
@@ -360,7 +360,7 @@ pub(crate) mod _thread {
     #[pyfunction]
     fn _set_sentinel(vm: &VirtualMachine) -> PyRef<Lock> {
         let lock = Lock { mu: RawMutex::INIT }.into_ref(&vm.ctx);
-        SENTINELS.with(|sents| sents.borrow_mut().push(lock.clone()));
+        SENTINELS.with(|sentinels| sentinels.borrow_mut().push(lock.clone()));
         lock
     }
 
@@ -385,7 +385,7 @@ pub(crate) mod _thread {
 
     #[pyclass(with(GetAttr, SetAttr), flags(BASETYPE))]
     impl Local {
-        fn ldict(&self, vm: &VirtualMachine) -> PyDictRef {
+        fn l_dict(&self, vm: &VirtualMachine) -> PyDictRef {
             self.data.get_or(|| vm.ctx.new_dict()).clone()
         }
 
@@ -401,12 +401,12 @@ pub(crate) mod _thread {
 
     impl GetAttr for Local {
         fn getattro(zelf: &Py<Self>, attr: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-            let ldict = zelf.ldict(vm);
+            let l_dict = zelf.l_dict(vm);
             if attr.as_str() == "__dict__" {
-                Ok(ldict.into())
+                Ok(l_dict.into())
             } else {
                 zelf.as_object()
-                    .generic_getattr_opt(attr, Some(ldict), vm)?
+                    .generic_getattr_opt(attr, Some(l_dict), vm)?
                     .ok_or_else(|| {
                         vm.new_attribute_error(format!(
                             "{} has no attribute '{}'",
@@ -431,7 +431,7 @@ pub(crate) mod _thread {
                     zelf.class().name()
                 )))
             } else {
-                let dict = zelf.ldict(vm);
+                let dict = zelf.l_dict(vm);
                 if let PySetterValue::Assign(value) = value {
                     dict.set_item(attr, value, vm)?;
                 } else {
