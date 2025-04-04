@@ -78,7 +78,7 @@ pub mod windows {
                     .encode_wide()
                     .collect::<Vec<u16>>()
                     .split(|&c| c == '.' as u16)
-                    .last()
+                    .next_back()
                     .and_then(|s| String::from_utf16(s).ok());
 
                 if let Some(file_extension) = file_extension {

@@ -1,3 +1,4 @@
+// cspell: disable
 use super::{JitCompileError, JitSig, JitType};
 use cranelift::codegen::ir::FuncRef;
 use cranelift::prelude::*;
@@ -559,7 +560,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
                 Ok(())
             }
-            Instruction::SetupLoop { .. } => {
+            Instruction::SetupLoop => {
                 let loop_head = self.builder.create_block();
                 self.builder.ins().jump(loop_head, &[]);
                 self.builder.switch_to_block(loop_head);
