@@ -14,15 +14,16 @@ import random
 from copy import deepcopy
 from io import StringIO, BytesIO
 from email.utils import _has_surrogates
+from email.errors import HeaderWriteError
 
 UNDERSCORE = '_'
 NL = '\n'  # XXX: no longer used by the code below.
 
 NLCRE = re.compile(r'\r\n|\r|\n')
 fcre = re.compile(r'^From ', re.MULTILINE)
+NEWLINE_WITHOUT_FWSP = re.compile(r'\r\n[^ \t]|\r[^ \n\t]|\n[^ \t]')
 
 
-
 class Generator:
     """Generates output from a Message object tree.
 
@@ -170,7 +171,7 @@ class Generator:
         # parameter.
         #
         # The way we do this, so as to make the _handle_*() methods simpler,
-        # is to cache any subpart writes into a buffer.  The we write the
+        # is to cache any subpart writes into a buffer.  Then we write the
         # headers and the buffer contents.  That way, subpart handlers can
         # Do The Right Thing, and can still modify the Content-Type: header if
         # necessary.
@@ -186,7 +187,11 @@ class Generator:
         # If we munged the cte, copy the message again and re-fix the CTE.
         if munge_cte:
             msg = deepcopy(msg)
-            msg.replace_header('content-transfer-encoding', munge_cte[0])
+            # Preserve the header order if the CTE header already exists.
+            if msg.get('content-transfer-encoding') is None:
+                msg['Content-Transfer-Encoding'] = munge_cte[0]
+            else:
+                msg.replace_header('content-transfer-encoding', munge_cte[0])
             msg.replace_header('content-type', munge_cte[1])
         # Write the headers.  First we see if the message object wants to
         # handle that itself.  If not, we'll do it generically.
@@ -219,7 +224,16 @@ class Generator:
 
     def _write_headers(self, msg):
         for h, v in msg.raw_items():
-            self.write(self.policy.fold(h, v))
+            folded = self.policy.fold(h, v)
+            if self.policy.verify_generated_headers:
+                linesep = self.policy.linesep
+                if not folded.endswith(self.policy.linesep):
+                    raise HeaderWriteError(
+                        f'folded header does not end with {linesep!r}: {folded!r}')
+                if NEWLINE_WITHOUT_FWSP.search(folded.removesuffix(linesep)):
+                    raise HeaderWriteError(
+                        f'folded header contains newline: {folded!r}')
+            self.write(folded)
         # A blank line always separates headers from body
         self.write(self._NL)
 
@@ -240,7 +254,7 @@ class Generator:
                 # existing message.
                 msg = deepcopy(msg)
                 del msg['content-transfer-encoding']
-                msg.set_payload(payload, charset)
+                msg.set_payload(msg._payload, charset)
                 payload = msg.get_payload()
                 self._munge_cte = (msg['content-transfer-encoding'],
                                    msg['content-type'])
@@ -388,7 +402,7 @@ class Generator:
     def _compile_re(cls, s, flags):
         return re.compile(s, flags)
 
-
+
 class BytesGenerator(Generator):
     """Generates a bytes version of a Message object tree.
 
@@ -439,7 +453,6 @@ class BytesGenerator(Generator):
         return re.compile(s.encode('ascii'), flags)
 
 
-
 _FMT = '[Non-text (%(type)s) part of message omitted, filename %(filename)s]'
 
 class DecodedGenerator(Generator):
@@ -499,7 +512,6 @@ class DecodedGenerator(Generator):
                     }, file=self)
 
 
-
 # Helper used by Generator._make_boundary
 _width = len(repr(sys.maxsize-1))
 _fmt = '%%0%dd' % _width

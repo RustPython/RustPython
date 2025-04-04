@@ -29,6 +29,10 @@ class CharsetError(MessageError):
     """An illegal charset was given."""
 
 
+class HeaderWriteError(MessageError):
+    """Error while writing headers."""
+
+
 # These are parsing defects which the parser was able to work around.
 class MessageDefect(ValueError):
     """Base class for a message defect."""
@@ -73,6 +77,9 @@ class InvalidBase64PaddingDefect(MessageDefect):
 class InvalidBase64CharactersDefect(MessageDefect):
     """base64 encoded sequence had characters not in base64 alphabet"""
 
+class InvalidBase64LengthDefect(MessageDefect):
+    """base64 encoded sequence had invalid length (1 mod 4)"""
+
 # These errors are specific to header parsing.
 
 class HeaderDefect(MessageDefect):
@@ -105,3 +112,6 @@ class NonASCIILocalPartDefect(HeaderDefect):
     """local_part contains non-ASCII characters"""
     # This defect only occurs during unicode parsing, not when
     # parsing messages decoded from binary.
+
+class InvalidDateDefect(HeaderDefect):
+    """Header has unparsable or invalid date"""
