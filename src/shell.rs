@@ -71,7 +71,6 @@ fn shell_exec(
     }
 }
 
-
 /// Enter a repl loop
 pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     let mut repl = Readline::new(helper::ShellHelper::new(vm, scope.globals.clone()));

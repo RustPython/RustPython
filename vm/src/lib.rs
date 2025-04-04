@@ -3,7 +3,7 @@
 //! - Interpreter
 //! - Import mechanics
 //! - Base objects
-//! 
+//!
 //! Some stdlib modules are implemented here, but most of them are in the `rustpython-stdlib` module. The
 
 // to allow `mod foo {}` in foo.rs; clippy thinks this is a mistake/misunderstanding of
