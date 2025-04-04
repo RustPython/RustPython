@@ -340,7 +340,7 @@ impl WASMVirtualMachine {
             let code = vm.compile(source, mode, source_path);
             let code = code.map_err(convert::syntax_err)?;
             let result = vm.run_code_obj(code, scope.clone());
-            convert::pyresult_to_jsresult(vm, result)
+            convert::pyresult_to_js_result(vm, result)
         })?
     }
 

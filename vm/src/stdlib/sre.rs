@@ -228,7 +228,7 @@ mod _sre {
         }
 
         #[pymethod(name = "match")]
-        fn pymatch(
+        fn py_match(
             zelf: PyRef<Pattern>,
             string_args: StringArgs,
             vm: &VirtualMachine,
@@ -242,7 +242,7 @@ mod _sre {
                 let req = x.create_request(&zelf, pos, endpos);
                 let mut state = State::default();
                 Ok(state
-                    .pymatch(&req)
+                    .py_match(&req)
                     .then(|| Match::new(&mut state, zelf.clone(), string).into_ref(&vm.ctx)))
             })
         }
@@ -257,7 +257,7 @@ mod _sre {
                 let mut req = x.create_request(&zelf, string_args.pos, string_args.endpos);
                 req.match_all = true;
                 let mut state = State::default();
-                Ok(state.pymatch(&req).then(|| {
+                Ok(state.py_match(&req).then(|| {
                     Match::new(&mut state, zelf.clone(), string_args.string).into_ref(&vm.ctx)
                 }))
             })
@@ -346,11 +346,11 @@ mod _sre {
 
         #[pymethod]
         fn sub(zelf: PyRef<Pattern>, sub_args: SubArgs, vm: &VirtualMachine) -> PyResult {
-            Self::subx(zelf, sub_args, false, vm)
+            Self::sub_impl(zelf, sub_args, false, vm)
         }
         #[pymethod]
         fn subn(zelf: PyRef<Pattern>, sub_args: SubArgs, vm: &VirtualMachine) -> PyResult {
-            Self::subx(zelf, sub_args, true, vm)
+            Self::sub_impl(zelf, sub_args, true, vm)
         }
 
         #[pymethod]
@@ -407,7 +407,7 @@ mod _sre {
             self.pattern.clone()
         }
 
-        fn subx(
+        fn sub_impl(
             zelf: PyRef<Pattern>,
             sub_args: SubArgs,
             subn: bool,
@@ -860,12 +860,12 @@ mod _sre {
         }
 
         #[pymethod(name = "match")]
-        fn pymatch(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<Match>>> {
+        fn py_match(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<Match>>> {
             with_sre_str!(self.pattern, &self.string.clone(), vm, |s| {
                 let mut req = s.create_request(&self.pattern, self.start.load(), self.end);
                 let mut state = State::default();
                 req.must_advance = self.must_advance.load();
-                let has_matched = state.pymatch(&req);
+                let has_matched = state.py_match(&req);
 
                 self.must_advance
                     .store(state.cursor.position == state.start);

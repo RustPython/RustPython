@@ -281,7 +281,7 @@ impl InternableString for PyRefExact<PyStr> {
 }
 
 pub trait MaybeInternedString:
-    AsRef<Wtf8> + crate::dictdatatype::DictKey + sealed::SealedMaybeInterned
+    AsRef<Wtf8> + crate::dict_inner::DictKey + sealed::SealedMaybeInterned
 {
     fn as_interned(&self) -> Option<&'static PyStrInterned>;
 }

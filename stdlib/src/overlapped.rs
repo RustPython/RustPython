@@ -184,14 +184,14 @@ mod _overlapped {
                 buf: buf.as_ptr() as *mut _,
                 len: buf.len() as _,
             };
-            let mut nread: u32 = 0;
+            let mut n_read: u32 = 0;
             // TODO: optimization with MaybeUninit
             let ret = unsafe {
                 windows_sys::Win32::Networking::WinSock::WSARecv(
                     handle as _,
                     &wsabuf,
                     1,
-                    &mut nread,
+                    &mut n_read,
                     &mut flags,
                     &mut inner.overlapped,
                     None,

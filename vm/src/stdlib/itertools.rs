@@ -87,7 +87,7 @@ mod decl {
         fn setstate(zelf: PyRef<Self>, state: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
             let args = state.as_slice();
             if args.is_empty() {
-                let msg = String::from("function takes at leat 1 arguments (0 given)");
+                let msg = String::from("function takes at least 1 arguments (0 given)");
                 return Err(vm.new_type_error(msg));
             }
             if args.len() > 2 {
@@ -1892,14 +1892,14 @@ mod decl {
                 return Ok(PyIterReturn::StopIteration(None));
             }
             let mut result: Vec<PyObjectRef> = Vec::new();
-            let mut numactive = zelf.iterators.len();
+            let mut num_active = zelf.iterators.len();
 
             for idx in 0..zelf.iterators.len() {
                 let next_obj = match zelf.iterators[idx].next(vm)? {
                     PyIterReturn::Return(obj) => obj,
                     PyIterReturn::StopIteration(v) => {
-                        numactive -= 1;
-                        if numactive == 0 {
+                        num_active -= 1;
+                        if num_active == 0 {
                             return Ok(PyIterReturn::StopIteration(v));
                         }
                         zelf.fillvalue.read().clone()

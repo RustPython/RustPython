@@ -26,7 +26,7 @@ pub unsafe trait Traverse {
     ///   If some field is not called, the worst results is just memory leak,
     ///   but if some field is called repeatedly, panic and deadlock can happen.
     ///
-    /// - _**DO NOT**_ clone a `PyObjectRef` or `Pyef<T>` in `traverse()`
+    /// - _**DO NOT**_ clone a `PyObjectRef` or `PyRef<T>` in `traverse()`
     fn traverse(&self, traverse_fn: &mut TraverseFn<'_>);
 }
 

@@ -6,7 +6,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine, atomic_func,
     buffer::FormatSpec,
-    bytesinner::bytes_to_hex,
+    bytes_inner::bytes_to_hex,
     class::PyClassImpl,
     common::{
         borrow::{BorrowedValue, BorrowedValueMut},

@@ -652,7 +652,7 @@ mod math {
             partials.truncate(i);
             if x != 0.0 {
                 if !x.is_finite() {
-                    // a nonfinite x could arise either as
+                    // a non-finite x could arise either as
                     // a result of intermediate overflow, or
                     // as a result of a nan or inf in the
                     // summands

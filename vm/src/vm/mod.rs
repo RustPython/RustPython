@@ -648,7 +648,7 @@ impl VirtualMachine {
             list_borrow = value.payload::<PyList>().unwrap().borrow_vec();
             &list_borrow
         } else {
-            return self.map_pyiter(value, func);
+            return self.map_py_iter(value, func);
         };
         slice.iter().map(|obj| func(obj.clone())).collect()
     }
@@ -682,12 +682,12 @@ impl VirtualMachine {
             ref t @ PyTuple => Ok(t.iter().cloned().map(f).collect()),
             // TODO: put internal iterable type
             obj => {
-                Ok(self.map_pyiter(obj, f))
+                Ok(self.map_py_iter(obj, f))
             }
         })
     }
 
-    fn map_pyiter<F, R>(&self, value: &PyObject, mut f: F) -> PyResult<Vec<R>>
+    fn map_py_iter<F, R>(&self, value: &PyObject, mut f: F) -> PyResult<Vec<R>>
     where
         F: FnMut(PyObjectRef) -> PyResult<R>,
     {

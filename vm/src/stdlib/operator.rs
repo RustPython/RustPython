@@ -532,9 +532,9 @@ mod _operator {
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             // With no kwargs, return (type(obj), (name, *args)) tuple.
             if zelf.args.kwargs.is_empty() {
-                let mut pargs = vec![zelf.name.as_object().to_owned()];
-                pargs.append(&mut zelf.args.args.clone());
-                Ok(vm.new_tuple((zelf.class().to_owned(), vm.ctx.new_tuple(pargs))))
+                let mut py_args = vec![zelf.name.as_object().to_owned()];
+                py_args.append(&mut zelf.args.args.clone());
+                Ok(vm.new_tuple((zelf.class().to_owned(), vm.ctx.new_tuple(py_args))))
             } else {
                 // If we have kwargs, create a partial function that contains them and pass back that
                 // along with the args.

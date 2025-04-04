@@ -9,7 +9,7 @@ use crate::{
     anystr::{self, AnyStr},
     atomic_func,
     byte::{bytes_from_object, value_from_object},
-    bytesinner::{
+    bytes_inner::{
         ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
         ByteInnerTranslateOptions, DecodeArgs, PyBytesInner, bytes_decode,
     },

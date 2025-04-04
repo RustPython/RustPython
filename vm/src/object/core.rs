@@ -370,11 +370,11 @@ impl PyWeak {
         let dealloc = {
             let mut guard = unsafe { self.parent.as_ref().lock() };
             let offset = std::mem::offset_of!(PyInner<PyWeak>, payload);
-            let pyinner = (self as *const Self)
+            let py_inner = (self as *const Self)
                 .cast::<u8>()
                 .wrapping_sub(offset)
                 .cast::<PyInner<Self>>();
-            let node_ptr = unsafe { NonNull::new_unchecked(pyinner as *mut Py<Self>) };
+            let node_ptr = unsafe { NonNull::new_unchecked(py_inner as *mut Py<Self>) };
             // the list doesn't have ownership over its PyRef<PyWeak>! we're being dropped
             // right now so that should be obvious!!
             std::mem::forget(unsafe { guard.list.remove(node_ptr) });

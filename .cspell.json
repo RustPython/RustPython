@@ -46,6 +46,7 @@
   ],
   // words - list of words to be always considered correct
   "words": [
+    "RUSTPYTHONPATH",
     // RustPython
     "aiterable",
     "alnum",
@@ -69,9 +70,11 @@
     "makeunicodedata",
     "miri",
     "notrace",
+    "openat",
     "pyarg",
     "pyarg",
     "pyargs",
+    "pyast",
     "PyAttr",
     "pyc",
     "PyClass",
@@ -80,6 +83,7 @@
     "PyFunction",
     "pygetset",
     "pyimpl",
+    "pylib",
     "pymember",
     "PyMethod",
     "PyModule",
@@ -100,6 +104,7 @@
     "richcompare",
     "RustPython",
     "struc",
+    "sysmodule",
     "tracebacks",
     "typealiases",
     "Unconstructible",
@@ -112,11 +117,14 @@
     "CLOEXEC",
     "codeset",
     "endgrent",
+    "gethrvtime",
     "getrusage",
     "nanosleep",
+    "sigaction",
     "WRLCK",
     // win32
     "birthtime",
+    "IFEXEC",
   ],
   // flagWords - list of words to be always considered incorrect
   "flagWords": [

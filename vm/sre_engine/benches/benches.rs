@@ -92,20 +92,20 @@ fn basic(c: &mut Criterion) {
                 let (req, mut state) = p.state(s);
                 assert!(state.search(req));
                 let (req, mut state) = p.state(s);
-                assert!(state.pymatch(&req));
+                assert!(state.py_match(&req));
                 let (mut req, mut state) = p.state(s);
                 req.match_all = true;
-                assert!(state.pymatch(&req));
+                assert!(state.py_match(&req));
                 let s2 = format!("{}{}{}", " ".repeat(10000), s, " ".repeat(10000));
                 let (req, mut state) = p.state_range(s2.as_str(), 0..usize::MAX);
                 assert!(state.search(req));
                 let (req, mut state) = p.state_range(s2.as_str(), 10000..usize::MAX);
-                assert!(state.pymatch(&req));
+                assert!(state.py_match(&req));
                 let (req, mut state) = p.state_range(s2.as_str(), 10000..10000 + s.len());
-                assert!(state.pymatch(&req));
+                assert!(state.py_match(&req));
                 let (mut req, mut state) = p.state_range(s2.as_str(), 10000..10000 + s.len());
                 req.match_all = true;
-                assert!(state.pymatch(&req));
+                assert!(state.py_match(&req));
             });
         });
     }

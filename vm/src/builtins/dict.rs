@@ -12,7 +12,7 @@ use crate::{
     },
     class::{PyClassDef, PyClassImpl},
     common::ascii,
-    dictdatatype::{self, DictKey},
+    dict_inner::{self, DictKey},
     function::{ArgIterable, KwArgs, OptionalArg, PyArithmeticValue::*, PyComparisonValue},
     iter::PyExactSizeIterator,
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
@@ -27,7 +27,7 @@ use rustpython_common::lock::PyMutex;
 use std::fmt;
 use std::sync::LazyLock;
 
-pub type DictContentType = dictdatatype::Dict;
+pub type DictContentType = dict_inner::Dict;
 
 #[pyclass(module = false, name = "dict", unhashable = true, traverse)]
 #[derive(Default)]
@@ -154,7 +154,7 @@ impl PyDict {
         self.entries.contains(vm, key).unwrap()
     }
 
-    pub fn size(&self) -> dictdatatype::DictSize {
+    pub fn size(&self) -> dict_inner::DictSize {
         self.entries.size()
     }
 }
@@ -811,7 +811,7 @@ macro_rules! dict_view {
         #[pyclass(module = false, name = $iter_class_name)]
         #[derive(Debug)]
         pub(crate) struct $iter_name {
-            pub size: dictdatatype::DictSize,
+            pub size: dict_inner::DictSize,
             pub internal: PyMutex<PositionIterInternal<PyDictRef>>,
         }
 
@@ -884,7 +884,7 @@ macro_rules! dict_view {
         #[pyclass(module = false, name = $reverse_iter_class_name)]
         #[derive(Debug)]
         pub(crate) struct $reverse_iter_name {
-            pub size: dictdatatype::DictSize,
+            pub size: dict_inner::DictSize,
             internal: PyMutex<PositionIterInternal<PyDictRef>>,
         }
 

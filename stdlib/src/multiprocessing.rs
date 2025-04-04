@@ -19,12 +19,12 @@ mod _multiprocessing {
     #[pyfunction]
     fn recv(socket: usize, size: usize, vm: &VirtualMachine) -> PyResult<libc::c_int> {
         let mut buf = vec![0; size];
-        let nread =
+        let n_read =
             unsafe { WinSock::recv(socket as SOCKET, buf.as_mut_ptr() as *mut _, size as i32, 0) };
-        if nread < 0 {
+        if n_read < 0 {
             Err(os::errno_err(vm))
         } else {
-            Ok(nread)
+            Ok(n_read)
         }
     }
 

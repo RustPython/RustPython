@@ -1,3 +1,4 @@
+// cspell:disable
 use rustpython_sre_engine::{Request, State, StrDrive};
 
 struct Pattern {
@@ -21,7 +22,7 @@ fn test_2427() {
     #[rustfmt::skip] let lookbehind = Pattern { pattern: "(?<!\\.)x\\b", code: &[14, 4, 0, 1, 1, 5, 5, 1, 16, 46, 1, 16, 120, 6, 10, 1] };
     // END GENERATED
     let (req, mut state) = lookbehind.state("x");
-    assert!(state.pymatch(&req));
+    assert!(state.py_match(&req));
 }
 
 #[test]
@@ -64,7 +65,7 @@ fn test_repeat_context_panic() {
     #[rustfmt::skip] let p = Pattern { pattern: "(?:a*?(xx)??z)*", code: &[14, 4, 0, 0, 4294967295, 23, 25, 0, 4294967295, 26, 6, 0, 4294967295, 16, 97, 1, 23, 11, 0, 1, 17, 0, 16, 120, 16, 120, 17, 1, 19, 16, 122, 18, 1] };
     // END GENERATED
     let (req, mut state) = p.state("axxzaz");
-    assert!(state.pymatch(&req));
+    assert!(state.py_match(&req));
     assert_eq!(
         *state.marks.raw(),
         vec![Optioned::some(1), Optioned::some(3)]
@@ -78,7 +79,7 @@ fn test_double_max_until() {
     #[rustfmt::skip] let p = Pattern { pattern: "((1)?)*", code: &[14, 4, 0, 0, 4294967295, 23, 18, 0, 4294967295, 17, 0, 23, 9, 0, 1, 17, 2, 16, 49, 17, 3, 18, 17, 1, 18, 1] };
     // END GENERATED
     let (req, mut state) = p.state("1111");
-    assert!(state.pymatch(&req));
+    assert!(state.py_match(&req));
     assert_eq!(state.cursor.position, 4);
 }
 
@@ -141,7 +142,7 @@ fn test_possessive_quantifier() {
     #[rustfmt::skip] let p = Pattern { pattern: "e++a", code: &[14, 4, 0, 2, 4294967295, 29, 6, 1, 4294967295, 16, 101, 1, 16, 97, 1] };
     // END GENERATED
     let (req, mut state) = p.state("eeea");
-    assert!(state.pymatch(&req));
+    assert!(state.py_match(&req));
 }
 
 #[test]
@@ -151,7 +152,7 @@ fn test_possessive_atomic_group() {
     #[rustfmt::skip] let p = Pattern { pattern: "(?>x)++x", code: &[14, 4, 0, 2, 4294967295, 28, 8, 1, 4294967295, 27, 4, 16, 120, 1, 1, 16, 120, 1] };
     // END GENERATED
     let (req, mut state) = p.state("xxx");
-    assert!(!state.pymatch(&req));
+    assert!(!state.py_match(&req));
 }
 
 #[test]
@@ -162,7 +163,7 @@ fn test_bug_20998() {
     // END GENERATED
     let (mut req, mut state) = p.state("ABC");
     req.match_all = true;
-    assert!(state.pymatch(&req));
+    assert!(state.py_match(&req));
     assert_eq!(state.cursor.position, 3);
 }
 
@@ -173,7 +174,7 @@ fn test_bigcharset() {
     #[rustfmt::skip] let p = Pattern { pattern: "[a-z]*", code: &[14, 4, 0, 0, 4294967295, 24, 97, 0, 4294967295, 39, 92, 10, 3, 33685760, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 33686018, 0, 0, 0, 134217726, 0, 0, 0, 0, 0, 131072, 0, 2147483648, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1] };
     // END GENERATED
     let (req, mut state) = p.state("x ");
-    assert!(state.pymatch(&req));
+    assert!(state.py_match(&req));
     assert_eq!(state.cursor.position, 1);
 }
 

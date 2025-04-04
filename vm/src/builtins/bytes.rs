@@ -6,7 +6,7 @@ use crate::{
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
     anystr::{self, AnyStr},
     atomic_func,
-    bytesinner::{
+    bytes_inner::{
         ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
         ByteInnerTranslateOptions, DecodeArgs, PyBytesInner, bytes_decode,
     },

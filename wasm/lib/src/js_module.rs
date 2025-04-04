@@ -326,7 +326,7 @@ mod _js {
                             .map(|arg| PyJsValue::new(arg).into_pyobject(vm)),
                     );
                     let res = py_obj.call(pyargs, vm);
-                    convert::pyresult_to_jsresult(vm, res)
+                    convert::pyresult_to_js_result(vm, res)
                 })
             };
             let closure: ClosureType = if once {
@@ -500,7 +500,7 @@ mod _js {
                                 Some(on_fulfill) => stored_vm.interp.enter(move |vm| {
                                     let val = convert::js_to_py(vm, val);
                                     let res = on_fulfill.invoke((val,), vm);
-                                    convert::pyresult_to_jsresult(vm, res)
+                                    convert::pyresult_to_js_result(vm, res)
                                 }),
                                 None => Ok(val),
                             },
@@ -508,7 +508,7 @@ mod _js {
                                 Some(on_reject) => stored_vm.interp.enter(move |vm| {
                                     let err = new_js_error(vm, err);
                                     let res = on_reject.invoke((err,), vm);
-                                    convert::pyresult_to_jsresult(vm, res)
+                                    convert::pyresult_to_js_result(vm, res)
                                 }),
                                 None => Err(err),
                             },

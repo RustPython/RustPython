@@ -90,13 +90,13 @@ impl PyFunction {
     ) -> PyResult<()> {
         let code = &*self.code;
         let nargs = func_args.args.len();
-        let nexpected_args = code.arg_count as usize;
+        let n_expected_args = code.arg_count as usize;
         let total_args = code.arg_count as usize + code.kwonlyarg_count as usize;
         // let arg_names = self.code.arg_names();
 
         // This parses the arguments from args and kwargs into
         // the proper variables keeping into account default values
-        // and starargs and kwargs.
+        // and star-args and kwargs.
         // See also: PyEval_EvalCodeWithName in cpython:
         // https://github.com/python/cpython/blob/main/Python/ceval.c#L3681
 
@@ -108,7 +108,7 @@ impl PyFunction {
         // zip short-circuits if either iterator returns None, which is the behavior we want --
         // only fill as much as there is to fill with as much as we have
         for (local, arg) in Iterator::zip(
-            fastlocals.iter_mut().take(nexpected_args),
+            fastlocals.iter_mut().take(n_expected_args),
             args_iter.by_ref().take(nargs),
         ) {
             *local = Some(arg);
@@ -122,11 +122,11 @@ impl PyFunction {
             vararg_offset += 1;
         } else {
             // Check the number of positional arguments
-            if nargs > nexpected_args {
+            if nargs > n_expected_args {
                 return Err(vm.new_type_error(format!(
                     "{}() takes {} positional arguments but {} were given",
                     self.qualname(),
-                    nexpected_args,
+                    n_expected_args,
                     nargs
                 )));
             }
@@ -141,7 +141,7 @@ impl PyFunction {
             None
         };
 
-        let argpos = |range: std::ops::Range<_>, name: &str| {
+        let arg_pos = |range: std::ops::Range<_>, name: &str| {
             code.varnames
                 .iter()
                 .enumerate()
@@ -155,7 +155,7 @@ impl PyFunction {
         // Handle keyword arguments
         for (name, value) in func_args.kwargs {
             // Check if we have a parameter with this name:
-            if let Some(pos) = argpos(code.posonlyarg_count as usize..total_args, &name) {
+            if let Some(pos) = arg_pos(code.posonlyarg_count as usize..total_args, &name) {
                 let slot = &mut fastlocals[pos];
                 if slot.is_some() {
                     return Err(vm.new_type_error(format!(
@@ -167,7 +167,7 @@ impl PyFunction {
                 *slot = Some(value);
             } else if let Some(kwargs) = kwargs.as_ref() {
                 kwargs.set_item(&name, value, vm)?;
-            } else if argpos(0..code.posonlyarg_count as usize, &name).is_some() {
+            } else if arg_pos(0..code.posonlyarg_count as usize, &name).is_some() {
                 posonly_passed_as_kwarg.push(name);
             } else {
                 return Err(vm.new_type_error(format!(
@@ -196,15 +196,15 @@ impl PyFunction {
 
         // Add missing positional arguments, if we have fewer positional arguments than the
         // function definition calls for
-        if nargs < nexpected_args {
+        if nargs < n_expected_args {
             let defaults = get_defaults!().0.as_ref().map(|tup| tup.as_slice());
             let n_defs = defaults.map_or(0, |d| d.len());
 
-            let nrequired = code.arg_count as usize - n_defs;
+            let n_required = code.arg_count as usize - n_defs;
 
             // Given the number of defaults available, check all the arguments for which we
             // _don't_ have defaults; if any are missing, raise an exception
-            let mut missing: Vec<_> = (nargs..nrequired)
+            let mut missing: Vec<_> = (nargs..n_required)
                 .filter_map(|i| {
                     if fastlocals[i].is_none() {
                         Some(&code.varnames[i])
@@ -247,13 +247,13 @@ impl PyFunction {
             }
 
             if let Some(defaults) = defaults {
-                let n = std::cmp::min(nargs, nexpected_args);
-                let i = n.saturating_sub(nrequired);
+                let n = std::cmp::min(nargs, n_expected_args);
+                let i = n.saturating_sub(n_required);
 
                 // We have sufficient defaults, so iterate over the corresponding names and use
                 // the default if we don't already have a value
                 for i in i..defaults.len() {
-                    let slot = &mut fastlocals[nrequired + i];
+                    let slot = &mut fastlocals[n_required + i];
                     if slot.is_none() {
                         *slot = Some(defaults[i].clone());
                     }

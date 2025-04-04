@@ -33,8 +33,8 @@ extern "C" {
 }
 
 pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyBaseExceptionRef) -> JsValue {
-    let jserr = vm.try_class("_js", "JSError").ok();
-    let js_arg = if jserr.is_some_and(|jserr| py_err.fast_isinstance(&jserr)) {
+    let js_err = vm.try_class("_js", "JSError").ok();
+    let js_arg = if js_err.is_some_and(|js_err| py_err.fast_isinstance(&js_err)) {
         py_err.get_arg(0)
     } else {
         None
@@ -116,7 +116,7 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
                         }
                     }
                     let result = py_obj.call(py_func_args, vm);
-                    pyresult_to_jsresult(vm, result)
+                    pyresult_to_js_result(vm, result)
                 })
             };
             let closure = Closure::wrap(Box::new(closure)
@@ -164,7 +164,7 @@ pub fn object_entries(obj: &Object) -> impl Iterator<Item = Result<(JsValue, JsV
     })
 }
 
-pub fn pyresult_to_jsresult(vm: &VirtualMachine, result: PyResult) -> Result<JsValue, JsValue> {
+pub fn pyresult_to_js_result(vm: &VirtualMachine, result: PyResult) -> Result<JsValue, JsValue> {
     result
         .map(|value| py_to_js(vm, value))
         .map_err(|err| py_err_to_js_err(vm, &err))

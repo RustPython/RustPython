@@ -1,5 +1,3 @@
-// spell-checker:ignore numer denom
-
 use super::{
     PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyStrRef, PyType, PyTypeRef, try_bigint_to_f64,
 };

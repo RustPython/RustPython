@@ -118,7 +118,7 @@ impl PySequence<'_> {
             return f(self, other, vm);
         }
 
-        // if both arguments apear to be sequences, try fallback to __add__
+        // if both arguments appear to be sequences, try fallback to __add__
         if self.check() && other.to_sequence().check() {
             let ret = vm.binary_op1(self.obj, other, PyNumberBinaryOp::Add)?;
             if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
@@ -156,7 +156,7 @@ impl PySequence<'_> {
             return f(self, other, vm);
         }
 
-        // if both arguments apear to be sequences, try fallback to __iadd__
+        // if both arguments appear to be sequences, try fallback to __iadd__
         if self.check() && other.to_sequence().check() {
             let ret = vm._iadd(self.obj, other)?;
             if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {

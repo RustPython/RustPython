@@ -76,7 +76,7 @@ mod threading {
 
     impl<T> StaticCell<T> {
         #[doc(hidden)]
-        pub const fn _from_oncecell(inner: OnceCell<T>) -> Self {
+        pub const fn _from_once_cell(inner: OnceCell<T>) -> Self {
             Self { inner }
         }
 
@@ -108,7 +108,7 @@ mod threading {
         ($($(#[$attr:meta])* $vis:vis static $name:ident: $t:ty;)+) => {
             $($(#[$attr])*
             $vis static $name: $crate::static_cell::StaticCell<$t> =
-                $crate::static_cell::StaticCell::_from_oncecell($crate::lock::OnceCell::new());)+
+                $crate::static_cell::StaticCell::_from_once_cell($crate::lock::OnceCell::new());)+
         };
     }
 }

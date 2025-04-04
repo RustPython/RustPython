@@ -253,7 +253,7 @@ fn tuple_index(tuple: &PyTupleRef, item: &PyObjectRef) -> Option<usize> {
 fn subs_tvars(
     obj: PyObjectRef,
     params: &PyTupleRef,
-    argitems: &[PyObjectRef],
+    arg_items: &[PyObjectRef],
     vm: &VirtualMachine,
 ) -> PyResult {
     obj.get_attr(identifier!(vm, __parameters__), vm)
@@ -267,7 +267,7 @@ fn subs_tvars(
                         .iter()
                         .map(|arg| {
                             if let Some(idx) = tuple_index(params, arg) {
-                                argitems[idx].clone()
+                                arg_items[idx].clone()
                             } else {
                                 arg.clone()
                             }

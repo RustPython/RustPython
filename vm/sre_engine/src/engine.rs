@@ -129,7 +129,7 @@ impl State {
         req.string.adjust_cursor(&mut self.cursor, start);
     }
 
-    pub fn pymatch<S: StrDrive>(&mut self, req: &Request<'_, S>) -> bool {
+    pub fn py_match<S: StrDrive>(&mut self, req: &Request<'_, S>) -> bool {
         self.start = req.start;
         req.string.adjust_cursor(&mut self.cursor, self.start);
 
