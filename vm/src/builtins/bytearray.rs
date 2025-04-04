@@ -375,7 +375,7 @@ impl PyByteArray {
                 Some(x) => x,
                 None => return Ok(false),
             };
-        substr.py_startsendswith(
+        substr.py_starts_ends_with(
             &affix,
             "endswith",
             "bytes",
@@ -396,7 +396,7 @@ impl PyByteArray {
                 Some(x) => x,
                 None => return Ok(false),
             };
-        substr.py_startsendswith(
+        substr.py_starts_ends_with(
             &affix,
             "startswith",
             "bytes",

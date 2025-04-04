@@ -389,15 +389,15 @@ mod _operator {
         type Args = FuncArgs;
 
         fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            let nattr = args.args.len();
+            let n_attr = args.args.len();
             // Check we get no keyword and at least one positional.
             if !args.kwargs.is_empty() {
                 return Err(vm.new_type_error("attrgetter() takes no keyword arguments".to_owned()));
             }
-            if nattr == 0 {
+            if n_attr == 0 {
                 return Err(vm.new_type_error("attrgetter expected 1 argument, got 0.".to_owned()));
             }
-            let mut attrs = Vec::with_capacity(nattr);
+            let mut attrs = Vec::with_capacity(n_attr);
             for o in args.args {
                 if let Ok(r) = o.try_into_value(vm) {
                     attrs.push(r);

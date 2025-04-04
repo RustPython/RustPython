@@ -1,3 +1,4 @@
+//cspell:ignore cfmt
 //! The python `time` module.
 
 // See also:
@@ -377,10 +378,10 @@ mod decl {
 
     #[cfg(any(windows, all(target_arch = "wasm32", target_os = "emscripten")))]
     pub(super) fn time_muldiv(ticks: i64, mul: i64, div: i64) -> u64 {
-        let intpart = ticks / div;
+        let int_part = ticks / div;
         let ticks = ticks % div;
         let remaining = (ticks * mul) / div;
-        (intpart * mul + remaining) as u64
+        (int_part * mul + remaining) as u64
     }
 
     #[cfg(all(target_arch = "wasm32", target_os = "emscripten"))]

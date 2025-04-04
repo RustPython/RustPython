@@ -299,7 +299,7 @@ impl PyBytes {
                 Some(x) => x,
                 None => return Ok(false),
             };
-        substr.py_startsendswith(
+        substr.py_starts_ends_with(
             &affix,
             "endswith",
             "bytes",
@@ -319,7 +319,7 @@ impl PyBytes {
                 Some(x) => x,
                 None => return Ok(false),
             };
-        substr.py_startsendswith(
+        substr.py_starts_ends_with(
             &affix,
             "startswith",
             "bytes",
@@ -541,7 +541,7 @@ impl PyRef<PyBytes> {
     /// Other possible values are 'ignore', 'replace'
     /// For a list of possible encodings,
     /// see https://docs.python.org/3/library/codecs.html#standard-encodings
-    /// currently, only 'utf-8' and 'ascii' emplemented
+    /// currently, only 'utf-8' and 'ascii' implemented
     #[pymethod]
     fn decode(self, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         bytes_decode(self.into(), args, vm)

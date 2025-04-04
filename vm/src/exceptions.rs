@@ -212,10 +212,10 @@ impl VirtualMachine {
         if let Some(text) = maybe_text {
             // if text ends with \n, remove it
             let rtext = text.as_str().trim_end_matches('\n');
-            let ltext = rtext.trim_start_matches([' ', '\n', '\x0c']); // \x0c is \f
-            let spaces = (rtext.len() - ltext.len()) as isize;
+            let l_text = rtext.trim_start_matches([' ', '\n', '\x0c']); // \x0c is \f
+            let spaces = (rtext.len() - l_text.len()) as isize;
 
-            writeln!(output, "    {}", ltext)?;
+            writeln!(output, "    {}", l_text)?;
 
             let maybe_offset: Option<isize> =
                 getattr("offset").and_then(|obj| obj.try_to_value::<isize>(vm).ok());
@@ -237,7 +237,7 @@ impl VirtualMachine {
                 let colno = offset - 1 - spaces;
                 let end_colno = end_offset - 1 - spaces;
                 if colno >= 0 {
-                    let caretspace = ltext.chars().collect::<Vec<_>>()[..colno as usize]
+                    let caret_space = l_text.chars().collect::<Vec<_>>()[..colno as usize]
                         .iter()
                         .map(|c| if c.is_whitespace() { *c } else { ' ' })
                         .collect::<String>();
@@ -250,7 +250,7 @@ impl VirtualMachine {
                     writeln!(
                         output,
                         "    {}{}",
-                        caretspace,
+                        caret_space,
                         "^".repeat(error_width as usize)
                     )?;
                 }

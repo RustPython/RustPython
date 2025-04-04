@@ -880,14 +880,14 @@ mod array {
                 return Err(vm.new_value_error("negative count".to_owned()));
             }
             let n = vm.check_repeat_or_overflow_error(itemsize, n)?;
-            let nbytes = n * itemsize;
+            let n_bytes = n * itemsize;
 
-            let b = vm.call_method(&f, "read", (nbytes,))?;
+            let b = vm.call_method(&f, "read", (n_bytes,))?;
             let b = b
                 .downcast::<PyBytes>()
                 .map_err(|_| vm.new_type_error("read() didn't return bytes".to_owned()))?;
 
-            let not_enough_bytes = b.len() != nbytes;
+            let not_enough_bytes = b.len() != n_bytes;
 
             self._from_bytes(b.as_bytes(), itemsize, vm)?;
 

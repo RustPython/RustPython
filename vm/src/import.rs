@@ -81,7 +81,7 @@ pub fn make_frozen(vm: &VirtualMachine, name: &str) -> PyResult<PyRef<PyCode>> {
 
 pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
     let frozen = make_frozen(vm, module_name)?;
-    let module = import_codeobj(vm, module_name, frozen, false)?;
+    let module = import_code_obj(vm, module_name, frozen, false)?;
     debug_assert!(module.get_attr(identifier!(vm, __name__), vm).is_ok());
     // TODO: give a correct origname here
     module.set_attr("__origname__", vm.ctx.new_str(module_name.to_owned()), vm)?;
@@ -116,7 +116,7 @@ pub fn import_file(
             vm.compile_opts(),
         )
         .map_err(|err| vm.new_syntax_error(&err, Some(content)))?;
-    import_codeobj(vm, module_name, code, true)
+    import_code_obj(vm, module_name, code, true)
 }
 
 #[cfg(feature = "rustpython-compiler")]
@@ -129,10 +129,10 @@ pub fn import_source(vm: &VirtualMachine, module_name: &str, content: &str) -> P
             vm.compile_opts(),
         )
         .map_err(|err| vm.new_syntax_error(&err, Some(content)))?;
-    import_codeobj(vm, module_name, code, false)
+    import_code_obj(vm, module_name, code, false)
 }
 
-pub fn import_codeobj(
+pub fn import_code_obj(
     vm: &VirtualMachine,
     module_name: &str,
     code_obj: PyRef<PyCode>,

@@ -588,12 +588,14 @@ mod builtins {
                 iterator.class().name()
             )));
         }
-        PyIter::new(iterator).next(vm).map(|iret| match iret {
-            PyIterReturn::Return(obj) => PyIterReturn::Return(obj),
-            PyIterReturn::StopIteration(v) => {
-                default_value.map_or(PyIterReturn::StopIteration(v), PyIterReturn::Return)
-            }
-        })
+        PyIter::new(iterator)
+            .next(vm)
+            .map(|iter_ret| match iter_ret {
+                PyIterReturn::Return(obj) => PyIterReturn::Return(obj),
+                PyIterReturn::StopIteration(v) => {
+                    default_value.map_or(PyIterReturn::StopIteration(v), PyIterReturn::Return)
+                }
+            })
     }
 
     #[pyfunction]

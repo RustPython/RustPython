@@ -3,7 +3,7 @@ use std::rc::Rc;
 #[cfg(feature = "threading")]
 use std::sync::Arc;
 
-// type aliases instead of newtypes because you can't do `fn method(self: PyRc<Self>)` with a
+// type aliases instead of new-types because you can't do `fn method(self: PyRc<Self>)` with a
 // newtype; requires the arbitrary_self_types unstable feature
 
 #[cfg(feature = "threading")]

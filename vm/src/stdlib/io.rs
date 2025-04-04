@@ -673,14 +673,14 @@ mod _io {
         }
         fn _readinto(
             zelf: PyObjectRef,
-            bufobj: PyObjectRef,
+            buf_obj: PyObjectRef,
             method: &str,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
-            let b = ArgMemoryBuffer::try_from_borrowed_object(vm, &bufobj)?;
+            let b = ArgMemoryBuffer::try_from_borrowed_object(vm, &buf_obj)?;
             let l = b.len();
             let data = vm.call_method(&zelf, method, (l,))?;
-            if data.is(&bufobj) {
+            if data.is(&buf_obj) {
                 return Ok(l);
             }
             let mut buf = b.borrow_buf_mut();
@@ -929,25 +929,25 @@ mod _io {
         ) -> PyResult<Option<usize>> {
             let len = buf_range.len();
             let res = if let Some(buf) = buf {
-                let memobj = PyMemoryView::from_buffer_range(buf, buf_range, vm)?.to_pyobject(vm);
+                let mem_obj = PyMemoryView::from_buffer_range(buf, buf_range, vm)?.to_pyobject(vm);
 
                 // TODO: loop if write() raises an interrupt
-                vm.call_method(self.raw.as_ref().unwrap(), "write", (memobj,))?
+                vm.call_method(self.raw.as_ref().unwrap(), "write", (mem_obj,))?
             } else {
                 let v = std::mem::take(&mut self.buffer);
-                let writebuf = VecBuffer::from(v).into_ref(&vm.ctx);
-                let memobj = PyMemoryView::from_buffer_range(
-                    writebuf.clone().into_pybuffer(true),
+                let write_buf = VecBuffer::from(v).into_ref(&vm.ctx);
+                let mem_obj = PyMemoryView::from_buffer_range(
+                    write_buf.clone().into_pybuffer(true),
                     buf_range,
                     vm,
                 )?
                 .into_ref(&vm.ctx);
 
                 // TODO: loop if write() raises an interrupt
-                let res = vm.call_method(self.raw.as_ref().unwrap(), "write", (memobj.clone(),));
+                let res = vm.call_method(self.raw.as_ref().unwrap(), "write", (mem_obj.clone(),));
 
-                memobj.release();
-                self.buffer = writebuf.take();
+                mem_obj.release();
+                self.buffer = write_buf.take();
 
                 res?
             };
@@ -1159,9 +1159,9 @@ mod _io {
             let res = match v {
                 Either::A(v) => {
                     let v = v.unwrap_or(&mut self.buffer);
-                    let readbuf = VecBuffer::from(std::mem::take(v)).into_ref(&vm.ctx);
-                    let memobj = PyMemoryView::from_buffer_range(
-                        readbuf.clone().into_pybuffer(false),
+                    let read_buf = VecBuffer::from(std::mem::take(v)).into_ref(&vm.ctx);
+                    let mem_obj = PyMemoryView::from_buffer_range(
+                        read_buf.clone().into_pybuffer(false),
                         buf_range,
                         vm,
                     )?
@@ -1169,17 +1169,17 @@ mod _io {
 
                     // TODO: loop if readinto() raises an interrupt
                     let res =
-                        vm.call_method(self.raw.as_ref().unwrap(), "readinto", (memobj.clone(),));
+                        vm.call_method(self.raw.as_ref().unwrap(), "readinto", (mem_obj.clone(),));
 
-                    memobj.release();
-                    std::mem::swap(v, &mut readbuf.take());
+                    mem_obj.release();
+                    std::mem::swap(v, &mut read_buf.take());
 
                     res?
                 }
                 Either::B(buf) => {
-                    let memobj = PyMemoryView::from_buffer_range(buf, buf_range, vm)?;
+                    let mem_obj = PyMemoryView::from_buffer_range(buf, buf_range, vm)?;
                     // TODO: loop if readinto() raises an interrupt
-                    vm.call_method(self.raw.as_ref().unwrap(), "readinto", (memobj,))?
+                    vm.call_method(self.raw.as_ref().unwrap(), "readinto", (mem_obj,))?
                 }
             };
 
@@ -2305,14 +2305,14 @@ mod _io {
                 let incremental_encoder =
                     codec.get_incremental_encoder(Some(errors.to_owned()), vm)?;
                 let encoding_name = vm.get_attribute_opt(incremental_encoder.clone(), "name")?;
-                let encodefunc = encoding_name.and_then(|name| {
+                let encode_func = encoding_name.and_then(|name| {
                     let name = name.payload::<PyStr>()?;
                     match name.as_str() {
                         "utf-8" => Some(textio_encode_utf8 as EncodeFunc),
                         _ => None,
                     }
                 });
-                Some((incremental_encoder, encodefunc))
+                Some((incremental_encoder, encode_func))
             } else {
                 None
             };
@@ -2600,12 +2600,12 @@ mod _io {
             while skip_bytes > 0 {
                 cookie.set_decoder_state(decoder, vm)?;
                 let input = &next_input.as_bytes()[..skip_bytes as usize];
-                let ndecoded = decoder_decode(input)?;
-                if ndecoded.chars <= num_to_skip.chars {
+                let n_decoded = decoder_decode(input)?;
+                if n_decoded.chars <= num_to_skip.chars {
                     let (dec_buffer, dec_flags) = decoder_getstate()?;
                     if dec_buffer.is_empty() {
                         cookie.dec_flags = dec_flags;
-                        num_to_skip -= ndecoded;
+                        num_to_skip -= n_decoded;
                         break;
                     }
                     skip_bytes -= dec_buffer.len() as isize;
@@ -2625,23 +2625,23 @@ mod _io {
             cookie.set_num_to_skip(num_to_skip);
 
             if num_to_skip.chars != 0 {
-                let mut ndecoded = Utf8size::default();
+                let mut n_decoded = Utf8size::default();
                 let mut input = next_input.as_bytes();
                 input = &input[skip_bytes..];
                 while !input.is_empty() {
                     let (byte1, rest) = input.split_at(1);
                     let n = decoder_decode(byte1)?;
-                    ndecoded += n;
+                    n_decoded += n;
                     cookie.bytes_to_feed += 1;
                     let (dec_buffer, dec_flags) = decoder_getstate()?;
-                    if dec_buffer.is_empty() && ndecoded.chars < num_to_skip.chars {
+                    if dec_buffer.is_empty() && n_decoded.chars < num_to_skip.chars {
                         cookie.start_pos += cookie.bytes_to_feed as Offset;
-                        num_to_skip -= ndecoded;
+                        num_to_skip -= n_decoded;
                         cookie.dec_flags = dec_flags;
                         cookie.bytes_to_feed = 0;
-                        ndecoded = Utf8size::default();
+                        n_decoded = Utf8size::default();
                     }
-                    if ndecoded.chars >= num_to_skip.chars {
+                    if n_decoded.chars >= num_to_skip.chars {
                         break;
                     }
                     input = rest;
@@ -2650,7 +2650,7 @@ mod _io {
                     let decoded =
                         vm.call_method(decoder, "decode", (vm.ctx.new_bytes(vec![]), true))?;
                     let decoded = check_decoded(decoded, vm)?;
-                    let final_decoded_chars = ndecoded.chars + decoded.char_len();
+                    let final_decoded_chars = n_decoded.chars + decoded.char_len();
                     cookie.need_eof = true;
                     if final_decoded_chars < num_to_skip.chars {
                         return Err(
@@ -2739,7 +2739,7 @@ mod _io {
             let mut textio = self.lock(vm)?;
             textio.check_closed(vm)?;
 
-            let (encoder, encodefunc) = textio
+            let (encoder, encode_func) = textio
                 .encoder
                 .as_ref()
                 .ok_or_else(|| new_unsupported_operation(vm, "not writable".to_owned()))?;
@@ -2767,8 +2767,8 @@ mod _io {
             } else {
                 obj
             };
-            let chunk = if let Some(encodefunc) = *encodefunc {
-                encodefunc(chunk)
+            let chunk = if let Some(encode_func) = *encode_func {
+                encode_func(chunk)
             } else {
                 let b = vm.call_method(encoder, "encode", (chunk.clone(),))?;
                 b.downcast::<PyBytes>()
@@ -2866,7 +2866,7 @@ mod _io {
             }
 
             let mut start;
-            let mut endpos;
+            let mut end_pos;
             let mut offset_to_buffer;
             let mut chunked = Utf8size::default();
             let mut remaining: Option<SlicedStr> = None;
@@ -2883,7 +2883,7 @@ mod _io {
                         textio.set_decoded_chars(None);
                         textio.snapshot = None;
                         start = Utf8size::default();
-                        endpos = Utf8size::default();
+                        end_pos = Utf8size::default();
                         offset_to_buffer = Utf8size::default();
                         break 'outer None;
                     }
@@ -2918,11 +2918,11 @@ mod _io {
                 let nl_res = textio.newline.find_newline(line_from_start);
                 match nl_res {
                     Ok(p) | Err(p) => {
-                        endpos = start + Utf8size::len_str(&line_from_start[..p]);
+                        end_pos = start + Utf8size::len_str(&line_from_start[..p]);
                         if let Some(limit) = limit {
-                            // original CPython logic: endpos = start + limit - chunked
-                            if chunked.chars + endpos.chars >= limit {
-                                endpos = start
+                            // original CPython logic: end_pos = start + limit - chunked
+                            if chunked.chars + end_pos.chars >= limit {
+                                end_pos = start
                                     + Utf8size {
                                         chars: limit - chunked.chars,
                                         bytes: crate::common::str::codepoint_range_end(
@@ -2939,21 +2939,21 @@ mod _io {
                 if nl_res.is_ok() {
                     break Some(line);
                 }
-                if endpos.bytes > start.bytes {
-                    let chunk = SlicedStr(line.clone(), start.bytes..endpos.bytes);
+                if end_pos.bytes > start.bytes {
+                    let chunk = SlicedStr(line.clone(), start.bytes..end_pos.bytes);
                     chunked += chunk.utf8_len();
                     chunks.push(chunk);
                 }
                 let line_len = line.byte_len();
-                if endpos.bytes < line_len {
-                    remaining = Some(SlicedStr(line, endpos.bytes..line_len));
+                if end_pos.bytes < line_len {
+                    remaining = Some(SlicedStr(line, end_pos.bytes..line_len));
                 }
                 textio.set_decoded_chars(None);
             };
 
             let cur_line = cur_line.map(|line| {
-                textio.decoded_chars_used = endpos - offset_to_buffer;
-                SlicedStr(line, start.bytes..endpos.bytes)
+                textio.decoded_chars_used = end_pos - offset_to_buffer;
+                SlicedStr(line, start.bytes..end_pos.bytes)
             });
             // don't need to care about chunked.chars anymore
             let mut chunked = chunked.bytes;
@@ -3166,7 +3166,7 @@ mod _io {
     #[derive(Debug)]
     struct IncrementalNewlineDecoderData {
         decoder: PyObjectRef,
-        // afaict, this is used for nothing
+        // currently this is used for nothing
         // errors: PyObjectRef,
         pendingcr: bool,
         translate: bool,
@@ -4237,7 +4237,7 @@ mod fileio {
                     #[cfg(any(unix, target_os = "wasi"))]
                     let fd = Fd::open(&path.clone().into_cstring(vm)?, flags, 0o666);
                     #[cfg(windows)]
-                    let fd = Fd::wopen(&path.to_widecstring(vm)?, flags, 0o666);
+                    let fd = Fd::wopen(&path.to_wide_cstring(vm)?, flags, 0o666);
                     let filename = OsPathOrFd::Path(path);
                     match fd {
                         Ok(fd) => (fd.0, filename),

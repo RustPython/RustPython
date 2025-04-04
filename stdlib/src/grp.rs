@@ -1,3 +1,4 @@
+// cspell:disable
 pub(crate) use grp::make_module;
 
 #[pymodule]

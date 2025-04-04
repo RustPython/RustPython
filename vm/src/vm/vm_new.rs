@@ -155,7 +155,7 @@ impl VirtualMachine {
         ))
     }
 
-    pub fn new_unsupported_binop_error(
+    pub fn new_unsupported_bin_op_error(
         &self,
         a: &PyObject,
         b: &PyObject,
@@ -169,7 +169,7 @@ impl VirtualMachine {
         ))
     }
 
-    pub fn new_unsupported_ternop_error(
+    pub fn new_unsupported_ternary_op_error(
         &self,
         a: &PyObject,
         b: &PyObject,

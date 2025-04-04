@@ -198,9 +198,9 @@ impl PyFunction {
         // function definition calls for
         if nargs < nexpected_args {
             let defaults = get_defaults!().0.as_ref().map(|tup| tup.as_slice());
-            let ndefs = defaults.map_or(0, |d| d.len());
+            let n_defs = defaults.map_or(0, |d| d.len());
 
-            let nrequired = code.arg_count as usize - ndefs;
+            let nrequired = code.arg_count as usize - n_defs;
 
             // Given the number of defaults available, check all the arguments for which we
             // _don't_ have defaults; if any are missing, raise an exception
@@ -642,9 +642,9 @@ impl PyBoundMethod {
         vm: &VirtualMachine,
     ) -> (Option<PyObjectRef>, (PyObjectRef, Option<PyObjectRef>)) {
         let builtins_getattr = vm.builtins.get_attr("getattr", vm).ok();
-        let funcself = self.object.clone();
-        let funcname = self.function.get_attr("__name__", vm).ok();
-        (builtins_getattr, (funcself, funcname))
+        let func_self = self.object.clone();
+        let func_name = self.function.get_attr("__name__", vm).ok();
+        (builtins_getattr, (func_self, func_name))
     }
 
     #[pygetset(magic)]
@@ -700,16 +700,16 @@ impl Representable for PyBoundMethod {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         #[allow(clippy::needless_match)] // False positive on nightly
-        let funcname =
+        let func_name =
             if let Some(qname) = vm.get_attribute_opt(zelf.function.clone(), "__qualname__")? {
                 Some(qname)
             } else {
                 vm.get_attribute_opt(zelf.function.clone(), "__name__")?
             };
-        let funcname: Option<PyStrRef> = funcname.and_then(|o| o.downcast().ok());
+        let func_name: Option<PyStrRef> = func_name.and_then(|o| o.downcast().ok());
         Ok(format!(
             "<bound method {} of {}>",
-            funcname.as_ref().map_or("?", |s| s.as_str()),
+            func_name.as_ref().map_or("?", |s| s.as_str()),
             &zelf.object.repr(vm)?.as_str(),
         ))
     }

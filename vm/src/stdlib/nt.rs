@@ -41,7 +41,7 @@ pub(crate) mod module {
 
     #[pyfunction]
     pub(super) fn access(path: OsPath, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
-        let attr = unsafe { FileSystem::GetFileAttributesW(path.to_widecstring(vm)?.as_ptr()) };
+        let attr = unsafe { FileSystem::GetFileAttributesW(path.to_wide_cstring(vm)?.as_ptr()) };
         Ok(attr != FileSystem::INVALID_FILE_ATTRIBUTES
             && (mode & 2 == 0
                 || attr & FileSystem::FILE_ATTRIBUTE_READONLY == 0
@@ -256,7 +256,7 @@ pub(crate) mod module {
 
     #[pyfunction]
     fn _getfullpathname(path: OsPath, vm: &VirtualMachine) -> PyResult {
-        let wpath = path.to_widecstring(vm)?;
+        let wpath = path.to_wide_cstring(vm)?;
         let mut buffer = vec![0u16; Foundation::MAX_PATH as usize];
         let ret = unsafe {
             FileSystem::GetFullPathNameW(
@@ -289,7 +289,7 @@ pub(crate) mod module {
 
     #[pyfunction]
     fn _getvolumepathname(path: OsPath, vm: &VirtualMachine) -> PyResult {
-        let wide = path.to_widecstring(vm)?;
+        let wide = path.to_wide_cstring(vm)?;
         let buflen = std::cmp::max(wide.len(), Foundation::MAX_PATH as usize);
         let mut buffer = vec![0u16; buflen];
         let ret = unsafe {
@@ -344,7 +344,7 @@ pub(crate) mod module {
     fn _getdiskusage(path: OsPath, vm: &VirtualMachine) -> PyResult<(u64, u64)> {
         use FileSystem::GetDiskFreeSpaceExW;
 
-        let wpath = path.to_widecstring(vm)?;
+        let wpath = path.to_wide_cstring(vm)?;
         let mut _free_to_me: u64 = 0;
         let mut total: u64 = 0;
         let mut free: u64 = 0;
@@ -437,7 +437,7 @@ pub(crate) mod module {
         let mode = mode.unwrap_or(0o777);
         let [] = dir_fd.0;
         let _ = mode;
-        let wide = path.to_widecstring(vm)?;
+        let wide = path.to_wide_cstring(vm)?;
         let res = unsafe { FileSystem::CreateDirectoryW(wide.as_ptr(), std::ptr::null_mut()) };
         if res == 0 {
             return Err(errno_err(vm));

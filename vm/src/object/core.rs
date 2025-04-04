@@ -207,7 +207,7 @@ impl WeakRefList {
             hash: Radium::new(crate::common::hash::SENTINEL),
         };
         let weak = PyRef::new_ref(obj, cls, dict);
-        // SAFETY: we don't actually own the PyObjectWeaks inside `list`, and every time we take
+        // SAFETY: we don't actually own the PyObjectWeak's inside `list`, and every time we take
         // one out of the list we immediately wrap it in ManuallyDrop or forget it
         inner.list.push_front(unsafe { ptr::read(&weak) });
         inner.ref_count += 1;
@@ -1301,6 +1301,7 @@ mod tests {
 
     #[test]
     fn miri_test_drop() {
+        //cspell:ignore dfghjkl
         let ctx = crate::Context::genesis();
         let obj = ctx.new_bytes(b"dfghjkl".to_vec());
         drop(obj);

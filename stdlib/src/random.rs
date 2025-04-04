@@ -79,7 +79,7 @@ mod _random {
                     };
 
                     let words = (k - 1) / 32 + 1;
-                    let wordarray = (0..words)
+                    let word_array = (0..words)
                         .map(|_| {
                             let word = gen_u32(k);
                             k = k.wrapping_sub(32);
@@ -87,7 +87,7 @@ mod _random {
                         })
                         .collect::<Vec<_>>();
 
-                    let uint = BigUint::new(wordarray);
+                    let uint = BigUint::new(word_array);
                     // very unlikely but might as well check
                     let sign = if uint.is_zero() {
                         Sign::NoSign

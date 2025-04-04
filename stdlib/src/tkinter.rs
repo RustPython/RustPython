@@ -1,3 +1,5 @@
+// cspell:ignore createcommand
+
 pub(crate) use self::_tkinter::make_module;
 
 #[pymodule]
@@ -45,7 +47,7 @@ mod _tkinter {
 
     #[pyfunction]
     fn create(args: FuncArgs, _vm: &VirtualMachine) -> PyResult<TkApp> {
-        // TODO: handle arguements
+        // TODO: handle arguments
         // TODO: this means creating 2 tk instances is not possible.
         let tk = Tk::new(()).unwrap();
         Ok(TkApp {

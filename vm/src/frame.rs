@@ -350,7 +350,7 @@ impl ExecutingFrame<'_> {
     fn run(&mut self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
         flame_guard!(format!("Frame::run({})", self.code.obj_name));
         // Execute until return or exception:
-        let instrs = &self.code.instructions;
+        let instructions = &self.code.instructions;
         let mut arg_state = bytecode::OpArgState::default();
         loop {
             let idx = self.lasti() as usize;
@@ -359,7 +359,7 @@ impl ExecutingFrame<'_> {
             //     self.code.locations[idx], self.code.source_path
             // );
             self.update_lasti(|i| *i += 1);
-            let bytecode::CodeUnit { op, arg } = instrs[idx];
+            let bytecode::CodeUnit { op, arg } = instructions[idx];
             let arg = arg_state.extend(arg);
             let mut do_extend_arg = false;
             let result = self.execute_instruction(op, arg, &mut do_extend_arg, vm);
@@ -805,14 +805,14 @@ impl ExecutingFrame<'_> {
                 dict.set_item(&*key, value, vm)?;
                 Ok(None)
             }
-            bytecode::Instruction::BinaryOperation { op } => self.execute_binop(vm, op.get(arg)),
+            bytecode::Instruction::BinaryOperation { op } => self.execute_bin_op(vm, op.get(arg)),
             bytecode::Instruction::BinaryOperationInplace { op } => {
-                self.execute_binop_inplace(vm, op.get(arg))
+                self.execute_bin_op_inplace(vm, op.get(arg))
             }
             bytecode::Instruction::LoadAttr { idx } => self.load_attr(vm, idx.get(arg)),
             bytecode::Instruction::StoreAttr { idx } => self.store_attr(vm, idx.get(arg)),
             bytecode::Instruction::DeleteAttr { idx } => self.delete_attr(vm, idx.get(arg)),
-            bytecode::Instruction::UnaryOperation { op } => self.execute_unop(vm, op.get(arg)),
+            bytecode::Instruction::UnaryOperation { op } => self.execute_unary_op(vm, op.get(arg)),
             bytecode::Instruction::TestOperation { op } => self.execute_test(vm, op.get(arg)),
             bytecode::Instruction::CompareOperation { op } => self.execute_compare(vm, op.get(arg)),
             bytecode::Instruction::ReturnValue => {
@@ -1792,7 +1792,7 @@ impl ExecutingFrame<'_> {
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn execute_binop(&mut self, vm: &VirtualMachine, op: bytecode::BinaryOperator) -> FrameResult {
+    fn execute_bin_op(&mut self, vm: &VirtualMachine, op: bytecode::BinaryOperator) -> FrameResult {
         let b_ref = &self.pop_value();
         let a_ref = &self.pop_value();
         let value = match op {
@@ -1814,7 +1814,7 @@ impl ExecutingFrame<'_> {
         self.push_value(value);
         Ok(None)
     }
-    fn execute_binop_inplace(
+    fn execute_bin_op_inplace(
         &mut self,
         vm: &VirtualMachine,
         op: bytecode::BinaryOperator,
@@ -1842,7 +1842,11 @@ impl ExecutingFrame<'_> {
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn execute_unop(&mut self, vm: &VirtualMachine, op: bytecode::UnaryOperator) -> FrameResult {
+    fn execute_unary_op(
+        &mut self,
+        vm: &VirtualMachine,
+        op: bytecode::UnaryOperator,
+    ) -> FrameResult {
         let a = self.pop_value();
         let value = match op {
             bytecode::UnaryOperator::Minus => vm._neg(&a)?,

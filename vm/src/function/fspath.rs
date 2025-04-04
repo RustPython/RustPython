@@ -94,7 +94,7 @@ impl FsPath {
     }
 
     #[cfg(windows)]
-    pub fn to_widecstring(&self, vm: &VirtualMachine) -> PyResult<widestring::WideCString> {
+    pub fn to_wide_cstring(&self, vm: &VirtualMachine) -> PyResult<widestring::WideCString> {
         widestring::WideCString::from_os_str(self.as_os_str(vm)?)
             .map_err(|err| err.into_pyexception(vm))
     }

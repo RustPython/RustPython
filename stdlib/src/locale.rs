@@ -1,3 +1,5 @@
+// cspell:ignore abday abmon yesexpr
+
 pub(crate) use _locale::make_module;
 
 #[cfg(windows)]

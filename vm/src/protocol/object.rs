@@ -28,8 +28,8 @@ impl PyObjectRef {
     // int PyObject_GenericSetDict(PyObject *o, PyObject *value, void *context)
 
     #[inline(always)]
-    pub fn rich_compare(self, other: Self, opid: PyComparisonOp, vm: &VirtualMachine) -> PyResult {
-        self._cmp(&other, opid, vm).map(|res| res.to_pyobject(vm))
+    pub fn rich_compare(self, other: Self, op_id: PyComparisonOp, vm: &VirtualMachine) -> PyResult {
+        self._cmp(&other, op_id, vm).map(|res| res.to_pyobject(vm))
     }
 
     pub fn bytes(self, vm: &VirtualMachine) -> PyResult {
@@ -323,17 +323,17 @@ impl PyObject {
         match op {
             PyComparisonOp::Eq => Ok(Either::B(self.is(&other))),
             PyComparisonOp::Ne => Ok(Either::B(!self.is(&other))),
-            _ => Err(vm.new_unsupported_binop_error(self, other, op.operator_token())),
+            _ => Err(vm.new_unsupported_bin_op_error(self, other, op.operator_token())),
         }
     }
     #[inline(always)]
     pub fn rich_compare_bool(
         &self,
         other: &Self,
-        opid: PyComparisonOp,
+        op_id: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        match self._cmp(other, opid, vm)? {
+        match self._cmp(other, op_id, vm)? {
             Either::A(obj) => obj.try_to_bool(vm),
             Either::B(other) => Ok(other),
         }
@@ -479,13 +479,13 @@ impl PyObject {
         let r = if let Ok(typ) = cls.try_to_ref::<PyType>(vm) {
             if self.class().fast_issubclass(typ) {
                 true
-            } else if let Ok(icls) =
+            } else if let Ok(i_cls) =
                 PyTypeRef::try_from_object(vm, self.get_attr(identifier!(vm, __class__), vm)?)
             {
-                if icls.is(self.class()) {
+                if i_cls.is(self.class()) {
                     false
                 } else {
-                    icls.fast_issubclass(typ)
+                    i_cls.fast_issubclass(typ)
                 }
             } else {
                 false
@@ -497,11 +497,11 @@ impl PyObject {
                     cls.class()
                 )
             })?;
-            let icls: PyObjectRef = self.get_attr(identifier!(vm, __class__), vm)?;
-            if vm.is_none(&icls) {
+            let i_cls: PyObjectRef = self.get_attr(identifier!(vm, __class__), vm)?;
+            if vm.is_none(&i_cls) {
                 false
             } else {
-                icls.abstract_issubclass(cls, vm)?
+                i_cls.abstract_issubclass(cls, vm)?
             }
         };
         Ok(r)

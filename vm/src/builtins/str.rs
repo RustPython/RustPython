@@ -836,7 +836,7 @@ impl PyStr {
                 Some(x) => x,
                 None => return Ok(false),
             };
-        substr.py_startsendswith(
+        substr.py_starts_ends_with(
             &affix,
             "endswith",
             "str",
@@ -856,7 +856,7 @@ impl PyStr {
                 Some(x) => x,
                 None => return Ok(false),
             };
-        substr.py_startsendswith(
+        substr.py_starts_ends_with(
             &affix,
             "startswith",
             "str",

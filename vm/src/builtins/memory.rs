@@ -43,7 +43,7 @@ pub struct PyMemoryView {
     // avoid double release when memoryview had released the buffer before drop
     buffer: ManuallyDrop<PyBuffer>,
     // the released memoryview does not mean the buffer is destroyed
-    // because the possible another memeoryview is viewing from it
+    // because the possible another memoryview is viewing from it
     released: AtomicCell<bool>,
     // start does NOT mean the bytes before start will not be visited,
     // it means the point we starting to get the absolute position via
@@ -103,7 +103,7 @@ impl PyMemoryView {
         })
     }
 
-    /// don't use this function to create the memeoryview if the buffer is exporting
+    /// don't use this function to create the memoryview if the buffer is exporting
     /// via another memoryview, use PyMemoryView::new_view() or PyMemoryView::from_object
     /// to reduce the chain
     pub fn from_buffer_range(
@@ -262,8 +262,8 @@ impl PyMemoryView {
             // no suboffset set, stride must be positive
             self.start += stride as usize * range.start;
         }
-        let newlen = range.len();
-        self.desc.dim_desc[dim].0 = newlen;
+        let new_len = range.len();
+        self.desc.dim_desc[dim].0 = new_len;
     }
 
     fn init_slice(&mut self, slice: &PySlice, dim: usize, vm: &VirtualMachine) -> PyResult<()> {

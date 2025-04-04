@@ -200,7 +200,7 @@ pub trait AnyStr {
         F: Fn(&Self) -> PyObjectRef;
 
     #[inline]
-    fn py_startsendswith<'a, T, F>(
+    fn py_starts_ends_with<'a, T, F>(
         &self,
         affix: &'a PyObject,
         func_name: &str,

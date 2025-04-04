@@ -549,7 +549,7 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                                 break 'result false;
                             };
 
-                            let mut gctx = MatchContext {
+                            let mut g_ctx = MatchContext {
                                 cursor: req.string.create_cursor(group_start),
                                 ..ctx
                             };
@@ -557,12 +557,12 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                             for _ in group_start..group_end {
                                 #[allow(clippy::redundant_closure_call)]
                                 if ctx.at_end(req)
-                                    || $f(ctx.peek_char::<S>()) != $f(gctx.peek_char::<S>())
+                                    || $f(ctx.peek_char::<S>()) != $f(g_ctx.peek_char::<S>())
                                 {
                                     break 'result false;
                                 }
                                 ctx.advance_char::<S>();
-                                gctx.advance_char::<S>();
+                                g_ctx.advance_char::<S>();
                             }
 
                             ctx.skip_code(2);
@@ -627,8 +627,8 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                             break 'context next_ctx;
                         }
                         SreOpcode::AT => {
-                            let atcode = SreAtCode::try_from(ctx.peek_code(req, 1)).unwrap();
-                            if at(req, &ctx, atcode) {
+                            let at_code = SreAtCode::try_from(ctx.peek_code(req, 1)).unwrap();
+                            if at(req, &ctx, at_code) {
                                 ctx.skip_code(2);
                             } else {
                                 break 'result false;
@@ -642,8 +642,8 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                             continue 'context;
                         }
                         SreOpcode::CATEGORY => {
-                            let catcode = SreCatCode::try_from(ctx.peek_code(req, 1)).unwrap();
-                            if ctx.at_end(req) || !category(catcode, ctx.peek_char::<S>()) {
+                            let cat_code = SreCatCode::try_from(ctx.peek_code(req, 1)).unwrap();
+                            if ctx.at_end(req) || !category(cat_code, ctx.peek_char::<S>()) {
                                 break 'result false;
                             }
                             ctx.skip_code(2);
@@ -1179,8 +1179,8 @@ impl MatchContext {
     }
 }
 
-fn at<S: StrDrive>(req: &Request<'_, S>, ctx: &MatchContext, atcode: SreAtCode) -> bool {
-    match atcode {
+fn at<S: StrDrive>(req: &Request<'_, S>, ctx: &MatchContext, at_code: SreAtCode) -> bool {
+    match at_code {
         SreAtCode::BEGINNING | SreAtCode::BEGINNING_STRING => ctx.at_beginning(),
         SreAtCode::BEGINNING_LINE => ctx.at_beginning() || is_linebreak(ctx.back_peek_char::<S>()),
         SreAtCode::BOUNDARY => ctx.at_boundary(req, is_word),
@@ -1210,8 +1210,8 @@ fn charset_loc_ignore(set: &[u32], c: u32) -> bool {
     up != lo && charset(set, up)
 }
 
-fn category(catcode: SreCatCode, c: u32) -> bool {
-    match catcode {
+fn category(cat_code: SreCatCode, c: u32) -> bool {
+    match cat_code {
         SreCatCode::DIGIT => is_digit(c),
         SreCatCode::NOT_DIGIT => !is_digit(c),
         SreCatCode::SPACE => is_space(c),
@@ -1250,13 +1250,13 @@ fn charset(set: &[u32], ch: u32) -> bool {
             }
             SreOpcode::CATEGORY => {
                 /* <CATEGORY> <code> */
-                let catcode = match SreCatCode::try_from(set[i + 1]) {
+                let cat_code = match SreCatCode::try_from(set[i + 1]) {
                     Ok(code) => code,
                     Err(_) => {
                         break;
                     }
                 };
-                if category(catcode, ch) {
+                if category(cat_code, ch) {
                     return ok;
                 }
                 i += 2;
@@ -1270,14 +1270,14 @@ fn charset(set: &[u32], ch: u32) -> bool {
                 i += 1 + 8;
             }
             SreOpcode::BIGCHARSET => {
-                /* <BIGCHARSET> <blockcount> <256 blockindices> <blocks> */
+                /* <BIGCHARSET> <block_count> <256 block_indices> <blocks> */
                 let count = set[i + 1] as usize;
                 if ch < 0x10000 {
                     let set = &set[i + 2..];
                     let block_index = ch >> 8;
-                    let (_, blockindices, _) = unsafe { set.align_to::<u8>() };
+                    let (_, block_indices, _) = unsafe { set.align_to::<u8>() };
                     let blocks = &set[64..];
-                    let block = blockindices[block_index as usize];
+                    let block = block_indices[block_index as usize];
                     if blocks[((block as u32 * 256 + (ch & 255)) / 32) as usize]
                         & (1u32 << (ch & 31))
                         != 0

@@ -70,7 +70,7 @@ impl OsPath {
     }
 
     #[cfg(windows)]
-    pub fn to_widecstring(&self, vm: &VirtualMachine) -> PyResult<widestring::WideCString> {
+    pub fn to_wide_cstring(&self, vm: &VirtualMachine) -> PyResult<widestring::WideCString> {
         widestring::WideCString::from_os_str(&self.path).map_err(|err| err.to_pyexception(vm))
     }
 
@@ -167,18 +167,18 @@ impl<'a> IOErrorBuilder<'a> {
 
 impl ToPyException for IOErrorBuilder<'_> {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        let excp = self.error.to_pyexception(vm);
+        let exc = self.error.to_pyexception(vm);
 
         if let Some(filename) = &self.filename {
-            excp.as_object()
+            exc.as_object()
                 .set_attr("filename", filename.filename(vm), vm)
                 .unwrap();
         }
         if let Some(filename2) = &self.filename2 {
-            excp.as_object()
+            exc.as_object()
                 .set_attr("filename2", filename2.filename(vm), vm)
                 .unwrap();
         }
-        excp
+        exc
     }
 }

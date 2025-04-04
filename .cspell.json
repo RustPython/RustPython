@@ -47,16 +47,24 @@
   // words - list of words to be always considered correct
   "words": [
     // RustPython
+    "aiterable",
+    "alnum",
     "baseclass",
+    "boxvec",
     "Bytecode",
     "cfgs",
     "codegen",
+    "coro",
     "dedentations",
     "dedents",
     "deduped",
     "downcasted",
     "dumpable",
+    "emscripten",
+    "excs",
+    "finalizer",
     "GetSet",
+    "groupref",
     "internable",
     "makeunicodedata",
     "miri",
@@ -100,6 +108,15 @@
     "unraisable",
     "wasi",
     "zelf",
+    // unix
+    "CLOEXEC",
+    "codeset",
+    "endgrent",
+    "getrusage",
+    "nanosleep",
+    "WRLCK",
+    // win32
+    "birthtime",
   ],
   // flagWords - list of words to be always considered incorrect
   "flagWords": [

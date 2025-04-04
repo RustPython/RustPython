@@ -981,14 +981,14 @@ mod _csv {
                 String::from_utf8(input.to_vec()).unwrap()
             };
             loop {
-                let (res, nread, nwritten, nends) = reader.read_record(
+                let (res, n_read, n_written, n_ends) = reader.read_record(
                     &input.as_bytes()[input_offset..],
                     &mut buffer[output_offset..],
                     &mut output_ends[output_ends_offset..],
                 );
-                input_offset += nread;
-                output_offset += nwritten;
-                output_ends_offset += nends;
+                input_offset += n_read;
+                output_offset += n_written;
+                output_ends_offset += n_ends;
                 match res {
                     csv_core::ReadRecordResult::InputEmpty => {}
                     csv_core::ReadRecordResult::OutputFull => resize_buf(buffer),
