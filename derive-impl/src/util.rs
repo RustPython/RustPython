@@ -187,29 +187,49 @@ impl ItemMetaInner {
         Ok(value)
     }
 
-    pub fn _optional_parse<T: syn::parse::Parse>(&self, key: &str) -> Result<Option<T>> {
+    pub fn _optional_path(&self, key: &str) -> Result<Option<&syn::ExprPath>> {
         let value = if let Some((_, meta)) = self.meta_map.get(key) {
             let Meta::NameValue(syn::MetaNameValue {
-                value:
-                    syn::Expr::Lit(syn::ExprLit {
-                        lit: syn::Lit::Str(lit),
-                        ..
-                    }),
+                value: syn::Expr::Path(path),
                 ..
             }) = meta
             else {
                 bail_span!(
                     meta,
-                    "#[{}({} = ...)] must exist as a string",
+                    "#[{}({} = ...)] must exist as a path",
                     self.meta_name(),
                     key
                 )
             };
-            Some(lit.parse()?)
+            Some(path)
         } else {
             None
         };
         Ok(value)
+    }
+
+    pub fn _optional_ident(&self, key: &str) -> Result<Option<&Ident>> {
+        let Some((_, meta)) = self.meta_map.get(key) else {
+            return Ok(None);
+        };
+        if let Meta::NameValue(syn::MetaNameValue {
+            value:
+                syn::Expr::Path(syn::ExprPath {
+                    qself: None, path, ..
+                }),
+            ..
+        }) = meta
+        {
+            if let Some(ident) = path.get_ident() {
+                return Ok(Some(ident));
+            }
+        }
+        bail_span!(
+            meta,
+            "#[{}({} = ...)] must exist as an ident",
+            self.meta_name(),
+            key
+        )
     }
 
     pub fn _has_key(&self, key: &str) -> Result<bool> {
@@ -361,8 +381,9 @@ impl ItemMeta for ClassItemMeta {
         "base",
         "metaclass",
         "unhashable",
-        "no_payload",
+        "manual_payload",
         "ctx",
+        "exception_ctx",
         "impl",
         "traverse",
     ];
@@ -401,20 +422,24 @@ impl ClassItemMeta {
         )
     }
 
-    pub fn ctx_name(&self) -> Result<Option<String>> {
-        self.inner()._optional_str("ctx")
+    pub fn ctx_name(&self) -> Result<Option<&Ident>> {
+        self.inner()._optional_ident("ctx")
     }
 
-    pub fn base(&self) -> Result<Option<Ident>> {
-        self.inner()._optional_parse("base")
+    pub fn exception_ctx_name(&self) -> Result<Option<&Ident>> {
+        self.inner()._optional_ident("exception_ctx")
+    }
+
+    pub fn base(&self) -> Result<Option<&syn::ExprPath>> {
+        self.inner()._optional_path("base")
     }
 
     pub fn unhashable(&self) -> Result<bool> {
         self.inner()._bool("unhashable")
     }
 
-    pub fn no_payload(&self) -> Result<bool> {
-        self.inner()._bool("no_payload")
+    pub fn manual_payload(&self) -> Result<bool> {
+        self.inner()._bool("manual_payload")
     }
 
     pub fn metaclass(&self) -> Result<Option<String>> {
@@ -471,8 +496,7 @@ impl ClassItemMeta {
 pub(crate) struct ExceptionItemMeta(ClassItemMeta);
 
 impl ItemMeta for ExceptionItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] =
-        &["name", "base", "unhashable", "no_payload", "ctx", "impl"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "base", "unhashable", "ctx", "impl"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(ClassItemMeta(inner))

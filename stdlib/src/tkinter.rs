@@ -75,7 +75,7 @@ mod _tkinter {
 
     #[pyattr]
     #[pyclass(name = "tkapp")]
-    #[derive(PyPayload)]
+    #[derive()]
     struct TkApp {
         // Tcl_Interp *interp;
         interpreter: *mut tk_sys::Tcl_Interp,

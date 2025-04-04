@@ -24,7 +24,7 @@ use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
 use std::fmt;
 use std::ops::{Neg, Not};
 
-#[pyclass(module = false, name = "int")]
+#[pyclass(module = false, name = "int", manual_payload)]
 #[derive(Debug)]
 pub struct PyInt {
     value: BigInt,

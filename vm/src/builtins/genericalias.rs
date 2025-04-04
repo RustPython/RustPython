@@ -28,7 +28,7 @@ static ATTR_EXCEPTIONS: [&str; 8] = [
     "__deepcopy__",
 ];
 
-#[pyclass(module = "types", name = "GenericAlias")]
+#[pyclass(module = "types", name = "GenericAlias", ctx = generic_alias_type)]
 pub struct PyGenericAlias {
     origin: PyTypeRef,
     args: PyTupleRef,
@@ -38,13 +38,6 @@ pub struct PyGenericAlias {
 impl fmt::Debug for PyGenericAlias {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("GenericAlias")
-    }
-}
-
-impl PyPayload for PyGenericAlias {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.generic_alias_type
     }
 }
 

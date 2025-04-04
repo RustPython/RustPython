@@ -53,7 +53,7 @@ mod _csv {
 
     #[pyattr]
     #[pyclass(module = "csv", name = "Dialect")]
-    #[derive(Debug, PyPayload, Clone, Copy)]
+    #[derive(Debug, Clone, Copy)]
     struct PyDialect {
         delimiter: u8,
         quotechar: Option<u8>,
@@ -900,7 +900,7 @@ mod _csv {
     }
 
     #[pyclass(no_attr, module = "_csv", name = "reader", traverse)]
-    #[derive(PyPayload)]
+    #[derive()]
     pub(super) struct Reader {
         iter: PyIter,
         #[pytraverse(skip)]
@@ -1054,7 +1054,7 @@ mod _csv {
     }
 
     #[pyclass(no_attr, module = "_csv", name = "writer", traverse)]
-    #[derive(PyPayload)]
+    #[derive()]
     pub(super) struct Writer {
         write: PyObjectRef,
         #[pytraverse(skip)]

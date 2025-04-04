@@ -173,7 +173,7 @@ mod mmap {
 
     #[pyattr]
     #[pyclass(name = "mmap")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct PyMmap {
         closed: AtomicCell<bool>,
         mmap: PyMutex<Option<MmapObj>>,

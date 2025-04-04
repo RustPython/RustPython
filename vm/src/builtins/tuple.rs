@@ -1,4 +1,4 @@
-use super::{PositionIterInternal, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
+use super::{PositionIterInternal, PyGenericAlias, PyStrRef, PyTypeRef};
 use crate::common::{hash::PyHash, lock::PyMutex};
 use crate::object::{Traverse, TraverseFn};
 use crate::{
@@ -21,7 +21,7 @@ use crate::{
 };
 use std::{fmt, marker::PhantomData, sync::LazyLock};
 
-#[pyclass(module = false, name = "tuple", traverse)]
+#[pyclass(module = false, name = "tuple", traverse, ctx = tuple_type)]
 pub struct PyTuple {
     elements: Box<[PyObjectRef]>,
 }
@@ -30,13 +30,6 @@ impl fmt::Debug for PyTuple {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO: implement more informational, non-recursive Debug formatter
         f.write_str("tuple")
-    }
-}
-
-impl PyPayload for PyTuple {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.tuple_type
     }
 }
 
@@ -451,17 +444,10 @@ impl Representable for PyTuple {
     }
 }
 
-#[pyclass(module = false, name = "tuple_iterator", traverse)]
+#[pyclass(module = false, name = "tuple_iterator", traverse, ctx = tuple_iterator_type)]
 #[derive(Debug)]
 pub(crate) struct PyTupleIterator {
     internal: PyMutex<PositionIterInternal<PyTupleRef>>,
-}
-
-impl PyPayload for PyTupleIterator {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.tuple_iterator_type
-    }
 }
 
 #[pyclass(with(Unconstructible, IterNext, Iterable))]

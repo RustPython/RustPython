@@ -75,7 +75,7 @@ mod unicodedata {
 
     #[pyattr]
     #[pyclass(name = "UCD")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     pub(super) struct Ucd {
         unic_version: UnicodeVersion,
     }

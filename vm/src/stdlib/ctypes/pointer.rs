@@ -1,4 +1,5 @@
-#[pyclass(name = "Pointer", module = "_ctypes", no_payload)]
+#[pyclass(name = "Pointer", module = "_ctypes")]
+#[derive(Debug)]
 pub struct PyCPointer {}
 
 #[pyclass(flags(BASETYPE, IMMUTABLETYPE))]

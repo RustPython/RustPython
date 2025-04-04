@@ -1,11 +1,8 @@
 use rustpython_common::lock::PyMutex;
 
-use super::PyType;
-use crate::{
-    Context, Py, PyPayload, PyRef, class::PyClassImpl, frame::FrameRef, source::LineNumber,
-};
+use crate::{Context, PyRef, class::PyClassImpl, frame::FrameRef, source::LineNumber};
 
-#[pyclass(module = false, name = "traceback", traverse)]
+#[pyclass(module = false, name = "traceback", traverse, ctx = traceback_type)]
 #[derive(Debug)]
 pub struct PyTraceback {
     pub next: PyMutex<Option<PyTracebackRef>>,
@@ -17,13 +14,6 @@ pub struct PyTraceback {
 }
 
 pub type PyTracebackRef = PyRef<PyTraceback>;
-
-impl PyPayload for PyTraceback {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.traceback_type
-    }
-}
 
 #[pyclass]
 impl PyTraceback {

@@ -35,7 +35,7 @@ use std::{
     any::TypeId, borrow::Borrow, collections::HashSet, fmt, ops::Deref, pin::Pin, ptr::NonNull,
 };
 
-#[pyclass(module = false, name = "type", traverse = "manual")]
+#[pyclass(module = false, name = "type", traverse = "manual", ctx = type_type)]
 pub struct PyType {
     pub base: Option<PyTypeRef>,
     pub(crate) type_id: TypeId,
@@ -136,13 +136,6 @@ impl fmt::Display for PyType {
 impl fmt::Debug for PyType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[PyType {}]", &self.name())
-    }
-}
-
-impl PyPayload for PyType {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.type_type
     }
 }
 

@@ -59,7 +59,7 @@ mod winreg {
 
     #[pyattr]
     #[pyclass(module = "winreg", name = "HKEYType")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct PyHkey {
         key: PyRwLock<RegKey>,
     }

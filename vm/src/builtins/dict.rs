@@ -30,7 +30,7 @@ use std::sync::LazyLock;
 
 pub type DictContentType = dict_inner::Dict;
 
-#[pyclass(module = false, name = "dict", unhashable = true, traverse)]
+#[pyclass(module = false, name = "dict", unhashable = true, traverse, ctx = dict_type)]
 #[derive(Default)]
 pub struct PyDict {
     entries: DictContentType,
@@ -41,13 +41,6 @@ impl fmt::Debug for PyDict {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO: implement more detailed, non-recursive Debug formatter
         f.write_str("dict")
-    }
-}
-
-impl PyPayload for PyDict {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.dict_type
     }
 }
 
@@ -749,7 +742,7 @@ macro_rules! dict_view {
       $class: ident, $iter_class: ident, $reverse_iter_class: ident,
       $class_name: literal, $iter_class_name: literal, $reverse_iter_class_name: literal,
       $result_fn: expr) => {
-        #[pyclass(module = false, name = $class_name)]
+        #[pyclass(module = false, name = $class_name, ctx = $class)]
         #[derive(Debug)]
         pub(crate) struct $name {
             pub dict: PyDictRef,
@@ -781,13 +774,6 @@ macro_rules! dict_view {
             }
         }
 
-        impl PyPayload for $name {
-            type Super = crate::builtins::PyBaseObject;
-            fn class(ctx: &Context) -> &'static Py<PyType> {
-                ctx.types.$class
-            }
-        }
-
         impl Representable for $name {
             #[inline]
             fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
@@ -811,18 +797,11 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyclass(module = false, name = $iter_class_name)]
+        #[pyclass(module = false, name = $iter_class_name, ctx = $iter_class)]
         #[derive(Debug)]
         pub(crate) struct $iter_name {
             pub size: dict_inner::DictSize,
             pub internal: PyMutex<PositionIterInternal<PyDictRef>>,
-        }
-
-        impl PyPayload for $iter_name {
-            type Super = crate::builtins::PyBaseObject;
-            fn class(ctx: &Context) -> &'static Py<PyType> {
-                ctx.types.$iter_class
-            }
         }
 
         #[pyclass(with(Unconstructible, IterNext, Iterable))]
@@ -885,18 +864,11 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyclass(module = false, name = $reverse_iter_class_name)]
+        #[pyclass(module = false, name = $reverse_iter_class_name, ctx = $reverse_iter_class)]
         #[derive(Debug)]
         pub(crate) struct $reverse_iter_name {
             pub size: dict_inner::DictSize,
             internal: PyMutex<PositionIterInternal<PyDictRef>>,
-        }
-
-        impl PyPayload for $reverse_iter_name {
-            type Super = crate::builtins::PyBaseObject;
-            fn class(ctx: &Context) -> &'static Py<PyType> {
-                ctx.types.$reverse_iter_class
-            }
         }
 
         #[pyclass(with(Unconstructible, IterNext, Iterable))]

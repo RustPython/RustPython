@@ -1,22 +1,15 @@
-use super::{PyStrRef, PyType, PyTypeRef};
+use super::{PyStrRef, PyTypeRef};
 use crate::{
-    Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    Context, Py, PyObjectRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     convert::ToPyObject,
     protocol::PyNumberMethods,
     types::{AsNumber, Constructor, Representable},
 };
 
-#[pyclass(module = false, name = "NoneType")]
+#[pyclass(module = false, name = "NoneType", ctx = none_type)]
 #[derive(Debug)]
 pub struct PyNone;
-
-impl PyPayload for PyNone {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.none_type
-    }
-}
 
 // This allows a built-in function to not return a value, mapping to
 // Python's behavior of returning `None` in this situation.
@@ -73,16 +66,9 @@ impl AsNumber for PyNone {
     }
 }
 
-#[pyclass(module = false, name = "NotImplementedType")]
+#[pyclass(module = false, name = "NotImplementedType", ctx = not_implemented_type)]
 #[derive(Debug)]
 pub struct PyNotImplemented;
-
-impl PyPayload for PyNotImplemented {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.not_implemented_type
-    }
-}
 
 impl Constructor for PyNotImplemented {
     type Args = ();

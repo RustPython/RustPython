@@ -2,7 +2,7 @@
 mod jitfunc;
 
 use super::{
-    PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStr, PyStrRef, PyTupleRef, PyType,
+    PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStr, PyStrRef, PyTupleRef,
     PyTypeRef, tuple::PyTupleTyped,
 };
 #[cfg(feature = "jit")]
@@ -26,7 +26,7 @@ use itertools::Itertools;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
 
-#[pyclass(module = false, name = "function", traverse = "manual")]
+#[pyclass(module = false, name = "function", traverse = "manual", ctx = function_type)]
 #[derive(Debug)]
 pub struct PyFunction {
     code: PyRef<PyCode>,
@@ -355,13 +355,6 @@ impl PyFunction {
     }
 }
 
-impl PyPayload for PyFunction {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.function_type
-    }
-}
-
 #[pyclass(
     with(GetDescriptor, Callable, Representable),
     flags(HAS_DICT, METHOD_DESCRIPTOR)
@@ -551,7 +544,7 @@ impl Representable for PyFunction {
     }
 }
 
-#[pyclass(module = false, name = "method", traverse)]
+#[pyclass(module = false, name = "method", traverse, ctx = bound_method_type)]
 #[derive(Debug)]
 pub struct PyBoundMethod {
     object: PyObjectRef,
@@ -691,13 +684,6 @@ impl PyBoundMethod {
     }
 }
 
-impl PyPayload for PyBoundMethod {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.bound_method_type
-    }
-}
-
 impl Representable for PyBoundMethod {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
@@ -717,19 +703,12 @@ impl Representable for PyBoundMethod {
     }
 }
 
-#[pyclass(module = false, name = "cell", traverse)]
+#[pyclass(module = false, name = "cell", traverse, ctx = cell_type)]
 #[derive(Debug, Default)]
 pub(crate) struct PyCell {
     contents: PyMutex<Option<PyObjectRef>>,
 }
 pub(crate) type PyCellRef = PyRef<PyCell>;
-
-impl PyPayload for PyCell {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.cell_type
-    }
-}
 
 impl Constructor for PyCell {
     type Args = OptionalArg;

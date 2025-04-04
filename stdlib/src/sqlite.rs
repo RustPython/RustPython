@@ -807,7 +807,7 @@ mod _sqlite {
 
     #[pyattr]
     #[pyclass(name)]
-    #[derive(PyPayload)]
+    #[derive()]
     struct Connection {
         db: PyMutex<Option<Sqlite>>,
         detect_types: c_int,
@@ -1395,7 +1395,7 @@ mod _sqlite {
 
     #[pyattr]
     #[pyclass(name, traverse)]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct Cursor {
         connection: PyRef<Connection>,
         #[pytraverse(skip)]
@@ -1852,7 +1852,7 @@ mod _sqlite {
 
     #[pyattr]
     #[pyclass(name, traverse)]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct Row {
         data: PyTupleRef,
         description: PyTupleRef,
@@ -1983,7 +1983,7 @@ mod _sqlite {
 
     #[pyattr]
     #[pyclass(name, traverse)]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct Blob {
         connection: PyRef<Connection>,
         #[pytraverse(skip)]
@@ -2244,7 +2244,7 @@ mod _sqlite {
 
     #[pyattr]
     #[pyclass(name)]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct PrepareProtocol {}
 
     #[pyclass()]
@@ -2252,7 +2252,7 @@ mod _sqlite {
 
     #[pyattr]
     #[pyclass(name)]
-    #[derive(PyPayload)]
+    #[derive()]
     struct Statement {
         st: PyMutex<SqliteStatement>,
         pub is_dml: bool,

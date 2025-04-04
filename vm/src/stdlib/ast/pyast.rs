@@ -2,11 +2,13 @@
 
 use super::*;
 use crate::common::ascii;
-#[pyclass(module = "_ast", name = "mod", base = "NodeAst", no_payload)]
+#[pyclass(module = "_ast", name = "mod", base = NodeAst)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeMod;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeMod {}
-#[pyclass(module = "_ast", name = "Module", base = "NodeMod", no_payload)]
+#[pyclass(module = "_ast", name = "Module", base = NodeMod)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeModModule;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeModModule {
@@ -23,7 +25,8 @@ impl NodeModModule {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "Interactive", base = "NodeMod", no_payload)]
+#[pyclass(module = "_ast", name = "Interactive", base = NodeMod)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeModInteractive;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeModInteractive {
@@ -37,7 +40,8 @@ impl NodeModInteractive {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "Expression", base = "NodeMod", no_payload)]
+#[pyclass(module = "_ast", name = "Expression", base = NodeMod)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeModExpression;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeModExpression {
@@ -51,7 +55,8 @@ impl NodeModExpression {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "FunctionType", base = "NodeMod", no_payload)]
+#[pyclass(module = "_ast", name = "FunctionType", base = NodeMod)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeModFunctionType;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeModFunctionType {
@@ -68,11 +73,13 @@ impl NodeModFunctionType {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "stmt", base = "NodeAst", no_payload)]
+#[pyclass(module = "_ast", name = "stmt", base = NodeAst)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmt;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmt {}
-#[pyclass(module = "_ast", name = "FunctionDef", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "FunctionDef", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtFunctionDef;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtFunctionDef {
@@ -103,12 +110,8 @@ impl NodeStmtFunctionDef {
         );
     }
 }
-#[pyclass(
-    module = "_ast",
-    name = "AsyncFunctionDef",
-    base = "NodeStmt",
-    no_payload
-)]
+#[pyclass(module = "_ast", name = "AsyncFunctionDef", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtAsyncFunctionDef;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtAsyncFunctionDef {
@@ -139,7 +142,8 @@ impl NodeStmtAsyncFunctionDef {
         );
     }
 }
-#[pyclass(module = "_ast", name = "ClassDef", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "ClassDef", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtClassDef;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtClassDef {
@@ -169,7 +173,8 @@ impl NodeStmtClassDef {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Return", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "Return", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtReturn;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtReturn {
@@ -192,7 +197,8 @@ impl NodeStmtReturn {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Delete", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "Delete", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtDelete;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtDelete {
@@ -215,7 +221,8 @@ impl NodeStmtDelete {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Assign", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "Assign", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtAssign;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtAssign {
@@ -242,7 +249,8 @@ impl NodeStmtAssign {
         );
     }
 }
-#[pyclass(module = "_ast", name = "TypeAlias", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "TypeAlias", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtTypeAlias;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtTypeAlias {
@@ -269,7 +277,8 @@ impl NodeStmtTypeAlias {
         );
     }
 }
-#[pyclass(module = "_ast", name = "AugAssign", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "AugAssign", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtAugAssign;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtAugAssign {
@@ -296,7 +305,8 @@ impl NodeStmtAugAssign {
         );
     }
 }
-#[pyclass(module = "_ast", name = "AnnAssign", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "AnnAssign", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtAnnAssign;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtAnnAssign {
@@ -324,7 +334,8 @@ impl NodeStmtAnnAssign {
         );
     }
 }
-#[pyclass(module = "_ast", name = "For", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "For", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtFor;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtFor {
@@ -353,7 +364,8 @@ impl NodeStmtFor {
         );
     }
 }
-#[pyclass(module = "_ast", name = "AsyncFor", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "AsyncFor", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtAsyncFor;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtAsyncFor {
@@ -382,7 +394,8 @@ impl NodeStmtAsyncFor {
         );
     }
 }
-#[pyclass(module = "_ast", name = "While", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "While", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtWhile;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtWhile {
@@ -409,7 +422,8 @@ impl NodeStmtWhile {
         );
     }
 }
-#[pyclass(module = "_ast", name = "If", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "If", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtIf;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtIf {
@@ -436,7 +450,8 @@ impl NodeStmtIf {
         );
     }
 }
-#[pyclass(module = "_ast", name = "With", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "With", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtWith;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtWith {
@@ -463,7 +478,8 @@ impl NodeStmtWith {
         );
     }
 }
-#[pyclass(module = "_ast", name = "AsyncWith", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "AsyncWith", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtAsyncWith;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtAsyncWith {
@@ -490,7 +506,8 @@ impl NodeStmtAsyncWith {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Match", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "Match", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtMatch;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtMatch {
@@ -516,7 +533,8 @@ impl NodeStmtMatch {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Raise", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "Raise", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtRaise;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtRaise {
@@ -542,7 +560,8 @@ impl NodeStmtRaise {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Try", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "Try", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtTry;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtTry {
@@ -570,7 +589,8 @@ impl NodeStmtTry {
         );
     }
 }
-#[pyclass(module = "_ast", name = "TryStar", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "TryStar", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtTryStar;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtTryStar {
@@ -598,7 +618,8 @@ impl NodeStmtTryStar {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Assert", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "Assert", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtAssert;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtAssert {
@@ -624,7 +645,8 @@ impl NodeStmtAssert {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Import", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "Import", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtImport;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtImport {
@@ -647,7 +669,8 @@ impl NodeStmtImport {
         );
     }
 }
-#[pyclass(module = "_ast", name = "ImportFrom", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "ImportFrom", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtImportFrom;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtImportFrom {
@@ -674,7 +697,8 @@ impl NodeStmtImportFrom {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Global", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "Global", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtGlobal;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtGlobal {
@@ -697,7 +721,8 @@ impl NodeStmtGlobal {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Nonlocal", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "Nonlocal", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtNonlocal;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtNonlocal {
@@ -720,7 +745,8 @@ impl NodeStmtNonlocal {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Expr", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "Expr", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtExpr;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtExpr {
@@ -743,7 +769,8 @@ impl NodeStmtExpr {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Pass", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "Pass", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtPass;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtPass {
@@ -762,7 +789,8 @@ impl NodeStmtPass {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Break", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "Break", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtBreak;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtBreak {
@@ -781,7 +809,8 @@ impl NodeStmtBreak {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Continue", base = "NodeStmt", no_payload)]
+#[pyclass(module = "_ast", name = "Continue", base = NodeStmt)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeStmtContinue;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmtContinue {
@@ -800,11 +829,13 @@ impl NodeStmtContinue {
         );
     }
 }
-#[pyclass(module = "_ast", name = "expr", base = "NodeAst", no_payload)]
+#[pyclass(module = "_ast", name = "expr", base = NodeAst)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExpr;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExpr {}
-#[pyclass(module = "_ast", name = "BoolOp", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "BoolOp", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprBoolOp;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprBoolOp {
@@ -830,7 +861,8 @@ impl NodeExprBoolOp {
         );
     }
 }
-#[pyclass(module = "_ast", name = "NamedExpr", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "NamedExpr", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprNamedExpr;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprNamedExpr {
@@ -856,7 +888,8 @@ impl NodeExprNamedExpr {
         );
     }
 }
-#[pyclass(module = "_ast", name = "BinOp", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "BinOp", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprBinOp;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprBinOp {
@@ -883,7 +916,8 @@ impl NodeExprBinOp {
         );
     }
 }
-#[pyclass(module = "_ast", name = "UnaryOp", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "UnaryOp", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprUnaryOp;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprUnaryOp {
@@ -909,7 +943,8 @@ impl NodeExprUnaryOp {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Lambda", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "Lambda", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprLambda;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprLambda {
@@ -935,7 +970,8 @@ impl NodeExprLambda {
         );
     }
 }
-#[pyclass(module = "_ast", name = "IfExp", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "IfExp", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprIfExp;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprIfExp {
@@ -962,7 +998,8 @@ impl NodeExprIfExp {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Dict", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "Dict", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprDict;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprDict {
@@ -988,7 +1025,8 @@ impl NodeExprDict {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Set", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "Set", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprSet;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprSet {
@@ -1011,7 +1049,8 @@ impl NodeExprSet {
         );
     }
 }
-#[pyclass(module = "_ast", name = "ListComp", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "ListComp", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprListComp;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprListComp {
@@ -1037,7 +1076,8 @@ impl NodeExprListComp {
         );
     }
 }
-#[pyclass(module = "_ast", name = "SetComp", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "SetComp", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprSetComp;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprSetComp {
@@ -1063,7 +1103,8 @@ impl NodeExprSetComp {
         );
     }
 }
-#[pyclass(module = "_ast", name = "DictComp", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "DictComp", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprDictComp;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprDictComp {
@@ -1090,7 +1131,8 @@ impl NodeExprDictComp {
         );
     }
 }
-#[pyclass(module = "_ast", name = "GeneratorExp", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "GeneratorExp", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprGeneratorExp;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprGeneratorExp {
@@ -1116,7 +1158,8 @@ impl NodeExprGeneratorExp {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Await", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "Await", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprAwait;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprAwait {
@@ -1139,7 +1182,8 @@ impl NodeExprAwait {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Yield", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "Yield", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprYield;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprYield {
@@ -1162,7 +1206,8 @@ impl NodeExprYield {
         );
     }
 }
-#[pyclass(module = "_ast", name = "YieldFrom", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "YieldFrom", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprYieldFrom;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprYieldFrom {
@@ -1185,7 +1230,8 @@ impl NodeExprYieldFrom {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Compare", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "Compare", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprCompare;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprCompare {
@@ -1212,7 +1258,8 @@ impl NodeExprCompare {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Call", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "Call", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprCall;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprCall {
@@ -1239,12 +1286,8 @@ impl NodeExprCall {
         );
     }
 }
-#[pyclass(
-    module = "_ast",
-    name = "FormattedValue",
-    base = "NodeExpr",
-    no_payload
-)]
+#[pyclass(module = "_ast", name = "FormattedValue", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprFormattedValue;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprFormattedValue {
@@ -1271,7 +1314,8 @@ impl NodeExprFormattedValue {
         );
     }
 }
-#[pyclass(module = "_ast", name = "JoinedStr", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "JoinedStr", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprJoinedStr;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprJoinedStr {
@@ -1294,7 +1338,8 @@ impl NodeExprJoinedStr {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Constant", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "Constant", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprConstant;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprConstant {
@@ -1320,7 +1365,8 @@ impl NodeExprConstant {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Attribute", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "Attribute", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprAttribute;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprAttribute {
@@ -1347,7 +1393,8 @@ impl NodeExprAttribute {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Subscript", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "Subscript", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprSubscript;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprSubscript {
@@ -1374,7 +1421,8 @@ impl NodeExprSubscript {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Starred", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "Starred", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprStarred;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprStarred {
@@ -1400,7 +1448,8 @@ impl NodeExprStarred {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Name", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "Name", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprName;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprName {
@@ -1426,7 +1475,8 @@ impl NodeExprName {
         );
     }
 }
-#[pyclass(module = "_ast", name = "List", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "List", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprList;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprList {
@@ -1452,7 +1502,8 @@ impl NodeExprList {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Tuple", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "Tuple", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprTuple;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprTuple {
@@ -1478,7 +1529,8 @@ impl NodeExprTuple {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Slice", base = "NodeExpr", no_payload)]
+#[pyclass(module = "_ast", name = "Slice", base = NodeExpr)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprSlice;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprSlice {
@@ -1505,11 +1557,13 @@ impl NodeExprSlice {
         );
     }
 }
-#[pyclass(module = "_ast", name = "expr_context", base = "NodeAst", no_payload)]
+#[pyclass(module = "_ast", name = "expr_context", base = NodeAst)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprContext;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprContext {}
-#[pyclass(module = "_ast", name = "Load", base = "NodeExprContext", no_payload)]
+#[pyclass(module = "_ast", name = "Load", base = NodeExprContext)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprContextLoad;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprContextLoad {
@@ -1519,7 +1573,8 @@ impl NodeExprContextLoad {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "Store", base = "NodeExprContext", no_payload)]
+#[pyclass(module = "_ast", name = "Store", base = NodeExprContext)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprContextStore;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprContextStore {
@@ -1529,7 +1584,8 @@ impl NodeExprContextStore {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "Del", base = "NodeExprContext", no_payload)]
+#[pyclass(module = "_ast", name = "Del", base = NodeExprContext)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExprContextDel;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprContextDel {
@@ -1539,11 +1595,13 @@ impl NodeExprContextDel {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "boolop", base = "NodeAst", no_payload)]
+#[pyclass(module = "_ast", name = "boolop", base = NodeAst)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeBoolOp;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeBoolOp {}
-#[pyclass(module = "_ast", name = "And", base = "NodeBoolOp", no_payload)]
+#[pyclass(module = "_ast", name = "And", base = NodeBoolOp)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeBoolOpAnd;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeBoolOpAnd {
@@ -1553,7 +1611,8 @@ impl NodeBoolOpAnd {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "Or", base = "NodeBoolOp", no_payload)]
+#[pyclass(module = "_ast", name = "Or", base = NodeBoolOp)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeBoolOpOr;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeBoolOpOr {
@@ -1563,11 +1622,13 @@ impl NodeBoolOpOr {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "operator", base = "NodeAst", no_payload)]
+#[pyclass(module = "_ast", name = "operator", base = NodeAst)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeOperator;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeOperator {}
-#[pyclass(module = "_ast", name = "Add", base = "NodeOperator", no_payload)]
+#[pyclass(module = "_ast", name = "Add", base = NodeOperator)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeOperatorAdd;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeOperatorAdd {
@@ -1577,7 +1638,8 @@ impl NodeOperatorAdd {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "Sub", base = "NodeOperator", no_payload)]
+#[pyclass(module = "_ast", name = "Sub", base = NodeOperator)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeOperatorSub;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeOperatorSub {
@@ -1587,7 +1649,8 @@ impl NodeOperatorSub {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "Mult", base = "NodeOperator", no_payload)]
+#[pyclass(module = "_ast", name = "Mult", base = NodeOperator)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeOperatorMult;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeOperatorMult {
@@ -1597,7 +1660,8 @@ impl NodeOperatorMult {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "MatMult", base = "NodeOperator", no_payload)]
+#[pyclass(module = "_ast", name = "MatMult", base = NodeOperator)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeOperatorMatMult;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeOperatorMatMult {
@@ -1607,7 +1671,8 @@ impl NodeOperatorMatMult {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "Div", base = "NodeOperator", no_payload)]
+#[pyclass(module = "_ast", name = "Div", base = NodeOperator)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeOperatorDiv;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeOperatorDiv {
@@ -1617,7 +1682,8 @@ impl NodeOperatorDiv {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "Mod", base = "NodeOperator", no_payload)]
+#[pyclass(module = "_ast", name = "Mod", base = NodeOperator)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeOperatorMod;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeOperatorMod {
@@ -1627,7 +1693,8 @@ impl NodeOperatorMod {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "Pow", base = "NodeOperator", no_payload)]
+#[pyclass(module = "_ast", name = "Pow", base = NodeOperator)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeOperatorPow;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeOperatorPow {
@@ -1637,7 +1704,8 @@ impl NodeOperatorPow {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "LShift", base = "NodeOperator", no_payload)]
+#[pyclass(module = "_ast", name = "LShift", base = NodeOperator)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeOperatorLShift;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeOperatorLShift {
@@ -1647,7 +1715,8 @@ impl NodeOperatorLShift {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "RShift", base = "NodeOperator", no_payload)]
+#[pyclass(module = "_ast", name = "RShift", base = NodeOperator)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeOperatorRShift;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeOperatorRShift {
@@ -1657,7 +1726,8 @@ impl NodeOperatorRShift {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "BitOr", base = "NodeOperator", no_payload)]
+#[pyclass(module = "_ast", name = "BitOr", base = NodeOperator)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeOperatorBitOr;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeOperatorBitOr {
@@ -1667,7 +1737,8 @@ impl NodeOperatorBitOr {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "BitXor", base = "NodeOperator", no_payload)]
+#[pyclass(module = "_ast", name = "BitXor", base = NodeOperator)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeOperatorBitXor;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeOperatorBitXor {
@@ -1677,7 +1748,8 @@ impl NodeOperatorBitXor {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "BitAnd", base = "NodeOperator", no_payload)]
+#[pyclass(module = "_ast", name = "BitAnd", base = NodeOperator)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeOperatorBitAnd;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeOperatorBitAnd {
@@ -1687,7 +1759,8 @@ impl NodeOperatorBitAnd {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "FloorDiv", base = "NodeOperator", no_payload)]
+#[pyclass(module = "_ast", name = "FloorDiv", base = NodeOperator)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeOperatorFloorDiv;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeOperatorFloorDiv {
@@ -1697,11 +1770,13 @@ impl NodeOperatorFloorDiv {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "unaryop", base = "NodeAst", no_payload)]
+#[pyclass(module = "_ast", name = "unaryop", base = NodeAst)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeUnaryOp;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeUnaryOp {}
-#[pyclass(module = "_ast", name = "Invert", base = "NodeUnaryOp", no_payload)]
+#[pyclass(module = "_ast", name = "Invert", base = NodeUnaryOp)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeUnaryOpInvert;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeUnaryOpInvert {
@@ -1711,7 +1786,8 @@ impl NodeUnaryOpInvert {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "Not", base = "NodeUnaryOp", no_payload)]
+#[pyclass(module = "_ast", name = "Not", base = NodeUnaryOp)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeUnaryOpNot;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeUnaryOpNot {
@@ -1721,7 +1797,8 @@ impl NodeUnaryOpNot {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "UAdd", base = "NodeUnaryOp", no_payload)]
+#[pyclass(module = "_ast", name = "UAdd", base = NodeUnaryOp)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeUnaryOpUAdd;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeUnaryOpUAdd {
@@ -1731,7 +1808,8 @@ impl NodeUnaryOpUAdd {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "USub", base = "NodeUnaryOp", no_payload)]
+#[pyclass(module = "_ast", name = "USub", base = NodeUnaryOp)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeUnaryOpUSub;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeUnaryOpUSub {
@@ -1741,11 +1819,13 @@ impl NodeUnaryOpUSub {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "cmpop", base = "NodeAst", no_payload)]
+#[pyclass(module = "_ast", name = "cmpop", base = NodeAst)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeCmpOp;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeCmpOp {}
-#[pyclass(module = "_ast", name = "Eq", base = "NodeCmpOp", no_payload)]
+#[pyclass(module = "_ast", name = "Eq", base = NodeCmpOp)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeCmpOpEq;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeCmpOpEq {
@@ -1755,7 +1835,8 @@ impl NodeCmpOpEq {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "NotEq", base = "NodeCmpOp", no_payload)]
+#[pyclass(module = "_ast", name = "NotEq", base = NodeCmpOp)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeCmpOpNotEq;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeCmpOpNotEq {
@@ -1765,7 +1846,8 @@ impl NodeCmpOpNotEq {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "Lt", base = "NodeCmpOp", no_payload)]
+#[pyclass(module = "_ast", name = "Lt", base = NodeCmpOp)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeCmpOpLt;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeCmpOpLt {
@@ -1775,7 +1857,8 @@ impl NodeCmpOpLt {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "LtE", base = "NodeCmpOp", no_payload)]
+#[pyclass(module = "_ast", name = "LtE", base = NodeCmpOp)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeCmpOpLtE;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeCmpOpLtE {
@@ -1785,7 +1868,8 @@ impl NodeCmpOpLtE {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "Gt", base = "NodeCmpOp", no_payload)]
+#[pyclass(module = "_ast", name = "Gt", base = NodeCmpOp)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeCmpOpGt;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeCmpOpGt {
@@ -1795,7 +1879,8 @@ impl NodeCmpOpGt {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "GtE", base = "NodeCmpOp", no_payload)]
+#[pyclass(module = "_ast", name = "GtE", base = NodeCmpOp)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeCmpOpGtE;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeCmpOpGtE {
@@ -1805,7 +1890,8 @@ impl NodeCmpOpGtE {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "Is", base = "NodeCmpOp", no_payload)]
+#[pyclass(module = "_ast", name = "Is", base = NodeCmpOp)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeCmpOpIs;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeCmpOpIs {
@@ -1815,7 +1901,8 @@ impl NodeCmpOpIs {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "IsNot", base = "NodeCmpOp", no_payload)]
+#[pyclass(module = "_ast", name = "IsNot", base = NodeCmpOp)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeCmpOpIsNot;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeCmpOpIsNot {
@@ -1825,7 +1912,8 @@ impl NodeCmpOpIsNot {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "In", base = "NodeCmpOp", no_payload)]
+#[pyclass(module = "_ast", name = "In", base = NodeCmpOp)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeCmpOpIn;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeCmpOpIn {
@@ -1835,7 +1923,8 @@ impl NodeCmpOpIn {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "NotIn", base = "NodeCmpOp", no_payload)]
+#[pyclass(module = "_ast", name = "NotIn", base = NodeCmpOp)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeCmpOpNotIn;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeCmpOpNotIn {
@@ -1845,7 +1934,8 @@ impl NodeCmpOpNotIn {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "comprehension", base = "NodeAst", no_payload)]
+#[pyclass(module = "_ast", name = "comprehension", base = NodeAst)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeComprehension;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeComprehension {
@@ -1864,16 +1954,13 @@ impl NodeComprehension {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "excepthandler", base = "NodeAst", no_payload)]
+#[pyclass(module = "_ast", name = "excepthandler", base = NodeAst)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExceptHandler;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExceptHandler {}
-#[pyclass(
-    module = "_ast",
-    name = "ExceptHandler",
-    base = "NodeExceptHandler",
-    no_payload
-)]
+#[pyclass(module = "_ast", name = "ExceptHandler", base = NodeExceptHandler)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeExceptHandlerExceptHandler;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExceptHandlerExceptHandler {
@@ -1900,7 +1987,8 @@ impl NodeExceptHandlerExceptHandler {
         );
     }
 }
-#[pyclass(module = "_ast", name = "arguments", base = "NodeAst", no_payload)]
+#[pyclass(module = "_ast", name = "arguments", base = NodeAst)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeArguments;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeArguments {
@@ -1922,7 +2010,8 @@ impl NodeArguments {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "arg", base = "NodeAst", no_payload)]
+#[pyclass(module = "_ast", name = "arg", base = NodeAst)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeArg;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeArg {
@@ -1949,7 +2038,8 @@ impl NodeArg {
         );
     }
 }
-#[pyclass(module = "_ast", name = "keyword", base = "NodeAst", no_payload)]
+#[pyclass(module = "_ast", name = "keyword", base = NodeAst)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeKeyword;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeKeyword {
@@ -1975,7 +2065,8 @@ impl NodeKeyword {
         );
     }
 }
-#[pyclass(module = "_ast", name = "alias", base = "NodeAst", no_payload)]
+#[pyclass(module = "_ast", name = "alias", base = NodeAst)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeAlias;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeAlias {
@@ -2001,7 +2092,8 @@ impl NodeAlias {
         );
     }
 }
-#[pyclass(module = "_ast", name = "withitem", base = "NodeAst", no_payload)]
+#[pyclass(module = "_ast", name = "withitem", base = NodeAst)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeWithItem;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeWithItem {
@@ -2018,7 +2110,8 @@ impl NodeWithItem {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "match_case", base = "NodeAst", no_payload)]
+#[pyclass(module = "_ast", name = "match_case", base = NodeAst)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeMatchCase;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeMatchCase {
@@ -2036,11 +2129,13 @@ impl NodeMatchCase {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "pattern", base = "NodeAst", no_payload)]
+#[pyclass(module = "_ast", name = "pattern", base = NodeAst)]
+#[derive(Default, Debug)]
 pub(crate) struct NodePattern;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodePattern {}
-#[pyclass(module = "_ast", name = "MatchValue", base = "NodePattern", no_payload)]
+#[pyclass(module = "_ast", name = "MatchValue", base = NodePattern)]
+#[derive(Default, Debug)]
 pub(crate) struct NodePatternMatchValue;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodePatternMatchValue {
@@ -2063,12 +2158,8 @@ impl NodePatternMatchValue {
         );
     }
 }
-#[pyclass(
-    module = "_ast",
-    name = "MatchSingleton",
-    base = "NodePattern",
-    no_payload
-)]
+#[pyclass(module = "_ast", name = "MatchSingleton", base = NodePattern)]
+#[derive(Default, Debug)]
 pub(crate) struct NodePatternMatchSingleton;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodePatternMatchSingleton {
@@ -2091,12 +2182,8 @@ impl NodePatternMatchSingleton {
         );
     }
 }
-#[pyclass(
-    module = "_ast",
-    name = "MatchSequence",
-    base = "NodePattern",
-    no_payload
-)]
+#[pyclass(module = "_ast", name = "MatchSequence", base = NodePattern)]
+#[derive(Default, Debug)]
 pub(crate) struct NodePatternMatchSequence;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodePatternMatchSequence {
@@ -2119,12 +2206,8 @@ impl NodePatternMatchSequence {
         );
     }
 }
-#[pyclass(
-    module = "_ast",
-    name = "MatchMapping",
-    base = "NodePattern",
-    no_payload
-)]
+#[pyclass(module = "_ast", name = "MatchMapping", base = NodePattern)]
+#[derive(Default, Debug)]
 pub(crate) struct NodePatternMatchMapping;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodePatternMatchMapping {
@@ -2151,7 +2234,8 @@ impl NodePatternMatchMapping {
         );
     }
 }
-#[pyclass(module = "_ast", name = "MatchClass", base = "NodePattern", no_payload)]
+#[pyclass(module = "_ast", name = "MatchClass", base = NodePattern)]
+#[derive(Default, Debug)]
 pub(crate) struct NodePatternMatchClass;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodePatternMatchClass {
@@ -2179,7 +2263,8 @@ impl NodePatternMatchClass {
         );
     }
 }
-#[pyclass(module = "_ast", name = "MatchStar", base = "NodePattern", no_payload)]
+#[pyclass(module = "_ast", name = "MatchStar", base = NodePattern)]
+#[derive(Default, Debug)]
 pub(crate) struct NodePatternMatchStar;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodePatternMatchStar {
@@ -2202,7 +2287,8 @@ impl NodePatternMatchStar {
         );
     }
 }
-#[pyclass(module = "_ast", name = "MatchAs", base = "NodePattern", no_payload)]
+#[pyclass(module = "_ast", name = "MatchAs", base = NodePattern)]
+#[derive(Default, Debug)]
 pub(crate) struct NodePatternMatchAs;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodePatternMatchAs {
@@ -2228,7 +2314,8 @@ impl NodePatternMatchAs {
         );
     }
 }
-#[pyclass(module = "_ast", name = "MatchOr", base = "NodePattern", no_payload)]
+#[pyclass(module = "_ast", name = "MatchOr", base = NodePattern)]
+#[derive(Default, Debug)]
 pub(crate) struct NodePatternMatchOr;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodePatternMatchOr {
@@ -2251,16 +2338,13 @@ impl NodePatternMatchOr {
         );
     }
 }
-#[pyclass(module = "_ast", name = "type_ignore", base = "NodeAst", no_payload)]
+#[pyclass(module = "_ast", name = "type_ignore", base = NodeAst)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeTypeIgnore;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeTypeIgnore {}
-#[pyclass(
-    module = "_ast",
-    name = "TypeIgnore",
-    base = "NodeTypeIgnore",
-    no_payload
-)]
+#[pyclass(module = "_ast", name = "TypeIgnore", base = NodeTypeIgnore)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeTypeIgnoreTypeIgnore;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeTypeIgnoreTypeIgnore {
@@ -2277,11 +2361,13 @@ impl NodeTypeIgnoreTypeIgnore {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "type_param", base = "NodeAst", no_payload)]
+#[pyclass(module = "_ast", name = "type_param", base = NodeAst)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeTypeParam;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeTypeParam {}
-#[pyclass(module = "_ast", name = "TypeVar", base = "NodeTypeParam", no_payload)]
+#[pyclass(module = "_ast", name = "TypeVar", base = NodeTypeParam)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeTypeParamTypeVar;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeTypeParamTypeVar {
@@ -2307,12 +2393,8 @@ impl NodeTypeParamTypeVar {
         );
     }
 }
-#[pyclass(
-    module = "_ast",
-    name = "ParamSpec",
-    base = "NodeTypeParam",
-    no_payload
-)]
+#[pyclass(module = "_ast", name = "ParamSpec", base = NodeTypeParam)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeTypeParamParamSpec;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeTypeParamParamSpec {
@@ -2335,12 +2417,8 @@ impl NodeTypeParamParamSpec {
         );
     }
 }
-#[pyclass(
-    module = "_ast",
-    name = "TypeVarTuple",
-    base = "NodeTypeParam",
-    no_payload
-)]
+#[pyclass(module = "_ast", name = "TypeVarTuple", base = NodeTypeParam)]
+#[derive(Default, Debug)]
 pub(crate) struct NodeTypeParamTypeVarTuple;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeTypeParamTypeVarTuple {

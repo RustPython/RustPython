@@ -1,5 +1,5 @@
 use super::{
-    PositionIterInternal, PyBytesRef, PyDict, PyTupleRef, PyType, PyTypeRef,
+    PositionIterInternal, PyBytesRef, PyDict, PyTupleRef, PyTypeRef,
     int::{PyInt, PyIntRef},
     iter::IterStatus::{self, Exhausted},
 };
@@ -64,7 +64,7 @@ impl<'a> TryFromBorrowedObject<'a> for &'a Wtf8 {
     }
 }
 
-#[pyclass(module = false, name = "str")]
+#[pyclass(module = false, name = "str", ctx = str_type)]
 pub struct PyStr {
     data: StrData,
     hash: PyAtomic<hash::PyHash>,
@@ -262,7 +262,7 @@ impl<'a> AsPyStr<'a> for &'a PyStrInterned {
     }
 }
 
-#[pyclass(module = false, name = "str_iterator", traverse = "manual")]
+#[pyclass(module = false, name = "str_iterator", traverse = "manual", ctx = str_iterator_type)]
 #[derive(Debug)]
 pub struct PyStrIterator {
     internal: PyMutex<(PositionIterInternal<PyStrRef>, usize)>,
@@ -272,13 +272,6 @@ unsafe impl Traverse for PyStrIterator {
     fn traverse(&self, tracer: &mut TraverseFn<'_>) {
         // No need to worry about deadlock, for inner is a PyStr and can't make ref cycle
         self.internal.lock().0.traverse(tracer);
-    }
-}
-
-impl PyPayload for PyStrIterator {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.str_iterator_type
     }
 }
 
@@ -1587,13 +1580,6 @@ pub(crate) fn encode_string(
         .as_ref()
         .map_or(crate::codecs::DEFAULT_ENCODING, |s| s.as_str());
     vm.state.codec_registry.encode_text(s, encoding, errors, vm)
-}
-
-impl PyPayload for PyStr {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.str_type
-    }
 }
 
 impl ToPyObject for String {

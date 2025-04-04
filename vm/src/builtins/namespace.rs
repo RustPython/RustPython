@@ -1,6 +1,6 @@
-use super::{PyTupleRef, PyType, tuple::IntoPyTuple};
+use super::{PyTupleRef, tuple::IntoPyTuple};
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
     builtins::PyDict,
     class::PyClassImpl,
     function::{FuncArgs, PyComparisonValue},
@@ -13,16 +13,9 @@ use crate::{
 /// A simple attribute-based namespace.
 ///
 /// SimpleNamespace(**kwargs)
-#[pyclass(module = "types", name = "SimpleNamespace")]
+#[pyclass(module = "types", name = "SimpleNamespace", ctx = namespace_type)]
 #[derive(Debug, Default)]
 pub struct PyNamespace {}
-
-impl PyPayload for PyNamespace {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.namespace_type
-    }
-}
 
 impl DefaultConstructor for PyNamespace {}
 

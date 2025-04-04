@@ -1,4 +1,4 @@
-use super::{PyType, PyTypeRef};
+use super::PyTypeRef;
 use crate::{
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     builtins::PyTupleRef,
@@ -8,18 +8,11 @@ use crate::{
     types::{Constructor, IterNext, Iterable, SelfIter},
 };
 
-#[pyclass(module = false, name = "map", traverse)]
+#[pyclass(module = false, name = "map", traverse, ctx = map_type)]
 #[derive(Debug)]
 pub struct PyMap {
     mapper: PyObjectRef,
     iterators: Vec<PyIter>,
-}
-
-impl PyPayload for PyMap {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.map_type
-    }
 }
 
 impl Constructor for PyMap {

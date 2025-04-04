@@ -1,5 +1,5 @@
 use rustpython::vm::{
-    PyObject, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine, pyclass, pymodule,
+    PyObject, PyResult, TryFromBorrowedObject, VirtualMachine, pyclass, pymodule,
 };
 
 pub fn main() {
@@ -64,7 +64,7 @@ python_person.name: {}",
 
     #[pyattr]
     #[pyclass(module = "rust_py_module", name = "RustStruct")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct RustStruct {
         numbers: NumVec,
     }

@@ -43,7 +43,7 @@ mod _overlapped {
 
     #[pyattr]
     #[pyclass(name)]
-    #[derive(PyPayload)]
+    #[derive()]
     struct Overlapped {
         inner: PyMutex<OverlappedInner>,
     }

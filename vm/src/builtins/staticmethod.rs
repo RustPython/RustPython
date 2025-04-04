@@ -1,4 +1,4 @@
-use super::{PyStr, PyType, PyTypeRef};
+use super::{PyStr, PyTypeRef};
 use crate::{
     Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -7,17 +7,10 @@ use crate::{
     types::{Callable, Constructor, GetDescriptor, Initializer, Representable},
 };
 
-#[pyclass(module = false, name = "staticmethod", traverse)]
+#[pyclass(module = false, name = "staticmethod", traverse, ctx = staticmethod_type)]
 #[derive(Debug)]
 pub struct PyStaticMethod {
     pub callable: PyMutex<PyObjectRef>,
-}
-
-impl PyPayload for PyStaticMethod {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.staticmethod_type
-    }
 }
 
 impl GetDescriptor for PyStaticMethod {

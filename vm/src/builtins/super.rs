@@ -12,7 +12,7 @@ use crate::{
     types::{Callable, Constructor, GetAttr, GetDescriptor, Initializer, Representable},
 };
 
-#[pyclass(module = false, name = "super", ctx = "super_type", traverse)]
+#[pyclass(module = false, name = "super", ctx = super_type, traverse)]
 #[derive(Debug)]
 pub struct PySuper {
     inner: PyRwLock<PySuperInner>,

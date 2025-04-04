@@ -17,7 +17,7 @@ use itertools::Itertools;
 ///
 /// When called, it accepts no arguments and returns a new featureless
 /// instance that has no instance attributes and cannot be given any.
-#[pyclass(module = false, name = "object")]
+#[pyclass(module = false, name = "object", manual_payload)]
 #[derive(Debug, Default)]
 pub struct PyBaseObject;
 

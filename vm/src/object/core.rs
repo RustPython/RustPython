@@ -468,7 +468,7 @@ unsafe impl Link for WeakLink {
     }
 }
 
-#[pyclass(name = "weakref", module = false)]
+#[pyclass(name = "weakref", module = false, ctx = weakref_type)]
 #[derive(Debug)]
 pub struct PyWeak {
     pointers: Pointers<Py<PyWeak>>,

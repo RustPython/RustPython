@@ -43,7 +43,7 @@ mod _contextvars {
     type Hamt = IndexMap<PyRef<ContextVar>, PyObjectRef, ahash::RandomState>;
 
     #[pyclass(no_attr, name = "Hamt", module = "contextvars")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     pub(crate) struct HamtObject {
         hamt: RefCell<Hamt>,
     }
@@ -73,7 +73,7 @@ mod _contextvars {
 
     #[pyattr]
     #[pyclass(name = "Context")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     pub(crate) struct PyContext {
         // not to confuse with vm::Context
         inner: ContextInner,
@@ -287,7 +287,7 @@ mod _contextvars {
 
     #[pyattr]
     #[pyclass(name, traverse)]
-    #[derive(PyPayload)]
+    #[derive()]
     struct ContextVar {
         #[pytraverse(skip)]
         name: String,
@@ -537,7 +537,7 @@ mod _contextvars {
 
     #[pyattr]
     #[pyclass(name = "Token")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct ContextToken {
         ctx: PyRef<PyContext>,          // tok_ctx in CPython
         var: PyRef<ContextVar>,         // tok_var in CPython
@@ -585,7 +585,7 @@ mod _contextvars {
     }
 
     #[pyclass(no_attr, name = "Token.MISSING")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     pub(super) struct ContextTokenMissing {}
 
     #[pyclass(with(Representable))]

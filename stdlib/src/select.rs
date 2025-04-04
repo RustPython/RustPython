@@ -329,7 +329,7 @@ mod decl {
     pub(super) mod poll {
         use super::*;
         use crate::vm::{
-            AsObject, PyPayload,
+            AsObject,
             builtins::PyFloat,
             common::lock::PyMutex,
             convert::{IntoPyException, ToPyObject},
@@ -384,7 +384,7 @@ mod decl {
         }
 
         #[pyclass(module = "select", name = "poll")]
-        #[derive(Default, Debug, PyPayload)]
+        #[derive(Default, Debug)]
         pub struct PyPoll {
             // keep sorted
             fds: PyMutex<Vec<pollfd>>,
@@ -522,7 +522,7 @@ mod decl {
         use std::time::{Duration, Instant};
 
         #[pyclass(module = "select", name = "epoll")]
-        #[derive(Debug, rustpython_vm::PyPayload)]
+        #[derive(Debug)]
         pub struct PyEpoll {
             epoll_fd: PyRwLock<Option<OwnedFd>>,
         }

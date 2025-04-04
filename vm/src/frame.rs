@@ -3,7 +3,7 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
         PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyList, PySet,
-        PySlice, PyStr, PyStrInterned, PyStrRef, PyTraceback, PyType,
+        PySlice, PyStr, PyStrInterned, PyStrRef, PyTraceback,
         asyncgenerator::PyAsyncGenWrappedValue,
         function::{PyCell, PyCellRef, PyFunction},
         tuple::{PyTuple, PyTupleRef, PyTupleTyped},
@@ -17,7 +17,7 @@ use crate::{
     scope::Scope,
     source::SourceLocation,
     stdlib::{builtins, typing::_typing},
-    vm::{Context, PyMethod},
+    vm::PyMethod,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -93,7 +93,7 @@ type Lasti = atomic::AtomicU32;
 #[cfg(not(feature = "threading"))]
 type Lasti = std::cell::Cell<u32>;
 
-#[pyclass(module = false, name = "frame")]
+#[pyclass(module = false, name = "frame", ctx = frame_type)]
 pub struct Frame {
     pub code: PyRef<PyCode>,
 
@@ -114,13 +114,6 @@ pub struct Frame {
     // member
     pub trace_lines: PyMutex<bool>,
     pub temporary_refs: PyMutex<Vec<PyObjectRef>>,
-}
-
-impl PyPayload for Frame {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.frame_type
-    }
 }
 
 // Running a frame can result in one of the below:

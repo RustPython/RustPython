@@ -1,4 +1,4 @@
-use super::{PositionIterInternal, PyGenericAlias, PyTupleRef, PyType, PyTypeRef};
+use super::{PositionIterInternal, PyGenericAlias, PyTupleRef, PyTypeRef};
 use crate::atomic_func;
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
@@ -22,7 +22,7 @@ use crate::{
 };
 use std::{fmt, ops::DerefMut};
 
-#[pyclass(module = false, name = "list", unhashable = true, traverse)]
+#[pyclass(module = false, name = "list", unhashable = true, traverse, ctx = list_type)]
 #[derive(Default)]
 pub struct PyList {
     elements: PyRwLock<Vec<PyObjectRef>>,
@@ -46,13 +46,6 @@ impl From<Vec<PyObjectRef>> for PyList {
 impl FromIterator<PyObjectRef> for PyList {
     fn from_iter<T: IntoIterator<Item = PyObjectRef>>(iter: T) -> Self {
         Vec::from_iter(iter).into()
-    }
-}
-
-impl PyPayload for PyList {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.list_type
     }
 }
 
@@ -528,17 +521,10 @@ fn do_sort(
     Ok(())
 }
 
-#[pyclass(module = false, name = "list_iterator", traverse)]
+#[pyclass(module = false, name = "list_iterator", traverse, ctx = list_iterator_type)]
 #[derive(Debug)]
 pub struct PyListIterator {
     internal: PyMutex<PositionIterInternal<PyListRef>>,
-}
-
-impl PyPayload for PyListIterator {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.list_iterator_type
-    }
 }
 
 #[pyclass(with(Unconstructible, IterNext, Iterable))]
@@ -574,17 +560,10 @@ impl IterNext for PyListIterator {
     }
 }
 
-#[pyclass(module = false, name = "list_reverseiterator", traverse)]
+#[pyclass(module = false, name = "list_reverseiterator", traverse, ctx = list_reverseiterator_type)]
 #[derive(Debug)]
 pub struct PyListReverseIterator {
     internal: PyMutex<PositionIterInternal<PyListRef>>,
-}
-
-impl PyPayload for PyListReverseIterator {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.list_reverseiterator_type
-    }
 }
 
 #[pyclass(with(Unconstructible, IterNext, Iterable))]

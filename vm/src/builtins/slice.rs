@@ -1,6 +1,6 @@
 // sliceobject.{h,c} in CPython
 // spell-checker:ignore sliceobject
-use super::{PyStrRef, PyTupleRef, PyType, PyTypeRef};
+use super::{PyStrRef, PyTupleRef, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -13,19 +13,12 @@ use crate::{
 use malachite_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};
 
-#[pyclass(module = false, name = "slice", unhashable = true, traverse)]
+#[pyclass(module = false, name = "slice", unhashable = true, traverse, ctx =slice_type)]
 #[derive(Debug)]
 pub struct PySlice {
     pub start: Option<PyObjectRef>,
     pub stop: PyObjectRef,
     pub step: Option<PyObjectRef>,
-}
-
-impl PyPayload for PySlice {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.slice_type
-    }
 }
 
 #[pyclass(with(Comparable, Representable, Hashable))]
@@ -300,16 +293,9 @@ impl Representable for PySlice {
     }
 }
 
-#[pyclass(module = false, name = "EllipsisType")]
+#[pyclass(module = false, name = "EllipsisType", ctx = ellipsis_type)]
 #[derive(Debug)]
 pub struct PyEllipsis;
-
-impl PyPayload for PyEllipsis {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.ellipsis_type
-    }
-}
 
 impl Constructor for PyEllipsis {
     type Args = ();

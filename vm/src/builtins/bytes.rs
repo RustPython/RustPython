@@ -30,7 +30,7 @@ use bstr::ByteSlice;
 use std::sync::LazyLock;
 use std::{mem::size_of, ops::Deref};
 
-#[pyclass(module = false, name = "bytes")]
+#[pyclass(module = false, name = "bytes", ctx = bytes_type)]
 #[derive(Clone, Debug)]
 pub struct PyBytes {
     inner: PyBytesInner,
@@ -74,13 +74,6 @@ impl AsRef<[u8]> for PyBytes {
 impl AsRef<[u8]> for PyBytesRef {
     fn as_ref(&self) -> &[u8] {
         self.as_bytes()
-    }
-}
-
-impl PyPayload for PyBytes {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.bytes_type
     }
 }
 
@@ -677,17 +670,10 @@ impl Representable for PyBytes {
     }
 }
 
-#[pyclass(module = false, name = "bytes_iterator")]
+#[pyclass(module = false, name = "bytes_iterator", ctx = bytes_iterator_type)]
 #[derive(Debug)]
 pub struct PyBytesIterator {
     internal: PyMutex<PositionIterInternal<PyBytesRef>>,
-}
-
-impl PyPayload for PyBytesIterator {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.bytes_iterator_type
-    }
 }
 
 #[pyclass(with(Unconstructible, IterNext, Iterable))]

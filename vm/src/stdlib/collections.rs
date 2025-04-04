@@ -28,7 +28,7 @@ mod _collections {
 
     #[pyattr]
     #[pyclass(name = "deque", unhashable = true)]
-    #[derive(Debug, Default, PyPayload)]
+    #[derive(Debug, Default)]
     struct PyDeque {
         deque: PyRwLock<VecDeque<PyObjectRef>>,
         maxlen: Option<usize>,
@@ -583,7 +583,7 @@ mod _collections {
 
     #[pyattr]
     #[pyclass(name = "_deque_iterator")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct PyDequeIterator {
         state: usize,
         internal: PyMutex<PositionIterInternal<PyDequeRef>>,
@@ -663,7 +663,7 @@ mod _collections {
 
     #[pyattr]
     #[pyclass(name = "_deque_reverse_iterator")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct PyReverseDequeIterator {
         state: usize,
         // position is counting from the tail

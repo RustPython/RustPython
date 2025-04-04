@@ -1,17 +1,17 @@
 /*! Python `property` descriptor class.
 
 */
-use super::{PyStrRef, PyType, PyTypeRef};
+use super::{PyStrRef, PyTypeRef};
 use crate::common::lock::PyRwLock;
 use crate::function::{IntoFuncArgs, PosArgs};
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     function::{FuncArgs, PySetterValue},
     types::{Constructor, GetDescriptor, Initializer},
 };
 
-#[pyclass(module = false, name = "property", traverse)]
+#[pyclass(module = false, name = "property", traverse, ctx = property_type)]
 #[derive(Debug)]
 pub struct PyProperty {
     getter: PyRwLock<Option<PyObjectRef>>,
@@ -19,13 +19,6 @@ pub struct PyProperty {
     deleter: PyRwLock<Option<PyObjectRef>>,
     doc: PyRwLock<Option<PyObjectRef>>,
     name: PyRwLock<Option<PyObjectRef>>,
-}
-
-impl PyPayload for PyProperty {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.property_type
-    }
 }
 
 #[derive(FromArgs)]

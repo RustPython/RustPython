@@ -1,6 +1,6 @@
 use super::{PyStrInterned, PyStrRef, PyType, type_};
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     convert::TryFromObject,
     function::{FuncArgs, PyComparisonValue, PyMethodDef, PyMethodFlags, PyNativeFn},
@@ -9,18 +9,11 @@ use crate::{
 use std::fmt;
 
 // PyCFunctionObject in CPython
-#[pyclass(name = "builtin_function_or_method", module = false)]
+#[pyclass(name = "builtin_function_or_method", module = false, ctx = builtin_function_or_method_type)]
 pub struct PyNativeFunction {
     pub(crate) value: &'static PyMethodDef,
     pub(crate) zelf: Option<PyObjectRef>,
     pub(crate) module: Option<&'static PyStrInterned>, // None for bound method
-}
-
-impl PyPayload for PyNativeFunction {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.builtin_function_or_method_type
-    }
 }
 
 impl fmt::Debug for PyNativeFunction {
@@ -141,9 +134,8 @@ impl Representable for PyNativeFunction {
 impl Unconstructible for PyNativeFunction {}
 
 // `PyCMethodObject` in CPython
-#[pyclass(name = "builtin_method", module = false, base = "PyNativeFunction")]
+#[pyclass(name = "builtin_method", module = false, base = PyNativeFunction, ctx = builtin_method_type)]
 pub struct PyNativeMethod {
-    pub(crate) func: PyNativeFunction,
     pub(crate) class: &'static Py<PyType>, // TODO: the actual life is &'self
 }
 
@@ -157,43 +149,34 @@ impl PyNativeMethod {
         let prefix = zelf.class.name().to_string();
         Ok(vm
             .ctx
-            .new_str(format!("{}.{}", prefix, &zelf.func.value.name)))
+            .new_str(format!("{}.{}", prefix, &zelf.super_().value.name)))
     }
 
     #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyResult<(PyObjectRef, (PyObjectRef, &'static str))> {
-        // TODO: return (getattr, (self.object, self.name)) if this is a method
+    fn reduce(
+        zelf: &Py<Self>,
+        vm: &VirtualMachine,
+    ) -> PyResult<(PyObjectRef, (PyObjectRef, &'static str))> {
+        // TODO: return (getattr, (zelf.object, zelf.name)) if this is a method
         let getattr = vm.builtins.get_attr("getattr", vm)?;
-        let target = self
-            .func
+        let target = zelf
+            .super_()
             .zelf
             .clone()
-            .unwrap_or_else(|| self.class.to_owned().into());
-        let name = self.func.value.name;
+            .unwrap_or_else(|| zelf.class.to_owned().into());
+        let name = zelf.super_().value.name;
         Ok((getattr, (target, name)))
     }
 
     #[pygetset(name = "__self__")]
     fn __self__(zelf: PyRef<Self>, _vm: &VirtualMachine) -> Option<PyObjectRef> {
-        zelf.func.zelf.clone()
-    }
-}
-
-impl PyPayload for PyNativeMethod {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.builtin_method_type
+        zelf.super_().zelf.clone()
     }
 }
 
 impl fmt::Debug for PyNativeMethod {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "builtin method of {:?} with {:?}",
-            &*self.class.name(),
-            &self.func
-        )
+        write!(f, "builtin method of {:?}", &*self.class.name(),)
     }
 }
 
@@ -205,13 +188,13 @@ impl Comparable for PyNativeMethod {
         _vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
         op.eq_only(|| {
-            if let Some(other) = other.payload::<Self>() {
-                let eq = match (zelf.func.zelf.as_ref(), other.func.zelf.as_ref()) {
+            if let Some(other) = other.downcast_ref::<Self>() {
+                let eq = match (zelf.super_().zelf.as_ref(), other.super_().zelf.as_ref()) {
                     (Some(z), Some(o)) => z.is(o),
                     (None, None) => true,
                     _ => false,
                 };
-                let eq = eq && std::ptr::eq(zelf.func.value, other.func.value);
+                let eq = eq && std::ptr::eq(zelf.super_().value, other.super_().value);
                 Ok(eq.into())
             } else {
                 Ok(PyComparisonValue::NotImplemented)
@@ -224,10 +207,10 @@ impl Callable for PyNativeMethod {
     type Args = FuncArgs;
     #[inline]
     fn call(zelf: &Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        if let Some(zelf) = &zelf.func.zelf {
+        if let Some(zelf) = &zelf.super_().zelf {
             args.prepend_arg(zelf.clone());
         }
-        (zelf.func.value.func)(vm, args)
+        (zelf.super_().value.func)(vm, args)
     }
 }
 
@@ -236,7 +219,7 @@ impl Representable for PyNativeMethod {
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
         Ok(format!(
             "<built-in method {} of {} object at ...>",
-            &zelf.func.value.name,
+            &zelf.super_().value.name,
             zelf.class.name()
         ))
     }

@@ -402,7 +402,7 @@ pub trait BufferResizeGuard {
 }
 
 #[pyclass(module = false, name = "vec_buffer")]
-#[derive(Debug, PyPayload)]
+#[derive(Debug)]
 pub struct VecBuffer {
     data: PyMutex<Vec<u8>>,
 }

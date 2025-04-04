@@ -1,4 +1,4 @@
-use super::{PyDict, PyDictRef, PyGenericAlias, PyList, PyTuple, PyType, PyTypeRef};
+use super::{PyDict, PyDictRef, PyGenericAlias, PyList, PyTuple, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     atomic_func,
@@ -14,7 +14,7 @@ use crate::{
 };
 use std::sync::LazyLock;
 
-#[pyclass(module = false, name = "mappingproxy", traverse)]
+#[pyclass(module = false, name = "mappingproxy", traverse, ctx = mappingproxy_type)]
 #[derive(Debug)]
 pub struct PyMappingProxy {
     mapping: MappingProxyInner,
@@ -32,13 +32,6 @@ unsafe impl Traverse for MappingProxyInner {
             MappingProxyInner::Class(r) => r.traverse(tracer_fn),
             MappingProxyInner::Mapping(arg) => arg.traverse(tracer_fn),
         }
-    }
-}
-
-impl PyPayload for PyMappingProxy {
-    type Super = crate::builtins::PyBaseObject;
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.mappingproxy_type
     }
 }
 
