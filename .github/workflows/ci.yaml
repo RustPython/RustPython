@@ -313,13 +313,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: install extra dictionaries
-        run: npm install @cspell/dict-en_us @cspell/dict-cpp @cspell/dict-python @cspell/dict-rust @cspell/dict-win32 @cspell/dict-shell
-      - name: spell checker
-        uses: streetsidesoftware/cspell-action@v6
-        with:
-          files: '**/*.rs'
-          incremental_files_only: true
       - uses: dtolnay/rust-toolchain@stable
         with:
             components: rustfmt, clippy
@@ -339,6 +332,14 @@ jobs:
       - name: check wasm code with prettier
         # prettier doesn't handle ignore files very well: https://github.com/prettier/prettier/issues/8506
         run: cd wasm && git ls-files -z | xargs -0 prettier --check -u
+      # Keep cspell check as the last step. This is optional test.
+      - name: install extra dictionaries
+        run: npm install @cspell/dict-en_us @cspell/dict-cpp @cspell/dict-python @cspell/dict-rust @cspell/dict-win32 @cspell/dict-shell
+      - name: spell checker
+        uses: streetsidesoftware/cspell-action@v6
+        with:
+          files: '**/*.rs'
+          incremental_files_only: true
 
   miri:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
