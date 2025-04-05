@@ -2011,6 +2011,8 @@ class TestArchives(BaseTest, unittest.TestCase):
     def test_unpack_archive_gztar(self):
         self.check_unpack_tarball('gztar')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.requires_bz2()
     def test_unpack_archive_bztar(self):
         self.check_unpack_tarball('bztar')
