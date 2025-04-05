@@ -1,9 +1,9 @@
 //! Python struct module.
 //!
-//! Docs: https://docs.python.org/3/library/struct.html
+//! Docs: <https://docs.python.org/3/library/struct.html>
 //!
 //! Use this rust module to do byte packing:
-//! https://docs.rs/byteorder/1.2.6/byteorder/
+//! <https://docs.rs/byteorder/1.2.6/byteorder/>
 
 pub(crate) use _struct::make_module;
 

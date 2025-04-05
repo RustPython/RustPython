@@ -1,14 +1,14 @@
 //! Essential types for object models
 //!
-//! +-------------------------+--------------+---------------+
-//! |       Management        |    Typed     |    Untyped    |
-//! +-------------------------+--------------+---------------+
-//! | Interpreter-independent | Py<T>        | PyObject      |
-//! | Reference-counted       | PyRef<T>     | PyObjectRef   |
-//! | Weak                    | PyWeakRef<T> | PyRef<PyWeak> |
-//! +-------------------------+--------------+---------------+
+//! +-------------------------+--------------+-----------------------+
+//! |       Management        |       Typed      |      Untyped      |
+//! +-------------------------+------------------+-------------------+
+//! | Interpreter-independent | [`Py<T>`]        | [`PyObject`]      |
+//! | Reference-counted       | [`PyRef<T>`]     | [`PyObjectRef`]   |
+//! | Weak                    | [`PyWeakRef<T>`] | [`PyRef<PyWeak>`] |
+//! +-------------------------+--------------+-----------------------+
 //!
-//! PyRef<PyWeak> may looking like to be called as PyObjectWeak by the rule,
+//! [`PyRef<PyWeak>`] may looking like to be called as PyObjectWeak by the rule,
 //! but not to do to remember it is a PyRef object.
 use super::{
     PyAtomicRef,

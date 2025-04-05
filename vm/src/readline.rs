@@ -1,3 +1,8 @@
+//! Readline interface for REPLs
+//!
+//! This module provides a common interface for reading lines from the console, with support for history and completion.
+//! It uses the [`rustyline`] crate on non-WASM platforms and a custom implementation on WASM platforms.
+
 use std::{io, path::Path};
 
 type OtherError = Box<dyn std::error::Error>;

@@ -1,5 +1,4 @@
-/* Several function to retrieve version information.
- */
+//! Several function to retrieve version information.
 
 use chrono::{Local, prelude::DateTime};
 use std::time::{Duration, UNIX_EPOCH};

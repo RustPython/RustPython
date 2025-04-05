@@ -1,4 +1,4 @@
-//! This module is modified from tokio::util::linked_list: https://github.com/tokio-rs/tokio/blob/master/tokio/src/util/linked_list.rs
+//! This module is modified from tokio::util::linked_list: <https://github.com/tokio-rs/tokio/blob/master/tokio/src/util/linked_list.rs>
 //! Tokio is licensed under the MIT license:
 //!
 //! Copyright (c) 2021 Tokio Contributors

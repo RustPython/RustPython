@@ -64,7 +64,7 @@ impl Interpreter {
     ///
     /// To finalize the vm once all desired `enter`s are called, calling `finalize` will be helpful.
     ///
-    /// See also [`run`] for managed way to run the interpreter.
+    /// See also [`Interpreter::run`] for managed way to run the interpreter.
     pub fn enter<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&VirtualMachine) -> R,
@@ -72,13 +72,12 @@ impl Interpreter {
         thread::enter_vm(&self.vm, || f(&self.vm))
     }
 
-    /// Run [`enter`] and call `expect_pyresult` for the result.
+    /// Run [`Interpreter::enter`] and call [`VirtualMachine::expect_pyresult`] for the result.
     ///
     /// This function is useful when you want to expect a result from the function,
     /// but also print useful panic information when exception raised.
     ///
-    /// See [`enter`] for more information.
-    /// See [`expect_pyresult`] for more information.
+    /// See also [`Interpreter::enter`] and [`VirtualMachine::expect_pyresult`] for more information.
     pub fn enter_and_expect<F, R>(&self, f: F, msg: &str) -> R
     where
         F: FnOnce(&VirtualMachine) -> PyResult<R>,
@@ -92,11 +91,11 @@ impl Interpreter {
     /// Run a function with the main virtual machine and return exit code.
     ///
     /// To enter vm context only once and safely terminate the vm, this function is preferred.
-    /// Unlike [`enter`], `run` calls finalize and returns exit code.
+    /// Unlike [`Interpreter::enter`], `run` calls finalize and returns exit code.
     /// You will not be able to obtain Python exception in this way.
     ///
-    /// See [`finalize`] for the finalization steps.
-    /// See also [`enter`] for pure function call to obtain Python exception.
+    /// See [`Interpreter::finalize`] for the finalization steps.
+    /// See also [`Interpreter::enter`] for pure function call to obtain Python exception.
     pub fn run<F>(self, f: F) -> u8
     where
         F: FnOnce(&VirtualMachine) -> PyResult<()>,

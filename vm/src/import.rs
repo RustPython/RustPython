@@ -1,6 +1,5 @@
-/*
- * Import mechanics
- */
+//! Import mechanics
+
 use crate::{
     AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     builtins::{PyBaseExceptionRef, PyCode, list, traceback::PyTraceback},
