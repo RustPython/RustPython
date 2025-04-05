@@ -1208,7 +1208,7 @@ impl ToTokens for MemberNursery {
 struct MethodItemMeta(ItemMetaInner);
 
 impl ItemMeta for MethodItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "private", "case", "raw"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "case"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -1231,7 +1231,7 @@ impl MethodItemMeta {
 struct GetSetItemMeta(ItemMetaInner);
 
 impl ItemMeta for GetSetItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "private", "case", "setter", "deleter"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "case", "setter", "deleter"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -1364,7 +1364,7 @@ impl SlotItemMeta {
 struct MemberItemMeta(ItemMetaInner);
 
 impl ItemMeta for MemberItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["magic", "private", "case", "type", "setter"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "case", "type", "setter"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)

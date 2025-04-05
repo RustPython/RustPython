@@ -219,7 +219,7 @@ pub(crate) mod _ctypes {
         Ok(())
     }
 
-    #[pyfunction(case = "upper")]
+    #[pyfunction(case = "uppercase")]
     pub fn pointer(_cls: PyTypeRef) {}
 
     #[pyfunction(name = "pointer")]
@@ -231,7 +231,7 @@ pub(crate) mod _ctypes {
     }
 
     #[cfg(target_os = "windows")]
-    #[pyfunction(private)]
+    #[pyfunction(case = "private")]
     pub fn check_hresult(_self: PyObjectRef, hr: i32, _vm: &VirtualMachine) -> PyResult<i32> {
         // TODO: fixme
         if hr < 0 {
