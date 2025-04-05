@@ -48,7 +48,7 @@ impl PyGenerator {
     }
 
     #[pygetset]
-    fn gi_frame(&self, _vm: &VirtualMachine) -> FrameRef {
+    fn gi_frame(&self, _vm: &VirtualMachine) -> Option<FrameRef> {
         self.inner.frame()
     }
     #[pygetset]
@@ -56,12 +56,12 @@ impl PyGenerator {
         self.inner.running()
     }
     #[pygetset]
-    fn gi_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
-        self.inner.frame().code.clone()
+    fn gi_code(&self, _vm: &VirtualMachine) -> Option<PyRef<PyCode>> {
+        self.inner.frame().map(|x| x.code.clone())
     }
     #[pygetset]
     fn gi_yieldfrom(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
-        self.inner.frame().yield_from_target()
+        self.inner.frame().and_then(|x| x.yield_from_target())
     }
 }
 
