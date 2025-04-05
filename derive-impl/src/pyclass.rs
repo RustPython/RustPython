@@ -2,7 +2,7 @@ use super::Diagnostic;
 use crate::util::{
     ALL_ALLOWED_NAMES, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec, ExceptionItemMeta,
     ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, format_doc, pyclass_ident_and_attrs,
-    pyexception_ident_and_attrs, text_signature,
+    pyexception_ident_and_attrs, text_signature, handle_custom_name
 };
 use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
 use quote::{ToTokens, quote, quote_spanned};
@@ -853,7 +853,7 @@ where
 
         let get_py_name = |attr: &Attribute, ident: &Ident| -> Result<_> {
             let item_meta = SimpleItemMeta::from_attr(ident.clone(), attr)?;
-            let py_name = item_meta.simple_name()?;
+            let py_name = item_meta.get_name()?;
             Ok(py_name)
         };
         let (ident, py_name, tokens) =
@@ -1208,7 +1208,7 @@ impl ToTokens for MemberNursery {
 struct MethodItemMeta(ItemMetaInner);
 
 impl ItemMeta for MethodItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "raw"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "private", "case", "raw"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -1224,28 +1224,14 @@ impl MethodItemMeta {
     }
     fn method_name(&self) -> Result<String> {
         let inner = self.inner();
-        let name = inner._optional_str("name")?;
-        let magic = inner._bool("magic")?;
-        if magic && name.is_some() {
-            bail_span!(
-                &inner.meta_ident,
-                "A #[{}] method cannot be magic and have a specified name, choose one.",
-                inner.meta_name()
-            );
-        }
-        Ok(if let Some(name) = name {
-            name
-        } else {
-            let name = inner.item_name();
-            if magic { format!("__{name}__") } else { name }
-        })
+        handle_custom_name(inner, &inner.item_name())
     }
 }
 
 struct GetSetItemMeta(ItemMetaInner);
 
 impl ItemMeta for GetSetItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "setter", "deleter"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "private", "case", "setter", "deleter"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -1258,7 +1244,6 @@ impl ItemMeta for GetSetItemMeta {
 impl GetSetItemMeta {
     fn getset_name(&self) -> Result<(String, GetSetItemKind)> {
         let inner = self.inner();
-        let magic = inner._bool("magic")?;
         let kind = match (inner._bool("setter")?, inner._bool("deleter")?) {
             (false, false) => GetSetItemKind::Get,
             (true, false) => GetSetItemKind::Set,
@@ -1304,7 +1289,7 @@ impl GetSetItemMeta {
                 GetSetItemKind::Set => extract_prefix_name("set_", "setter")?,
                 GetSetItemKind::Delete => extract_prefix_name("del_", "deleter")?,
             };
-            if magic { format!("__{name}__") } else { name }
+            handle_custom_name(inner, &name)?
         };
         Ok((py_name, kind))
     }
@@ -1379,7 +1364,7 @@ impl SlotItemMeta {
 struct MemberItemMeta(ItemMetaInner);
 
 impl ItemMeta for MemberItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["magic", "type", "setter"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["magic", "private", "case", "type", "setter"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -1416,7 +1401,6 @@ impl MemberItemMeta {
                 ))
             }
         };
-        let magic = inner._bool("magic")?;
         let kind = if inner._bool("setter")? {
             MemberItemKind::Set
         } else {
@@ -1426,7 +1410,8 @@ impl MemberItemMeta {
             MemberItemKind::Get => sig_name,
             MemberItemKind::Set => extract_prefix_name("set_", "setter")?,
         };
-        Ok((if magic { format!("__{name}__") } else { name }, kind))
+        let name = handle_custom_name(inner, &name)?;
+        Ok((name, kind))
     }
 
     fn member_kind(&self) -> Result<Option<String>> {

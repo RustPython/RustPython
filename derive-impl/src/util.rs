@@ -8,6 +8,8 @@ use syn_ext::{
     types::*,
 };
 
+use convert_case::{Case, Casing};
+
 pub(crate) const ALL_ALLOWED_NAMES: &[&str] = &[
     "pymethod",
     "pyclassmethod",
@@ -253,15 +255,17 @@ pub(crate) trait ItemMeta: Sized {
     fn from_inner(inner: ItemMetaInner) -> Self;
     fn inner(&self) -> &ItemMetaInner;
 
-    fn simple_name(&self) -> Result<String> {
-        let inner = self.inner();
-        Ok(inner
-            ._optional_str("name")?
-            .unwrap_or_else(|| inner.item_name()))
+    fn get_name(&self) -> Result<String> {
+        handle_custom_name(self.inner(), &self.inner().item_name())
     }
 
-    fn optional_name(&self) -> Option<String> {
-        self.inner()._optional_str("name").ok().flatten()
+    fn optional_name(&self) -> Result<Option<String>> {
+        let new_name = self.get_name()?;
+        if new_name != self.inner().item_name() {
+            Ok(Some(new_name))
+        } else {
+            Ok(None)
+        }
     }
 
     fn new_meta_error(&self, msg: &str) -> syn::Error {
@@ -272,7 +276,7 @@ pub(crate) trait ItemMeta: Sized {
 pub(crate) struct SimpleItemMeta(pub ItemMetaInner);
 
 impl ItemMeta for SimpleItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "private", "case"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -742,4 +746,37 @@ fn func_sig(sig: &Signature) -> String {
 
 pub(crate) fn format_doc(sig: &str, doc: &str) -> String {
     format!("{sig}\n--\n\n{doc}")
+}
+
+pub(crate) fn handle_custom_name(
+    inner: &ItemMetaInner,
+    default_name: &str,
+) -> Result<String> {
+    let name = inner._optional_str("name").ok().flatten();
+    let magic = inner._bool("magic").ok().unwrap_or(false);
+    let private = inner._bool("private").ok().unwrap_or(false);
+    let case = inner._optional_str("case").ok().flatten();
+    let mut working_name = name.unwrap_or_else(|| default_name.to_string());
+    if magic && private {
+        bail_span!(&inner.meta_ident, "Magic and private cannot be used together");
+    }
+    if let Some(case) = case {
+        working_name = match case.as_str() {
+            "lower" => working_name.to_lowercase(),
+            "upper" => working_name.to_uppercase(),
+            "constant" => working_name.to_case(Case::Constant),
+            "snake" => working_name.to_case(Case::Snake),
+            "camel" => working_name.to_case(Case::Camel),
+            "pascal" => working_name.to_case(Case::Pascal),
+            _ => bail_span!(&inner.meta_ident, "Unknown case: {case}"),
+        };
+    }
+
+    if private {
+        working_name = format!("_{working_name}");
+    }
+    if magic {
+        working_name = format!("__{working_name}__");
+    }
+    Ok(working_name)
 }
