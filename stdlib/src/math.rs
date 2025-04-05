@@ -975,4 +975,28 @@ mod math {
 
         Ok(result)
     }
+
+    #[pyfunction]
+    fn fma(
+        x: ArgIntoFloat,
+        y: ArgIntoFloat,
+        z: ArgIntoFloat,
+        vm: &VirtualMachine,
+    ) -> PyResult<f64> {
+        let result = (*x).mul_add(*y, *z);
+
+        if result.is_finite() {
+            return Ok(result);
+        }
+
+        if result.is_nan() {
+            if !x.is_nan() && !y.is_nan() && !z.is_nan() {
+                return Err(vm.new_value_error("invalid operation in fma".to_string()));
+            }
+        } else if x.is_finite() && y.is_finite() && z.is_finite() {
+            return Err(vm.new_overflow_error("overflow in fma".to_string()));
+        }
+
+        Ok(result)
+    }
 }
