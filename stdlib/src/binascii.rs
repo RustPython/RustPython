@@ -759,7 +759,8 @@ impl ToPyException for Base64DecodeError {
                     length
                 )
             }
-            InvalidLength(_) => "Incorrect length".to_owned(),
+            // TODO: clean up errors
+            InvalidLength(_) => "Incorrect padding".to_owned(),
             InvalidPadding => "Incorrect padding".to_owned(),
         };
         new_binascii_error(format!("error decoding base64: {message}"), vm)
