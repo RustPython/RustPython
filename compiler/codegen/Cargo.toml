@@ -33,8 +33,7 @@ memchr = { workspace = true }
 unicode_names2 = { workspace = true }
 
 [dev-dependencies]
-# rustpython-parser = { workspace = true }
-
+ruff_python_parser = { workspace = true }
 insta = { workspace = true }
 
 [lints]

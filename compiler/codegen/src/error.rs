@@ -1,6 +1,21 @@
 use ruff_source_file::SourceLocation;
-use std::fmt;
+use std::fmt::{self, Display};
 use thiserror::Error;
+
+#[derive(Debug)]
+pub enum PatternUnreachableReason {
+    NameCapture,
+    Wildcard,
+}
+
+impl Display for PatternUnreachableReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NameCapture => write!(f, "name capture"),
+            Self::Wildcard => write!(f, "wildcard"),
+        }
+    }
+}
 
 // pub type CodegenError = rustpython_parser_core::source_code::LocatedError<CodegenErrorType>;
 
@@ -47,8 +62,9 @@ pub enum CodegenErrorType {
     TooManyStarUnpack,
     EmptyWithItems,
     EmptyWithBody,
+    ForbiddenName,
     DuplicateStore(String),
-    InvalidMatchCase,
+    UnreachablePattern(PatternUnreachableReason),
     NotImplementedYet, // RustPython marker for unimplemented features
 }
 
@@ -94,11 +110,14 @@ impl fmt::Display for CodegenErrorType {
             EmptyWithBody => {
                 write!(f, "empty body on With")
             }
+            ForbiddenName => {
+                write!(f, "forbidden attribute name")
+            }
             DuplicateStore(s) => {
                 write!(f, "duplicate store {s}")
             }
-            InvalidMatchCase => {
-                write!(f, "invalid match case")
+            UnreachablePattern(reason) => {
+                write!(f, "{reason} makes remaining patterns unreachable")
             }
             NotImplementedYet => {
                 write!(f, "RustPython does not implement this feature yet")
