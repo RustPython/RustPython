@@ -2451,7 +2451,9 @@ class Tk(Misc, Wm):
         self.tk = None
         if baseName is None:
             import os
-            baseName = os.path.basename(sys.argv[0])
+            # TODO: RUSTPYTHON
+            # baseName = os.path.basename(sys.argv[0])
+            baseName = "" # sys.argv[0]
             baseName, ext = os.path.splitext(baseName)
             if ext not in ('.py', '.pyc'):
                 baseName = baseName + ext
