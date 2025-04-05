@@ -47,9 +47,9 @@ From PyPy v1.0.0
 #from unicodecodec import *
 
 __all__ = ['register', 'lookup', 'lookup_error', 'register_error', 'encode', 'decode',
-           'latin_1_encode', 'mbcs_decode', 'readbuffer_encode', 'escape_encode',
+           'mbcs_decode', 'readbuffer_encode', 'escape_encode',
            'utf_8_decode', 'raw_unicode_escape_decode', 'utf_7_decode',
-           'unicode_escape_encode', 'latin_1_decode', 'utf_16_decode',
+           'unicode_escape_encode', 'utf_16_decode',
            'unicode_escape_decode', 'ascii_decode', 'charmap_encode', 'charmap_build',
            'unicode_internal_encode', 'unicode_internal_decode', 'utf_16_ex_decode',
            'escape_decode', 'charmap_decode', 'utf_7_encode', 'mbcs_encode',
@@ -61,12 +61,6 @@ import warnings
 from _codecs import *
 
 
-def latin_1_encode( obj, errors='strict'):
-    """None
-    """
-    res = PyUnicode_EncodeLatin1(obj, len(obj), errors)
-    res = bytes(res)
-    return res, len(obj)
 # XXX MBCS codec might involve ctypes ?
 def mbcs_decode():
     """None
@@ -114,12 +108,6 @@ def unicode_escape_encode( obj, errors='strict'):
     res = b''.join(res)
     return res, len(obj)
 
-def latin_1_decode( data, errors='strict'):
-    """None
-    """
-    res = PyUnicode_DecodeLatin1(data, len(data), errors)
-    res = ''.join(res)
-    return res, len(data)
 
 def utf_16_decode( data, errors='strict', final=False):
     """None
