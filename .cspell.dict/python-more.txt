@@ -224,6 +224,7 @@ sysvars
 teedata
 thisclass
 titlecased
+tkapp
 tobytes
 tolist
 toreadonly
