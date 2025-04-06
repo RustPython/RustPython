@@ -244,9 +244,9 @@ impl VirtualMachine {
 
         if let Some(text) = maybe_text {
             // if text ends with \n, remove it
-            let rtext = text.as_str().trim_end_matches('\n');
-            let l_text = rtext.trim_start_matches([' ', '\n', '\x0c']); // \x0c is \f
-            let spaces = (rtext.len() - l_text.len()) as isize;
+            let r_text = text.as_str().trim_end_matches('\n');
+            let l_text = r_text.trim_start_matches([' ', '\n', '\x0c']); // \x0c is \f
+            let spaces = (r_text.len() - l_text.len()) as isize;
 
             writeln!(output, "    {}", l_text)?;
 
