@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,importlib,encodings,sqlite,ssl
+  CARGO_ARGS: --no-default-features --features stdlib,importlib,encodings,sqlite,ssl,tkinter
   # Skip additional tests on Windows. They are checked on Linux and MacOS.
   # test_glob: many failing tests
   # test_io: many failing tests
@@ -137,8 +137,11 @@ jobs:
           cargo vcpkg -v build
         if: runner.os == 'Windows'
       - name: Set up the Mac environment
-        run: brew install autoconf automake libtool
+        run: brew install autoconf automake libtool tcl-tk@8 pkg-config
         if: runner.os == 'macOS'
+      - name: Set up the Linux environment
+        run: sudo apt-get install tk-dev
+        if: runner.os == 'Linux'
 
       - name: run clippy
         run: cargo clippy ${{ env.CARGO_ARGS }} --workspace --all-targets --exclude rustpython_wasm -- -Dwarnings
@@ -257,12 +260,16 @@ jobs:
         shell: bash
         run: |
           git config --system core.longpaths true
-          cargo install cargo-vcpkg
-          cargo vcpkg build
+          cargo install --target-dir=target -v cargo-vcpkg
+          cargo vcpkg -v build
         if: runner.os == 'Windows'
       - name: Set up the Mac environment
-        run: brew install autoconf automake libtool openssl@3
+        run: brew install autoconf automake libtool tcl-tk@8 pkg-config
         if: runner.os == 'macOS'
+      - name: Set up the Linux environment
+        run: sudo apt-get install tk-dev
+        if: runner.os == 'Linux'
+
       - name: build rustpython
         run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }}
         if: runner.os == 'macOS'
