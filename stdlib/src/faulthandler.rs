@@ -246,7 +246,12 @@ mod decl {
     unsafe impl Send for WatchdogThread {}
     unsafe impl Sync for WatchdogThread {}
 
+    #[cfg(feature = "threading")]
     static WATCHDOG: OnceLock<PyMutex<WatchdogThread>> = OnceLock::new();
+    #[cfg(not(feature = "threading"))]
+    thread_local! {
+        static WATCHDOG: OnceLock<PyMutex<WatchdogThread>> = OnceLock::new();
+    }
 
     fn get_watchdog() -> &'static PyMutex<WatchdogThread> {
         WATCHDOG.get_or_init(|| {
