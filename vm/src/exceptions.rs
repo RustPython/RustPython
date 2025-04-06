@@ -1240,7 +1240,7 @@ pub(super) mod types {
 
     #[pyexception(name, base = "PyBaseException", ctx = "base_exception_group")]
     #[derive(Debug)]
-    #[allow(clippy::unused, clippy::dead_code)]
+    #[allow(unused, dead_code)]
     pub struct PyBaseExceptionGroup {
         pub(super) traceback: PyRwLock<Option<PyTracebackRef>>,
         pub(super) cause: PyRwLock<Option<PyRef<Self>>>,
