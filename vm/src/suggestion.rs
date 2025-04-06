@@ -12,7 +12,7 @@ use std::iter::ExactSizeIterator;
 
 const MAX_CANDIDATE_ITEMS: usize = 750;
 
-fn calculate_suggestions<'a>(
+pub fn calculate_suggestions<'a>(
     dir_iter: impl ExactSizeIterator<Item = &'a PyObjectRef>,
     name: &PyObjectRef,
 ) -> Option<PyStrRef> {
