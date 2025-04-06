@@ -5,7 +5,6 @@ mod decl {
     use std::sync::OnceLock;
     use std::sync::{Arc, atomic::AtomicBool};
     use std::thread;
-    use std::time::Duration;
 
     use crate::vm::{PyObjectRef, PyResult};
     use num_traits::ToPrimitive;
@@ -133,8 +132,6 @@ mod decl {
         }
 
         // Notify cancellation:
-        // Here we “release” the cancel_event by taking it out (dropping the lock)
-        // so that a waiting watchdog thread may proceed.
         wd.cancel_event = None;
         drop(wd);
 
@@ -172,7 +169,7 @@ mod decl {
 
     fn faulthandler_thread() {
         // Take a snapshot of the needed watchdog state.
-        let (_fd, timeout_us, exit, repeat, vm, header, cancel_event, running) = {
+        let (_fd, _timeout_us, exit, repeat, vm, header, cancel_event, running) = {
             let wd = get_watchdog().lock();
             (
                 wd.fd,
@@ -189,9 +186,8 @@ mod decl {
         loop {
             // Try to acquire cancel_event with a timeout.
             let cancelled = if let Some(ref cancel) = cancel_event {
-                // We assume that PyMutex (from rustpython_common::lock) is based on parking_lot
-                // and thus supports try_lock_for.
-                if let Some(_guard) = cancel.try_lock_for(Duration::from_micros(timeout_us)) {
+                // TODO: use try_lock_for instead
+                if let Some(_guard) = cancel.try_lock() {
                     // Cancel event acquired: thread cancellation was signaled.
                     true
                 } else {
