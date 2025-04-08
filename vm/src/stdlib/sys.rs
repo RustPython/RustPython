@@ -308,6 +308,7 @@ mod sys {
             .collect()
     }
 
+    #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
     fn _baserepl(vm: &VirtualMachine) -> PyResult<()> {
         // read stdin to end
