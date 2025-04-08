@@ -1,10 +1,13 @@
 use std::{cell::RefCell, ffi, sync::Arc};
 
-use rustpython_vm as vm;
+use rustpython_vm::{self as vm, PyObject, PyObjectRef};
 
-mod error;
-mod int;
-mod tuple;
+pub mod bool;
+pub mod complex;
+pub mod error;
+pub mod float;
+pub mod int;
+pub mod tuple;
 
 thread_local! {
     pub static VM: RefCell<Option<Arc<vm::VirtualMachine>>> = const { RefCell::new(None) };
@@ -12,6 +15,10 @@ thread_local! {
 
 fn get_vm() -> Arc<vm::VirtualMachine> {
     VM.with(|vm| vm.borrow().as_ref().unwrap().clone())
+}
+
+fn cast_obj_ptr(obj: *mut PyObject) -> Option<PyObjectRef> {
+    Some(unsafe { PyObjectRef::from_raw(std::ptr::NonNull::new(obj)?) })
 }
 
 #[repr(C)]

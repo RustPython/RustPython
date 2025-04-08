@@ -15,8 +15,20 @@ crate-type = ["cdylib"]
 
 [dependencies]
 malachite-bigint = { workspace = true }
+num-complex = { workspace = true }
+
 rustpython-common = { workspace = true }
 rustpython-vm = { workspace = true }
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "allow"
+unsafe_op_in_unsafe_fn = "deny"
+elided_lifetimes_in_paths = "warn"
+
+[lints.clippy]
+perf = "warn"
+style = "warn"
+complexity = "warn"
+suspicious = "warn"
+correctness = "warn"
+missing_safety_doc = "allow"
