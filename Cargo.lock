@@ -2196,6 +2196,7 @@ name = "rustpython-capi"
 version = "0.4.0"
 dependencies = [
  "malachite-bigint",
+ "num-complex",
  "rustpython-common",
  "rustpython-vm",
 ]
