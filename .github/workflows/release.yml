@@ -80,20 +80,6 @@ jobs:
         run: cp target/${{ matrix.platform.target }}/release/rustpython.exe target/rustpython-release-${{ runner.os }}-${{ matrix.platform.target }}.exe
         if: runner.os == 'Windows'
 
-      - name: Install cargo-packager
-        run: cargo binstall cargo-packager
-
-      - name: Generate MSI
-        if: runner.os == 'Windows'
-        run: cargo packager -f wix --release -o installer
-
-      - name: Upload MSI
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: rustpython-installer-msi-${{ runner.os }}-${{ matrix.platform.target }}
-          path: installer/*.msi
-
       - name: Upload Binary Artifacts
         uses: actions/upload-artifact@v4
         with:
