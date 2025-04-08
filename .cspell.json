@@ -68,6 +68,7 @@
     "groupref",
     "internable",
     "makeunicodedata",
+    "mimalloc",
     "miri",
     "notrace",
     "openat",
