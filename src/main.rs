@@ -1,4 +1,7 @@
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+#[cfg(all(
+    any(target_os = "linux", target_os = "macos", target_os = "windows"),
+    not(any(target_env = "musl", target_env = "sgx"))
+))]
 mod _alloc {
     use mimalloc::MiMalloc;
 
