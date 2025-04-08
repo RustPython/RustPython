@@ -69,6 +69,7 @@
     "internable",
     "lossily",
     "makeunicodedata",
+    "mimalloc",
     "miri",
     "notrace",
     "openat",
