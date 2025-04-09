@@ -303,6 +303,7 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
     Ok(tokens)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn generate_class_def(
     ident: &Ident,
     name: &str,

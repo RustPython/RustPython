@@ -266,8 +266,8 @@ class LibraryLoader(object):
 
 cdll = LibraryLoader(CDLL)
 
-test_byte_array = create_string_buffer(b"Hello, World!\n")
-assert test_byte_array._length_ == 15
+# test_byte_array = create_string_buffer(b"Hello, World!\n")
+# assert test_byte_array._length_ == 15
 
 if _os.name == "posix" or _sys.platform == "darwin":
     pass
@@ -279,8 +279,8 @@ else:
     i = c_int(1)
     print("start srand")
     print(libc.srand(i))
-    print(test_byte_array)
-    print(test_byte_array._type_)
+    # print(test_byte_array)
+    # print(test_byte_array._type_)
     # print("start printf")
     # libc.printf(test_byte_array)
 

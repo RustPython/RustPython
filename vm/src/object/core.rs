@@ -675,7 +675,7 @@ where
     }
 
     pub fn build(self, ctx: &Context) -> PyRef<T> {
-        self._build(T::class(&ctx).to_owned(), ctx)
+        self._build(T::class(ctx).to_owned(), ctx)
     }
 
     pub fn build_exact(self, ctx: &Context) -> PyRefExact<T> {

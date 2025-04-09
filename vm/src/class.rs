@@ -12,6 +12,11 @@ use crate::{
 };
 use rustpython_common::static_cell;
 
+/// A type that represents a statically-allocated Python class.
+///
+/// # Safety
+///
+/// `type_id` must be accurate.
 pub unsafe trait StaticType {
     // Ideally, saving PyType is better than PyTypeRef
     fn static_cell() -> &'static static_cell::StaticCell<PyTypeRef>;
