@@ -47,10 +47,8 @@
   // words - list of words to be always considered correct
   "words": [
     "RUSTPYTHONPATH",
-    // RustPython
     "aiterable",
     "alnum",
-    "awaitpromise",
     "baseclass",
     "boxvec",
     "Bytecode",
@@ -71,7 +69,6 @@
     "lossily",
     "makeunicodedata",
     "miri",
-    "nonoverlapping",
     "notrace",
     "openat",
     "pyarg",
@@ -109,7 +106,6 @@
     "rustpy",
     "RustPython",
     "struc",
-    "surrogateescape",
     "sysmodule",
     "tracebacks",
     "typealiases",
