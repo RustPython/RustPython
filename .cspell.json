@@ -68,8 +68,6 @@
     "GetSet",
     "groupref",
     "internable",
-    "jserr",
-    "jsresult",
     "lossily",
     "makeunicodedata",
     "miri",
