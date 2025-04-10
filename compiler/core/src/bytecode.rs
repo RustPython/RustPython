@@ -381,6 +381,7 @@ pub type NameIdx = u32;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Instruction {
+    Nop,
     /// Importing by name
     ImportName {
         idx: Arg<NameIdx>,
@@ -429,21 +430,33 @@ pub enum Instruction {
     BinaryOperationInplace {
         op: Arg<BinaryOperator>,
     },
+    BinarySubscript,
     LoadAttr {
         idx: Arg<NameIdx>,
     },
     TestOperation {
         op: Arg<TestOperator>,
     },
+    /// If the argument is true, perform IS NOT. Otherwise perform the IS operation.
+    // TODO: duplication of TestOperator::{Is,IsNot}. Fix later.
+    IsOperation(Arg<bool>),
     CompareOperation {
         op: Arg<ComparisonOperator>,
     },
+    CopyItem {
+        index: Arg<u32>,
+    },
     Pop,
+    Swap {
+        index: Arg<u32>,
+    },
+    // ToBool,
     Rotate2,
     Rotate3,
     Duplicate,
     Duplicate2,
     GetIter,
+    GetLen,
     Continue {
         target: Arg<Label>,
     },
@@ -602,6 +615,10 @@ pub enum Instruction {
     GetAIter,
     GetANext,
     EndAsyncFor,
+    MatchMapping,
+    MatchSequence,
+    MatchKeys,
+    MatchClass(Arg<u32>),
     ExtendedArg,
     TypeVar,
     TypeVarWithBound,
@@ -1191,6 +1208,7 @@ impl Instruction {
     ///
     pub fn stack_effect(&self, arg: OpArg, jump: bool) -> i32 {
         match self {
+            Nop => 0,
             ImportName { .. } | ImportNameless => -1,
             ImportStar => -1,
             ImportFrom { .. } => 1,
@@ -1209,12 +1227,18 @@ impl Instruction {
             BinaryOperation { .. }
             | BinaryOperationInplace { .. }
             | TestOperation { .. }
-            | CompareOperation { .. } => -1,
+            | CompareOperation { .. }
+            | IsOperation(..) => -1,
+            BinarySubscript => -1,
+            CopyItem { .. } => 1,
             Pop => -1,
+            Swap { .. } => 0,
+            // ToBool => 0,
             Rotate2 | Rotate3 => 0,
             Duplicate => 1,
             Duplicate2 => 2,
             GetIter => 0,
+            GetLen => 1,
             Continue { .. } => 0,
             Break { .. } => 0,
             Jump { .. } => 0,
@@ -1301,6 +1325,9 @@ impl Instruction {
             GetAIter => 0,
             GetANext => 1,
             EndAsyncFor => -2,
+            MatchMapping | MatchSequence => 0,
+            MatchKeys => -1,
+            MatchClass(_) => -2,
             ExtendedArg => 0,
             TypeVar => 0,
             TypeVarWithBound => -1,
@@ -1378,6 +1405,7 @@ impl Instruction {
             };
 
         match self {
+            Nop => w!(Nop),
             ImportName { idx } => w!(ImportName, name = idx),
             ImportNameless => w!(ImportNameless),
             ImportStar => w!(ImportStar),
@@ -1405,15 +1433,22 @@ impl Instruction {
             UnaryOperation { op } => w!(UnaryOperation, ?op),
             BinaryOperation { op } => w!(BinaryOperation, ?op),
             BinaryOperationInplace { op } => w!(BinaryOperationInplace, ?op),
+            BinarySubscript => w!(BinarySubscript),
             LoadAttr { idx } => w!(LoadAttr, name = idx),
             TestOperation { op } => w!(TestOperation, ?op),
+            IsOperation(neg) => w!(IsOperation, neg),
             CompareOperation { op } => w!(CompareOperation, ?op),
+            CopyItem { index } => w!(CopyItem, index),
             Pop => w!(Pop),
+            Swap { index } => w!(Swap, index),
+            // ToBool => w!(ToBool),
             Rotate2 => w!(Rotate2),
             Rotate3 => w!(Rotate3),
             Duplicate => w!(Duplicate),
             Duplicate2 => w!(Duplicate2),
             GetIter => w!(GetIter),
+            // GET_LEN
+            GetLen => w!(GetLen),
             Continue { target } => w!(Continue, target),
             Break { target } => w!(Break, target),
             Jump { target } => w!(Jump, target),
@@ -1473,6 +1508,10 @@ impl Instruction {
             GetAIter => w!(GetAIter),
             GetANext => w!(GetANext),
             EndAsyncFor => w!(EndAsyncFor),
+            MatchMapping => w!(MatchMapping),
+            MatchSequence => w!(MatchSequence),
+            MatchKeys => w!(MatchKeys),
+            MatchClass(arg) => w!(MatchClass, arg),
             ExtendedArg => w!(ExtendedArg, Arg::<u32>::marker()),
             TypeVar => w!(TypeVar),
             TypeVarWithBound => w!(TypeVarWithBound),

@@ -1,0 +1,53 @@
+---
+source: compiler/codegen/src/compile.rs
+expression: "compile_exec(\"\\\nclass Test:\n    pass\n\nt = Test()\nmatch t:\n    case Test():\n        assert True\n    case _:\n        assert False\n\")"
+---
+  2           0 LoadBuildClass
+              1 LoadConst            (<code object Test at ??? file "source_path", line 1>):  1               0 LoadGlobal           (0, __name__)
+                  1 StoreLocal           (1, __module__)
+                  2 LoadConst            ("Test")
+                  3 StoreLocal           (2, __qualname__)
+                  4 LoadConst            (None)
+                  5 StoreLocal           (3, __doc__)
+
+  2               6 ReturnConst          (None)
+
+              2 LoadConst            ("Test")
+              3 MakeFunction         (MakeFunctionFlags(0x0))
+              4 LoadConst            ("Test")
+              5 CallFunctionPositional(2)
+              6 StoreLocal           (0, Test)
+
+  4           7 LoadNameAny          (0, Test)
+              8 CallFunctionPositional(0)
+              9 StoreLocal           (1, t)
+
+  5          10 LoadNameAny          (1, t)
+             11 CopyItem             (1)
+
+  6          12 LoadNameAny          (0, Test)
+             13 LoadConst            (())
+             14 MatchClass           (0)
+             15 CopyItem             (1)
+             16 LoadConst            (None)
+             17 IsOperation          (true)
+             18 JumpIfFalse          (27)
+             19 UnpackSequence       (0)
+             20 Pop
+
+  7          21 LoadConst            (True)
+             22 JumpIfTrue           (26)
+             23 LoadGlobal           (2, AssertionError)
+             24 CallFunctionPositional(0)
+             25 Raise                (Raise)
+        >>   26 Jump                 (35)
+        >>   27 Pop
+             28 Pop
+
+  9          29 LoadConst            (False)
+             30 JumpIfTrue           (34)
+             31 LoadGlobal           (2, AssertionError)
+             32 CallFunctionPositional(0)
+             33 Raise                (Raise)
+        >>   34 Jump                 (35)
+        >>   35 ReturnConst          (None)
