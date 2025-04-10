@@ -13,10 +13,10 @@ let rp;
 
 // A dependency graph that contains any wasm must be imported asynchronously.
 import('rustpython')
-    .then((rustpy) => {
-        rp = rustpy;
+    .then((rustpython) => {
+        rp = rustpython;
         // so people can play around with it
-        window.rp = rustpy;
+        window.rp = rustpython;
         onReady();
     })
     .catch((e) => {

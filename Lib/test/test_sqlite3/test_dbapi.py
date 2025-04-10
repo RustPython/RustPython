@@ -591,7 +591,7 @@ class ConnectionTests(unittest.TestCase):
                                    ((v,) for v in range(3)))
 
 
-@unittest.skip("TODO: RUSTPYHON")
+@unittest.skip("TODO: RUSTPYTHON")
 class UninitialisedConnectionTests(unittest.TestCase):
     def setUp(self):
         self.cx = sqlite.Connection.__new__(sqlite.Connection)

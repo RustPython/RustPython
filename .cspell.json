@@ -103,7 +103,6 @@
     "pytrace",
     "reducelib",
     "richcompare",
-    "rustpy",
     "RustPython",
     "struc",
     "sysmodule",
