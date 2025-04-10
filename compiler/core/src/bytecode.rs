@@ -438,6 +438,7 @@ pub enum Instruction {
         op: Arg<TestOperator>,
     },
     /// If the argument is true, perform IS NOT. Otherwise perform the IS operation.
+    // TODO: duplication of TestOperator::{Is,IsNot}. Fix later.
     IsOperation(Arg<bool>),
     CompareOperation {
         op: Arg<ComparisonOperator>,
