@@ -109,7 +109,6 @@
     "sysmodule",
     "tracebacks",
     "typealiases",
-    "ufrexp",
     "unconstructible",
     "unhashable",
     "uninit",
