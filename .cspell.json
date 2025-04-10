@@ -105,6 +105,8 @@
     "richcompare",
     "RustPython",
     "struc",
+    // plural of summand
+    "summands",
     "sysmodule",
     "tracebacks",
     "typealiases",
