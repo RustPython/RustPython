@@ -340,9 +340,10 @@ impl VirtualMachine {
                     self.sys_module.set_attr(name, stdio, self)?;
                     Ok(())
                 };
+                #[cfg(not(feature = "disable-stdin-stderr"))]
                 set_stdio("stdin", 0, false)?;
                 set_stdio("stdout", 1, true)?;
-                #[cfg(not(feature = "disable-stderr"))]
+                #[cfg(not(feature = "disable-stdin-stderr"))]
                 set_stdio("stderr", 2, true)?;
 
                 let io_open = io.get_attr("open", self)?;
