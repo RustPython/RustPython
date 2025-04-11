@@ -24,7 +24,7 @@ codegen = ["rustpython-codegen", "ast"]
 parser = ["rustpython-parser", "ast"]
 serde = ["dep:serde"]
 wasmbind = ["chrono/wasmbind", "getrandom/wasm_js", "wasm-bindgen"]
-disable-console = []
+disable-stderr = []
 
 [dependencies]
 rustpython-compiler = { workspace = true, optional = true }
