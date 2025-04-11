@@ -22,6 +22,7 @@ bz2 = ["stdlib", "rustpython-stdlib/bz2"]
 sqlite = ["rustpython-stdlib/sqlite"]
 ssl = ["rustpython-stdlib/ssl"]
 ssl-vendor = ["ssl", "rustpython-stdlib/ssl-vendor"]
+disable_console = ["rustpython-vm/disable-console"]
 
 [dependencies]
 rustpython-compiler = { workspace = true }
