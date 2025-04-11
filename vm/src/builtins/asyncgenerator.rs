@@ -1,6 +1,6 @@
-use super::{PyCode, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
+use super::{PyCode, PyGenericAlias, PyStrRef, PyTypeRef};
 use crate::{
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyRef, PyResult, VirtualMachine,
     builtins::PyBaseExceptionRef,
     class::PyClassImpl,
     coroutine::Coro,
@@ -12,19 +12,13 @@ use crate::{
 
 use crossbeam_utils::atomic::AtomicCell;
 
-#[pyclass(name = "async_generator", module = false)]
+#[pyclass(name = "async_generator", module = false, ctx = async_generator)]
 #[derive(Debug)]
 pub struct PyAsyncGen {
     inner: Coro,
     running_async: AtomicCell<bool>,
 }
 type PyAsyncGenRef = PyRef<PyAsyncGen>;
-
-impl PyPayload for PyAsyncGen {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.async_generator
-    }
-}
 
 #[pyclass(with(PyRef, Unconstructible, Representable))]
 impl PyAsyncGen {
@@ -137,14 +131,9 @@ impl Representable for PyAsyncGen {
 
 impl Unconstructible for PyAsyncGen {}
 
-#[pyclass(module = false, name = "async_generator_wrapped_value")]
+#[pyclass(module = false, name = "async_generator_wrapped_value", ctx = async_generator_wrapped_value)]
 #[derive(Debug)]
 pub(crate) struct PyAsyncGenWrappedValue(pub PyObjectRef);
-impl PyPayload for PyAsyncGenWrappedValue {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.async_generator_wrapped_value
-    }
-}
 
 #[pyclass]
 impl PyAsyncGenWrappedValue {}
@@ -181,18 +170,12 @@ enum AwaitableState {
     Closed,
 }
 
-#[pyclass(module = false, name = "async_generator_asend")]
+#[pyclass(module = false, name = "async_generator_asend", ctx = async_generator_asend)]
 #[derive(Debug)]
 pub(crate) struct PyAsyncGenASend {
     ag: PyAsyncGenRef,
     state: AtomicCell<AwaitableState>,
     value: PyObjectRef,
-}
-
-impl PyPayload for PyAsyncGenASend {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.async_generator_asend
-    }
 }
 
 #[pyclass(with(IterNext, Iterable))]
@@ -275,19 +258,13 @@ impl IterNext for PyAsyncGenASend {
     }
 }
 
-#[pyclass(module = false, name = "async_generator_athrow")]
+#[pyclass(module = false, name = "async_generator_athrow", ctx = async_generator_athrow)]
 #[derive(Debug)]
 pub(crate) struct PyAsyncGenAThrow {
     ag: PyAsyncGenRef,
     aclose: bool,
     state: AtomicCell<AwaitableState>,
     value: (PyObjectRef, PyObjectRef, PyObjectRef),
-}
-
-impl PyPayload for PyAsyncGenAThrow {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.async_generator_athrow
-    }
 }
 
 #[pyclass(with(IterNext, Iterable))]

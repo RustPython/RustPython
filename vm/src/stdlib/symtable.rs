@@ -35,7 +35,7 @@ mod symtable {
 
     #[pyattr]
     #[pyclass(name = "SymbolTable")]
-    #[derive(PyPayload)]
+    #[derive()]
     struct PySymbolTable {
         symtable: SymbolTable,
     }
@@ -149,7 +149,7 @@ mod symtable {
 
     #[pyattr]
     #[pyclass(name = "Symbol")]
-    #[derive(PyPayload)]
+    #[derive()]
     struct PySymbol {
         symbol: Symbol,
         namespaces: Vec<SymbolTable>,

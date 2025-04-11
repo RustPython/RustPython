@@ -2,9 +2,9 @@
 
 */
 
-use super::{PyStrRef, PyTupleRef, PyType, PyTypeRef};
+use super::{PyStrRef, PyTupleRef, PyTypeRef};
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
     builtins::PyStrInterned,
     bytecode::{self, AsBag, BorrowedConstant, CodeFlags, Constant, ConstantBag},
     class::{PyClassImpl, StaticType},
@@ -189,7 +189,7 @@ impl<B: AsRef<[u8]>> IntoCodeObject for frozen::FrozenCodeObject<B> {
     }
 }
 
-#[pyclass(module = false, name = "code")]
+#[pyclass(module = false, name = "code", ctx = code_type)]
 pub struct PyCode {
     pub code: CodeObject,
 }
@@ -210,12 +210,6 @@ impl PyCode {
 impl fmt::Debug for PyCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "code: {:?}", self.code)
-    }
-}
-
-impl PyPayload for PyCode {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.code_type
     }
 }
 

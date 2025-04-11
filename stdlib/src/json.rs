@@ -18,7 +18,7 @@ mod _json {
 
     #[pyattr(name = "make_scanner")]
     #[pyclass(name = "Scanner", traverse)]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct JsonScanner {
         #[pytraverse(skip)]
         strict: bool,

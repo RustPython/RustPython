@@ -21,7 +21,7 @@ use crate::{
         PyMethodFlags,
     },
     intern::{InternableString, MaybeInternedString, StringPool},
-    object::{Py, PyObjectPayload, PyObjectRef, PyPayload, PyRef},
+    object::{Py, PyObjectRef, PyPayload, PyRef, SuperDefault},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
 };
 use malachite_bigint::BigInt;
@@ -267,7 +267,7 @@ impl Context {
         let exceptions = exceptions::ExceptionZoo::init();
 
         #[inline]
-        fn create_object<T: PyObjectPayload + PyPayload>(
+        fn create_object<T: PyPayload<Super: SuperDefault>>(
             payload: T,
             cls: &'static Py<PyType>,
         ) -> PyRef<T> {
@@ -364,7 +364,7 @@ impl Context {
     pub fn new_pyref<T, P>(&self, value: T) -> PyRef<P>
     where
         T: Into<P>,
-        P: PyPayload,
+        P: PyPayload<Super: SuperDefault>,
     {
         value.into().into_ref(self)
     }

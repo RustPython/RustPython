@@ -110,7 +110,7 @@ mod _sre {
 
     #[pyattr]
     #[pyclass(name = "SRE_Template")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct Template {
         literal: PyObjectRef,
         items: Vec<(usize, PyObjectRef)>,
@@ -187,7 +187,7 @@ mod _sre {
 
     #[pyattr]
     #[pyclass(name = "Pattern")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     pub(crate) struct Pattern {
         pub pattern: PyObjectRef,
         pub flags: SreFlag,
@@ -587,7 +587,7 @@ mod _sre {
 
     #[pyattr]
     #[pyclass(name = "Match")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     pub(crate) struct Match {
         string: PyObjectRef,
         pattern: PyRef<Pattern>,
@@ -843,7 +843,7 @@ mod _sre {
 
     #[pyattr]
     #[pyclass(name = "SRE_Scanner")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct SreScanner {
         pattern: PyRef<Pattern>,
         string: PyObjectRef,

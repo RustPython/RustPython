@@ -1,4 +1,4 @@
-use super::{PyBoundMethod, PyStr, PyType, PyTypeRef};
+use super::{PyBoundMethod, PyStr, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -26,7 +26,7 @@ use crate::{
 ///
 /// Class methods are different than C++ or Java static methods.
 /// If you want those, see the staticmethod builtin.
-#[pyclass(module = false, name = "classmethod")]
+#[pyclass(module = false, name = "classmethod", ctx = classmethod_type)]
 #[derive(Debug)]
 pub struct PyClassMethod {
     callable: PyMutex<PyObjectRef>,
@@ -37,12 +37,6 @@ impl From<PyObjectRef> for PyClassMethod {
         Self {
             callable: PyMutex::new(callable),
         }
-    }
-}
-
-impl PyPayload for PyClassMethod {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.classmethod_type
     }
 }
 

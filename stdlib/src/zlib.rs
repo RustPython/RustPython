@@ -338,7 +338,7 @@ mod zlib {
 
     #[pyattr]
     #[pyclass(name = "Decompress")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct PyDecompress {
         inner: PyMutex<PyDecompressInner>,
     }
@@ -492,7 +492,7 @@ mod zlib {
 
     #[pyattr]
     #[pyclass(name = "Compress")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct PyCompress {
         inner: PyMutex<CompressInner>,
     }
@@ -624,7 +624,7 @@ mod zlib {
 
     #[pyattr]
     #[pyclass(name = "_ZlibDecompressor")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct ZlibDecompressor {
         inner: PyMutex<ZlibDecompressorInner>,
     }

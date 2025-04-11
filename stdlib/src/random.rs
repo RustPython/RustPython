@@ -6,7 +6,7 @@ pub(crate) use _random::make_module;
 mod _random {
     use crate::common::lock::PyMutex;
     use crate::vm::{
-        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        PyObjectRef, PyRef, PyResult, VirtualMachine,
         builtins::{PyInt, PyTupleRef},
         convert::ToPyException,
         function::OptionalOption,
@@ -21,7 +21,7 @@ mod _random {
 
     #[pyattr]
     #[pyclass(name = "Random")]
-    #[derive(Debug, PyPayload, Default)]
+    #[derive(Debug, Default)]
     struct PyRandom {
         rng: PyMutex<MT19937>,
     }

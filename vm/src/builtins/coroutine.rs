@@ -1,6 +1,6 @@
-use super::{PyCode, PyStrRef, PyType};
+use super::{PyCode, PyStrRef};
 use crate::{
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     coroutine::Coro,
     frame::FrameRef,
@@ -9,17 +9,11 @@ use crate::{
     types::{IterNext, Iterable, Representable, SelfIter, Unconstructible},
 };
 
-#[pyclass(module = false, name = "coroutine")]
+#[pyclass(module = false, name = "coroutine", ctx = coroutine_type)]
 #[derive(Debug)]
 // PyCoro_Type in CPython
 pub struct PyCoroutine {
     inner: Coro,
-}
-
-impl PyPayload for PyCoroutine {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.coroutine_type
-    }
 }
 
 #[pyclass(with(Py, Unconstructible, IterNext, Representable))]
@@ -119,17 +113,11 @@ impl IterNext for PyCoroutine {
     }
 }
 
-#[pyclass(module = false, name = "coroutine_wrapper")]
+#[pyclass(module = false, name = "coroutine_wrapper", ctx = coroutine_wrapper_type)]
 #[derive(Debug)]
 // PyCoroWrapper_Type in CPython
 pub struct PyCoroutineWrapper {
     coro: PyRef<PyCoroutine>,
-}
-
-impl PyPayload for PyCoroutineWrapper {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.coroutine_wrapper_type
-    }
 }
 
 #[pyclass(with(IterNext, Iterable))]

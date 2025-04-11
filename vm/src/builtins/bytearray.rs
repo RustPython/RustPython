@@ -39,7 +39,7 @@ use crate::{
 use bstr::ByteSlice;
 use std::mem::size_of;
 
-#[pyclass(module = false, name = "bytearray", unhashable = true)]
+#[pyclass(module = false, name = "bytearray", unhashable = true, ctx = bytearray_type)]
 #[derive(Debug, Default)]
 pub struct PyByteArray {
     inner: PyRwLock<PyBytesInner>,
@@ -57,12 +57,6 @@ impl From<PyBytesInner> for PyByteArray {
 impl From<Vec<u8>> for PyByteArray {
     fn from(elements: Vec<u8>) -> Self {
         Self::from(PyBytesInner { elements })
-    }
-}
-
-impl PyPayload for PyByteArray {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.bytearray_type
     }
 }
 
@@ -871,16 +865,10 @@ impl Representable for PyByteArray {
 //     obj.borrow_mut().kind = PyObjectPayload::Bytes { value };
 // }
 
-#[pyclass(module = false, name = "bytearray_iterator")]
+#[pyclass(module = false, name = "bytearray_iterator", ctx = bytearray_iterator_type)]
 #[derive(Debug)]
 pub struct PyByteArrayIterator {
     internal: PyMutex<PositionIterInternal<PyByteArrayRef>>,
-}
-
-impl PyPayload for PyByteArrayIterator {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.bytearray_iterator_type
-    }
 }
 
 #[pyclass(with(Unconstructible, IterNext, Iterable))]
