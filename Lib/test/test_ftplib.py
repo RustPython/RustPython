@@ -25,15 +25,6 @@ from test.support import asynchat
 from test.support import asyncore
 from test.support.socket_helper import HOST, HOSTv6
 
-import sys
-if sys.platform == 'win32':
-    raise unittest.SkipTest("test_ftplib not working on windows")
-if getattr(sys, '_rustpython_debugbuild', False):
-    raise unittest.SkipTest("something's weird on debug builds")
-
-asynchat = warnings_helper.import_deprecated('asynchat')
-asyncore = warnings_helper.import_deprecated('asyncore')
-
 
 support.requires_working_socket(module=True)
 
