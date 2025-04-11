@@ -26,6 +26,7 @@ mod sys {
     use std::os::windows::ffi::OsStrExt;
     use std::{
         env::{self, VarError},
+        io::Read,
         path,
         sync::atomic::Ordering,
     };
@@ -305,6 +306,21 @@ mod sys {
             .iter()
             .map(|s| vm.ctx.new_str(s.clone()).into())
             .collect()
+    }
+
+    #[cfg(feature = "rustpython-compiler")]
+    #[pyfunction]
+    fn _baserepl(vm: &VirtualMachine) -> PyResult<()> {
+        // read stdin to end
+        let stdin = std::io::stdin();
+        let mut handle = stdin.lock();
+        let mut source = String::new();
+        handle
+            .read_to_string(&mut source)
+            .map_err(|e| vm.new_os_error(format!("Error reading from stdin: {}", e)))?;
+        vm.compile(&source, crate::compiler::Mode::Single, "<stdin>".to_owned())
+            .map_err(|e| vm.new_os_error(format!("Error running stdin: {}", e)))?;
+        Ok(())
     }
 
     #[pyfunction]

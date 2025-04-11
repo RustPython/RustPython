@@ -12,6 +12,7 @@ asend
 asyncgen
 athrow
 backslashreplace
+baserepl
 basicsize
 bdfl
 bigcharset
