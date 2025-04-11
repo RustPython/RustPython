@@ -1096,7 +1096,7 @@ mod array {
             Ok(zelf)
         }
 
-        #[pymethod(name = "__rmul__")]
+        #[pymethod(magic, name = "rmul")]
         #[pymethod(magic)]
         fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             self.read()

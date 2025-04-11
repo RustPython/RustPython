@@ -13,6 +13,7 @@ rustpython-compiler-core = { workspace = true }
 # rustpython-parser-core = { workspace = true }
 rustpython-doc = { workspace = true }
 
+convert_case = "0.8"
 itertools = { workspace = true }
 syn = { workspace = true, features = ["full", "extra-traits"] }
 
