@@ -18,7 +18,7 @@ fn bench_cpython_code(b: &mut Bencher, source: &str) {
     })
 }
 
-fn bench_rustpy_code(b: &mut Bencher, name: &str, source: &str) {
+fn bench_rustpython_code(b: &mut Bencher, name: &str, source: &str) {
     // NOTE: Take long time.
     let mut settings = Settings::default();
     settings.path_list.push("Lib/".to_string());
@@ -41,7 +41,7 @@ pub fn benchmark_file_execution(group: &mut BenchmarkGroup<WallTime>, name: &str
         bench_cpython_code(b, contents)
     });
     group.bench_function(BenchmarkId::new(name, "rustpython"), |b| {
-        bench_rustpy_code(b, name, contents)
+        bench_rustpython_code(b, name, contents)
     });
 }
 
@@ -77,7 +77,7 @@ pub fn benchmark_pystone(group: &mut BenchmarkGroup<WallTime>, contents: String)
             bench_cpython_code(b, code_str)
         });
         group.bench_function(BenchmarkId::new("rustpython", idx), |b| {
-            bench_rustpy_code(b, "pystone", code_str)
+            bench_rustpython_code(b, "pystone", code_str)
         });
     }
 }

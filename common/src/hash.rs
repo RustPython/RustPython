@@ -97,7 +97,7 @@ pub fn hash_float(value: f64) -> Option<PyHash> {
         };
     }
 
-    let frexp = super::float_ops::ufrexp(value);
+    let frexp = super::float_ops::decompose_float(value);
 
     // process 28 bits at a time;  this should work well both for binary
     // and hexadecimal floating point.

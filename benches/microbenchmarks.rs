@@ -104,7 +104,7 @@ fn cpy_compile_code<'a>(
     compile.call1((code, name, "exec"))?.extract()
 }
 
-fn bench_rustpy_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmark) {
+fn bench_rustpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmark) {
     let mut settings = Settings::default();
     settings.path_list.push("Lib/".to_string());
     settings.write_bytecode = false;
@@ -169,7 +169,7 @@ pub fn run_micro_benchmark(c: &mut Criterion, benchmark: MicroBenchmark) {
     let mut group = c.benchmark_group("microbenchmarks");
 
     bench_cpython_code(&mut group, &benchmark);
-    bench_rustpy_code(&mut group, &benchmark);
+    bench_rustpython_code(&mut group, &benchmark);
 
     group.finish();
 }

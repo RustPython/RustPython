@@ -575,7 +575,7 @@ mod _js {
                 Some(prom) => {
                     if val.is_some() {
                         Err(vm.new_type_error(
-                            "can't send non-None value to an awaitpromise".to_owned(),
+                            "can't send non-None value to an AwaitPromise".to_owned(),
                         ))
                     } else {
                         Ok(PyIterReturn::Return(prom))

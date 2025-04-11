@@ -2,7 +2,7 @@ use malachite_bigint::{BigInt, ToBigInt};
 use num_traits::{Float, Signed, ToPrimitive, Zero};
 use std::f64;
 
-pub fn ufrexp(value: f64) -> (f64, i32) {
+pub fn decompose_float(value: f64) -> (f64, i32) {
     if 0.0 == value {
         (0.0, 0i32)
     } else {

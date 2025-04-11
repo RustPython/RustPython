@@ -47,7 +47,7 @@
   // words - list of words to be always considered correct
   "words": [
     "RUSTPYTHONPATH",
-    // RustPython
+    // RustPython terms
     "aiterable",
     "alnum",
     "baseclass",
@@ -67,6 +67,7 @@
     "GetSet",
     "groupref",
     "internable",
+    "lossily",
     "makeunicodedata",
     "miri",
     "notrace",
@@ -96,6 +97,7 @@
     "PyResult",
     "pyslot",
     "PyStaticMethod",
+    "pystone",
     "pystr",
     "pystruct",
     "pystructseq",
@@ -104,13 +106,16 @@
     "richcompare",
     "RustPython",
     "struc",
+    // plural of summand
+    "summands",
     "sysmodule",
     "tracebacks",
     "typealiases",
-    "Unconstructible",
+    "unconstructible",
     "unhashable",
     "uninit",
     "unraisable",
+    "unresizable",
     "wasi",
     "zelf",
     // unix

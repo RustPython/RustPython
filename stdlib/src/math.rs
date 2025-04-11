@@ -557,7 +557,7 @@ mod math {
     fn frexp(x: ArgIntoFloat) -> (f64, i32) {
         let value = *x;
         if value.is_finite() {
-            let (m, exp) = float_ops::ufrexp(value);
+            let (m, exp) = float_ops::decompose_float(value);
             (m * value.signum(), exp)
         } else {
             (value, 0)
