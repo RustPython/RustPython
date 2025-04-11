@@ -4,6 +4,7 @@ pub(crate) use _hashlib::make_module;
 
 #[pymodule]
 pub mod _hashlib {
+
     use crate::common::lock::PyRwLock;
     use crate::vm::{
         PyObjectRef, PyPayload, PyResult, VirtualMachine,
@@ -14,8 +15,9 @@ pub mod _hashlib {
     };
     use blake2::{Blake2b512, Blake2s256};
     use digest::{DynDigest, core_api::BlockSizeUser};
-    use digest::{ExtendableOutput, Update};
+    use digest::{ExtendableOutput, KeyInit, OutputSizeUser, Update};
     use dyn_clone::{DynClone, clone_trait_object};
+    use hmac::{Hmac, Mac};
     use md5::Md5;
     use sha1::Sha1;
     use sha2::{Sha224, Sha256, Sha384, Sha512};
@@ -324,20 +326,169 @@ pub mod _hashlib {
         Ok((a_hash == b_hash).to_pyobject(vm))
     }
 
+
+
     #[derive(FromArgs, Debug)]
     #[allow(unused)]
-    pub struct NewHMACHashArgs {
+    pub struct NewHmacHashArgs {
         #[pyarg(positional)]
-        name: PyBuffer,
-        #[pyarg(any, optional)]
-        data: OptionalArg<ArgBytesLike>,
-        #[pyarg(named, default = true)]
-        digestmod: bool, // TODO: RUSTPYTHON support functions & name functions
+        key: PyBuffer,
+        #[pyarg(named, optional)]
+        msg: OptionalArg<ArgBytesLike>,
+        #[pyarg(any)]
+        digestmod: PyStrRef, // TODO: RUSTPYTHON support functions & name functions
+    }
+
+    #[pyattr]
+    #[pyclass(module="_hmac", name="HMAC")]
+    #[derive(PyPayload)]
+    pub struct PyHmac 
+    {
+        pub name: String,
+        pub ctx: PyRwLock<HmacWrapper>,
+    }
+
+    impl std::fmt::Debug for PyHmac
+    {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "HASH {}", self.name)
+        }
+    }
+
+    #[pyclass]
+    impl PyHmac
+    {
+        fn new(name: &str, d: HmacWrapper) -> Self
+        {
+            PyHmac {
+                name: name.to_owned(),
+                ctx: PyRwLock::new(d),
+            }        
+        }
+
+        #[pyslot]
+        fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("cannot create '_HMAC.HASH' instances".into()))
+        }
+
+        #[pygetset]
+        fn name(&self) -> String {
+            self.name.clone()
+        }
+
+        #[pymethod]
+        fn update(&self, data: ArgBytesLike) {
+            data.with_ref(|bytes| self.ctx.write().update(bytes))
+        }
+
+        #[pygetset]
+        fn block_size(&self) -> usize {
+            self.ctx.read().block_size()
+        }
+
+        #[pygetset]
+        fn digest_size(&self) -> usize {
+            self.ctx.read().digest_size() 
+        }
+
+        #[pymethod]
+        fn digest(&self) -> PyBytes {
+            self.ctx.read().digest().into()
+        }
+
+        #[pymethod]
+        fn hexdigest(&self) -> String {
+            self.ctx.read().digest().iter().map(|d| format!("{:02x}", d)).collect()
+        }
+
+        #[pymethod]
+        fn copy(&self) -> Self {
+            PyHmac::new(&self.name, self.ctx.read().clone())
+        }
     }
 
     #[pyfunction]
-    fn hmac_new(_args: NewHMACHashArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        Err(vm.new_type_error("cannot create 'hmac' instances".into())) // TODO: RUSTPYTHON support hmac
+    fn hmac_new(args: NewHmacHashArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        match args.digestmod.as_str().to_lowercase().as_str() {
+            "md5" => Ok(hmac_md5(args.into()).into_pyobject(vm)),
+            "sha1" => Ok(hmac_sha1(args.into()).into_pyobject(vm)),
+            "sha224" => Ok(hmac_sha224(args.into()).into_pyobject(vm)),
+            "sha256" => Ok(hmac_sha256(args.into()).into_pyobject(vm)),
+            "sha384" => Ok(hmac_sha384(args.into()).into_pyobject(vm)),
+            "sha512" => Ok(hmac_sha512(args.into()).into_pyobject(vm)),
+            "sha3_224" => Ok(hmac_sha3_224(args.into()).into_pyobject(vm)),
+            "sha3_256" => Ok(hmac_sha3_256(args.into()).into_pyobject(vm)),
+            "sha3_384" => Ok(hmac_sha3_384(args.into()).into_pyobject(vm)),
+            "sha3_512" => Ok(hmac_sha3_512(args.into()).into_pyobject(vm)),
+            other => Err(vm.new_value_error(format!("Unown hashing algorithm: {other}"))),            
+        }
+    }
+
+    #[pyfunction]
+    fn hmac_digest(args: NewHmacHashArgs, vm: &VirtualMachine) -> PyResult<PyBytes> {
+        match args.digestmod.as_str().to_lowercase().as_str() {
+            "md5" => Ok(hmac_md5(args.into()).digest()),
+            "sha1" => Ok(hmac_sha1(args.into()).digest()),
+            "sha224" => Ok(hmac_sha224(args.into()).digest()),
+            "sha256" => Ok(hmac_sha256(args.into()).digest()),
+            "sha384" => Ok(hmac_sha384(args.into()).digest()),
+            "sha512" => Ok(hmac_sha512(args.into()).digest()),
+            "sha3_224" => Ok(hmac_sha3_224(args.into()).digest()),
+            "sha3_256" => Ok(hmac_sha3_256(args.into()).digest()),
+            "sha3_384" => Ok(hmac_sha3_384(args.into()).digest()),
+            "sha3_512" => Ok(hmac_sha3_512(args.into()).digest()),
+            other => Err(vm.new_value_error(format!("Unown hashing algorithm: {other}"))),            
+        }
+    }
+
+    #[pyfunction(name = "hmac_md5")]
+    pub fn hmac_md5(args: NewHmacHashArgs) -> PyHmac {
+        PyHmac::new("hmac-md5", HmacWrapper::new_md5_hmac(args.key, args.msg))
+    }
+
+    #[pyfunction(name = "hmac_sha1")]
+    pub fn hmac_sha1(args: NewHmacHashArgs) -> PyHmac {
+        PyHmac::new("hmac-sha1", HmacWrapper::new_sha1_hmac(args.key, args.msg))
+    }
+
+    #[pyfunction(name = "hmac_sha224")]
+    pub fn hmac_sha224(args: NewHmacHashArgs) -> PyHmac {
+        PyHmac::new("hmac-sha224", HmacWrapper::new_sha224_hmac(args.key, args.msg))
+    }
+
+    #[pyfunction(name = "hmac_sha256")]
+    pub fn hmac_sha256(args: NewHmacHashArgs) -> PyHmac {
+        PyHmac::new("hmac-sha256", HmacWrapper::new_sha256_hmac(args.key, args.msg))
+    }
+
+    #[pyfunction(name = "hmac_sha384")]
+    pub fn hmac_sha384(args: NewHmacHashArgs) -> PyHmac {
+        PyHmac::new("hmac-sha384", HmacWrapper::new_sha384_hmac(args.key, args.msg))
+    }
+
+    #[pyfunction(name = "hmac_sha512")]
+    pub fn hmac_sha512(args: NewHmacHashArgs) -> PyHmac {
+        PyHmac::new("hmac-sha512", HmacWrapper::new_sha512_hmac(args.key, args.msg))
+    }
+
+    #[pyfunction(name = "hmac_sha3_224")]
+    pub fn hmac_sha3_224(args: NewHmacHashArgs) -> PyHmac {
+        PyHmac::new("hmac-sha3_224", HmacWrapper::new_sha3_224_hmac(args.key, args.msg))
+    }
+
+    #[pyfunction(name = "hmac_sha3_256")]
+    pub fn hmac_sha3_256(args: NewHmacHashArgs) -> PyHmac {
+        PyHmac::new("hmac-sha3_256", HmacWrapper::new_sha3_256_hmac(args.key, args.msg))
+    }
+
+    #[pyfunction(name = "hmac_sha3_384")]
+    pub fn hmac_sha3_384(args: NewHmacHashArgs) -> PyHmac {
+        PyHmac::new("hmac-sha3_384", HmacWrapper::new_sha3_384_hmac(args.key, args.msg))
+    }
+
+    #[pyfunction(name = "hmac_sha3_512")]
+    pub fn hmac_sha3_512(args: NewHmacHashArgs) -> PyHmac {
+        PyHmac::new("hmac-sha3_512", HmacWrapper::new_sha3_512_hmac(args.key, args.msg))
     }
 
     pub trait ThreadSafeDynDigest: DynClone + DynDigest + Sync + Send {}
@@ -382,6 +533,195 @@ pub mod _hashlib {
         fn finalize(&self) -> Vec<u8> {
             let cloned = self.inner.box_clone();
             cloned.finalize().into_vec()
+        }
+    }
+
+    #[derive(Clone)]
+    pub enum HmacWrapper
+    {
+        HmacMd5(Hmac<Md5>),
+        HmacSha1(Hmac<Sha1>),
+        HmacSha224(Hmac<Sha224>),
+        HmacSha256(Hmac<Sha256>),
+        HmacSha384(Hmac<Sha384>),
+        HmacSha512(Hmac<Sha512>),
+        HmacSha3_224(Hmac<Sha3_224>),
+        HmacSha3_256(Hmac<Sha3_256>),
+        HmacSha3_384(Hmac<Sha3_384>),
+        HmacSha3_512(Hmac<Sha3_512>),
+    }
+
+    impl HmacWrapper
+    {
+        pub fn new_md5_hmac(key: PyBuffer, data: OptionalArg<ArgBytesLike>) -> Self 
+        {
+            let mut h = HmacWrapper::HmacMd5(<Hmac<Md5> as KeyInit>::new_from_slice(&key.obj_bytes()).unwrap());
+
+            if let OptionalArg::Present(d) = data 
+            {
+                d.with_ref(|bytes| h.update(bytes));
+            }
+            h
+        }
+
+        pub fn new_sha1_hmac(key: PyBuffer, data: OptionalArg<ArgBytesLike>) -> Self 
+        {
+            let mut h = HmacWrapper::HmacSha1(<Hmac<Sha1> as KeyInit>::new_from_slice(&key.obj_bytes()).unwrap());
+
+            if let OptionalArg::Present(d) = data 
+            {
+                d.with_ref(|bytes| h.update(bytes));
+            }
+            h
+        }
+
+        pub fn new_sha224_hmac(key: PyBuffer, data: OptionalArg<ArgBytesLike>) -> Self 
+        {
+            let mut h = HmacWrapper::HmacSha224(<Hmac<Sha224> as KeyInit>::new_from_slice(&key.obj_bytes()).unwrap());
+
+            if let OptionalArg::Present(d) = data 
+            {
+                d.with_ref(|bytes| h.update(bytes));
+            }
+            h
+        }
+
+        pub fn new_sha256_hmac(key: PyBuffer, data: OptionalArg<ArgBytesLike>) -> Self 
+        {
+            let mut h = HmacWrapper::HmacSha256(<Hmac<Sha256> as KeyInit>::new_from_slice(&key.obj_bytes()).unwrap());
+
+            if let OptionalArg::Present(d) = data 
+            {
+                d.with_ref(|bytes| h.update(bytes));
+            }
+            h
+        }
+
+        pub fn new_sha384_hmac(key: PyBuffer, data: OptionalArg<ArgBytesLike>) -> Self 
+        {
+            let mut h = HmacWrapper::HmacSha384(<Hmac<Sha384> as KeyInit>::new_from_slice(&key.obj_bytes()).unwrap());
+
+            if let OptionalArg::Present(d) = data 
+            {
+                d.with_ref(|bytes| h.update(bytes));
+            }
+            h
+        }
+
+        pub fn new_sha512_hmac(key: PyBuffer, data: OptionalArg<ArgBytesLike>) -> Self 
+        {
+            let mut h = HmacWrapper::HmacSha512(<Hmac<Sha512> as KeyInit>::new_from_slice(&key.obj_bytes()).unwrap());
+
+            if let OptionalArg::Present(d) = data 
+            {
+                d.with_ref(|bytes| h.update(bytes));
+            }
+            h
+        }
+
+        pub fn new_sha3_224_hmac(key: PyBuffer, data: OptionalArg<ArgBytesLike>) -> Self 
+        {
+            let mut h = HmacWrapper::HmacSha3_224(<Hmac<Sha3_224> as KeyInit>::new_from_slice(&key.obj_bytes()).unwrap());
+
+            if let OptionalArg::Present(d) = data 
+            {
+                d.with_ref(|bytes| h.update(bytes));
+            }
+            h
+        }
+
+        pub fn new_sha3_256_hmac(key: PyBuffer, data: OptionalArg<ArgBytesLike>) -> Self 
+        {
+            let mut h = HmacWrapper::HmacSha3_256(<Hmac<Sha3_256> as KeyInit>::new_from_slice(&key.obj_bytes()).unwrap());
+
+            if let OptionalArg::Present(d) = data 
+            {
+                d.with_ref(|bytes| h.update(bytes));
+            }
+            h
+        }
+
+        pub fn new_sha3_384_hmac(key: PyBuffer, data: OptionalArg<ArgBytesLike>) -> Self 
+        {
+            let mut h = HmacWrapper::HmacSha3_384(<Hmac<Sha3_384> as KeyInit>::new_from_slice(&key.obj_bytes()).unwrap());
+
+            if let OptionalArg::Present(d) = data 
+            {
+                d.with_ref(|bytes| h.update(bytes));
+            }
+            h
+        }
+
+        pub fn new_sha3_512_hmac(key: PyBuffer, data: OptionalArg<ArgBytesLike>) -> Self 
+        {
+            let mut h = HmacWrapper::HmacSha3_512(<Hmac<Sha3_512> as KeyInit>::new_from_slice(&key.obj_bytes()).unwrap());
+
+            if let OptionalArg::Present(d) = data 
+            {
+                d.with_ref(|bytes| h.update(bytes));
+            }
+            h
+        }
+
+        fn update(&mut self, data: &[u8]) 
+        {
+            match self {
+                HmacWrapper::HmacMd5(h) => digest::Update::update(h, data),
+                HmacWrapper::HmacSha1(h) => digest::Update::update(h, data),
+                HmacWrapper::HmacSha224(h) => digest::Update::update(h, data),
+                HmacWrapper::HmacSha256(h) => digest::Update::update(h, data),
+                HmacWrapper::HmacSha384(h) => digest::Update::update(h, data),
+                HmacWrapper::HmacSha512(h) => digest::Update::update(h, data),
+                HmacWrapper::HmacSha3_224(h) => digest::Update::update(h, data),
+                HmacWrapper::HmacSha3_256(h) => digest::Update::update(h, data),
+                HmacWrapper::HmacSha3_384(h) => digest::Update::update(h, data),
+                HmacWrapper::HmacSha3_512(h) => digest::Update::update(h, data),
+            }
+        }
+
+        fn block_size(&self) -> usize {
+            match self {
+                HmacWrapper::HmacMd5(_) => Md5::block_size(),
+                HmacWrapper::HmacSha1(_) => Sha1::block_size(),
+                HmacWrapper::HmacSha224(_) => Sha224::block_size(),
+                HmacWrapper::HmacSha256(_) => Sha256::block_size(),
+                HmacWrapper::HmacSha384(_) => Sha384::block_size(),
+                HmacWrapper::HmacSha512(_) => Sha512::block_size(),
+                HmacWrapper::HmacSha3_224(_) => Sha3_224::block_size(),
+                HmacWrapper::HmacSha3_256(_) => Sha3_256::block_size(),
+                HmacWrapper::HmacSha3_384(_) => Sha3_384::block_size(),
+                HmacWrapper::HmacSha3_512(_) => Sha3_512::block_size(),
+            }
+        }
+
+        fn digest_size(&self) -> usize {
+            match self {
+                HmacWrapper::HmacMd5(_) => Hmac::<Md5>::output_size(),
+                HmacWrapper::HmacSha1(_) => Hmac::<Sha1>::output_size(),
+                HmacWrapper::HmacSha224(_) => Hmac::<Sha224>::output_size(),
+                HmacWrapper::HmacSha256(_) => Hmac::<Sha256>::output_size(),
+                HmacWrapper::HmacSha384(_) => Hmac::<Sha384>::output_size(),
+                HmacWrapper::HmacSha512(_) => Hmac::<Sha512>::output_size(),
+                HmacWrapper::HmacSha3_224(_) => Hmac::<Sha3_224>::output_size(),
+                HmacWrapper::HmacSha3_256(_) => Hmac::<Sha3_256>::output_size(),
+                HmacWrapper::HmacSha3_384(_) => Hmac::<Sha3_384>::output_size(),
+                HmacWrapper::HmacSha3_512(_) => Hmac::<Sha3_512>::output_size(),
+            }
+        }
+        
+        fn digest(&self) -> Vec<u8> {
+            match self {
+                HmacWrapper::HmacMd5(h) => h.clone().finalize().into_bytes().to_vec(),
+                HmacWrapper::HmacSha1(h) => h.clone().finalize().into_bytes().to_vec(),
+                HmacWrapper::HmacSha224(h) => h.clone().finalize().into_bytes().to_vec(),
+                HmacWrapper::HmacSha256(h) => h.clone().finalize().into_bytes().to_vec(),
+                HmacWrapper::HmacSha384(h) => h.clone().finalize().into_bytes().to_vec(),
+                HmacWrapper::HmacSha512(h) => h.clone().finalize().into_bytes().to_vec(),
+                HmacWrapper::HmacSha3_224(h) => h.clone().finalize().into_bytes().to_vec(),
+                HmacWrapper::HmacSha3_256(h) => h.clone().finalize().into_bytes().to_vec(),
+                HmacWrapper::HmacSha3_384(h) => h.clone().finalize().into_bytes().to_vec(),
+                HmacWrapper::HmacSha3_512(h) => h.clone().finalize().into_bytes().to_vec(),
+            }
         }
     }
 
