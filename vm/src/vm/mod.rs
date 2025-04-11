@@ -296,10 +296,10 @@ impl VirtualMachine {
             let importlib = import::init_importlib_base(self)?;
             self.import_utf8_encodings()?;
 
-            #[cfg(
-                all(any(not(target_arch = "wasm32"), target_os = "wasi")),
+            #[cfg(all(
+                any(not(target_arch = "wasm32"), target_os = "wasi"),
                 not(feature = "disable-stdio")
-            )]
+            ))]
             {
                 let io = import::import_builtin(self, "_io")?;
                 let set_stdio = |name, fd, write| {
