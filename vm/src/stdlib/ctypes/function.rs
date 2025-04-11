@@ -13,9 +13,29 @@ use libffi::middle::{Arg, Cif, CodePtr, Type};
 use libloading::Symbol;
 use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
+use std::ffi;
 use std::fmt::Debug;
 
 // https://github.com/python/cpython/blob/4f8bb3947cfbc20f970ff9d9531e1132a9e95396/Modules/_ctypes/callproc.c#L15
+
+/// Returns none if the `_type_` attribute cannot be found/converted to a string
+fn get_type_char(ty: PyTypeRef) -> Option<String> {
+    // PyTypeRef could be c_int, c_float, c_double, etc., we need to get the _type_ attribute
+    // and convert it to a Type
+    let type_str = ty.get_attr("_type_")?;
+    let type_str = type_str.downcast_ref::<PyStr>()?.to_string();
+    Some(type_str)
+}
+
+fn type_ref_to_type(ty: PyTypeRef) -> Type {
+    // PyTypeRef could be c_int, c_float, c_double, etc., we need to get the _type_ attribute
+    // and convert it to a Type
+    unimplemented!()
+}
+
+fn obj_from_type_ref_and_data(data: ffi::c_void, ty: PyTypeRef) -> PyObjectRef {
+    unimplemented!()
+}
 
 #[derive(Debug)]
 pub struct Function {
@@ -23,6 +43,7 @@ pub struct Function {
     // TODO: no protection from use-after-free
     pointer: CodePtr,
     cif: Cif,
+    return_type: Option<PyTypeRef>,
 }
 
 unsafe impl Send for Function {}
@@ -85,7 +106,7 @@ impl Function {
                 .map_err(|err| vm.new_attribute_error(err))?
         };
         let code_ptr = CodePtr(*pointer as *mut _);
-        let return_type = match ret_type {
+        let return_type = match ret_type.clone() {
             // TODO: Fix this
             Some(_t) => {
                 return Err(vm.new_not_implemented_error("Return type not implemented".to_string()));
@@ -97,6 +118,7 @@ impl Function {
             args,
             cif,
             pointer: code_ptr,
+            return_type: ret_type,
         })
     }
 
@@ -119,8 +141,7 @@ impl Function {
                 Err(vm.new_type_error("Expected a ctypes simple type".to_string()))
             })
             .collect::<PyResult<Vec<Arg>>>()?;
-        // TODO: FIX return
-        let result: i32 = unsafe { self.cif.call(self.pointer, &args) };
+        let result: ffi::c_void = unsafe { self.cif.call(self.pointer, &args) };
         Ok(vm.ctx.new_int(result).into())
     }
 }
