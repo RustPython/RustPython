@@ -296,7 +296,10 @@ impl VirtualMachine {
             let importlib = import::init_importlib_base(self)?;
             self.import_utf8_encodings()?;
 
-            #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+            #[cfg(
+                all(any(not(target_arch = "wasm32"), target_os = "wasi")),
+                not(feature = "disable-stdio")
+            )]
             {
                 let io = import::import_builtin(self, "_io")?;
                 let set_stdio = |name, fd, write| {
@@ -340,10 +343,8 @@ impl VirtualMachine {
                     self.sys_module.set_attr(name, stdio, self)?;
                     Ok(())
                 };
-                #[cfg(not(feature = "disable-stdin-stderr"))]
                 set_stdio("stdin", 0, false)?;
                 set_stdio("stdout", 1, true)?;
-                #[cfg(not(feature = "disable-stdin-stderr"))]
                 set_stdio("stderr", 2, true)?;
 
                 let io_open = io.get_attr("open", self)?;
