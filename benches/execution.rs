@@ -9,9 +9,11 @@ use std::collections::HashMap;
 use std::path::Path;
 
 fn bench_cpython_code(b: &mut Bencher, source: &str) {
+    let c_str_source_head = std::ffi::CString::new(source).unwrap();
+    let c_str_source = c_str_source_head.as_c_str();
     pyo3::Python::with_gil(|py| {
         b.iter(|| {
-            let module = pyo3::types::PyModule::from_code_bound(py, source, "", "")
+            let module = pyo3::types::PyModule::from_code(py, c_str_source, c"", c"")
                 .expect("Error running source");
             black_box(module);
         })
@@ -53,8 +55,8 @@ pub fn benchmark_file_parsing(group: &mut BenchmarkGroup<WallTime>, name: &str, 
     group.bench_function(BenchmarkId::new("cpython", name), |b| {
         use pyo3::types::PyAnyMethods;
         pyo3::Python::with_gil(|py| {
-            let builtins = pyo3::types::PyModule::import_bound(py, "builtins")
-                .expect("Failed to import builtins");
+            let builtins =
+                pyo3::types::PyModule::import(py, "builtins").expect("Failed to import builtins");
             let compile = builtins.getattr("compile").expect("no compile in builtins");
             b.iter(|| {
                 let x = compile
