@@ -489,7 +489,7 @@ impl PyType {
     #[pygetset(setter, name = "__bases__")]
     fn set_bases(zelf: &Py<Self>, bases: Vec<PyTypeRef>, vm: &VirtualMachine) -> PyResult<()> {
         // TODO: Assigning to __bases__ is only used in typing.NamedTupleMeta.__new__
-        // Rather than correctly reinitializing the class, we are skipping a few steps for now
+        // Rather than correctly re-initializing the class, we are skipping a few steps for now
         if zelf.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
             return Err(vm.new_type_error(format!(
                 "cannot set '__bases__' attribute of immutable type '{}'",

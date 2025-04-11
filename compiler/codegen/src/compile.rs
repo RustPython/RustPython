@@ -2143,8 +2143,8 @@ impl Compiler<'_> {
         attrs: &[Identifier],
         _patterns: &[Pattern],
     ) -> CompileResult<()> {
-        let nattrs = attrs.len();
-        for i in 0..nattrs {
+        let n_attrs = attrs.len();
+        for i in 0..n_attrs {
             let attr = attrs[i].as_str();
             // Check if the attribute name is forbidden in a Store context.
             if self.forbidden_name(attr, NameUsage::Store)? {
@@ -2152,7 +2152,7 @@ impl Compiler<'_> {
                 return Err(self.compile_error_forbidden_name(attr));
             }
             // Check for duplicates: compare with every subsequent attribute.
-            for ident in attrs.iter().take(nattrs).skip(i + 1) {
+            for ident in attrs.iter().take(n_attrs).skip(i + 1) {
                 let other = ident.as_str();
                 if attr == other {
                     todo!();
@@ -2184,20 +2184,20 @@ impl Compiler<'_> {
         }
 
         let nargs = patterns.len();
-        let nattrs = kwd_attrs.len();
+        let n_attrs = kwd_attrs.len();
         let nkwd_patterns = kwd_patterns.len();
 
         // Validate that keyword attribute names and patterns match in length.
-        if nattrs != nkwd_patterns {
+        if n_attrs != nkwd_patterns {
             let msg = format!(
                 "kwd_attrs ({}) / kwd_patterns ({}) length mismatch in class pattern",
-                nattrs, nkwd_patterns
+                n_attrs, nkwd_patterns
             );
             unreachable!("{}", msg);
         }
 
         // Check for too many sub-patterns.
-        if nargs > u32::MAX as usize || (nargs + nattrs).saturating_sub(1) > i32::MAX as usize {
+        if nargs > u32::MAX as usize || (nargs + n_attrs).saturating_sub(1) > i32::MAX as usize {
             let msg = format!(
                 "too many sub-patterns in class pattern {:?}",
                 match_class.cls
@@ -2207,7 +2207,7 @@ impl Compiler<'_> {
         }
 
         // Validate keyword attributes if any.
-        if nattrs != 0 {
+        if n_attrs != 0 {
             self.validate_kwd_attrs(&kwd_attrs, &kwd_patterns)?;
         }
 
@@ -2237,12 +2237,12 @@ impl Compiler<'_> {
         // 5. Compare with IS_OP 1.
         emit!(self, Instruction::IsOperation(true));
 
-        // At this point the TOS is a tuple of (nargs + nattrs) attributes (or None).
+        // At this point the TOS is a tuple of (nargs + n_attrs) attributes (or None).
         pc.on_top += 1;
         self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
 
-        // Unpack the tuple into (nargs + nattrs) items.
-        let total = nargs + nattrs;
+        // Unpack the tuple into (nargs + n_attrs) items.
+        let total = nargs + n_attrs;
         emit!(
             self,
             Instruction::UnpackSequence {
@@ -2280,12 +2280,12 @@ impl Compiler<'_> {
     //     let keys = &mapping.keys;
     //     let patterns = &mapping.patterns;
     //     let size = keys.len();
-    //     let npatterns = patterns.len();
+    //     let n_patterns = patterns.len();
 
-    //     if size != npatterns {
-    //         panic!("keys ({}) / patterns ({}) length mismatch in mapping pattern", size, npatterns);
+    //     if size != n_patterns {
+    //         panic!("keys ({}) / patterns ({}) length mismatch in mapping pattern", size, n_patterns);
     //         // return self.compiler_error(
-    //             // &format!("keys ({}) / patterns ({}) length mismatch in mapping pattern", size, npatterns)
+    //             // &format!("keys ({}) / patterns ({}) length mismatch in mapping pattern", size, n_patterns)
     //         // );
     //     }
 

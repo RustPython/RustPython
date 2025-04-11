@@ -1,3 +1,5 @@
+// cspell:disable
+
 //! An implementation of [WTF-8], a utf8-compatible encoding that allows for
 //! unpaired surrogate codepoints. This implementation additionally allows for
 //! paired surrogates that are nonetheless treated as two separate codepoints.
