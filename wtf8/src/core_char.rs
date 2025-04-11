@@ -1,3 +1,4 @@
+// cspell:disable
 //! Unstable functions from [`core::char`]
 
 use core::slice;

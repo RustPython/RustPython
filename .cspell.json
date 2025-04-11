@@ -105,9 +105,9 @@
     "reducelib",
     "richcompare",
     "RustPython",
+    "significand",
     "struc",
-    // plural of summand
-    "summands",
+    "summands", // plural of summand
     "sysmodule",
     "tracebacks",
     "typealiases",

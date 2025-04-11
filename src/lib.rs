@@ -233,14 +233,14 @@ fn write_profile(settings: &Settings) -> Result<(), Box<dyn std::error::Error>> 
     enum ProfileFormat {
         Html,
         Text,
-        SpeedScore,
+        SpeedScope,
     }
     let profile_output = settings.profile_output.as_deref();
     let profile_format = match settings.profile_format.as_deref() {
         Some("html") => ProfileFormat::Html,
         Some("text") => ProfileFormat::Text,
         None if profile_output == Some("-".as_ref()) => ProfileFormat::Text,
-        Some("speedscope") | None => ProfileFormat::SpeedScore,
+        Some("speedscope") | None => ProfileFormat::SpeedScope,
         Some(other) => {
             error!("Unknown profile format {}", other);
             // TODO: Need to change to ExitCode or Termination
@@ -251,7 +251,7 @@ fn write_profile(settings: &Settings) -> Result<(), Box<dyn std::error::Error>> 
     let profile_output = profile_output.unwrap_or_else(|| match profile_format {
         ProfileFormat::Html => "flame-graph.html".as_ref(),
         ProfileFormat::Text => "flame.txt".as_ref(),
-        ProfileFormat::SpeedScore => "flamescope.json".as_ref(),
+        ProfileFormat::SpeedScope => "flamescope.json".as_ref(),
     });
 
     let profile_output: Box<dyn io::Write> = if profile_output == "-" {
@@ -265,7 +265,7 @@ fn write_profile(settings: &Settings) -> Result<(), Box<dyn std::error::Error>> 
     match profile_format {
         ProfileFormat::Html => flame::dump_html(profile_output)?,
         ProfileFormat::Text => flame::dump_text_to_writer(profile_output)?,
-        ProfileFormat::SpeedScore => flamescope::dump(profile_output)?,
+        ProfileFormat::SpeedScope => flamescope::dump(profile_output)?,
     }
 
     Ok(())
