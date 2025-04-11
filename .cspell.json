@@ -47,6 +47,7 @@
   // words - list of words to be always considered correct
   "words": [
     "RUSTPYTHONPATH",
+    // RustPython terms
     "aiterable",
     "alnum",
     "baseclass",
