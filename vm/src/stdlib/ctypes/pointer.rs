@@ -1,4 +1,4 @@
-crate::builtins::PyType;
+use crate::builtins::PyType;
 
 #[pyclass(name = "PyCPointerType", base = "PyType", module = "_ctypes")]
 #[derive(PyPayload)]
@@ -9,7 +9,12 @@ pub struct PyCPointerType {
 #[pyclass]
 impl PyCPointerType {}
 
-#[pyclass(name = "_Pointer", base = "PyCData", metaclass = "PyCPointerType", module = "_ctypes")]
+#[pyclass(
+    name = "_Pointer",
+    base = "PyCData",
+    metaclass = "PyCPointerType",
+    module = "_ctypes"
+)]
 pub struct PyCPointer {}
 
 #[pyclass(flags(BASETYPE, IMMUTABLETYPE))]
