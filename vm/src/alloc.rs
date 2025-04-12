@@ -1,129 +1,132 @@
-//! Configurable allocator for RustPython.
-//! Currently it supports `mimalloc` and `system` allocators,
-//! whereas cpython uses `pymalloc`` for most operations.
-
-#[cfg(all(
-    any(target_os = "linux", target_os = "macos", target_os = "windows"),
-    not(any(target_env = "musl", target_env = "sgx"))
-))]
-mod inner {
-    use std::alloc::{GlobalAlloc, Layout, System};
-
-    pub enum RustPythonAllocator {
-        System(System),
-        Mimalloc(mimalloc::MiMalloc),
-    }
-
-    impl RustPythonAllocator {
-        pub fn new(allocator: &str) -> Self {
-            match allocator {
-                "system" | "malloc" => RustPythonAllocator::System(System),
-                "pymalloc" | "mimalloc" | "default" => {
-                    RustPythonAllocator::Mimalloc(mimalloc::MiMalloc)
-                }
-                _ => RustPythonAllocator::System(System),
-            }
-        }
-    }
-
-    unsafe impl GlobalAlloc for RustPythonAllocator {
-        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-            unsafe {
-                match self {
-                    RustPythonAllocator::System(system) => system.alloc(layout),
-                    RustPythonAllocator::Mimalloc(mimalloc) => mimalloc.alloc(layout),
-                }
-            }
-        }
-
-        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-            unsafe {
-                match self {
-                    RustPythonAllocator::System(system) => system.dealloc(ptr, layout),
-                    RustPythonAllocator::Mimalloc(mimalloc) => mimalloc.dealloc(ptr, layout),
-                }
-            }
-        }
-    }
-}
-
-#[cfg(not(all(
-    any(target_os = "linux", target_os = "macos", target_os = "windows"),
-    not(any(target_env = "musl", target_env = "sgx"))
-)))]
-mod inner {
-    use std::alloc::{GlobalAlloc, Layout, System};
-
-    pub enum RustPythonAllocator {
-        System(System),
-    }
-
-    impl RustPythonAllocator {
-        pub fn new(_allocator: &str) -> Self {
-            RustPythonAllocator::System(System)
-        }
-    }
-
-    impl GlobalAlloc for RustPythonAllocator {
-        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-            unsafe { self.0.alloc(layout) }
-        }
-
-        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-            unsafe { self.0.dealloc(ptr, layout) }
-        }
-    }
-}
-
-use std::alloc::{GlobalAlloc, Layout};
+use std::alloc::{Layout, GlobalAlloc};
 use std::cell::UnsafeCell;
+use std::ffi::CStr;
 
-pub use inner::RustPythonAllocator as InternalAllocator;
+// Pretend these are the actual allocator impls
 
-pub struct RustPythonAllocator {
-    inner: UnsafeCell<InternalAllocator>,
-}
+type GA_Alloc = unsafe fn(layout: Layout) -> *mut u8;
+type GA_Dealloc = unsafe fn(ptr: *mut u8, layout: Layout);
+type GA_AllocZeroed = unsafe fn(layout: Layout) -> *mut u8;
+type GA_Realloc = unsafe fn(ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8;
 
-unsafe impl Send for RustPythonAllocator {}
-unsafe impl Sync for RustPythonAllocator {}
+mod mimalloc_functions {
+    use std::alloc::Layout;
 
-impl RustPythonAllocator {
-    /// Create a new allocator based on the PYTHONMALLOC environment variable
-    /// or the default allocator if not set.
-    /// If this is not intended, use [`InternalAllocator::new`] directly.
-    pub const fn new() -> Self {
-        Self {
-            inner: UnsafeCell::new(None),
-        }
+    use mimalloc::MiMalloc;
+
+    pub unsafe fn alloc(layout: Layout) -> *mut u8 {
+        MiMalloc::alloc(layout)
+    }
+    
+    pub unsafe fn dealloc(ptr: *mut u8, layout: Layout) {
+        MiMalloc::dealloc(ptr, layout)
+    }
+    
+    pub unsafe fn alloc_zeroed(layout: Layout) -> *mut u8 {
+        MiMalloc::alloc_zeroed(layout)
+    }
+    
+    pub unsafe fn realloc(ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        MiMalloc::realloc(ptr, layout, new_size)
     }
 }
 
-impl RustPythonAllocator {
-    unsafe fn get_or_init(&self) -> &InternalAllocator {
-        unsafe {
-            let inner = self.inner.get();
-            if *inner.is_none() {
-                let env = std::env::var("PYTHONMALLOC").unwrap_or_default(); 
-                let allocator = InternalAllocator::new(&env);
-                *inner = allocator;
-            }
-            inner as *const InternalAllocator as _
-        }
+mod malloc_functions {
+    use std::alloc::System as Malloc;
+    use std::alloc::Layout;
+
+    pub unsafe fn alloc(layout: Layout) -> *mut u8 {
+        Malloc::alloc(layout)
+    }
+    
+    pub unsafe fn dealloc(ptr: *mut u8, layout: Layout) {
+        Malloc::dealloc(ptr, layout)
+    }
+    
+    pub unsafe fn alloc_zeroed(layout: Layout) -> *mut u8 {
+        Malloc::alloc_zeroed(layout)
+    }
+    
+    pub unsafe fn realloc(ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        Malloc::realloc(ptr, layout, new_size)
     }
 }
 
-unsafe impl GlobalAlloc for RustPythonAllocator {
+struct ConfigurableAllocator {
+    alloc: GA_Alloc,
+    dealloc: GA_Dealloc,
+    alloc_zeroed: GA_AllocZeroed,
+    realloc: GA_Realloc,
+}
+
+struct MakeMutable<T> {
+    inner: UnsafeCell<T>,
+}
+
+impl<T> MakeMutable<T> {
+    const fn new(inner: T) -> Self {
+        MakeMutable {
+            inner: UnsafeCell::new(inner),
+        }
+    }
+
+    fn get(&self) -> &T {
+        unsafe { &*self.inner.get() }
+    }
+
+    fn get_mut(&self) -> &mut T {
+        unsafe { &mut *self.inner.get() }
+    }
+}
+
+unsafe impl<T: Sync> Sync for MakeMutable<T> {}
+
+unsafe impl GlobalAlloc for MakeMutable<ConfigurableAllocator> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        unsafe {
-            let inner = self.get_or_init();
-            inner.alloc(layout)
-        }
+        ((*self.inner.get()).alloc)(layout)
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        unsafe {
-            let inner = self.get_or_init();
-            inner.dealloc(ptr, layout)
+        ((*self.inner.get()).dealloc)(ptr, layout)
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        ((*self.inner.get()).alloc_zeroed)(layout)
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        ((*self.inner.get()).realloc)(ptr, layout, new_size)
+    }
+}
+
+impl ConfigurableAllocator {
+    const fn default() -> Self {
+        ConfigurableAllocator {
+            alloc: mimalloc_functions::alloc,
+            dealloc: mimalloc_functions::dealloc,
+            alloc_zeroed: mimalloc_functions::alloc_zeroed,
+            realloc: mimalloc_functions::realloc,
         }
+    }
+}
+
+#[global_allocator]
+static ALLOC: MakeMutable<ConfigurableAllocator> = MakeMutable::new(ConfigurableAllocator::default());
+
+fn switch_to_malloc() {
+    unsafe {
+        (*ALLOC.inner.get()).alloc = malloc_functions::alloc;
+        (*ALLOC.inner.get()).dealloc = malloc_functions::dealloc;
+        (*ALLOC.inner.get()).alloc_zeroed = malloc_functions::alloc_zeroed;
+        (*ALLOC.inner.get()).realloc = malloc_functions::realloc;
+    }
+}
+
+fn switch_to_mimalloc() {
+    unsafe {
+        (*ALLOC.inner.get()).alloc = mimalloc_functions::alloc;
+        (*ALLOC.inner.get()).dealloc = mimalloc_functions::dealloc;
+        (*ALLOC.inner.get()).alloc_zeroed = mimalloc_functions::alloc_zeroed;
+        (*ALLOC.inner.get()).realloc = mimalloc_functions::realloc;
     }
 }
