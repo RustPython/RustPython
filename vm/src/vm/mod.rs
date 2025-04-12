@@ -298,7 +298,7 @@ impl VirtualMachine {
 
             #[cfg(all(
                 any(not(target_arch = "wasm32"), target_os = "wasi"),
-                not(feature = "disable-stdio")
+                not(feature = "quiet-stdio")
             ))]
             {
                 let io = import::import_builtin(self, "_io")?;
