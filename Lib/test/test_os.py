@@ -1980,7 +1980,6 @@ class URandomTests(unittest.TestCase):
         self.assertEqual(len(stdout), count)
         return stdout
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (ModuleNotFoundError: No module named 'os'")
     def test_urandom_subprocess(self):
         data1 = self.get_urandom_subprocess(16)
         data2 = self.get_urandom_subprocess(16)
