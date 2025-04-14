@@ -16,6 +16,7 @@ mod decl {
         convert::ToPyException,
         function::{ArgAsciiBuffer, ArgBytesLike, OptionalArg},
     };
+    use base64::Engine;
     use itertools::Itertools;
 
     #[pyattr(name = "Error", once)]
@@ -263,7 +264,7 @@ mod decl {
                     decoded.len() / 3 * 4 + 1,
                     0,
                 )),
-                _ => Err(base64::DecodeError::InvalidLength),
+                _ => Err(base64::DecodeError::InvalidLength(quad_pos)),
             }
         })
         .map_err(|err| super::Base64DecodeError(err).to_pyexception(vm))
@@ -272,7 +273,9 @@ mod decl {
     #[pyfunction]
     fn b2a_base64(data: ArgBytesLike, NewlineArg { newline }: NewlineArg) -> Vec<u8> {
         // https://stackoverflow.com/questions/63916821
-        let mut encoded = data.with_ref(|b| base64::encode(b)).into_bytes();
+        let mut encoded = data
+            .with_ref(|b| base64::engine::general_purpose::STANDARD.encode(b))
+            .into_bytes();
         if newline {
             encoded.push(b'\n');
         }
@@ -746,7 +749,7 @@ fn new_binascii_error(msg: String, vm: &VirtualMachine) -> PyBaseExceptionRef {
 impl ToPyException for Base64DecodeError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         use base64::DecodeError::*;
-        let message = match self.0 {
+        let message = match &self.0 {
             InvalidByte(0, PAD) => "Leading padding not allowed".to_owned(),
             InvalidByte(_, PAD) => "Discontinuous padding not allowed".to_owned(),
             InvalidByte(_, _) => "Only base64 data is allowed".to_owned(),
@@ -757,7 +760,9 @@ impl ToPyException for Base64DecodeError {
                     length
                 )
             }
-            InvalidLength => "Incorrect padding".to_owned(),
+            // TODO: clean up errors
+            InvalidLength(_) => "Incorrect padding".to_owned(),
+            InvalidPadding => "Incorrect padding".to_owned(),
         };
         new_binascii_error(format!("error decoding base64: {message}"), vm)
     }

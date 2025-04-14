@@ -36,8 +36,8 @@ log = { workspace = true }
 flame = { workspace = true, optional = true }
 
 lexopt = "0.3"
-dirs = { package = "dirs-next", version = "2.0.0" }
-env_logger = { version = "0.9.0", default-features = false, features = ["atty", "termcolor"] }
+dirs = { package = "dirs-next", version = "2.0" }
+env_logger = "0.11"
 flamescope = { version = "0.1.2", optional = true }
 
 [target.'cfg(windows)'.dependencies]
@@ -48,7 +48,7 @@ rustyline = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
-pyo3 = { version = "0.22", features = ["auto-initialize"] }
+pyo3 = { version = "0.24", features = ["auto-initialize"] }
 
 [[bench]]
 name = "execution"
@@ -162,13 +162,13 @@ getrandom = { version = "0.3", features = ["std"] }
 glob = "0.3"
 hex = "0.4.3"
 indexmap = { version = "2.2.6", features = ["std"] }
-insta = "1.38.0"
+insta = "1.42"
 itertools = "0.14.0"
 is-macro = "0.3.7"
 junction = "1.2.0"
 libc = "0.2.169"
 libffi = "3.2"
-log = "0.4.25"
+log = "0.4.27"
 nix = { version = "0.29", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
 malachite-bigint = "0.5"
 malachite-q = "0.5"
