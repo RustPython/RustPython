@@ -1,5 +1,6 @@
 import argparse
 import ast
+import itertools
 import platform
 from pathlib import Path
 
@@ -71,6 +72,37 @@ def modify_test(file: str, test: list[str], for_platform: bool = False) -> str:
                 break
     return "\n".join(lines)
 
+def modify_test_v2(file: str, test: list[str], for_platform: bool = False) -> str:
+    a = ast.parse(file)
+    lines = file.splitlines()
+    fixture = "@unittest.expectedFailure"
+    for key, node in ast.iter_fields(a):
+        if key == "body":
+            for i, n in enumerate(node):
+                match n:
+                    case ast.ClassDef():
+                        if len(test) == 2 and test[0] == n.name:
+                            # look through body for function def
+                            for i, fn in enumerate(n.body):
+                                match fn:
+                                    case ast.FunctionDef():
+                                        if fn.name == test[-1]:
+                                            assert not for_platform
+                                            indent = " " * fn.col_offset
+                                            lines.insert(fn.lineno - 1, indent + fixture)
+                                            lines.insert(fn.lineno - 1, indent + "# TODO: RUSTPYTHON")
+                                            break
+                    case ast.FunctionDef():
+                        if n.name == test[0] and len(test) == 1:
+                            assert not for_platform
+                            indent = " " * n.col_offset
+                            lines.insert(n.lineno - 1, indent + fixture)
+                            lines.insert(n.lineno - 1, indent + "# TODO: RUSTPYTHON")
+                            break
+                if i > 500:
+                    exit()
+    return "\n".join(lines)
+
 def run_test(test_name):
     print(f"Running test: {test_name}")
     rustpython_location = "./target/release/rustpython"
@@ -87,7 +119,7 @@ if __name__ == "__main__":
     for test in tests.tests:
         if test.result == "fail" or test.result == "error":
             print("Modifying test:", test.name)
-            f = modify_test(f, path_to_test(test.path), args.platform)
+            f = modify_test_v2(f, path_to_test(test.path), args.platform)
     with open(args.path, "w") as file:
         # TODO: Find validation method, and make --force override it
         file.write(f)
