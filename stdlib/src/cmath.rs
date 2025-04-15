@@ -12,13 +12,13 @@ mod cmath {
     // Constants
     #[pyattr]
     use std::f64::consts::{E as e, PI as pi, TAU as tau};
-    #[pyattr(name = "inf")]
+    #[pyattr(case = "lower")]
     const INF: f64 = f64::INFINITY;
-    #[pyattr(name = "nan")]
+    #[pyattr(case = "lower")]
     const NAN: f64 = f64::NAN;
-    #[pyattr(name = "infj")]
+    #[pyattr(case = "lower")]
     const INFJ: Complex64 = Complex64::new(0., f64::INFINITY);
-    #[pyattr(name = "nanj")]
+    #[pyattr(case = "lower")]
     const NANJ: Complex64 = Complex64::new(0., f64::NAN);
 
     #[pyfunction]

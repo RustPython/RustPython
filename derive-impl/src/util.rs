@@ -8,6 +8,8 @@ use syn_ext::{
     types::*,
 };
 
+use convert_case::{Case, Casing};
+
 pub(crate) const ALL_ALLOWED_NAMES: &[&str] = &[
     "pymethod",
     "pyclassmethod",
@@ -253,15 +255,17 @@ pub(crate) trait ItemMeta: Sized {
     fn from_inner(inner: ItemMetaInner) -> Self;
     fn inner(&self) -> &ItemMetaInner;
 
-    fn simple_name(&self) -> Result<String> {
-        let inner = self.inner();
-        Ok(inner
-            ._optional_str("name")?
-            .unwrap_or_else(|| inner.item_name()))
+    fn get_name(&self) -> Result<String> {
+        handle_custom_name(self.inner(), &self.inner().item_name())
     }
 
-    fn optional_name(&self) -> Option<String> {
-        self.inner()._optional_str("name").ok().flatten()
+    fn optional_name(&self) -> Result<Option<String>> {
+        let new_name = self.get_name()?;
+        if new_name != self.inner().item_name() {
+            Ok(Some(new_name))
+        } else {
+            Ok(None)
+        }
     }
 
     fn new_meta_error(&self, msg: &str) -> syn::Error {
@@ -272,7 +276,7 @@ pub(crate) trait ItemMeta: Sized {
 pub(crate) struct SimpleItemMeta(pub ItemMetaInner);
 
 impl ItemMeta for SimpleItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "case"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -285,7 +289,7 @@ impl ItemMeta for SimpleItemMeta {
 pub(crate) struct ModuleItemMeta(pub ItemMetaInner);
 
 impl ItemMeta for ModuleItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "with", "sub"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "case", "with", "sub"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -317,7 +321,7 @@ impl ModuleItemMeta {
 pub(crate) struct AttrItemMeta(pub ItemMetaInner);
 
 impl ItemMeta for AttrItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "once"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "case", "once"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -441,7 +445,7 @@ impl ClassItemMeta {
 pub(crate) struct ExceptionItemMeta(ClassItemMeta);
 
 impl ItemMeta for ExceptionItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "base", "unhashable", "ctx", "impl"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "case", "base", "unhashable", "ctx", "impl"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(ClassItemMeta(inner))
@@ -742,4 +746,40 @@ fn func_sig(sig: &Signature) -> String {
 
 pub(crate) fn format_doc(sig: &str, doc: &str) -> String {
     format!("{sig}\n--\n\n{doc}")
+}
+
+pub(crate) fn handle_custom_name(
+    inner: &ItemMetaInner,
+    default_name: &str,
+) -> Result<String> {
+    // TODO: work on porting to rename
+    let name = inner._optional_str("name").ok().flatten();
+    let mut working_name = name.unwrap_or_else(|| default_name.to_string());
+    let magic = inner._bool("magic").ok().unwrap_or(false);
+    if magic {
+        working_name = format!("__{working_name}__");
+        return Ok(working_name);
+    }
+    let case = inner._optional_str("case").ok().flatten();
+    if let Some(case) = case {
+        working_name = match case.to_lowercase().as_str() {
+            "magic" => {
+                working_name = format!("__{working_name}__");
+                working_name
+            }
+            "private" => {
+                working_name = format!("_{working_name}");
+                working_name
+            }
+            "lowercase" => working_name.to_lowercase(),
+            "uppercase" => working_name.to_uppercase(),
+            "snake_case" => working_name.to_case(Case::Snake),
+            "camelCase" => working_name.to_case(Case::Camel),
+            "PascalCase" => working_name.to_case(Case::Pascal),
+            "SCREAMING_SNAKE_CASE" => working_name.to_case(Case::UpperSnake),
+            "CONSTANT_CASE" => working_name.to_case(Case::Constant),
+            _ => bail_span!(&inner.meta_ident, "Unknown case: {case}"),
+        };
+    }
+    Ok(working_name)
 }

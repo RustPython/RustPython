@@ -63,7 +63,7 @@ pub fn impl_pymodule(attr: PunctuatedNestedMeta, module_item: Item) -> Result<To
 
     // generation resources
     let mut context = ModuleContext {
-        name: module_meta.simple_name()?,
+        name: module_meta.get_name()?,
         ..Default::default()
     };
     let items = module_item.items_mut().ok_or_else(|| {
@@ -451,7 +451,7 @@ impl ModuleItem for FunctionItem {
         let item_attr = args.attrs.remove(self.index());
         let item_meta = SimpleItemMeta::from_attr(ident.clone(), &item_attr)?;
 
-        let py_name = item_meta.simple_name()?;
+        let py_name = item_meta.get_name()?;
         let sig_doc = text_signature(func.sig(), &py_name);
 
         let module = args.module_name();
@@ -479,7 +479,7 @@ impl ModuleItem for FunctionItem {
                         let attr_attr = args.attrs.remove(*attr_index);
                         let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr_attr)?;
 
-                        let py_name = item_meta.simple_name()?;
+                        let py_name = item_meta.get_name()?;
                         let inserted = py_names.insert(py_name.clone());
                         if !inserted {
                             return Err(self.new_syn_error(
@@ -558,7 +558,7 @@ impl ModuleItem for ClassItem {
                 let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr_attr)?;
 
                 let py_name = item_meta
-                    .optional_name()
+                    .optional_name()?
                     .unwrap_or_else(|| class_name.clone());
                 py_names.push(py_name);
 
@@ -633,7 +633,7 @@ impl ModuleItem for AttributeItem {
                     block.stmts = vec![stmt];
                 }
 
-                let py_name = attr_meta.simple_name()?;
+                let py_name = attr_meta.get_name()?;
                 (
                     ident.clone(),
                     py_name,
@@ -644,7 +644,7 @@ impl ModuleItem for AttributeItem {
             }
             Item::Const(syn::ItemConst { ident, .. }) => {
                 let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr)?;
-                let py_name = item_meta.simple_name()?;
+                let py_name = item_meta.get_name()?;
                 (
                     ident.clone(),
                     py_name,
@@ -661,8 +661,8 @@ impl ModuleItem for AttributeItem {
                 let _ = iter_use_idents(item, |ident, is_unique| {
                     let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr)?;
                     let py_name = if is_unique {
-                        item_meta.simple_name()?
-                    } else if item_meta.optional_name().is_some() {
+                        item_meta.get_name()?
+                    } else if item_meta.optional_name()?.is_some() {
                         // this check actually doesn't need to be placed in loop
                         return Err(self.new_syn_error(
                             ident.span(),
@@ -713,7 +713,7 @@ impl ModuleItem for AttributeItem {
                         ));
                     }
 
-                    let py_name = item_meta.optional_name().ok_or_else(|| {
+                    let py_name = item_meta.optional_name()?.ok_or_else(|| {
                         self.new_syn_error(
                             ident.span(),
                             "#[pyattr(name = ...)] is mandatory except for the bottom-most item",
