@@ -244,7 +244,8 @@ impl CodeInfo {
                     let instr_display = instr.display(display_arg, self);
                     eprint!("{instr_display}: {depth} {effect:+} => ");
                 }
-                let new_depth = depth.checked_add_signed(effect).unwrap();
+                // Either it's less than 0 or more than u32. Option 1 is far more likely unless something is seriously wrong.
+                let new_depth = depth.checked_add_signed(effect).expect("The stack is detected to have likely been reduced to less than 0 elements, this is a bug.");
                 if DEBUG {
                     eprintln!("{new_depth}");
                 }
