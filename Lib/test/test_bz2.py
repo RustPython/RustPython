@@ -272,8 +272,6 @@ class BZ2FileTest(BaseTest):
         # This call will deadlock if the above call failed to release the lock.
         self.assertRaises(ValueError, bz2f.readlines)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testWrite(self):
         with BZ2File(self.filename, "w") as bz2f:
             self.assertRaises(TypeError, bz2f.write)
@@ -281,8 +279,6 @@ class BZ2FileTest(BaseTest):
         with open(self.filename, 'rb') as f:
             self.assertEqual(ext_decompress(f.read()), self.TEXT)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testWriteChunks10(self):
         with BZ2File(self.filename, "w") as bz2f:
             n = 0
@@ -302,8 +298,6 @@ class BZ2FileTest(BaseTest):
         with open(self.filename, "rb") as f:
             self.assertEqual(f.read(), expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testWriteLines(self):
         with BZ2File(self.filename, "w") as bz2f:
             self.assertRaises(TypeError, bz2f.writelines)
@@ -322,8 +316,6 @@ class BZ2FileTest(BaseTest):
             self.assertRaises(OSError, bz2f.write, b"a")
             self.assertRaises(OSError, bz2f.writelines, [b"a"])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testAppend(self):
         with BZ2File(self.filename, "w") as bz2f:
             self.assertRaises(TypeError, bz2f.write)
@@ -667,8 +659,6 @@ class BZ2FileTest(BaseTest):
                 self.assertTrue(self.TEXT.startswith(pdata))
                 self.assertEqual(bz2f.read(), self.TEXT)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testWriteBytesIO(self):
         with BytesIO() as bio:
             with BZ2File(bio, "w") as bz2f:
@@ -720,8 +710,6 @@ class BZ2FileTest(BaseTest):
 
 
 class BZ2CompressorTest(BaseTest):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testCompress(self):
         bz2c = BZ2Compressor()
         self.assertRaises(TypeError, bz2c.compress)
@@ -735,8 +723,6 @@ class BZ2CompressorTest(BaseTest):
         data += bz2c.flush()
         self.assertEqual(data, self.EMPTY_DATA)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testCompressChunks10(self):
         bz2c = BZ2Compressor()
         n = 0
@@ -964,8 +950,6 @@ class BZ2DecompressorTest(BaseTest):
 
 
 class CompressDecompressTest(BaseTest):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testCompress(self):
         data = bz2.compress(self.TEXT)
         self.assertEqual(ext_decompress(data), self.TEXT)
