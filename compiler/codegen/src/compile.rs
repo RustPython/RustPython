@@ -2223,6 +2223,8 @@ impl Compiler<'_> {
             });
         }
 
+        use bytecode::TestOperator::*;
+
         // Emit instructions:
         // 1. Load the new tuple of attribute names.
         self.emit_load_const(ConstantData::Tuple {
@@ -2235,7 +2237,7 @@ impl Compiler<'_> {
         // 4. Load None.
         self.emit_load_const(ConstantData::None);
         // 5. Compare with IS_OP 1.
-        emit!(self, Instruction::IsOperation(true));
+        emit!(self, Instruction::TestOperation { op: IsNot });
 
         // At this point the TOS is a tuple of (nargs + n_attrs) attributes (or None).
         pc.on_top += 1;
@@ -2351,7 +2353,7 @@ impl Compiler<'_> {
     //     emit!(self, Instruction::CopyItem { index: 1_u32 });
     //     self.emit_load_const(ConstantData::None);
     //     // TODO: should be is
-    //     emit!(self, Instruction::IsOperation(true));
+    //     emit!(self, Instruction::TestOperation::IsNot);
     //     self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
 
     //     // Unpack the tuple of values.

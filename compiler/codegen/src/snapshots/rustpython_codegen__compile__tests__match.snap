@@ -30,7 +30,7 @@ expression: "compile_exec(\"\\\nclass Test:\n    pass\n\nt = Test()\nmatch t:\n 
              14 MatchClass           (0)
              15 CopyItem             (1)
              16 LoadConst            (None)
-             17 IsOperation          (true)
+             17 TestOperation        (IsNot)
              18 JumpIfFalse          (27)
              19 UnpackSequence       (0)
              20 Pop
