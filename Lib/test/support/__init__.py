@@ -74,13 +74,7 @@ __all__ = [
 #
 # The timeout should be long enough for connect(), recv() and send() methods
 # of socket.socket.
-LOOPBACK_TIMEOUT = 5.0
-if sys.platform == 'win32' and ' 32 bit (ARM)' in sys.version:
-    # bpo-37553: test_socket.SendfileUsingSendTest is taking longer than 2
-    # seconds on Windows ARM32 buildbot
-    LOOPBACK_TIMEOUT = 10
-elif sys.platform == 'vxworks':
-    LOOPBACK_TIMEOUT = 10
+LOOPBACK_TIMEOUT = 10.0
 
 # Timeout in seconds for network requests going to the internet. The timeout is
 # short enough to prevent a test to wait for too long if the internet request
@@ -112,7 +106,6 @@ TEST_SUPPORT_DIR = os.path.dirname(os.path.abspath(__file__))
 TEST_HOME_DIR = os.path.dirname(TEST_SUPPORT_DIR)
 STDLIB_DIR = os.path.dirname(TEST_HOME_DIR)
 REPO_ROOT = os.path.dirname(STDLIB_DIR)
-
 
 class Error(Exception):
     """Base class for regression test exceptions."""
@@ -259,22 +252,16 @@ def _is_gui_available():
         # process not running under the same user id as the current console
         # user.  To avoid that, raise an exception if the window manager
         # connection is not available.
-        from ctypes import cdll, c_int, pointer, Structure
-        from ctypes.util import find_library
-
-        app_services = cdll.LoadLibrary(find_library("ApplicationServices"))
-
-        if app_services.CGMainDisplayID() == 0:
-            reason = "gui tests cannot run without OS X window manager"
+        import subprocess
+        try:
+            rc = subprocess.run(["launchctl", "managername"],
+                                capture_output=True, check=True)
+            managername = rc.stdout.decode("utf-8").strip()
+        except subprocess.CalledProcessError:
+            reason = "unable to detect macOS launchd job manager"
         else:
-            class ProcessSerialNumber(Structure):
-                _fields_ = [("highLongOfPSN", c_int),
-                            ("lowLongOfPSN", c_int)]
-            psn = ProcessSerialNumber()
-            psn_p = pointer(psn)
-            if (  (app_services.GetCurrentProcess(psn_p) < 0) or
-                  (app_services.SetFrontProcess(psn_p) < 0) ):
-                reason = "cannot run without OS X gui process"
+            if managername != "Aqua":
+                reason = f"{managername=} -- can only run in a macOS GUI session"
 
     # check on every platform whether tkinter can actually do anything
     if not reason:
@@ -391,11 +378,12 @@ def requires_mac_ver(*min_version):
 
 def skip_if_buildbot(reason=None):
     """Decorator raising SkipTest if running on a buildbot."""
+    import getpass
     if not reason:
         reason = 'not suitable for buildbots'
     try:
         isbuildbot = getpass.getuser().lower() == 'buildbot'
-    except (KeyError, EnvironmentError) as err:
+    except (KeyError, OSError) as err:
         warnings.warn(f'getpass.getuser() failed {err}.', RuntimeWarning)
         isbuildbot = False
     return unittest.skipIf(isbuildbot, reason)
@@ -409,34 +397,47 @@ def check_sanitizer(*, address=False, memory=False, ub=False, thread=False):
     cflags = sysconfig.get_config_var('CFLAGS') or ''
     config_args = sysconfig.get_config_var('CONFIG_ARGS') or ''
     memory_sanitizer = (
-            '-fsanitize=memory' in cflags or
-            '--with-memory-sanitizer' in config_args
+        '-fsanitize=memory' in cflags or
+        '--with-memory-sanitizer' in config_args
     )
     address_sanitizer = (
-            '-fsanitize=address' in cflags or
-            '--with-address-sanitizer' in config_args
+        '-fsanitize=address' in cflags or
+        '--with-address-sanitizer' in config_args
     )
     ub_sanitizer = (
-            '-fsanitize=undefined' in cflags or
-            '--with-undefined-behavior-sanitizer' in config_args
+        '-fsanitize=undefined' in cflags or
+        '--with-undefined-behavior-sanitizer' in config_args
     )
     thread_sanitizer = (
-            '-fsanitize=thread' in cflags or
-            '--with-thread-sanitizer' in config_args
+        '-fsanitize=thread' in cflags or
+        '--with-thread-sanitizer' in config_args
     )
     return (
-            (memory and memory_sanitizer) or
-            (address and address_sanitizer) or
-            (ub and ub_sanitizer) or
-            (thread and thread_sanitizer)
+        (memory and memory_sanitizer) or
+        (address and address_sanitizer) or
+        (ub and ub_sanitizer) or
+        (thread and thread_sanitizer)
     )
+
 
 def skip_if_sanitizer(reason=None, *, address=False, memory=False, ub=False, thread=False):
     """Decorator raising SkipTest if running with a sanitizer active."""
     if not reason:
         reason = 'not working with sanitizers active'
-    skip = check_sanitizer(address=address, memory=memory, ub=ub)
+    skip = check_sanitizer(address=address, memory=memory, ub=ub, thread=thread)
     return unittest.skipIf(skip, reason)
+
+# gh-89363: True if fork() can hang if Python is built with Address Sanitizer
+# (ASAN): libasan race condition, dead lock in pthread_create().
+HAVE_ASAN_FORK_BUG = check_sanitizer(address=True)
+
+
+def set_sanitizer_env_var(env, option):
+    for name in ('ASAN_OPTIONS', 'MSAN_OPTIONS', 'UBSAN_OPTIONS', 'TSAN_OPTIONS'):
+        if name in env:
+            env[name] += f':{option}'
+        else:
+            env[name] = option
 
 
 def system_must_validate_cert(f):
@@ -510,21 +511,42 @@ def has_no_debug_ranges():
 def requires_debug_ranges(reason='requires co_positions / debug_ranges'):
     return unittest.skipIf(has_no_debug_ranges(), reason)
 
-def requires_legacy_unicode_capi():
+@contextlib.contextmanager
+def suppress_immortalization(suppress=True):
+    """Suppress immortalization of deferred objects."""
     try:
-        from _testcapi import unicode_legacy_string
+        import _testinternalcapi
     except ImportError:
-        unicode_legacy_string = None
+        yield
+        return
 
-    return unittest.skipUnless(unicode_legacy_string,
-                               'requires legacy Unicode C API')
+    if not suppress:
+        yield
+        return
+
+    _testinternalcapi.suppress_immortalization(True)
+    try:
+        yield
+    finally:
+        _testinternalcapi.suppress_immortalization(False)
+
+def skip_if_suppress_immortalization():
+    try:
+        import _testinternalcapi
+    except ImportError:
+        return
+    return unittest.skipUnless(_testinternalcapi.get_immortalize_deferred(),
+                                "requires immortalization of deferred objects")
+
+
+MS_WINDOWS = (sys.platform == 'win32')
 
 # Is not actually used in tests, but is kept for compatibility.
 is_jython = sys.platform.startswith('java')
 
-is_android = hasattr(sys, 'getandroidapilevel')
+is_android = sys.platform == "android"
 
-if sys.platform not in ('win32', 'vxworks'):
+if sys.platform not in {"win32", "vxworks", "ios", "tvos", "watchos"}:
     unix_shell = '/system/bin/sh' if is_android else '/bin/sh'
 else:
     unix_shell = None
@@ -534,23 +556,44 @@ else:
 is_emscripten = sys.platform == "emscripten"
 is_wasi = sys.platform == "wasi"
 
-has_fork_support = hasattr(os, "fork") and not is_emscripten and not is_wasi
+is_apple_mobile = sys.platform in {"ios", "tvos", "watchos"}
+is_apple = is_apple_mobile or sys.platform == "darwin"
 
-# From python 3.12.6
-is_s390x = hasattr(os, 'uname') and os.uname().machine == 's390x'
-skip_on_s390x = unittest.skipIf(is_s390x, 'skipped on s390x')
+has_fork_support = hasattr(os, "fork") and not (
+    # WASM and Apple mobile platforms do not support subprocesses.
+    is_emscripten
+    or is_wasi
+    or is_apple_mobile
+
+    # Although Android supports fork, it's unsafe to call it from Python because
+    # all Android apps are multi-threaded.
+    or is_android
+)
 
 def requires_fork():
     return unittest.skipUnless(has_fork_support, "requires working os.fork()")
 
-has_subprocess_support = not is_emscripten and not is_wasi
+has_subprocess_support = not (
+    # WASM and Apple mobile platforms do not support subprocesses.
+    is_emscripten
+    or is_wasi
+    or is_apple_mobile
+
+    # Although Android supports subproceses, they're almost never useful in
+    # practice (see PEP 738). And most of the tests that use them are calling
+    # sys.executable, which won't work when Python is embedded in an Android app.
+    or is_android
+)
 
 def requires_subprocess():
     """Used for subprocess, os.spawn calls, fd inheritance"""
     return unittest.skipUnless(has_subprocess_support, "requires subprocess support")
 
 # Emscripten's socket emulation and WASI sockets have limitations.
-has_socket_support = not is_emscripten and not is_wasi
+has_socket_support = not (
+    is_emscripten
+    or is_wasi
+)
 
 def requires_working_socket(*, module=False):
     """Skip tests or modules that require working sockets
