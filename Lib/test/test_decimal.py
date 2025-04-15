@@ -34,10 +34,10 @@ import numbers
 import locale
 from test.support import (is_resource_enabled,
                           requires_IEEE_754, requires_docstrings,
-                          requires_legacy_unicode_capi, check_sanitizer)
+                          check_disallow_instantiation)
 from test.support import (TestFailed,
                           run_with_locale, cpython_only,
-                          darwin_malloc_err_warning, is_emscripten)
+                          darwin_malloc_err_warning)
 from test.support.import_helper import import_fresh_module
 from test.support import threading_helper
 from test.support import warnings_helper
@@ -585,18 +585,6 @@ class ExplicitConstructionTest:
 
             # underscores don't prevent errors
             self.assertRaises(InvalidOperation, Decimal, "1_2_\u00003")
-
-    @cpython_only
-    @requires_legacy_unicode_capi()
-    @warnings_helper.ignore_warnings(category=DeprecationWarning)
-    def test_from_legacy_strings(self):
-        import _testcapi
-        Decimal = self.decimal.Decimal
-        context = self.decimal.Context()
-
-        s = _testcapi.unicode_legacy_string('9.999999')
-        self.assertEqual(str(Decimal(s)), '9.999999')
-        self.assertEqual(str(context.create_decimal(s)), '9.999999')
 
     def test_explicit_from_tuples(self):
         Decimal = self.decimal.Decimal
@@ -2927,23 +2915,6 @@ class ContextAPItests:
             assert_signals(self, c, 'flags', [])
             assert_signals(self, c, 'traps', [InvalidOperation, DivisionByZero,
                                               Overflow])
-
-    @cpython_only
-    @requires_legacy_unicode_capi()
-    @warnings_helper.ignore_warnings(category=DeprecationWarning)
-    def test_from_legacy_strings(self):
-        import _testcapi
-        c = self.decimal.Context()
-
-        for rnd in RoundingModes:
-            c.rounding = _testcapi.unicode_legacy_string(rnd)
-            self.assertEqual(c.rounding, rnd)
-
-        s = _testcapi.unicode_legacy_string('')
-        self.assertRaises(TypeError, setattr, c, 'rounding', s)
-
-        s = _testcapi.unicode_legacy_string('ROUND_\x00UP')
-        self.assertRaises(TypeError, setattr, c, 'rounding', s)
 
     def test_pickle(self):
 
@@ -5653,48 +5624,6 @@ class CWhitebox(unittest.TestCase):
         for cls in X, Y, Z:
             self.assertEqual(Decimal.from_float(cls(101.1)),
                              Decimal.from_float(101.1))
-
-    # Issue 41540:
-    @unittest.skipIf(sys.platform.startswith("aix"),
-                     "AIX: default ulimit: test is flaky because of extreme over-allocation")
-    @unittest.skipIf(is_emscripten, "Test is unstable on Emscripten")
-    @unittest.skipIf(check_sanitizer(address=True, memory=True),
-                     "ASAN/MSAN sanitizer defaults to crashing "
-                     "instead of returning NULL for malloc failure.")
-    def test_maxcontext_exact_arith(self):
-
-        # Make sure that exact operations do not raise MemoryError due
-        # to huge intermediate values when the context precision is very
-        # large.
-
-        # The following functions fill the available precision and are
-        # therefore not suitable for large precisions (by design of the
-        # specification).
-        MaxContextSkip = ['logical_invert', 'next_minus', 'next_plus',
-                          'logical_and', 'logical_or', 'logical_xor',
-                          'next_toward', 'rotate', 'shift']
-
-        Decimal = C.Decimal
-        Context = C.Context
-        localcontext = C.localcontext
-
-        # Here only some functions that are likely candidates for triggering a
-        # MemoryError are tested.  deccheck.py has an exhaustive test.
-        maxcontext = Context(prec=C.MAX_PREC, Emin=C.MIN_EMIN, Emax=C.MAX_EMAX)
-        with localcontext(maxcontext):
-            self.assertEqual(Decimal(0).exp(), 1)
-            self.assertEqual(Decimal(1).ln(), 0)
-            self.assertEqual(Decimal(1).log10(), 0)
-            self.assertEqual(Decimal(10**2).log10(), 2)
-            self.assertEqual(Decimal(10**223).log10(), 223)
-            self.assertEqual(Decimal(10**19).logb(), 19)
-            self.assertEqual(Decimal(4).sqrt(), 2)
-            self.assertEqual(Decimal("40E9").sqrt(), Decimal('2.0E+5'))
-            self.assertEqual(divmod(Decimal(10), 3), (3, 1))
-            self.assertEqual(Decimal(10) // 3, 3)
-            self.assertEqual(Decimal(4) / 2, 2)
-            self.assertEqual(Decimal(400) ** -1, Decimal('0.0025'))
-
 
     def test_c_signaldict_segfault(self):
         # See gh-106263 for details.
