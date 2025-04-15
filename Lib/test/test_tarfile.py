@@ -69,13 +69,6 @@ class GzipTest:
     open = gzip.GzipFile if gzip else None
     taropen = tarfile.TarFile.gzopen
 
-@support.requires_bz2()
-class Bz2Test:
-    tarname = bz2name
-    suffix = 'bz2'
-    open = bz2.BZ2File if bz2 else None
-    taropen = tarfile.TarFile.bz2open
-
 @support.requires_lzma()
 class LzmaTest:
     tarname = xzname
@@ -243,9 +236,6 @@ class UstarReadTest(ReadTest, unittest.TestCase):
 class GzipUstarReadTest(GzipTest, UstarReadTest):
     pass
 
-class Bz2UstarReadTest(Bz2Test, UstarReadTest):
-    pass
-
 class LzmaUstarReadTest(LzmaTest, UstarReadTest):
     pass
 
@@ -337,10 +327,6 @@ class ListTest(ReadTest, unittest.TestCase):
 
 
 class GzipListTest(GzipTest, ListTest):
-    pass
-
-
-class Bz2ListTest(Bz2Test, ListTest):
     pass
 
 
@@ -738,10 +724,6 @@ class MiscReadTest(MiscReadTestBase, unittest.TestCase):
 class GzipMiscReadTest(GzipTest, MiscReadTestBase, unittest.TestCase):
     pass
 
-class Bz2MiscReadTest(Bz2Test, MiscReadTestBase, unittest.TestCase):
-    def requires_name_attribute(self):
-        self.skipTest("BZ2File have no name attribute")
-
 class LzmaMiscReadTest(LzmaTest, MiscReadTestBase, unittest.TestCase):
     def requires_name_attribute(self):
         self.skipTest("LZMAFile have no name attribute")
@@ -811,9 +793,6 @@ class StreamReadTest(CommonReadTest, unittest.TestCase):
 class GzipStreamReadTest(GzipTest, StreamReadTest):
     pass
 
-class Bz2StreamReadTest(Bz2Test, StreamReadTest):
-    pass
-
 class LzmaStreamReadTest(LzmaTest, StreamReadTest):
     pass
 
@@ -860,21 +839,6 @@ class DetectReadTest(TarTest, unittest.TestCase):
 
 class GzipDetectReadTest(GzipTest, DetectReadTest):
     pass
-
-class Bz2DetectReadTest(Bz2Test, DetectReadTest):
-    def test_detect_stream_bz2(self):
-        # Originally, tarfile's stream detection looked for the string
-        # "BZh91" at the start of the file. This is incorrect because
-        # the '9' represents the blocksize (900,000 bytes). If the file was
-        # compressed using another blocksize autodetection fails.
-        with open(tarname, "rb") as fobj:
-            data = fobj.read()
-
-        # Compress with blocksize 100,000 bytes, the file starts with "BZh11".
-        with bz2.BZ2File(tmpname, "wb", compresslevel=1) as fobj:
-            fobj.write(data)
-
-        self._testfunc_file(tmpname, "r|*")
 
 class LzmaDetectReadTest(LzmaTest, DetectReadTest):
     pass
@@ -1497,11 +1461,6 @@ class GzipWriteTest(GzipTest, WriteTest):
         def test_cwd(self):
             super().test_cwd()
 
-
-class Bz2WriteTest(Bz2Test, WriteTest):
-    pass
-
-
 class LzmaWriteTest(LzmaTest, WriteTest):
     pass
 
@@ -1554,10 +1513,6 @@ class GzipStreamWriteTest(GzipTest, StreamWriteTest):
         tarfile.open(tmpname, self.mode).close()
         payload = pathlib.Path(tmpname).read_text(encoding='latin-1')
         assert os.path.dirname(tmpname) not in payload
-
-
-class Bz2StreamWriteTest(Bz2Test, StreamWriteTest):
-    decompressor = bz2.BZ2Decompressor if bz2 else None
 
 class LzmaStreamWriteTest(LzmaTest, StreamWriteTest):
     decompressor = lzma.LZMADecompressor if lzma else None
@@ -1788,16 +1743,6 @@ class GzipCreateTest(GzipTest, CreateTest):
             tobj.add(self.file_path)
         with tarfile.open(tmpname, 'r:gz', compresslevel=1) as tobj:
             pass
-
-
-class Bz2CreateTest(Bz2Test, CreateTest):
-
-    def test_create_with_compresslevel(self):
-        with tarfile.open(tmpname, self.mode, compresslevel=1) as tobj:
-            tobj.add(self.file_path)
-        with tarfile.open(tmpname, 'r:bz2', compresslevel=1) as tobj:
-            pass
-
 
 class LzmaCreateTest(LzmaTest, CreateTest):
 
@@ -2286,9 +2231,6 @@ class AppendTest(AppendTestBase, unittest.TestCase):
 class GzipAppendTest(GzipTest, AppendTestBase, unittest.TestCase):
     pass
 
-class Bz2AppendTest(Bz2Test, AppendTestBase, unittest.TestCase):
-    pass
-
 class LzmaAppendTest(LzmaTest, AppendTestBase, unittest.TestCase):
     pass
 
@@ -2594,7 +2536,7 @@ class CommandLineTest(unittest.TestCase):
         files = [support.findfile('tokenize_tests.txt'),
                  support.findfile('tokenize_tests-no-coding-cookie-'
                                   'and-utf8-bom-sig-only.txt')]
-        for filetype in (GzipTest, Bz2Test, LzmaTest):
+        for filetype in (GzipTest, LzmaTest):
             if not filetype.open:
                 continue
             try:
@@ -2734,38 +2676,6 @@ class LinkEmulationTest(ReadTest, unittest.TestCase):
                      "Skip emulation if symlink exists")
     def test_symlink_extraction2(self):
         self._test_link_extraction("./ustar/linktest2/symtype")
-
-
-class Bz2PartialReadTest(Bz2Test, unittest.TestCase):
-    # Issue5068: The _BZ2Proxy.read() method loops forever
-    # on an empty or partial bzipped file.
-
-    def _test_partial_input(self, mode):
-        class MyBytesIO(io.BytesIO):
-            hit_eof = False
-            def read(self, n):
-                if self.hit_eof:
-                    raise AssertionError("infinite loop detected in "
-                                         "tarfile.open()")
-                self.hit_eof = self.tell() == len(self.getvalue())
-                return super(MyBytesIO, self).read(n)
-            def seek(self, *args):
-                self.hit_eof = False
-                return super(MyBytesIO, self).seek(*args)
-
-        data = bz2.compress(tarfile.TarInfo("foo").tobuf())
-        for x in range(len(data) + 1):
-            try:
-                tarfile.open(fileobj=MyBytesIO(data[:x]), mode=mode)
-            except tarfile.ReadError:
-                pass # we have no interest in ReadErrors
-
-    def test_partial_input(self):
-        self._test_partial_input("r")
-
-    def test_partial_input_bz2(self):
-        self._test_partial_input("r:bz2")
-
 
 def root_is_uid_gid_0():
     try:
@@ -2909,7 +2819,7 @@ def setUpModule():
         data = fobj.read()
 
     # Create compressed tarfiles.
-    for c in GzipTest, Bz2Test, LzmaTest:
+    for c in GzipTest, LzmaTest:
         if c.open:
             os_helper.unlink(c.tarname)
             testtarnames.append(c.tarname)
