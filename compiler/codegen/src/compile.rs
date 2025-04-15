@@ -2158,10 +2158,7 @@ impl Compiler<'_> {
             for ident in attrs.iter().take(n_attrs).skip(i + 1) {
                 let other = ident.as_str();
                 if attr == other {
-                    todo!();
-                    // return Err(self.compiler_error(
-                    //     &format!("attribute name repeated in class pattern: {}", attr),
-                    // ));
+                    return Err(self.error(CodegenErrorType::RepeatedAttributePattern));
                 }
             }
         }
@@ -2415,15 +2412,16 @@ impl Compiler<'_> {
             } else {
                 let control_vec = control.as_ref().unwrap();
                 if nstores != control_vec.len() {
-                    todo!();
-                    // return self.compiler_error("alternative patterns bind different names");
+                    return Err(self.error(CodegenErrorType::ConflictingNameBindPattern));
                 } else if nstores > 0 {
                     // Check that the names occur in the same order.
                     for icontrol in (0..nstores).rev() {
                         let name = &control_vec[icontrol];
                         // Find the index of `name` in the current stores.
-                        let istores = pc.stores.iter().position(|n| n == name).unwrap();
-                        // .ok_or_else(|| self.compiler_error("alternative patterns bind different names"))?;
+                        let istores =
+                            pc.stores.iter().position(|n| n == name).ok_or_else(|| {
+                                self.error(CodegenErrorType::ConflictingNameBindPattern)
+                            })?;
                         if icontrol != istores {
                             // The orders differ; we must reorder.
                             assert!(istores < icontrol, "expected istores < icontrol");
