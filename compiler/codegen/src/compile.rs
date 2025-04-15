@@ -1944,32 +1944,35 @@ impl Compiler<'_> {
         n: Option<&Identifier>,
         pc: &mut PatternContext,
     ) -> CompileResult<()> {
-        // If no name is provided, simply pop the top of the stack.
-        if n.is_none() {
-            emit!(self, Instruction::Pop);
-            return Ok(());
+        match n {
+            // If no name is provided, simply pop the top of the stack.
+            None => {
+                emit!(self, Instruction::Pop);
+                return Ok(());
+            }
+            Some(name) => {
+                // Check if the name is forbidden for storing.
+                if self.forbidden_name(name.as_str(), NameUsage::Store)? {
+                    return Err(self.compile_error_forbidden_name(name.as_str()));
+                }
+
+                // Ensure we don't store the same name twice.
+                // TODO: maybe pc.stores should be a set?
+                if pc.stores.contains(&name.to_string()) {
+                    return Err(
+                        self.error(CodegenErrorType::DuplicateStore(name.as_str().to_string()))
+                    );
+                }
+
+                // Calculate how many items to rotate:
+                let rotations = pc.on_top + pc.stores.len() + 1;
+                self.pattern_helper_rotate(rotations)?;
+
+                // Append the name to the captured stores.
+                pc.stores.push(name.to_string());
+                Ok(())
+            }
         }
-        let name = n.unwrap();
-
-        // Check if the name is forbidden for storing.
-        if self.forbidden_name(name.as_str(), NameUsage::Store)? {
-            return Err(self.compile_error_forbidden_name(name.as_str()));
-        }
-
-        // Ensure we don't store the same name twice.
-        if pc.stores.contains(&name.to_string()) {
-            return Err(self.error(CodegenErrorType::DuplicateStore(name.as_str().to_string())));
-        }
-
-        // Calculate how many items to rotate:
-        // the count is the number of items to preserve on top plus the current stored names,
-        // plus one for the new value.
-        let rotations = pc.on_top + pc.stores.len() + 1;
-        self.pattern_helper_rotate(rotations)?;
-
-        // Append the name to the captured stores.
-        pc.stores.push(name.to_string());
-        Ok(())
     }
 
     fn pattern_unpack_helper(&mut self, elts: &[Pattern]) -> CompileResult<()> {
@@ -2245,20 +2248,12 @@ impl Compiler<'_> {
         pc.on_top -= 1;
 
         // Process each sub-pattern.
-        for i in 0..total {
-            // Decrement the on_top counter as each sub-pattern is processed.
+        for subpattern in patterns.iter().chain(kwd_patterns.iter()) {
+            // Decrement the on_top counter as each sub-pattern is processed
+            // (on_top should be zero at the end of the algorithm as a sanity check).
             pc.on_top -= 1;
-            let subpattern = if i < nargs {
-                // Positional sub-pattern.
-                &patterns[i]
-            } else {
-                // Keyword sub-pattern.
-                &kwd_patterns[i - nargs]
-            };
             if subpattern.is_wildcard() {
-                // For wildcard patterns, simply pop the top of the stack.
                 emit!(self, Instruction::Pop);
-                continue;
             }
             // Compile the subpattern without irrefutability checks.
             self.compile_pattern_subpattern(subpattern, pc)?;
@@ -2479,7 +2474,7 @@ impl Compiler<'_> {
             self.pattern_helper_rotate(nrots)?;
             let name = &control.as_ref().unwrap()[i];
             // Check for duplicate binding.
-            if pc.stores.iter().any(|n| n == name) {
+            if pc.stores.contains(name) {
                 return Err(self.error(CodegenErrorType::DuplicateStore(name.to_string())));
             }
             pc.stores.push(name.clone());
@@ -4607,17 +4602,33 @@ for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):
     #[test]
     fn test_match() {
         assert_dis_snapshot!(compile_exec(
-            "\
-class Test:
+            r#"\
+class Shape:
     pass
 
-t = Test()
-match t:
-    case Test():
-        assert True
-    case _:
-        assert False
-"
+class Circle(Shape):
+    def __init__(self, radius):
+        self.radius = radius
+
+class Rectangle(Shape):
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+
+def describe_shape(shape):
+    match shape:
+        case Circle(radius=r):
+            return f"A circle with radius {r}"
+        case Rectangle(width=w, height=h):
+            return f"A rectangle {w} by {h}"
+        case _:
+            return "Unknown shape"
+
+# Test it out
+shapes = [Circle(5), Rectangle(4, 6), "not a shape"]
+for s in shapes:
+    print(describe_shape(s))
+"#
         ));
     }
 }
