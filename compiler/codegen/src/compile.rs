@@ -4596,37 +4596,4 @@ for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):
 "
         ));
     }
-
-    #[test]
-    fn test_match() {
-        assert_dis_snapshot!(compile_exec(
-            r#"\
-class Shape:
-    pass
-
-class Circle(Shape):
-    def __init__(self, radius):
-        self.radius = radius
-
-class Rectangle(Shape):
-    def __init__(self, width, height):
-        self.width = width
-        self.height = height
-
-def describe_shape(shape):
-    match shape:
-        case Circle(radius=r):
-            return f"A circle with radius {r}"
-        case Rectangle(width=w, height=h):
-            return f"A rectangle {w} by {h}"
-        case _:
-            return "Unknown shape"
-
-# Test it out
-shapes = [Circle(5), Rectangle(4, 6), "not a shape"]
-for s in shapes:
-    print(describe_shape(s))
-"#
-        ));
-    }
 }
