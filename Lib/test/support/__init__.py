@@ -2594,7 +2594,8 @@ EXCEEDS_RECURSION_LIMIT = 5000
 # The default C recursion limit (from Include/cpython/pystate.h).
 C_RECURSION_LIMIT = 1500
 
-#Windows doesn't have os.uname() but it doesn't support s390x.
+# Windows doesn't have os.uname() but it doesn't support s390x.
+is_s390x = hasattr(os, 'uname') and os.uname().machine == 's390x'
 skip_on_s390x = unittest.skipIf(hasattr(os, 'uname') and os.uname().machine == 's390x',
                                 'skipped on s390x')
 HAVE_ASAN_FORK_BUG = check_sanitizer(address=True)
