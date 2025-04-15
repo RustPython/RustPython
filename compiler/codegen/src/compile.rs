@@ -2185,16 +2185,6 @@ impl Compiler<'_> {
 
         let nargs = patterns.len();
         let n_attrs = kwd_attrs.len();
-        let nkwd_patterns = kwd_patterns.len();
-
-        // Validate that keyword attribute names and patterns match in length.
-        if n_attrs != nkwd_patterns {
-            let msg = format!(
-                "kwd_attrs ({}) / kwd_patterns ({}) length mismatch in class pattern",
-                n_attrs, nkwd_patterns
-            );
-            unreachable!("{}", msg);
-        }
 
         // Check for too many sub-patterns.
         if nargs > u32::MAX as usize || (nargs + n_attrs).saturating_sub(1) > i32::MAX as usize {
