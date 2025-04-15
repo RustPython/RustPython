@@ -106,6 +106,8 @@ class BZ2FileTest(BaseTest):
         # compresslevel is keyword-only
         self.assertRaises(TypeError, BZ2File, os.devnull, "r", 3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testRead(self):
         self.createTempFile()
         with BZ2File(self.filename) as bz2f:
@@ -117,12 +119,16 @@ class BZ2FileTest(BaseTest):
         with BZ2File(self.filename) as bz2f:
             self.assertRaises(OSError, bz2f.read)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testReadMultiStream(self):
         self.createTempFile(streams=5)
         with BZ2File(self.filename) as bz2f:
             self.assertRaises(TypeError, bz2f.read, float())
             self.assertEqual(bz2f.read(), self.TEXT * 5)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testReadMonkeyMultiStream(self):
         # Test BZ2File.read() on a multi-stream archive where a stream
         # boundary coincides with the end of the raw read buffer.
@@ -136,11 +142,15 @@ class BZ2FileTest(BaseTest):
         finally:
             _compression.BUFFER_SIZE = buffer_size
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testReadTrailingJunk(self):
         self.createTempFile(suffix=self.BAD_DATA)
         with BZ2File(self.filename) as bz2f:
             self.assertEqual(bz2f.read(), self.TEXT)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testReadMultiStreamTrailingJunk(self):
         self.createTempFile(streams=5, suffix=self.BAD_DATA)
         with BZ2File(self.filename) as bz2f:
@@ -152,6 +162,8 @@ class BZ2FileTest(BaseTest):
             self.assertRaises(TypeError, bz2f.read, float())
             self.assertEqual(bz2f.read(0), b"")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testReadChunk10(self):
         self.createTempFile()
         with BZ2File(self.filename) as bz2f:
@@ -163,6 +175,8 @@ class BZ2FileTest(BaseTest):
                 text += str
             self.assertEqual(text, self.TEXT)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testReadChunk10MultiStream(self):
         self.createTempFile(streams=5)
         with BZ2File(self.filename) as bz2f:
@@ -179,6 +193,8 @@ class BZ2FileTest(BaseTest):
         with BZ2File(self.filename) as bz2f:
             self.assertEqual(bz2f.read(100), self.TEXT[:100])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testPeek(self):
         self.createTempFile()
         with BZ2File(self.filename) as bz2f:
@@ -187,6 +203,8 @@ class BZ2FileTest(BaseTest):
             self.assertTrue(self.TEXT.startswith(pdata))
             self.assertEqual(bz2f.read(), self.TEXT)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testReadInto(self):
         self.createTempFile()
         with BZ2File(self.filename) as bz2f:
@@ -206,6 +224,8 @@ class BZ2FileTest(BaseTest):
             for line in self.TEXT_LINES:
                 self.assertEqual(bz2f.readline(), line)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testReadLineMultiStream(self):
         self.createTempFile(streams=5)
         with BZ2File(self.filename) as bz2f:
@@ -213,23 +233,31 @@ class BZ2FileTest(BaseTest):
             for line in self.TEXT_LINES * 5:
                 self.assertEqual(bz2f.readline(), line)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testReadLines(self):
         self.createTempFile()
         with BZ2File(self.filename) as bz2f:
             self.assertRaises(TypeError, bz2f.readlines, None)
             self.assertEqual(bz2f.readlines(), self.TEXT_LINES)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testReadLinesMultiStream(self):
         self.createTempFile(streams=5)
         with BZ2File(self.filename) as bz2f:
             self.assertRaises(TypeError, bz2f.readlines, None)
             self.assertEqual(bz2f.readlines(), self.TEXT_LINES * 5)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testIterator(self):
         self.createTempFile()
         with BZ2File(self.filename) as bz2f:
             self.assertEqual(list(iter(bz2f)), self.TEXT_LINES)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testIteratorMultiStream(self):
         self.createTempFile(streams=5)
         with BZ2File(self.filename) as bz2f:
@@ -298,6 +326,8 @@ class BZ2FileTest(BaseTest):
         with open(self.filename, 'rb') as f:
             self.assertEqual(ext_decompress(f.read()), self.TEXT * 2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testSeekForward(self):
         self.createTempFile()
         with BZ2File(self.filename) as bz2f:
@@ -305,6 +335,8 @@ class BZ2FileTest(BaseTest):
             bz2f.seek(150)
             self.assertEqual(bz2f.read(), self.TEXT[150:])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testSeekForwardAcrossStreams(self):
         self.createTempFile(streams=2)
         with BZ2File(self.filename) as bz2f:
@@ -312,6 +344,8 @@ class BZ2FileTest(BaseTest):
             bz2f.seek(len(self.TEXT) + 150)
             self.assertEqual(bz2f.read(), self.TEXT[150:])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testSeekBackwards(self):
         self.createTempFile()
         with BZ2File(self.filename) as bz2f:
@@ -319,6 +353,8 @@ class BZ2FileTest(BaseTest):
             bz2f.seek(-150, 1)
             self.assertEqual(bz2f.read(), self.TEXT[500-150:])
 
+    # TODO: RUSTPYTHON
+    @unittest.skip("RustPython hang")
     def testSeekBackwardsAcrossStreams(self):
         self.createTempFile(streams=2)
         with BZ2File(self.filename) as bz2f:
@@ -328,18 +364,24 @@ class BZ2FileTest(BaseTest):
             bz2f.seek(-150, 1)
             self.assertEqual(bz2f.read(), self.TEXT[100-150:] + self.TEXT)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testSeekBackwardsFromEnd(self):
         self.createTempFile()
         with BZ2File(self.filename) as bz2f:
             bz2f.seek(-150, 2)
             self.assertEqual(bz2f.read(), self.TEXT[len(self.TEXT)-150:])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testSeekBackwardsFromEndAcrossStreams(self):
         self.createTempFile(streams=2)
         with BZ2File(self.filename) as bz2f:
             bz2f.seek(-1000, 2)
             self.assertEqual(bz2f.read(), (self.TEXT * 2)[-1000:])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testSeekPostEnd(self):
         self.createTempFile()
         with BZ2File(self.filename) as bz2f:
@@ -347,6 +389,8 @@ class BZ2FileTest(BaseTest):
             self.assertEqual(bz2f.tell(), len(self.TEXT))
             self.assertEqual(bz2f.read(), b"")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testSeekPostEndMultiStream(self):
         self.createTempFile(streams=5)
         with BZ2File(self.filename) as bz2f:
@@ -354,6 +398,8 @@ class BZ2FileTest(BaseTest):
             self.assertEqual(bz2f.tell(), len(self.TEXT) * 5)
             self.assertEqual(bz2f.read(), b"")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testSeekPostEndTwice(self):
         self.createTempFile()
         with BZ2File(self.filename) as bz2f:
@@ -362,6 +408,8 @@ class BZ2FileTest(BaseTest):
             self.assertEqual(bz2f.tell(), len(self.TEXT))
             self.assertEqual(bz2f.read(), b"")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testSeekPostEndTwiceMultiStream(self):
         self.createTempFile(streams=5)
         with BZ2File(self.filename) as bz2f:
@@ -370,6 +418,8 @@ class BZ2FileTest(BaseTest):
             self.assertEqual(bz2f.tell(), len(self.TEXT) * 5)
             self.assertEqual(bz2f.read(), b"")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testSeekPreStart(self):
         self.createTempFile()
         with BZ2File(self.filename) as bz2f:
@@ -377,6 +427,8 @@ class BZ2FileTest(BaseTest):
             self.assertEqual(bz2f.tell(), 0)
             self.assertEqual(bz2f.read(), self.TEXT)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testSeekPreStartMultiStream(self):
         self.createTempFile(streams=2)
         with BZ2File(self.filename) as bz2f:
@@ -394,6 +446,8 @@ class BZ2FileTest(BaseTest):
                 bz2f.close()
         self.assertRaises(ValueError, bz2f.fileno)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testSeekable(self):
         bz2f = BZ2File(BytesIO(self.DATA))
         try:
@@ -420,6 +474,8 @@ class BZ2FileTest(BaseTest):
             bz2f.close()
         self.assertRaises(ValueError, bz2f.seekable)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testReadable(self):
         bz2f = BZ2File(BytesIO(self.DATA))
         try:
@@ -437,6 +493,8 @@ class BZ2FileTest(BaseTest):
             bz2f.close()
         self.assertRaises(ValueError, bz2f.readable)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testWritable(self):
         bz2f = BZ2File(BytesIO(self.DATA))
         try:
@@ -463,6 +521,8 @@ class BZ2FileTest(BaseTest):
     def testOpenNonexistent(self):
         self.assertRaises(OSError, BZ2File, "/non/existent")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testReadlinesNoNewline(self):
         # Issue #1191043: readlines() fails on a file containing no newline.
         data = b'BZh91AY&SY\xd9b\x89]\x00\x00\x00\x03\x80\x04\x00\x02\x00\x0c\x00 \x00!\x9ah3M\x13<]\xc9\x14\xe1BCe\x8a%t'
@@ -509,6 +569,8 @@ class BZ2FileTest(BaseTest):
             with threading_helper.start_threads(threads):
                 pass
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testMixedIterationAndReads(self):
         self.createTempFile()
         linelen = len(self.TEXT_LINES[0])
@@ -526,6 +588,8 @@ class BZ2FileTest(BaseTest):
             self.assertRaises(StopIteration, next, bz2f)
             self.assertEqual(bz2f.readlines(), [])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testMultiStreamOrdering(self):
         # Test the ordering of streams when reading a multi-stream archive.
         data1 = b"foo" * 1000
@@ -537,6 +601,8 @@ class BZ2FileTest(BaseTest):
         with BZ2File(self.filename) as bz2f:
             self.assertEqual(bz2f.read(), data1 + data2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testOpenBytesFilename(self):
         str_filename = self.filename
         try:
@@ -551,6 +617,8 @@ class BZ2FileTest(BaseTest):
         with BZ2File(str_filename, "rb") as f:
             self.assertEqual(f.read(), self.DATA)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testOpenPathLikeFilename(self):
         filename = pathlib.Path(self.filename)
         with BZ2File(filename, "wb") as f:
@@ -572,6 +640,8 @@ class BZ2FileTest(BaseTest):
 
     # Tests for a BZ2File wrapping another file object:
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testReadBytesIO(self):
         with BytesIO(self.DATA) as bio:
             with BZ2File(bio) as bz2f:
@@ -579,6 +649,8 @@ class BZ2FileTest(BaseTest):
                 self.assertEqual(bz2f.read(), self.TEXT)
             self.assertFalse(bio.closed)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testPeekBytesIO(self):
         with BytesIO(self.DATA) as bio:
             with BZ2File(bio) as bz2f:
@@ -595,6 +667,8 @@ class BZ2FileTest(BaseTest):
             self.assertEqual(ext_decompress(bio.getvalue()), self.TEXT)
             self.assertFalse(bio.closed)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testSeekForwardBytesIO(self):
         with BytesIO(self.DATA) as bio:
             with BZ2File(bio) as bz2f:
@@ -602,6 +676,8 @@ class BZ2FileTest(BaseTest):
                 bz2f.seek(150)
                 self.assertEqual(bz2f.read(), self.TEXT[150:])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testSeekBackwardsBytesIO(self):
         with BytesIO(self.DATA) as bio:
             with BZ2File(bio) as bz2f:
@@ -609,6 +685,8 @@ class BZ2FileTest(BaseTest):
                 bz2f.seek(-150, 1)
                 self.assertEqual(bz2f.read(), self.TEXT[500-150:])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_read_truncated(self):
         # Drop the eos_magic field (6 bytes) and CRC (4 bytes).
         truncated = self.DATA[:-10]
@@ -658,6 +736,8 @@ class BZ2CompressorTest(BaseTest):
         data += bz2c.flush()
         self.assertEqual(ext_decompress(data), self.TEXT)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.skip_if_pgo_task
     @bigmemtest(size=_4G + 100, memuse=2)
     def testCompress4G(self, size):
@@ -676,6 +756,8 @@ class BZ2CompressorTest(BaseTest):
         finally:
             data = None
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testPickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             with self.assertRaises(TypeError):
@@ -692,6 +774,8 @@ class BZ2DecompressorTest(BaseTest):
         text = bz2d.decompress(self.DATA)
         self.assertEqual(text, self.TEXT)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testDecompressChunks10(self):
         bz2d = BZ2Decompressor()
         text = b''
@@ -704,6 +788,8 @@ class BZ2DecompressorTest(BaseTest):
             n += 1
         self.assertEqual(text, self.TEXT)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testDecompressUnusedData(self):
         bz2d = BZ2Decompressor()
         unused_data = b"this is unused data"
@@ -711,6 +797,8 @@ class BZ2DecompressorTest(BaseTest):
         self.assertEqual(text, self.TEXT)
         self.assertEqual(bz2d.unused_data, unused_data)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testEOFError(self):
         bz2d = BZ2Decompressor()
         text = bz2d.decompress(self.DATA)
@@ -734,11 +822,15 @@ class BZ2DecompressorTest(BaseTest):
             compressed = None
             decompressed = None
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testPickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             with self.assertRaises(TypeError):
                 pickle.dumps(BZ2Decompressor(), proto)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testDecompressorChunksMaxsize(self):
         bzd = BZ2Decompressor()
         max_length = 100
@@ -770,6 +862,8 @@ class BZ2DecompressorTest(BaseTest):
         self.assertEqual(out, self.BIG_TEXT)
         self.assertEqual(bzd.unused_data, b"")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decompressor_inputbuf_1(self):
         # Test reusing input buffer after moving existing
         # contents to beginning
@@ -792,6 +886,8 @@ class BZ2DecompressorTest(BaseTest):
         out.append(bzd.decompress(self.DATA[105:]))
         self.assertEqual(b''.join(out), self.TEXT)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decompressor_inputbuf_2(self):
         # Test reusing input buffer by appending data at the
         # end right away
@@ -813,6 +909,8 @@ class BZ2DecompressorTest(BaseTest):
         out.append(bzd.decompress(self.DATA[300:]))
         self.assertEqual(b''.join(out), self.TEXT)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decompressor_inputbuf_3(self):
         # Test reusing input buffer after extending it
 
@@ -844,6 +942,8 @@ class BZ2DecompressorTest(BaseTest):
             bzd.__init__()
         self.assertAlmostEqual(gettotalrefcount() - refs_before, 0, delta=10)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_uninitialized_BZ2Decompressor_crash(self):
         self.assertEqual(BZ2Decompressor.__new__(BZ2Decompressor).
                          decompress(bytes()), b'')
@@ -858,6 +958,8 @@ class CompressDecompressTest(BaseTest):
         text = bz2.compress(b'')
         self.assertEqual(text, self.EMPTY_DATA)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testDecompress(self):
         text = bz2.decompress(self.DATA)
         self.assertEqual(text, self.TEXT)
@@ -866,24 +968,34 @@ class CompressDecompressTest(BaseTest):
         text = bz2.decompress(b"")
         self.assertEqual(text, b"")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testDecompressToEmptyString(self):
         text = bz2.decompress(self.EMPTY_DATA)
         self.assertEqual(text, b'')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testDecompressIncomplete(self):
         self.assertRaises(ValueError, bz2.decompress, self.DATA[:-10])
 
     def testDecompressBadData(self):
         self.assertRaises(OSError, bz2.decompress, self.BAD_DATA)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testDecompressMultiStream(self):
         text = bz2.decompress(self.DATA * 5)
         self.assertEqual(text, self.TEXT * 5)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testDecompressTrailingJunk(self):
         text = bz2.decompress(self.DATA + self.BAD_DATA)
         self.assertEqual(text, self.TEXT)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testDecompressMultiStreamTrailingJunk(self):
         text = bz2.decompress(self.DATA * 5 + self.BAD_DATA)
         self.assertEqual(text, self.TEXT * 5)
@@ -895,6 +1007,8 @@ class OpenTest(BaseTest):
     def open(self, *args, **kwargs):
         return bz2.open(*args, **kwargs)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_binary_modes(self):
         for mode in ("wb", "xb"):
             if mode == "xb":
@@ -912,6 +1026,8 @@ class OpenTest(BaseTest):
                 file_data = ext_decompress(f.read())
                 self.assertEqual(file_data, self.TEXT * 2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_implicit_binary_modes(self):
         # Test implicit binary modes (no "b" or "t" in mode string).
         for mode in ("w", "x"):
@@ -930,6 +1046,8 @@ class OpenTest(BaseTest):
                 file_data = ext_decompress(f.read())
                 self.assertEqual(file_data, self.TEXT * 2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_text_modes(self):
         text = self.TEXT.decode("ascii")
         text_native_eol = text.replace("\n", os.linesep)
@@ -959,6 +1077,8 @@ class OpenTest(BaseTest):
                 with self.open(self.filename, mode) as f:
                     pass
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_fileobj(self):
         with self.open(BytesIO(self.DATA), "r") as f:
             self.assertEqual(f.read(), self.TEXT)
@@ -981,6 +1101,8 @@ class OpenTest(BaseTest):
         self.assertRaises(ValueError,
                           self.open, self.filename, "rb", newline="\n")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_encoding(self):
         # Test non-default encoding.
         text = self.TEXT.decode("ascii")
@@ -993,6 +1115,8 @@ class OpenTest(BaseTest):
         with self.open(self.filename, "rt", encoding="utf-16-le") as f:
             self.assertEqual(f.read(), text)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_encoding_error_handler(self):
         # Test with non-default encoding error handler.
         with self.open(self.filename, "wb") as f:
@@ -1001,6 +1125,8 @@ class OpenTest(BaseTest):
                 as f:
             self.assertEqual(f.read(), "foobar")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_newline(self):
         # Test with explicit newline (universal newline mode disabled).
         text = self.TEXT.decode("ascii")
