@@ -2467,11 +2467,11 @@ impl Compiler<'_> {
         self.switch_to_block(end);
 
         // Adjust the final captures.
-        let nstores = control.as_ref().unwrap().len();
-        let nrots = nstores + 1 + pc.on_top + pc.stores.len();
-        for i in 0..nstores {
+        let n_stores = control.as_ref().unwrap().len();
+        let n_rots = n_stores + 1 + pc.on_top + pc.stores.len();
+        for i in 0..n_stores {
             // Rotate the capture to its proper place.
-            self.pattern_helper_rotate(nrots)?;
+            self.pattern_helper_rotate(n_rots)?;
             let name = &control.as_ref().unwrap()[i];
             // Check for duplicate binding.
             if pc.stores.contains(name) {
