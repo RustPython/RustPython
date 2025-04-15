@@ -1,11 +1,11 @@
 import argparse
 import ast
 import platform
+from pathlib import Path
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Fix test.")
-    parser.add_argument("--test", type=str, help="Name of test")
-    parser.add_argument("--path", type=str, help="Path to test file")
+    parser.add_argument("--path", type=Path, help="Path to test file")
     parser.add_argument("--force", action="store_true", help="Force modification")
     parser.add_argument("--platform", action="store_true", help="Platform specific failure")
 
@@ -81,7 +81,7 @@ def run_test(test_name):
 
 if __name__ == "__main__":
     args = parse_args()
-    test_name = args.test
+    test_name = args.path.stem
     tests = run_test(test_name)
     f = open(args.path).read()
     for test in tests.tests:
