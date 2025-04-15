@@ -1948,7 +1948,7 @@ impl Compiler<'_> {
             // If no name is provided, simply pop the top of the stack.
             None => {
                 emit!(self, Instruction::Pop);
-                return Ok(());
+                Ok(())
             }
             Some(name) => {
                 // Check if the name is forbidden for storing.
