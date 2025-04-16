@@ -101,7 +101,7 @@ uname = "0.1.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rustyline = { workspace = true }
-which = "6"
+which = "7"
 errno = "0.3"
 widestring = { workspace = true }
 
