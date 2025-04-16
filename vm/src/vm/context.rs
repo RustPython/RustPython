@@ -338,6 +338,10 @@ impl Context {
         unsafe { self.string_pool.intern(s, self.types.str_type.to_owned()) }
     }
 
+    pub(crate) fn intern_static_str(&self, s: &'static str) -> &'static PyStrInterned {
+        PyStrInterned::new_static_str(s, self)
+    }
+
     pub fn interned_str<S: MaybeInternedString + ?Sized>(
         &self,
         s: &S,

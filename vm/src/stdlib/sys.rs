@@ -1,4 +1,4 @@
-use crate::{Py, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyObject};
+use crate::{Py, PyResult, VirtualMachine, builtins::PyModule, convert::IntoObject};
 
 pub(crate) use sys::{__module_def, DOC, MAXSIZE, MULTIARCH, UnraisableHookArgs};
 
@@ -150,7 +150,7 @@ mod sys {
     fn byteorder(vm: &VirtualMachine) -> PyStrRef {
         // https://doc.rust-lang.org/reference/conditional-compilation.html#target_endian
         vm.ctx
-            .intern_str(if cfg!(target_endian = "little") {
+            .intern_static_str(if cfg!(target_endian = "little") {
                 "little"
             } else if cfg!(target_endian = "big") {
                 "big"
@@ -1115,7 +1115,7 @@ pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: 
         .set_item("builtins", builtins.to_owned().into(), vm)
         .unwrap();
     extend_module!(vm, module, {
-        "__doc__" => sys::DOC.to_owned().to_pyobject(vm),
+        "__doc__" => vm.ctx.intern_static_str(sys::DOC.unwrap()).to_owned().into_object(),
         "modules" => modules,
     });
 }

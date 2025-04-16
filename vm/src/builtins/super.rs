@@ -258,22 +258,4 @@ fn super_check(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult
 pub fn init(context: &Context) {
     let super_type = &context.types.super_type;
     PySuper::extend_class(context, super_type);
-
-    let super_doc = "super() -> same as super(__class__, <first argument>)\n\
-                     super(type) -> unbound super object\n\
-                     super(type, obj) -> bound super object; requires isinstance(obj, type)\n\
-                     super(type, type2) -> bound super object; requires issubclass(type2, type)\n\
-                     Typical use to call a cooperative superclass method:\n\
-                     class C(B):\n    \
-                     def meth(self, arg):\n        \
-                     super().meth(arg)\n\
-                     This works for class methods too:\n\
-                     class C(B):\n    \
-                     @classmethod\n    \
-                     def cmeth(cls, arg):\n        \
-                     super().cmeth(arg)\n";
-
-    extend_class!(context, super_type, {
-        "__doc__" => context.new_str(super_doc),
-    });
 }
