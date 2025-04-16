@@ -155,7 +155,7 @@ bitflags = "2.4.2"
 bstr = "1"
 cfg-if = "1.0"
 chrono = "0.4.39"
-criterion = { version = "0.3.5", features = ["html_reports"] }
+criterion = { version = "0.5", features = ["html_reports"] }
 crossbeam-utils = "0.8.21"
 flame = "0.2.2"
 getrandom = { version = "0.3", features = ["std"] }
