@@ -10,7 +10,6 @@ pub mod atomic;
 pub mod borrow;
 pub mod boxvec;
 pub mod cformat;
-pub mod cmp;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod crt_fd;
 pub mod encodings;

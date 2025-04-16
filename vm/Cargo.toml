@@ -51,6 +51,7 @@ bstr = { workspace = true }
 cfg-if = { workspace = true }
 crossbeam-utils = { workspace = true }
 chrono = { workspace = true, features = ["wasmbind"] }
+constant_time_eq = { workspace = true }
 flame = { workspace = true, optional = true }
 getrandom = { workspace = true }
 hex = { workspace = true }
