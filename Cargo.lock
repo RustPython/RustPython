@@ -440,6 +440,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "constant_time_eq"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
+
+[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2348,7 +2354,6 @@ dependencies = [
  "rustpython-wtf8",
  "siphasher",
  "unicode_names2",
- "volatile",
  "widestring",
  "windows-sys 0.59.0",
 ]
@@ -2556,6 +2561,7 @@ dependencies = [
  "caseless",
  "cfg-if",
  "chrono",
+ "constant_time_eq",
  "crossbeam-utils",
  "errno",
  "exitcode",
@@ -3278,12 +3284,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "volatile"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8e76fae08f03f96e166d2dfda232190638c10e0383841252416f9cfe2ae60e6"
 
 [[package]]
 name = "walkdir"
