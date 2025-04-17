@@ -33,7 +33,7 @@ mod _bz2 {
     }
 
     impl fmt::Debug for BZ2Decompressor {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "_bz2.BZ2Decompressor")
         }
     }
@@ -178,7 +178,7 @@ mod _bz2 {
     }
 
     impl fmt::Debug for BZ2Compressor {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "_bz2.BZ2Compressor")
         }
     }
