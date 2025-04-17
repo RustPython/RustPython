@@ -88,7 +88,7 @@ pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
 }
 
 pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
-    let make_module_func = vm.state.module_inits.get(module_name).ok_or_else(|| {
+    let make_module_func = vm.state.stdlib_module_inits.get(module_name).ok_or_else(|| {
         vm.new_import_error(
             format!("Cannot import builtin module {module_name}"),
             vm.ctx.new_str(module_name),
