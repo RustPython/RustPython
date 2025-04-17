@@ -519,7 +519,7 @@ mod decl {
         use rustix::event::epoll::{self, EventData, EventFlags};
         use std::ops::Deref;
         use std::os::fd::{AsRawFd, IntoRawFd, OwnedFd};
-        use std::time::{Duration, Instant};
+        use std::time::Instant;
 
         #[pyclass(module = "select", name = "epoll")]
         #[derive(Debug, rustpython_vm::PyPayload)]
@@ -636,12 +636,11 @@ mod decl {
                 let poll::TimeoutArg(timeout) = args.timeout;
                 let maxevents = args.maxevents;
 
-                let make_poll_timeout = |d: Duration| i32::try_from(d.as_millis());
-                let mut poll_timeout = match timeout {
-                    Some(d) => make_poll_timeout(d)
-                        .map_err(|_| vm.new_overflow_error("timeout is too large".to_owned()))?,
-                    None => -1,
-                };
+                let mut poll_timeout =
+                    timeout
+                        .map(rustix::event::Timespec::try_from)
+                        .transpose()
+                        .map_err(|_| vm.new_overflow_error("timeout is too large".to_owned()))?;
 
                 let deadline = timeout.map(|d| Instant::now() + d);
                 let maxevents = match maxevents {
@@ -654,19 +653,24 @@ mod decl {
                     _ => maxevents as usize,
                 };
 
-                let mut events = epoll::EventVec::with_capacity(maxevents);
+                let mut events = Vec::<epoll::Event>::with_capacity(maxevents);
 
                 let epoll = &*self.get_epoll(vm)?;
 
                 loop {
-                    match epoll::wait(epoll, &mut events, poll_timeout) {
-                        Ok(()) => break,
+                    events.clear();
+                    match epoll::wait(
+                        epoll,
+                        rustix::buffer::spare_capacity(&mut events),
+                        poll_timeout.as_ref(),
+                    ) {
+                        Ok(_) => break,
                         Err(rustix::io::Errno::INTR) => vm.check_signals()?,
                         Err(e) => return Err(e.into_pyexception(vm)),
                     }
                     if let Some(deadline) = deadline {
                         if let Some(new_timeout) = deadline.checked_duration_since(Instant::now()) {
-                            poll_timeout = make_poll_timeout(new_timeout).unwrap();
+                            poll_timeout = Some(new_timeout.try_into().unwrap());
                         } else {
                             break;
                         }
