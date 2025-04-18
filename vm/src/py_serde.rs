@@ -85,11 +85,7 @@ impl serde::Serialize for PyObjectSerializer<'_> {
                 // CPython serializes big ints as long decimal integer literals
 
                 let (sign, mut magnitude) = v.to_bytes_le();
-                let first = if sign.is_negative() {
-                    -1
-                } else {
-                    1
-                };
+                let first = if sign.is_negative() { -1 } else { 1 };
                 let mut u32_list = Vec::new();
                 for chunk in magnitude.chunks(4) {
                     let mut n = 0u32;
