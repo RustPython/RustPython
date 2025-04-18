@@ -82,6 +82,12 @@ pub(crate) mod _typing {
     #[allow(dead_code)]
     pub(crate) struct ParamSpec {
         name: PyObjectRef,
+        bound: Option<PyObjectRef>,
+        default_value: Option<PyObjectRef>,
+        evaluate_default: Option<PyObjectRef>,
+        covariant: bool,
+        contravariant: bool,
+        infer_variance: bool,
     }
 
     #[pyclass(flags(BASETYPE))]
@@ -90,10 +96,79 @@ pub(crate) mod _typing {
         fn name(&self) -> PyObjectRef {
             self.name.clone()
         }
+
+        #[pygetset(magic)]
+        fn bound(&self, vm: &VirtualMachine) -> PyObjectRef {
+            if let Some(bound) = self.bound.clone() {
+                return bound;
+            }
+            vm.ctx.none()
+        }
+
+        #[pygetset(magic)]
+        fn covariant(&self) -> bool {
+            self.covariant
+        }
+
+        #[pygetset(magic)]
+        fn contravariant(&self) -> bool {
+            self.contravariant
+        }
+
+        #[pygetset(magic)]
+        fn infer_variance(&self) -> bool {
+            self.infer_variance
+        }
+
+        #[pygetset(magic)]
+        fn default(&self, vm: &VirtualMachine) -> PyResult {
+            if let Some(default_value) = self.default_value.clone() {
+                return Ok(default_value);
+            }
+            // handle evaludate_default
+            if let Some(evaluate_default) = self.evaluate_default.clone() {
+                let default_value = vm.call_method(evaluate_default.as_ref(), "__call__", ())?;
+                return Ok(default_value);
+            }
+            // TODO: this isn't up to spec
+            Ok(vm.ctx.none())
+        }
+
+        #[pygetset]
+        fn evaluate_default(&self, vm: &VirtualMachine) -> PyObjectRef {
+            if let Some(evaluate_default) = self.evaluate_default.clone() {
+                return evaluate_default;
+            }
+            // TODO: default_value case
+            vm.ctx.none()
+        }
+
+        #[pymethod(magic)]
+        fn reduce(&self) -> PyResult {
+            Ok(self.name.clone())
+        }
+
+        #[pymethod]
+        fn has_default(&self) -> PyResult<bool> {
+            // TODO: fix
+            if self.evaluate_default.is_some() || self.default_value.is_some() {
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
     }
 
     pub(crate) fn make_paramspec(name: PyObjectRef) -> ParamSpec {
-        ParamSpec { name }
+        ParamSpec {
+            name,
+            bound: None,
+            default_value: None,
+            evaluate_default: None,
+            covariant: false,
+            contravariant: false,
+            infer_variance: false,
+        }
     }
 
     #[pyattr]
