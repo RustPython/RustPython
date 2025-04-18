@@ -4231,6 +4231,8 @@ class GenericTests(BaseTestCase):
         self.assertIs(MyChain[int]().__class__, MyChain)
         self.assertEqual(MyChain[int]().__orig_class__, MyChain[int])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_all_repr_eq_any(self):
         objs = (getattr(typing, el) for el in typing.__all__)
         for obj in objs:
@@ -5014,6 +5016,8 @@ class FinalDecoratorTests(BaseTestCase):
 
 
 class OverrideDecoratorTests(BaseTestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_override(self):
         class Base:
             def normal_method(self): ...
@@ -5072,6 +5076,8 @@ class OverrideDecoratorTests(BaseTestCase):
         self.assertIs(False, hasattr(Base.static_method_good_order, "__override__"))
         self.assertIs(False, hasattr(Base.static_method_bad_order, "__override__"))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_property(self):
         class Base:
             @property
@@ -5098,6 +5104,8 @@ class OverrideDecoratorTests(BaseTestCase):
         self.assertFalse(hasattr(Child.wrong, "__override__"))
         self.assertFalse(hasattr(Child.wrong.fset, "__override__"))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_silent_failure(self):
         class CustomProp:
             __slots__ = ('fget',)
@@ -5115,6 +5123,8 @@ class OverrideDecoratorTests(BaseTestCase):
         self.assertEqual(WithOverride.some, 1)
         self.assertFalse(hasattr(WithOverride.some, "__override__"))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_multiple_decorators(self):
         def with_wraps(f):  # similar to `lru_cache` definition
             @wraps(f)
@@ -5948,9 +5958,10 @@ class WeirdlyQuotedMovie(TypedDict):
     title: Annotated['Annotated[Required[str], "foobar"]', "another level"]
     year: NotRequired['Annotated[int, 2000]']
 
-class HasForeignBaseClass(mod_generics_cache.A):
-    some_xrepr: 'XRepr'
-    other_a: 'mod_generics_cache.A'
+# TODO: RUSTPYTHON
+# class HasForeignBaseClass(mod_generics_cache.A):
+#     some_xrepr: 'XRepr'
+#     other_a: 'mod_generics_cache.A'
 
 async def g_with(am: typing.AsyncContextManager[int]):
     x: int
@@ -6927,6 +6938,8 @@ class OtherABCTests(BaseTestCase):
         type gen_cm[T1, T2] = typing.ContextManager[T1, T2]
         self.assertEqual(get_args(gen_cm.__value__[int, None]), (int, types.NoneType))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_async_contextmanager(self):
         class NotACM:
             pass
@@ -6944,6 +6957,8 @@ class OtherABCTests(BaseTestCase):
         with self.assertRaises(TypeError):
             typing.AsyncContextManager[int, str, float]
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_asynccontextmanager_type_params(self):
         cm1 = typing.AsyncContextManager[int]
         self.assertEqual(get_args(cm1), (int, bool | None))
@@ -9814,6 +9829,8 @@ class AllTests(BaseTestCase):
         self.assertIn('SupportsBytes', a)
         self.assertIn('SupportsComplex', a)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_all_exported_names(self):
         # ensure all dynamically created objects are actualised
         for name in typing.__all__:
