@@ -182,7 +182,6 @@ pub(crate) mod _typing {
     //     fn as_mapping() -> &'static PyMappingMethods {
     //         static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
     //             subscript: atomic_func!(|mapping, needle, vm| {
-    //                 println!("gigity");
     //                 call_typing_func_object(vm, "_GenericAlias", (mapping.obj, needle))
     //             }),
     //             ..PyMappingMethods::NOT_IMPLEMENTED
