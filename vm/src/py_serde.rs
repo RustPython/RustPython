@@ -85,7 +85,7 @@ impl serde::Serialize for PyObjectSerializer<'_> {
                 // CPython serializes big ints as long decimal integer literals
 
                 let (sign, mut magnitude) = v.to_bytes_le();
-                let first = if sign.is_negative() { -1 } else { 1 };
+                let first = if sign == Sign::Minus { -1 } else { 1 };
                 let mut u32_list = Vec::new();
                 for chunk in magnitude.chunks(4) {
                     let mut n = 0u32;
@@ -95,8 +95,8 @@ impl serde::Serialize for PyObjectSerializer<'_> {
                     u32_list.push(n);
                 }
                 let mut seq = serializer.serialize_seq(Some(2))?;
-                seq.serialize_element(&self.clone_with_object(&self.vm.ctx.new_int(first)))?;
-                seq.serialize_element(&self.clone_with_object(&self.vm.ctx.new_list(u32_list)))?;
+                seq.serialize_element(&self.clone_with_object(&self.vm.ctx.new_int(first).into()))?;
+                seq.serialize_element(&self.clone_with_object(&self.vm.ctx.new_list(u32_list.into_iter().map(|v| &self.vm.ctx.new_int(v).into()).collect())))?;
                 seq.end()
             }
         } else if let Some(list) = self.pyobject.payload_if_subclass::<PyList>(self.vm) {
