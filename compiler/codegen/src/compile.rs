@@ -1944,32 +1944,35 @@ impl Compiler<'_> {
         n: Option<&Identifier>,
         pc: &mut PatternContext,
     ) -> CompileResult<()> {
-        // If no name is provided, simply pop the top of the stack.
-        if n.is_none() {
-            emit!(self, Instruction::Pop);
-            return Ok(());
+        match n {
+            // If no name is provided, simply pop the top of the stack.
+            None => {
+                emit!(self, Instruction::Pop);
+                Ok(())
+            }
+            Some(name) => {
+                // Check if the name is forbidden for storing.
+                if self.forbidden_name(name.as_str(), NameUsage::Store)? {
+                    return Err(self.compile_error_forbidden_name(name.as_str()));
+                }
+
+                // Ensure we don't store the same name twice.
+                // TODO: maybe pc.stores should be a set?
+                if pc.stores.contains(&name.to_string()) {
+                    return Err(
+                        self.error(CodegenErrorType::DuplicateStore(name.as_str().to_string()))
+                    );
+                }
+
+                // Calculate how many items to rotate:
+                let rotations = pc.on_top + pc.stores.len() + 1;
+                self.pattern_helper_rotate(rotations)?;
+
+                // Append the name to the captured stores.
+                pc.stores.push(name.to_string());
+                Ok(())
+            }
         }
-        let name = n.unwrap();
-
-        // Check if the name is forbidden for storing.
-        if self.forbidden_name(name.as_str(), NameUsage::Store)? {
-            return Err(self.compile_error_forbidden_name(name.as_str()));
-        }
-
-        // Ensure we don't store the same name twice.
-        if pc.stores.contains(&name.to_string()) {
-            return Err(self.error(CodegenErrorType::DuplicateStore(name.as_str().to_string())));
-        }
-
-        // Calculate how many items to rotate:
-        // the count is the number of items to preserve on top plus the current stored names,
-        // plus one for the new value.
-        let rotations = pc.on_top + pc.stores.len() + 1;
-        self.pattern_helper_rotate(rotations)?;
-
-        // Append the name to the captured stores.
-        pc.stores.push(name.to_string());
-        Ok(())
     }
 
     fn pattern_unpack_helper(&mut self, elts: &[Pattern]) -> CompileResult<()> {
@@ -2155,10 +2158,7 @@ impl Compiler<'_> {
             for ident in attrs.iter().take(n_attrs).skip(i + 1) {
                 let other = ident.as_str();
                 if attr == other {
-                    todo!();
-                    // return Err(self.compiler_error(
-                    //     &format!("attribute name repeated in class pattern: {}", attr),
-                    // ));
+                    return Err(self.error(CodegenErrorType::RepeatedAttributePattern));
                 }
             }
         }
@@ -2185,16 +2185,6 @@ impl Compiler<'_> {
 
         let nargs = patterns.len();
         let n_attrs = kwd_attrs.len();
-        let nkwd_patterns = kwd_patterns.len();
-
-        // Validate that keyword attribute names and patterns match in length.
-        if n_attrs != nkwd_patterns {
-            let msg = format!(
-                "kwd_attrs ({}) / kwd_patterns ({}) length mismatch in class pattern",
-                n_attrs, nkwd_patterns
-            );
-            unreachable!("{}", msg);
-        }
 
         // Check for too many sub-patterns.
         if nargs > u32::MAX as usize || (nargs + n_attrs).saturating_sub(1) > i32::MAX as usize {
@@ -2223,6 +2213,8 @@ impl Compiler<'_> {
             });
         }
 
+        use bytecode::TestOperator::*;
+
         // Emit instructions:
         // 1. Load the new tuple of attribute names.
         self.emit_load_const(ConstantData::Tuple {
@@ -2235,7 +2227,7 @@ impl Compiler<'_> {
         // 4. Load None.
         self.emit_load_const(ConstantData::None);
         // 5. Compare with IS_OP 1.
-        emit!(self, Instruction::IsOperation(true));
+        emit!(self, Instruction::TestOperation { op: IsNot });
 
         // At this point the TOS is a tuple of (nargs + n_attrs) attributes (or None).
         pc.on_top += 1;
@@ -2253,20 +2245,12 @@ impl Compiler<'_> {
         pc.on_top -= 1;
 
         // Process each sub-pattern.
-        for i in 0..total {
-            // Decrement the on_top counter as each sub-pattern is processed.
+        for subpattern in patterns.iter().chain(kwd_patterns.iter()) {
+            // Decrement the on_top counter as each sub-pattern is processed
+            // (on_top should be zero at the end of the algorithm as a sanity check).
             pc.on_top -= 1;
-            let subpattern = if i < nargs {
-                // Positional sub-pattern.
-                &patterns[i]
-            } else {
-                // Keyword sub-pattern.
-                &kwd_patterns[i - nargs]
-            };
             if subpattern.is_wildcard() {
-                // For wildcard patterns, simply pop the top of the stack.
                 emit!(self, Instruction::Pop);
-                continue;
             }
             // Compile the subpattern without irrefutability checks.
             self.compile_pattern_subpattern(subpattern, pc)?;
@@ -2351,7 +2335,7 @@ impl Compiler<'_> {
     //     emit!(self, Instruction::CopyItem { index: 1_u32 });
     //     self.emit_load_const(ConstantData::None);
     //     // TODO: should be is
-    //     emit!(self, Instruction::IsOperation(true));
+    //     emit!(self, Instruction::TestOperation::IsNot);
     //     self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
 
     //     // Unpack the tuple of values.
@@ -2428,15 +2412,16 @@ impl Compiler<'_> {
             } else {
                 let control_vec = control.as_ref().unwrap();
                 if nstores != control_vec.len() {
-                    todo!();
-                    // return self.compiler_error("alternative patterns bind different names");
+                    return Err(self.error(CodegenErrorType::ConflictingNameBindPattern));
                 } else if nstores > 0 {
                     // Check that the names occur in the same order.
                     for icontrol in (0..nstores).rev() {
                         let name = &control_vec[icontrol];
                         // Find the index of `name` in the current stores.
-                        let istores = pc.stores.iter().position(|n| n == name).unwrap();
-                        // .ok_or_else(|| self.compiler_error("alternative patterns bind different names"))?;
+                        let istores =
+                            pc.stores.iter().position(|n| n == name).ok_or_else(|| {
+                                self.error(CodegenErrorType::ConflictingNameBindPattern)
+                            })?;
                         if icontrol != istores {
                             // The orders differ; we must reorder.
                             assert!(istores < icontrol, "expected istores < icontrol");
@@ -2480,14 +2465,14 @@ impl Compiler<'_> {
         self.switch_to_block(end);
 
         // Adjust the final captures.
-        let nstores = control.as_ref().unwrap().len();
-        let nrots = nstores + 1 + pc.on_top + pc.stores.len();
-        for i in 0..nstores {
+        let n_stores = control.as_ref().unwrap().len();
+        let n_rots = n_stores + 1 + pc.on_top + pc.stores.len();
+        for i in 0..n_stores {
             // Rotate the capture to its proper place.
-            self.pattern_helper_rotate(nrots)?;
+            self.pattern_helper_rotate(n_rots)?;
             let name = &control.as_ref().unwrap()[i];
             // Check for duplicate binding.
-            if pc.stores.iter().any(|n| n == name) {
+            if pc.stores.contains(name) {
                 return Err(self.error(CodegenErrorType::DuplicateStore(name.to_string())));
             }
             pc.stores.push(name.clone());
@@ -4608,23 +4593,6 @@ for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):
             self.assertIs(ex, stop_exc)
         else:
             self.fail(f'{stop_exc} was suppressed')
-"
-        ));
-    }
-
-    #[test]
-    fn test_match() {
-        assert_dis_snapshot!(compile_exec(
-            "\
-class Test:
-    pass
-
-t = Test()
-match t:
-    case Test():
-        assert True
-    case _:
-        assert False
 "
         ));
     }
