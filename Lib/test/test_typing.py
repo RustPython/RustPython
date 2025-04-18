@@ -25,7 +25,6 @@ from typing import Generic, ClassVar, Final, final, Protocol
 from typing import assert_type, cast, runtime_checkable
 from typing import get_type_hints
 from typing import get_origin, get_args, get_protocol_members
-from typing import override
 from typing import is_typeddict, is_protocol
 from typing import reveal_type
 from typing import dataclass_transform
