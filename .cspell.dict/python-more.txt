@@ -149,6 +149,7 @@ nlocals
 NOARGS
 nonbytes
 Nonprintable
+obmalloc
 origname
 ospath
 pendingcr

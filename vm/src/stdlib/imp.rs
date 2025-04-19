@@ -101,7 +101,7 @@ mod _imp {
 
     #[pyfunction]
     fn is_builtin(name: PyStrRef, vm: &VirtualMachine) -> bool {
-        vm.state.module_inits.contains_key(name.as_str())
+        vm.state.stdlib_module_inits.contains_key(name.as_str())
     }
 
     #[pyfunction]
@@ -116,7 +116,9 @@ mod _imp {
 
         let module = if let Ok(module) = sys_modules.get_item(&*name, vm) {
             module
-        } else if let Some(make_module_func) = vm.state.module_inits.get(name.as_str()) {
+        } else if let Some(make_module_func) = vm.state.stdlib_module_inits.get(name.as_str()) {
+            make_module_func(vm).into()
+        } else if let Some(make_module_func) = vm.state.c_module_inits.get(name.as_str()) {
             make_module_func(vm).into()
         } else {
             vm.ctx.none()
