@@ -1,6 +1,7 @@
 use std::sync::LazyLock;
 
 use super::type_;
+use crate::builtins::union_::UNION_OR;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine, atomic_func,
@@ -337,11 +338,7 @@ impl AsMapping for PyGenericAlias {
 
 impl AsNumber for PyGenericAlias {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            or: Some(|a, b, vm| Ok(PyGenericAlias::or(a.to_owned(), b.to_owned(), vm))),
-            ..PyNumberMethods::NOT_IMPLEMENTED
-        };
-        &AS_NUMBER
+        &UNION_OR
     }
 }
 

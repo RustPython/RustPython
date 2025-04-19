@@ -2,11 +2,15 @@ pub(crate) use _typing::make_module;
 
 #[pymodule]
 pub(crate) mod _typing {
+    use crate::builtins::union_::UNION_OR;
+    use crate::protocol::PyNumberMethods;
+    use crate::types::AsNumber;
     use crate::{
         PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyGenericAlias, PyTupleRef, PyTypeRef, pystr::AsPyStr},
         function::IntoFuncArgs,
     };
+    use crate::builtins::type_;
 
     pub(crate) fn _call_typing_func_object<'a>(
         _vm: &VirtualMachine,
@@ -37,6 +41,7 @@ pub(crate) mod _typing {
         contravariant: bool,
         infer_variance: bool,
     }
+
     #[pyclass(flags(BASETYPE))]
     impl TypeVar {
         pub(crate) fn _bound(&self, vm: &VirtualMachine) -> PyResult {
@@ -50,6 +55,11 @@ pub(crate) mod _typing {
             } else {
                 Ok(vm.ctx.none())
             }
+        }
+
+        #[pygetset(magic)]
+        fn name(&self) -> PyObjectRef {
+            self.name.clone()
         }
     }
 
@@ -77,14 +87,105 @@ pub(crate) mod _typing {
     #[allow(dead_code)]
     pub(crate) struct ParamSpec {
         name: PyObjectRef,
+        bound: Option<PyObjectRef>,
+        default_value: Option<PyObjectRef>,
+        evaluate_default: Option<PyObjectRef>,
+        covariant: bool,
+        contravariant: bool,
+        infer_variance: bool,
     }
 
     #[pyclass(flags(BASETYPE))]
-    impl ParamSpec {}
+    impl ParamSpec {
+        #[pygetset(magic)]
+        fn name(&self) -> PyObjectRef {
+            self.name.clone()
+        }
+
+        #[pygetset(magic)]
+        fn bound(&self, vm: &VirtualMachine) -> PyObjectRef {
+            if let Some(bound) = self.bound.clone() {
+                return bound;
+            }
+            vm.ctx.none()
+        }
+
+        #[pygetset(magic)]
+        fn covariant(&self) -> bool {
+            self.covariant
+        }
+
+        #[pygetset(magic)]
+        fn contravariant(&self) -> bool {
+            self.contravariant
+        }
+
+        #[pygetset(magic)]
+        fn infer_variance(&self) -> bool {
+            self.infer_variance
+        }
+
+        #[pygetset(magic)]
+        fn default(&self, vm: &VirtualMachine) -> PyResult {
+            if let Some(default_value) = self.default_value.clone() {
+                return Ok(default_value);
+            }
+            // handle evaludate_default
+            if let Some(evaluate_default) = self.evaluate_default.clone() {
+                let default_value = vm.call_method(evaluate_default.as_ref(), "__call__", ())?;
+                return Ok(default_value);
+            }
+            // TODO: this isn't up to spec
+            Ok(vm.ctx.none())
+        }
+
+        #[pygetset]
+        fn evaluate_default(&self, vm: &VirtualMachine) -> PyObjectRef {
+            if let Some(evaluate_default) = self.evaluate_default.clone() {
+                return evaluate_default;
+            }
+            // TODO: default_value case
+            vm.ctx.none()
+        }
+
+        #[pymethod(magic)]
+        fn reduce(&self) -> PyResult {
+            Ok(self.name.clone())
+        }
+
+        #[pymethod]
+        fn has_default(&self) -> PyResult<bool> {
+            // TODO: fix
+            if self.evaluate_default.is_some() || self.default_value.is_some() {
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
+    }
 
     pub(crate) fn make_paramspec(name: PyObjectRef) -> ParamSpec {
-        ParamSpec { name }
+        ParamSpec {
+            name,
+            bound: None,
+            default_value: None,
+            evaluate_default: None,
+            covariant: false,
+            contravariant: false,
+            infer_variance: false,
+        }
     }
+
+    #[pyattr]
+    #[pyclass(name = "NoDefault")]
+    #[derive(Debug, PyPayload)]
+    #[allow(dead_code)]
+    pub(crate) struct NoDefault {
+        name: PyObjectRef,
+    }
+
+    #[pyclass(flags(BASETYPE))]
+    impl NoDefault {}
 
     #[pyattr]
     #[pyclass(name = "TypeVarTuple")]
@@ -127,7 +228,14 @@ pub(crate) mod _typing {
         // compute_value: PyObjectRef,
         // module: PyObjectRef,
     }
-    #[pyclass(flags(BASETYPE))]
+
+    impl AsNumber for TypeAliasType {
+        fn as_number() -> &'static PyNumberMethods {
+            &UNION_OR
+        }
+    }
+
+    #[pyclass(flags(BASETYPE), with(AsNumber))]
     impl TypeAliasType {
         pub fn new(
             name: PyObjectRef,
@@ -139,6 +247,16 @@ pub(crate) mod _typing {
                 type_params,
                 value,
             }
+        }
+
+        #[pymethod(magic)]
+        fn ror(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+            type_::or_(other, zelf, vm)
+        }
+
+        #[pymethod(magic)]
+        fn or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+            type_::or_(zelf, other, vm)
         }
     }
 
@@ -161,7 +279,6 @@ pub(crate) mod _typing {
     //     fn as_mapping() -> &'static PyMappingMethods {
     //         static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
     //             subscript: atomic_func!(|mapping, needle, vm| {
-    //                 println!("gigity");
     //                 call_typing_func_object(vm, "_GenericAlias", (mapping.obj, needle))
     //             }),
     //             ..PyMappingMethods::NOT_IMPLEMENTED
