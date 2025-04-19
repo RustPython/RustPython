@@ -1,11 +1,12 @@
 use super::{genericalias, type_};
+use crate::class::StaticType;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     atomic_func,
     builtins::{PyFrozenSet, PyStr, PyTuple, PyTupleRef, PyType},
     class::PyClassImpl,
     common::hash,
-    convert::{ToPyObject, ToPyResult},
+    convert::ToPyObject,
     function::PyComparisonValue,
     protocol::{PyMappingMethods, PyNumberMethods},
     types::{AsMapping, AsNumber, Comparable, GetAttr, Hashable, PyComparisonOp, Representable},
@@ -135,6 +136,9 @@ pub fn is_unionable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
     obj.class().is(vm.ctx.types.none_type)
         || obj.payload_if_subclass::<PyType>(vm).is_some()
         || obj.class().is(vm.ctx.types.generic_alias_type)
+        || obj
+            .class()
+            .is(crate::stdlib::typing::_typing::TypeAliasType::static_type())
         || obj.class().is(vm.ctx.types.union_type)
 }
 
@@ -229,13 +233,14 @@ impl AsMapping for PyUnion {
     }
 }
 
+pub static UNION_OR: PyNumberMethods = PyNumberMethods {
+    or: Some(|a, b, vm| Ok(type_::or_(a.to_pyobject(vm), b.to_pyobject(vm), vm))),
+    ..PyNumberMethods::NOT_IMPLEMENTED
+};
+
 impl AsNumber for PyUnion {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            or: Some(|a, b, vm| PyUnion::or(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
-            ..PyNumberMethods::NOT_IMPLEMENTED
-        };
-        &AS_NUMBER
+        &UNION_OR
     }
 }
 

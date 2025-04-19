@@ -2,11 +2,15 @@ pub(crate) use _typing::make_module;
 
 #[pymodule]
 pub(crate) mod _typing {
+    use crate::builtins::union_::UNION_OR;
+    use crate::protocol::PyNumberMethods;
+    use crate::types::AsNumber;
     use crate::{
         PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyGenericAlias, PyTupleRef, PyTypeRef, pystr::AsPyStr},
         function::IntoFuncArgs,
     };
+    use crate::builtins::type_;
 
     pub(crate) fn _call_typing_func_object<'a>(
         _vm: &VirtualMachine,
@@ -37,6 +41,7 @@ pub(crate) mod _typing {
         contravariant: bool,
         infer_variance: bool,
     }
+
     #[pyclass(flags(BASETYPE))]
     impl TypeVar {
         pub(crate) fn _bound(&self, vm: &VirtualMachine) -> PyResult {
@@ -223,7 +228,14 @@ pub(crate) mod _typing {
         // compute_value: PyObjectRef,
         // module: PyObjectRef,
     }
-    #[pyclass(flags(BASETYPE))]
+
+    impl AsNumber for TypeAliasType {
+        fn as_number() -> &'static PyNumberMethods {
+            &UNION_OR
+        }
+    }
+
+    #[pyclass(flags(BASETYPE), with(AsNumber))]
     impl TypeAliasType {
         pub fn new(
             name: PyObjectRef,
@@ -235,6 +247,16 @@ pub(crate) mod _typing {
                 type_params,
                 value,
             }
+        }
+
+        #[pymethod(magic)]
+        fn ror(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+            type_::or_(other, zelf, vm)
+        }
+
+        #[pymethod(magic)]
+        fn or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+            type_::or_(zelf, other, vm)
         }
     }
 
