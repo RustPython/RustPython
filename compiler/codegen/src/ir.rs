@@ -155,7 +155,7 @@ impl CodeInfo {
             locations.clear()
         }
 
-        CodeObject {
+        Ok(CodeObject {
             flags,
             posonlyarg_count,
             arg_count,
@@ -173,7 +173,7 @@ impl CodeInfo {
             cellvars: cellvar_cache.into_iter().collect(),
             freevars: freevar_cache.into_iter().collect(),
             cell2arg,
-        }
+        })
     }
 
     fn cell2arg(&self) -> Option<Box<[i32]>> {
