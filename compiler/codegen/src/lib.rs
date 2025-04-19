@@ -18,6 +18,8 @@ mod unparse;
 pub use compile::CompileOpts;
 use ruff_python_ast::Expr;
 
+pub(crate) use compile::InternalResult;
+
 pub trait ToPythonName {
     /// Returns a short name for the node suitable for use in error messages.
     fn python_name(&self) -> &'static str;

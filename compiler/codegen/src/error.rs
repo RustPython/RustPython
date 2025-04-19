@@ -36,6 +36,24 @@ impl fmt::Display for CodegenError {
 
 #[derive(Debug)]
 #[non_exhaustive]
+pub enum InternalError {
+    StackOverflow,
+    StackUnderflow,
+    MissingSymbol(String),
+}
+
+impl Display for InternalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::StackOverflow => write!(f, "stack overflow"),
+            Self::StackUnderflow => write!(f, "stack underflow"),
+            Self::MissingSymbol(s) => write!(f, "The symbol '{s}' must be present in the symbol table, even when it is undefined in python.")
+        }
+    }
+}
+
+#[derive(Debug)]
+#[non_exhaustive]
 pub enum CodegenErrorType {
     /// Invalid assignment, cannot store value in target.
     Assign(&'static str),
