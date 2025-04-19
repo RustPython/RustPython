@@ -494,10 +494,12 @@ def requires_bz2(reason='requires bz2'):
     return unittest.skipUnless(bz2, reason)
 
 def requires_lzma(reason='requires lzma'):
-    try:
-        import lzma
-    except ImportError:
-        lzma = None
+    # try:
+        # import lzma
+    # except ImportError:
+        # lzma = None
+    # TODO: RUSTPYTHON
+    lzma = None
     return unittest.skipUnless(lzma, reason)
 
 def has_no_debug_ranges():

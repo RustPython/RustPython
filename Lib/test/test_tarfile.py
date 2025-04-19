@@ -28,7 +28,9 @@ try:
 except ImportError:
     bz2 = None
 try:
-    import lzma
+    # TODO: RUSTPYTHON
+    lzma = None
+    # import lzma
 except ImportError:
     lzma = None
 

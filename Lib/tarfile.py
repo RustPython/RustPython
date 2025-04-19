@@ -392,7 +392,8 @@ class _Stream:
 
             elif comptype == "xz":
                 try:
-                    import lzma
+                    # TODO: RUSTPYTHON remove underscore
+                    import lzma_
                 except ImportError:
                     raise CompressionError("lzma module is not available") from None
                 if mode == "r":
@@ -1923,7 +1924,8 @@ class TarFile(object):
             raise ValueError("mode must be 'r', 'w' or 'x'")
 
         try:
-            from lzma import LZMAFile, LZMAError
+            # TODO: RUSTPYTHON remove underscore
+            from lzma_ import LZMAFile, LZMAError
         except ImportError:
             raise CompressionError("lzma module is not available") from None
 
