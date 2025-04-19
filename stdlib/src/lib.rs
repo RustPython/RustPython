@@ -83,6 +83,7 @@ mod uuid;
 
 #[cfg(feature = "tkinter")]
 mod tkinter;
+mod lzma;
 
 use rustpython_common as common;
 use rustpython_vm as vm;
@@ -120,6 +121,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "faulthandler" => faulthandler::make_module,
             "gc" => gc::make_module,
             "_hashlib" => hashlib::make_module,
+            "_lzma" => lzma::make_module,
             "_sha1" => sha1::make_module,
             "_sha3" => sha3::make_module,
             "_sha256" => sha256::make_module,
