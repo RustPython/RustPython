@@ -109,7 +109,7 @@ pub(crate) mod _thread {
 
     #[pyattr(name = "LockType")]
     #[pyclass(module = "thread", name = "lock")]
-    #[derive(PyPayload)]
+    #[derive()]
     struct Lock {
         mu: RawMutex,
     }
@@ -186,7 +186,7 @@ pub(crate) mod _thread {
     pub type RawRMutex = RawReentrantMutex<RawMutex, RawThreadId>;
     #[pyattr]
     #[pyclass(module = "thread", name = "RLock")]
-    #[derive(PyPayload)]
+    #[derive()]
     struct RLock {
         mu: RawRMutex,
     }
@@ -380,7 +380,7 @@ pub(crate) mod _thread {
 
     #[pyattr]
     #[pyclass(module = "thread", name = "_local")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct Local {
         data: ThreadLocal<PyDictRef>,
     }

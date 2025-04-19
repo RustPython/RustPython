@@ -1,11 +1,12 @@
 use crate::{
-    Context, Py, PyObjectRef, PyPayload, PyRef, VirtualMachine,
+    Context, Py, PyObjectRef, PyRef, VirtualMachine,
     builtins::{
         PyType,
         builtin_func::{PyNativeFunction, PyNativeMethod},
         descriptor::PyMethodDescriptor,
     },
     function::{IntoPyNativeFn, PyNativeFn},
+    object::PyObjectBuilder,
 };
 
 bitflags::bitflags! {
@@ -131,20 +132,6 @@ impl PyMethodDef {
     ) -> PyMethodDescriptor {
         PyMethodDescriptor::new(self, class, ctx)
     }
-    pub fn to_bound_method(
-        &'static self,
-        obj: PyObjectRef,
-        class: &'static Py<PyType>,
-    ) -> PyNativeMethod {
-        PyNativeMethod {
-            func: PyNativeFunction {
-                zelf: Some(obj),
-                value: self,
-                module: None,
-            },
-            class,
-        }
-    }
     pub fn build_function(&'static self, ctx: &Context) -> PyRef<PyNativeFunction> {
         self.to_function().into_ref(ctx)
     }
@@ -179,11 +166,13 @@ impl PyMethodDef {
         obj: PyObjectRef,
         class: &'static Py<PyType>,
     ) -> PyRef<PyNativeMethod> {
-        PyRef::new_ref(
-            self.to_bound_method(obj, class),
-            ctx.types.builtin_method_type.to_owned(),
-            None,
-        )
+        PyObjectBuilder::new(PyNativeFunction {
+            zelf: Some(obj),
+            value: self,
+            module: None,
+        })
+        .subclass(PyNativeMethod { class })
+        .build(ctx)
     }
     pub fn build_classmethod(
         &'static self,
@@ -203,7 +192,9 @@ impl PyMethodDef {
     ) -> PyRef<PyNativeMethod> {
         debug_assert!(self.flags.contains(PyMethodFlags::STATIC));
         let func = self.to_function();
-        PyNativeMethod { func, class }.into_ref(ctx)
+        PyObjectBuilder::new(func)
+            .subclass(PyNativeMethod { class })
+            .build(ctx)
     }
 
     #[doc(hidden)]
@@ -260,7 +251,7 @@ impl std::fmt::Debug for PyMethodDef {
 
 // This is not a part of CPython API.
 // But useful to support dynamically generated methods
-#[pyclass(name, module = false, ctx = "method_def")]
+#[pyclass(name, module = false, ctx = method_def)]
 #[derive(Debug)]
 pub struct HeapMethodDef {
     method: PyMethodDef,

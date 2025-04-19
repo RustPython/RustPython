@@ -1,4 +1,4 @@
-use super::{PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef};
+use super::{PyDictRef, PyStr, PyStrRef, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyStrInterned, pystr::AsPyStr},
@@ -8,7 +8,7 @@ use crate::{
     types::{GetAttr, Initializer, Representable},
 };
 
-#[pyclass(module = false, name = "module")]
+// #[pyclass(module = false, name = "module")]
 #[derive(Debug)]
 pub struct PyModuleDef {
     // pub index: usize,
@@ -42,7 +42,7 @@ impl std::fmt::Debug for PyModuleSlots {
 }
 
 #[allow(clippy::new_without_default)] // avoid Default implementation
-#[pyclass(module = false, name = "module")]
+#[pyclass(module = false, name = "module", ctx = module_type)]
 #[derive(Debug)]
 pub struct PyModule {
     // PyObject *md_dict;
@@ -51,12 +51,6 @@ pub struct PyModule {
     // weaklist
     // for logging purposes after md_dict is cleared
     pub name: Option<&'static PyStrInterned>,
-}
-
-impl PyPayload for PyModule {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.module_type
-    }
 }
 
 #[derive(FromArgs)]

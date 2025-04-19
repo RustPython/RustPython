@@ -84,7 +84,7 @@ pub mod _hashlib {
 
     #[pyattr]
     #[pyclass(module = "_hashlib", name = "HASH")]
-    #[derive(PyPayload)]
+    #[derive()]
     pub struct PyHasher {
         pub name: String,
         pub ctx: PyRwLock<HashWrapper>,
@@ -148,7 +148,7 @@ pub mod _hashlib {
 
     #[pyattr]
     #[pyclass(module = "_hashlib", name = "HASHXOF")]
-    #[derive(PyPayload)]
+    #[derive()]
     pub struct PyHasherXof {
         name: String,
         ctx: PyRwLock<HashXofWrapper>,
