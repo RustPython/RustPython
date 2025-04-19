@@ -212,7 +212,7 @@ macro_rules! emit {
     };
 }
 
-fn print_location(zelf: &Compiler<'_>) {
+fn eprint_location(zelf: &Compiler<'_>) {
     let start = zelf.source_code.source_location(zelf.current_source_range.start());
     let end = zelf.source_code.source_location(zelf.current_source_range.end());
     eprintln!("LOCATION: {} from {}:{} to {}:{}", zelf.source_code.path.to_owned(), start.row, start.column, end.row, end.column);
