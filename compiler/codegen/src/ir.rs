@@ -1,11 +1,11 @@
 use std::ops;
 
 use crate::IndexSet;
+use crate::error::InternalError;
 use ruff_source_file::{OneIndexed, SourceLocation};
 use rustpython_compiler_core::bytecode::{
     CodeFlags, CodeObject, CodeUnit, ConstantData, InstrDisplayContext, Instruction, Label, OpArg,
 };
-use crate::error::InternalError;
 // use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -245,10 +245,7 @@ impl CodeInfo {
                     let instr_display = instr.display(display_arg, self);
                     eprint!("{instr_display}: {depth} {effect:+} => ");
                 }
-                if effect < 0 && depth < effect.unsigned_abs() {
-                    panic!("The stack will underflow at {depth} with {effect} effect on {instr:?}");
-                }
-                let new_depth = depth.checked_add_signed(effect).ok_or_else(|| {
+                let new_depth = depth.checked_add_signed(effect).ok_or({
                     if effect < 0 {
                         InternalError::StackUnderflow
                     } else {
@@ -271,7 +268,7 @@ impl CodeInfo {
                     )
                 {
                     let effect = instr.stack_effect(ins.arg, true);
-                    let target_depth = depth.checked_add_signed(effect).ok_or_else(|| {
+                    let target_depth = depth.checked_add_signed(effect).ok_or({
                         if effect < 0 {
                             InternalError::StackUnderflow
                         } else {

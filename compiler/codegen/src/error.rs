@@ -47,7 +47,10 @@ impl Display for InternalError {
         match self {
             Self::StackOverflow => write!(f, "stack overflow"),
             Self::StackUnderflow => write!(f, "stack underflow"),
-            Self::MissingSymbol(s) => write!(f, "The symbol '{s}' must be present in the symbol table, even when it is undefined in python.")
+            Self::MissingSymbol(s) => write!(
+                f,
+                "The symbol '{s}' must be present in the symbol table, even when it is undefined in python."
+            ),
         }
     }
 }
