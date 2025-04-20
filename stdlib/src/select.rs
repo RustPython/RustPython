@@ -330,7 +330,7 @@ mod decl {
         use super::*;
         use crate::vm::{
             AsObject, PyPayload,
-            builtins::{PyFloat, PyIntRef},
+            builtins::PyFloat,
             common::lock::PyMutex,
             convert::{IntoPyException, ToPyObject},
             function::OptionalArg,
@@ -420,6 +420,32 @@ mod decl {
             search(fds, fd).ok().map(|i| fds.remove(i))
         }
 
+        // new EventMask type
+        #[derive(Copy, Clone)]
+        #[repr(transparent)]
+        pub struct EventMask(pub i16);
+
+        impl TryFromObject for EventMask {
+            fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+                use crate::builtins::PyInt;
+                let int = obj
+                    .downcast::<PyInt>()
+                    .map_err(|_| vm.new_type_error("argument must be an integer".to_owned()))?;
+
+                let val = int.as_bigint();
+                if val.is_negative() {
+                    return Err(vm.new_value_error("negative event mask".to_owned()));
+                }
+
+                // Try converting to i16, should raise OverflowError if too large
+                let mask = i16::try_from(val).map_err(|_| {
+                    vm.new_overflow_error("event mask value out of range".to_owned())
+                })?;
+
+                Ok(EventMask(mask))
+            }
+        }
+
         const DEFAULT_EVENTS: i16 = libc::POLLIN | libc::POLLPRI | libc::POLLOUT;
 
         #[pyclass]
@@ -428,20 +454,10 @@ mod decl {
             fn register(
                 &self,
                 Fildes(fd): Fildes,
-                eventmask: OptionalArg<PyIntRef>,
-                vm: &VirtualMachine,
+                eventmask: OptionalArg<EventMask>,
             ) -> PyResult<()> {
                 let mask = match eventmask {
-                    OptionalArg::Present(int_ref) => {
-                        let val = int_ref.as_bigint();
-                        if val.is_negative() {
-                            return Err(vm.new_value_error("negative event mask".to_owned()));
-                        }
-                        // Try converting to i16, should raise OverflowError if too large
-                        i16::try_from(val).map_err(|_| {
-                            vm.new_overflow_error("event mask value out of range".to_owned())
-                        })?
-                    }
+                    OptionalArg::Present(event_mask) => event_mask.0,
                     OptionalArg::Missing => DEFAULT_EVENTS,
                 };
                 insert_fd(&mut self.fds.lock(), fd, mask);
@@ -452,24 +468,14 @@ mod decl {
             fn modify(
                 &self,
                 Fildes(fd): Fildes,
-                eventmask: PyIntRef,
+                eventmask: EventMask,
                 vm: &VirtualMachine,
             ) -> PyResult<()> {
-                let mask = {
-                    let val = eventmask.as_bigint();
-                    if val.is_negative() {
-                        return Err(vm.new_value_error("negative event mask".to_owned()));
-                    }
-                    // Try converting to i16, should raise OverflowError if too large
-                    i16::try_from(val).map_err(|_| {
-                        vm.new_overflow_error("event mask value out of range".to_owned())
-                    })?
-                };
                 let mut fds = self.fds.lock();
                 // CPython raises KeyError if fd is not registered, match that behavior
                 let pfd = get_fd_mut(&mut fds, fd)
                     .ok_or_else(|| vm.new_key_error(vm.ctx.new_int(fd).into()))?;
-                pfd.events = mask;
+                pfd.events = eventmask.0;
                 Ok(())
             }
 
