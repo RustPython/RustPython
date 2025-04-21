@@ -1,6 +1,8 @@
 // to allow `mod foo {}` in foo.rs; clippy thinks this is a mistake/misunderstanding of
 // how `mod` works, but we want this sometimes for pymodule declarations
+
 #![allow(clippy::module_inception)]
+#![cfg_attr(all(target_os = "wasi", target_env = "p2"), feature(wasip2))]
 #![cfg_attr(target_os = "redox", feature(raw_ref_op))]
 
 #[macro_use]
