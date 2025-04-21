@@ -3,7 +3,6 @@
 
 #![allow(clippy::module_inception)]
 #![cfg_attr(all(target_os = "wasi", target_env = "p2"), feature(wasip2))]
-#![cfg_attr(target_os = "redox", feature(raw_ref_op))]
 
 #[macro_use]
 extern crate rustpython_derive;

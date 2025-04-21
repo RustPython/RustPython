@@ -1,7 +1,6 @@
 //! A crate to hold types and functions common to all rustpython components.
 
 #![cfg_attr(all(target_os = "wasi", target_env = "p2"), feature(wasip2))]
-#![cfg_attr(target_os = "redox", feature(byte_slice_trim_ascii, new_uninit))]
 
 #[macro_use]
 mod macros;
