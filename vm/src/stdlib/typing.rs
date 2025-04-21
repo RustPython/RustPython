@@ -125,7 +125,7 @@ pub(crate) mod _typing {
             if let Some(default_value) = self.default_value.clone() {
                 return Ok(default_value);
             }
-            // handle evaludate_default
+            // handle evaluate_default
             if let Some(evaluate_default) = self.evaluate_default.clone() {
                 let default_value = vm.call_method(evaluate_default.as_ref(), "__call__", ())?;
                 return Ok(default_value);
