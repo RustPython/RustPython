@@ -2846,13 +2846,6 @@ MappingView = _alias(collections.abc.MappingView, 1)
 KeysView = _alias(collections.abc.KeysView, 1)
 ItemsView = _alias(collections.abc.ItemsView, 2)
 ValuesView = _alias(collections.abc.ValuesView, 1)
-try:
-    # XXX: RUSTPYTHON; contextlib support for wasm
-    import contextlib
-    ContextManager = _alias(contextlib.AbstractContextManager, 1, name='ContextManager')
-    AsyncContextManager = _alias(contextlib.AbstractAsyncContextManager, 1, name='AsyncContextManager')
-except ImportError:
-    pass
 Dict = _alias(dict, 2, inst=False, name='Dict')
 DefaultDict = _alias(collections.defaultdict, 2, name='DefaultDict')
 OrderedDict = _alias(collections.OrderedDict, 2)
