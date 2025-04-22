@@ -7004,8 +7004,6 @@ class TypeTests(BaseTestCase):
 class TestModules(TestCase):
     func_names = ['_idfunc']
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_c_functions(self):
         for fname in self.func_names:
             self.assertEqual(getattr(typing, fname).__module__, '_typing')
@@ -7024,8 +7022,6 @@ class NewTypeTests(BaseTestCase):
         del UserId
         del cls.UserName
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basic(self):
         self.assertIsInstance(UserId(5), int)
         self.assertIsInstance(self.UserName('Joe'), str)
