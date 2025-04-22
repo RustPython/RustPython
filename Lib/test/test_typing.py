@@ -6938,8 +6938,6 @@ class OtherABCTests(BaseTestCase):
         type gen_cm[T1, T2] = typing.ContextManager[T1, T2]
         self.assertEqual(get_args(gen_cm.__value__[int, None]), (int, types.NoneType))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_async_contextmanager(self):
         class NotACM:
             pass
@@ -6957,8 +6955,6 @@ class OtherABCTests(BaseTestCase):
         with self.assertRaises(TypeError):
             typing.AsyncContextManager[int, str, float]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_asynccontextmanager_type_params(self):
         cm1 = typing.AsyncContextManager[int]
         self.assertEqual(get_args(cm1), (int, bool | None))
