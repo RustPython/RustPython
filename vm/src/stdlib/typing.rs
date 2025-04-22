@@ -5,7 +5,7 @@ pub(crate) mod _typing {
     use crate::{
         PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyGenericAlias, PyTupleRef, PyTypeRef, pystr::AsPyStr},
-        function::IntoFuncArgs,
+        function::{FuncArgs, IntoFuncArgs},
     };
 
     pub(crate) fn _call_typing_func_object<'a>(
@@ -20,8 +20,10 @@ pub(crate) mod _typing {
         // func.call(args, vm)
     }
 
-    #[pyattr]
-    pub(crate) fn _idfunc(_vm: &VirtualMachine) {}
+    #[pyfunction]
+    pub(crate) fn _idfunc(args: FuncArgs, _vm: &VirtualMachine) -> PyObjectRef {
+        args.args[0].clone()
+    }
 
     #[pyattr]
     #[pyclass(name = "TypeVar")]
