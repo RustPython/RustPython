@@ -1,5 +1,7 @@
 pub(crate) use math::make_module;
 
+use crate::{builtins::PyBaseExceptionRef, vm::VirtualMachine};
+
 #[pymodule]
 mod math {
     use crate::vm::{
@@ -17,6 +19,8 @@ mod math {
     // Constants
     #[pyattr]
     use std::f64::consts::{E as e, PI as pi, TAU as tau};
+
+    use super::pymath_error_to_exception;
     #[pyattr(name = "inf")]
     const INF: f64 = f64::INFINITY;
     #[pyattr(name = "nan")]
@@ -475,38 +479,22 @@ mod math {
     // Special functions:
     #[pyfunction]
     fn erf(x: ArgIntoFloat) -> f64 {
-        let x = *x;
-        if x.is_nan() { x } else { puruspe::erf(x) }
+        pymath::erf(*x)
     }
 
     #[pyfunction]
     fn erfc(x: ArgIntoFloat) -> f64 {
-        let x = *x;
-        if x.is_nan() { x } else { puruspe::erfc(x) }
+        pymath::erfc(*x)
     }
 
     #[pyfunction]
-    fn gamma(x: ArgIntoFloat) -> f64 {
-        let x = *x;
-        if x.is_finite() {
-            puruspe::gamma(x)
-        } else if x.is_nan() || x.is_sign_positive() {
-            x
-        } else {
-            f64::NAN
-        }
+    fn gamma(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
+        pymath::gamma(*x).map_err(|err| pymath_error_to_exception(err, vm))
     }
 
     #[pyfunction]
-    fn lgamma(x: ArgIntoFloat) -> f64 {
-        let x = *x;
-        if x.is_finite() {
-            puruspe::ln_gamma(x)
-        } else if x.is_nan() {
-            x
-        } else {
-            f64::INFINITY
-        }
+    fn lgamma(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
+        pymath::lgamma(*x).map_err(|err| pymath_error_to_exception(err, vm))
     }
 
     fn try_magic_method(
@@ -998,5 +986,12 @@ mod math {
         }
 
         Ok(result)
+    }
+}
+
+fn pymath_error_to_exception(err: pymath::Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
+    match err {
+        pymath::Error::EDOM => vm.new_value_error("math domain error".to_owned()),
+        pymath::Error::ERANGE => vm.new_overflow_error("math range error".to_owned()),
     }
 }

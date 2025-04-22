@@ -1241,16 +1241,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lambert_w"
-version = "1.2.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd4d9b9fa6582f5d77f954729c91c32a7c85834332e470b014d12e1678fd1793"
-dependencies = [
- "num-complex",
- "num-traits",
-]
-
-[[package]]
 name = "lazy_static"
 version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1889,13 +1879,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "puruspe"
-version = "0.4.0"
+name = "pymath"
+version = "0.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d76c522e44709f541a403db419a7e34d6fbbc8e6b208589ae29a030cddeefd96"
+checksum = "c574544c9acbbb7cab157def68e24e7a417c4ff6f7e528a805160c8b6cc3aa9f"
 dependencies = [
- "lambert_w",
- "num-complex",
+ "errno",
+ "libc",
 ]
 
 [[package]]
@@ -2495,7 +2485,7 @@ dependencies = [
  "page_size",
  "parking_lot",
  "paste",
- "puruspe",
+ "pymath",
  "rand_core 0.9.3",
  "rustix",
  "rustpython-common",

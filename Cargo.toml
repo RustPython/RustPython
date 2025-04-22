@@ -184,6 +184,7 @@ once_cell = "1.20.3"
 parking_lot = "0.12.3"
 paste = "1.0.15"
 proc-macro2 = "1.0.93"
+pymath = "0.0.2"
 quote = "1.0.38"
 rand = "0.9"
 rand_core = { version = "0.9", features = ["os_rng"] }

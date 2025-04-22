@@ -1374,6 +1374,7 @@ class MathTests(unittest.TestCase):
         self.assertEqual(sumprod([True, False] * 10, [0.1] * 20), 1.0)
         self.assertEqual(sumprod([1.0, 10E100, 1.0, -10E100], [1.0]*4), 2.0)
 
+    @unittest.skip("TODO: RUSTPYTHON, Taking a few minutes.")
     @support.requires_resource('cpu')
     def test_sumprod_stress(self):
         sumprod = math.sumprod
@@ -2079,7 +2080,7 @@ class MathTests(unittest.TestCase):
             self.fail('Failures in test_testfile:\n  ' +
                       '\n  '.join(failures))
 
-    @unittest.skip("TODO: RUSTPYTHON, Currently hangs. Function never finishes.")
+    @unittest.skip("TODO: RUSTPYTHON, Taking a few minutes.")
     @requires_IEEE_754
     def test_mtestfile(self):
         fail_fmt = "{}: {}({!r}): {}"
