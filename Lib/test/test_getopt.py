@@ -1,19 +1,19 @@
 # test_getopt.py
 # David Goodger <dgoodger@bigfoot.com> 2000-08-19
 
-from test.support.os_helper import EnvironmentVarGuard
 import doctest
-import unittest
-
 import getopt
+import sys
+import unittest
+from test.support.i18n_helper import TestTranslationsBase, update_translation_snapshots
+from test.support.os_helper import EnvironmentVarGuard
 
 sentinel = object()
 
 class GetoptTests(unittest.TestCase):
     def setUp(self):
         self.env = self.enterContext(EnvironmentVarGuard())
-        if "POSIXLY_CORRECT" in self.env:
-            del self.env["POSIXLY_CORRECT"]
+        del self.env["POSIXLY_CORRECT"]
 
     def assertError(self, *args, **kwargs):
         self.assertRaises(getopt.GetoptError, *args, **kwargs)
@@ -173,10 +173,20 @@ def test_libref_examples():
     ['a1', 'a2']
     """
 
+
+class TestTranslations(TestTranslationsBase):
+    def test_translations(self):
+        self.assertMsgidsEqual(getopt)
+
+
 def load_tests(loader, tests, pattern):
     tests.addTest(doctest.DocTestSuite())
     return tests
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
+    # To regenerate translation snapshots
+    if len(sys.argv) > 1 and sys.argv[1] == '--snapshot-update':
+        update_translation_snapshots(getopt)
+        sys.exit(0)
     unittest.main()
