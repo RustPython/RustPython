@@ -15,17 +15,15 @@ from jinja2 import Environment, FileSystemLoader
 
 parser = argparse.ArgumentParser(description="Find equivalent files in cpython and rustpython")
 parser.add_argument("--cpython", type=pathlib.Path, required=True, help="Path to cpython source code")
-parser.add_argument("--updated-libs", type=pathlib.Path, required=False,
-                    help="Libraries that have been updated in RustPython")
 parser.add_argument("--notes", type=pathlib.Path, required=False, help="Path to notes file")
 
 args = parser.parse_args()
 
-def check_pr(pr_id) -> bool:
+def check_pr(pr_id: str) -> bool:
     if pr_id.startswith("#"):
         pr_id = pr_id[1:]
-    pr_id = int(pr_id)
-    req = f"https://api.github.com/repos/RustPython/RustPython/pulls/{pr_id}"
+    int_pr_id = int(pr_id)
+    req = f"https://api.github.com/repos/RustPython/RustPython/pulls/{int_pr_id}"
     response = requests.get(req).json()
     return response["merged_at"] is not None
 
@@ -34,30 +32,29 @@ class LibUpdate:
     pr: Optional[str] = None
     done: bool = True
 
-updated_libs = {}
-if args.updated_libs:
-    # check if the file exists in the rustpython lib directory
-    updated_libs_path = args.updated_libs
-    if updated_libs_path.exists():
-        with open(updated_libs_path) as f:
-            for line in f:
-                line = line.strip()
-                if not line.startswith("//") and line:
-                    line = line.split(" ")
-                    if len(line) == 2:
-                        is_done = True
-                        try:
-                            is_done = check_pr(line[1])
-                        except Exception as e:
-                            warnings.warn(f"Failed to check PR {line[1]}: {e}")
-                        updated_libs[line[0]] = LibUpdate(line[1])
-                    elif len(line) == 1:
-                        updated_libs[line[0]] = LibUpdate()
-                    else:
-                        raise ValueError(f"Invalid line: {line}")
+def parse_updated_lib_issue(issue_body: str) -> dict[str, LibUpdate]:
+    lines = issue_body.splitlines()
+    updated_libs = {}
+    for line in lines:
+        if line.strip().startswith("- "):
+            line = line.strip()[2:]
+            out = line.split(" ")
+            out = [x for x in out if x]
+            assert len(out) < 3
+            if len(out) == 1:
+                updated_libs[out[0]] = LibUpdate()
+            elif len(out) == 2:
+                updated_libs[out[0]] = LibUpdate(out[1], check_pr(out[1]))
+    return updated_libs
 
-    else:
-        raise FileNotFoundError(f"Path {updated_libs_path} does not exist")
+def get_updated_libs() -> dict[str, LibUpdate]:
+    issue_id = "5736"
+    req = f"https://api.github.com/repos/RustPython/RustPython/issues/{issue_id}"
+    response = requests.get(req).json()
+    return parse_updated_lib_issue(response["body"])
+
+updated_libs = get_updated_libs()
+
 if not args.cpython.exists():
     raise FileNotFoundError(f"Path {args.cpython} does not exist")
 if not args.cpython.is_dir():
@@ -65,7 +62,7 @@ if not args.cpython.is_dir():
 if not args.cpython.is_absolute():
     args.cpython = args.cpython.resolve()
 
-notes = {}
+notes: dict = {}
 if args.notes:
     # check if the file exists in the rustpython lib directory
     notes_path = args.notes
@@ -74,13 +71,13 @@ if args.notes:
             for line in f:
                 line = line.strip()
                 if not line.startswith("//") and line:
-                    line = line.split(" ")
-                    if len(line) > 1:
-                        rest = " ".join(line[1:])
-                        if line[0] in notes:
-                            notes[line[0]].append(rest)
+                    line_split = line.split(" ")
+                    if len(line_split) > 1:
+                        rest = " ".join(line_split[1:])
+                        if line_split[0] in notes:
+                            notes[line_split[0]].append(rest)
                         else:
-                            notes[line[0]] = [rest]
+                            notes[line_split[0]] = [rest]
                     else:
                         raise ValueError(f"Invalid note: {line}")
 
