@@ -1,3 +1,15 @@
+"""
+An automated script to mark failures in python test suite.
+It adds @unittest.expectedFailure to the test functions that are failing in RustPython, but not in CPython.
+As well as marking the test with a TODO comment.
+
+How to use:
+1. Copy a specific test from the CPython repository to the RustPython repository.
+2. Remove all unexpected failures from the test and skip the tests that hang
+3. Run python ./scripts/fix_test.py --test test_venv --path ./Lib/test/test_venv.py or equivalent for the test from the project root.
+4. Ensure that there are no unexpected successes in the test.
+5. Actually fix the test.
+"""
 import argparse
 import ast
 import itertools
