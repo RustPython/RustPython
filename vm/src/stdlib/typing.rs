@@ -153,11 +153,7 @@ pub(crate) mod _typing {
         #[pymethod]
         fn has_default(&self) -> PyResult<bool> {
             // TODO: fix
-            if self.evaluate_default.is_some() || self.default_value.is_some() {
-                Ok(true)
-            } else {
-                Ok(false)
-            }
+            Ok(self.evaluate_default.is_some() || self.default_value.is_some())
         }
     }
 
