@@ -1183,8 +1183,12 @@ mod _ssl {
                 let file = file
                     .rsplit_once(&['/', '\\'][..])
                     .map_or(file, |(_, basename)| basename);
-                // TODO: map the error codes to code names, e.g. "CERTIFICATE_VERIFY_FAILED", just requires a big hashmap/dict
-                let errstr = e.reason().unwrap_or("unknown error");
+                // TODO: finish map
+                let default_errstr = e.reason().unwrap_or("unknown error");
+                let errstr = match default_errstr {
+                    "certificate verify failed" => "CERTIFICATE_VERIFY_FAILED",
+                    _ => default_errstr,
+                };
                 let msg = if let Some(lib) = e.library() {
                     // add `library` attribute
                     let attr_name = vm.ctx.as_ref().intern_str("library");
