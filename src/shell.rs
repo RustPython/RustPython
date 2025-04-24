@@ -58,7 +58,7 @@ fn shell_exec(
                                 true
                             }
                         }
-                        _ =>  true, // !matches!(p, ParseErrorType::UnrecognizedToken(Tok::Dedent, _))
+                        _ => true, // !matches!(p, ParseErrorType::UnrecognizedToken(Tok::Dedent, _))
                     }
                 }
                 _ => true, // It is a bad error for everything else
