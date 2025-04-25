@@ -1,0 +1,15 @@
+FROM rust:latest as rust
+
+WORKDIR /rustpython
+
+COPY . .
+
+RUN cargo build --release
+
+FROM debian:stable-slim
+
+COPY --from=rust /rustpython/target/release/rustpython /usr/bin
+COPY --from=rust /rustpython/Lib /usr/lib/rustpython
+ENV RUSTPYTHONPATH /usr/lib/rustpython
+
+ENTRYPOINT [ "rustpython" ]
