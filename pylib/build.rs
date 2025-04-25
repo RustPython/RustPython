@@ -4,9 +4,9 @@ fn main() {
     process_python_libs("../vm/Lib/core_modules/*");
     #[cfg(feature = "freeze-stdlib")]
     if cfg!(windows) {
-        process_python_libs("../Lib/**/*");
+        process_python_libs("../pylib/**/*");
     } else {
-        process_python_libs("./Lib/**/*");
+        process_python_libs("./pylib/**/*");
     }
 
     if cfg!(windows) {

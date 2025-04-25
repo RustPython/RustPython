@@ -11,7 +11,7 @@ fn main() {
         let display = entry.display();
         println!("cargo:rerun-if-changed={display}");
     }
-    println!("cargo:rerun-if-changed=../Lib/importlib/_bootstrap.py");
+    println!("cargo:rerun-if-changed=../pylib/importlib/_bootstrap.py");
 
     println!("cargo:rustc-env=RUSTPYTHON_GIT_HASH={}", git_hash());
     println!(
