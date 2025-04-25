@@ -35,8 +35,6 @@
 //!
 //! The binary will have all the standard arguments of a python interpreter (including a REPL!) but
 //! it will have your modules loaded into the vm.
-
-#![cfg_attr(all(target_os = "wasi", target_env = "p2"), feature(wasip2))]
 #![allow(clippy::needless_doctest_main)]
 
 #[macro_use]

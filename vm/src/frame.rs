@@ -851,6 +851,14 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::UnaryOperation { op } => self.execute_unary_op(vm, op.get(arg)),
             bytecode::Instruction::TestOperation { op } => self.execute_test(vm, op.get(arg)),
             bytecode::Instruction::CompareOperation { op } => self.execute_compare(vm, op.get(arg)),
+            bytecode::Instruction::IsOperation(neg) => {
+                let a = self.pop_value();
+                let b = self.pop_value();
+                // xor with neg to invert the result if needed
+                let result = vm.ctx.new_bool(a.is(b.as_ref()) ^ neg.get(arg));
+                self.push_value(result.into());
+                Ok(None)
+            }
             bytecode::Instruction::ReturnValue => {
                 let value = self.pop_value();
                 self.unwind_blocks(vm, UnwindReason::Returning { value })

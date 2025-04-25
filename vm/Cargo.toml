@@ -10,8 +10,7 @@ repository.workspace = true
 license.workspace = true
 
 [features]
-default = ["compiler", "wasmbind", "stdio"]
-stdio = []
+default = ["compiler", "wasmbind"]
 importlib = []
 encodings = ["importlib"]
 vm-tracing-logging = []
@@ -52,7 +51,6 @@ bstr = { workspace = true }
 cfg-if = { workspace = true }
 crossbeam-utils = { workspace = true }
 chrono = { workspace = true, features = ["wasmbind"] }
-constant_time_eq = { workspace = true }
 flame = { workspace = true, optional = true }
 getrandom = { workspace = true }
 hex = { workspace = true }
@@ -103,7 +101,7 @@ uname = "0.1.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rustyline = { workspace = true }
-which = "7"
+which = "6"
 errno = "0.3"
 widestring = { workspace = true }
 

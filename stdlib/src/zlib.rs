@@ -1,17 +1,14 @@
 // spell-checker:ignore compressobj decompressobj zdict chunksize zlibmodule miniz chunker
 
-pub(crate) use zlib::{DecompressArgs, make_module};
+pub(crate) use zlib::make_module;
 
 #[pymodule]
 mod zlib {
-    use super::generic::{
-        DecompressError, DecompressState, DecompressStatus, Decompressor, FlushKind, flush_sync,
-    };
     use crate::vm::{
         PyObject, PyPayload, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytesRef, PyIntRef, PyTypeRef},
         common::lock::PyMutex,
-        convert::{ToPyException, TryFromBorrowedObject},
+        convert::TryFromBorrowedObject,
         function::{ArgBytesLike, ArgPrimitiveIndex, ArgSize, OptionalArg},
         types::Constructor,
     };
@@ -145,18 +142,18 @@ mod zlib {
     }
 
     #[derive(Clone)]
-    pub(crate) struct Chunker<'a> {
+    struct Chunker<'a> {
         data1: &'a [u8],
         data2: &'a [u8],
     }
     impl<'a> Chunker<'a> {
-        pub(crate) fn new(data: &'a [u8]) -> Self {
+        fn new(data: &'a [u8]) -> Self {
             Self {
                 data1: data,
                 data2: &[],
             }
         }
-        pub(crate) fn chain(data1: &'a [u8], data2: &'a [u8]) -> Self {
+        fn chain(data1: &'a [u8], data2: &'a [u8]) -> Self {
             if data1.is_empty() {
                 Self {
                     data1: data2,
@@ -166,19 +163,19 @@ mod zlib {
                 Self { data1, data2 }
             }
         }
-        pub(crate) fn len(&self) -> usize {
+        fn len(&self) -> usize {
             self.data1.len() + self.data2.len()
         }
-        pub(crate) fn is_empty(&self) -> bool {
+        fn is_empty(&self) -> bool {
             self.data1.is_empty()
         }
-        pub(crate) fn to_vec(&self) -> Vec<u8> {
+        fn to_vec(&self) -> Vec<u8> {
             [self.data1, self.data2].concat()
         }
-        pub(crate) fn chunk(&self) -> &'a [u8] {
+        fn chunk(&self) -> &'a [u8] {
             self.data1.get(..CHUNKSIZE).unwrap_or(self.data1)
         }
-        pub(crate) fn advance(&mut self, consumed: usize) {
+        fn advance(&mut self, consumed: usize) {
             self.data1 = &self.data1[consumed..];
             if self.data1.is_empty() {
                 self.data1 = std::mem::take(&mut self.data2);
@@ -186,24 +183,28 @@ mod zlib {
         }
     }
 
-    fn _decompress<D: Decompressor>(
+    fn _decompress(
         data: &[u8],
-        d: &mut D,
+        d: &mut Decompress,
         bufsize: usize,
         max_length: Option<usize>,
-        calc_flush: impl Fn(bool) -> D::Flush,
-    ) -> Result<(Vec<u8>, bool), D::Error> {
+        is_flush: bool,
+        zdict: Option<&ArgBytesLike>,
+        vm: &VirtualMachine,
+    ) -> PyResult<(Vec<u8>, bool)> {
         let mut data = Chunker::new(data);
-        _decompress_chunks(&mut data, d, bufsize, max_length, calc_flush)
+        _decompress_chunks(&mut data, d, bufsize, max_length, is_flush, zdict, vm)
     }
 
-    pub(super) fn _decompress_chunks<D: Decompressor>(
+    fn _decompress_chunks(
         data: &mut Chunker<'_>,
-        d: &mut D,
+        d: &mut Decompress,
         bufsize: usize,
         max_length: Option<usize>,
-        calc_flush: impl Fn(bool) -> D::Flush,
-    ) -> Result<(Vec<u8>, bool), D::Error> {
+        is_flush: bool,
+        zdict: Option<&ArgBytesLike>,
+        vm: &VirtualMachine,
+    ) -> PyResult<(Vec<u8>, bool)> {
         if data.is_empty() {
             return Ok((Vec::new(), true));
         }
@@ -212,7 +213,16 @@ mod zlib {
 
         'outer: loop {
             let chunk = data.chunk();
-            let flush = calc_flush(chunk.len() == data.len());
+            let flush = if is_flush {
+                // if this is the final chunk, finish it
+                if chunk.len() == data.len() {
+                    FlushDecompress::Finish
+                } else {
+                    FlushDecompress::None
+                }
+            } else {
+                FlushDecompress::Sync
+            };
             loop {
                 let additional = std::cmp::min(bufsize, max_length - buf.capacity());
                 if additional == 0 {
@@ -228,7 +238,7 @@ mod zlib {
 
                 match res {
                     Ok(status) => {
-                        let stream_end = status.is_stream_end();
+                        let stream_end = status == Status::StreamEnd;
                         if stream_end || data.is_empty() {
                             // we've reached the end of the stream, we're done
                             buf.shrink_to_fit();
@@ -242,7 +252,11 @@ mod zlib {
                         }
                     }
                     Err(e) => {
-                        d.maybe_set_dict(e)?;
+                        let Some(zdict) = e.needs_dictionary().and(zdict) else {
+                            return Err(new_zlib_error(&e.to_string(), vm));
+                        };
+                        d.set_dictionary(&zdict.borrow_buf())
+                            .map_err(|_| new_zlib_error("failed to set dictionary", vm))?;
                         // now try the next chunk
                         continue 'outer;
                     }
@@ -271,8 +285,8 @@ mod zlib {
         } = args;
         data.with_ref(|data| {
             let mut d = InitOptions::new(wbits.value, vm)?.decompress();
-            let (buf, stream_end) = _decompress(data, &mut d, bufsize.value, None, flush_sync)
-                .map_err(|e| new_zlib_error(e.to_string(), vm))?;
+            let (buf, stream_end) =
+                _decompress(data, &mut d, bufsize.value, None, false, None, vm)?;
             if !stream_end {
                 return Err(new_zlib_error(
                     "Error -5 while decompressing data: incomplete or truncated stream",
@@ -302,8 +316,9 @@ mod zlib {
             }
         }
         let inner = PyDecompressInner {
-            decompress: Some(DecompressWithDict { decompress, zdict }),
+            decompress: Some(decompress),
             eof: false,
+            zdict,
             unused_data: vm.ctx.empty_bytes.clone(),
             unconsumed_tail: vm.ctx.empty_bytes.clone(),
         };
@@ -314,7 +329,8 @@ mod zlib {
 
     #[derive(Debug)]
     struct PyDecompressInner {
-        decompress: Option<DecompressWithDict>,
+        decompress: Option<Decompress>,
+        zdict: Option<ArgBytesLike>,
         eof: bool,
         unused_data: PyBytesRef,
         unconsumed_tail: PyBytesRef,
@@ -354,25 +370,14 @@ mod zlib {
                 return Err(new_zlib_error(USE_AFTER_FINISH_ERR, vm));
             };
 
+            let zdict = if is_flush { None } else { inner.zdict.as_ref() };
+
             let prev_in = d.total_in();
-            let res = if is_flush {
-                // if is_flush: ignore zdict, finish if final chunk
-                let calc_flush = |final_chunk| {
-                    if final_chunk {
-                        FlushDecompress::Finish
-                    } else {
-                        FlushDecompress::None
-                    }
+            let (ret, stream_end) =
+                match _decompress(data, d, bufsize, max_length, is_flush, zdict, vm) {
+                    Ok((buf, stream_end)) => (Ok(buf), stream_end),
+                    Err(err) => (Err(err), false),
                 };
-                _decompress(data, &mut d.decompress, bufsize, max_length, calc_flush)
-            } else {
-                _decompress(data, d, bufsize, max_length, flush_sync)
-            }
-            .map_err(|e| new_zlib_error(e.to_string(), vm));
-            let (ret, stream_end) = match res {
-                Ok((buf, stream_end)) => (Ok(buf), stream_end),
-                Err(err) => (Err(err), false),
-            };
             let consumed = (d.total_in() - prev_in) as usize;
 
             // save unused input
@@ -399,7 +404,7 @@ mod zlib {
                 .try_into()
                 .map_err(|_| vm.new_value_error("must be non-negative".to_owned()))?;
             let max_length = (max_length != 0).then_some(max_length);
-            let data = &*args.data();
+            let data = &*args.data.borrow_buf();
 
             let inner = &mut *self.inner.lock();
 
@@ -435,22 +440,11 @@ mod zlib {
     }
 
     #[derive(FromArgs)]
-    pub(crate) struct DecompressArgs {
+    struct DecompressArgs {
         #[pyarg(positional)]
         data: ArgBytesLike,
         #[pyarg(any, optional)]
         max_length: OptionalArg<ArgSize>,
-    }
-
-    impl DecompressArgs {
-        pub(crate) fn data(&self) -> crate::common::borrow::BorrowedValue<'_, [u8]> {
-            self.data.borrow_buf()
-        }
-        pub(crate) fn max_length(&self) -> Option<usize> {
-            self.max_length
-                .into_option()
-                .and_then(|ArgSize { value }| usize::try_from(value).ok())
-        }
     }
 
     #[derive(FromArgs)]
@@ -594,8 +588,8 @@ mod zlib {
         }
     }
 
-    fn new_zlib_error(message: impl Into<String>, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_exception_msg(vm.class("zlib", "error"), message.into())
+    fn new_zlib_error(message: &str, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        vm.new_exception_msg(vm.class("zlib", "error"), message.to_owned())
     }
 
     const USE_AFTER_FINISH_ERR: &str = "Error -2: inconsistent stream state";
@@ -632,67 +626,18 @@ mod zlib {
     #[pyclass(name = "_ZlibDecompressor")]
     #[derive(Debug, PyPayload)]
     struct ZlibDecompressor {
-        inner: PyMutex<DecompressState<DecompressWithDict>>,
+        inner: PyMutex<ZlibDecompressorInner>,
     }
 
     #[derive(Debug)]
-    struct DecompressWithDict {
+    struct ZlibDecompressorInner {
         decompress: Decompress,
+        unused_data: PyBytesRef,
+        input_buffer: Vec<u8>,
         zdict: Option<ArgBytesLike>,
+        eof: bool,
+        needs_input: bool,
     }
-
-    impl DecompressStatus for Status {
-        fn is_stream_end(&self) -> bool {
-            *self == Status::StreamEnd
-        }
-    }
-
-    impl FlushKind for FlushDecompress {
-        const SYNC: Self = FlushDecompress::Sync;
-    }
-
-    impl Decompressor for Decompress {
-        type Flush = FlushDecompress;
-        type Status = Status;
-        type Error = flate2::DecompressError;
-
-        fn total_in(&self) -> u64 {
-            self.total_in()
-        }
-        fn decompress_vec(
-            &mut self,
-            input: &[u8],
-            output: &mut Vec<u8>,
-            flush: Self::Flush,
-        ) -> Result<Self::Status, Self::Error> {
-            self.decompress_vec(input, output, flush)
-        }
-    }
-
-    impl Decompressor for DecompressWithDict {
-        type Flush = FlushDecompress;
-        type Status = Status;
-        type Error = flate2::DecompressError;
-
-        fn total_in(&self) -> u64 {
-            self.decompress.total_in()
-        }
-        fn decompress_vec(
-            &mut self,
-            input: &[u8],
-            output: &mut Vec<u8>,
-            flush: Self::Flush,
-        ) -> Result<Self::Status, Self::Error> {
-            self.decompress.decompress_vec(input, output, flush)
-        }
-        fn maybe_set_dict(&mut self, err: Self::Error) -> Result<(), Self::Error> {
-            let zdict = err.needs_dictionary().and(self.zdict.as_ref()).ok_or(err)?;
-            self.decompress.set_dictionary(&zdict.borrow_buf())?;
-            Ok(())
-        }
-    }
-
-    // impl Deconstruct
 
     impl Constructor for ZlibDecompressor {
         type Args = DecompressobjArgs;
@@ -706,7 +651,14 @@ mod zlib {
                         .map_err(|_| new_zlib_error("failed to set dictionary", vm))?;
                 }
             }
-            let inner = DecompressState::new(DecompressWithDict { decompress, zdict }, vm);
+            let inner = ZlibDecompressorInner {
+                decompress,
+                unused_data: vm.ctx.empty_bytes.clone(),
+                input_buffer: Vec::new(),
+                zdict,
+                eof: false,
+                needs_input: true,
+            };
             Self {
                 inner: PyMutex::new(inner),
             }
@@ -719,151 +671,61 @@ mod zlib {
     impl ZlibDecompressor {
         #[pygetset]
         fn eof(&self) -> bool {
-            self.inner.lock().eof()
+            self.inner.lock().eof
         }
 
         #[pygetset]
         fn unused_data(&self) -> PyBytesRef {
-            self.inner.lock().unused_data()
+            self.inner.lock().unused_data.clone()
         }
 
         #[pygetset]
         fn needs_input(&self) -> bool {
-            self.inner.lock().needs_input()
+            self.inner.lock().needs_input
         }
 
         #[pymethod]
         fn decompress(&self, args: DecompressArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            let max_length = args.max_length();
-            let data = &*args.data();
+            let max_length = args
+                .max_length
+                .into_option()
+                .and_then(|ArgSize { value }| usize::try_from(value).ok());
+            let data = &*args.data.borrow_buf();
 
             let inner = &mut *self.inner.lock();
 
-            inner
-                .decompress(data, max_length, DEF_BUF_SIZE, vm)
-                .map_err(|e| match e {
-                    DecompressError::Decompress(err) => new_zlib_error(err.to_string(), vm),
-                    DecompressError::Eof(err) => err.to_pyexception(vm),
-                })
-        }
-
-        // TODO: Wait for getstate pyslot to be fixed
-        // #[pyslot]
-        // fn getstate(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyObject> {
-        //     Err(vm.new_type_error("cannot serialize '_ZlibDecompressor' object".to_owned()))
-        // }
-    }
-}
-
-mod generic {
-    use super::zlib::{_decompress_chunks, Chunker};
-    use crate::vm::{
-        VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyBytesRef},
-        convert::ToPyException,
-    };
-
-    pub(crate) trait Decompressor {
-        type Flush: FlushKind;
-        type Status: DecompressStatus;
-        type Error;
-
-        fn total_in(&self) -> u64;
-        fn decompress_vec(
-            &mut self,
-            input: &[u8],
-            output: &mut Vec<u8>,
-            flush: Self::Flush,
-        ) -> Result<Self::Status, Self::Error>;
-        fn maybe_set_dict(&mut self, err: Self::Error) -> Result<(), Self::Error> {
-            Err(err)
-        }
-    }
-
-    pub(crate) trait DecompressStatus {
-        fn is_stream_end(&self) -> bool;
-    }
-
-    pub(crate) trait FlushKind: Copy {
-        const SYNC: Self;
-    }
-
-    impl FlushKind for () {
-        const SYNC: Self = ();
-    }
-
-    pub(super) fn flush_sync<T: FlushKind>(_final_chunk: bool) -> T {
-        T::SYNC
-    }
-
-    #[derive(Debug)]
-    pub(crate) struct DecompressState<D> {
-        decompress: D,
-        unused_data: PyBytesRef,
-        input_buffer: Vec<u8>,
-        eof: bool,
-        needs_input: bool,
-    }
-
-    impl<D: Decompressor> DecompressState<D> {
-        pub(crate) fn new(decompress: D, vm: &VirtualMachine) -> Self {
-            Self {
-                decompress,
-                unused_data: vm.ctx.empty_bytes.clone(),
-                input_buffer: Vec::new(),
-                eof: false,
-                needs_input: true,
-            }
-        }
-
-        pub(crate) fn eof(&self) -> bool {
-            self.eof
-        }
-
-        pub(crate) fn unused_data(&self) -> PyBytesRef {
-            self.unused_data.clone()
-        }
-
-        pub(crate) fn needs_input(&self) -> bool {
-            self.needs_input
-        }
-
-        pub(crate) fn decompress(
-            &mut self,
-            data: &[u8],
-            max_length: Option<usize>,
-            bufsize: usize,
-            vm: &VirtualMachine,
-        ) -> Result<Vec<u8>, DecompressError<D::Error>> {
-            if self.eof {
-                return Err(DecompressError::Eof(EofError));
+            if inner.eof {
+                return Err(vm.new_eof_error("End of stream already reached".to_owned()));
             }
 
-            let input_buffer = &mut self.input_buffer;
-            let d = &mut self.decompress;
+            let input_buffer = &mut inner.input_buffer;
+            let d = &mut inner.decompress;
 
             let mut chunks = Chunker::chain(input_buffer, data);
 
+            let zdict = inner.zdict.as_ref();
+            let bufsize = DEF_BUF_SIZE;
+
             let prev_len = chunks.len();
             let (ret, stream_end) =
-                match _decompress_chunks(&mut chunks, d, bufsize, max_length, flush_sync) {
+                match _decompress_chunks(&mut chunks, d, bufsize, max_length, false, zdict, vm) {
                     Ok((buf, stream_end)) => (Ok(buf), stream_end),
                     Err(err) => (Err(err), false),
                 };
             let consumed = prev_len - chunks.len();
 
-            self.eof |= stream_end;
+            inner.eof |= stream_end;
 
-            if self.eof {
-                self.needs_input = false;
+            if inner.eof {
+                inner.needs_input = false;
                 if !chunks.is_empty() {
-                    self.unused_data = vm.ctx.new_bytes(chunks.to_vec());
+                    inner.unused_data = vm.ctx.new_bytes(chunks.to_vec());
                 }
             } else if chunks.is_empty() {
                 input_buffer.clear();
-                self.needs_input = true;
+                inner.needs_input = true;
             } else {
-                self.needs_input = false;
+                inner.needs_input = false;
                 if let Some(n_consumed_from_data) = consumed.checked_sub(input_buffer.len()) {
                     input_buffer.clear();
                     input_buffer.extend_from_slice(&data[n_consumed_from_data..]);
@@ -873,28 +735,13 @@ mod generic {
                 }
             }
 
-            ret.map_err(DecompressError::Decompress)
+            ret
         }
-    }
 
-    pub(crate) enum DecompressError<E> {
-        Decompress(E),
-        Eof(EofError),
-    }
-
-    impl<E> From<E> for DecompressError<E> {
-        fn from(err: E) -> Self {
-            Self::Decompress(err)
-        }
-    }
-
-    pub(crate) struct EofError;
-
-    impl ToPyException for EofError {
-        fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-            vm.new_eof_error("End of stream already reached".to_owned())
-        }
+        // TODO: Wait for getstate pyslot to be fixed
+        // #[pyslot]
+        // fn getstate(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyObject> {
+        //     Err(vm.new_type_error("cannot serialize '_ZlibDecompressor' object".to_owned()))
+        // }
     }
 }
-
-pub(crate) use generic::{DecompressError, DecompressState, DecompressStatus, Decompressor};

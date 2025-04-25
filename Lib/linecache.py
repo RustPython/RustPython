@@ -5,13 +5,17 @@ is not found, it will look down the module search path for a file by
 that name.
 """
 
+import functools
+import sys
+import os
+import tokenize
+
 __all__ = ["getline", "clearcache", "checkcache", "lazycache"]
 
 
 # The cache. Maps filenames to either a thunk which will provide source code,
 # or a tuple (size, mtime, lines, fullname) once loaded.
 cache = {}
-_interactive_cache = {}
 
 
 def clearcache():
@@ -45,40 +49,19 @@ def getlines(filename, module_globals=None):
         return []
 
 
-def _getline_from_code(filename, lineno):
-    lines = _getlines_from_code(filename)
-    if 1 <= lineno <= len(lines):
-        return lines[lineno - 1]
-    return ''
-
-def _make_key(code):
-    return (code.co_filename, code.co_qualname, code.co_firstlineno)
-
-def _getlines_from_code(code):
-    code_id = _make_key(code)
-    if code_id in _interactive_cache:
-        entry = _interactive_cache[code_id]
-        if len(entry) != 1:
-            return _interactive_cache[code_id][2]
-    return []
-
-
 def checkcache(filename=None):
     """Discard cache entries that are out of date.
     (This is not checked upon each call!)"""
 
     if filename is None:
-        # get keys atomically
-        filenames = cache.copy().keys()
-    else:
+        filenames = list(cache.keys())
+    elif filename in cache:
         filenames = [filename]
+    else:
+        return
 
     for filename in filenames:
-        try:
-            entry = cache[filename]
-        except KeyError:
-            continue
-
+        entry = cache[filename]
         if len(entry) == 1:
             # lazy cache entry, leave it lazy.
             continue
@@ -86,13 +69,8 @@ def checkcache(filename=None):
         if mtime is None:
             continue   # no-op for files loaded via a __loader__
         try:
-            # This import can fail if the interpreter is shutting down
-            import os
-        except ImportError:
-            return
-        try:
             stat = os.stat(fullname)
-        except (OSError, ValueError):
+        except OSError:
             cache.pop(filename, None)
             continue
         if size != stat.st_size or mtime != stat.st_mtime:
@@ -103,17 +81,6 @@ def updatecache(filename, module_globals=None):
     """Update a cache entry and return its list of lines.
     If something's wrong, print a message, discard the cache entry,
     and return an empty list."""
-
-    # These imports are not at top level because linecache is in the critical
-    # path of the interpreter startup and importing os and sys take a lot of time
-    # and slows down the startup sequence.
-    try:
-        import os
-        import sys
-        import tokenize
-    except ImportError:
-        # These import can fail if the interpreter is shutting down
-        return []
 
     if filename in cache:
         if len(cache[filename]) != 1:
@@ -161,20 +128,16 @@ def updatecache(filename, module_globals=None):
             try:
                 stat = os.stat(fullname)
                 break
-            except (OSError, ValueError):
+            except OSError:
                 pass
         else:
             return []
-    except ValueError:  # may be raised by os.stat()
-        return []
     try:
         with tokenize.open(fullname) as fp:
             lines = fp.readlines()
     except (OSError, UnicodeDecodeError, SyntaxError):
         return []
-    if not lines:
-        lines = ['\n']
-    elif not lines[-1].endswith('\n'):
+    if lines and not lines[-1].endswith('\n'):
         lines[-1] += '\n'
     size, mtime = stat.st_size, stat.st_mtime
     cache[filename] = size, mtime, lines, fullname
@@ -203,29 +166,17 @@ def lazycache(filename, module_globals):
         return False
     # Try for a __loader__, if available
     if module_globals and '__name__' in module_globals:
-        spec = module_globals.get('__spec__')
-        name = getattr(spec, 'name', None) or module_globals['__name__']
-        loader = getattr(spec, 'loader', None)
-        if loader is None:
-            loader = module_globals.get('__loader__')
+        name = module_globals['__name__']
+        if (loader := module_globals.get('__loader__')) is None:
+            if spec := module_globals.get('__spec__'):
+                try:
+                    loader = spec.loader
+                except AttributeError:
+                    pass
         get_source = getattr(loader, 'get_source', None)
 
         if name and get_source:
-            def get_lines(name=name, *args, **kwargs):
-                return get_source(name, *args, **kwargs)
+            get_lines = functools.partial(get_source, name)
             cache[filename] = (get_lines,)
             return True
     return False
-
-def _register_code(code, string, name):
-    entry = (len(string),
-             None,
-             [line + '\n' for line in string.splitlines()],
-             name)
-    stack = [code]
-    while stack:
-        code = stack.pop()
-        for const in code.co_consts:
-            if isinstance(const, type(code)):
-                stack.append(const)
-        _interactive_cache[_make_key(code)] = entry

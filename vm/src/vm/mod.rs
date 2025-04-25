@@ -14,8 +14,6 @@ mod vm_new;
 mod vm_object;
 mod vm_ops;
 
-#[cfg(not(feature = "stdio"))]
-use crate::builtins::PyNone;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
@@ -303,8 +301,7 @@ impl VirtualMachine {
             #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
             {
                 let io = import::import_builtin(self, "_io")?;
-                #[cfg(feature = "stdio")]
-                let make_stdio = |name, fd, write| {
+                let set_stdio = |name, fd, write| {
                     let buffered_stdio = self.state.settings.buffered_stdio;
                     let unbuffered = write && !buffered_stdio;
                     let buf = crate::stdlib::io::open(
@@ -335,13 +332,7 @@ impl VirtualMachine {
                     )?;
                     let mode = if write { "w" } else { "r" };
                     stdio.set_attr("mode", self.ctx.new_str(mode), self)?;
-                    Ok(stdio)
-                };
-                #[cfg(not(feature = "stdio"))]
-                let make_stdio = |_name, _fd, _write| Ok(PyNone.into_pyobject(self));
 
-                let set_stdio = |name, fd, write| {
-                    let stdio = make_stdio(name, fd, write)?;
                     let dunder_name = self.ctx.intern_str(format!("__{name}__"));
                     self.sys_module.set_attr(
                         dunder_name, // e.g. __stdin__

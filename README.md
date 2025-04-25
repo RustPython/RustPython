@@ -13,6 +13,7 @@ A Python-3 (CPython >= 3.13.0) Interpreter written in Rust :snake: :scream:
 [![docs.rs](https://docs.rs/rustpython/badge.svg)](https://docs.rs/rustpython/)
 [![Crates.io](https://img.shields.io/crates/v/rustpython)](https://crates.io/crates/rustpython)
 [![dependency status](https://deps.rs/crate/rustpython/0.1.1/status.svg)](https://deps.rs/crate/rustpython/0.1.1)
+[![WAPM package](https://wapm.io/package/rustpython/badge.svg?style=flat)](https://wapm.io/package/rustpython)
 [![Open in Gitpod](https://img.shields.io/static/v1?label=Open%20in&message=Gitpod&color=1aa6e4&logo=gitpod)](https://gitpod.io#https://github.com/RustPython/RustPython)
 
 ## Usage

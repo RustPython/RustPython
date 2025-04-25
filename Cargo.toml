@@ -10,15 +10,15 @@ repository.workspace = true
 license.workspace = true
 
 [features]
-default = ["threading", "stdlib", "stdio", "importlib"]
+default = ["threading", "stdlib", "importlib"]
 importlib = ["rustpython-vm/importlib"]
 encodings = ["rustpython-vm/encodings"]
-stdio = ["rustpython-vm/stdio"]
 stdlib = ["rustpython-stdlib", "rustpython-pylib", "encodings"]
 flame-it = ["rustpython-vm/flame-it", "flame", "flamescope"]
 freeze-stdlib = ["stdlib", "rustpython-vm/freeze-stdlib", "rustpython-pylib?/freeze-stdlib"]
 jit = ["rustpython-vm/jit"]
 threading = ["rustpython-vm/threading", "rustpython-stdlib/threading"]
+bz2 = ["stdlib", "rustpython-stdlib/bz2"]
 sqlite = ["rustpython-stdlib/sqlite"]
 ssl = ["rustpython-stdlib/ssl"]
 ssl-vendor = ["ssl", "rustpython-stdlib/ssl-vendor"]
@@ -155,8 +155,7 @@ bitflags = "2.4.2"
 bstr = "1"
 cfg-if = "1.0"
 chrono = "0.4.39"
-constant_time_eq = "0.4"
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.3.5", features = ["html_reports"] }
 crossbeam-utils = "0.8.21"
 flame = "0.2.2"
 getrandom = { version = "0.3", features = ["std"] }
@@ -187,7 +186,7 @@ proc-macro2 = "1.0.93"
 quote = "1.0.38"
 rand = "0.9"
 rand_core = { version = "0.9", features = ["os_rng"] }
-rustix = { version = "1.0", features = ["event"] }
+rustix = { version = "0.38", features = ["event"] }
 rustyline = "15.0.0"
 serde = { version = "1.0.133", default-features = false }
 schannel = "0.1.27"

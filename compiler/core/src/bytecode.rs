@@ -437,6 +437,9 @@ pub enum Instruction {
     TestOperation {
         op: Arg<TestOperator>,
     },
+    /// If the argument is true, perform IS NOT. Otherwise perform the IS operation.
+    // TODO: duplication of TestOperator::{Is,IsNot}. Fix later.
+    IsOperation(Arg<bool>),
     CompareOperation {
         op: Arg<ComparisonOperator>,
     },
@@ -1224,7 +1227,8 @@ impl Instruction {
             BinaryOperation { .. }
             | BinaryOperationInplace { .. }
             | TestOperation { .. }
-            | CompareOperation { .. } => -1,
+            | CompareOperation { .. }
+            | IsOperation(..) => -1,
             BinarySubscript => -1,
             CopyItem { .. } => 1,
             Pop => -1,
@@ -1432,6 +1436,7 @@ impl Instruction {
             BinarySubscript => w!(BinarySubscript),
             LoadAttr { idx } => w!(LoadAttr, name = idx),
             TestOperation { op } => w!(TestOperation, ?op),
+            IsOperation(neg) => w!(IsOperation, neg),
             CompareOperation { op } => w!(CompareOperation, ?op),
             CopyItem { index } => w!(CopyItem, index),
             Pop => w!(Pop),

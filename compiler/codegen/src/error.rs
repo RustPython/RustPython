@@ -65,8 +65,6 @@ pub enum CodegenErrorType {
     ForbiddenName,
     DuplicateStore(String),
     UnreachablePattern(PatternUnreachableReason),
-    RepeatedAttributePattern,
-    ConflictingNameBindPattern,
     NotImplementedYet, // RustPython marker for unimplemented features
 }
 
@@ -120,12 +118,6 @@ impl fmt::Display for CodegenErrorType {
             }
             UnreachablePattern(reason) => {
                 write!(f, "{reason} makes remaining patterns unreachable")
-            }
-            RepeatedAttributePattern => {
-                write!(f, "attribute name repeated in class pattern")
-            }
-            ConflictingNameBindPattern => {
-                write!(f, "alternative patterns bind different names")
             }
             NotImplementedYet => {
                 write!(f, "RustPython does not implement this feature yet")

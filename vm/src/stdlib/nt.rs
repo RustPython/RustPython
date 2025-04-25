@@ -388,27 +388,6 @@ pub(crate) mod module {
         }
     }
 
-    #[pyfunction]
-    fn getlogin(vm: &VirtualMachine) -> PyResult<String> {
-        let mut buffer = [0u16; 257];
-        let mut size = buffer.len() as u32;
-
-        let success = unsafe {
-            windows_sys::Win32::System::WindowsProgramming::GetUserNameW(
-                buffer.as_mut_ptr(),
-                &mut size,
-            )
-        };
-
-        if success != 0 {
-            // Convert the buffer (which is UTF-16) to a Rust String
-            let username = std::ffi::OsString::from_wide(&buffer[..(size - 1) as usize]);
-            Ok(username.to_str().unwrap().to_string())
-        } else {
-            Err(vm.new_os_error(format!("Error code: {success}")))
-        }
-    }
-
     pub fn raw_set_handle_inheritable(handle: intptr_t, inheritable: bool) -> std::io::Result<()> {
         let flags = if inheritable {
             Foundation::HANDLE_FLAG_INHERIT

@@ -1,8 +1,7 @@
 // to allow `mod foo {}` in foo.rs; clippy thinks this is a mistake/misunderstanding of
 // how `mod` works, but we want this sometimes for pymodule declarations
-
 #![allow(clippy::module_inception)]
-#![cfg_attr(all(target_os = "wasi", target_env = "p2"), feature(wasip2))]
+#![cfg_attr(target_os = "redox", feature(raw_ref_op))]
 
 #[macro_use]
 extern crate rustpython_derive;
@@ -37,6 +36,7 @@ mod statistics;
 mod suggestions;
 // TODO: maybe make this an extension module, if we ever get those
 // mod re;
+#[cfg(feature = "bz2")]
 mod bz2;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod socket;
@@ -112,7 +112,6 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "array" => array::make_module,
             "binascii" => binascii::make_module,
             "_bisect" => bisect::make_module,
-            "_bz2" => bz2::make_module,
             "cmath" => cmath::make_module,
             "_contextvars" => contextvars::make_module,
             "_csv" => csv::make_module,
@@ -135,7 +134,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "unicodedata" => unicodedata::make_module,
             "zlib" => zlib::make_module,
             "_statistics" => statistics::make_module,
-            "_suggestions" => suggestions::make_module,
+            "suggestions" => suggestions::make_module,
             // crate::vm::sysmodule::sysconfigdata_name() => sysconfigdata::make_module,
         }
         #[cfg(any(unix, target_os = "wasi"))]
@@ -158,6 +157,10 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         #[cfg(feature = "ssl")]
         {
             "_ssl" => ssl::make_module,
+        }
+        #[cfg(feature = "bz2")]
+        {
+            "_bz2" => bz2::make_module,
         }
         #[cfg(windows)]
         {

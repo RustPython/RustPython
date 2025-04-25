@@ -23,15 +23,13 @@ mod mmap {
     };
     use crossbeam_utils::atomic::AtomicCell;
     use memmap2::{Advice, Mmap, MmapMut, MmapOptions};
-    #[cfg(unix)]
-    use nix::sys::stat::fstat;
     use nix::unistd;
     use num_traits::Signed;
     use std::fs::File;
-    use std::io::{self, Write};
+    use std::io::Write;
     use std::ops::{Deref, DerefMut};
     #[cfg(unix)]
-    use std::os::unix::io::{FromRawFd, RawFd};
+    use std::os::unix::io::{FromRawFd, IntoRawFd, RawFd};
 
     fn advice_try_from_i32(vm: &VirtualMachine, i: i32) -> PyResult<Advice> {
         Ok(match i {
@@ -301,7 +299,7 @@ mod mmap {
         fn py_new(
             cls: PyTypeRef,
             MmapNewArgs {
-                fileno: fd,
+                fileno: mut fd,
                 length,
                 flags,
                 prot,
@@ -350,10 +348,12 @@ mod mmap {
             };
 
             if fd != -1 {
-                let metadata = fstat(fd)
-                    .map_err(|err| io::Error::from_raw_os_error(err as i32).to_pyexception(vm))?;
-                let file_len = metadata.st_size;
-
+                let file = unsafe { File::from_raw_fd(fd) };
+                let metadata = file.metadata().map_err(|err| err.to_pyexception(vm))?;
+                let file_len: libc::off_t = metadata.len().try_into().expect("file size overflow");
+                // File::from_raw_fd will consume the fd, so we
+                // have to  get it again.
+                fd = file.into_raw_fd();
                 if map_size == 0 {
                     if file_len == 0 {
                         return Err(vm.new_value_error("cannot mmap an empty file".to_owned()));

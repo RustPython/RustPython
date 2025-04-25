@@ -2000,9 +2000,13 @@ class TestArchives(BaseTest, unittest.TestCase):
                 ('Python 3.14', DeprecationWarning)):
             self.check_unpack_archive(format)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unpack_archive_tar(self):
         self.check_unpack_tarball('tar')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.requires_zlib()
     def test_unpack_archive_gztar(self):
         self.check_unpack_tarball('gztar')

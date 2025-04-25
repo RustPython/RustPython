@@ -74,8 +74,6 @@ unic
 unistd
 unraw
 unsync
-wasip1
-wasip2
 wasmbind
 wasmtime
 widestring

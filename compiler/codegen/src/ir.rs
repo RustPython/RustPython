@@ -244,9 +244,6 @@ impl CodeInfo {
                     let instr_display = instr.display(display_arg, self);
                     eprint!("{instr_display}: {depth} {effect:+} => ");
                 }
-                if effect < 0 && depth < effect.unsigned_abs() {
-                    panic!("The stack will underflow at {depth} with {effect} effect on {instr:?}");
-                }
                 let new_depth = depth.checked_add_signed(effect).unwrap();
                 if DEBUG {
                     eprintln!("{new_depth}");
