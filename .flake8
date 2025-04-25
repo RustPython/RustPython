@@ -1,3 +1,0 @@
-[flake8]
-# black's line length
-max-line-length = 88

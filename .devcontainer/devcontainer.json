@@ -1,4 +1,0 @@
-{
-  "image": "mcr.microsoft.com/devcontainers/base:jammy",
-  "onCreateCommand": "curl https://sh.rustup.rs -sSf | sh -s -- -y"
-}
