@@ -120,7 +120,7 @@ jobs:
     runs-on:  ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest]
+        os: [macos-latest, ubuntu-latest, windows-latest]
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
@@ -151,8 +151,7 @@ jobs:
       - name: run snippets
         run: python -m pip install -r requirements.txt && pytest -v
         working-directory: ./extra_tests
-      - if: runner.os == 'Linux'
-        name: run cpython platform-independent tests
+      - name: run cpython platform-independent tests
         run:
           target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
       - if: runner.os == 'Linux'
