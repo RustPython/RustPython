@@ -126,9 +126,9 @@ def printlist(x, width=70, indent=4, file=None):
 def print_warning(msg: str) -> None:
     support.print_warning(msg)
 
-
-orig_unraisablehook: Callable[..., None] | None = None
-
+# TODO: RUSTPYTHON
+# orig_unraisablehook: Callable[..., None] | None = None
+orig_unraisablehook = None
 
 def regrtest_unraisable_hook(unraisable) -> None:
     global orig_unraisablehook
@@ -151,7 +151,9 @@ def setup_unraisable_hook() -> None:
     sys.unraisablehook = regrtest_unraisable_hook
 
 
-orig_threading_excepthook: Callable[..., None] | None = None
+# TODO: RUSTPYTHON
+# orig_threading_excepthook: Callable[..., None] | None = None
+orig_threading_excepthook = None
 
 
 def regrtest_threading_excepthook(args) -> None:
