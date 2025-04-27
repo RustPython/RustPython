@@ -297,6 +297,10 @@ mod _overlapped {
         }
     }
 
+    unsafe fn u64_to_handle(raw_ptr_value: u64) -> HANDLE {
+        raw_ptr_value as HANDLE
+    }
+
     #[pyfunction]
     fn CreateIoCompletionPort(
         handle: isize,
@@ -353,5 +357,57 @@ mod _overlapped {
             (overlapped as usize).to_pyobject(vm),
         ]);
         Ok(value.into())
+    }
+
+    #[pyfunction]
+    fn CreateEvent(
+        event_attributes: PyObjectRef,
+        manual_reset: bool,
+        initial_state: bool,
+        name: Option<String>,
+        vm: &VirtualMachine,
+    ) -> PyResult<isize> {
+        if !vm.is_none(&event_attributes) {
+            return Err(vm.new_value_error("EventAttributes must be None".to_owned()));
+        }
+
+        let name = match name {
+            Some(name) => {
+                let name = widestring::WideCString::from_str(&name).unwrap();
+                name.as_ptr()
+            }
+            None => std::ptr::null(),
+        };
+        let event = unsafe {
+            windows_sys::Win32::System::Threading::CreateEventW(
+                std::ptr::null(),
+                manual_reset as _,
+                initial_state as _,
+                name,
+            ) as isize
+        };
+        if event == NULL {
+            return Err(errno_err(vm));
+        }
+        Ok(event)
+    }
+
+    #[pyfunction]
+    fn SetEvent(handle: u64, vm: &VirtualMachine) -> PyResult<()> {
+        let ret = unsafe { windows_sys::Win32::System::Threading::SetEvent(u64_to_handle(handle)) };
+        if ret == 0 {
+            return Err(errno_err(vm));
+        }
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn ResetEvent(handle: u64, vm: &VirtualMachine) -> PyResult<()> {
+        let ret =
+            unsafe { windows_sys::Win32::System::Threading::ResetEvent(u64_to_handle(handle)) };
+        if ret == 0 {
+            return Err(errno_err(vm));
+        }
+        Ok(())
     }
 }
