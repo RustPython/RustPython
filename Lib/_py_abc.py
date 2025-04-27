@@ -33,6 +33,8 @@ class ABCMeta(type):
     _abc_invalidation_counter = 0
 
     def __new__(mcls, name, bases, namespace, /, **kwargs):
+        # TODO: RUSTPYTHON remove this line (prevents duplicate bases)
+        bases = tuple(dict.fromkeys(bases))
         cls = super().__new__(mcls, name, bases, namespace, **kwargs)
         # Compute set of abstract method names
         abstracts = {name
@@ -98,8 +100,8 @@ class ABCMeta(type):
         subtype = type(instance)
         if subtype is subclass:
             if (cls._abc_negative_cache_version ==
-                ABCMeta._abc_invalidation_counter and
-                subclass in cls._abc_negative_cache):
+                    ABCMeta._abc_invalidation_counter and
+                    subclass in cls._abc_negative_cache):
                 return False
             # Fall back to the subclass check.
             return cls.__subclasscheck__(subclass)
