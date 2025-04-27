@@ -84,7 +84,7 @@ jobs:
       - name: Collect what is left data
         run: |
           chmod +x ./whats_left.py
-          ./whats_left.py > whats_left.temp
+          ./whats_left.py --features "sqlite" > whats_left.temp
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
       - name: Upload data to the website
