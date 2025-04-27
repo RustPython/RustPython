@@ -107,7 +107,6 @@ env:
     test_unary
     test_unpack
     test_weakref
-    test_yield_from
   # Python version targeted by the CI.
   PYTHON_VERSION: "3.13.1"
 
