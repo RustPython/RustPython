@@ -1,6 +1,6 @@
 [package]
 name = "rustpython_wasm"
-description = "A Python-3 (CPython >= 3.5.0) Interpreter written in Rust, compiled to WASM"
+description = "A Python-3 (CPython >= 3.13) Interpreter written in Rust, compiled to WASM"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
