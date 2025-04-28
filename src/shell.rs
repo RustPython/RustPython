@@ -15,7 +15,8 @@ use rustpython_vm::{
 enum ShellExecResult {
     Ok,
     PyErr(PyBaseExceptionRef),
-    Continue,
+    ContinueBlock,
+    ContinueLine,
 }
 
 fn shell_exec(
@@ -23,7 +24,7 @@ fn shell_exec(
     source: &str,
     scope: Scope,
     empty_line_given: bool,
-    continuing: bool,
+    continuing_block: bool,
 ) -> ShellExecResult {
     // compiling expects only UNIX style line endings, and will replace windows line endings
     // internally. Since we might need to analyze the source to determine if an error could be
@@ -33,7 +34,7 @@ fn shell_exec(
     let source = &source.replace("\r\n", "\n");
     match vm.compile(source, compiler::Mode::Single, "<stdin>".to_owned()) {
         Ok(code) => {
-            if empty_line_given || !continuing {
+            if empty_line_given || !continuing_block {
                 // We want to execute the full code
                 match vm.run_code_obj(code, scope) {
                     Ok(_val) => ShellExecResult::Ok,
@@ -47,14 +48,14 @@ fn shell_exec(
         Err(CompileError::Parse(ParseError {
             error: ParseErrorType::Lexical(LexicalErrorType::Eof),
             ..
-        })) => ShellExecResult::Continue,
+        })) => ShellExecResult::ContinueLine,
         Err(CompileError::Parse(ParseError {
             error:
                 ParseErrorType::Lexical(LexicalErrorType::FStringError(
                     FStringErrorType::UnterminatedTripleQuotedString,
                 )),
             ..
-        })) => ShellExecResult::Continue,
+        })) => ShellExecResult::ContinueLine,
         Err(err) => {
             // Check if the error is from an unclosed triple quoted string (which should always
             // continue)
@@ -68,7 +69,7 @@ fn shell_exec(
                     let mut iter = source.chars();
                     if let Some(quote) = iter.nth(loc) {
                         if iter.next() == Some(quote) && iter.next() == Some(quote) {
-                            return ShellExecResult::Continue;
+                            return ShellExecResult::ContinueLine;
                         }
                     }
                 }
@@ -83,10 +84,12 @@ fn shell_exec(
             let bad_error = match err {
                 CompileError::Parse(ref p) => {
                     match &p.error {
-                        ParseErrorType::Lexical(LexicalErrorType::IndentationError) => continuing, // && p.location.is_some()
+                        ParseErrorType::Lexical(LexicalErrorType::IndentationError) => {
+                            continuing_block
+                        } // && p.location.is_some()
                         ParseErrorType::OtherError(msg) => {
                             if msg.starts_with("Expected an indented block") {
-                                continuing
+                                continuing_block
                             } else {
                                 true
                             }
@@ -101,7 +104,7 @@ fn shell_exec(
             if empty_line_given || bad_error {
                 ShellExecResult::PyErr(vm.new_syntax_error(&err, Some(source)))
             } else {
-                ShellExecResult::Continue
+                ShellExecResult::ContinueBlock
             }
         }
     }
@@ -126,10 +129,19 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
         println!("No previous history.");
     }
 
-    let mut continuing = false;
+    // We might either be waiting to know if a block is complete, or waiting to know if a multiline
+    // statement is complete. In the former case, we need to ensure that we read one extra new line
+    // to know that the block is complete. In the latter, we can execute as soon as the statement is
+    // valid.
+    let mut continuing_block = false;
+    let mut continuing_line = false;
 
     loop {
-        let prompt_name = if continuing { "ps2" } else { "ps1" };
+        let prompt_name = if continuing_block || continuing_line {
+            "ps2"
+        } else {
+            "ps1"
+        };
         let prompt = vm
             .sys_module
             .get_attr(prompt_name, vm)
@@ -138,6 +150,8 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
             Ok(ref s) => s.as_str(),
             Err(_) => "",
         };
+
+        continuing_line = false;
         let result = match repl.readline(prompt) {
             ReadlineResult::Line(line) => {
                 debug!("You entered {:?}", line);
@@ -153,39 +167,44 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 }
                 full_input.push('\n');
 
-                match shell_exec(vm, &full_input, scope.clone(), empty_line_given, continuing) {
+                match shell_exec(
+                    vm,
+                    &full_input,
+                    scope.clone(),
+                    empty_line_given,
+                    continuing_block,
+                ) {
                     ShellExecResult::Ok => {
-                        if continuing {
+                        if continuing_block {
                             if empty_line_given {
-                                // We should be exiting continue mode
-                                continuing = false;
+                                // We should exit continue mode since the block succesfully executed
+                                continuing_block = false;
                                 full_input.clear();
-                                Ok(())
-                            } else {
-                                // We should stay in continue mode
-                                continuing = true;
-                                Ok(())
                             }
                         } else {
                             // We aren't in continue mode so proceed normally
-                            continuing = false;
                             full_input.clear();
-                            Ok(())
                         }
+                        Ok(())
                     }
-                    ShellExecResult::Continue => {
-                        continuing = true;
+                    // Continue, but don't change the mode
+                    ShellExecResult::ContinueLine => {
+                        continuing_line = true;
+                        Ok(())
+                    }
+                    ShellExecResult::ContinueBlock => {
+                        continuing_block = true;
                         Ok(())
                     }
                     ShellExecResult::PyErr(err) => {
-                        continuing = false;
+                        continuing_block = false;
                         full_input.clear();
                         Err(err)
                     }
                 }
             }
             ReadlineResult::Interrupt => {
-                continuing = false;
+                continuing_block = false;
                 full_input.clear();
                 let keyboard_interrupt =
                     vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.to_owned());
