@@ -69,6 +69,8 @@ def _maybe_compile(compiler, source, filename, symbol):
                 # XXX: RustPython; support multiline definitions in REPL
                 # See also: https://github.com/RustPython/RustPython/pull/5743
                 strerr = str(e)
+                if isinstance(e, _IncompleteInputError):
+                    return None
                 if source.endswith(":") and "expected an indented block" in strerr:
                     return None
                 elif "incomplete input" in str(e):

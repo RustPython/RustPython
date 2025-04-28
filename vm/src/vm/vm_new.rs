@@ -320,10 +320,11 @@ impl VirtualMachine {
     }
 
     #[cfg(any(feature = "parser", feature = "compiler"))]
-    pub fn new_syntax_error(
+    pub fn new_syntax_error_maybe_incomplete(
         &self,
         error: &crate::compiler::CompileError,
         source: Option<&str>,
+        allow_incomplete: bool,
     ) -> PyBaseExceptionRef {
         use crate::source::SourceLocation;
 
@@ -342,6 +343,20 @@ impl VirtualMachine {
                 error: ruff_python_parser::ParseErrorType::UnexpectedIndentation,
                 ..
             }) => self.ctx.exceptions.indentation_error,
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error:
+                    ruff_python_parser::ParseErrorType::Lexical(
+                        ruff_python_parser::LexicalErrorType::Eof,
+                    ),
+                ..
+            }) => {
+                if allow_incomplete {
+                    self.ctx.exceptions.incomplete_input_error
+                } else {
+                    self.ctx.exceptions.syntax_error
+                }
+            }
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error: ruff_python_parser::ParseErrorType::OtherError(s),
@@ -408,6 +423,15 @@ impl VirtualMachine {
             .set_attr("filename", self.ctx.new_str(error.source_path()), self)
             .unwrap();
         syntax_error
+    }
+
+    #[cfg(any(feature = "parser", feature = "compiler"))]
+    pub fn new_syntax_error(
+        &self,
+        error: &crate::compiler::CompileError,
+        source: Option<&str>,
+    ) -> PyBaseExceptionRef {
+        self.new_syntax_error_maybe_incomplete(error, source, false)
     }
 
     pub fn new_import_error(&self, msg: String, name: PyStrRef) -> PyBaseExceptionRef {
