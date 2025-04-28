@@ -1,18 +1,14 @@
 use rustpython_vm::VirtualMachine;
 
 pub(crate) use _browser::make_module;
+use crate::wasm_builtins::window;
 
 #[pymodule]
 mod _browser {
     use crate::{convert, js_module::PyPromise, vm_class::weak_vm, wasm_builtins::window};
     use js_sys::Promise;
     use rustpython_vm::{
-        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyStrRef},
-        class::PyClassImpl,
-        convert::ToPyObject,
-        function::{ArgCallable, OptionalArg},
-        import::import_source,
+        builtins::{PyDictRef, PyStrRef}, class::PyClassImpl, convert::ToPyObject, function::{ArgCallable, OptionalArg}, import::import_source, types::Constructor, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine
     };
     use wasm_bindgen::{JsCast, prelude::*};
     use wasm_bindgen_futures::JsFuture;
@@ -168,6 +164,47 @@ mod _browser {
 
     #[pyclass]
     impl Document {
+        #[pygetset]
+        fn body(&self, vm: &VirtualMachine) -> PyResult {
+            let body = self
+                .doc
+                .body()
+                .map(|elem| Element { elem })
+                .to_pyobject(vm);
+            Ok(body)
+        }
+
+        #[pygetset]
+        fn cookie(&self, vm: &VirtualMachine) -> PyResult {
+            let cookie = self
+                .doc
+                .cookie()
+                .map_err(|err| convert::js_py_typeerror(vm, err))?;
+            Ok(vm.ctx.new_str(cookie).into())
+        }
+
+        #[pymethod]
+        fn get_element_by_id(&self, id: PyStrRef, vm: &VirtualMachine) -> PyResult {
+            let elem = self
+                .doc
+                .get_element_by_id(id.as_str())
+                .map_err(|err| convert::js_py_typeerror(vm, err))?
+                .map(|elem| Element { elem })
+                .to_pyobject(vm);
+            Ok(elem)
+        }
+
+        #[pygetset]
+        fn head(&self, vm: &VirtualMachine) -> PyResult {
+            let head = self
+                .doc
+                .head()
+                .map_err(|err| convert::js_py_typeerror(vm, err))?
+                .map(|elem| Element { elem })
+                .to_pyobject(vm);
+            Ok(head)
+        }
+
         #[pymethod]
         fn query(&self, query: PyStrRef, vm: &VirtualMachine) -> PyResult {
             let elem = self
@@ -177,6 +214,22 @@ mod _browser {
                 .map(|elem| Element { elem })
                 .to_pyobject(vm);
             Ok(elem)
+        }
+
+        #[pygetset]
+        fn title(&self, vm: &VirtualMachine) -> PyResult {
+            let title = self
+                .doc
+                .title()
+                .map_err(|err| convert::js_py_typeerror(vm, err))?;
+            Ok(vm.ctx.new_str(title).into())
+        }
+
+        #[pygetset(setter)]
+        fn set_title(&self, title: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+            self.doc
+                .set_title(title.as_str())
+                .map_err(|err| convert::js_py_typeerror(vm, err))
         }
     }
 
@@ -257,7 +310,17 @@ mod _browser {
     }
 }
 
+fn init_browser_module(vm: &VirtualMachine) {
+    let module = make_module(vm);
+
+    extend_module!(vm, &module, {
+        "window" => js_module::PyJsValue::new(wasm_builtins::window()).into_ref(&vm.ctx),
+    });
+
+    module
+}
+
 pub fn setup_browser_module(vm: &mut VirtualMachine) {
-    vm.add_native_module("_browser".to_owned(), Box::new(make_module));
+    vm.add_native_module("_browser".to_owned(), Box::new(init_browser_module));
     vm.add_frozen(py_freeze!(dir = "Lib"));
 }
