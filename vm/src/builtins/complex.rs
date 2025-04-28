@@ -28,6 +28,10 @@ pub struct PyComplex {
 }
 
 impl PyComplex {
+    pub fn new(value: Complex64) -> Self {
+        PyComplex { value }
+    }
+
     pub fn to_complex64(self) -> Complex64 {
         self.value
     }

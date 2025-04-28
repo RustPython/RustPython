@@ -44,6 +44,7 @@ pub mod buffer;
 pub mod builtins;
 pub mod byte;
 mod bytes_inner;
+pub mod c_module;
 pub mod cformat;
 pub mod class;
 mod codecs;

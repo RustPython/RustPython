@@ -1,6 +1,6 @@
 use super::{Context, VirtualMachine, setting::Settings, thread};
 use crate::{PyResult, stdlib::atexit, vm::PyBaseExceptionRef};
-use std::sync::atomic::Ordering;
+use std::sync::{Arc, atomic::Ordering};
 
 /// The general interface for the VM
 ///
@@ -21,7 +21,7 @@ use std::sync::atomic::Ordering;
 /// });
 /// ```
 pub struct Interpreter {
-    vm: VirtualMachine,
+    pub vm: Arc<VirtualMachine>,
 }
 
 impl Interpreter {
@@ -53,6 +53,9 @@ impl Interpreter {
         let mut vm = VirtualMachine::new(settings, ctx.clone());
         init(&mut vm);
         vm.initialize();
+        // This is kept in-case the c-api vm stops being thread-local, for any reason.
+        #[allow(clippy::arc_with_non_send_sync)]
+        let vm = Arc::new(vm);
         Self { vm }
     }
 

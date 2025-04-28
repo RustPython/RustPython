@@ -25,6 +25,7 @@ use crate::{
         pystr::AsPyStr,
         tuple::{PyTuple, PyTupleTyped},
     },
+    c_module,
     codecs::CodecsRegistry,
     common::{hash::HashSecret, lock::PyMutex, rc::PyRc},
     convert::ToPyObject,
@@ -92,7 +93,8 @@ struct ExceptionStack {
 
 pub struct PyGlobalState {
     pub settings: Settings,
-    pub module_inits: stdlib::StdlibMap,
+    pub c_module_inits: c_module::CModuleMap,
+    pub stdlib_module_inits: stdlib::StdlibMap,
     pub frozen: HashMap<&'static str, FrozenModule, ahash::RandomState>,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
@@ -175,7 +177,7 @@ impl VirtualMachine {
             repr_guards: RefCell::default(),
             state: PyRc::new(PyGlobalState {
                 settings,
-                module_inits,
+                stdlib_module_inits: module_inits,
                 frozen: HashMap::default(),
                 stacksize: AtomicCell::new(0),
                 thread_count: AtomicCell::new(0),
@@ -423,14 +425,27 @@ impl VirtualMachine {
     where
         S: Into<Cow<'static, str>>,
     {
-        self.state_mut().module_inits.insert(name.into(), module);
+        self.state_mut().stdlib_module_inits.insert(name.into(), module);
     }
 
     pub fn add_native_modules<I>(&mut self, iter: I)
     where
         I: IntoIterator<Item = (Cow<'static, str>, stdlib::StdlibInitFunc)>,
     {
-        self.state_mut().module_inits.extend(iter);
+        self.state_mut().stdlib_module_inits.extend(iter);
+    }
+
+    pub fn add_c_module<S>(&mut self, name: S, module: c_module::CModuleInitFunc)
+    where
+        S: Into<Cow<'static, str>> {
+        self.state_mut().c_module_inits.insert(name.into(), module);
+    }
+
+    pub fn add_c_modules<I>(&mut self, iter: I)
+    where
+        I: IntoIterator<Item = (Cow<'static, str>, c_module::CModuleInitFunc)>,
+    {
+        self.state_mut().c_module_inits.extend(iter);
     }
 
     /// Can only be used in the initialization closure passed to [`Interpreter::with_init`]

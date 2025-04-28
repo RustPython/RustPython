@@ -1,0 +1,34 @@
+[package]
+name = "rustpython-capi"
+description = "CAPI for RustPython"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+
+[dependencies]
+malachite-bigint = { workspace = true }
+num-complex = { workspace = true }
+
+rustpython-common = { workspace = true }
+rustpython-vm = { workspace = true }
+
+[lints.rust]
+unsafe_code = "allow"
+unsafe_op_in_unsafe_fn = "deny"
+elided_lifetimes_in_paths = "warn"
+
+[lints.clippy]
+perf = "warn"
+style = "warn"
+complexity = "warn"
+suspicious = "warn"
+correctness = "warn"
+missing_safety_doc = "allow"
