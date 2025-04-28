@@ -296,8 +296,8 @@ pub const PY_COMPILE_FLAG_AST_ONLY: i32 = 0x0400;
 // The following flags match the values from Include/cpython/compile.h
 // Caveat emptor: These flags are undocumented on purpose and depending
 // on their effect outside the standard library is **unsupported**.
-const PY_CF_DONT_IMPLY_DEDENT: i32 = 0x200;
-const PY_CF_ALLOW_INCOMPLETE_INPUT: i32 = 0x4000;
+pub const PY_CF_DONT_IMPLY_DEDENT: i32 = 0x200;
+pub const PY_CF_ALLOW_INCOMPLETE_INPUT: i32 = 0x4000;
 
 // __future__ flags - sync with Lib/__future__.py
 // TODO: These flags aren't being used in rust code
