@@ -1,7 +1,8 @@
 mod helper;
 
 use rustpython_compiler::{
-    CompileError, ParseError, parser::LexicalErrorType, parser::ParseErrorType,
+    CompileError, ParseError, parser::FStringErrorType, parser::LexicalErrorType,
+    parser::ParseErrorType,
 };
 use rustpython_vm::{
     AsObject, PyResult, VirtualMachine,
@@ -24,6 +25,12 @@ fn shell_exec(
     empty_line_given: bool,
     continuing: bool,
 ) -> ShellExecResult {
+    // compiling expects only UNIX style line endings, and will replace windows line endings
+    // internally. Since we might need to analyze the source to determine if an error could be
+    // resolved by future input, we need the location from the error to match the source code that
+    // was actually compiled.
+    #[cfg(windows)]
+    let source = &source.replace("\r\n", "\n");
     match vm.compile(source, compiler::Mode::Single, "<stdin>".to_owned()) {
         Ok(code) => {
             if empty_line_given || !continuing {
@@ -41,7 +48,33 @@ fn shell_exec(
             error: ParseErrorType::Lexical(LexicalErrorType::Eof),
             ..
         })) => ShellExecResult::Continue,
+        Err(CompileError::Parse(ParseError {
+            error:
+                ParseErrorType::Lexical(LexicalErrorType::FStringError(
+                    FStringErrorType::UnterminatedTripleQuotedString,
+                )),
+            ..
+        })) => ShellExecResult::Continue,
         Err(err) => {
+            // Check if the error is from an unclosed triple quoted string (which should always
+            // continue)
+            match err {
+                CompileError::Parse(ParseError {
+                    error: ParseErrorType::Lexical(LexicalErrorType::UnclosedStringError),
+                    raw_location,
+                    ..
+                }) => {
+                    let loc = raw_location.start().to_usize();
+                    let mut iter = source.chars();
+                    if let Some(quote) = iter.nth(loc) {
+                        if iter.next() == Some(quote) && iter.next() == Some(quote) {
+                            return ShellExecResult::Continue;
+                        }
+                    }
+                }
+                _ => (),
+            };
+
             // bad_error == true if we are handling an error that should be thrown even if we are continuing
             // if its an indentation error, set to true if we are continuing and the error is on column 0,
             // since indentations errors on columns other than 0 should be ignored.
