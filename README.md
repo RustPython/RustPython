@@ -116,7 +116,11 @@ You can build the WebAssembly WASI file with:
 cargo build --release --target wasm32-wasip1 --features="freeze-stdlib"
 ```
 
-> Note: we use the `freeze-stdlib` to include the standard library inside the binary. You also have to run once `rustup target add wasm32-wasip1`.
+> [!NOTE]
+> we use the `freeze-stdlib` to include the standard library inside the binary. You also have to run once `rustup target add wasm32-wasip1`.
+
+> [!IMPORTANT]
+> Both `wasip1` and `wasip2` are supported, but `p2` requires nightly to build.
 
 ### JIT (Just in time) compiler
 
