@@ -152,8 +152,6 @@ class PollTests(unittest.TestCase):
             else:
                 self.fail('Unexpected return value from select.poll: %s' % fdlist)
 
-    # TODO: RUSTPYTHON int overflow
-    @unittest.expectedFailure
     def test_poll3(self):
         # test int overflow
         pollster = select.poll()

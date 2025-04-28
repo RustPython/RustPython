@@ -338,7 +338,10 @@ mod decl {
         };
         use libc::pollfd;
         use num_traits::{Signed, ToPrimitive};
-        use std::time::{Duration, Instant};
+        use std::{
+            convert::TryFrom,
+            time::{Duration, Instant},
+        };
 
         #[derive(Default)]
         pub(super) struct TimeoutArg<const MILLIS: bool>(pub Option<Duration>);
@@ -417,25 +420,62 @@ mod decl {
             search(fds, fd).ok().map(|i| fds.remove(i))
         }
 
+        // new EventMask type
+        #[derive(Copy, Clone)]
+        #[repr(transparent)]
+        pub struct EventMask(pub i16);
+
+        impl TryFromObject for EventMask {
+            fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+                use crate::builtins::PyInt;
+                let int = obj
+                    .downcast::<PyInt>()
+                    .map_err(|_| vm.new_type_error("argument must be an integer".to_owned()))?;
+
+                let val = int.as_bigint();
+                if val.is_negative() {
+                    return Err(vm.new_value_error("negative event mask".to_owned()));
+                }
+
+                // Try converting to i16, should raise OverflowError if too large
+                let mask = i16::try_from(val).map_err(|_| {
+                    vm.new_overflow_error("event mask value out of range".to_owned())
+                })?;
+
+                Ok(EventMask(mask))
+            }
+        }
+
         const DEFAULT_EVENTS: i16 = libc::POLLIN | libc::POLLPRI | libc::POLLOUT;
 
         #[pyclass]
         impl PyPoll {
             #[pymethod]
-            fn register(&self, Fildes(fd): Fildes, eventmask: OptionalArg<u16>) {
-                insert_fd(
-                    &mut self.fds.lock(),
-                    fd,
-                    eventmask.map_or(DEFAULT_EVENTS, |e| e as i16),
-                )
+            fn register(
+                &self,
+                Fildes(fd): Fildes,
+                eventmask: OptionalArg<EventMask>,
+            ) -> PyResult<()> {
+                let mask = match eventmask {
+                    OptionalArg::Present(event_mask) => event_mask.0,
+                    OptionalArg::Missing => DEFAULT_EVENTS,
+                };
+                insert_fd(&mut self.fds.lock(), fd, mask);
+                Ok(())
             }
 
             #[pymethod]
-            fn modify(&self, Fildes(fd): Fildes, eventmask: u16) -> io::Result<()> {
+            fn modify(
+                &self,
+                Fildes(fd): Fildes,
+                eventmask: EventMask,
+                vm: &VirtualMachine,
+            ) -> PyResult<()> {
                 let mut fds = self.fds.lock();
+                // CPython raises KeyError if fd is not registered, match that behavior
                 let pfd = get_fd_mut(&mut fds, fd)
-                    .ok_or_else(|| io::Error::from_raw_os_error(libc::ENOENT))?;
-                pfd.events = eventmask as i16;
+                    .ok_or_else(|| vm.new_key_error(vm.ctx.new_int(fd).into()))?;
+                pfd.events = eventmask.0;
                 Ok(())
             }
 
