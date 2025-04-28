@@ -245,6 +245,7 @@ pub(crate) fn parse(
     let top = parser::parse(source, mode.into())
         .map_err(|parse_error| ParseError {
             error: parse_error.error,
+            raw_location: parse_error.location,
             location: text_range_to_source_range(&source_code, parse_error.location)
                 .start
                 .to_source_location(),

@@ -25,6 +25,7 @@ pub enum CompileErrorType {
 pub struct ParseError {
     #[source]
     pub error: parser::ParseErrorType,
+    pub raw_location: ruff_text_size::TextRange,
     pub location: SourceLocation,
     pub source_path: String,
 }
@@ -48,6 +49,7 @@ impl CompileError {
         let location = source_code.source_location(error.location.start());
         Self::Parse(ParseError {
             error: error.error,
+            raw_location: error.location,
             location,
             source_path: source_code.path.to_owned(),
         })
