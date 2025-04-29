@@ -103,6 +103,9 @@ env:
     test_super
     test_syntax
     test_tuple
+    test_types
+    test_unary
+    test_unpack
 
   # Python version targeted by the CI.
   PYTHON_VERSION: "3.13.1"
