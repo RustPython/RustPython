@@ -87,6 +87,11 @@ pub fn hash_pointer(value: usize) -> PyHash {
 }
 
 #[inline]
+pub fn hash_integer<T: num_traits::PrimInt>(data: T) -> PyHash {
+    fix_sentinel(mod_int(data.to_i64().unwrap()))
+}
+
+#[inline]
 pub fn hash_float(value: f64) -> Option<PyHash> {
     // cpython _Py_HashDouble
     if !value.is_finite() {
