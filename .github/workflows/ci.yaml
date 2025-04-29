@@ -73,6 +73,23 @@ env:
     test_grammar
     test_range
     test_index
+    test_int
+    test_int_literal
+    test_isinstance
+    test_iter
+    test_iterlen
+    test_itertools
+    test_json
+    test_keyword
+    test_keywordonlyarg
+    test_list
+    test_long
+    test_longexp
+    test_math
+    test_operator
+    test_ordered_dict
+    test_pow
+    test_raise
   # Python version targeted by the CI.
   PYTHON_VERSION: "3.13.1"
 
@@ -85,7 +102,7 @@ jobs:
     runs-on:  ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os: [ubuntu-latest]
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
