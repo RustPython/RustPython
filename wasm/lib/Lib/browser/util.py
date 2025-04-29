@@ -1,4 +1,4 @@
-from _window import window # type: ignore
+from _browser import window # type: ignore
 
 jsstr = window.new_from_str
 jsclosure = window.new_closure

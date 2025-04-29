@@ -1,4 +1,4 @@
-from _window import window as Window # type: ignore
+from browser import window as Window # type: ignore
 from .util import jsint, jsstr, UNDEFINED
 
 __all__ = [
