@@ -90,6 +90,14 @@ env:
     test_ordered_dict
     test_pow
     test_raise
+    test_richcmp
+    test_scope
+    test_set
+    test_slice
+    test_sort
+    test_string
+    test_string_literals
+    test_strtod
   # Python version targeted by the CI.
   PYTHON_VERSION: "3.13.1"
 
