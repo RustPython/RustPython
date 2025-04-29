@@ -147,7 +147,7 @@ mod math {
     fn log1p(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
         let x = *x;
         if x.is_nan() || x > -1.0_f64 {
-            Ok((x + 1.0_f64).ln())
+            Ok(x.ln_1p())
         } else {
             Err(vm.new_value_error("math domain error".to_owned()))
         }
