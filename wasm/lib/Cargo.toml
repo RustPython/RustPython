@@ -39,11 +39,12 @@ web-sys = { version = "0.3", features = [
     "console",
     "Document",
     "Element",
-    "Window",
     "Headers",
+    "HtmlElement",
     "Request",
     "RequestInit",
-    "Response"
+    "Response",
+    "Window",
 ] }
 
 [package.metadata.wasm-pack.profile.release]

@@ -2,6 +2,9 @@ use rustpython_vm::VirtualMachine;
 
 pub(crate) use _browser::make_module;
 use crate::wasm_builtins::window;
+use rustpython_vm::PyRef;
+use rustpython_vm::builtins::PyModule;
+use rustpython_vm::PyPayload;
 
 #[pymodule]
 mod _browser {
@@ -169,18 +172,9 @@ mod _browser {
             let body = self
                 .doc
                 .body()
-                .map(|elem| Element { elem })
+                .map(|elem| HTMLElement { elem })
                 .to_pyobject(vm);
             Ok(body)
-        }
-
-        #[pygetset]
-        fn cookie(&self, vm: &VirtualMachine) -> PyResult {
-            let cookie = self
-                .doc
-                .cookie()
-                .map_err(|err| convert::js_py_typeerror(vm, err))?;
-            Ok(vm.ctx.new_str(cookie).into())
         }
 
         #[pymethod]
@@ -188,21 +182,9 @@ mod _browser {
             let elem = self
                 .doc
                 .get_element_by_id(id.as_str())
-                .map_err(|err| convert::js_py_typeerror(vm, err))?
                 .map(|elem| Element { elem })
                 .to_pyobject(vm);
             Ok(elem)
-        }
-
-        #[pygetset]
-        fn head(&self, vm: &VirtualMachine) -> PyResult {
-            let head = self
-                .doc
-                .head()
-                .map_err(|err| convert::js_py_typeerror(vm, err))?
-                .map(|elem| Element { elem })
-                .to_pyobject(vm);
-            Ok(head)
         }
 
         #[pymethod]
@@ -220,16 +202,13 @@ mod _browser {
         fn title(&self, vm: &VirtualMachine) -> PyResult {
             let title = self
                 .doc
-                .title()
-                .map_err(|err| convert::js_py_typeerror(vm, err))?;
+                .title();
             Ok(vm.ctx.new_str(title).into())
         }
 
         #[pygetset(setter)]
-        fn set_title(&self, title: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-            self.doc
-                .set_title(title.as_str())
-                .map_err(|err| convert::js_py_typeerror(vm, err))
+        fn set_title(&self, title: PyStrRef) {
+            self.doc.set_title(title.as_str());
         }
     }
 
@@ -274,6 +253,27 @@ mod _browser {
         }
     }
 
+    #[pyattr]
+    #[pyclass(module = "browser", name)]
+    #[derive(Debug, PyPayload)]
+    struct HTMLElement {
+        elem: web_sys::HtmlElement,
+    }
+
+    #[pyclass]
+    impl HTMLElement {
+        #[pygetset]
+        fn title(&self, vm: &VirtualMachine) -> PyResult {
+            let title = self.elem.title();
+            Ok(vm.ctx.new_str(title).into())
+        }
+
+        #[pygetset(setter)]
+        fn set_title(&self, title: PyStrRef) {
+            self.elem.set_title(title.as_str());
+        }
+    }
+
     #[pyfunction]
     fn load_module(module: PyStrRef, path: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let weak_vm = weak_vm(vm);
@@ -310,11 +310,11 @@ mod _browser {
     }
 }
 
-fn init_browser_module(vm: &VirtualMachine) {
+fn init_browser_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = make_module(vm);
 
     extend_module!(vm, &module, {
-        "window" => js_module::PyJsValue::new(wasm_builtins::window()).into_ref(&vm.ctx),
+        "window" => crate::js_module::PyJsValue::new(crate::wasm_builtins::window()).into_ref(&vm.ctx),
     });
 
     module
