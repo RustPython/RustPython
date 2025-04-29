@@ -17,7 +17,11 @@ textarea {
 #run-btn {
     width: 6em;
     height: 2em;
-    font-size: 24px;
+    font-size: 20px;
+    border-radius: 8px;
+    margin: 8px;
+    background-color: #00913a;
+    color: white;
 }
 
 #error {
