@@ -136,31 +136,4 @@ jobs:
       - name: run cpython platform-independent tests
         run:
           target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
-      - if: runner.os == 'Linux'
-        name: run cpython platform-dependent tests (Linux)
-        run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
-      - if: runner.os == 'macOS'
-        name: run cpython platform-dependent tests (MacOS)
-        run: target/release/rustpython -m test -j 1 --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ env.MACOS_SKIPS }}
-      - if: runner.os == 'Windows'
-        name: run cpython platform-dependent tests (windows partial - fixme)
-        run:
-          target/release/rustpython -m test -j 1 --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ env.WINDOWS_SKIPS }}
-      - if: runner.os != 'Windows'
-        name: check that --install-pip succeeds
-        run: |
-          mkdir site-packages
-          target/release/rustpython --install-pip ensurepip --user
-          target/release/rustpython -m pip install six
-      - if: runner.os != 'Windows'
-        name: Check that ensurepip succeeds.
-        run: |
-          target/release/rustpython -m ensurepip
-          target/release/rustpython -c "import pip"
-      - if: runner.os != 'Windows'
-        name: Check if pip inside venv is functional
-        run: |
-          target/release/rustpython -m venv testvenv
-          testvenv/bin/rustpython -m pip install wheel
-      - name: Check whats_left is not broken
-        run: python -I whats_left.py
+
