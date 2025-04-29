@@ -98,6 +98,12 @@ env:
     test_string
     test_string_literals
     test_strtod
+    test_structseq
+    test_subclassinit
+    test_super
+    test_syntax
+    test_tuple
+
   # Python version targeted by the CI.
   PYTHON_VERSION: "3.13.1"
 
