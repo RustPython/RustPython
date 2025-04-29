@@ -9,6 +9,10 @@ pub const LIB_PATH: &str = match option_env!("win_lib_path") {
     None => concat!(env!("CARGO_MANIFEST_DIR"), "/Lib"),
 };
 
-#[cfg(feature = "freeze-stdlib")]
+#[cfg(all(feature = "freeze-stdlib", not(target_os = "windows")))]
 pub const FROZEN_STDLIB: &rustpython_compiler_core::frozen::FrozenLib =
     rustpython_derive::py_freeze!(dir = "./Lib", crate_name = "rustpython_compiler_core");
+
+#[cfg(all(feature = "freeze-stdlib", target_os = "windows"))]
+pub const FROZEN_STDLIB: &rustpython_compiler_core::frozen::FrozenLib =
+    rustpython_derive::py_freeze!(dir = "../Lib", crate_name = "rustpython_compiler_core");
