@@ -53,6 +53,15 @@ impl HashSecret {
         fix_sentinel(mod_int(self.hash_one(data) as _))
     }
 
+    pub fn hash_integer<T>(&self, data: T) -> PyHash
+    where
+        T: Into<BigInt>,
+    {
+        let bigint = data.into();
+        let result = hash_bigint(&bigint);
+        result
+    }
+
     pub fn hash_iter<'a, T: 'a, I, F, E>(&self, iter: I, hash_func: F) -> Result<PyHash, E>
     where
         I: IntoIterator<Item = &'a T>,
