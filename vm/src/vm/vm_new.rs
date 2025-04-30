@@ -363,7 +363,11 @@ impl VirtualMachine {
                 ..
             }) => {
                 if s.starts_with("Expected an indented block after") {
-                    self.ctx.exceptions.indentation_error
+                    if allow_incomplete {
+                        self.ctx.exceptions.incomplete_input_error
+                    } else {
+                        self.ctx.exceptions.indentation_error
+                    }
                 } else {
                     self.ctx.exceptions.syntax_error
                 }

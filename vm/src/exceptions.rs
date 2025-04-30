@@ -1646,11 +1646,11 @@ pub(super) mod types {
 
     }
 
-    #[pyexception(name, base = "PyIncompleteInputError", ctx = "indentation_error", impl)]
+    #[pyexception(name, base = "PySyntaxError", ctx = "indentation_error", impl)]
     #[derive(Debug)]
     pub struct PyIndentationError {}
 
-    #[pyexception(name, base = "PyIncompleteInputError", ctx = "tab_error", impl)]
+    #[pyexception(name, base = "PySyntaxError", ctx = "tab_error", impl)]
     #[derive(Debug)]
     pub struct PyTabError {}
 
