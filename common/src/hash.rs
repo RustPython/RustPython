@@ -87,8 +87,8 @@ pub fn hash_pointer(value: usize) -> PyHash {
 }
 
 #[inline]
-pub fn hash_integer<T: num_traits::PrimInt>(data: T) -> PyHash {
-    fix_sentinel(mod_int(data.to_i64().unwrap()))
+pub fn hash_integer(data: usize) -> PyHash {
+    fix_sentinel(mod_int(data as i64))
 }
 
 #[inline]
