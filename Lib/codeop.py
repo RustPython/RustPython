@@ -71,10 +71,6 @@ def _maybe_compile(compiler, source, filename, symbol):
                 strerr = str(e)
                 if isinstance(e, _IncompleteInputError):
                     return None
-                if source.endswith(":") and "expected an indented block" in strerr:
-                    return None
-                elif "incomplete input" in str(e):
-                    return None
                 # fallthrough
 
     return compiler(source, filename, symbol, incomplete_input=False)
