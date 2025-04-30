@@ -87,11 +87,6 @@ pub fn hash_pointer(value: usize) -> PyHash {
 }
 
 #[inline]
-pub fn hash_integer(data: usize) -> PyHash {
-    fix_sentinel(mod_int(data as i64))
-}
-
-#[inline]
 pub fn hash_float(value: f64) -> Option<PyHash> {
     // cpython _Py_HashDouble
     if !value.is_finite() {
@@ -142,6 +137,11 @@ pub fn hash_bigint(value: &BigInt) -> PyHash {
         }),
     };
     fix_sentinel(ret)
+}
+
+#[inline]
+pub fn hash_integer(data: usize) -> PyHash {
+    fix_sentinel(mod_int(data as i64))
 }
 
 #[inline(always)]
