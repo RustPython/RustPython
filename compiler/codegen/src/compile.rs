@@ -4253,14 +4253,14 @@ impl Compiler<'_> {
                 FStringElement::Expression(fstring_expr) => {
                     let mut conversion = fstring_expr.conversion;
 
-                    if let Some(DebugText { leading, trailing }) = &fstring_expr.debug_text {
-                        let range = fstring_expr.expression.range();
-                        let source = self.source_code.get_range(range);
-                        let text = [leading, source, trailing].concat();
-
-                        self.emit_load_const(ConstantData::Str { value: text.into() });
-                        element_count += 1;
-                    }
+                    // if let Some(DebugText { leading, trailing }) = &fstring_expr.debug_text {
+                    //     let range = fstring_expr.expression.range();
+                    //     let source = self.source_code.get_range(range);
+                    //     let text = [leading, source, trailing].concat();
+                    //
+                    //     self.emit_load_const(ConstantData::Str { value: text.into() });
+                    //     element_count += 1;
+                    // }
 
                     match &fstring_expr.format_spec {
                         None => {

@@ -91,12 +91,16 @@ pub fn compile(
     source_path: &str,
     opts: CompileOpts,
 ) -> Result<CodeObject, CompileError> {
+    if source_path == "/home/hbina085/git/RustPython/ggg_syntax_warning.py" {
+        println!("hello");
+    }
     // TODO: do this less hackily; ruff's parser should translate a CRLF line
     //       break in a multiline string into just an LF in the parsed value
     #[cfg(windows)]
     let source = &source.replace("\r\n", "\n");
     let source_code = SourceCode::new(source_path, source);
-    _compile(source_code, mode, opts)
+    let result = _compile(source_code, mode, opts);
+    result
     // let index = LineIndex::from_source_text(source);
     // let source_code = SourceCode::new(source, &index);
     // let mut locator = LinearLocator::new(source);
@@ -128,7 +132,9 @@ fn _compile(
     };
     let parsed = parser::parse(source_code.text, parser_mode.into())
         .map_err(|err| CompileError::from_ruff_parse_error(err, &source_code))?;
+    println!("parsed:\n{:#?}", parsed);
     let ast = parsed.into_syntax();
+    println!("ast:\n{:#?}", ast);
     compile::compile_top(ast, source_code, mode, opts).map_err(|e| e.into())
 }
 
