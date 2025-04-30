@@ -1880,11 +1880,10 @@ dependencies = [
 
 [[package]]
 name = "pymath"
-version = "0.0.1"
+version = "0.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c574544c9acbbb7cab157def68e24e7a417c4ff6f7e528a805160c8b6cc3aa9f"
+checksum = "5b66ab66a8610ce209d8b36cd0fecc3a15c494f715e0cb26f0586057f293abc9"
 dependencies = [
- "errno",
  "libc",
 ]
 
