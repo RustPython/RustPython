@@ -1773,8 +1773,6 @@ class RunFuncTestCase(BaseTestCase):
         res = subprocess.run(args)
         self.assertEqual(res.returncode, 57)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(mswindows, "Maybe test trigger a leak on Ubuntu")
     def test_run_with_an_empty_env(self):
         # gh-105436: fix subprocess.run(..., env={}) broken on Windows
