@@ -359,6 +359,53 @@ impl VirtualMachine {
             }
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error:
+                    ruff_python_parser::ParseErrorType::Lexical(
+                        ruff_python_parser::LexicalErrorType::FStringError(
+                            ruff_python_parser::FStringErrorType::UnterminatedTripleQuotedString,
+                        ),
+                    ),
+                ..
+            }) => {
+                if allow_incomplete {
+                    self.ctx.exceptions.incomplete_input_error
+                } else {
+                    self.ctx.exceptions.syntax_error
+                }
+            }
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error:
+                    ruff_python_parser::ParseErrorType::Lexical(
+                        ruff_python_parser::LexicalErrorType::UnclosedStringError,
+                    ),
+                raw_location,
+                ..
+            }) => {
+                if allow_incomplete {
+                    let mut is_incomplete = false;
+
+                    if let Some(source) = source {
+                        let loc = raw_location.start().to_usize();
+                        let mut iter = source.chars();
+                        if let Some(quote) = iter.nth(loc) {
+                            if iter.next() == Some(quote) && iter.next() == Some(quote) {
+                                is_incomplete = true;
+                            }
+                        }
+                    }
+
+                    if is_incomplete {
+                        self.ctx.exceptions.incomplete_input_error
+                    } else {
+                        self.ctx.exceptions.syntax_error
+                    }
+                } else {
+                    self.ctx.exceptions.syntax_error
+                }
+            }
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error: ruff_python_parser::ParseErrorType::OtherError(s),
                 ..
             }) => {
