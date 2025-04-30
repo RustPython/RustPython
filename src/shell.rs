@@ -49,13 +49,16 @@ fn shell_exec(
 
             let bad_error = match err {
                 CompileError::Parse(ref p) => {
-                    if matches!(
-                        p.error,
-                        ParseErrorType::Lexical(LexicalErrorType::IndentationError)
-                    ) {
-                        continuing // && p.location.is_some()
-                    } else {
-                        true // !matches!(p, ParseErrorType::UnrecognizedToken(Tok::Dedent, _))
+                    match &p.error {
+                        ParseErrorType::Lexical(LexicalErrorType::IndentationError) => continuing, // && p.location.is_some()
+                        ParseErrorType::OtherError(msg) => {
+                            if msg.starts_with("Expected an indented block") {
+                                continuing
+                            } else {
+                                true
+                            }
+                        }
+                        _ => true, // !matches!(p, ParseErrorType::UnrecognizedToken(Tok::Dedent, _))
                     }
                 }
                 _ => true, // It is a bad error for everything else
