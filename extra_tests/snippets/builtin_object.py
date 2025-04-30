@@ -1,7 +1,6 @@
 class MyObject:
     pass
 
-
 assert not MyObject() == MyObject()
 assert MyObject() != MyObject()
 myobj = MyObject()
