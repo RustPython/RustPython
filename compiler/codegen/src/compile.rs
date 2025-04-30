@@ -41,8 +41,10 @@ use rustpython_compiler_core::{
 };
 use rustpython_compiler_source::SourceCode;
 // use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
+use crate::error::InternalError;
 use std::borrow::Cow;
 
+pub(crate) type InternalResult<T> = Result<T, InternalError>;
 type CompileResult<T> = Result<T, CodegenError>;
 
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -210,6 +212,54 @@ macro_rules! emit {
     };
 }
 
+fn eprint_location(zelf: &Compiler<'_>) {
+    let start = zelf
+        .source_code
+        .source_location(zelf.current_source_range.start());
+    let end = zelf
+        .source_code
+        .source_location(zelf.current_source_range.end());
+    eprintln!(
+        "LOCATION: {} from {}:{} to {}:{}",
+        zelf.source_code.path.to_owned(),
+        start.row,
+        start.column,
+        end.row,
+        end.column
+    );
+}
+
+/// Better traceback for internal error
+fn unwrap_internal<T>(zelf: &Compiler<'_>, r: InternalResult<T>) -> T {
+    if let Err(ref r_err) = r {
+        eprintln!("=== CODEGEN PANIC INFO ===");
+        eprintln!("This IS an internal error: {}", r_err);
+        eprint_location(zelf);
+        eprintln!("=== END PANIC INFO ===");
+    }
+    r.unwrap()
+}
+
+fn compiler_unwrap_option<T>(zelf: &Compiler<'_>, o: Option<T>) -> T {
+    if o.is_none() {
+        eprintln!("=== CODEGEN PANIC INFO ===");
+        eprintln!("This IS an internal error, an option was unwrapped during codegen");
+        eprint_location(zelf);
+        eprintln!("=== END PANIC INFO ===");
+    }
+    o.unwrap()
+}
+
+// fn compiler_result_unwrap<T, E: std::fmt::Debug>(zelf: &Compiler<'_>, result: Result<T, E>) -> T {
+//     if result.is_err() {
+//         eprintln!("=== CODEGEN PANIC INFO ===");
+//         eprintln!("This IS an internal error, an result was unwrapped during codegen");
+//         eprint_location(zelf);
+//         eprintln!("=== END PANIC INFO ===");
+//     }
+//     result.unwrap()
+// }
+
 /// The pattern context holds information about captured names and jump targets.
 #[derive(Clone)]
 pub struct PatternContext {
@@ -372,10 +422,9 @@ impl Compiler<'_> {
     fn pop_code_object(&mut self) -> CodeObject {
         let table = self.pop_symbol_table();
         assert!(table.sub_tables.is_empty());
-        self.code_stack
-            .pop()
-            .unwrap()
-            .finalize_code(self.opts.optimize)
+        let pop = self.code_stack.pop();
+        let stack_top = compiler_unwrap_option(self, pop);
+        unwrap_internal(self, stack_top.finalize_code(self.opts.optimize))
     }
 
     // could take impl Into<Cow<str>>, but everything is borrowed from ast structs; we never
@@ -482,7 +531,8 @@ impl Compiler<'_> {
                     self.current_block().instructions.pop(); // pop Instruction::Pop
                 }
                 Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
-                    let store_inst = self.current_block().instructions.pop().unwrap(); // pop Instruction::Store
+                    let pop_instructions = self.current_block().instructions.pop();
+                    let store_inst = compiler_unwrap_option(self, pop_instructions); // pop Instruction::Store
                     emit!(self, Instruction::Duplicate);
                     self.current_block().instructions.push(store_inst);
                 }
@@ -540,8 +590,11 @@ impl Compiler<'_> {
         self.check_forbidden_name(&name, usage)?;
 
         let symbol_table = self.symbol_table_stack.last().unwrap();
-        let symbol = symbol_table.lookup(name.as_ref()).unwrap_or_else(||
-            unreachable!("the symbol '{name}' should be present in the symbol table, even when it is undefined in python."),
+        let symbol = unwrap_internal(
+            self,
+            symbol_table
+                .lookup(name.as_ref())
+                .ok_or_else(|| InternalError::MissingSymbol(name.to_string())),
         );
         let info = self.code_stack.last_mut().unwrap();
         let mut cache = &mut info.name_cache;
@@ -1476,12 +1529,12 @@ impl Compiler<'_> {
         }
         for var in &*code.freevars {
             let table = self.symbol_table_stack.last().unwrap();
-            let symbol = table.lookup(var).unwrap_or_else(|| {
-                panic!(
-                    "couldn't look up var {} in {} in {}",
-                    var, code.obj_name, self.source_code.path
-                )
-            });
+            let symbol = unwrap_internal(
+                self,
+                table
+                    .lookup(var)
+                    .ok_or_else(|| InternalError::MissingSymbol(var.to_owned())),
+            );
             let parent_code = self.code_stack.last().unwrap();
             let vars = match symbol.scope {
                 SymbolScope::Free => &parent_code.freevar_cache,
@@ -1564,8 +1617,11 @@ impl Compiler<'_> {
 
         // Check if the class is declared global
         let symbol_table = self.symbol_table_stack.last().unwrap();
-        let symbol = symbol_table.lookup(name.as_ref()).expect(
-            "The symbol must be present in the symbol table, even when it is undefined in python.",
+        let symbol = unwrap_internal(
+            self,
+            symbol_table
+                .lookup(name.as_ref())
+                .ok_or_else(|| InternalError::MissingSymbol(name.to_owned())),
         );
         let mut global_path_prefix = Vec::new();
         if symbol.scope == SymbolScope::GlobalExplicit {
