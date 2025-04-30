@@ -1306,9 +1306,9 @@ checksum = "c19937216e9d3aa9956d9bb8dfc0b0c8beb6058fc4f7a4dc4d850edf86a237d6"
 
 [[package]]
 name = "libffi"
-version = "3.2.0"
+version = "4.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce826c243048e3d5cec441799724de52e2d42f820468431fc3fceee2341871e2"
+checksum = "4a9434b6fc77375fb624698d5f8c49d7e80b10d59eb1219afda27d1f824d4074"
 dependencies = [
  "libc",
  "libffi-sys",
@@ -1316,9 +1316,9 @@ dependencies = [
 
 [[package]]
 name = "libffi-sys"
-version = "2.3.0"
+version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f36115160c57e8529781b4183c2bb51fdc1f6d6d1ed345591d84be7703befb3c"
+checksum = "ead36a2496acfc8edd6cc32352110e9478ac5b9b5f5b9856ebd3d28019addb84"
 dependencies = [
  "cc",
 ]
@@ -2769,6 +2769,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "shared-build"
+version = "0.2.0"
+source = "git+https://github.com/arihant2math/tkinter.git?tag=v0.2.0#198fc35b1f18f4eda401f97a641908f321b1403a"
+dependencies = [
+ "bindgen",
+]
+
+[[package]]
 name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2901,11 +2909,11 @@ checksum = "e502f78cdbb8ba4718f566c418c52bc729126ffd16baee5baa718cf25dd5a69a"
 
 [[package]]
 name = "tcl-sys"
-version = "0.1.0"
-source = "git+https://github.com/arihant2math/tkinter.git?tag=v0.1.0#09a4f62e894df64692b34e6c7f81af1e1ae376dd"
+version = "0.2.0"
+source = "git+https://github.com/arihant2math/tkinter.git?tag=v0.2.0#198fc35b1f18f4eda401f97a641908f321b1403a"
 dependencies = [
- "bindgen",
  "pkg-config",
+ "shared-build",
 ]
 
 [[package]]
@@ -3017,11 +3025,11 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tk-sys"
-version = "0.1.0"
-source = "git+https://github.com/arihant2math/tkinter.git?tag=v0.1.0#09a4f62e894df64692b34e6c7f81af1e1ae376dd"
+version = "0.2.0"
+source = "git+https://github.com/arihant2math/tkinter.git?tag=v0.2.0#198fc35b1f18f4eda401f97a641908f321b1403a"
 dependencies = [
- "bindgen",
  "pkg-config",
+ "shared-build",
 ]
 
 [[package]]
