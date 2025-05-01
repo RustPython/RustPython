@@ -17,7 +17,6 @@ use crate::{
     object::{Traverse, TraverseFn},
 };
 use num_traits::ToPrimitive;
-use rustpython_common::hash::hash_integer;
 use std::{fmt, mem::size_of, ops::ControlFlow};
 
 // HashIndex is intended to be same size with hash::PyHash
@@ -995,7 +994,7 @@ impl DictKey for usize {
     }
 
     fn key_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
-        Ok(hash_usize(*self))
+        Ok(hash::hash_usize(*self))
     }
 
     fn key_is(&self, _other: &PyObject) -> bool {
