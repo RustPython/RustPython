@@ -31,6 +31,11 @@ To build RustPython locally, first, clone the source code:
 git clone https://github.com/RustPython/RustPython
 ```
 
+If on windows, run the following to fix the `Lib/` directory symlink:
+```bash
+git config core.symlinks true
+```
+
 Then you can change into the RustPython directory and run the demo (Note: `--release` is
 needed to prevent stack overflow on Windows):
 
