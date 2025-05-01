@@ -2080,7 +2080,6 @@ class MathTests(unittest.TestCase):
             self.fail('Failures in test_testfile:\n  ' +
                       '\n  '.join(failures))
 
-    @unittest.skip("TODO: RUSTPYTHON, Taking a few minutes.")
     @requires_IEEE_754
     def test_mtestfile(self):
         fail_fmt = "{}: {}({!r}): {}"
