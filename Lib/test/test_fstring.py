@@ -1631,8 +1631,6 @@ x = (
         self.assertEqual(f"{x!s:}", "test")
         self.assertEqual(f"{x!r:}", "'test'")
 
-    # TODO: RUSTPYTHON d[0] error
-    @unittest.expectedFailure
     def test_str_format_differences(self):
         d = {
             "a": "string",

@@ -139,6 +139,11 @@ pub fn hash_bigint(value: &BigInt) -> PyHash {
     fix_sentinel(ret)
 }
 
+#[inline]
+pub fn hash_usize(data: usize) -> PyHash {
+    fix_sentinel(mod_int(data as i64))
+}
+
 #[inline(always)]
 pub fn fix_sentinel(x: PyHash) -> PyHash {
     if x == SENTINEL { -2 } else { x }
