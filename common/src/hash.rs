@@ -140,7 +140,7 @@ pub fn hash_bigint(value: &BigInt) -> PyHash {
 }
 
 #[inline]
-pub fn hash_integer(data: usize) -> PyHash {
+pub fn hash_usize(data: usize) -> PyHash {
     fix_sentinel(mod_int(data as i64))
 }
 

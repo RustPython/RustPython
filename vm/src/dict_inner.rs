@@ -995,7 +995,7 @@ impl DictKey for usize {
     }
 
     fn key_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
-        Ok(hash_integer(*self))
+        Ok(hash_usize(*self))
     }
 
     fn key_is(&self, _other: &PyObject) -> bool {
