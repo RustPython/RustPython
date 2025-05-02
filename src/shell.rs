@@ -59,21 +59,19 @@ fn shell_exec(
         Err(err) => {
             // Check if the error is from an unclosed triple quoted string (which should always
             // continue)
-            match err {
-                CompileError::Parse(ParseError {
-                    error: ParseErrorType::Lexical(LexicalErrorType::UnclosedStringError),
-                    raw_location,
-                    ..
-                }) => {
-                    let loc = raw_location.start().to_usize();
-                    let mut iter = source.chars();
-                    if let Some(quote) = iter.nth(loc) {
-                        if iter.next() == Some(quote) && iter.next() == Some(quote) {
-                            return ShellExecResult::ContinueLine;
-                        }
+            if let CompileError::Parse(ParseError {
+                error: ParseErrorType::Lexical(LexicalErrorType::UnclosedStringError),
+                raw_location,
+                ..
+            }) = err
+            {
+                let loc = raw_location.start().to_usize();
+                let mut iter = source.chars();
+                if let Some(quote) = iter.nth(loc) {
+                    if iter.next() == Some(quote) && iter.next() == Some(quote) {
+                        return ShellExecResult::ContinueLine;
                     }
                 }
-                _ => (),
             };
 
             // bad_error == true if we are handling an error that should be thrown even if we are continuing
