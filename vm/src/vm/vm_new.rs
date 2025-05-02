@@ -407,11 +407,36 @@ impl VirtualMachine {
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error: ruff_python_parser::ParseErrorType::OtherError(s),
+                raw_location,
                 ..
             }) => {
                 if s.starts_with("Expected an indented block after") {
                     if allow_incomplete {
-                        self.ctx.exceptions.incomplete_input_error
+                        // Check that all chars in the error are whitespace, if so, the source is
+                        // incomplete. Otherwise, we've found code that might violates
+                        // indentation rules.
+                        let mut is_incomplete = true;
+                        if let Some(source) = source {
+                            let start = raw_location.start().to_usize();
+                            let end = raw_location.end().to_usize();
+                            let mut iter = source.chars();
+                            iter.nth(start);
+                            for _ in start..end {
+                                if let Some(c) = iter.next() {
+                                    if !c.is_ascii_whitespace() {
+                                        is_incomplete = false;
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+
+                        if is_incomplete {
+                            self.ctx.exceptions.incomplete_input_error
+                        } else {
+                            self.ctx.exceptions.indentation_error
+                        }
                     } else {
                         self.ctx.exceptions.indentation_error
                     }
