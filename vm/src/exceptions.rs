@@ -1643,7 +1643,6 @@ pub(super) mod types {
             zelf.set_attr("name", vm.ctx.new_str("SyntaxError"), vm)?;
             Ok(())
         }
-
     }
 
     #[pyexception(name, base = "PySyntaxError", ctx = "indentation_error", impl)]
