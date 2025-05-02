@@ -1649,7 +1649,7 @@ pub(super) mod types {
     #[derive(Debug)]
     pub struct PyIndentationError {}
 
-    #[pyexception(name, base = "PySyntaxError", ctx = "tab_error", impl)]
+    #[pyexception(name, base = "PyIndentationError", ctx = "tab_error", impl)]
     #[derive(Debug)]
     pub struct PyTabError {}
 
