@@ -1,5 +1,5 @@
 //! Object Protocol
-//! https://docs.python.org/3/c-api/object.html
+//! <https://docs.python.org/3/c-api/object.html>
 
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,

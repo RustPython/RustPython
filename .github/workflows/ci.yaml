@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,importlib,encodings,sqlite,ssl
+  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl
   # Skip additional tests on Windows. They are checked on Linux and MacOS.
   # test_glob: many failing tests
   # test_io: many failing tests
@@ -325,6 +325,8 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: install ruff
         run: python -m pip install ruff==0.0.291 # astral-sh/ruff#7778
+      - name: Ensure docs generate no warnings
+        run: cargo doc
       - name: run python lint
         run: ruff extra_tests wasm examples  --exclude='./.*',./Lib,./vm/Lib,./benches/ --select=E9,F63,F7,F82 --show-source
       - name: install prettier

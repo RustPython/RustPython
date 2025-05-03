@@ -1,5 +1,7 @@
 pub(crate) use math::make_module;
 
+use crate::{builtins::PyBaseExceptionRef, vm::VirtualMachine};
+
 #[pymodule]
 mod math {
     use crate::vm::{
@@ -17,6 +19,8 @@ mod math {
     // Constants
     #[pyattr]
     use std::f64::consts::{E as e, PI as pi, TAU as tau};
+
+    use super::pymath_error_to_exception;
     #[pyattr(name = "inf")]
     const INF: f64 = f64::INFINITY;
     #[pyattr(name = "nan")]
@@ -143,7 +147,7 @@ mod math {
     fn log1p(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
         let x = *x;
         if x.is_nan() || x > -1.0_f64 {
-            Ok((x + 1.0_f64).ln())
+            Ok(x.ln_1p())
         } else {
             Err(vm.new_value_error("math domain error".to_owned()))
         }
@@ -475,38 +479,22 @@ mod math {
     // Special functions:
     #[pyfunction]
     fn erf(x: ArgIntoFloat) -> f64 {
-        let x = *x;
-        if x.is_nan() { x } else { puruspe::erf(x) }
+        pymath::erf(*x)
     }
 
     #[pyfunction]
     fn erfc(x: ArgIntoFloat) -> f64 {
-        let x = *x;
-        if x.is_nan() { x } else { puruspe::erfc(x) }
+        pymath::erfc(*x)
     }
 
     #[pyfunction]
-    fn gamma(x: ArgIntoFloat) -> f64 {
-        let x = *x;
-        if x.is_finite() {
-            puruspe::gamma(x)
-        } else if x.is_nan() || x.is_sign_positive() {
-            x
-        } else {
-            f64::NAN
-        }
+    fn gamma(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
+        pymath::gamma(*x).map_err(|err| pymath_error_to_exception(err, vm))
     }
 
     #[pyfunction]
-    fn lgamma(x: ArgIntoFloat) -> f64 {
-        let x = *x;
-        if x.is_finite() {
-            puruspe::ln_gamma(x)
-        } else if x.is_nan() {
-            x
-        } else {
-            f64::INFINITY
-        }
+    fn lgamma(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
+        pymath::lgamma(*x).map_err(|err| pymath_error_to_exception(err, vm))
     }
 
     fn try_magic_method(
@@ -557,7 +545,7 @@ mod math {
     fn frexp(x: ArgIntoFloat) -> (f64, i32) {
         let value = *x;
         if value.is_finite() {
-            let (m, exp) = float_ops::ufrexp(value);
+            let (m, exp) = float_ops::decompose_float(value);
             (m * value.signum(), exp)
         } else {
             (value, 0)
@@ -974,5 +962,36 @@ mod math {
         }
 
         Ok(result)
+    }
+
+    #[pyfunction]
+    fn fma(
+        x: ArgIntoFloat,
+        y: ArgIntoFloat,
+        z: ArgIntoFloat,
+        vm: &VirtualMachine,
+    ) -> PyResult<f64> {
+        let result = (*x).mul_add(*y, *z);
+
+        if result.is_finite() {
+            return Ok(result);
+        }
+
+        if result.is_nan() {
+            if !x.is_nan() && !y.is_nan() && !z.is_nan() {
+                return Err(vm.new_value_error("invalid operation in fma".to_string()));
+            }
+        } else if x.is_finite() && y.is_finite() && z.is_finite() {
+            return Err(vm.new_overflow_error("overflow in fma".to_string()));
+        }
+
+        Ok(result)
+    }
+}
+
+fn pymath_error_to_exception(err: pymath::Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
+    match err {
+        pymath::Error::EDOM => vm.new_value_error("math domain error".to_owned()),
+        pymath::Error::ERANGE => vm.new_overflow_error("math range error".to_owned()),
     }
 }

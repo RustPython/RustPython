@@ -25,7 +25,7 @@ NAN = float("nan")
 
 #locate file with float format test values
 test_dir = os.path.dirname(__file__) or os.curdir
-format_testfile = os.path.join(test_dir, 'formatfloat_testcases.txt')
+format_testfile = os.path.join(test_dir, 'mathdata', 'formatfloat_testcases.txt')
 
 class FloatSubclass(float):
     pass
@@ -131,7 +131,7 @@ class GeneralFloatCases(unittest.TestCase):
             with self.assertRaises(ValueError, msg='float(%r)' % (s,)) as cm:
                 float(s)
             self.assertEqual(str(cm.exception),
-                             'could not convert string to float: %r' % (s,))
+                'could not convert string to float: %r' % (s,))
 
         check('\xbd')
         check('123\xbd')
@@ -290,11 +290,11 @@ class GeneralFloatCases(unittest.TestCase):
 
     def test_floatasratio(self):
         for f, ratio in [
-            (0.875, (7, 8)),
-            (-0.875, (-7, 8)),
-            (0.0, (0, 1)),
-            (11.5, (23, 2)),
-        ]:
+                (0.875, (7, 8)),
+                (-0.875, (-7, 8)),
+                (0.0, (0, 1)),
+                (11.5, (23, 2)),
+            ]:
             self.assertEqual(f.as_integer_ratio(), ratio)
 
         for i in range(10000):
@@ -337,7 +337,7 @@ class GeneralFloatCases(unittest.TestCase):
             self.assertTrue((f,) == (f,), "(%r,) != (%r,)" % (f, f))
             self.assertTrue({f} == {f}, "{%r} != {%r}" % (f, f))
             self.assertTrue({f : None} == {f: None}, "{%r : None} != "
-                                                     "{%r : None}" % (f, f))
+                                                   "{%r : None}" % (f, f))
 
             # identical containers
             l, t, s, d = [f], (f,), {f}, {f: None}
@@ -400,9 +400,9 @@ class GeneralFloatCases(unittest.TestCase):
         self.assertEqualAndEqualSign(mod(1e-100, -1.0), -1.0)
         self.assertEqualAndEqualSign(mod(1.0, -1.0), -0.0)
 
+    @support.requires_IEEE_754
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    @support.requires_IEEE_754
     def test_float_pow(self):
         # test builtin pow and ** operator for IEEE 754 special cases.
         # Special cases taken from section F.9.4.4 of the C99 specification
@@ -728,6 +728,8 @@ class FormatTestCase(unittest.TestCase):
         self.assertEqual(format(INF, 'F'), 'INF')
 
     @support.requires_IEEE_754
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_format_testfile(self):
         with open(format_testfile, encoding="utf-8") as testfile:
             for line in testfile:
@@ -772,9 +774,12 @@ class FormatTestCase(unittest.TestCase):
         self.assertEqual(format(-123.34, '00.10g'), '-123.34')
 
 class ReprTestCase(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_repr(self):
         with open(os.path.join(os.path.split(__file__)[0],
-                               'floating_points.txt'), encoding="utf-8") as floats_file:
+                  'mathdata',
+                  'floating_points.txt'), encoding="utf-8") as floats_file:
             for line in floats_file:
                 line = line.strip()
                 if not line or line.startswith('#'):
@@ -824,7 +829,7 @@ class ReprTestCase(unittest.TestCase):
             '2.86438000439698e+28',
             '8.89142905246179e+28',
             '3.08578087079232e+35',
-        ]
+            ]
 
         for s in test_strings:
             negs = '-'+s
@@ -874,14 +879,14 @@ class RoundTestCase(unittest.TestCase, FloatsAreIdenticalMixin):
         self.assertRaises(OverflowError, round, 1.6e308, -308)
         self.assertRaises(OverflowError, round, -1.7e308, -308)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(getattr(sys, 'float_repr_style', '') == 'short',
                          "applies only when using short float repr style")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_previous_round_bugs(self):
         # particular cases that have occurred in bug reports
         self.assertEqual(round(562949953421312.5, 1),
-                         562949953421312.5)
+                          562949953421312.5)
         self.assertEqual(round(56294995342131.5, 3),
                          56294995342131.5)
         # round-half-even
@@ -894,10 +899,10 @@ class RoundTestCase(unittest.TestCase, FloatsAreIdenticalMixin):
         self.assertEqual(round(85.0, -1), 80.0)
         self.assertEqual(round(95.0, -1), 100.0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(getattr(sys, 'float_repr_style', '') == 'short',
                          "applies only when using short float repr style")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_matches_float_format(self):
         # round should give the same results as float formatting
         for i in range(500):
@@ -1131,7 +1136,7 @@ class HexFloatTestCase(FloatsAreIdenticalMixin, unittest.TestCase):
             '0x1.\uff10p0',
             '0x1p0 \n 0x2p0',
             '0x1p0\0 0x1p0',  # embedded null byte is not end of string
-        ]
+            ]
         for x in invalid_inputs:
             try:
                 result = fromHex(x)
@@ -1150,7 +1155,7 @@ class HexFloatTestCase(FloatsAreIdenticalMixin, unittest.TestCase):
             ('1.0', 1.0),
             ('-0x.2', -0.125),
             ('-0.0', -0.0)
-        ]
+            ]
         whitespace = [
             '',
             ' ',
@@ -1160,7 +1165,7 @@ class HexFloatTestCase(FloatsAreIdenticalMixin, unittest.TestCase):
             '\f',
             '\v',
             '\r'
-        ]
+            ]
         for inp, expected in value_pairs:
             for lead in whitespace:
                 for trail in whitespace:

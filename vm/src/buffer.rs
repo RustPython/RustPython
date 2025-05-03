@@ -453,7 +453,7 @@ trait PackInt: PrimInt {
     fn unpack_int<E: ByteOrder>(data: &[u8]) -> Self;
 }
 
-macro_rules! make_pack_primint {
+macro_rules! make_pack_prim_int {
     ($T:ty) => {
         impl PackInt for $T {
             fn pack_int<E: ByteOrder>(self, data: &mut [u8]) {
@@ -502,16 +502,16 @@ where
         .map_err(|_| new_struct_error(vm, "argument out of range".to_owned()))
 }
 
-make_pack_primint!(i8);
-make_pack_primint!(u8);
-make_pack_primint!(i16);
-make_pack_primint!(u16);
-make_pack_primint!(i32);
-make_pack_primint!(u32);
-make_pack_primint!(i64);
-make_pack_primint!(u64);
-make_pack_primint!(usize);
-make_pack_primint!(isize);
+make_pack_prim_int!(i8);
+make_pack_prim_int!(u8);
+make_pack_prim_int!(i16);
+make_pack_prim_int!(u16);
+make_pack_prim_int!(i32);
+make_pack_prim_int!(u32);
+make_pack_prim_int!(i64);
+make_pack_prim_int!(u64);
+make_pack_prim_int!(usize);
+make_pack_prim_int!(isize);
 
 macro_rules! make_pack_float {
     ($T:ty) => {

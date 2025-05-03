@@ -1,7 +1,7 @@
 //! Ordered dictionary implementation.
-//! Inspired by: https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html
-//! And: https://www.youtube.com/watch?v=p33CVV29OG8
-//! And: http://code.activestate.com/recipes/578375/
+//! Inspired by: <https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html>
+//! And: <https://www.youtube.com/watch?v=p33CVV29OG8>
+//! And: <http://code.activestate.com/recipes/578375/>
 
 use crate::{
     AsObject, Py, PyExact, PyObject, PyObjectRef, PyRefExact, PyResult, VirtualMachine,
@@ -993,8 +993,8 @@ impl DictKey for usize {
         *self
     }
 
-    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
-        Ok(vm.state.hash_secret.hash_value(self))
+    fn key_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
+        Ok(hash::hash_usize(*self))
     }
 
     fn key_is(&self, _other: &PyObject) -> bool {

@@ -32,9 +32,8 @@ parking_lot = { workspace = true, optional = true }
 unicode_names2 = { workspace = true }
 
 lock_api = "0.4"
-radium = "0.7"
+radium = "1.1"
 siphasher = "1"
-volatile = "0.3"
 
 [target.'cfg(windows)'.dependencies]
 widestring = { workspace = true }

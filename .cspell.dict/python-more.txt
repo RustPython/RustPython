@@ -12,9 +12,11 @@ asend
 asyncgen
 athrow
 backslashreplace
+baserepl
 basicsize
 bdfl
 bigcharset
+bignum
 breakpointhook
 cformat
 chunksize
@@ -152,6 +154,7 @@ ospath
 pendingcr
 phello
 platlibdir
+popleft
 posixsubprocess
 posonly
 posonlyargcount
@@ -224,6 +227,7 @@ sysvars
 teedata
 thisclass
 titlecased
+tkapp
 tobytes
 tolist
 toreadonly

@@ -1,6 +1,7 @@
 use std::ops;
 
 use crate::IndexSet;
+use crate::error::InternalError;
 use ruff_source_file::{OneIndexed, SourceLocation};
 use rustpython_compiler_core::bytecode::{
     CodeFlags, CodeObject, CodeUnit, ConstantData, InstrDisplayContext, Instruction, Label, OpArg,
@@ -82,12 +83,12 @@ pub struct CodeInfo {
     pub freevar_cache: IndexSet<String>,
 }
 impl CodeInfo {
-    pub fn finalize_code(mut self, optimize: u8) -> CodeObject {
+    pub fn finalize_code(mut self, optimize: u8) -> crate::InternalResult<CodeObject> {
         if optimize > 0 {
             self.dce();
         }
 
-        let max_stackdepth = self.max_stackdepth();
+        let max_stackdepth = self.max_stackdepth()?;
         let cell2arg = self.cell2arg();
 
         let CodeInfo {
@@ -154,7 +155,7 @@ impl CodeInfo {
             locations.clear()
         }
 
-        CodeObject {
+        Ok(CodeObject {
             flags,
             posonlyarg_count,
             arg_count,
@@ -172,7 +173,7 @@ impl CodeInfo {
             cellvars: cellvar_cache.into_iter().collect(),
             freevars: freevar_cache.into_iter().collect(),
             cell2arg,
-        }
+        })
     }
 
     fn cell2arg(&self) -> Option<Box<[i32]>> {
@@ -219,7 +220,7 @@ impl CodeInfo {
         }
     }
 
-    fn max_stackdepth(&self) -> u32 {
+    fn max_stackdepth(&self) -> crate::InternalResult<u32> {
         let mut maxdepth = 0u32;
         let mut stack = Vec::with_capacity(self.blocks.len());
         let mut start_depths = vec![u32::MAX; self.blocks.len()];
@@ -244,7 +245,13 @@ impl CodeInfo {
                     let instr_display = instr.display(display_arg, self);
                     eprint!("{instr_display}: {depth} {effect:+} => ");
                 }
-                let new_depth = depth.checked_add_signed(effect).unwrap();
+                let new_depth = depth.checked_add_signed(effect).ok_or({
+                    if effect < 0 {
+                        InternalError::StackUnderflow
+                    } else {
+                        InternalError::StackOverflow
+                    }
+                })?;
                 if DEBUG {
                     eprintln!("{new_depth}");
                 }
@@ -261,7 +268,13 @@ impl CodeInfo {
                     )
                 {
                     let effect = instr.stack_effect(ins.arg, true);
-                    let target_depth = depth.checked_add_signed(effect).unwrap();
+                    let target_depth = depth.checked_add_signed(effect).ok_or({
+                        if effect < 0 {
+                            InternalError::StackUnderflow
+                        } else {
+                            InternalError::StackOverflow
+                        }
+                    })?;
                     if target_depth > maxdepth {
                         maxdepth = target_depth
                     }
@@ -277,7 +290,7 @@ impl CodeInfo {
         if DEBUG {
             eprintln!("DONE: {maxdepth}");
         }
-        maxdepth
+        Ok(maxdepth)
     }
 }
 

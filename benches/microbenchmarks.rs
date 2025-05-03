@@ -45,7 +45,7 @@ fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchma
 
         // Grab the exec function in advance so we don't have lookups in the hot code
         let builtins =
-            pyo3::types::PyModule::import_bound(py, "builtins").expect("Failed to import builtins");
+            pyo3::types::PyModule::import(py, "builtins").expect("Failed to import builtins");
         let exec = builtins.getattr("exec").expect("no exec in builtins");
 
         let bench_func = |(globals, locals): &mut (
@@ -60,8 +60,8 @@ fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchma
         };
 
         let bench_setup = |iterations| {
-            let globals = pyo3::types::PyDict::new_bound(py);
-            let locals = pyo3::types::PyDict::new_bound(py);
+            let globals = pyo3::types::PyDict::new(py);
+            let locals = pyo3::types::PyDict::new(py);
             if let Some(idx) = iterations {
                 globals.set_item("ITERATIONS", idx).unwrap();
             }
@@ -99,12 +99,12 @@ fn cpy_compile_code<'a>(
     name: &str,
 ) -> pyo3::PyResult<pyo3::Bound<'a, pyo3::types::PyCode>> {
     let builtins =
-        pyo3::types::PyModule::import_bound(py, "builtins").expect("Failed to import builtins");
+        pyo3::types::PyModule::import(py, "builtins").expect("Failed to import builtins");
     let compile = builtins.getattr("compile").expect("no compile in builtins");
     compile.call1((code, name, "exec"))?.extract()
 }
 
-fn bench_rustpy_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmark) {
+fn bench_rustpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmark) {
     let mut settings = Settings::default();
     settings.path_list.push("Lib/".to_string());
     settings.write_bytecode = false;
@@ -169,7 +169,7 @@ pub fn run_micro_benchmark(c: &mut Criterion, benchmark: MicroBenchmark) {
     let mut group = c.benchmark_group("microbenchmarks");
 
     bench_cpython_code(&mut group, &benchmark);
-    bench_rustpy_code(&mut group, &benchmark);
+    bench_rustpython_code(&mut group, &benchmark);
 
     group.finish();
 }

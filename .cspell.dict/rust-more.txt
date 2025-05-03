@@ -43,6 +43,7 @@ modpow
 msvc
 muldiv
 nanos
+nonoverlapping
 objclass
 peekable
 powc
@@ -50,7 +51,6 @@ powf
 powi
 prepended
 punct
-puruspe
 replacen
 rmatch
 rposition
@@ -73,6 +73,8 @@ unic
 unistd
 unraw
 unsync
+wasip1
+wasip2
 wasmbind
 wasmtime
 widestring

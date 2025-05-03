@@ -39,4 +39,4 @@ pub type PyMappedRwLockReadGuard<'a, T> = MappedRwLockReadGuard<'a, RawRwLock, T
 pub type PyRwLockWriteGuard<'a, T> = RwLockWriteGuard<'a, RawRwLock, T>;
 pub type PyMappedRwLockWriteGuard<'a, T> = MappedRwLockWriteGuard<'a, RawRwLock, T>;
 
-// can add fn const_{mutex,rwlock}() if necessary, but we probably won't need to
+// can add fn const_{mutex,rw_lock}() if necessary, but we probably won't need to

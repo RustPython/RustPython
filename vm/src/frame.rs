@@ -1,4 +1,5 @@
 use crate::common::{boxvec::BoxVec, lock::PyMutex};
+use crate::protocol::PyMapping;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
@@ -520,6 +521,7 @@ impl ExecutingFrame<'_> {
         }
 
         match instruction {
+            bytecode::Instruction::Nop => Ok(None),
             bytecode::Instruction::LoadConst { idx } => {
                 self.push_value(self.code.constants[idx.get(arg) as usize].clone().into());
                 Ok(None)
@@ -670,11 +672,37 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::Subscript => self.execute_subscript(vm),
             bytecode::Instruction::StoreSubscript => self.execute_store_subscript(vm),
             bytecode::Instruction::DeleteSubscript => self.execute_delete_subscript(vm),
+            bytecode::Instruction::CopyItem { index } => {
+                let value = self
+                    .state
+                    .stack
+                    .len()
+                    .checked_sub(index.get(arg) as usize)
+                    .map(|i| &self.state.stack[i])
+                    .unwrap();
+                self.push_value(value.clone());
+                Ok(None)
+            }
             bytecode::Instruction::Pop => {
                 // Pop value from stack and ignore.
                 self.pop_value();
                 Ok(None)
             }
+            bytecode::Instruction::Swap { index } => {
+                let len = self.state.stack.len();
+                let i = len - 1;
+                let j = len - 1 - index.get(arg) as usize;
+                self.state.stack.swap(i, j);
+                Ok(None)
+            }
+            // bytecode::Instruction::ToBool => {
+            //     dbg!("Shouldn't be called outside of match statements for now")
+            //     let value = self.pop_value();
+            //     // call __bool__
+            //     let result = value.try_to_bool(vm)?;
+            //     self.push_value(vm.ctx.new_bool(result).into());
+            //     Ok(None)
+            // }
             bytecode::Instruction::Duplicate => {
                 // Duplicate top of stack
                 let value = self.top_value();
@@ -808,6 +836,14 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::BinaryOperation { op } => self.execute_bin_op(vm, op.get(arg)),
             bytecode::Instruction::BinaryOperationInplace { op } => {
                 self.execute_bin_op_inplace(vm, op.get(arg))
+            }
+            bytecode::Instruction::BinarySubscript => {
+                let key = self.pop_value();
+                let container = self.pop_value();
+                self.state
+                    .stack
+                    .push(container.get_item(key.as_object(), vm)?);
+                Ok(None)
             }
             bytecode::Instruction::LoadAttr { idx } => self.load_attr(vm, idx.get(arg)),
             bytecode::Instruction::StoreAttr { idx } => self.store_attr(vm, idx.get(arg)),
@@ -985,6 +1021,13 @@ impl ExecutingFrame<'_> {
                 let iterated_obj = self.pop_value();
                 let iter_obj = iterated_obj.get_iter(vm)?;
                 self.push_value(iter_obj.into());
+                Ok(None)
+            }
+            bytecode::Instruction::GetLen => {
+                // STACK.append(len(STACK[-1]))
+                let obj = self.top_value();
+                let len = obj.length(vm)?;
+                self.push_value(vm.ctx.new_int(len).into());
                 Ok(None)
             }
             bytecode::Instruction::GetAwaitable => {
@@ -1230,6 +1273,64 @@ impl ExecutingFrame<'_> {
                         .into_ref(&vm.ctx)
                         .into();
                 self.push_value(type_var_tuple);
+                Ok(None)
+            }
+            bytecode::Instruction::MatchMapping => {
+                // Pop the subject from stack
+                let subject = self.pop_value();
+
+                // Decide if it's a mapping, push True/False or handle error
+                let is_mapping = PyMapping::check(&subject);
+                self.push_value(vm.ctx.new_bool(is_mapping).into());
+                Ok(None)
+            }
+            bytecode::Instruction::MatchSequence => {
+                // Pop the subject from stack
+                let subject = self.pop_value();
+
+                // Decide if it's a sequence (but not a mapping)
+                let is_sequence = subject.to_sequence().check();
+                self.push_value(vm.ctx.new_bool(is_sequence).into());
+                Ok(None)
+            }
+            bytecode::Instruction::MatchKeys => {
+                // Typically we pop a sequence of keys first
+                let _keys = self.pop_value();
+                let subject = self.pop_value();
+
+                // Check if subject is a dict (or mapping) and all keys match
+                if let Ok(_dict) = subject.downcast::<PyDict>() {
+                    // Example: gather the values corresponding to keys
+                    // If keys match, push the matched values & success
+                    self.push_value(vm.ctx.new_bool(true).into());
+                } else {
+                    // Push a placeholder to indicate no match
+                    self.push_value(vm.ctx.new_bool(false).into());
+                }
+                Ok(None)
+            }
+            bytecode::Instruction::MatchClass(_arg) => {
+                // STACK[-1] is a tuple of keyword attribute names, STACK[-2] is the class being matched against, and STACK[-3] is the match subject.
+                // count is the number of positional sub-patterns.
+                // Pop STACK[-1], STACK[-2], and STACK[-3].
+                let names = self.pop_value();
+                let names = names.downcast_ref::<PyTuple>().unwrap();
+                let cls = self.pop_value();
+                let subject = self.pop_value();
+                // If STACK[-3] is an instance of STACK[-2] and has the positional and keyword attributes required by count and STACK[-1],
+                // push a tuple of extracted attributes.
+                if subject.is_instance(cls.as_ref(), vm)? {
+                    let mut extracted = vec![];
+                    for name in names.iter() {
+                        let name_str = name.downcast_ref::<PyStr>().unwrap();
+                        let value = subject.get_attr(name_str, vm)?;
+                        extracted.push(value);
+                    }
+                    self.push_value(vm.ctx.new_tuple(extracted).into());
+                } else {
+                    // Otherwise, push None.
+                    self.push_value(vm.ctx.none());
+                }
                 Ok(None)
             }
         }

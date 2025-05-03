@@ -1,6 +1,21 @@
 use ruff_source_file::SourceLocation;
-use std::fmt;
+use std::fmt::{self, Display};
 use thiserror::Error;
+
+#[derive(Debug)]
+pub enum PatternUnreachableReason {
+    NameCapture,
+    Wildcard,
+}
+
+impl Display for PatternUnreachableReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NameCapture => write!(f, "name capture"),
+            Self::Wildcard => write!(f, "wildcard"),
+        }
+    }
+}
 
 // pub type CodegenError = rustpython_parser_core::source_code::LocatedError<CodegenErrorType>;
 
@@ -16,6 +31,27 @@ impl fmt::Display for CodegenError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO:
         self.error.fmt(f)
+    }
+}
+
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum InternalError {
+    StackOverflow,
+    StackUnderflow,
+    MissingSymbol(String),
+}
+
+impl Display for InternalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::StackOverflow => write!(f, "stack overflow"),
+            Self::StackUnderflow => write!(f, "stack underflow"),
+            Self::MissingSymbol(s) => write!(
+                f,
+                "The symbol '{s}' must be present in the symbol table, even when it is undefined in python."
+            ),
+        }
     }
 }
 
@@ -47,8 +83,11 @@ pub enum CodegenErrorType {
     TooManyStarUnpack,
     EmptyWithItems,
     EmptyWithBody,
+    ForbiddenName,
     DuplicateStore(String),
-    InvalidMatchCase,
+    UnreachablePattern(PatternUnreachableReason),
+    RepeatedAttributePattern,
+    ConflictingNameBindPattern,
     NotImplementedYet, // RustPython marker for unimplemented features
 }
 
@@ -94,11 +133,20 @@ impl fmt::Display for CodegenErrorType {
             EmptyWithBody => {
                 write!(f, "empty body on With")
             }
+            ForbiddenName => {
+                write!(f, "forbidden attribute name")
+            }
             DuplicateStore(s) => {
                 write!(f, "duplicate store {s}")
             }
-            InvalidMatchCase => {
-                write!(f, "invalid match case")
+            UnreachablePattern(reason) => {
+                write!(f, "{reason} makes remaining patterns unreachable")
+            }
+            RepeatedAttributePattern => {
+                write!(f, "attribute name repeated in class pattern")
+            }
+            ConflictingNameBindPattern => {
+                write!(f, "alternative patterns bind different names")
             }
             NotImplementedYet => {
                 write!(f, "RustPython does not implement this feature yet")

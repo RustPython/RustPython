@@ -17,6 +17,7 @@ elts
 excepthandler
 fileutils
 finalbody
+formatfloat
 freevar
 freevars
 fromlist
@@ -25,10 +26,12 @@ HIGHRES
 IMMUTABLETYPE
 kwonlyarg
 kwonlyargs
+lasti
 linearise
 maxdepth
 mult
 nkwargs
+noraise
 numer
 orelse
 pathconfig
@@ -36,9 +39,12 @@ patma
 posonlyarg
 posonlyargs
 prec
+preinitialized
 PYTHREAD_NAME
 SA_ONSTACK
 stackdepth
+stringlib
+structseq
 tok_oldval
 unaryop
 unparse

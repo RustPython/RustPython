@@ -338,7 +338,10 @@ mod decl {
         };
         use libc::pollfd;
         use num_traits::{Signed, ToPrimitive};
-        use std::time::{Duration, Instant};
+        use std::{
+            convert::TryFrom,
+            time::{Duration, Instant},
+        };
 
         #[derive(Default)]
         pub(super) struct TimeoutArg<const MILLIS: bool>(pub Option<Duration>);
@@ -417,25 +420,62 @@ mod decl {
             search(fds, fd).ok().map(|i| fds.remove(i))
         }
 
+        // new EventMask type
+        #[derive(Copy, Clone)]
+        #[repr(transparent)]
+        pub struct EventMask(pub i16);
+
+        impl TryFromObject for EventMask {
+            fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+                use crate::builtins::PyInt;
+                let int = obj
+                    .downcast::<PyInt>()
+                    .map_err(|_| vm.new_type_error("argument must be an integer".to_owned()))?;
+
+                let val = int.as_bigint();
+                if val.is_negative() {
+                    return Err(vm.new_value_error("negative event mask".to_owned()));
+                }
+
+                // Try converting to i16, should raise OverflowError if too large
+                let mask = i16::try_from(val).map_err(|_| {
+                    vm.new_overflow_error("event mask value out of range".to_owned())
+                })?;
+
+                Ok(EventMask(mask))
+            }
+        }
+
         const DEFAULT_EVENTS: i16 = libc::POLLIN | libc::POLLPRI | libc::POLLOUT;
 
         #[pyclass]
         impl PyPoll {
             #[pymethod]
-            fn register(&self, Fildes(fd): Fildes, eventmask: OptionalArg<u16>) {
-                insert_fd(
-                    &mut self.fds.lock(),
-                    fd,
-                    eventmask.map_or(DEFAULT_EVENTS, |e| e as i16),
-                )
+            fn register(
+                &self,
+                Fildes(fd): Fildes,
+                eventmask: OptionalArg<EventMask>,
+            ) -> PyResult<()> {
+                let mask = match eventmask {
+                    OptionalArg::Present(event_mask) => event_mask.0,
+                    OptionalArg::Missing => DEFAULT_EVENTS,
+                };
+                insert_fd(&mut self.fds.lock(), fd, mask);
+                Ok(())
             }
 
             #[pymethod]
-            fn modify(&self, Fildes(fd): Fildes, eventmask: u16) -> io::Result<()> {
+            fn modify(
+                &self,
+                Fildes(fd): Fildes,
+                eventmask: EventMask,
+                vm: &VirtualMachine,
+            ) -> PyResult<()> {
                 let mut fds = self.fds.lock();
+                // CPython raises KeyError if fd is not registered, match that behavior
                 let pfd = get_fd_mut(&mut fds, fd)
-                    .ok_or_else(|| io::Error::from_raw_os_error(libc::ENOENT))?;
-                pfd.events = eventmask as i16;
+                    .ok_or_else(|| vm.new_key_error(vm.ctx.new_int(fd).into()))?;
+                pfd.events = eventmask.0;
                 Ok(())
             }
 
@@ -519,7 +559,7 @@ mod decl {
         use rustix::event::epoll::{self, EventData, EventFlags};
         use std::ops::Deref;
         use std::os::fd::{AsRawFd, IntoRawFd, OwnedFd};
-        use std::time::{Duration, Instant};
+        use std::time::Instant;
 
         #[pyclass(module = "select", name = "epoll")]
         #[derive(Debug, rustpython_vm::PyPayload)]
@@ -636,12 +676,11 @@ mod decl {
                 let poll::TimeoutArg(timeout) = args.timeout;
                 let maxevents = args.maxevents;
 
-                let make_poll_timeout = |d: Duration| i32::try_from(d.as_millis());
-                let mut poll_timeout = match timeout {
-                    Some(d) => make_poll_timeout(d)
-                        .map_err(|_| vm.new_overflow_error("timeout is too large".to_owned()))?,
-                    None => -1,
-                };
+                let mut poll_timeout =
+                    timeout
+                        .map(rustix::event::Timespec::try_from)
+                        .transpose()
+                        .map_err(|_| vm.new_overflow_error("timeout is too large".to_owned()))?;
 
                 let deadline = timeout.map(|d| Instant::now() + d);
                 let maxevents = match maxevents {
@@ -654,19 +693,24 @@ mod decl {
                     _ => maxevents as usize,
                 };
 
-                let mut events = epoll::EventVec::with_capacity(maxevents);
+                let mut events = Vec::<epoll::Event>::with_capacity(maxevents);
 
                 let epoll = &*self.get_epoll(vm)?;
 
                 loop {
-                    match epoll::wait(epoll, &mut events, poll_timeout) {
-                        Ok(()) => break,
+                    events.clear();
+                    match epoll::wait(
+                        epoll,
+                        rustix::buffer::spare_capacity(&mut events),
+                        poll_timeout.as_ref(),
+                    ) {
+                        Ok(_) => break,
                         Err(rustix::io::Errno::INTR) => vm.check_signals()?,
                         Err(e) => return Err(e.into_pyexception(vm)),
                     }
                     if let Some(deadline) = deadline {
                         if let Some(new_timeout) = deadline.checked_duration_since(Instant::now()) {
-                            poll_timeout = make_poll_timeout(new_timeout).unwrap();
+                            poll_timeout = Some(new_timeout.try_into().unwrap());
                         } else {
                             break;
                         }

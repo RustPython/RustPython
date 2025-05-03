@@ -14,6 +14,8 @@ mod vm_new;
 mod vm_object;
 mod vm_ops;
 
+#[cfg(not(feature = "stdio"))]
+use crate::builtins::PyNone;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
@@ -61,7 +63,7 @@ pub const MAX_MEMORY_SIZE: usize = isize::MAX as usize;
 /// Top level container of a python virtual machine. In theory you could
 /// create more instances of this struct and have them operate fully isolated.
 ///
-/// To construct this, please refer to the [`Interpreter`](Interpreter)
+/// To construct this, please refer to the [`Interpreter`]
 pub struct VirtualMachine {
     pub builtins: PyRef<PyModule>,
     pub sys_module: PyRef<PyModule>,
@@ -301,7 +303,8 @@ impl VirtualMachine {
             #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
             {
                 let io = import::import_builtin(self, "_io")?;
-                let set_stdio = |name, fd, write| {
+                #[cfg(feature = "stdio")]
+                let make_stdio = |name, fd, write| {
                     let buffered_stdio = self.state.settings.buffered_stdio;
                     let unbuffered = write && !buffered_stdio;
                     let buf = crate::stdlib::io::open(
@@ -332,7 +335,13 @@ impl VirtualMachine {
                     )?;
                     let mode = if write { "w" } else { "r" };
                     stdio.set_attr("mode", self.ctx.new_str(mode), self)?;
+                    Ok(stdio)
+                };
+                #[cfg(not(feature = "stdio"))]
+                let make_stdio = |_name, _fd, _write| Ok(PyNone.into_pyobject(self));
 
+                let set_stdio = |name, fd, write| {
+                    let stdio = make_stdio(name, fd, write)?;
                     let dunder_name = self.ctx.intern_str(format!("__{name}__"));
                     self.sys_module.set_attr(
                         dunder_name, // e.g. __stdin__
@@ -564,7 +573,7 @@ impl VirtualMachine {
     /// Call Python __import__ function without from_list.
     /// Roughly equivalent to `import module_name` or `import top.submodule`.
     ///
-    /// See also [`import_from`] for more advanced import.
+    /// See also [`VirtualMachine::import_from`] for more advanced import.
     /// See also [`rustpython_vm::import::import_source`] and other primitive import functions.
     #[inline]
     pub fn import<'a>(&self, module_name: impl AsPyStr<'a>, level: usize) -> PyResult {

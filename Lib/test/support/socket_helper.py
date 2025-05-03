@@ -8,7 +8,6 @@ import tempfile
 import unittest
 
 from .. import support
-from . import warnings_helper
 
 HOST = "localhost"
 HOSTv4 = "127.0.0.1"
@@ -196,7 +195,6 @@ _NOT_SET = object()
 def transient_internet(resource_name, *, timeout=_NOT_SET, errnos=()):
     """Return a context manager that raises ResourceDenied when various issues
     with the internet connection manifest themselves as exceptions."""
-    nntplib = warnings_helper.import_deprecated("nntplib")
     import urllib.error
     if timeout is _NOT_SET:
         timeout = support.INTERNET_TIMEOUT
@@ -249,10 +247,6 @@ def transient_internet(resource_name, *, timeout=_NOT_SET, errnos=()):
         if timeout is not None:
             socket.setdefaulttimeout(timeout)
         yield
-    except nntplib.NNTPTemporaryError as err:
-        if support.verbose:
-            sys.stderr.write(denied.args[0] + "\n")
-        raise denied from err
     except OSError as err:
         # urllib can wrap original socket errors multiple times (!), we must
         # unwrap to get at the original error.
@@ -303,7 +297,7 @@ def _get_sysctl(name):
                           stderr=subprocess.STDOUT,
                           text=True)
     if proc.returncode:
-        support.print_warning(f'{" ".join(cmd)!r} command failed with '
+        support.print_warning(f'{' '.join(cmd)!r} command failed with '
                               f'exit code {proc.returncode}')
         # cache the error to only log the warning once
         _sysctl_cache[name] = None
@@ -314,7 +308,7 @@ def _get_sysctl(name):
     try:
         value = int(output.strip())
     except Exception as exc:
-        support.print_warning(f'Failed to parse {" ".join(cmd)!r} '
+        support.print_warning(f'Failed to parse {' '.join(cmd)!r} '
                               f'command output {output!r}: {exc!r}')
         # cache the error to only log the warning once
         _sysctl_cache[name] = None

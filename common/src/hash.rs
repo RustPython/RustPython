@@ -97,7 +97,7 @@ pub fn hash_float(value: f64) -> Option<PyHash> {
         };
     }
 
-    let frexp = super::float_ops::ufrexp(value);
+    let frexp = super::float_ops::decompose_float(value);
 
     // process 28 bits at a time;  this should work well both for binary
     // and hexadecimal floating point.
@@ -137,6 +137,11 @@ pub fn hash_bigint(value: &BigInt) -> PyHash {
         }),
     };
     fix_sentinel(ret)
+}
+
+#[inline]
+pub fn hash_usize(data: usize) -> PyHash {
+    fix_sentinel(mod_int(data as i64))
 }
 
 #[inline(always)]

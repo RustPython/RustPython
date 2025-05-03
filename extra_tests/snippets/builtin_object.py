@@ -24,3 +24,10 @@ assert obj.__ne__(obj) is False
 assert not hasattr(obj, 'a')
 obj.__dict__ = {'a': 1}
 assert obj.a == 1
+
+# Value inside the formatter goes through a different path of resolution.
+# Check that it still works all the same
+d = {
+    0: "ab",
+}
+assert "ab ab" == "{k[0]} {vv}".format(k=d, vv=d[0])

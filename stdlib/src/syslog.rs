@@ -1,4 +1,4 @@
-// spell-checker:ignore logoption openlog setlogmask upto NDELAY
+// spell-checker:ignore logoption openlog setlogmask upto NDELAY ODELAY
 
 pub(crate) use syslog::make_module;
 

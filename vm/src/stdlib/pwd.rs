@@ -59,7 +59,7 @@ mod pwd {
         if pw_name.contains('\0') {
             return Err(exceptions::cstring_error(vm));
         }
-        let user = User::from_name(name.as_str()).map_err(|err| err.into_pyexception(vm))?;
+        let user = User::from_name(name.as_str()).ok().flatten();
         let user = user.ok_or_else(|| {
             vm.new_key_error(
                 vm.ctx

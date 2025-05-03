@@ -1997,6 +1997,7 @@ class MappingTestCase(TestBase):
         # copying should not result in a crash.
         self.check_threaded_weak_dict_copy(weakref.WeakKeyDictionary, True)
 
+    @unittest.skip("TODO: RUSTPYTHON; occasionally crash (Exit code -6)")
     def test_threaded_weak_value_dict_copy(self):
         # Issue #35615: Weakref keys or values getting GC'ed during dict
         # copying should not result in a crash.

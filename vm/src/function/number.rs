@@ -158,7 +158,7 @@ impl TryFromObject for ArgIndex {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[repr(transparent)]
 pub struct ArgPrimitiveIndex<T> {
     pub value: T,

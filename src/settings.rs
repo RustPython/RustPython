@@ -13,7 +13,11 @@ pub enum RunMode {
 }
 
 pub enum InstallPipMode {
+    /// Install pip using the ensurepip pip module. This has a higher chance of
+    /// success, but may not install the latest version of pip.
     Ensurepip,
+    /// Install pip using the get-pip.py script, which retrieves the latest pip version.
+    /// This can be broken due to incompatibilities with cpython.
     GetPip,
 }
 

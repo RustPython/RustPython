@@ -37,7 +37,13 @@ pub(crate) mod module {
     use libc::{O_BINARY, O_TEMPORARY};
 
     #[pyattr]
-    const _LOAD_LIBRARY_SEARCH_DEFAULT_DIRS: i32 = 4096;
+    use windows_sys::Win32::System::LibraryLoader::{
+        LOAD_LIBRARY_SEARCH_APPLICATION_DIR as _LOAD_LIBRARY_SEARCH_APPLICATION_DIR,
+        LOAD_LIBRARY_SEARCH_DEFAULT_DIRS as _LOAD_LIBRARY_SEARCH_DEFAULT_DIRS,
+        LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR as _LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR,
+        LOAD_LIBRARY_SEARCH_SYSTEM32 as _LOAD_LIBRARY_SEARCH_SYSTEM32,
+        LOAD_LIBRARY_SEARCH_USER_DIRS as _LOAD_LIBRARY_SEARCH_USER_DIRS,
+    };
 
     #[pyfunction]
     pub(super) fn access(path: OsPath, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
@@ -379,6 +385,27 @@ pub(crate) mod module {
             Err(errno_err(vm))
         } else {
             Ok(flags & Foundation::HANDLE_FLAG_INHERIT != 0)
+        }
+    }
+
+    #[pyfunction]
+    fn getlogin(vm: &VirtualMachine) -> PyResult<String> {
+        let mut buffer = [0u16; 257];
+        let mut size = buffer.len() as u32;
+
+        let success = unsafe {
+            windows_sys::Win32::System::WindowsProgramming::GetUserNameW(
+                buffer.as_mut_ptr(),
+                &mut size,
+            )
+        };
+
+        if success != 0 {
+            // Convert the buffer (which is UTF-16) to a Rust String
+            let username = std::ffi::OsString::from_wide(&buffer[..(size - 1) as usize]);
+            Ok(username.to_str().unwrap().to_string())
+        } else {
+            Err(vm.new_os_error(format!("Error code: {success}")))
         }
     }
 

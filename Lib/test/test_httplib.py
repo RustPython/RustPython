@@ -1695,8 +1695,6 @@ class HTTPSTest(TestCase):
         h = client.HTTPSConnection(HOST, TimeoutTest.PORT, timeout=30)
         self.assertEqual(h.timeout, 30)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_networked(self):
         # Default settings: requires a valid cert from a trusted CA
         import ssl
@@ -1769,8 +1767,6 @@ class HTTPSTest(TestCase):
             h.close()
             self.assertIn('nginx', server_string)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_networked_bad_cert(self):
         # We feed a "CA" cert that is unrelated to the server's cert
         import ssl

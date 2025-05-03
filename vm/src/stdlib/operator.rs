@@ -2,7 +2,6 @@ pub(crate) use _operator::make_module;
 
 #[pymodule]
 mod _operator {
-    use crate::common::cmp;
     use crate::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyInt, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef},
@@ -13,6 +12,7 @@ mod _operator {
         recursion::ReprGuard,
         types::{Callable, Constructor, PyComparisonOp, Representable},
     };
+    use constant_time_eq::constant_time_eq;
 
     #[pyfunction]
     fn lt(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -328,11 +328,9 @@ mod _operator {
                         "comparing strings with non-ASCII characters is not supported".to_owned(),
                     ));
                 }
-                cmp::timing_safe_cmp(a.as_bytes(), b.as_bytes())
+                constant_time_eq(a.as_bytes(), b.as_bytes())
             }
-            (Either::B(a), Either::B(b)) => {
-                a.with_ref(|a| b.with_ref(|b| cmp::timing_safe_cmp(a, b)))
-            }
+            (Either::B(a), Either::B(b)) => a.with_ref(|a| b.with_ref(|b| constant_time_eq(a, b))),
             _ => {
                 return Err(vm.new_type_error(
                     "unsupported operand types(s) or combination of types".to_owned(),
