@@ -387,17 +387,20 @@ impl PyBytesInner {
             .chain(self.elements.iter())
             .zip(self.elements.iter())
             .map(|(a, b)| (char::from(*a), char::from(*b)))
-            .all(|(prev, current)| {
+            .map(|(prev, current)| {
                 if prev.is_alphabetic() && current.is_alphabetic() {
                     !current.is_ascii_uppercase()
                 } else if prev.is_alphabetic() {
-                    current.is_ascii_whitespace() || [','].contains(&current)
+                    current.is_ascii_whitespace()
+                        || current.is_numeric()
+                        || [',', '!'].contains(&current)
                 } else if prev.is_ascii_whitespace() {
                     current.is_ascii_uppercase() || current.is_numeric()
                 } else {
                     true
                 }
             })
+            .all(|b| b)
     }
 
     pub fn lower(&self) -> Vec<u8> {
