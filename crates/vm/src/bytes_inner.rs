@@ -421,7 +421,7 @@ impl PyBytesInner {
             .chain(self.elements.iter())
             .zip(self.elements.iter())
             .map(|(a, b)| (char::from(*a), char::from(*b)))
-            .map(|(prev, current)| {
+            .all(|(prev, current)| {
                 if prev.is_alphabetic() && current.is_alphabetic() {
                     !current.is_ascii_uppercase()
                 } else if prev.is_alphabetic() {
@@ -434,7 +434,6 @@ impl PyBytesInner {
                     true
                 }
             })
-            .all(|b| b)
     }
 
     pub fn lower(&self) -> Vec<u8> {
