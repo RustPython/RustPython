@@ -388,8 +388,10 @@ impl PyBytesInner {
             .zip(self.elements.iter())
             .map(|(a, b)| (char::from(*a), char::from(*b)))
             .all(|(prev, current)| {
-                if prev.is_alphabetic() {
+                if prev.is_alphabetic() && current.is_alphabetic() {
                     !current.is_ascii_uppercase()
+                } else if prev.is_alphabetic() {
+                    current.is_ascii_whitespace() || [','].contains(&current)
                 } else if prev.is_ascii_whitespace() {
                     current.is_ascii_uppercase() || current.is_numeric()
                 } else {
