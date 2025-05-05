@@ -31,7 +31,7 @@ To build RustPython locally, first, clone the source code:
 git clone https://github.com/RustPython/RustPython
 ```
 
-If on windows, run the following to fix the `Lib/` directory symlink:
+RustPython uses symlinks to manage python libraries in `Lib/`. If on windows, running the following helps:
 ```bash
 git config core.symlinks true
 ```
