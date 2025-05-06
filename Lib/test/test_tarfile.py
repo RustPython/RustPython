@@ -28,11 +28,11 @@ try:
 except ImportError:
     bz2 = None
 try:
-    # TODO: RUSTPYTHON
-    lzma = None
-    # import lzma
+    import lzma
 except ImportError:
     lzma = None
+# XXX: RUSTPYTHON; xz is not supported yet
+lzma = None
 
 def sha256sum(data):
     return sha256(data).hexdigest()
