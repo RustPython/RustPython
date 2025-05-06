@@ -1,3 +1,4 @@
+// cspell:ignore chunker
 use crate::vm::{
     VirtualMachine,
     builtins::{PyBaseExceptionRef, PyBytesRef},

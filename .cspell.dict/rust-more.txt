@@ -10,7 +10,6 @@ byteorder
 byteset
 caseless
 chrono
-Chunker
 consts
 cranelift
 cstring
