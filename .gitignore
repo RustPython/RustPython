@@ -2,11 +2,11 @@
 /*/target
 **/*.rs.bk
 **/*.bytecode
-__pycache__
+__pycache__/
 **/*.pytest_cache
 .*sw*
 .repl_history.txt
-.vscode
+.vscode/
 wasm-pack.log
 .idea/
 .envrc
