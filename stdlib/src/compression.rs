@@ -1,4 +1,6 @@
-// spell-checker:ignore compressobj decompressobj zdict chunksize zlibmodule miniz chunker
+// cspell:ignore chunker
+
+//! internal shared module for compression libraries
 
 use crate::vm::function::{ArgBytesLike, ArgSize, OptionalArg};
 use crate::vm::{
@@ -6,14 +8,67 @@ use crate::vm::{
     builtins::{PyBaseExceptionRef, PyBytesRef},
     convert::ToPyException,
 };
-pub(crate) mod bz2;
-#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-pub(crate) mod lzma;
-pub(crate) mod zlib;
 
 pub const USE_AFTER_FINISH_ERR: &str = "Error -2: inconsistent stream state";
 // TODO: don't hardcode
 const CHUNKSIZE: usize = u32::MAX as usize;
+
+#[derive(FromArgs)]
+pub struct DecompressArgs {
+    #[pyarg(positional)]
+    data: ArgBytesLike,
+    #[pyarg(any, optional)]
+    max_length: OptionalArg<ArgSize>,
+}
+
+impl DecompressArgs {
+    pub fn data(&self) -> crate::common::borrow::BorrowedValue<'_, [u8]> {
+        self.data.borrow_buf()
+    }
+    pub fn raw_max_length(&self) -> Option<isize> {
+        self.max_length.into_option().map(|ArgSize { value }| value)
+    }
+
+    // negative is None
+    pub fn max_length(&self) -> Option<usize> {
+        self.max_length
+            .into_option()
+            .and_then(|ArgSize { value }| usize::try_from(value).ok())
+    }
+}
+
+pub trait Decompressor {
+    type Flush: DecompressFlushKind;
+    type Status: DecompressStatus;
+    type Error;
+
+    fn total_in(&self) -> u64;
+    fn decompress_vec(
+        &mut self,
+        input: &[u8],
+        output: &mut Vec<u8>,
+        flush: Self::Flush,
+    ) -> Result<Self::Status, Self::Error>;
+    fn maybe_set_dict(&mut self, err: Self::Error) -> Result<(), Self::Error> {
+        Err(err)
+    }
+}
+
+pub trait DecompressStatus {
+    fn is_stream_end(&self) -> bool;
+}
+
+pub trait DecompressFlushKind: Copy {
+    const SYNC: Self;
+}
+
+impl DecompressFlushKind for () {
+    const SYNC: Self = ();
+}
+
+pub fn flush_sync<T: DecompressFlushKind>(_final_chunk: bool) -> T {
+    T::SYNC
+}
 
 #[derive(Clone)]
 pub struct Chunker<'a> {
@@ -55,6 +110,17 @@ impl<'a> Chunker<'a> {
             self.data1 = std::mem::take(&mut self.data2);
         }
     }
+}
+
+pub fn _decompress<D: Decompressor>(
+    data: &[u8],
+    d: &mut D,
+    bufsize: usize,
+    max_length: Option<usize>,
+    calc_flush: impl Fn(bool) -> D::Flush,
+) -> Result<(Vec<u8>, bool), D::Error> {
+    let mut data = Chunker::new(data);
+    _decompress_chunks(&mut data, d, bufsize, max_length, calc_flush)
 }
 
 pub fn _decompress_chunks<D: Decompressor>(
@@ -207,39 +273,6 @@ impl<C: Compressor> CompressState<C> {
     }
 }
 
-pub trait Decompressor {
-    type Flush: DecompressFlushKind;
-    type Status: DecompressStatus;
-    type Error;
-
-    fn total_in(&self) -> u64;
-    fn decompress_vec(
-        &mut self,
-        input: &[u8],
-        output: &mut Vec<u8>,
-        flush: Self::Flush,
-    ) -> Result<Self::Status, Self::Error>;
-    fn maybe_set_dict(&mut self, err: Self::Error) -> Result<(), Self::Error> {
-        Err(err)
-    }
-}
-
-pub trait DecompressStatus {
-    fn is_stream_end(&self) -> bool;
-}
-
-pub trait DecompressFlushKind: Copy {
-    const SYNC: Self;
-}
-
-impl DecompressFlushKind for () {
-    const SYNC: Self = ();
-}
-
-pub fn flush_sync<T: DecompressFlushKind>(_final_chunk: bool) -> T {
-    T::SYNC
-}
-
 #[derive(Debug)]
 pub struct DecompressState<D> {
     decompress: D,
@@ -337,27 +370,5 @@ pub struct EofError;
 impl ToPyException for EofError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         vm.new_eof_error("End of stream already reached".to_owned())
-    }
-}
-
-#[derive(FromArgs)]
-pub struct DecompressArgs {
-    #[pyarg(positional)]
-    data: ArgBytesLike,
-    #[pyarg(any, optional)]
-    max_length: OptionalArg<ArgSize>,
-}
-
-impl DecompressArgs {
-    pub fn data(&self) -> crate::common::borrow::BorrowedValue<'_, [u8]> {
-        self.data.borrow_buf()
-    }
-    pub fn raw_max_length(&self) -> Option<isize> {
-        self.max_length.into_option().map(|ArgSize { value }| value)
-    }
-    pub fn max_length(&self) -> Option<usize> {
-        self.max_length
-            .into_option()
-            .and_then(|ArgSize { value }| usize::try_from(value).ok())
     }
 }

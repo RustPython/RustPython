@@ -11,11 +11,16 @@ pub mod array;
 mod binascii;
 mod bisect;
 mod cmath;
-mod compression;
 mod contextvars;
 mod csv;
 mod dis;
 mod gc;
+
+mod bz2;
+mod compression; // internal module
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+mod lzma;
+mod zlib;
 
 mod blake2;
 mod hashlib;
@@ -111,7 +116,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "array" => array::make_module,
             "binascii" => binascii::make_module,
             "_bisect" => bisect::make_module,
-            "_bz2" => compression::bz2::make_module,
+            "_bz2" => bz2::make_module,
             "cmath" => cmath::make_module,
             "_contextvars" => contextvars::make_module,
             "_csv" => csv::make_module,
@@ -132,7 +137,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "_statistics" => statistics::make_module,
             "_struct" => pystruct::make_module,
             "unicodedata" => unicodedata::make_module,
-            "zlib" => compression::zlib::make_module,
+            "zlib" => zlib::make_module,
             "_statistics" => statistics::make_module,
             "_suggestions" => suggestions::make_module,
             // crate::vm::sysmodule::sysconfigdata_name() => sysconfigdata::make_module,
@@ -152,7 +157,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         }
         #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         {
-            "_lzma" => compression::lzma::make_module,
+            "_lzma" => lzma::make_module,
         }
         #[cfg(all(feature = "sqlite", not(any(target_os = "android", target_arch = "wasm32"))))]
         {

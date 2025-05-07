@@ -5,9 +5,9 @@ pub(crate) use zlib::make_module;
 #[pymodule]
 mod zlib {
     use crate::compression::{
-        _decompress_chunks, Chunker, CompressFlushKind, CompressState, CompressStatusKind,
-        Compressor, DecompressArgs, DecompressError, DecompressFlushKind, DecompressState,
-        DecompressStatus, Decompressor, USE_AFTER_FINISH_ERR, flush_sync,
+        _decompress, CompressFlushKind, CompressState, CompressStatusKind, Compressor,
+        DecompressArgs, DecompressError, DecompressFlushKind, DecompressState, DecompressStatus,
+        Decompressor, USE_AFTER_FINISH_ERR, flush_sync,
     };
     use crate::vm::{
         PyObject, PyPayload, PyResult, VirtualMachine,
@@ -144,17 +144,6 @@ mod zlib {
                 Self::Gzip { wbits } => Compress::new_gzip(level, wbits),
             }
         }
-    }
-
-    fn _decompress<D: Decompressor>(
-        data: &[u8],
-        d: &mut D,
-        bufsize: usize,
-        max_length: Option<usize>,
-        calc_flush: impl Fn(bool) -> D::Flush,
-    ) -> Result<(Vec<u8>, bool), D::Error> {
-        let mut data = Chunker::new(data);
-        _decompress_chunks(&mut data, d, bufsize, max_length, calc_flush)
     }
 
     #[derive(FromArgs)]
