@@ -4,9 +4,6 @@ pub(crate) use _bz2::make_module;
 
 #[pymodule]
 mod _bz2 {
-    use super::super::{
-        DecompressArgs, DecompressError, DecompressState, DecompressStatus, Decompressor,
-    };
     use crate::common::lock::PyMutex;
     use crate::vm::{
         VirtualMachine,
@@ -14,6 +11,9 @@ mod _bz2 {
         function::{ArgBytesLike, OptionalArg},
         object::{PyPayload, PyResult},
         types::Constructor,
+    };
+    use crate::zlib::{
+        DecompressArgs, DecompressError, DecompressState, DecompressStatus, Decompressor,
     };
     use bzip2::{Decompress, Status, write::BzEncoder};
     use rustpython_vm::convert::ToPyException;
@@ -74,7 +74,7 @@ mod _bz2 {
     impl BZ2Decompressor {
         #[pymethod]
         fn decompress(&self, args: DecompressArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            let max_length = args.max_length_negative_is_none();
+            let max_length = args.max_length();
             let data = &*args.data();
 
             let mut state = self.state.lock();

@@ -24,7 +24,6 @@ mod sha256;
 mod sha3;
 mod sha512;
 
-mod compression;
 mod json;
 #[cfg(not(any(target_os = "ios", target_os = "android", target_arch = "wasm32")))]
 mod locale;
@@ -38,11 +37,13 @@ mod statistics;
 mod suggestions;
 // TODO: maybe make this an extension module, if we ever get those
 // mod re;
+mod bz2;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod socket;
 #[cfg(all(unix, not(target_os = "redox")))]
 mod syslog;
 mod unicodedata;
+mod zlib;
 
 mod faulthandler;
 #[cfg(any(unix, target_os = "wasi"))]
@@ -111,7 +112,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "array" => array::make_module,
             "binascii" => binascii::make_module,
             "_bisect" => bisect::make_module,
-            "_bz2" => compression::bz2::make_module,
+            "_bz2" => bz2::make_module,
             "cmath" => cmath::make_module,
             "_contextvars" => contextvars::make_module,
             "_csv" => csv::make_module,
@@ -132,7 +133,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "_statistics" => statistics::make_module,
             "_struct" => pystruct::make_module,
             "unicodedata" => unicodedata::make_module,
-            "zlib" => compression::zlib::make_module,
+            "zlib" => zlib::make_module,
             "_statistics" => statistics::make_module,
             "_suggestions" => suggestions::make_module,
             // crate::vm::sysmodule::sysconfigdata_name() => sysconfigdata::make_module,
