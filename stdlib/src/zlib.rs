@@ -1,12 +1,13 @@
-// spell-checker:ignore compressobj decompressobj zdict chunksize zlibmodule miniz
+// spell-checker:ignore compressobj decompressobj zdict chunksize zlibmodule miniz chunker
 
 pub(crate) use zlib::make_module;
 
 #[pymodule]
 mod zlib {
-    use super::super::{
-        _decompress, CHUNKSIZE, DecompressArgs, DecompressError, DecompressState, DecompressStatus,
-        Decompressor, FlushKind, flush_sync,
+    use crate::compression::{
+        _decompress, CompressFlushKind, CompressState, CompressStatusKind, Compressor,
+        DecompressArgs, DecompressError, DecompressFlushKind, DecompressState, DecompressStatus,
+        Decompressor, USE_AFTER_FINISH_ERR, flush_sync,
     };
     use crate::vm::{
         PyObject, PyPayload, PyResult, VirtualMachine,
@@ -287,11 +288,10 @@ mod zlib {
 
         #[pymethod]
         fn decompress(&self, args: DecompressArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            let max_length: usize = args
-                .max_length
-                .map_or(0, |x| x.value)
-                .try_into()
-                .map_err(|_| vm.new_value_error("must be non-negative".to_owned()))?;
+            let max_length: usize =
+                args.raw_max_length().unwrap_or(0).try_into().map_err(|_| {
+                    vm.new_value_error("max_length must be non-negative".to_owned())
+                })?;
             let max_length = (max_length != 0).then_some(max_length);
             let data = &*args.data();
 
@@ -362,20 +362,20 @@ mod zlib {
             zdict.with_ref(|zdict| compress.set_dictionary(zdict).unwrap());
         }
         Ok(PyCompress {
-            inner: PyMutex::new(CompressInner::new(compress)),
+            inner: PyMutex::new(CompressState::new(CompressInner::new(compress))),
         })
     }
 
     #[derive(Debug)]
     struct CompressInner {
-        compress: Option<Compress>,
+        compress: Compress,
     }
 
     #[pyattr]
     #[pyclass(name = "Compress")]
     #[derive(Debug, PyPayload)]
     struct PyCompress {
-        inner: PyMutex<CompressInner>,
+        inner: PyMutex<CompressState<CompressInner>>,
     }
 
     #[pyclass]
@@ -408,70 +408,62 @@ mod zlib {
         // }
     }
 
+    const CHUNKSIZE: usize = u32::MAX as usize;
+
     impl CompressInner {
         fn new(compress: Compress) -> Self {
-            Self {
-                compress: Some(compress),
-            }
+            Self { compress }
         }
+    }
 
-        fn get_compress(&mut self, vm: &VirtualMachine) -> PyResult<&mut Compress> {
+    impl CompressStatusKind for Status {
+        const OK: Self = Status::Ok;
+        const EOF: Self = Status::StreamEnd;
+
+        fn to_usize(self) -> usize {
+            self as usize
+        }
+    }
+
+    impl CompressFlushKind for FlushCompress {
+        const NONE: Self = FlushCompress::None;
+        const FINISH: Self = FlushCompress::Finish;
+
+        fn to_usize(self) -> usize {
+            self as usize
+        }
+    }
+
+    impl Compressor for CompressInner {
+        type Status = Status;
+        type Flush = FlushCompress;
+        const CHUNKSIZE: usize = CHUNKSIZE;
+        const DEF_BUF_SIZE: usize = DEF_BUF_SIZE;
+
+        fn compress_vec(
+            &mut self,
+            input: &[u8],
+            output: &mut Vec<u8>,
+            flush: Self::Flush,
+            vm: &VirtualMachine,
+        ) -> PyResult<Self::Status> {
             self.compress
-                .as_mut()
-                .ok_or_else(|| new_zlib_error(USE_AFTER_FINISH_ERR, vm))
+                .compress_vec(input, output, flush)
+                .map_err(|_| new_zlib_error("error while compressing", vm))
         }
 
-        fn compress(&mut self, data: &[u8], vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            let c = self.get_compress(vm)?;
-            let mut buf = Vec::new();
-
-            for mut chunk in data.chunks(CHUNKSIZE) {
-                while !chunk.is_empty() {
-                    buf.reserve(DEF_BUF_SIZE);
-                    let prev_in = c.total_in();
-                    c.compress_vec(chunk, &mut buf, FlushCompress::None)
-                        .map_err(|_| new_zlib_error("error while compressing", vm))?;
-                    let consumed = c.total_in() - prev_in;
-                    chunk = &chunk[consumed as usize..];
-                }
-            }
-
-            buf.shrink_to_fit();
-            Ok(buf)
+        fn total_in(&mut self) -> usize {
+            self.compress.total_in() as usize
         }
 
-        fn flush(&mut self, mode: FlushCompress, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            let c = self.get_compress(vm)?;
-            let mut buf = Vec::new();
-
-            let status = loop {
-                if buf.len() == buf.capacity() {
-                    buf.reserve(DEF_BUF_SIZE);
-                }
-                let status = c
-                    .compress_vec(&[], &mut buf, mode)
-                    .map_err(|_| new_zlib_error("error while compressing", vm))?;
-                if buf.len() != buf.capacity() {
-                    break status;
-                }
-            };
-
-            match status {
-                Status::Ok | Status::BufError => {}
-                Status::StreamEnd if mode == FlushCompress::Finish => self.compress = None,
-                Status::StreamEnd => return Err(new_zlib_error("unexpected eof", vm)),
-            }
-
-            buf.shrink_to_fit();
-            Ok(buf)
+        fn new_error(message: impl Into<String>, vm: &VirtualMachine) -> PyBaseExceptionRef {
+            new_zlib_error(message, vm)
         }
     }
 
     fn new_zlib_error(message: impl Into<String>, vm: &VirtualMachine) -> PyBaseExceptionRef {
         vm.new_exception_msg(vm.class("zlib", "error"), message.into())
     }
-
-    const USE_AFTER_FINISH_ERR: &str = "Error -2: inconsistent stream state";
 
     struct Level(Option<flate2::Compression>);
 
@@ -520,7 +512,7 @@ mod zlib {
         }
     }
 
-    impl FlushKind for FlushDecompress {
+    impl DecompressFlushKind for FlushDecompress {
         const SYNC: Self = FlushDecompress::Sync;
     }
 
@@ -607,7 +599,7 @@ mod zlib {
 
         #[pymethod]
         fn decompress(&self, args: DecompressArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            let max_length = args.max_length_negative_is_none();
+            let max_length = args.max_length();
             let data = &*args.data();
 
             let inner = &mut *self.inner.lock();

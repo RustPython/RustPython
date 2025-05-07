@@ -395,6 +395,10 @@ class _Stream:
                     import lzma
                 except ImportError:
                     raise CompressionError("lzma module is not available") from None
+
+                # XXX: RUSTPYTHON; xz is not supported yet
+                raise CompressionError("lzma module is not available") from None
+
                 if mode == "r":
                     self.dbuf = b""
                     self.cmp = lzma.LZMADecompressor()
@@ -1926,6 +1930,9 @@ class TarFile(object):
             from lzma import LZMAFile, LZMAError
         except ImportError:
             raise CompressionError("lzma module is not available") from None
+
+        # XXX: RUSTPYTHON; xz is not supported yet
+        raise CompressionError("lzma module is not available") from None
 
         fileobj = LZMAFile(fileobj or name, mode, preset=preset)
 

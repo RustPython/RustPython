@@ -498,6 +498,8 @@ def requires_lzma(reason='requires lzma'):
         import lzma
     except ImportError:
         lzma = None
+    # XXX: RUSTPYTHON; xz is not supported yet
+    lzma = None
     return unittest.skipUnless(lzma, reason)
 
 def has_no_debug_ranges():

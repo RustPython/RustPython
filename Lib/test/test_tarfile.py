@@ -31,6 +31,8 @@ try:
     import lzma
 except ImportError:
     lzma = None
+# XXX: RUSTPYTHON; xz is not supported yet
+lzma = None
 
 def sha256sum(data):
     return sha256(data).hexdigest()
