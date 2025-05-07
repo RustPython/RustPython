@@ -30,9 +30,9 @@ num-traits = { workspace = true }
 once_cell = { workspace = true }
 parking_lot = { workspace = true, optional = true }
 unicode_names2 = { workspace = true }
+radium = { workspace = true }
 
 lock_api = "0.4"
-radium = "1.1"
 siphasher = "1"
 
 [target.'cfg(windows)'.dependencies]
