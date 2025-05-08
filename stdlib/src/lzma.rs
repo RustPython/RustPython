@@ -149,6 +149,11 @@ mod _lzma {
         type Args = LZMADecompressorConstructorArgs;
 
         fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            if args.format == FORMAT_RAW && args.memlimit.is_some() {
+                return Err(vm.new_value_error(
+                    "Cannot specify memory limit with FORMAT_RAW".to_string(),
+                ));
+            }
             let memlimit = args.memlimit.unwrap_or(u64::MAX);
             let filters = args.filters.unwrap_or(0);
             let stream_result = match args.format {
