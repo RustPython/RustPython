@@ -328,7 +328,7 @@ jobs:
       - name: Ensure docs generate no warnings
         run: cargo doc
       - name: run python lint
-        run: ruff check extra_tests wasm examples  --exclude='./.*',./Lib,./vm/Lib,./benches/ --select=E9,F63,F7,F82
+        run: ruff check
       - name: install prettier
         run: yarn global add prettier && echo "$(yarn global bin)" >>$GITHUB_PATH
       - name: check wasm code with prettier
