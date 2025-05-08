@@ -39,7 +39,7 @@ mod _lzma {
     use rustpython_vm::types::Constructor;
     use rustpython_vm::{PyObjectRef, PyPayload, PyResult, VirtualMachine};
     use std::fmt;
-    use xz2::stream::{Action, Check, Error, Filters, Status, Stream};
+    use xz2::stream::{Action, Check, Error, Filters, LzmaOptions, Status, Stream};
 
     #[cfg(windows)]
     type EnumVal = i32;
@@ -322,6 +322,26 @@ mod _lzma {
                     .map_err(|_| new_lzma_error("Failed to initialize encoder", vm))?)
             }
         }
+    
+        fn init_alone(
+            preset: u32,
+            filter_specs: Option<Vec<PyObjectRef>>,
+            vm: &VirtualMachine,
+        ) -> PyResult<Stream> {
+            if let Some(filter_specs) = filter_specs {
+                Err(new_lzma_error(
+                    "TODO: RUSTPYTHON: LZMA: Alone filter specs",
+                    vm,
+                ))
+            } else {
+                let options = LzmaOptions::new_preset(preset)
+                    .map_err(|_| new_lzma_error("Failed to initialize encoder", vm))?;
+                let stream = Stream::new_lzma_encoder(&options).map_err(|_| {
+                    new_lzma_error("Failed to initialize encoder", vm)
+                })?;
+                Ok(stream)
+            }
+        }
     }
 
     #[derive(FromArgs)]
@@ -365,7 +385,8 @@ mod _lzma {
             }
             let stream = match args.format {
                 FORMAT_XZ => Self::init_xz(args.check, preset, args.filters, vm)?,
-                // TODO: ALONE AND RAW
+                FORMAT_ALONE => Self::init_alone(preset, args.filters, vm)?,
+                // TODO: RAW
                 _ => return Err(new_lzma_error("Invalid format", vm)),
             };
             Ok(Self {
