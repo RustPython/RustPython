@@ -1,11 +1,4 @@
-include = [
-    "examples/**/*.py",
-    "extra_tests/**/*.py",
-    "wasm/**/*.py",
-]
-
 exclude = [
-    ".*",
     "Lib",
     "vm/Lib",
     "benches",
