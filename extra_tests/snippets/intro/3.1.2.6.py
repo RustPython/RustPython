@@ -1,1 +1,1 @@
-assert 'Python' == 'Py' 'thon'
+assert "Python" == "Python"

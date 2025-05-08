@@ -12,10 +12,12 @@ assert z == 0
 # Test enum
 from enum import Enum
 
+
 class Color(Enum):
     RED = 1
     GREEN = 2
     BLUE = 3
+
 
 def test_color(color):
     z = -1
@@ -28,8 +30,10 @@ def test_color(color):
             z = 3
     assert z == color.value
 
+
 for color in Color:
     test_color(color)
+
 
 # test or
 def test_or(i):
@@ -42,6 +46,7 @@ def test_or(i):
         case _:
             z = 2
     return z
+
 
 assert test_or(0) == 0
 assert test_or(1) == 0

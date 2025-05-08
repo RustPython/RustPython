@@ -46,15 +46,16 @@ assert 3 not in iter([1, 2])
 assert 1 in range(0, 2)
 assert 3 not in range(0, 2)
 
+
 # test __contains__ in user objects
-class MyNotContainingClass():
+class MyNotContainingClass:
     pass
 
 
 assert_raises(TypeError, lambda: 1 in MyNotContainingClass())
 
 
-class MyContainingClass():
+class MyContainingClass:
     def __init__(self, value):
         self.value = value
 
