@@ -10,20 +10,25 @@ How to use:
 4. Ensure that there are no unexpected successes in the test.
 5. Actually fix the test.
 """
+
 import argparse
 import ast
 import itertools
 import platform
 from pathlib import Path
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Fix test.")
     parser.add_argument("--path", type=Path, help="Path to test file")
     parser.add_argument("--force", action="store_true", help="Force modification")
-    parser.add_argument("--platform", action="store_true", help="Platform specific failure")
+    parser.add_argument(
+        "--platform", action="store_true", help="Platform specific failure"
+    )
 
     args = parser.parse_args()
     return args
+
 
 class Test:
     name: str = ""
@@ -32,6 +37,7 @@ class Test:
 
     def __str__(self):
         return f"Test(name={self.name}, path={self.path}, result={self.result})"
+
 
 class TestResult:
     tests_result: str = ""
@@ -52,7 +58,11 @@ def parse_results(result):
             in_test_results = True
         elif line.startswith("-----------"):
             in_test_results = False
-        if in_test_results and not line.startswith("tests") and not line.startswith("["):
+        if (
+            in_test_results
+            and not line.startswith("tests")
+            and not line.startswith("[")
+        ):
             line = line.split(" ")
             if line != [] and len(line) > 3:
                 test = Test()
@@ -67,8 +77,10 @@ def parse_results(result):
                 test_results.tests_result = res
     return test_results
 
+
 def path_to_test(path) -> list[str]:
     return path.split(".")[2:]
+
 
 def modify_test(file: str, test: list[str], for_platform: bool = False) -> str:
     a = ast.parse(file)
@@ -83,6 +95,7 @@ def modify_test(file: str, test: list[str], for_platform: bool = False) -> str:
                 lines.insert(node.lineno - 1, indent + "# TODO: RUSTPYTHON")
                 break
     return "\n".join(lines)
+
 
 def modify_test_v2(file: str, test: list[str], for_platform: bool = False) -> str:
     a = ast.parse(file)
@@ -101,8 +114,13 @@ def modify_test_v2(file: str, test: list[str], for_platform: bool = False) -> st
                                         if fn.name == test[-1]:
                                             assert not for_platform
                                             indent = " " * fn.col_offset
-                                            lines.insert(fn.lineno - 1, indent + fixture)
-                                            lines.insert(fn.lineno - 1, indent + "# TODO: RUSTPYTHON")
+                                            lines.insert(
+                                                fn.lineno - 1, indent + fixture
+                                            )
+                                            lines.insert(
+                                                fn.lineno - 1,
+                                                indent + "# TODO: RUSTPYTHON",
+                                            )
                                             break
                     case ast.FunctionDef():
                         if n.name == test[0] and len(test) == 1:
@@ -115,11 +133,17 @@ def modify_test_v2(file: str, test: list[str], for_platform: bool = False) -> st
                     exit()
     return "\n".join(lines)
 
+
 def run_test(test_name):
     print(f"Running test: {test_name}")
     rustpython_location = "./target/release/rustpython"
     import subprocess
-    result = subprocess.run([rustpython_location, "-m", "test", "-v", test_name], capture_output=True, text=True)
+
+    result = subprocess.run(
+        [rustpython_location, "-m", "test", "-v", test_name],
+        capture_output=True,
+        text=True,
+    )
     return parse_results(result)
 
 

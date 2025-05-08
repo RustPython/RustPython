@@ -39,7 +39,10 @@ implementation = platform.python_implementation()
 if implementation != "CPython":
     sys.exit(f"whats_left.py must be run under CPython, got {implementation} instead")
 if sys.version_info[:2] < (3, 13):
-    sys.exit(f"whats_left.py must be run under CPython 3.13 or newer, got {implementation} {sys.version} instead")
+    sys.exit(
+        f"whats_left.py must be run under CPython 3.13 or newer, got {implementation} {sys.version} instead"
+    )
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Process some integers.")
@@ -73,8 +76,16 @@ args = parse_args()
 
 # CPython specific modules (mostly consisting of templates/tests)
 CPYTHON_SPECIFIC_MODS = {
-    'xxmodule', 'xxsubtype', 'xxlimited', '_xxtestfuzz',
-    '_testbuffer', '_testcapi', '_testimportmultiple', '_testinternalcapi', '_testmultiphase', '_testlimitedcapi'
+    "xxmodule",
+    "xxsubtype",
+    "xxlimited",
+    "_xxtestfuzz",
+    "_testbuffer",
+    "_testcapi",
+    "_testimportmultiple",
+    "_testinternalcapi",
+    "_testmultiphase",
+    "_testlimitedcapi",
 }
 
 IGNORED_MODULES = {"this", "antigravity"} | CPYTHON_SPECIFIC_MODS
@@ -291,7 +302,7 @@ output = """\
 output += gen_methods()
 output += f"""
 cpymods = {gen_modules()!r}
-libdir = {os.path.abspath("Lib/").encode('utf8')!r}
+libdir = {os.path.abspath("Lib/").encode("utf8")!r}
 
 """
 
@@ -310,6 +321,8 @@ for fn in REUSED:
 expected_methods = {}
 cpymods = {}
 libdir = ""
+
+
 # This function holds the source code that will be run under RustPython
 def compare():
     import inspect
@@ -376,7 +389,9 @@ def compare():
         if rustpymod is None:
             result["not_implemented"][modname] = None
         elif isinstance(rustpymod, Exception):
-            result["failed_to_import"][modname] = rustpymod.__class__.__name__ + str(rustpymod)
+            result["failed_to_import"][modname] = rustpymod.__class__.__name__ + str(
+                rustpymod
+            )
         else:
             implemented_items = sorted(set(cpymod) & set(rustpymod))
             mod_missing_items = set(cpymod) - set(rustpymod)
@@ -418,13 +433,23 @@ def remove_one_indent(s):
 compare_src = inspect.getsourcelines(compare)[0][1:]
 output += "".join(remove_one_indent(line) for line in compare_src)
 
-with open(GENERATED_FILE, "w", encoding='utf-8') as f:
+with open(GENERATED_FILE, "w", encoding="utf-8") as f:
     f.write(output + "\n")
 
 
-subprocess.run(["cargo", "build", "--release", f"--features={args.features}"], check=True)
+subprocess.run(
+    ["cargo", "build", "--release", f"--features={args.features}"], check=True
+)
 result = subprocess.run(
-    ["cargo", "run", "--release", f"--features={args.features}", "-q", "--", GENERATED_FILE],
+    [
+        "cargo",
+        "run",
+        "--release",
+        f"--features={args.features}",
+        "-q",
+        "--",
+        GENERATED_FILE,
+    ],
     env={**os.environ.copy(), "RUSTPYTHONPATH": "Lib"},
     text=True,
     capture_output=True,
@@ -475,7 +500,7 @@ if args.signature:
 if args.doc:
     print("\n# mismatching `__doc__`s (warnings)")
     for modname, mismatched in result["mismatched_doc_items"].items():
-        for (item, rustpy_doc, cpython_doc) in mismatched:
+        for item, rustpy_doc, cpython_doc in mismatched:
             print(f"{item} {repr(rustpy_doc)} != {repr(cpython_doc)}")
 
 
