@@ -1,0 +1,20 @@
+include = [
+    "examples/**/*.py",
+    "extra_tests/**/*.py",
+    "wasm/**/*.py",
+]
+
+exclude = [
+    ".*",
+    "Lib",
+    "vm/Lib",
+    "benches",
+]
+
+[lint]
+select = [
+    "E9", # pycodestyle (error)
+    "F63", # pyflakes
+    "F7",
+    "F82",
+]
