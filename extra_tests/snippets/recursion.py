@@ -1,7 +1,9 @@
 from testutils import assert_raises
 
+
 class Foo(object):
     pass
+
 
 Foo.__repr__ = Foo.__str__
 

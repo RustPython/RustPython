@@ -13,11 +13,13 @@ assert not 1 < 2 < 3 > 4
 assert not 1 < 2 > 3 < 4
 assert not 1 > 2 < 3 < 4
 
+
 def test_type_error(x, y):
     assert_raises(TypeError, lambda: x < y)
     assert_raises(TypeError, lambda: x <= y)
     assert_raises(TypeError, lambda: x > y)
     assert_raises(TypeError, lambda: x >= y)
+
 
 test_type_error([], 0)
 test_type_error((), 0)
@@ -34,6 +36,7 @@ assert 1e308 == int(1e308)
 
 # floats that cannot be converted to big ints shouldn’t crash the vm
 import math
+
 assert not (10**500 == math.inf)
 assert not (math.inf == 10**500)
 assert not (10**500 == math.nan)
@@ -41,23 +44,23 @@ assert not (math.nan == 10**500)
 
 # comparisons
 # floats with worse than integer precision
-assert 2.**54 > 2**54 - 1
-assert 2.**54 < 2**54 + 1
-assert 2.**54 >= 2**54 - 1
-assert 2.**54 <= 2**54 + 1
-assert 2.**54 == 2**54
-assert not 2.**54 == 2**54 + 1
+assert 2.0**54 > 2**54 - 1
+assert 2.0**54 < 2**54 + 1
+assert 2.0**54 >= 2**54 - 1
+assert 2.0**54 <= 2**54 + 1
+assert 2.0**54 == 2**54
+assert not 2.0**54 == 2**54 + 1
 
 # inverse operands
-assert 2**54 - 1 < 2.**54
-assert 2**54 + 1 > 2.**54
-assert 2**54 - 1 <= 2.**54
-assert 2**54 + 1 >= 2.**54
-assert 2**54 == 2.**54
-assert not 2**54 + 1 == 2.**54
+assert 2**54 - 1 < 2.0**54
+assert 2**54 + 1 > 2.0**54
+assert 2**54 - 1 <= 2.0**54
+assert 2**54 + 1 >= 2.0**54
+assert 2**54 == 2.0**54
+assert not 2**54 + 1 == 2.0**54
 
-assert not 2.**54 < 2**54 - 1
-assert not 2.**54 > 2**54 + 1
+assert not 2.0**54 < 2**54 - 1
+assert not 2.0**54 > 2**54 + 1
 
 # sub-int numbers
 assert 1.3 > 1
@@ -68,17 +71,17 @@ assert -0.3 < 0
 assert -0.3 <= 0
 
 # int out of float range comparisons
-assert 10**500 > 2.**54
-assert -10**500 < -0.12
+assert 10**500 > 2.0**54
+assert -(10**500) < -0.12
 
 # infinity and NaN comparisons
 assert math.inf > 10**500
 assert math.inf >= 10**500
 assert not math.inf < 10**500
 
-assert -math.inf < -10*500
-assert -math.inf <= -10*500
-assert not -math.inf > -10*500
+assert -math.inf < -10 * 500
+assert -math.inf <= -10 * 500
+assert not -math.inf > -10 * 500
 
 assert not math.nan > 123
 assert not math.nan < 123

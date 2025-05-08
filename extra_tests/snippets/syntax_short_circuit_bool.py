@@ -8,7 +8,7 @@
 
 
 # A Bool that raises an exception if evaluated twice!
-class ExplodingBool():
+class ExplodingBool:
     def __init__(self, value):
         self.value = value
         self.booled = False
@@ -18,10 +18,11 @@ class ExplodingBool():
         self.booled = True
         return self.value
 
-y = (ExplodingBool(False) and False and True and False)
+
+y = ExplodingBool(False) and False and True and False
 print(y)
 
-if (ExplodingBool(True) or False or True or False):
+if ExplodingBool(True) or False or True or False:
     pass
 
 assert ExplodingBool(True) or False

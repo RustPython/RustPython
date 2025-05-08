@@ -1,6 +1,7 @@
 w = 50.0
 h = 50.0
 
+
 def mandel():
     """Print a mandelbrot fractal to the console, yielding after each character is printed"""
     y = 0.0
@@ -20,9 +21,9 @@ def mandel():
                 i += 1
 
             if Tr + Ti <= 4:
-                print('*', end='')
+                print("*", end="")
             else:
-                print('·', end='')
+                print("·", end="")
 
             x += 1
             yield
@@ -31,14 +32,24 @@ def mandel():
         y += 1
         yield
 
+
 # run the mandelbrot
 
-try: from browser import request_animation_frame
-except: request_animation_frame = None
+try:
+    from browser import request_animation_frame
+except:
+    request_animation_frame = None
 
 gen = mandel()
+
+
 def gen_cb(_time=None):
-    for _ in range(4): gen.__next__()
+    for _ in range(4):
+        gen.__next__()
     request_animation_frame(gen_cb)
-if request_animation_frame: gen_cb()
-else: any(gen)
+
+
+if request_animation_frame:
+    gen_cb()
+else:
+    any(gen)
