@@ -49,3 +49,10 @@ impl crate::convert::ToPyException for (CompileError, Option<&str>) {
         vm.new_syntax_error(&self.0, self.1)
     }
 }
+
+#[cfg(any(feature = "parser", feature = "codegen"))]
+impl crate::convert::ToPyException for (CompileError, Option<&str>, bool) {
+    fn to_pyexception(&self, vm: &crate::VirtualMachine) -> crate::builtins::PyBaseExceptionRef {
+        vm.new_syntax_error_maybe_incomplete(&self.0, self.1, self.2)
+    }
+}

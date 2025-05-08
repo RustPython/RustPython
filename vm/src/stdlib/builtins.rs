@@ -186,6 +186,8 @@ mod builtins {
                     return Err(vm.new_value_error("compile() unrecognized flags".to_owned()));
                 }
 
+                let allow_incomplete = !(flags & ast::PY_CF_ALLOW_INCOMPLETE_INPUT).is_zero();
+
                 if (flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
                     #[cfg(not(feature = "compiler"))]
                     {
@@ -207,14 +209,17 @@ mod builtins {
                                 args.filename.to_string_lossy().into_owned(),
                                 opts,
                             )
-                            .map_err(|err| (err, Some(source)).to_pyexception(vm))?;
+                            .map_err(|err| {
+                                (err, Some(source), allow_incomplete).to_pyexception(vm)
+                            })?;
                         Ok(code.into())
                     }
                 } else {
                     let mode = mode_str
                         .parse::<parser::Mode>()
                         .map_err(|err| vm.new_value_error(err.to_string()))?;
-                    ast::parse(vm, source, mode).map_err(|e| (e, Some(source)).to_pyexception(vm))
+                    ast::parse(vm, source, mode)
+                        .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(vm))
                 }
             }
         }
@@ -1056,6 +1061,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         "NotImplementedError" => ctx.exceptions.not_implemented_error.to_owned(),
         "RecursionError" => ctx.exceptions.recursion_error.to_owned(),
         "SyntaxError" =>  ctx.exceptions.syntax_error.to_owned(),
+        "_IncompleteInputError" =>  ctx.exceptions.incomplete_input_error.to_owned(),
         "IndentationError" =>  ctx.exceptions.indentation_error.to_owned(),
         "TabError" =>  ctx.exceptions.tab_error.to_owned(),
         "SystemError" => ctx.exceptions.system_error.to_owned(),
