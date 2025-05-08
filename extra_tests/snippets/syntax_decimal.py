@@ -1,6 +1,6 @@
 try:
     eval("0.E")
 except SyntaxError:
-   pass
+    pass
 else:
-  assert False
+    assert False

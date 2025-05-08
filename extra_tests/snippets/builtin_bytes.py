@@ -596,51 +596,56 @@ assert (
 
 
 # repeat by multiply
-a = b'abcd'
-assert a * 0 == b''
-assert a * -1 == b''
-assert a * 1 == b'abcd'
-assert a * 3 == b'abcdabcdabcd'
-assert 3 * a == b'abcdabcdabcd'
+a = b"abcd"
+assert a * 0 == b""
+assert a * -1 == b""
+assert a * 1 == b"abcd"
+assert a * 3 == b"abcdabcdabcd"
+assert 3 * a == b"abcdabcdabcd"
 
 # decode
-assert b'\x72\x75\x73\x74'.decode('ascii') == 'rust'
-assert b'\xc2\xae\x75\x73\x74'.decode('ascii', 'replace') == '��ust'
-assert b'\xc2\xae\x75\x73\x74'.decode('ascii', 'ignore') == 'ust'
-assert b'\xc2\xae\x75\x73\x74'.decode('utf-8') == '®ust'
-assert b'\xc2\xae\x75\x73\x74'.decode() == '®ust'
-assert b'\xe4\xb8\xad\xe6\x96\x87\xe5\xad\x97'.decode('utf-8') == '中文字'
+assert b"\x72\x75\x73\x74".decode("ascii") == "rust"
+assert b"\xc2\xae\x75\x73\x74".decode("ascii", "replace") == "��ust"
+assert b"\xc2\xae\x75\x73\x74".decode("ascii", "ignore") == "ust"
+assert b"\xc2\xae\x75\x73\x74".decode("utf-8") == "®ust"
+assert b"\xc2\xae\x75\x73\x74".decode() == "®ust"
+assert b"\xe4\xb8\xad\xe6\x96\x87\xe5\xad\x97".decode("utf-8") == "中文字"
 
 # mod
-assert b'rust%bpython%b' % (b' ', b'!') == b'rust python!'
-assert b'x=%i y=%f' % (1, 2.5) == b'x=1 y=2.500000'
+assert b"rust%bpython%b" % (b" ", b"!") == b"rust python!"
+assert b"x=%i y=%f" % (1, 2.5) == b"x=1 y=2.500000"
+
 
 # __bytes__
 def test__bytes__():
-    foo = b'foo\x00bar'
+    foo = b"foo\x00bar"
     assert foo.__bytes__() == foo
     assert type(foo.__bytes__()) == bytes
+
     class bytes_subclass(bytes):
         pass
-    bar = bytes_subclass(b'bar\x00foo')
+
+    bar = bytes_subclass(b"bar\x00foo")
     assert bar.__bytes__() == bar
     assert type(bar.__bytes__()) == bytes
+
 
 class A:
     def __bytes__(self):
         return b"bytess"
 
+
 assert bytes(A()) == b"bytess"
 
 # Issue #2125
-b = b'abc'
+b = b"abc"
 assert bytes(b) is b
 
 
 # Regression to
 # https://github.com/RustPython/RustPython/issues/2840
 
-a = b'123abc!?'
+a = b"123abc!?"
 assert id(a) == id(a)
 assert id(a) != id(a * -1)
 assert id(a) != id(a * 0)
@@ -652,20 +657,24 @@ assert id(a) != id(a * 2)
 class SubBytes(bytes):
     pass
 
-b = SubBytes(b'0123abc*&')
+
+b = SubBytes(b"0123abc*&")
 assert id(b) == id(b)
 assert id(b) != id(b * -1)
 assert id(b) != id(b * 0)
 assert id(b) != id(b * 1)
 assert id(b) != id(b * 2)
 
+
 class B1(bytearray):
     def __new__(cls, value):
         assert type(value) == bytes
         me = super().__new__(cls, value)
-        me.foo = 'bar'
+        me.foo = "bar"
         return me
-b = B1.fromhex('a0a1a2')
-assert b.foo == 'bar'
 
-skip_if_unsupported(3,11,test__bytes__)
+
+b = B1.fromhex("a0a1a2")
+assert b.foo == "bar"
+
+skip_if_unsupported(3, 11, test__bytes__)

@@ -324,11 +324,13 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: install ruff
-        run: python -m pip install ruff==0.0.291 # astral-sh/ruff#7778
+        run: python -m pip install ruff==0.11.8
       - name: Ensure docs generate no warnings
         run: cargo doc
-      - name: run python lint
-        run: ruff extra_tests wasm examples  --exclude='./.*',./Lib,./vm/Lib,./benches/ --select=E9,F63,F7,F82 --show-source
+      - name: run ruff check
+        run: ruff check --diff
+      - name: run ruff format
+        run: ruff format --check
       - name: install prettier
         run: yarn global add prettier && echo "$(yarn global bin)" >>$GITHUB_PATH
       - name: check wasm code with prettier

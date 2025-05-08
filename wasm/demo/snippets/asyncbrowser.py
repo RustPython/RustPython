@@ -1,6 +1,7 @@
 import browser
 import asyncweb
 
+
 async def main(delay):
     url = f"https://httpbin.org/delay/{delay}"
     print(f"fetching {url}...")

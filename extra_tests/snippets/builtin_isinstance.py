@@ -1,4 +1,3 @@
-
 class Regular:
     pass
 
@@ -41,13 +40,16 @@ assert isinstance(AlwaysInstanceOf(), AlwaysInstanceOf)
 assert isinstance(Regular(), AlwaysInstanceOf)
 assert isinstance(1, AlwaysInstanceOf)
 
+
 class GenericInstance:
     def __instancecheck__(self, _):
         return True
 
+
 assert isinstance(Regular(), GenericInstance())
 assert isinstance([], GenericInstance())
 assert isinstance(1, GenericInstance())
+
 
 class MCReturnInt(type):
     def __instancecheck__(self, instance):
@@ -60,4 +62,13 @@ class ReturnInt(metaclass=MCReturnInt):
 
 assert isinstance("a", ReturnInt) is True
 
-assert isinstance(1, ((int, float,), str))
+assert isinstance(
+    1,
+    (
+        (
+            int,
+            float,
+        ),
+        str,
+    ),
+)
