@@ -12,7 +12,7 @@ assert pow(1, 2.0) == 1.0
 assert pow(2.0, 1) == 2.0
 assert pow(0, 10**1000) == 0
 assert pow(1, 10**1000) == 1
-assert pow(-1, 10**1000+1) == -1
+assert pow(-1, 10**1000 + 1) == -1
 assert pow(-1, 10**1000) == 1
 
 assert pow(2, 4, 5) == 1
@@ -59,7 +59,7 @@ def powtest(type):
             assert_raises(ZeroDivisionError, pow, zero, exp)
 
     il, ih = -20, 20
-    jl, jh = -5,   5
+    jl, jh = -5, 5
     kl, kh = -10, 10
     asseq = assert_equal
     if type == float:
@@ -76,10 +76,7 @@ def powtest(type):
                     if type == float or j < 0:
                         assert_raises(TypeError, pow, type(i), j, k)
                         continue
-                    asseq(
-                        pow(type(i), j, k),
-                        pow(type(i), j) % type(k)
-                    )
+                    asseq(pow(type(i), j, k), pow(type(i), j) % type(k))
 
 
 def test_powint():
@@ -92,40 +89,35 @@ def test_powfloat():
 
 def test_other():
     # Other tests-- not very systematic
-    assert_equal(pow(3,3) % 8, pow(3,3,8))
-    assert_equal(pow(3,3) % -8, pow(3,3,-8))
-    assert_equal(pow(3,2) % -2, pow(3,2,-2))
-    assert_equal(pow(-3,3) % 8, pow(-3,3,8))
-    assert_equal(pow(-3,3) % -8, pow(-3,3,-8))
-    assert_equal(pow(5,2) % -8, pow(5,2,-8))
+    assert_equal(pow(3, 3) % 8, pow(3, 3, 8))
+    assert_equal(pow(3, 3) % -8, pow(3, 3, -8))
+    assert_equal(pow(3, 2) % -2, pow(3, 2, -2))
+    assert_equal(pow(-3, 3) % 8, pow(-3, 3, 8))
+    assert_equal(pow(-3, 3) % -8, pow(-3, 3, -8))
+    assert_equal(pow(5, 2) % -8, pow(5, 2, -8))
 
-    assert_equal(pow(3,3) % 8, pow(3,3,8))
-    assert_equal(pow(3,3) % -8, pow(3,3,-8))
-    assert_equal(pow(3,2) % -2, pow(3,2,-2))
-    assert_equal(pow(-3,3) % 8, pow(-3,3,8))
-    assert_equal(pow(-3,3) % -8, pow(-3,3,-8))
-    assert_equal(pow(5,2) % -8, pow(5,2,-8))
+    assert_equal(pow(3, 3) % 8, pow(3, 3, 8))
+    assert_equal(pow(3, 3) % -8, pow(3, 3, -8))
+    assert_equal(pow(3, 2) % -2, pow(3, 2, -2))
+    assert_equal(pow(-3, 3) % 8, pow(-3, 3, 8))
+    assert_equal(pow(-3, 3) % -8, pow(-3, 3, -8))
+    assert_equal(pow(5, 2) % -8, pow(5, 2, -8))
 
     for i in range(-10, 11):
         for j in range(0, 6):
             for k in range(-7, 11):
                 if j >= 0 and k != 0:
-                    assert_equal(
-                        pow(i,j) % k,
-                        pow(i,j,k)
-                    )
+                    assert_equal(pow(i, j) % k, pow(i, j, k))
                 if j >= 0 and k != 0:
-                    assert_equal(
-                        pow(int(i),j) % k,
-                        pow(int(i),j,k)
-                    )
+                    assert_equal(pow(int(i), j) % k, pow(int(i), j, k))
 
 
 def test_bug643260():
     class TestRpow:
         def __rpow__(self, other):
             return None
-    None ** TestRpow() # Won't fail when __rpow__ invoked.  SF bug #643260.
+
+    None ** TestRpow()  # Won't fail when __rpow__ invoked.  SF bug #643260.
 
 
 def test_bug705231():
@@ -141,15 +133,15 @@ def test_bug705231():
     for b in range(-10, 11):
         eq(pow(a, float(b)), b & 1 and -1.0 or 1.0)
     for n in range(0, 100):
-        fiveto = float(5 ** n)
+        fiveto = float(5**n)
         # For small n, fiveto will be odd.  Eventually we run out of
         # mantissa bits, though, and thereafer fiveto will be even.
         expected = fiveto % 2.0 and -1.0 or 1.0
         eq(pow(a, fiveto), expected)
         eq(pow(a, -fiveto), expected)
-    eq(expected, 1.0)   # else we didn't push fiveto to evenness
+    eq(expected, 1.0)  # else we didn't push fiveto to evenness
 
 
-tests = [f for name, f in locals().items() if name.startswith('test_')]
+tests = [f for name, f in locals().items() if name.startswith("test_")]
 for f in tests:
     f()

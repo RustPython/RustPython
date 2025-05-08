@@ -71,4 +71,4 @@ assert 1_2.3_4 == 12.34
 assert 1_2.3_4e0_0 == 12.34
 
 with assert_raises(SyntaxError):
-    eval('1__2')
+    eval("1__2")

@@ -1,6 +1,7 @@
 class MyObject:
     pass
 
+
 assert not MyObject() == MyObject()
 assert MyObject() != MyObject()
 myobj = MyObject()
@@ -21,8 +22,8 @@ obj = MyObject()
 assert obj.__eq__(obj) is True
 assert obj.__ne__(obj) is False
 
-assert not hasattr(obj, 'a')
-obj.__dict__ = {'a': 1}
+assert not hasattr(obj, "a")
+obj.__dict__ = {"a": 1}
 assert obj.a == 1
 
 # Value inside the formatter goes through a different path of resolution.

@@ -1,12 +1,17 @@
-list1 = ["a", "b",]
+list1 = [
+    "a",
+    "b",
+]
 list2 = [
     "a",
     "b",
 ]
 assert list1 == list2
 
-dict1 = {"a": "b",}
+dict1 = {
+    "a": "b",
+}
 dict2 = {
     "a": "b",
 }
-#assert dict1 == dict2
+# assert dict1 == dict2

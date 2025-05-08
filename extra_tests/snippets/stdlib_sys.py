@@ -4,23 +4,28 @@ import subprocess
 
 from testutils import assert_raises
 
-print('python executable:', sys.executable)
+print("python executable:", sys.executable)
 print(sys.argv)
-assert sys.argv[0].endswith('.py')
+assert sys.argv[0].endswith(".py")
 
-assert sys.platform == "linux" or sys.platform == "darwin" or sys.platform == "win32" or sys.platform == "unknown"
+assert (
+    sys.platform == "linux"
+    or sys.platform == "darwin"
+    or sys.platform == "win32"
+    or sys.platform == "unknown"
+)
 
 if hasattr(sys, "_framework"):
     assert type(sys._framework) is str
 
 assert isinstance(sys.builtin_module_names, tuple)
-assert 'sys' in sys.builtin_module_names
+assert "sys" in sys.builtin_module_names
 
 assert isinstance(sys.implementation.name, str)
 assert isinstance(sys.implementation.cache_tag, str)
 
-assert sys.getfilesystemencoding() == 'utf-8'
-assert sys.getfilesystemencodeerrors().startswith('surrogate')
+assert sys.getfilesystemencoding() == "utf-8"
+assert sys.getfilesystemencodeerrors().startswith("surrogate")
 
 assert sys.byteorder == "little" or sys.byteorder == "big"
 
@@ -35,14 +40,17 @@ assert sys.maxunicode == 1114111
 
 events = []
 
+
 def trc(frame, event, arg):
     fn_name = frame.f_code.co_name
     events.append((fn_name, event, arg))
-    print('trace event:', fn_name, event, arg)
+    print("trace event:", fn_name, event, arg)
+
 
 def demo(x):
     if x > 0:
         demo(x - 1)
+
 
 sys.settrace(trc)
 demo(5)
@@ -53,7 +61,7 @@ assert ("demo", "call", None) in events
 assert sys.exc_info() == (None, None, None)
 
 try:
-    1/0
+    1 / 0
 except ZeroDivisionError as exc:
     exc_info = sys.exc_info()
     assert exc_info[0] == type(exc) == ZeroDivisionError
@@ -62,9 +70,11 @@ except ZeroDivisionError as exc:
 
 # Recursion:
 
+
 def recursive_call(n):
     if n > 0:
         recursive_call(n - 1)
+
 
 sys.setrecursionlimit(200)
 assert sys.getrecursionlimit() == 200
@@ -74,11 +84,25 @@ with assert_raises(RecursionError):
 
 if sys.platform.startswith("win"):
     winver = sys.getwindowsversion()
-    print(f'winver: {winver} {winver.platform_version}')
+    print(f"winver: {winver} {winver.platform_version}")
 
     # the biggest value of wSuiteMask (https://docs.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-osversioninfoexa#members).
-    all_masks = 0x00000004 | 0x00000400 | 0x00004000 | 0x00000080 | 0x00000002 | 0x00000040 | 0x00000200 | \
-        0x00000100 | 0x00000001 | 0x00000020 | 0x00002000 | 0x00000010 | 0x00008000 | 0x00020000
+    all_masks = (
+        0x00000004
+        | 0x00000400
+        | 0x00004000
+        | 0x00000080
+        | 0x00000002
+        | 0x00000040
+        | 0x00000200
+        | 0x00000100
+        | 0x00000001
+        | 0x00000020
+        | 0x00002000
+        | 0x00000010
+        | 0x00008000
+        | 0x00020000
+    )
 
     # We really can't test if the results are correct, so it just checks for meaningful value
     assert winver.major > 6
@@ -112,18 +136,14 @@ assert sys.get_int_max_str_digits() == 1000
 # Test the PYTHONSAFEPATH environment variable
 code = "import sys; print(sys.flags.safe_path)"
 env = dict(os.environ)
-env.pop('PYTHONSAFEPATH', None)
-args = (sys.executable, '-P', '-c', code)
+env.pop("PYTHONSAFEPATH", None)
+args = (sys.executable, "-P", "-c", code)
 
-proc = subprocess.run(
-    args, stdout=subprocess.PIPE,
-    universal_newlines=True, env=env)
-assert proc.stdout.rstrip() == 'True', proc
+proc = subprocess.run(args, stdout=subprocess.PIPE, universal_newlines=True, env=env)
+assert proc.stdout.rstrip() == "True", proc
 assert proc.returncode == 0, proc
 
-env['PYTHONSAFEPATH'] = '1'
-proc = subprocess.run(
-    args, stdout=subprocess.PIPE,
-    universal_newlines=True, env=env)
-assert proc.stdout.rstrip() == 'True'
+env["PYTHONSAFEPATH"] = "1"
+proc = subprocess.run(args, stdout=subprocess.PIPE, universal_newlines=True, env=env)
+assert proc.stdout.rstrip() == "True"
 assert proc.returncode == 0, proc

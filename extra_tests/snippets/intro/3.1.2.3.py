@@ -1,1 +1,1 @@
-print('C:\some\name')
+print("C:\some\name")

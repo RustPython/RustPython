@@ -1,11 +1,12 @@
 import unittest
 import marshal
 
+
 class MarshalTests(unittest.TestCase):
     """
     Testing the (incomplete) marshal module.
     """
-    
+
     def dump_then_load(self, data):
         return marshal.loads(marshal.dumps(data))
 
@@ -34,7 +35,7 @@ class MarshalTests(unittest.TestCase):
     def test_marshal_list(self):
         self._test_marshal([])
         self._test_marshal([1, "hello", 1.0])
-        self._test_marshal([[0], ['a','b']])
+        self._test_marshal([[0], ["a", "b"]])
 
     def test_marshal_tuple(self):
         self._test_marshal(())
@@ -42,31 +43,31 @@ class MarshalTests(unittest.TestCase):
 
     def test_marshal_dict(self):
         self._test_marshal({})
-        self._test_marshal({'a':1, 1:'a'})
-        self._test_marshal({'a':{'b':2}, 'c':[0.0, 4.0, 6, 9]})
-    
+        self._test_marshal({"a": 1, 1: "a"})
+        self._test_marshal({"a": {"b": 2}, "c": [0.0, 4.0, 6, 9]})
+
     def test_marshal_set(self):
         self._test_marshal(set())
         self._test_marshal({1, 2, 3})
-        self._test_marshal({1, 'a', 'b'})
+        self._test_marshal({1, "a", "b"})
 
     def test_marshal_frozen_set(self):
         self._test_marshal(frozenset())
         self._test_marshal(frozenset({1, 2, 3}))
-        self._test_marshal(frozenset({1, 'a', 'b'}))
+        self._test_marshal(frozenset({1, "a", "b"}))
 
     def test_marshal_bytearray(self):
         self.assertEqual(
             self.dump_then_load(bytearray([])),
-            bytearray(b''),
+            bytearray(b""),
         )
         self.assertEqual(
             self.dump_then_load(bytearray([1, 2])),
-            bytearray(b'\x01\x02'),
+            bytearray(b"\x01\x02"),
         )
 
     def test_roundtrip(self):
-        orig = compile("1 + 1", "", 'eval')
+        orig = compile("1 + 1", "", "eval")
 
         dumped = marshal.dumps(orig)
         loaded = marshal.loads(dumped)
