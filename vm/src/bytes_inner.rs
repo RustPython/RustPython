@@ -364,11 +364,18 @@ impl PyBytesInner {
     }
 
     pub fn isspace(&self) -> bool {
+        // What CPython considers whitespace is a bit different from what Rust.
+        // In particular, Rust does not consider vertical tabulation (\x0B) to be a whitespace.
+        // See https://docs.python.org/3/library/stdtypes.html#bytearray.isspace
+        // See https://doc.rust-lang.org/std/primitive.char.html#method.is_ascii_whitespace
+        // Note that str.isspace uses a different definition too.
+        // See https://docs.python.org/3/library/stdtypes.html#str.isspace
         !self.elements.is_empty()
             && self
                 .elements
                 .iter()
-                .all(|x| char::from(*x).is_ascii_whitespace())
+                .map(|c| char::from(*c))
+                .all(|c| c.is_ascii_whitespace() || c == '\x0b')
     }
 
     pub fn istitle(&self) -> bool {
@@ -376,31 +383,23 @@ impl PyBytesInner {
             return false;
         }
 
-        let mut iter = self.elements.iter().peekable();
-        let mut prev_cased = false;
-
-        while let Some(c) = iter.next() {
-            let current = char::from(*c);
-            let next = if let Some(k) = iter.peek() {
-                char::from(**k)
-            } else if current.is_uppercase() {
-                return !prev_cased;
-            } else {
-                return prev_cased;
-            };
-
-            let is_cased = current.to_uppercase().next().unwrap() != current
-                || current.to_lowercase().next().unwrap() != current;
-            if (is_cased && next.is_uppercase() && !prev_cased)
-                || (!is_cased && next.is_lowercase())
-            {
-                return false;
-            }
-
-            prev_cased = is_cased;
-        }
-
-        true
+        std::iter::once(&b' ')
+            .chain(self.elements.iter())
+            .zip(self.elements.iter())
+            .map(|(a, b)| (char::from(*a), char::from(*b)))
+            .all(|(prev, current)| {
+                if prev.is_alphabetic() && current.is_alphabetic() {
+                    !current.is_ascii_uppercase()
+                } else if prev.is_alphabetic() {
+                    current.is_ascii_whitespace()
+                        || current.is_numeric()
+                        || [',', '!'].contains(&current)
+                } else if prev.is_ascii_whitespace() {
+                    current.is_ascii_uppercase() || current.is_numeric()
+                } else {
+                    true
+                }
+            })
     }
 
     pub fn lower(&self) -> Vec<u8> {
