@@ -79,6 +79,7 @@ opt-level = 3
 lto = "thin"
 
 [patch.crates-io]
+radium = { version = "1.1.0", git = "https://github.com/youknowone/ferrilab", branch = "fix-nightly" }
 # REDOX START, Uncomment when you want to compile/check with redoxer
 # REDOX END
 
@@ -186,6 +187,7 @@ paste = "1.0.15"
 proc-macro2 = "1.0.93"
 pymath = "0.0.2"
 quote = "1.0.38"
+radium = "1.1"
 rand = "0.9"
 rand_core = { version = "0.9", features = ["os_rng"] }
 rustix = { version = "1.0", features = ["event"] }
