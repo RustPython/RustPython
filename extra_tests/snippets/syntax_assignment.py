@@ -41,12 +41,14 @@ assert b == []
 assert c == 2
 assert d == 3
 
-a, = [1]
+(a,) = [1]
 assert a == 1
+
 
 def g():
     yield 1337
     yield 42
+
 
 a, b = g()
 assert a == 1337
@@ -59,14 +61,16 @@ b: bool = False
 assert a == 1337
 assert b == False
 
-assert __annotations__['a'] == bool
+assert __annotations__["a"] == bool
 
 n = 0
+
 
 def a():
     global n
     n += 1
     return [0]
+
 
 a()[0] += 1
 
