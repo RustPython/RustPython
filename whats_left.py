@@ -1,4 +1,7 @@
 #!/usr/bin/env -S python3 -I
+# /// script
+# requires-python = ">=3.13"
+# ///
 
 # This script generates Lib/snippets/whats_left_data.py with these variables defined:
 # expected_methods - a dictionary mapping builtin objects to their methods
