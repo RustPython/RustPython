@@ -333,7 +333,7 @@ mod _lzma {
             filter_specs: Option<Vec<PyObjectRef>>,
             vm: &VirtualMachine,
         ) -> PyResult<Stream> {
-            if let Some(filter_specs) = filter_specs {
+            if let Some(_filter_specs) = filter_specs {
                 Err(new_lzma_error(
                     "TODO: RUSTPYTHON: LZMA: Alone filter specs",
                     vm,
