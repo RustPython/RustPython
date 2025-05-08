@@ -31,6 +31,9 @@ mod zlib {
         Z_NO_COMPRESSION, Z_NO_FLUSH, Z_PARTIAL_FLUSH, Z_RLE, Z_SYNC_FLUSH, Z_TREES,
     };
 
+    #[pyattr(name = "__version__")]
+    const __VERSION__: &str = "1.0";
+
     // we're statically linking libz-rs, so the compile-time and runtime
     // versions will always be the same
     #[pyattr(name = "ZLIB_RUNTIME_VERSION")]
