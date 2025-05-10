@@ -600,6 +600,18 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     _ => Err(JitCompileError::BadBytecode),
                 }
             }
+            Instruction::Nop => Ok(()),
+            Instruction::Swap { index } => {
+                let len = self.stack.len();
+                let i = len - 1;
+                let j = len - 1 - index.get(arg) as usize;
+                self.stack.swap(i, j);
+                Ok(())
+            }
+            Instruction::Pop => {
+                self.stack.pop();
+                Ok(())
+            }
             _ => Err(JitCompileError::NotSupported),
         }
     }
