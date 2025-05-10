@@ -20,7 +20,7 @@ use num_complex::Complex64;
 use num_traits::{Signed, ToPrimitive, Zero};
 use rustpython_common::int::float_to_ratio;
 
-#[pyclass(module = false, name = "float")]
+#[pyclass(module = false, name = "float", ctx = float_type)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct PyFloat {
     value: f64,
@@ -29,12 +29,6 @@ pub struct PyFloat {
 impl PyFloat {
     pub fn to_f64(&self) -> f64 {
         self.value
-    }
-}
-
-impl PyPayload for PyFloat {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.float_type
     }
 }
 

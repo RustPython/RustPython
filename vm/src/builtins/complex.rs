@@ -1,4 +1,4 @@
-use super::{PyStr, PyType, PyTypeRef, float};
+use super::{PyStr, PyTypeRef, float};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -21,7 +21,7 @@ use std::num::Wrapping;
 /// Create a complex number from a real part and an optional imaginary part.
 ///
 /// This is equivalent to (real + imag*1j) where imag defaults to 0.
-#[pyclass(module = false, name = "complex")]
+#[pyclass(module = false, name = "complex", ctx = complex_type)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct PyComplex {
     value: Complex64,
@@ -30,12 +30,6 @@ pub struct PyComplex {
 impl PyComplex {
     pub fn to_complex64(self) -> Complex64 {
         self.value
-    }
-}
-
-impl PyPayload for PyComplex {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.complex_type
     }
 }
 

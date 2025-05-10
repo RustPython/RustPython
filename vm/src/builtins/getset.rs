@@ -9,7 +9,7 @@ use crate::{
     types::{GetDescriptor, Unconstructible},
 };
 
-#[pyclass(module = false, name = "getset_descriptor")]
+#[pyclass(module = false, name = "getset_descriptor", ctx = getset_type)]
 pub struct PyGetSet {
     name: String,
     class: &'static Py<PyType>,
@@ -35,12 +35,6 @@ impl std::fmt::Debug for PyGetSet {
                 "None"
             },
         )
-    }
-}
-
-impl PyPayload for PyGetSet {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.getset_type
     }
 }
 

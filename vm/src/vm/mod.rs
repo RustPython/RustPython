@@ -262,7 +262,7 @@ impl VirtualMachine {
     }
 
     fn import_utf8_encodings(&mut self) -> PyResult<()> {
-        import::import_frozen(self, "codecs")?;
+        thread::enter_vm(self, || import::import_frozen(self, "codecs"))?;
         // FIXME: See corresponding part of `core_frozen_inits`
         // let encoding_module_name = if cfg!(feature = "freeze-stdlib") {
         //     "encodings.utf_8"

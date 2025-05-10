@@ -3,7 +3,7 @@ pub(crate) use _typing::make_module;
 #[pymodule]
 pub(crate) mod _typing {
     use crate::{
-        PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyGenericAlias, PyTupleRef, PyTypeRef, pystr::AsPyStr},
         function::{FuncArgs, IntoFuncArgs},
     };
@@ -27,7 +27,7 @@ pub(crate) mod _typing {
 
     #[pyattr]
     #[pyclass(name = "TypeVar")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     #[allow(dead_code)]
     pub(crate) struct TypeVar {
         name: PyObjectRef, // TODO PyStrRef?
@@ -80,7 +80,7 @@ pub(crate) mod _typing {
 
     #[pyattr]
     #[pyclass(name = "ParamSpec")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     #[allow(dead_code)]
     pub(crate) struct ParamSpec {
         name: PyObjectRef,
@@ -182,7 +182,7 @@ pub(crate) mod _typing {
 
     #[pyattr]
     #[pyclass(name = "TypeVarTuple")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     #[allow(dead_code)]
     pub(crate) struct TypeVarTuple {
         name: PyObjectRef,
@@ -196,7 +196,7 @@ pub(crate) mod _typing {
 
     #[pyattr]
     #[pyclass(name = "ParamSpecArgs")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     #[allow(dead_code)]
     pub(crate) struct ParamSpecArgs {}
     #[pyclass(flags(BASETYPE))]
@@ -204,7 +204,7 @@ pub(crate) mod _typing {
 
     #[pyattr]
     #[pyclass(name = "ParamSpecKwargs")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     #[allow(dead_code)]
     pub(crate) struct ParamSpecKwargs {}
     #[pyclass(flags(BASETYPE))]
@@ -212,7 +212,7 @@ pub(crate) mod _typing {
 
     #[pyattr]
     #[pyclass(name)]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     #[allow(dead_code)]
     pub(crate) struct TypeAliasType {
         name: PyObjectRef, // TODO PyStrRef?
@@ -238,7 +238,7 @@ pub(crate) mod _typing {
 
     #[pyattr]
     #[pyclass(name)]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     #[allow(dead_code)]
     pub(crate) struct Generic {}
 

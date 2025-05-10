@@ -3,13 +3,13 @@ use super::PY_COMPILE_FLAG_AST_ONLY;
 #[pymodule]
 pub(crate) mod _ast {
     use crate::{
-        AsObject, Context, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        AsObject, Context, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyStrRef, PyTupleRef},
         function::FuncArgs,
     };
     #[pyattr]
     #[pyclass(module = "_ast", name = "AST")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     pub(crate) struct NodeAst;
 
     #[pyclass(flags(BASETYPE, HAS_DICT))]

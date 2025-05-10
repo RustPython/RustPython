@@ -10,8 +10,8 @@ use crossbeam_utils::atomic::AtomicCell;
 use rustpython_common::lock::PyRwLock;
 use rustpython_vm::stdlib::ctypes::base::PyCData;
 
-#[pyclass(name = "PyCArrayType", base = "PyType", module = "_ctypes")]
-#[derive(PyPayload)]
+#[pyclass(name = "PyCArrayType", base = PyType, module = "_ctypes")]
+#[derive()]
 pub struct PyCArrayType {
     pub(super) inner: PyCArray,
 }
@@ -49,11 +49,11 @@ impl PyCArrayType {}
 
 #[pyclass(
     name = "Array",
-    base = "PyCData",
+    base = PyCData,
     metaclass = "PyCArrayType",
     module = "_ctypes"
 )]
-#[derive(PyPayload)]
+#[derive()]
 pub struct PyCArray {
     pub(super) typ: PyRwLock<PyTypeRef>,
     pub(super) length: AtomicCell<usize>,

@@ -2,7 +2,7 @@
  * iterator types
  */
 
-use super::{PyInt, PyTupleRef, PyType};
+use super::{PyInt, PyTupleRef};
 use crate::{
     Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -174,19 +174,13 @@ pub fn builtins_reversed(vm: &VirtualMachine) -> &PyObject {
     INSTANCE.get_or_init(|| vm.builtins.get_attr("reversed", vm).unwrap())
 }
 
-#[pyclass(module = false, name = "iterator", traverse)]
+#[pyclass(module = false, name = "iterator", traverse, ctx = iter_type)]
 #[derive(Debug)]
 pub struct PySequenceIterator {
     // cached sequence methods
     #[pytraverse(skip)]
     seq_methods: &'static PySequenceMethods,
     internal: PyMutex<PositionIterInternal<PyObjectRef>>,
-}
-
-impl PyPayload for PySequenceIterator {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.iter_type
-    }
 }
 
 #[pyclass(with(IterNext, Iterable))]
@@ -239,17 +233,11 @@ impl IterNext for PySequenceIterator {
     }
 }
 
-#[pyclass(module = false, name = "callable_iterator", traverse)]
+#[pyclass(module = false, name = "callable_iterator", traverse, ctx = callable_iterator)]
 #[derive(Debug)]
 pub struct PyCallableIterator {
     sentinel: PyObjectRef,
     status: PyRwLock<IterStatus<ArgCallable>>,
-}
-
-impl PyPayload for PyCallableIterator {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.callable_iterator
-    }
 }
 
 #[pyclass(with(IterNext, Iterable))]

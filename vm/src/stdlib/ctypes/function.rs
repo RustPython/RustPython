@@ -125,8 +125,8 @@ impl Function {
     }
 }
 
-#[pyclass(module = "_ctypes", name = "CFuncPtr", base = "PyCData")]
-#[derive(PyPayload)]
+#[pyclass(module = "_ctypes", name = "CFuncPtr", base = PyCData)]
+#[derive()]
 pub struct PyCFuncPtr {
     pub name: PyRwLock<String>,
     pub _flags_: AtomicCell<u32>,
