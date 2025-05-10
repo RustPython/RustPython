@@ -1,0 +1,48 @@
+__future__ Related test is `test_future_stmt`
+abc `_collections_abc.py`
+abc `_py_abc.py`
+code Related test is `test_code_module`
+codecs `_pycodecs.py`
+collections See also #3418
+ctypes #5572
+datetime `_pydatetime.py`
+decimal `_pydecimal.py`
+dis See also #3846
+importlib #4565
+io `_pyio.py`
+io #3960
+io #4702
+locale #3850
+mailbox #4072
+multiprocessing #3965
+os Blocker: Some tests requires async comprehension
+os #3960
+os #4053
+pickle #3876
+pickle `_compat_pickle.py`
+pickle `test/pickletester.py` supports `test_pickle.py`
+pickle `test/test_picklebuffer.py`
+pydoc `pydoc_data`
+queue See also #3608
+re Don't forget sre files `sre_compile.py`, `sre_constants.py`, `sre_parse.py`
+shutil #3960
+site Don't forget `_sitebuiltins.py`
+venv #3960
+warnings #4013
+
+// test
+
+test_array #3876
+test_gc #4158
+test_marshal #3458
+test_mmap #3847
+test_posix #4496
+test_property #3430
+test_set #3992
+test_structseq #4063
+test_super #3865
+test_support #4538
+test_syntax #4469
+test_sys #4541
+test_time #3850
+test_time #4157
