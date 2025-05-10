@@ -37,7 +37,6 @@ def create_string_buffer(init, size=None):
             size = len(init)+1
         _sys.audit("ctypes.create_string_buffer", init, size)
         buftype = c_char.__mul__(size)
-        print(type(c_char.__mul__(size)))
         # buftype = c_char * size
         buf = buftype()
         buf.value = init
@@ -269,8 +268,14 @@ cdll = LibraryLoader(CDLL)
 test_byte_array = create_string_buffer(b"Hello, World!\n")
 assert test_byte_array._length_ == 15
 
-if _os.name == "posix" or _sys.platform == "darwin":
-    pass
+if _os.name == "posix":
+    if _sys.platform == "darwin":
+        libc = cdll.LoadLibrary("libc.dylib")
+        libc.rand()
+        i = c_int(1)
+        print("start srand")
+        print(libc.srand(i))
+        print(test_byte_array)
 else:
     import os
 
