@@ -1,4 +1,3 @@
-
 class A:
     pass
 
@@ -49,13 +48,16 @@ assert issubclass(AlwaysSubClass, AlwaysSubClass)
 assert issubclass(InheritedAlwaysSubClass, AlwaysSubClass)
 assert issubclass(AlwaysSubClass, InheritedAlwaysSubClass)
 
+
 class GenericInstance:
     def __subclasscheck__(self, _):
         return True
 
+
 assert issubclass(A, GenericInstance())
 assert issubclass(list, GenericInstance())
 assert issubclass([], GenericInstance())
+
 
 class MCAVirtualSubClass(type):
     def __subclasscheck__(self, subclass):

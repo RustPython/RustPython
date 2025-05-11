@@ -1,8 +1,8 @@
 from testutils import assert_raises
 
-assert (1,2) == (1,2)
+assert (1, 2) == (1, 2)
 
-x = (1,2)
+x = (1, 2)
 assert x[0] == 1
 
 y = (1,)
@@ -19,7 +19,7 @@ assert y < x, "tuple __lt__ failed"
 assert x > y, "tuple __gt__ failed"
 
 
-b = (1,2,3)
+b = (1, 2, 3)
 assert b.index(2) == 1
 
 recursive_list = []
@@ -30,15 +30,17 @@ assert repr(recursive) == "([(...)],)"
 assert (None, "", 1).index(1) == 2
 assert 1 in (None, "", 1)
 
+
 class Foo(object):
     def __eq__(self, x):
         return False
+
 
 foo = Foo()
 assert (foo,) == (foo,)
 
 a = (1, 2, 3)
-a += 1,
+a += (1,)
 assert a == (1, 2, 3, 1)
 
 b = (55, *a)
@@ -80,14 +82,14 @@ assert (0, 0) <= (0, 0)
 assert not (0, 0) > (0, 0)
 assert not (0, 0) < (0, 0)
 
-assert not (float('nan'), float('nan')) <= (float('nan'), 1)
-assert not (float('nan'), float('nan')) <= (float('nan'), float('nan'))
-assert not (float('nan'), float('nan')) >= (float('nan'), float('nan'))
-assert not (float('nan'), float('nan')) < (float('nan'), float('nan'))
-assert not (float('nan'), float('nan')) > (float('nan'), float('nan'))
+assert not (float("nan"), float("nan")) <= (float("nan"), 1)
+assert not (float("nan"), float("nan")) <= (float("nan"), float("nan"))
+assert not (float("nan"), float("nan")) >= (float("nan"), float("nan"))
+assert not (float("nan"), float("nan")) < (float("nan"), float("nan"))
+assert not (float("nan"), float("nan")) > (float("nan"), float("nan"))
 
-assert (float('inf'), float('inf')) >= (float('inf'), 1)
-assert (float('inf'), float('inf')) <= (float('inf'), float('inf'))
-assert (float('inf'), float('inf')) >= (float('inf'), float('inf'))
-assert not (float('inf'), float('inf')) < (float('inf'), float('inf'))
-assert not (float('inf'), float('inf')) > (float('inf'), float('inf'))
+assert (float("inf"), float("inf")) >= (float("inf"), 1)
+assert (float("inf"), float("inf")) <= (float("inf"), float("inf"))
+assert (float("inf"), float("inf")) >= (float("inf"), float("inf"))
+assert not (float("inf"), float("inf")) < (float("inf"), float("inf"))
+assert not (float("inf"), float("inf")) > (float("inf"), float("inf"))

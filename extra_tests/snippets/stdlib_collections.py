@@ -50,7 +50,8 @@ assert not (d != d)
 class BadRepr:
     def __repr__(self):
         self.d.pop()
-        return ''
+        return ""
+
 
 b = BadRepr()
 d = deque([1, b, 2])

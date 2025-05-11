@@ -40,8 +40,10 @@ assert (
 )
 assert repr(bytearray(b"abcd")) == "bytearray(b'abcd')"
 
+
 class B(bytearray):
     pass
+
 
 assert repr(B()) == "B(b'')"
 assert (
@@ -283,9 +285,9 @@ assert bytearray(b"").join(
 ) == bytearray(b"jiljlkmoomkaaaa")
 with assert_raises(TypeError):
     bytearray(b"").join((b"km", "kl"))
-assert bytearray(b"abc").join((
-    bytearray(b"123"), bytearray(b"xyz")
-)) == bytearray(b"123abcxyz")
+assert bytearray(b"abc").join((bytearray(b"123"), bytearray(b"xyz"))) == bytearray(
+    b"123abcxyz"
+)
 
 
 # endswith startswith
@@ -372,16 +374,45 @@ assert bytearray(b"   spacious \n  ").rstrip() == bytearray(b"   spacious")
 assert bytearray(b"mississippi").rstrip(b"ipz") == bytearray(b"mississ")
 
 
-
 # split
-assert bytearray(b"1,2,3").split(bytearray(b",")) == [bytearray(b"1"), bytearray(b"2"), bytearray(b"3")]
-assert bytearray(b"1,2,3").split(bytearray(b","), maxsplit=1) == [bytearray(b"1"), bytearray(b"2,3")]
-assert bytearray(b"1,2,,3,").split(bytearray(b",")) == [bytearray(b"1"), bytearray(b"2"), bytearray(b""), bytearray(b"3"), bytearray(b"")]
-assert bytearray(b"1 2 3").split() == [bytearray(b"1"), bytearray(b"2"), bytearray(b"3")]
+assert bytearray(b"1,2,3").split(bytearray(b",")) == [
+    bytearray(b"1"),
+    bytearray(b"2"),
+    bytearray(b"3"),
+]
+assert bytearray(b"1,2,3").split(bytearray(b","), maxsplit=1) == [
+    bytearray(b"1"),
+    bytearray(b"2,3"),
+]
+assert bytearray(b"1,2,,3,").split(bytearray(b",")) == [
+    bytearray(b"1"),
+    bytearray(b"2"),
+    bytearray(b""),
+    bytearray(b"3"),
+    bytearray(b""),
+]
+assert bytearray(b"1 2 3").split() == [
+    bytearray(b"1"),
+    bytearray(b"2"),
+    bytearray(b"3"),
+]
 assert bytearray(b"1 2 3").split(maxsplit=1) == [bytearray(b"1"), bytearray(b"2 3")]
-assert bytearray(b"   1   2   3   ").split() == [bytearray(b"1"), bytearray(b"2"), bytearray(b"3")]
-assert bytearray(b"k\ruh\nfz e f").split() == [bytearray(b"k"), bytearray(b"uh"), bytearray(b"fz"), bytearray(b"e"), bytearray(b"f")]
-assert bytearray(b"Two lines\n").split(bytearray(b"\n")) == [bytearray(b"Two lines"), bytearray(b"")]
+assert bytearray(b"   1   2   3   ").split() == [
+    bytearray(b"1"),
+    bytearray(b"2"),
+    bytearray(b"3"),
+]
+assert bytearray(b"k\ruh\nfz e f").split() == [
+    bytearray(b"k"),
+    bytearray(b"uh"),
+    bytearray(b"fz"),
+    bytearray(b"e"),
+    bytearray(b"f"),
+]
+assert bytearray(b"Two lines\n").split(bytearray(b"\n")) == [
+    bytearray(b"Two lines"),
+    bytearray(b""),
+]
 assert bytearray(b"").split() == []
 assert bytearray(b"").split(bytearray(b"\n")) == [bytearray(b"")]
 assert bytearray(b"\n").split(bytearray(b"\n")) == [bytearray(b""), bytearray(b"")]
@@ -534,16 +565,21 @@ while n_sp < len(SPLIT_FIXTURES):
     i = SPLIT_FIXTURES[n_sp]
     sep = None if i[1] == None else bytearray(i[1])
     try:
-        assert bytearray(i[0]).split(sep=sep, maxsplit=i[4]) == [bytearray(j) for j in i[2]]
+        assert bytearray(i[0]).split(sep=sep, maxsplit=i[4]) == [
+            bytearray(j) for j in i[2]
+        ]
     except AssertionError:
         print(i[0], i[1], i[2])
         print(
-            "Expected : ", [list(x) for x in bytearray(i[0]).split(sep=sep, maxsplit=i[4])]
+            "Expected : ",
+            [list(x) for x in bytearray(i[0]).split(sep=sep, maxsplit=i[4])],
         )
         break
 
     try:
-        assert bytearray(i[0]).rsplit(sep=sep, maxsplit=i[4]) == [bytearray(j) for j in i[3]]
+        assert bytearray(i[0]).rsplit(sep=sep, maxsplit=i[4]) == [
+            bytearray(j) for j in i[3]
+        ]
     except AssertionError:
         print(i[0], i[1], i[2])
         print(
@@ -557,34 +593,61 @@ while n_sp < len(SPLIT_FIXTURES):
 
 # expandtabs
 a = bytearray(b"\x01\x03\r\x05\t8CYZ\t\x06CYZ\t\x17cba`\n\x12\x13\x14")
-assert (
-    a.expandtabs() == bytearray(b"\x01\x03\r\x05       8CYZ    \x06CYZ    \x17cba`\n\x12\x13\x14")
+assert a.expandtabs() == bytearray(
+    b"\x01\x03\r\x05       8CYZ    \x06CYZ    \x17cba`\n\x12\x13\x14"
 )
-assert a.expandtabs(5) == bytearray(b"\x01\x03\r\x05    8CYZ \x06CYZ \x17cba`\n\x12\x13\x14")
-assert bytearray(b"01\t012\t0123\t01234").expandtabs() == bytearray(b"01      012     0123    01234")
-assert bytearray(b"01\t012\t0123\t01234").expandtabs(4) == bytearray(b"01  012 0123    01234")
+assert a.expandtabs(5) == bytearray(
+    b"\x01\x03\r\x05    8CYZ \x06CYZ \x17cba`\n\x12\x13\x14"
+)
+assert bytearray(b"01\t012\t0123\t01234").expandtabs() == bytearray(
+    b"01      012     0123    01234"
+)
+assert bytearray(b"01\t012\t0123\t01234").expandtabs(4) == bytearray(
+    b"01  012 0123    01234"
+)
 assert bytearray(b"123\t123").expandtabs(-5) == bytearray(b"123123")
 assert bytearray(b"123\t123").expandtabs(0) == bytearray(b"123123")
 
 
 # # partition
-assert bytearray(b"123456789").partition(b"45") == ((b"123"), bytearray(b"45"), bytearray(b"6789"))
-assert bytearray(b"14523456789").partition(b"45") == ((b"1"), bytearray(b"45"), bytearray(b"23456789"))
+assert bytearray(b"123456789").partition(b"45") == (
+    (b"123"),
+    bytearray(b"45"),
+    bytearray(b"6789"),
+)
+assert bytearray(b"14523456789").partition(b"45") == (
+    (b"1"),
+    bytearray(b"45"),
+    bytearray(b"23456789"),
+)
 a = bytearray(b"14523456789").partition(b"45")
 assert isinstance(a[1], bytearray)
 a = bytearray(b"14523456789").partition(memoryview(b"45"))
 assert isinstance(a[1], bytearray)
 
 # partition
-assert bytearray(b"123456789").rpartition(bytearray(b"45")) == ((bytearray(b"123")), bytearray(b"45"), bytearray(b"6789"))
-assert bytearray(b"14523456789").rpartition(bytearray(b"45")) == ((bytearray(b"14523")), bytearray(b"45"), bytearray(b"6789"))
+assert bytearray(b"123456789").rpartition(bytearray(b"45")) == (
+    (bytearray(b"123")),
+    bytearray(b"45"),
+    bytearray(b"6789"),
+)
+assert bytearray(b"14523456789").rpartition(bytearray(b"45")) == (
+    (bytearray(b"14523")),
+    bytearray(b"45"),
+    bytearray(b"6789"),
+)
 a = bytearray(b"14523456789").rpartition(b"45")
 assert isinstance(a[1], bytearray)
 a = bytearray(b"14523456789").rpartition(memoryview(b"45"))
 assert isinstance(a[1], bytearray)
 
 # splitlines
-assert bytearray(b"ab c\n\nde fg\rkl\r\n").splitlines() == [bytearray(b"ab c"), bytearray(b""), bytearray(b"de fg"), bytearray(b"kl")]
+assert bytearray(b"ab c\n\nde fg\rkl\r\n").splitlines() == [
+    bytearray(b"ab c"),
+    bytearray(b""),
+    bytearray(b"de fg"),
+    bytearray(b"kl"),
+]
 assert bytearray(b"ab c\n\nde fg\rkl\r\n").splitlines(keepends=True) == [
     bytearray(b"ab c\n"),
     bytearray(b"\n"),
@@ -602,11 +665,15 @@ assert bytearray(b"42").zfill(1) == bytearray(b"42")
 assert bytearray(b"42").zfill(-1) == bytearray(b"42")
 
 # replace
-assert bytearray(b"123456789123").replace(b"23",b"XX") ==bytearray(b'1XX4567891XX')
-assert bytearray(b"123456789123").replace(b"23",b"XX", 1) ==bytearray(b'1XX456789123')
-assert bytearray(b"123456789123").replace(b"23",b"XX", 0) == bytearray(b"123456789123")
-assert bytearray(b"123456789123").replace(b"23",b"XX", -1) ==bytearray(b'1XX4567891XX')
-assert bytearray(b"123456789123").replace(b"23", bytearray(b"")) == bytearray(b"14567891")
+assert bytearray(b"123456789123").replace(b"23", b"XX") == bytearray(b"1XX4567891XX")
+assert bytearray(b"123456789123").replace(b"23", b"XX", 1) == bytearray(b"1XX456789123")
+assert bytearray(b"123456789123").replace(b"23", b"XX", 0) == bytearray(b"123456789123")
+assert bytearray(b"123456789123").replace(b"23", b"XX", -1) == bytearray(
+    b"1XX4567891XX"
+)
+assert bytearray(b"123456789123").replace(b"23", bytearray(b"")) == bytearray(
+    b"14567891"
+)
 
 
 # clear
@@ -642,25 +709,24 @@ assert a.pop() == 100
 
 # title
 assert bytearray(b"Hello world").title() == bytearray(b"Hello World")
-assert (
-    bytearray(b"they're bill's friends from the UK").title()
-    == bytearray(b"They'Re Bill'S Friends From The Uk")
+assert bytearray(b"they're bill's friends from the UK").title() == bytearray(
+    b"They'Re Bill'S Friends From The Uk"
 )
 
 
 # repeat by multiply
-a = bytearray(b'abcd')
-assert a * 0 == bytearray(b'')
-assert a * -1 == bytearray(b'')
-assert a * 1 == bytearray(b'abcd')
-assert a * 3 == bytearray(b'abcdabcdabcd')
-assert 3 * a == bytearray(b'abcdabcdabcd')
+a = bytearray(b"abcd")
+assert a * 0 == bytearray(b"")
+assert a * -1 == bytearray(b"")
+assert a * 1 == bytearray(b"abcd")
+assert a * 3 == bytearray(b"abcdabcdabcd")
+assert 3 * a == bytearray(b"abcdabcdabcd")
 
-a = bytearray(b'abcd')
+a = bytearray(b"abcd")
 a.__imul__(3)
-assert a == bytearray(b'abcdabcdabcd')
+assert a == bytearray(b"abcdabcdabcd")
 a.__imul__(0)
-assert a == bytearray(b'')
+assert a == bytearray(b"")
 
 
 # copy
@@ -696,70 +762,89 @@ assert a == bytearray(b"owhello, worlwdo"), a
 
 
 # remove
-a = bytearray(b'abcdabcd')
+a = bytearray(b"abcdabcd")
 a.remove(99)  # the letter c
 # Only the first is removed
-assert a == bytearray(b'abdabcd')
+assert a == bytearray(b"abdabcd")
 
 
 # reverse
-a = bytearray(b'hello, world')
+a = bytearray(b"hello, world")
 a.reverse()
-assert a == bytearray(b'dlrow ,olleh')
+assert a == bytearray(b"dlrow ,olleh")
 
 # __setitem__
-a = bytearray(b'test')
+a = bytearray(b"test")
 a[0] = 1
-assert a == bytearray(b'\x01est')
+assert a == bytearray(b"\x01est")
 with assert_raises(TypeError):
-    a[0] = b'a'
+    a[0] = b"a"
 with assert_raises(TypeError):
-    a[0] = memoryview(b'a')
+    a[0] = memoryview(b"a")
 a[:2] = [0, 9]
-assert a == bytearray(b'\x00\x09st')
-a[1:3] = b'test'
-assert a == bytearray(b'\x00testt')
-a[:6] = memoryview(b'test')
-assert a == bytearray(b'test')
+assert a == bytearray(b"\x00\x09st")
+a[1:3] = b"test"
+assert a == bytearray(b"\x00testt")
+a[:6] = memoryview(b"test")
+assert a == bytearray(b"test")
 
 # mod
-assert bytearray('rust%bpython%b', 'utf-8') % (b' ', b'!') == bytearray(b'rust python!')
-assert bytearray('x=%i y=%f', 'utf-8') % (1, 2.5) == bytearray(b'x=1 y=2.500000')
+assert bytearray("rust%bpython%b", "utf-8") % (b" ", b"!") == bytearray(b"rust python!")
+assert bytearray("x=%i y=%f", "utf-8") % (1, 2.5) == bytearray(b"x=1 y=2.500000")
 
 # eq, ne
-a = bytearray(b'hello, world')
+a = bytearray(b"hello, world")
 b = a.copy()
 assert a.__ne__(b) is False
-b = bytearray(b'my bytearray')
+b = bytearray(b"my bytearray")
 assert a.__ne__(b) is True
 
 # pickle
-a = bytearray(b'\xffab\x80\0\0\370\0\0')
-assert pickle.dumps(a, 0) == b'c__builtin__\nbytearray\np0\n(c_codecs\nencode\np1\n(V\xffab\x80\\u0000\\u0000\xf8\\u0000\\u0000\np2\nVlatin1\np3\ntp4\nRp5\ntp6\nRp7\n.'
-assert pickle.dumps(a, 1) == b'c__builtin__\nbytearray\nq\x00(c_codecs\nencode\nq\x01(X\x0c\x00\x00\x00\xc3\xbfab\xc2\x80\x00\x00\xc3\xb8\x00\x00q\x02X\x06\x00\x00\x00latin1q\x03tq\x04Rq\x05tq\x06Rq\x07.'
-assert pickle.dumps(a, 2) == b'\x80\x02c__builtin__\nbytearray\nq\x00c_codecs\nencode\nq\x01X\x0c\x00\x00\x00\xc3\xbfab\xc2\x80\x00\x00\xc3\xb8\x00\x00q\x02X\x06\x00\x00\x00latin1q\x03\x86q\x04Rq\x05\x85q\x06Rq\x07.'
-assert pickle.dumps(a, 3) == b'\x80\x03cbuiltins\nbytearray\nq\x00C\t\xffab\x80\x00\x00\xf8\x00\x00q\x01\x85q\x02Rq\x03.'
-assert pickle.dumps(a, 4) == b'\x80\x04\x95*\x00\x00\x00\x00\x00\x00\x00\x8c\x08builtins\x94\x8c\tbytearray\x94\x93\x94C\t\xffab\x80\x00\x00\xf8\x00\x00\x94\x85\x94R\x94.'
+a = bytearray(b"\xffab\x80\0\0\370\0\0")
+assert (
+    pickle.dumps(a, 0)
+    == b"c__builtin__\nbytearray\np0\n(c_codecs\nencode\np1\n(V\xffab\x80\\u0000\\u0000\xf8\\u0000\\u0000\np2\nVlatin1\np3\ntp4\nRp5\ntp6\nRp7\n."
+)
+assert (
+    pickle.dumps(a, 1)
+    == b"c__builtin__\nbytearray\nq\x00(c_codecs\nencode\nq\x01(X\x0c\x00\x00\x00\xc3\xbfab\xc2\x80\x00\x00\xc3\xb8\x00\x00q\x02X\x06\x00\x00\x00latin1q\x03tq\x04Rq\x05tq\x06Rq\x07."
+)
+assert (
+    pickle.dumps(a, 2)
+    == b"\x80\x02c__builtin__\nbytearray\nq\x00c_codecs\nencode\nq\x01X\x0c\x00\x00\x00\xc3\xbfab\xc2\x80\x00\x00\xc3\xb8\x00\x00q\x02X\x06\x00\x00\x00latin1q\x03\x86q\x04Rq\x05\x85q\x06Rq\x07."
+)
+assert (
+    pickle.dumps(a, 3)
+    == b"\x80\x03cbuiltins\nbytearray\nq\x00C\t\xffab\x80\x00\x00\xf8\x00\x00q\x01\x85q\x02Rq\x03."
+)
+assert (
+    pickle.dumps(a, 4)
+    == b"\x80\x04\x95*\x00\x00\x00\x00\x00\x00\x00\x8c\x08builtins\x94\x8c\tbytearray\x94\x93\x94C\t\xffab\x80\x00\x00\xf8\x00\x00\x94\x85\x94R\x94."
+)
+
 
 # pickle with subclass
 class A(bytes):
     pass
 
+
 a = A()
 a.x = 10
-a.y = A(b'123')
+a.y = A(b"123")
 b = pickle.loads(pickle.dumps(a, 4))
 assert type(a) == type(b)
 assert a.x == b.x
 assert a.y == b.y
 assert a == b
 
+
 class B(bytearray):
     pass
 
+
 a = B()
 a.x = 10
-a.y = B(b'123')
+a.y = B(b"123")
 b = pickle.loads(pickle.dumps(a, 4))
 assert type(a) == type(b)
 assert a.x == b.x
@@ -768,4 +853,6 @@ assert a == b
 
 a = bytearray()
 for i in range(-1, 2, 1):
-    assert_raises(IndexError, lambda: a[-sys.maxsize - i], _msg='bytearray index out of range')
+    assert_raises(
+        IndexError, lambda: a[-sys.maxsize - i], _msg="bytearray index out of range"
+    )

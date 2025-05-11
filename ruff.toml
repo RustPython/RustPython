@@ -9,6 +9,8 @@ exclude = [
     "Lib",
     "vm/Lib",
     "benches",
+    "syntax_*.py", # Do not format files that are specifically testing for syntax
+    "badsyntax_*.py",
 ]
 
 [lint]

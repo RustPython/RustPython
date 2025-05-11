@@ -42,23 +42,27 @@ def perform_test(filename, method, test_type):
 
 
 def run_via_cpython(filename):
-    """ Simply invoke python itself on the script """
+    """Simply invoke python itself on the script"""
     env = os.environ.copy()
     subprocess.check_call([sys.executable, filename], env=env)
 
-RUSTPYTHON_BINARY = os.environ.get("RUSTPYTHON") or os.path.join(ROOT_DIR, "target/release/rustpython")
+
+RUSTPYTHON_BINARY = os.environ.get("RUSTPYTHON") or os.path.join(
+    ROOT_DIR, "target/release/rustpython"
+)
 RUSTPYTHON_BINARY = os.path.abspath(RUSTPYTHON_BINARY)
+
 
 def run_via_rustpython(filename, test_type):
     env = os.environ.copy()
-    env['RUST_LOG'] = 'info,cargo=error,jobserver=error'
-    env['RUST_BACKTRACE'] = '1'
+    env["RUST_LOG"] = "info,cargo=error,jobserver=error"
+    env["RUST_BACKTRACE"] = "1"
 
     subprocess.check_call([RUSTPYTHON_BINARY, filename], env=env)
 
 
 def create_test_function(cls, filename, method, test_type):
-    """ Create a test function for a single snippet """
+    """Create a test function for a single snippet"""
     core_test_directory, snippet_filename = os.path.split(filename)
     test_function_name = "test_{}_".format(method) + os.path.splitext(snippet_filename)[
         0
@@ -74,7 +78,7 @@ def create_test_function(cls, filename, method, test_type):
 
 def populate(method):
     def wrapper(cls):
-        """ Decorator function which can populate a unittest.TestCase class """
+        """Decorator function which can populate a unittest.TestCase class"""
         for test_type, filename in get_test_files():
             create_test_function(cls, filename, method, test_type)
         return cls
@@ -83,7 +87,7 @@ def populate(method):
 
 
 def get_test_files():
-    """ Retrieve test files """
+    """Retrieve test files"""
     for test_type, test_dir in TEST_DIRS.items():
         for filepath in sorted(glob.iglob(os.path.join(test_dir, "*.py"))):
             filename = os.path.split(filepath)[1]
@@ -122,7 +126,9 @@ class SampleTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Here add resource files
-        cls.slices_resource_path = Path(TEST_DIRS[_TestType.functional]) / "cpython_generated_slices.py"
+        cls.slices_resource_path = (
+            Path(TEST_DIRS[_TestType.functional]) / "cpython_generated_slices.py"
+        )
         if cls.slices_resource_path.exists():
             cls.slices_resource_path.unlink()
 

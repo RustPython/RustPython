@@ -12,13 +12,13 @@ assert list(chain()) == []
 assert list(chain([], "", b"", ())) == []
 
 assert list(chain([1, 2, 3, 4])) == [1, 2, 3, 4]
-assert list(chain("ab", "cd", (), 'e')) == ['a', 'b', 'c', 'd', 'e']
+assert list(chain("ab", "cd", (), "e")) == ["a", "b", "c", "d", "e"]
 with assert_raises(TypeError):
     list(chain(1))
 
 x = chain("ab", 1)
-assert next(x) == 'a'
-assert next(x) == 'b'
+assert next(x) == "a"
+assert next(x) == "b"
 with assert_raises(TypeError):
     next(x)
 
@@ -37,17 +37,17 @@ with assert_raises(TypeError):
     list(chain(1))
 
 args = ["abc", "def"]
-assert list(chain.from_iterable(args)) == ['a', 'b', 'c', 'd', 'e', 'f']
+assert list(chain.from_iterable(args)) == ["a", "b", "c", "d", "e", "f"]
 
 args = [[], "", b"", ()]
 assert list(chain.from_iterable(args)) == []
 
-args = ["ab", "cd", (), 'e']
-assert list(chain.from_iterable(args)) == ['a', 'b', 'c', 'd', 'e']
+args = ["ab", "cd", (), "e"]
+assert list(chain.from_iterable(args)) == ["a", "b", "c", "d", "e"]
 
 x = chain.from_iterable(["ab", 1])
-assert next(x) == 'a'
-assert next(x) == 'b'
+assert next(x) == "a"
+assert next(x) == "b"
 with assert_raises(TypeError):
     next(x)
 
@@ -174,16 +174,17 @@ with assert_raises(StopIteration):
 # itertools.starmap tests
 starmap = itertools.starmap
 
-assert list(starmap(pow, zip(range(3), range(1,7)))) ==  [0**1, 1**2, 2**3]
+assert list(starmap(pow, zip(range(3), range(1, 7)))) == [0**1, 1**2, 2**3]
 assert list(starmap(pow, [])) == []
-assert list(starmap(pow, [iter([4,5])])) == [4**5]
+assert list(starmap(pow, [iter([4, 5])])) == [4**5]
 with assert_raises(TypeError):
     starmap(pow)
 
 
 # itertools.takewhile tests
 def underten(x):
-    return x<10
+    return x < 10
+
 
 from itertools import takewhile as tw
 
@@ -227,12 +228,30 @@ with assert_raises(StopIteration):
     next(t)
 
 it = tw(underten, [1, 3, 5, 20, 2, 4, 6, 8])
-assert pickle.dumps(it, 0) == b'citertools\ntakewhile\np0\n(c__main__\nunderten\np1\nc__builtin__\niter\np2\n((lp3\nI1\naI3\naI5\naI20\naI2\naI4\naI6\naI8\natp4\nRp5\nI0\nbtp6\nRp7\nI0\nb.'
-assert pickle.dumps(it, 1) == b'citertools\ntakewhile\nq\x00(c__main__\nunderten\nq\x01c__builtin__\niter\nq\x02(]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08etq\x04Rq\x05K\x00btq\x06Rq\x07K\x00b.'
-assert pickle.dumps(it, 2) == b'\x80\x02citertools\ntakewhile\nq\x00c__main__\nunderten\nq\x01c__builtin__\niter\nq\x02]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85q\x04Rq\x05K\x00b\x86q\x06Rq\x07K\x00b.'
-assert pickle.dumps(it, 3) == b'\x80\x03citertools\ntakewhile\nq\x00c__main__\nunderten\nq\x01cbuiltins\niter\nq\x02]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85q\x04Rq\x05K\x00b\x86q\x06Rq\x07K\x00b.'
-assert pickle.dumps(it, 4) == b'\x80\x04\x95i\x00\x00\x00\x00\x00\x00\x00\x8c\titertools\x94\x8c\ttakewhile\x94\x93\x94\x8c\x08__main__\x94\x8c\x08underten\x94\x93\x94\x8c\x08builtins\x94\x8c\x04iter\x94\x93\x94]\x94(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85\x94R\x94K\x00b\x86\x94R\x94K\x00b.'
-assert pickle.dumps(it, 5) == b'\x80\x05\x95i\x00\x00\x00\x00\x00\x00\x00\x8c\titertools\x94\x8c\ttakewhile\x94\x93\x94\x8c\x08__main__\x94\x8c\x08underten\x94\x93\x94\x8c\x08builtins\x94\x8c\x04iter\x94\x93\x94]\x94(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85\x94R\x94K\x00b\x86\x94R\x94K\x00b.'
+assert (
+    pickle.dumps(it, 0)
+    == b"citertools\ntakewhile\np0\n(c__main__\nunderten\np1\nc__builtin__\niter\np2\n((lp3\nI1\naI3\naI5\naI20\naI2\naI4\naI6\naI8\natp4\nRp5\nI0\nbtp6\nRp7\nI0\nb."
+)
+assert (
+    pickle.dumps(it, 1)
+    == b"citertools\ntakewhile\nq\x00(c__main__\nunderten\nq\x01c__builtin__\niter\nq\x02(]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08etq\x04Rq\x05K\x00btq\x06Rq\x07K\x00b."
+)
+assert (
+    pickle.dumps(it, 2)
+    == b"\x80\x02citertools\ntakewhile\nq\x00c__main__\nunderten\nq\x01c__builtin__\niter\nq\x02]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85q\x04Rq\x05K\x00b\x86q\x06Rq\x07K\x00b."
+)
+assert (
+    pickle.dumps(it, 3)
+    == b"\x80\x03citertools\ntakewhile\nq\x00c__main__\nunderten\nq\x01cbuiltins\niter\nq\x02]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85q\x04Rq\x05K\x00b\x86q\x06Rq\x07K\x00b."
+)
+assert (
+    pickle.dumps(it, 4)
+    == b"\x80\x04\x95i\x00\x00\x00\x00\x00\x00\x00\x8c\titertools\x94\x8c\ttakewhile\x94\x93\x94\x8c\x08__main__\x94\x8c\x08underten\x94\x93\x94\x8c\x08builtins\x94\x8c\x04iter\x94\x93\x94]\x94(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85\x94R\x94K\x00b\x86\x94R\x94K\x00b."
+)
+assert (
+    pickle.dumps(it, 5)
+    == b"\x80\x05\x95i\x00\x00\x00\x00\x00\x00\x00\x8c\titertools\x94\x8c\ttakewhile\x94\x93\x94\x8c\x08__main__\x94\x8c\x08underten\x94\x93\x94\x8c\x08builtins\x94\x8c\x04iter\x94\x93\x94]\x94(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85\x94R\x94K\x00b\x86\x94R\x94K\x00b."
+)
 next(it)
 next(it)
 next(it)
@@ -240,12 +259,30 @@ try:
     next(it)
 except StopIteration:
     pass
-assert pickle.dumps(it, 0) == b'citertools\ntakewhile\np0\n(c__main__\nunderten\np1\nc__builtin__\niter\np2\n((lp3\nI1\naI3\naI5\naI20\naI2\naI4\naI6\naI8\natp4\nRp5\nI4\nbtp6\nRp7\nI1\nb.'
-assert pickle.dumps(it, 1) == b'citertools\ntakewhile\nq\x00(c__main__\nunderten\nq\x01c__builtin__\niter\nq\x02(]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08etq\x04Rq\x05K\x04btq\x06Rq\x07K\x01b.'
-assert pickle.dumps(it, 2) == b'\x80\x02citertools\ntakewhile\nq\x00c__main__\nunderten\nq\x01c__builtin__\niter\nq\x02]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85q\x04Rq\x05K\x04b\x86q\x06Rq\x07K\x01b.'
-assert pickle.dumps(it, 3) == b'\x80\x03citertools\ntakewhile\nq\x00c__main__\nunderten\nq\x01cbuiltins\niter\nq\x02]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85q\x04Rq\x05K\x04b\x86q\x06Rq\x07K\x01b.'
-assert pickle.dumps(it, 4) == b'\x80\x04\x95i\x00\x00\x00\x00\x00\x00\x00\x8c\titertools\x94\x8c\ttakewhile\x94\x93\x94\x8c\x08__main__\x94\x8c\x08underten\x94\x93\x94\x8c\x08builtins\x94\x8c\x04iter\x94\x93\x94]\x94(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85\x94R\x94K\x04b\x86\x94R\x94K\x01b.'
-assert pickle.dumps(it, 5) == b'\x80\x05\x95i\x00\x00\x00\x00\x00\x00\x00\x8c\titertools\x94\x8c\ttakewhile\x94\x93\x94\x8c\x08__main__\x94\x8c\x08underten\x94\x93\x94\x8c\x08builtins\x94\x8c\x04iter\x94\x93\x94]\x94(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85\x94R\x94K\x04b\x86\x94R\x94K\x01b.'
+assert (
+    pickle.dumps(it, 0)
+    == b"citertools\ntakewhile\np0\n(c__main__\nunderten\np1\nc__builtin__\niter\np2\n((lp3\nI1\naI3\naI5\naI20\naI2\naI4\naI6\naI8\natp4\nRp5\nI4\nbtp6\nRp7\nI1\nb."
+)
+assert (
+    pickle.dumps(it, 1)
+    == b"citertools\ntakewhile\nq\x00(c__main__\nunderten\nq\x01c__builtin__\niter\nq\x02(]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08etq\x04Rq\x05K\x04btq\x06Rq\x07K\x01b."
+)
+assert (
+    pickle.dumps(it, 2)
+    == b"\x80\x02citertools\ntakewhile\nq\x00c__main__\nunderten\nq\x01c__builtin__\niter\nq\x02]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85q\x04Rq\x05K\x04b\x86q\x06Rq\x07K\x01b."
+)
+assert (
+    pickle.dumps(it, 3)
+    == b"\x80\x03citertools\ntakewhile\nq\x00c__main__\nunderten\nq\x01cbuiltins\niter\nq\x02]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85q\x04Rq\x05K\x04b\x86q\x06Rq\x07K\x01b."
+)
+assert (
+    pickle.dumps(it, 4)
+    == b"\x80\x04\x95i\x00\x00\x00\x00\x00\x00\x00\x8c\titertools\x94\x8c\ttakewhile\x94\x93\x94\x8c\x08__main__\x94\x8c\x08underten\x94\x93\x94\x8c\x08builtins\x94\x8c\x04iter\x94\x93\x94]\x94(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85\x94R\x94K\x04b\x86\x94R\x94K\x01b."
+)
+assert (
+    pickle.dumps(it, 5)
+    == b"\x80\x05\x95i\x00\x00\x00\x00\x00\x00\x00\x8c\titertools\x94\x8c\ttakewhile\x94\x93\x94\x8c\x08__main__\x94\x8c\x08underten\x94\x93\x94\x8c\x08builtins\x94\x8c\x04iter\x94\x93\x94]\x94(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85\x94R\x94K\x04b\x86\x94R\x94K\x01b."
+)
 for proto in range(pickle.HIGHEST_PROTOCOL + 1):
     try:
         next(pickle.loads(pickle.dumps(it, proto)))
@@ -254,15 +291,17 @@ for proto in range(pickle.HIGHEST_PROTOCOL + 1):
         pass
 
 
-
 # itertools.islice tests
+
 
 def assert_matches_seq(it, seq):
     assert list(it) == list(seq)
 
+
 def test_islice_pickle(it):
     for p in range(pickle.HIGHEST_PROTOCOL + 1):
         it == pickle.loads(pickle.dumps(it, p))
+
 
 i = itertools.islice
 
@@ -295,7 +334,7 @@ assert_matches_seq(it, [1])
 test_islice_pickle(it)
 
 # itertools.filterfalse
-it = itertools.filterfalse(lambda x: x%2, range(10))
+it = itertools.filterfalse(lambda x: x % 2, range(10))
 assert 0 == next(it)
 assert 2 == next(it)
 assert 4 == next(it)
@@ -314,7 +353,7 @@ assert {} == next(it)
 
 
 # itertools.dropwhile
-it = itertools.dropwhile(lambda x: x<5, [1,4,6,4,1])
+it = itertools.dropwhile(lambda x: x < 5, [1, 4, 6, 4, 1])
 assert 6 == next(it)
 assert 4 == next(it)
 assert 1 == next(it)
@@ -322,19 +361,55 @@ with assert_raises(StopIteration):
     next(it)
 
 it = itertools.dropwhile(underten, [1, 3, 5, 20, 2, 4, 6, 8])
-assert pickle.dumps(it, 0) == b'citertools\ndropwhile\np0\n(c__main__\nunderten\np1\nc__builtin__\niter\np2\n((lp3\nI1\naI3\naI5\naI20\naI2\naI4\naI6\naI8\natp4\nRp5\nI0\nbtp6\nRp7\nI0\nb.'
-assert pickle.dumps(it, 1) == b'citertools\ndropwhile\nq\x00(c__main__\nunderten\nq\x01c__builtin__\niter\nq\x02(]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08etq\x04Rq\x05K\x00btq\x06Rq\x07K\x00b.'
-assert pickle.dumps(it, 2) == b'\x80\x02citertools\ndropwhile\nq\x00c__main__\nunderten\nq\x01c__builtin__\niter\nq\x02]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85q\x04Rq\x05K\x00b\x86q\x06Rq\x07K\x00b.'
-assert pickle.dumps(it, 3) == b'\x80\x03citertools\ndropwhile\nq\x00c__main__\nunderten\nq\x01cbuiltins\niter\nq\x02]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85q\x04Rq\x05K\x00b\x86q\x06Rq\x07K\x00b.'
-assert pickle.dumps(it, 4) == b'\x80\x04\x95i\x00\x00\x00\x00\x00\x00\x00\x8c\titertools\x94\x8c\tdropwhile\x94\x93\x94\x8c\x08__main__\x94\x8c\x08underten\x94\x93\x94\x8c\x08builtins\x94\x8c\x04iter\x94\x93\x94]\x94(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85\x94R\x94K\x00b\x86\x94R\x94K\x00b.'
-assert pickle.dumps(it, 5) == b'\x80\x05\x95i\x00\x00\x00\x00\x00\x00\x00\x8c\titertools\x94\x8c\tdropwhile\x94\x93\x94\x8c\x08__main__\x94\x8c\x08underten\x94\x93\x94\x8c\x08builtins\x94\x8c\x04iter\x94\x93\x94]\x94(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85\x94R\x94K\x00b\x86\x94R\x94K\x00b.'
+assert (
+    pickle.dumps(it, 0)
+    == b"citertools\ndropwhile\np0\n(c__main__\nunderten\np1\nc__builtin__\niter\np2\n((lp3\nI1\naI3\naI5\naI20\naI2\naI4\naI6\naI8\natp4\nRp5\nI0\nbtp6\nRp7\nI0\nb."
+)
+assert (
+    pickle.dumps(it, 1)
+    == b"citertools\ndropwhile\nq\x00(c__main__\nunderten\nq\x01c__builtin__\niter\nq\x02(]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08etq\x04Rq\x05K\x00btq\x06Rq\x07K\x00b."
+)
+assert (
+    pickle.dumps(it, 2)
+    == b"\x80\x02citertools\ndropwhile\nq\x00c__main__\nunderten\nq\x01c__builtin__\niter\nq\x02]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85q\x04Rq\x05K\x00b\x86q\x06Rq\x07K\x00b."
+)
+assert (
+    pickle.dumps(it, 3)
+    == b"\x80\x03citertools\ndropwhile\nq\x00c__main__\nunderten\nq\x01cbuiltins\niter\nq\x02]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85q\x04Rq\x05K\x00b\x86q\x06Rq\x07K\x00b."
+)
+assert (
+    pickle.dumps(it, 4)
+    == b"\x80\x04\x95i\x00\x00\x00\x00\x00\x00\x00\x8c\titertools\x94\x8c\tdropwhile\x94\x93\x94\x8c\x08__main__\x94\x8c\x08underten\x94\x93\x94\x8c\x08builtins\x94\x8c\x04iter\x94\x93\x94]\x94(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85\x94R\x94K\x00b\x86\x94R\x94K\x00b."
+)
+assert (
+    pickle.dumps(it, 5)
+    == b"\x80\x05\x95i\x00\x00\x00\x00\x00\x00\x00\x8c\titertools\x94\x8c\tdropwhile\x94\x93\x94\x8c\x08__main__\x94\x8c\x08underten\x94\x93\x94\x8c\x08builtins\x94\x8c\x04iter\x94\x93\x94]\x94(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85\x94R\x94K\x00b\x86\x94R\x94K\x00b."
+)
 next(it)
-assert pickle.dumps(it, 0) == b'citertools\ndropwhile\np0\n(c__main__\nunderten\np1\nc__builtin__\niter\np2\n((lp3\nI1\naI3\naI5\naI20\naI2\naI4\naI6\naI8\natp4\nRp5\nI4\nbtp6\nRp7\nI1\nb.'
-assert pickle.dumps(it, 1) == b'citertools\ndropwhile\nq\x00(c__main__\nunderten\nq\x01c__builtin__\niter\nq\x02(]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08etq\x04Rq\x05K\x04btq\x06Rq\x07K\x01b.'
-assert pickle.dumps(it, 2) == b'\x80\x02citertools\ndropwhile\nq\x00c__main__\nunderten\nq\x01c__builtin__\niter\nq\x02]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85q\x04Rq\x05K\x04b\x86q\x06Rq\x07K\x01b.'
-assert pickle.dumps(it, 3) == b'\x80\x03citertools\ndropwhile\nq\x00c__main__\nunderten\nq\x01cbuiltins\niter\nq\x02]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85q\x04Rq\x05K\x04b\x86q\x06Rq\x07K\x01b.'
-assert pickle.dumps(it, 4) == b'\x80\x04\x95i\x00\x00\x00\x00\x00\x00\x00\x8c\titertools\x94\x8c\tdropwhile\x94\x93\x94\x8c\x08__main__\x94\x8c\x08underten\x94\x93\x94\x8c\x08builtins\x94\x8c\x04iter\x94\x93\x94]\x94(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85\x94R\x94K\x04b\x86\x94R\x94K\x01b.'
-assert pickle.dumps(it, 5) == b'\x80\x05\x95i\x00\x00\x00\x00\x00\x00\x00\x8c\titertools\x94\x8c\tdropwhile\x94\x93\x94\x8c\x08__main__\x94\x8c\x08underten\x94\x93\x94\x8c\x08builtins\x94\x8c\x04iter\x94\x93\x94]\x94(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85\x94R\x94K\x04b\x86\x94R\x94K\x01b.'
+assert (
+    pickle.dumps(it, 0)
+    == b"citertools\ndropwhile\np0\n(c__main__\nunderten\np1\nc__builtin__\niter\np2\n((lp3\nI1\naI3\naI5\naI20\naI2\naI4\naI6\naI8\natp4\nRp5\nI4\nbtp6\nRp7\nI1\nb."
+)
+assert (
+    pickle.dumps(it, 1)
+    == b"citertools\ndropwhile\nq\x00(c__main__\nunderten\nq\x01c__builtin__\niter\nq\x02(]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08etq\x04Rq\x05K\x04btq\x06Rq\x07K\x01b."
+)
+assert (
+    pickle.dumps(it, 2)
+    == b"\x80\x02citertools\ndropwhile\nq\x00c__main__\nunderten\nq\x01c__builtin__\niter\nq\x02]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85q\x04Rq\x05K\x04b\x86q\x06Rq\x07K\x01b."
+)
+assert (
+    pickle.dumps(it, 3)
+    == b"\x80\x03citertools\ndropwhile\nq\x00c__main__\nunderten\nq\x01cbuiltins\niter\nq\x02]q\x03(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85q\x04Rq\x05K\x04b\x86q\x06Rq\x07K\x01b."
+)
+assert (
+    pickle.dumps(it, 4)
+    == b"\x80\x04\x95i\x00\x00\x00\x00\x00\x00\x00\x8c\titertools\x94\x8c\tdropwhile\x94\x93\x94\x8c\x08__main__\x94\x8c\x08underten\x94\x93\x94\x8c\x08builtins\x94\x8c\x04iter\x94\x93\x94]\x94(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85\x94R\x94K\x04b\x86\x94R\x94K\x01b."
+)
+assert (
+    pickle.dumps(it, 5)
+    == b"\x80\x05\x95i\x00\x00\x00\x00\x00\x00\x00\x8c\titertools\x94\x8c\tdropwhile\x94\x93\x94\x8c\x08__main__\x94\x8c\x08underten\x94\x93\x94\x8c\x08builtins\x94\x8c\x04iter\x94\x93\x94]\x94(K\x01K\x03K\x05K\x14K\x02K\x04K\x06K\x08e\x85\x94R\x94K\x04b\x86\x94R\x94K\x01b."
+)
 for proto in range(pickle.HIGHEST_PROTOCOL + 1):
     assert next(pickle.loads(pickle.dumps(it, proto))) == 2
 
@@ -352,7 +427,7 @@ assert 42 == next(it)
 with assert_raises(StopIteration):
     next(it)
 
-it = itertools.accumulate([3, 2, 4, 1, 0, 5, 8], lambda a, v: a*v)
+it = itertools.accumulate([3, 2, 4, 1, 0, 5, 8], lambda a, v: a * v)
 assert 3 == next(it)
 assert 6 == next(it)
 assert 24 == next(it)
@@ -364,12 +439,12 @@ with assert_raises(StopIteration):
     next(it)
 
 # itertools.compress
-assert list(itertools.compress("ABCDEF", [1,0,1,0,1,1])) == list("ACEF")
-assert list(itertools.compress("ABCDEF", [0,0,0,0,0,0])) == list("")
-assert list(itertools.compress("ABCDEF", [1,1,1,1,1,1])) == list("ABCDEF")
-assert list(itertools.compress("ABCDEF", [1,0,1])) == list("AC")
-assert list(itertools.compress("ABC", [0,1,1,1,1,1])) == list("BC")
-assert list(itertools.compress("ABCDEF", [True,False,"t","",1,9])) == list("ACEF")
+assert list(itertools.compress("ABCDEF", [1, 0, 1, 0, 1, 1])) == list("ACEF")
+assert list(itertools.compress("ABCDEF", [0, 0, 0, 0, 0, 0])) == list("")
+assert list(itertools.compress("ABCDEF", [1, 1, 1, 1, 1, 1])) == list("ABCDEF")
+assert list(itertools.compress("ABCDEF", [1, 0, 1])) == list("AC")
+assert list(itertools.compress("ABC", [0, 1, 1, 1, 1, 1])) == list("BC")
+assert list(itertools.compress("ABCDEF", [True, False, "t", "", 1, 9])) == list("ACEF")
 
 
 # itertools.tee
@@ -384,7 +459,7 @@ with assert_raises(TypeError):
 t = itertools.tee(range(1000))
 assert list(t[0]) == list(t[1]) == list(range(1000))
 
-t = itertools.tee([1,22,333], 3)
+t = itertools.tee([1, 22, 333], 3)
 assert len(t) == 3
 assert 1 == next(t[0])
 assert 1 == next(t[1])
@@ -402,29 +477,29 @@ with assert_raises(StopIteration):
 with assert_raises(StopIteration):
     next(t[1])
 
-t0, t1 = itertools.tee([1,2,3])
+t0, t1 = itertools.tee([1, 2, 3])
 tc = t0.__copy__()
-assert list(t0) == [1,2,3]
-assert list(t1) == [1,2,3]
-assert list(tc) == [1,2,3]
+assert list(t0) == [1, 2, 3]
+assert list(t1) == [1, 2, 3]
+assert list(tc) == [1, 2, 3]
 
-t0, t1 = itertools.tee([1,2,3])
+t0, t1 = itertools.tee([1, 2, 3])
 assert 1 == next(t0)  # advance index of t0 by 1 before __copy__()
 t0c = t0.__copy__()
 t1c = t1.__copy__()
-assert list(t0) == [2,3]
-assert list(t0c) == [2,3]
-assert list(t1) == [1,2,3]
-assert list(t1c) == [1,2,3]
+assert list(t0) == [2, 3]
+assert list(t0c) == [2, 3]
+assert list(t1) == [1, 2, 3]
+assert list(t1c) == [1, 2, 3]
 
-t0, t1 = itertools.tee([1,2,3])
+t0, t1 = itertools.tee([1, 2, 3])
 t2, t3 = itertools.tee(t0)
-assert list(t1) == [1,2,3]
-assert list(t2) == [1,2,3]
-assert list(t3) == [1,2,3]
+assert list(t1) == [1, 2, 3]
+assert list(t2) == [1, 2, 3]
+assert list(t3) == [1, 2, 3]
 
-t = itertools.tee([1,2,3])
-assert list(t[0]) == [1,2,3]
+t = itertools.tee([1, 2, 3])
+assert list(t[0]) == [1, 2, 3]
 assert list(t[0]) == []
 
 # itertools.product
@@ -530,22 +605,36 @@ with assert_raises(TypeError):
 
 # itertools.zip_longest tests
 zl = itertools.zip_longest
-assert list(zl(['a', 'b', 'c'], range(3), [9, 8, 7])) \
-       == [('a', 0, 9), ('b', 1, 8), ('c', 2, 7)]
-assert list(zl(['a', 'b', 'c'], range(3), [9, 8, 7, 99])) \
-       == [('a', 0, 9), ('b', 1, 8), ('c', 2, 7), (None, None, 99)]
-assert list(zl(['a', 'b', 'c'], range(3), [9, 8, 7, 99], fillvalue='d')) \
-       == [('a', 0, 9), ('b', 1, 8), ('c', 2, 7), ('d', 'd', 99)]
+assert list(zl(["a", "b", "c"], range(3), [9, 8, 7])) == [
+    ("a", 0, 9),
+    ("b", 1, 8),
+    ("c", 2, 7),
+]
+assert list(zl(["a", "b", "c"], range(3), [9, 8, 7, 99])) == [
+    ("a", 0, 9),
+    ("b", 1, 8),
+    ("c", 2, 7),
+    (None, None, 99),
+]
+assert list(zl(["a", "b", "c"], range(3), [9, 8, 7, 99], fillvalue="d")) == [
+    ("a", 0, 9),
+    ("b", 1, 8),
+    ("c", 2, 7),
+    ("d", "d", 99),
+]
 
-assert list(zl(['a', 'b', 'c'])) == [('a',), ('b',), ('c',)]
+assert list(zl(["a", "b", "c"])) == [("a",), ("b",), ("c",)]
 assert list(zl()) == []
 
-assert list(zl(*zl(['a', 'b', 'c'], range(1, 4)))) \
-       == [('a', 'b', 'c'), (1, 2, 3)]
-assert list(zl(*zl(['a', 'b', 'c'], range(1, 5)))) \
-       == [('a', 'b', 'c', None), (1, 2, 3, 4)]
-assert list(zl(*zl(['a', 'b', 'c'], range(1, 5), fillvalue=100))) \
-       == [('a', 'b', 'c', 100), (1, 2, 3, 4)]
+assert list(zl(*zl(["a", "b", "c"], range(1, 4)))) == [("a", "b", "c"), (1, 2, 3)]
+assert list(zl(*zl(["a", "b", "c"], range(1, 5)))) == [
+    ("a", "b", "c", None),
+    (1, 2, 3, 4),
+]
+assert list(zl(*zl(["a", "b", "c"], range(1, 5), fillvalue=100))) == [
+    ("a", "b", "c", 100),
+    (1, 2, 3, 4),
+]
 
 
 # test infinite iterator
@@ -565,7 +654,7 @@ it = zl(Counter(), Counter(3))
 assert next(it) == (1, 4)
 assert next(it) == (2, 5)
 
-it = zl([1,2], [3])
+it = zl([1, 2], [3])
 assert next(it) == (1, 3)
 assert next(it) == (2, None)
 with assert_raises(StopIteration):

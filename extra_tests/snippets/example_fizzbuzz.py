@@ -8,6 +8,7 @@ def fizzbuzz(n):
     else:
         return str(n)
 
+
 n = 1
 while n < 10:
     print(fizzbuzz(n))
