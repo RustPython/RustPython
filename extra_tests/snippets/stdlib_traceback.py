@@ -14,7 +14,7 @@ try:
         raise KeyError().with_traceback(ex.__traceback__)
 except KeyError as ex2:
     tb = traceback.extract_tb(ex2.__traceback__)
-    assert tb[1].line == "1/0"
+    assert tb[1].line == "1 / 0"
 
 
 try:

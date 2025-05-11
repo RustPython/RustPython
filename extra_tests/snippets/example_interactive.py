@@ -21,7 +21,7 @@ assert "Constant String" in c2.co_consts, c2.co_consts
 print(c2.co_consts)
 assert 2 in c2.co_consts, c2.co_consts
 assert "example_interactive.py" in c2.co_filename
-assert c2.co_firstlineno == 5, str(c2.co_firstlineno)
+assert c2.co_firstlineno == 6, str(c2.co_firstlineno)
 # assert isinstance(c2.co_flags, int) # 'OPTIMIZED, NEWLOCALS, NOFREE'
 # assert c2.co_freevars == (), str(c2.co_freevars)
 assert c2.co_kwonlyargcount == 1, c2.co_kwonlyargcount
