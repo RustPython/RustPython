@@ -9,8 +9,8 @@ from _ctypes import CFuncPtr as _CFuncPtr
 from struct import calcsize as _calcsize
 
 
-assert Array.__class__.__name__ == 'PyCArrayType'
-assert Array.__base__.__name__ == '_CData'
+assert Array.__class__.__name__ == "PyCArrayType"
+assert Array.__base__.__name__ == "_CData"
 
 DEFAULT_MODE = RTLD_LOCAL
 if _os.name == "posix" and _sys.platform == "darwin":
@@ -19,13 +19,16 @@ if _os.name == "posix" and _sys.platform == "darwin":
     # libraries.  OS X 10.3 is Darwin 7, so we check for
     # that.
 
-    if int(_os.uname().release.split('.')[0]) < 8:
+    if int(_os.uname().release.split(".")[0]) < 8:
         DEFAULT_MODE = RTLD_GLOBAL
 
-from _ctypes import FUNCFLAG_CDECL as _FUNCFLAG_CDECL, \
-    FUNCFLAG_PYTHONAPI as _FUNCFLAG_PYTHONAPI, \
-    FUNCFLAG_USE_ERRNO as _FUNCFLAG_USE_ERRNO, \
-    FUNCFLAG_USE_LASTERROR as _FUNCFLAG_USE_LASTERROR
+from _ctypes import (
+    FUNCFLAG_CDECL as _FUNCFLAG_CDECL,
+    FUNCFLAG_PYTHONAPI as _FUNCFLAG_PYTHONAPI,
+    FUNCFLAG_USE_ERRNO as _FUNCFLAG_USE_ERRNO,
+    FUNCFLAG_USE_LASTERROR as _FUNCFLAG_USE_LASTERROR,
+)
+
 
 def create_string_buffer(init, size=None):
     """create_string_buffer(aBytes) -> character array
@@ -34,7 +37,7 @@ def create_string_buffer(init, size=None):
     """
     if isinstance(init, bytes):
         if size is None:
-            size = len(init)+1
+            size = len(init) + 1
         _sys.audit("ctypes.create_string_buffer", init, size)
         buftype = c_char.__mul__(size)
         print(type(c_char.__mul__(size)))
@@ -50,32 +53,47 @@ def create_string_buffer(init, size=None):
         return buf
     raise TypeError(init)
 
+
 def _check_size(typ, typecode=None):
     # Check if sizeof(ctypes_type) against struct.calcsize.  This
     # should protect somewhat against a misconfigured libffi.
     from struct import calcsize
+
     if typecode is None:
         # Most _type_ codes are the same as used in struct
         typecode = typ._type_
     actual, required = sizeof(typ), calcsize(typecode)
     if actual != required:
-        raise SystemError("sizeof(%s) wrong: %d instead of %d" % \
-                          (typ, actual, required))
+        raise SystemError(
+            "sizeof(%s) wrong: %d instead of %d" % (typ, actual, required)
+        )
+
 
 class c_short(_SimpleCData):
     _type_ = "h"
+
+
 _check_size(c_short)
+
 
 class c_ushort(_SimpleCData):
     _type_ = "H"
+
+
 _check_size(c_ushort)
+
 
 class c_long(_SimpleCData):
     _type_ = "l"
+
+
 _check_size(c_long)
+
 
 class c_ulong(_SimpleCData):
     _type_ = "L"
+
+
 _check_size(c_ulong)
 
 if _calcsize("i") == _calcsize("l"):
@@ -83,24 +101,36 @@ if _calcsize("i") == _calcsize("l"):
     c_int = c_long
     c_uint = c_ulong
 else:
+
     class c_int(_SimpleCData):
         _type_ = "i"
+
     _check_size(c_int)
 
     class c_uint(_SimpleCData):
         _type_ = "I"
+
     _check_size(c_uint)
+
 
 class c_float(_SimpleCData):
     _type_ = "f"
+
+
 _check_size(c_float)
+
 
 class c_double(_SimpleCData):
     _type_ = "d"
+
+
 _check_size(c_double)
+
 
 class c_longdouble(_SimpleCData):
     _type_ = "g"
+
+
 if sizeof(c_longdouble) == sizeof(c_double):
     c_longdouble = c_double
 
@@ -109,60 +139,83 @@ if _calcsize("l") == _calcsize("q"):
     c_longlong = c_long
     c_ulonglong = c_ulong
 else:
+
     class c_longlong(_SimpleCData):
         _type_ = "q"
+
     _check_size(c_longlong)
 
     class c_ulonglong(_SimpleCData):
         _type_ = "Q"
+
     ##    def from_param(cls, val):
     ##        return ('d', float(val), val)
     ##    from_param = classmethod(from_param)
     _check_size(c_ulonglong)
 
+
 class c_ubyte(_SimpleCData):
     _type_ = "B"
+
+
 c_ubyte.__ctype_le__ = c_ubyte.__ctype_be__ = c_ubyte
 # backward compatibility:
 ##c_uchar = c_ubyte
 _check_size(c_ubyte)
 
+
 class c_byte(_SimpleCData):
     _type_ = "b"
+
+
 c_byte.__ctype_le__ = c_byte.__ctype_be__ = c_byte
 _check_size(c_byte)
 
+
 class c_char(_SimpleCData):
     _type_ = "c"
+
+
 c_char.__ctype_le__ = c_char.__ctype_be__ = c_char
 _check_size(c_char)
 
+
 class c_char_p(_SimpleCData):
     _type_ = "z"
+
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, c_void_p.from_buffer(self).value)
+
+
 _check_size(c_char_p, "P")
+
 
 class c_void_p(_SimpleCData):
     _type_ = "P"
-c_voidp = c_void_p # backwards compatibility (to a bug)
+
+
+c_voidp = c_void_p  # backwards compatibility (to a bug)
 _check_size(c_void_p)
+
 
 class c_bool(_SimpleCData):
     _type_ = "?"
+
+
 _check_size(c_bool)
 
 i = c_int(42)
 f = c_float(3.14)
 # s = create_string_buffer(b'\000' * 32)
 assert i.value == 42
-assert abs(f.value -  3.14) < 1e-06
+assert abs(f.value - 3.14) < 1e-06
 
 if _os.name == "nt":
     from _ctypes import LoadLibrary as _dlopen
     from _ctypes import FUNCFLAG_STDCALL as _FUNCFLAG_STDCALL
 elif _os.name == "posix":
     from _ctypes import dlopen as _dlopen
+
 
 class CDLL(object):
     """An instance of this class represents a loaded dll/shared
@@ -178,17 +231,23 @@ class CDLL(object):
     Calling the functions releases the Python GIL during the call and
     reacquires it afterwards.
     """
+
     _func_flags_ = _FUNCFLAG_CDECL
     _func_restype_ = c_int
     # default values for repr
-    _name = '<uninitialized>'
+    _name = "<uninitialized>"
     _handle = 0
     _FuncPtr = None
 
-    def __init__(self, name, mode=DEFAULT_MODE, handle=None,
-                 use_errno=False,
-                 use_last_error=False,
-                 winmode=None):
+    def __init__(
+        self,
+        name,
+        mode=DEFAULT_MODE,
+        handle=None,
+        use_errno=False,
+        use_last_error=False,
+        winmode=None,
+    ):
         self._name = name
         flags = self._func_flags_
         if use_errno:
@@ -202,20 +261,22 @@ class CDLL(object):
                Otherwise, name is presented to dlopen() as a file argument.
             """
             if name and name.endswith(")") and ".a(" in name:
-                mode |= ( _os.RTLD_MEMBER | _os.RTLD_NOW )
+                mode |= _os.RTLD_MEMBER | _os.RTLD_NOW
         if _os.name == "nt":
             if winmode is not None:
                 mode = winmode
             else:
                 import nt
+
                 mode = 4096
-                if '/' in name or '\\' in name:
+                if "/" in name or "\\" in name:
                     self._name = nt._getfullpathname(self._name)
                     mode |= nt._LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR
 
         class _FuncPtr(_CFuncPtr):
             _flags_ = flags
             _restype_ = self._func_restype_
+
         self._FuncPtr = _FuncPtr
 
         if handle is None:
@@ -224,13 +285,15 @@ class CDLL(object):
             self._handle = handle
 
     def __repr__(self):
-        return "<%s '%s', handle %x at %#x>" % \
-            (self.__class__.__name__, self._name,
-             (self._handle & (_sys.maxsize*2 + 1)),
-             id(self) & (_sys.maxsize*2 + 1))
+        return "<%s '%s', handle %x at %#x>" % (
+            self.__class__.__name__,
+            self._name,
+            (self._handle & (_sys.maxsize * 2 + 1)),
+            id(self) & (_sys.maxsize * 2 + 1),
+        )
 
     def __getattr__(self, name):
-        if name.startswith('__') and name.endswith('__'):
+        if name.startswith("__") and name.endswith("__"):
             raise AttributeError(name)
         func = self.__getitem__(name)
         setattr(self, name, func)
@@ -242,12 +305,13 @@ class CDLL(object):
             func.__name__ = name_or_ordinal
         return func
 
+
 class LibraryLoader(object):
     def __init__(self, dlltype):
         self._dlltype = dlltype
 
     def __getattr__(self, name):
-        if name[0] == '_':
+        if name[0] == "_":
             raise AttributeError(name)
         try:
             dll = self._dlltype(name)
@@ -263,6 +327,7 @@ class LibraryLoader(object):
         return self._dlltype(name)
 
     __class_getitem__ = classmethod(_types.GenericAlias)
+
 
 cdll = LibraryLoader(CDLL)
 

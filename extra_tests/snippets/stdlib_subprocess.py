@@ -7,16 +7,21 @@ from testutils import assert_raises
 
 is_unix = not sys.platform.startswith("win")
 if is_unix:
+
     def echo(text):
         return ["echo", text]
+
     def sleep(secs):
         return ["sleep", str(secs)]
 else:
+
     def echo(text):
         return ["cmd", "/C", f"echo {text}"]
+
     def sleep(secs):
         # TODO: make work in a non-unixy environment (something with timeout.exe?)
         return ["powershell", "/C", "sleep", str(secs)]
+
 
 p = subprocess.Popen(echo("test"))
 

@@ -1,4 +1,3 @@
-
 from testutils import assert_raises
 
 

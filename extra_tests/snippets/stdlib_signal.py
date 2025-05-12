@@ -7,11 +7,12 @@ assert_raises(TypeError, lambda: signal.signal(signal.SIGINT, 2))
 
 signals = []
 
+
 def handler(signum, frame):
-	signals.append(signum)
+    signals.append(signum)
 
 
-signal.signal(signal.SIGILL, signal.SIG_IGN);
+signal.signal(signal.SIGILL, signal.SIG_IGN)
 assert signal.getsignal(signal.SIGILL) is signal.SIG_IGN
 
 old_signal = signal.signal(signal.SIGILL, signal.SIG_DFL)
@@ -21,24 +22,21 @@ assert signal.getsignal(signal.SIGILL) is signal.SIG_DFL
 
 # unix
 if "win" not in sys.platform:
-	signal.signal(signal.SIGALRM, handler)
-	assert signal.getsignal(signal.SIGALRM) is handler
+    signal.signal(signal.SIGALRM, handler)
+    assert signal.getsignal(signal.SIGALRM) is handler
 
-	signal.alarm(1)
-	time.sleep(2.0)
-	assert signals == [signal.SIGALRM]
+    signal.alarm(1)
+    time.sleep(2.0)
+    assert signals == [signal.SIGALRM]
 
-	signal.signal(signal.SIGALRM, signal.SIG_IGN)
-	signal.alarm(1)
-	time.sleep(2.0)
+    signal.signal(signal.SIGALRM, signal.SIG_IGN)
+    signal.alarm(1)
+    time.sleep(2.0)
 
-	assert signals == [signal.SIGALRM]
+    assert signals == [signal.SIGALRM]
 
-	signal.signal(signal.SIGALRM, handler)
-	signal.alarm(1)
-	time.sleep(2.0)
+    signal.signal(signal.SIGALRM, handler)
+    signal.alarm(1)
+    time.sleep(2.0)
 
-	assert signals == [signal.SIGALRM, signal.SIGALRM]
-
-
-
+    assert signals == [signal.SIGALRM, signal.SIGALRM]

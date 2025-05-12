@@ -10,10 +10,12 @@ else:
 
 assert_raises(UnicodeEncodeError, "¿como estás?".encode, "ascii")
 
+
 def round_trip(s, encoding="utf-8"):
     encoded = s.encode(encoding)
     decoded = encoded.decode(encoding)
     assert s == decoded
+
 
 round_trip("👺♦  𝐚Şđƒ  ☆☝")
 round_trip("☢🐣  ᖇ𝓤𝕊тⓟ𝕐𝕥卄σ𝔫  ♬👣")

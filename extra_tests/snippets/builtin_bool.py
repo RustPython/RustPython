@@ -30,18 +30,20 @@ if not {} and not [1]:
 if not object():
     raise BaseException
 
+
 class Falsey:
     def __bool__(self):
         return False
 
+
 assert not Falsey()
 
-assert (True or fake)  # noqa: F821
-assert (False or True)
+assert True or fake  # noqa: F821
+assert False or True
 assert not (False or False)
 assert ("thing" or 0) == "thing"
 
-assert (True and True)
+assert True and True
 assert not (False and fake)  # noqa: F821
 assert (True and 5) == 5
 
@@ -92,14 +94,16 @@ assert bool(set()) is False
 
 assert bool({"key": "value"}) is True
 assert bool([1]) is True
-assert bool(set([1,2])) is True
+assert bool(set([1, 2])) is True
 
 assert repr(True) == "True"
+
 
 # Check __len__ work
 class TestMagicMethodLenZero:
     def __len__(self):
         return 0
+
 
 class TestMagicMethodLenOne:
     def __len__(self):
@@ -118,12 +122,14 @@ class TestMagicMethodBoolTrueLenFalse:
     def __len__(self):
         return 0
 
+
 class TestMagicMethodBoolFalseLenTrue:
     def __bool__(self):
         return False
 
     def __len__(self):
         return 1
+
 
 assert bool(TestMagicMethodBoolTrueLenFalse()) is True
 assert bool(TestMagicMethodBoolFalseLenTrue()) is False
@@ -134,8 +140,10 @@ class TestBoolThrowError:
     def __bool__(self):
         return object()
 
+
 with assert_raises(TypeError):
     bool(TestBoolThrowError())
+
 
 class TestLenThrowError:
     def __len__(self):
@@ -145,6 +153,7 @@ class TestLenThrowError:
 with assert_raises(TypeError):
     bool(TestLenThrowError())
 
+
 # Verify that TypeError occurs when bad things are returned
 # from __bool__().  This isn't really a bool test, but
 # it's related.
@@ -152,30 +161,44 @@ def check(o):
     with assert_raises(TypeError):
         bool(o)
 
+
 class Foo(object):
     def __bool__(self):
         return self
+
+
 check(Foo())
+
 
 class Bar(object):
     def __bool__(self):
         return "Yes"
+
+
 check(Bar())
+
 
 class Baz(int):
     def __bool__(self):
         return self
+
+
 check(Baz())
+
 
 # __bool__() must return a bool not an int
 class Spam(int):
     def __bool__(self):
         return 1
+
+
 check(Spam())
+
 
 class Eggs:
     def __len__(self):
         return -1
+
 
 with assert_raises(ValueError):
     bool(Eggs())

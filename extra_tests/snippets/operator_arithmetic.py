@@ -5,7 +5,7 @@ assert -3 % 2 == 1
 
 a = 4
 
-assert a ** 3 == 64
+assert a**3 == 64
 assert a * 3 == 12
 assert a / 2 == 2
 assert 2 == a / 2
