@@ -256,8 +256,13 @@ mod _tkinter {
             Self::unicode_from_string(s, len as _, vm)
         }
 
-        #[pymethod]
-        fn getvar(&self, args: TkAppGetVarArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn var_invoke(&self) {
+            if self.threaded && self.thread_id != unsafe { tk_sys::Tcl_GetCurrentThread() } {
+                // TODO: do stuff
+            }
+        }
+
+        fn inner_getvar(&self, args: TkAppGetVarArgs, flags: u32, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let TkAppGetVarArgs { name, name2 } = args;
             // TODO: technically not thread safe
             let name = varname_converter(name, vm)?;
@@ -274,18 +279,19 @@ mod _tkinter {
                     self.interpreter,
                     name.as_ptr() as _,
                     name2_ptr as _,
-                    tk_sys::TCL_LEAVE_ERR_MSG as _,
+                    flags as _,
                 )
             };
             if res == ptr::null_mut() {
                 // TODO: Should be tk error
-                // self.interpreter
-                let err_obj = tcl_sys::Tcl_GetObjResult(interp);
-                let err_str_obj = tcl_sys::Tcl_GetString(err_obj);
-                let err_cstr = CStr::from_ptr(err_msg as _);
-                return Err(vm.new_type_error(format!(
-                    "{err_cstr:?}"
-                )));
+                unsafe {
+                    let err_obj = tk_sys::Tcl_GetObjResult(self.interpreter);
+                    let err_str_obj = tk_sys::Tcl_GetString(err_obj);
+                    let err_cstr = ffi::CStr::from_ptr(err_str_obj as _);
+                    return Err(vm.new_type_error(format!(
+                        "{err_cstr:?}"
+                    )));
+                }
             }
             let res = if self.want_objects {
                 self.from_object(res, vm)
@@ -293,6 +299,26 @@ mod _tkinter {
                 self.unicode_from_object(res, vm)
             }?;
             Ok(res)
+        }
+
+        #[pymethod]
+        fn getvar(
+            &self,
+            args: TkAppGetVarArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyObjectRef> {
+            self.var_invoke();
+            self.inner_getvar(args, tk_sys::TCL_LEAVE_ERR_MSG, vm)
+        }
+
+        #[pymethod]
+        fn globalgetvar(
+            &self,
+            args: TkAppGetVarArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyObjectRef> {
+            self.var_invoke();
+            self.inner_getvar(args, tk_sys::TCL_LEAVE_ERR_MSG | tk_sys::TCL_GLOBAL_ONLY, vm)
         }
 
         #[pymethod]
