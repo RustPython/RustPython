@@ -125,7 +125,7 @@ mod _tkinter {
         interactive: i32,
         #[pyarg(any)]
         wantobjects: i32,
-        #[pyarg(any, default = "true")]
+        #[pyarg(any, default = true)]
         want_tk: bool,
         #[pyarg(any)]
         sync: i32,
