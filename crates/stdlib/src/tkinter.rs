@@ -306,6 +306,8 @@ mod _tkinter {
             let threaded = {
                 let part1 = String::from("tcl_platform");
                 let part2 = String::from("threaded");
+                let part1 = ffi::CString::new(part1).unwrap();
+                let part2 = ffi::CString::new(part2).unwrap();
                 let part1_ptr = part1.as_ptr();
                 let part2_ptr = part2.as_ptr();
                 tk_sys::Tcl_GetVar2Ex(
