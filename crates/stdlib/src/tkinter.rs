@@ -169,6 +169,14 @@ mod _tkinter {
         )))
     }
 
+    #[derive(Debug, FromArgs)]
+    struct TkAppGetVarArgs {
+        #[pyarg(any)]
+        name: PyObjectRef,
+        #[pyarg(any, default)]
+        name2: Option<String>,
+    }
+
     // TODO: DISALLOW_INSTANTIATION
     #[pyclass(with(Constructor))]
     impl TkApp {
@@ -249,20 +257,35 @@ mod _tkinter {
         }
 
         #[pymethod]
-        fn getvar(&self, arg: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn getvar(&self, args: TkAppGetVarArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            let TkAppGetVarArgs { name, name2 } = args;
             // TODO: technically not thread safe
-            let name = varname_converter(arg, vm)?;
+            let name = varname_converter(name, vm)?;
 
+            let name = ffi::CString::new(name).unwrap();
+            let name2 = ffi::CString::new(name2.unwrap_or_default()).unwrap();
+            let name2_ptr = if name2.is_empty() {
+                ptr::null()
+            } else {
+                name2.as_ptr()
+            };
             let res = unsafe {
                 tk_sys::Tcl_GetVar2Ex(
                     self.interpreter,
-                    ptr::null(),
                     name.as_ptr() as _,
+                    name2_ptr as _,
                     tk_sys::TCL_LEAVE_ERR_MSG as _,
                 )
             };
             if res == ptr::null_mut() {
-                todo!();
+                // TODO: Should be tk error
+                // self.interpreter
+                let err_obj = tcl_sys::Tcl_GetObjResult(interp);
+                let err_str_obj = tcl_sys::Tcl_GetString(err_obj);
+                let err_cstr = CStr::from_ptr(err_msg as _);
+                return Err(vm.new_type_error(format!(
+                    "{err_cstr:?}"
+                )));
             }
             let res = if self.want_objects {
                 self.from_object(res, vm)
