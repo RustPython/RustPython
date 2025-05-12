@@ -262,7 +262,12 @@ mod _tkinter {
             }
         }
 
-        fn inner_getvar(&self, args: TkAppGetVarArgs, flags: u32, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn inner_getvar(
+            &self,
+            args: TkAppGetVarArgs,
+            flags: u32,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyObjectRef> {
             let TkAppGetVarArgs { name, name2 } = args;
             // TODO: technically not thread safe
             let name = varname_converter(name, vm)?;
@@ -288,9 +293,7 @@ mod _tkinter {
                     let err_obj = tk_sys::Tcl_GetObjResult(self.interpreter);
                     let err_str_obj = tk_sys::Tcl_GetString(err_obj);
                     let err_cstr = ffi::CStr::from_ptr(err_str_obj as _);
-                    return Err(vm.new_type_error(format!(
-                        "{err_cstr:?}"
-                    )));
+                    return Err(vm.new_type_error(format!("{err_cstr:?}")));
                 }
             }
             let res = if self.want_objects {
@@ -302,11 +305,7 @@ mod _tkinter {
         }
 
         #[pymethod]
-        fn getvar(
-            &self,
-            args: TkAppGetVarArgs,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyObjectRef> {
+        fn getvar(&self, args: TkAppGetVarArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             self.var_invoke();
             self.inner_getvar(args, tk_sys::TCL_LEAVE_ERR_MSG, vm)
         }
@@ -318,7 +317,11 @@ mod _tkinter {
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
             self.var_invoke();
-            self.inner_getvar(args, tk_sys::TCL_LEAVE_ERR_MSG | tk_sys::TCL_GLOBAL_ONLY, vm)
+            self.inner_getvar(
+                args,
+                tk_sys::TCL_LEAVE_ERR_MSG | tk_sys::TCL_GLOBAL_ONLY,
+                vm,
+            )
         }
 
         #[pymethod]
@@ -341,7 +344,10 @@ mod _tkinter {
             let threshold = threshold.unwrap_or(0);
             // self.dispatching = true;
             QUIT_MAIN_LOOP.store(false, Ordering::Relaxed);
-            while unsafe { tk_sys::Tk_GetNumMainWindows() } > threshold && !QUIT_MAIN_LOOP.load(Ordering::Relaxed) && !ERROR_IN_CMD.load(Ordering::Relaxed) {
+            while unsafe { tk_sys::Tk_GetNumMainWindows() } > threshold
+                && !QUIT_MAIN_LOOP.load(Ordering::Relaxed)
+                && !ERROR_IN_CMD.load(Ordering::Relaxed)
+            {
                 let mut result = 0;
                 if self.threaded {
                     result = unsafe { tk_sys::Tcl_DoOneEvent(0 as _) } as i32;
