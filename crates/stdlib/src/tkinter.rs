@@ -289,7 +289,19 @@ mod _tkinter {
         #[pymethod]
         fn mainloop(&self, threshold: Option<i32>) -> PyResult<()> {
             let threshold = threshold.unwrap_or(0);
-            todo!();
+            // self.dispatching = true;
+            QUIT_MAIN_LOOP.store(false, Ordering::Relaxed);
+            while unsafe { tk_sys::Tk_GetNumMainWindows() } > threshold && !QUIT_MAIN_LOOP.load(Ordering::Relaxed) && !ERROR_IN_CMD.load(Ordering::Relaxed) {
+                let mut result = 0;
+                if self.threaded {
+                    result = unsafe { tk_sys::Tcl_DoOneEvent(0 as _) } as i32;
+                } else {
+                    result = unsafe { tk_sys::Tcl_DoOneEvent(tk_sys::TCL_DONT_WAIT as _) } as i32;
+                    // TODO: sleep for the proper time
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+            }
+            Ok(())
         }
 
         #[pymethod]
