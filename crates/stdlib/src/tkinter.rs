@@ -72,6 +72,7 @@ mod _tkinter {
     impl TclObject {}
 
     static QUIT_MAIN_LOOP: AtomicBool = AtomicBool::new(false);
+    static ERROR_IN_CMD: AtomicBool = AtomicBool::new(false);
 
     #[pyattr]
     #[pyclass(name = "tkapp")]
