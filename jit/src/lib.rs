@@ -15,7 +15,13 @@ pub enum JitCompileError {
     #[error("bad bytecode")]
     BadBytecode,
     #[error("error while compiling to machine code: {0}")]
-    CraneliftError(#[from] ModuleError),
+    CraneliftError(Box<ModuleError>),
+}
+
+impl From<ModuleError> for JitCompileError {
+    fn from(err: ModuleError) -> Self {
+        Self::CraneliftError(Box::new(err))
+    }
 }
 
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]

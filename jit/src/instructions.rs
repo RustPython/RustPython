@@ -1165,8 +1165,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
         // ----- Merge: Return the final result.
         self.builder.switch_to_block(merge_block);
-        let final_val = self.builder.block_params(merge_block)[0];
-        final_val
+        self.builder.block_params(merge_block)[0]
     }
 
     fn compile_ipow(&mut self, a: Value, b: Value) -> Value {
