@@ -1,7 +1,9 @@
+use rustpython_common::crt_fd;
+
 use crate::{
     PyObjectRef, PyResult, VirtualMachine,
     builtins::PyBaseExceptionRef,
-    convert::{ToPyException, TryFromObject},
+    convert::{IntoPyException, ToPyException, ToPyObject, TryFromObject},
     function::FsPath,
     object::AsObject,
 };
@@ -95,32 +97,36 @@ impl TryFromObject for OsPath {
 
 // path_t with allow_fd in CPython
 #[derive(Clone)]
-pub(crate) enum OsPathOrFd {
+pub(crate) enum OsPathOrFd<'fd> {
     Path(OsPath),
-    Fd(i32),
+    Fd(crt_fd::Borrowed<'fd>),
 }
 
-impl TryFromObject for OsPathOrFd {
+impl TryFromObject for OsPathOrFd<'_> {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let r = match obj.try_index_opt(vm) {
-            Some(int) => Self::Fd(int?.try_to_primitive(vm)?),
-            None => Self::Path(obj.try_into_value(vm)?),
-        };
-        Ok(r)
+        match obj.try_index_opt(vm) {
+            Some(int) => {
+                let fd = int?.try_to_primitive(vm)?;
+                unsafe { crt_fd::Borrowed::try_borrow_raw(fd) }
+                    .map(Self::Fd)
+                    .map_err(|e| e.into_pyexception(vm))
+            }
+            None => obj.try_into_value(vm).map(Self::Path),
+        }
     }
 }
 
-impl From<OsPath> for OsPathOrFd {
+impl From<OsPath> for OsPathOrFd<'_> {
     fn from(path: OsPath) -> Self {
         Self::Path(path)
     }
 }
 
-impl OsPathOrFd {
+impl OsPathOrFd<'_> {
     pub fn filename(&self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
             Self::Path(path) => path.filename(vm),
-            Self::Fd(fd) => vm.ctx.new_int(*fd).into(),
+            Self::Fd(fd) => fd.to_pyobject(vm),
         }
     }
 }
@@ -128,8 +134,8 @@ impl OsPathOrFd {
 // TODO: preserve the input `PyObjectRef` of filename and filename2 (Failing check `self.assertIs(err.filename, name, str(func)`)
 pub struct IOErrorBuilder<'a> {
     error: &'a std::io::Error,
-    filename: Option<OsPathOrFd>,
-    filename2: Option<OsPathOrFd>,
+    filename: Option<OsPathOrFd<'a>>,
+    filename2: Option<OsPathOrFd<'a>>,
 }
 
 impl<'a> IOErrorBuilder<'a> {
@@ -141,13 +147,13 @@ impl<'a> IOErrorBuilder<'a> {
         }
     }
 
-    pub(crate) fn filename(mut self, filename: impl Into<OsPathOrFd>) -> Self {
+    pub(crate) fn filename(mut self, filename: impl Into<OsPathOrFd<'a>>) -> Self {
         let filename = filename.into();
         self.filename.replace(filename);
         self
     }
 
-    pub(crate) fn filename2(mut self, filename: impl Into<OsPathOrFd>) -> Self {
+    pub(crate) fn filename2(mut self, filename: impl Into<OsPathOrFd<'a>>) -> Self {
         let filename = filename.into();
         self.filename2.replace(filename);
         self
@@ -155,10 +161,10 @@ impl<'a> IOErrorBuilder<'a> {
 
     pub(crate) fn with_filename(
         error: &'a std::io::Error,
-        filename: impl Into<OsPathOrFd>,
+        filename: impl Into<OsPathOrFd<'a>>,
         vm: &VirtualMachine,
     ) -> PyBaseExceptionRef {
-        let zelf = Self {
+        let zelf = IOErrorBuilder {
             error,
             filename: Some(filename.into()),
             filename2: None,
