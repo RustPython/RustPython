@@ -78,7 +78,7 @@ impl StackMachine {
 
     pub fn run(&mut self, code: CodeObject) {
         let mut oparg_state = OpArgState::default();
-        code.instructions.iter().try_for_each(|&word| {
+        let _ = code.instructions.iter().try_for_each(|&word| {
             let (instruction, arg) = oparg_state.get(word);
             self.process_instruction(instruction, arg, &code.constants, &code.names)
         });
