@@ -270,13 +270,16 @@ pub(crate) mod _signal {
             false
         };
         #[cfg(unix)]
-        if fd != INVALID_WAKEUP {
+        if let Ok(fd) = unsafe { crate::common::crt_fd::Borrowed::try_borrow_raw(fd) } {
             use nix::fcntl;
             let oflags = fcntl::fcntl(fd, fcntl::F_GETFL).map_err(|e| e.into_pyexception(vm))?;
             let nonblock =
                 fcntl::OFlag::from_bits_truncate(oflags).contains(fcntl::OFlag::O_NONBLOCK);
             if !nonblock {
-                return Err(vm.new_value_error(format!("the fd {fd} must be in non-blocking mode")));
+                return Err(vm.new_value_error(format!(
+                    "the fd {} must be in non-blocking mode",
+                    fd.as_raw()
+                )));
             }
         }
 
