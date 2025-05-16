@@ -55,6 +55,7 @@ pub fn format_fixed(precision: usize, magnitude: f64, case: Case, alternate_form
     match magnitude {
         magnitude if magnitude.is_finite() => {
             let point = decimal_point_or_empty(precision, alternate_form);
+            let precision = std::cmp::min(precision, u16::MAX as usize);
             format!("{magnitude:.precision$}{point}")
         }
         magnitude if magnitude.is_nan() => format_nan(case),
