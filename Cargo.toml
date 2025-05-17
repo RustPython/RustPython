@@ -24,6 +24,9 @@ ssl = ["rustpython-stdlib/ssl"]
 ssl-vendor = ["ssl", "rustpython-stdlib/ssl-vendor"]
 tkinter = ["rustpython-stdlib/tkinter"]
 
+[build-dependencies]
+winresource = "0.1"
+
 [dependencies]
 rustpython-compiler = { workspace = true }
 rustpython-pylib = { workspace = true, optional = true }
