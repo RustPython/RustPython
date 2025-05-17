@@ -259,6 +259,9 @@ mod _io {
         }
 
         fn write(&mut self, data: &[u8]) -> Option<u64> {
+            if data.is_empty() {
+                return Some(0);
+            }
             let length = data.len();
             self.cursor.write_all(data).ok()?;
             Some(length as u64)
