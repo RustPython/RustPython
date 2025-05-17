@@ -2,9 +2,9 @@
  * The mythical generator.
  */
 
-use super::{PyCode, PyStrRef, PyType};
+use super::{PyCode, PyStrRef};
 use crate::{
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     coroutine::Coro,
     frame::FrameRef,
@@ -13,16 +13,10 @@ use crate::{
     types::{IterNext, Iterable, Representable, SelfIter, Unconstructible},
 };
 
-#[pyclass(module = false, name = "generator")]
+#[pyclass(module = false, name = "generator", ctx = generator_type)]
 #[derive(Debug)]
 pub struct PyGenerator {
     inner: Coro,
-}
-
-impl PyPayload for PyGenerator {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.generator_type
-    }
 }
 
 #[pyclass(with(Py, Unconstructible, IterNext, Iterable))]

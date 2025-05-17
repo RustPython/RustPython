@@ -395,7 +395,7 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "_IOBase")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug, Default)]
     pub struct _IOBase;
 
     #[pyclass(with(IterNext, Iterable, Destructor), flags(BASETYPE, HAS_DICT))]
@@ -603,7 +603,8 @@ mod _io {
     }
 
     #[pyattr]
-    #[pyclass(name = "_RawIOBase", base = "_IOBase")]
+    #[pyclass(name = "_RawIOBase", base = _IOBase)]
+    #[derive(Debug, Default)]
     pub(super) struct _RawIOBase;
 
     #[pyclass(flags(BASETYPE, HAS_DICT))]
@@ -661,7 +662,8 @@ mod _io {
     }
 
     #[pyattr]
-    #[pyclass(name = "_BufferedIOBase", base = "_IOBase")]
+    #[pyclass(name = "_BufferedIOBase", base = _IOBase)]
+    #[derive(Default, Debug)]
     struct _BufferedIOBase;
 
     #[pyclass(flags(BASETYPE))]
@@ -719,8 +721,8 @@ mod _io {
 
     // TextIO Base has no public constructor
     #[pyattr]
-    #[pyclass(name = "_TextIOBase", base = "_IOBase")]
-    #[derive(Debug, PyPayload)]
+    #[pyclass(name = "_TextIOBase", base = _IOBase)]
+    #[derive(Debug, Default)]
     struct _TextIOBase;
 
     #[pyclass(flags(BASETYPE))]
@@ -1693,8 +1695,8 @@ mod _io {
     }
 
     #[pyattr]
-    #[pyclass(name = "BufferedReader", base = "_BufferedIOBase")]
-    #[derive(Debug, Default, PyPayload)]
+    #[pyclass(name = "BufferedReader", base = _BufferedIOBase)]
+    #[derive(Debug, Default)]
     struct BufferedReader {
         data: PyThreadMutex<BufferedData>,
     }
@@ -1743,8 +1745,8 @@ mod _io {
     }
 
     #[pyattr]
-    #[pyclass(name = "BufferedWriter", base = "_BufferedIOBase")]
-    #[derive(Debug, Default, PyPayload)]
+    #[pyclass(name = "BufferedWriter", base = _BufferedIOBase)]
+    #[derive(Debug, Default)]
     struct BufferedWriter {
         data: PyThreadMutex<BufferedData>,
     }
@@ -1772,8 +1774,8 @@ mod _io {
     impl DefaultConstructor for BufferedWriter {}
 
     #[pyattr]
-    #[pyclass(name = "BufferedRandom", base = "_BufferedIOBase")]
-    #[derive(Debug, Default, PyPayload)]
+    #[pyclass(name = "BufferedRandom", base = _BufferedIOBase)]
+    #[derive(Debug, Default)]
     struct BufferedRandom {
         data: PyThreadMutex<BufferedData>,
     }
@@ -1808,8 +1810,8 @@ mod _io {
     impl DefaultConstructor for BufferedRandom {}
 
     #[pyattr]
-    #[pyclass(name = "BufferedRWPair", base = "_BufferedIOBase")]
-    #[derive(Debug, Default, PyPayload)]
+    #[pyclass(name = "BufferedRWPair", base = _BufferedIOBase)]
+    #[derive(Debug, Default)]
     struct BufferedRWPair {
         read: BufferedReader,
         write: BufferedWriter,
@@ -2208,8 +2210,8 @@ mod _io {
     }
 
     #[pyattr]
-    #[pyclass(name = "TextIOWrapper", base = "_TextIOBase")]
-    #[derive(Debug, Default, PyPayload)]
+    #[pyclass(name = "TextIOWrapper", base = _TextIOBase)]
+    #[derive(Debug, Default)]
     struct TextIOWrapper {
         data: PyThreadMutex<Option<TextIOData>>,
     }
@@ -3160,7 +3162,7 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name)]
-    #[derive(Debug, PyPayload, Default)]
+    #[derive(Debug, Default)]
     struct IncrementalNewlineDecoder {
         // TODO: Traverse
         data: PyThreadMutex<Option<IncrementalNewlineDecoderData>>,
@@ -3385,8 +3387,8 @@ mod _io {
     }
 
     #[pyattr]
-    #[pyclass(name = "StringIO", base = "_TextIOBase")]
-    #[derive(Debug, PyPayload)]
+    #[pyclass(name = "StringIO", base = _TextIOBase)]
+    #[derive(Debug)]
     struct StringIO {
         buffer: PyRwLock<BufferedIO>,
         closed: AtomicCell<bool>,
@@ -3525,8 +3527,8 @@ mod _io {
     }
 
     #[pyattr]
-    #[pyclass(name = "BytesIO", base = "_BufferedIOBase")]
-    #[derive(Debug, PyPayload)]
+    #[pyclass(name = "BytesIO", base = _BufferedIOBase)]
+    #[derive(Debug)]
     struct BytesIO {
         buffer: PyRwLock<BufferedIO>,
         closed: AtomicCell<bool>,
@@ -4153,8 +4155,8 @@ mod fileio {
     }
 
     #[pyattr]
-    #[pyclass(module = "io", name, base = "_RawIOBase")]
-    #[derive(Debug, PyPayload)]
+    #[pyclass(module = "io", name, base = _RawIOBase)]
+    #[derive(Debug)]
     pub(super) struct FileIO {
         fd: AtomicCell<i32>,
         closefd: AtomicCell<bool>,

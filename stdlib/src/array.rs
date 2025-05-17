@@ -622,7 +622,7 @@ mod array {
     #[pyattr]
     #[pyattr(name = "ArrayType")]
     #[pyclass(name = "array")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     pub struct PyArray {
         array: PyRwLock<ArrayContentType>,
         exports: AtomicUsize,
@@ -1387,7 +1387,7 @@ mod array {
 
     #[pyattr]
     #[pyclass(name = "arrayiterator", traverse)]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     pub struct PyArrayIter {
         internal: PyMutex<PositionIterInternal<PyArrayRef>>,
     }

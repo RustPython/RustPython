@@ -450,7 +450,7 @@ mod _ssl {
 
     #[pyattr]
     #[pyclass(module = "ssl", name = "_SSLContext")]
-    #[derive(PyPayload)]
+    #[derive()]
     struct PySslContext {
         ctx: PyRwLock<SslContextBuilder>,
         check_hostname: AtomicCell<bool>,
@@ -944,7 +944,7 @@ mod _ssl {
 
     #[pyattr]
     #[pyclass(module = "ssl", name = "_SSLSocket", traverse)]
-    #[derive(PyPayload)]
+    #[derive()]
     struct PySslSocket {
         ctx: PyRef<PySslContext>,
         #[pytraverse(skip)]
