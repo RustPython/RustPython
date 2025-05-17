@@ -72,6 +72,7 @@ mod _tkinter {
     impl TclObject {}
 
     static QUIT_MAIN_LOOP: AtomicBool = AtomicBool::new(false);
+    static ERROR_IN_CMD: AtomicBool = AtomicBool::new(false);
 
     #[pyattr]
     #[pyclass(name = "tkapp")]
@@ -125,7 +126,7 @@ mod _tkinter {
         interactive: i32,
         #[pyarg(any)]
         wantobjects: i32,
-        #[pyarg(any, default = "true")]
+        #[pyarg(any, default = true)]
         want_tk: bool,
         #[pyarg(any)]
         sync: i32,
@@ -166,6 +167,14 @@ mod _tkinter {
             "must be str, bytes or Tcl_Obj, not {:.50}",
             obj.obj_type().str(vm)?.as_str()
         )))
+    }
+
+    #[derive(Debug, FromArgs)]
+    struct TkAppGetVarArgs {
+        #[pyarg(any)]
+        name: PyObjectRef,
+        #[pyarg(any, default)]
+        name2: Option<String>,
     }
 
     // TODO: DISALLOW_INSTANTIATION
@@ -247,21 +256,45 @@ mod _tkinter {
             Self::unicode_from_string(s, len as _, vm)
         }
 
-        #[pymethod]
-        fn getvar(&self, arg: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            // TODO: technically not thread safe
-            let name = varname_converter(arg, vm)?;
+        fn var_invoke(&self) {
+            if self.threaded && self.thread_id != unsafe { tk_sys::Tcl_GetCurrentThread() } {
+                // TODO: do stuff
+            }
+        }
 
+        fn inner_getvar(
+            &self,
+            args: TkAppGetVarArgs,
+            flags: u32,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyObjectRef> {
+            let TkAppGetVarArgs { name, name2 } = args;
+            // TODO: technically not thread safe
+            let name = varname_converter(name, vm)?;
+
+            let name = ffi::CString::new(name).unwrap();
+            let name2 = ffi::CString::new(name2.unwrap_or_default()).unwrap();
+            let name2_ptr = if name2.is_empty() {
+                ptr::null()
+            } else {
+                name2.as_ptr()
+            };
             let res = unsafe {
                 tk_sys::Tcl_GetVar2Ex(
                     self.interpreter,
-                    ptr::null(),
                     name.as_ptr() as _,
-                    tk_sys::TCL_LEAVE_ERR_MSG as _,
+                    name2_ptr as _,
+                    flags as _,
                 )
             };
             if res == ptr::null_mut() {
-                todo!();
+                // TODO: Should be tk error
+                unsafe {
+                    let err_obj = tk_sys::Tcl_GetObjResult(self.interpreter);
+                    let err_str_obj = tk_sys::Tcl_GetString(err_obj);
+                    let err_cstr = ffi::CStr::from_ptr(err_str_obj as _);
+                    return Err(vm.new_type_error(format!("{err_cstr:?}")));
+                }
             }
             let res = if self.want_objects {
                 self.from_object(res, vm)
@@ -269,6 +302,26 @@ mod _tkinter {
                 self.unicode_from_object(res, vm)
             }?;
             Ok(res)
+        }
+
+        #[pymethod]
+        fn getvar(&self, args: TkAppGetVarArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            self.var_invoke();
+            self.inner_getvar(args, tk_sys::TCL_LEAVE_ERR_MSG, vm)
+        }
+
+        #[pymethod]
+        fn globalgetvar(
+            &self,
+            args: TkAppGetVarArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyObjectRef> {
+            self.var_invoke();
+            self.inner_getvar(
+                args,
+                tk_sys::TCL_LEAVE_ERR_MSG | tk_sys::TCL_GLOBAL_ONLY,
+                vm,
+            )
         }
 
         #[pymethod]
@@ -289,7 +342,22 @@ mod _tkinter {
         #[pymethod]
         fn mainloop(&self, threshold: Option<i32>) -> PyResult<()> {
             let threshold = threshold.unwrap_or(0);
-            todo!();
+            // self.dispatching = true;
+            QUIT_MAIN_LOOP.store(false, Ordering::Relaxed);
+            while unsafe { tk_sys::Tk_GetNumMainWindows() } > threshold
+                && !QUIT_MAIN_LOOP.load(Ordering::Relaxed)
+                && !ERROR_IN_CMD.load(Ordering::Relaxed)
+            {
+                let mut result = 0;
+                if self.threaded {
+                    result = unsafe { tk_sys::Tcl_DoOneEvent(0 as _) } as i32;
+                } else {
+                    result = unsafe { tk_sys::Tcl_DoOneEvent(tk_sys::TCL_DONT_WAIT as _) } as i32;
+                    // TODO: sleep for the proper time
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+            }
+            Ok(())
         }
 
         #[pymethod]
@@ -306,6 +374,8 @@ mod _tkinter {
             let threaded = {
                 let part1 = String::from("tcl_platform");
                 let part2 = String::from("threaded");
+                let part1 = ffi::CString::new(part1).unwrap();
+                let part2 = ffi::CString::new(part2).unwrap();
                 let part1_ptr = part1.as_ptr();
                 let part2_ptr = part2.as_ptr();
                 tk_sys::Tcl_GetVar2Ex(
