@@ -32,11 +32,6 @@ env:
     test_pathlib
     test_posixpath
     test_venv
-  # configparser: https://github.com/RustPython/RustPython/issues/4995#issuecomment-1582397417
-  # socketserver: seems related to configparser crash.
-  MACOS_SKIPS: >-
-    test_configparser
-    test_socketserver
   # PLATFORM_INDEPENDENT_TESTS are tests that do not depend on the underlying OS. They are currently
   # only run on Linux to speed up the CI.
   PLATFORM_INDEPENDENT_TESTS: >-
@@ -284,7 +279,7 @@ jobs:
         run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
       - if: runner.os == 'macOS'
         name: run cpython platform-dependent tests (MacOS)
-        run: target/release/rustpython -m test -j 1 --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ env.MACOS_SKIPS }}
+        run: target/release/rustpython -m test -j 1 --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
       - if: runner.os == 'Windows'
         name: run cpython platform-dependent tests (windows partial - fixme)
         run:
