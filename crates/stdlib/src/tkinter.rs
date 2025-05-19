@@ -272,8 +272,8 @@ mod _tkinter {
             // TODO: technically not thread safe
             let name = varname_converter(name, vm)?;
 
-            let name = ffi::CString::new(name).unwrap();
-            let name2 = ffi::CString::new(name2.unwrap_or_default()).unwrap();
+            let name = ffi::CString::new(name)?;
+            let name2 = ffi::CString::new(name2.unwrap_or_default())?;
             let name2_ptr = if name2.is_empty() {
                 ptr::null()
             } else {
@@ -374,8 +374,8 @@ mod _tkinter {
             let threaded = {
                 let part1 = String::from("tcl_platform");
                 let part2 = String::from("threaded");
-                let part1 = ffi::CString::new(part1).unwrap();
-                let part2 = ffi::CString::new(part2).unwrap();
+                let part1 = ffi::CString::new(part1)?;
+                let part2 = ffi::CString::new(part2)?;
                 let part1_ptr = part1.as_ptr();
                 let part2_ptr = part2.as_ptr();
                 tk_sys::Tcl_GetVar2Ex(
