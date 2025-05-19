@@ -169,6 +169,11 @@ pub(super) mod _os {
         O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END,
         SEEK_SET,
     };
+    #[cfg(unix)]
+    #[pyattr]
+    use libc::{
+        CLD_CONTINUED, CLD_DUMPED, CLD_EXITED, CLD_KILLED, CLD_STOPPED, CLD_TRAPPED
+    };
 
     #[pyattr]
     pub(crate) const F_OK: u8 = 0;
