@@ -28,9 +28,6 @@ ruff_python_parser = { workspace = true }
 serde = { workspace = true }
 wasm-bindgen = { workspace = true }
 
-# remove once getrandom 0.2 is no longer otherwise in the dependency tree
-getrandom = { version = "0.2", features = ["js"] }
-
 console_error_panic_hook = "0.1"
 js-sys = "0.3"
 serde-wasm-bindgen = "0.3.1"

@@ -7,8 +7,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-getrandom = { version = "0.2.12", features = ["custom"] }
-getrandom_03 = { package = "getrandom", version = "0.3" }
+getrandom = "0.3"
 rustpython-vm = { path = "../../vm", default-features = false, features = ["compiler"] }
 
 [workspace]

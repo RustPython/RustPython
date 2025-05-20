@@ -1,4 +1,4 @@
-use rustpython_vm::{eval, Interpreter};
+use rustpython_vm::{Interpreter, eval};
 
 pub unsafe extern "C" fn eval(s: *const u8, l: usize) -> u32 {
     let src = std::slice::from_raw_parts(s, l);
@@ -9,16 +9,10 @@ pub unsafe extern "C" fn eval(s: *const u8, l: usize) -> u32 {
     })
 }
 
-fn getrandom_always_fail(_buf: &mut [u8]) -> Result<(), getrandom::Error> {
-    Err(getrandom::Error::UNSUPPORTED)
-}
-
-getrandom::register_custom_getrandom!(getrandom_always_fail);
-
 #[unsafe(no_mangle)]
 unsafe extern "Rust" fn __getrandom_v03_custom(
     _dest: *mut u8,
     _len: usize,
-) -> Result<(), getrandom_03::Error> {
-    Err(getrandom_03::Error::UNSUPPORTED)
+) -> Result<(), getrandom::Error> {
+    Err(getrandom::Error::UNSUPPORTED)
 }
