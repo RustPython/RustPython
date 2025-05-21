@@ -278,24 +278,24 @@ impl PyCSimple {
         let value = unsafe { (*self.value.as_ptr()).clone() };
         if let Ok(i) = value.try_int(vm) {
             let i = i.as_bigint();
-            if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u8().as_raw_ptr()) {
-                return i.to_u8().map(|r: u8| libffi::middle::Arg::new(&r));
+            return if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u8().as_raw_ptr()) {
+                i.to_u8().map(|r: u8| libffi::middle::Arg::new(&r))
             } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i8().as_raw_ptr()) {
-                return i.to_i8().map(|r: i8| libffi::middle::Arg::new(&r));
+                i.to_i8().map(|r: i8| libffi::middle::Arg::new(&r))
             } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u16().as_raw_ptr()) {
-                return i.to_u16().map(|r: u16| libffi::middle::Arg::new(&r));
+                i.to_u16().map(|r: u16| libffi::middle::Arg::new(&r))
             } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i16().as_raw_ptr()) {
-                return i.to_i16().map(|r: i16| libffi::middle::Arg::new(&r));
+                i.to_i16().map(|r: i16| libffi::middle::Arg::new(&r))
             } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u32().as_raw_ptr()) {
-                return i.to_u32().map(|r: u32| libffi::middle::Arg::new(&r));
+                i.to_u32().map(|r: u32| libffi::middle::Arg::new(&r))
             } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i32().as_raw_ptr()) {
-                return i.to_i32().map(|r: i32| libffi::middle::Arg::new(&r));
+                i.to_i32().map(|r: i32| libffi::middle::Arg::new(&r))
             } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u64().as_raw_ptr()) {
-                return i.to_u64().map(|r: u64| libffi::middle::Arg::new(&r));
+                i.to_u64().map(|r: u64| libffi::middle::Arg::new(&r))
             } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i64().as_raw_ptr()) {
-                return i.to_i64().map(|r: i64| libffi::middle::Arg::new(&r));
+                i.to_i64().map(|r: i64| libffi::middle::Arg::new(&r))
             } else {
-                return None;
+                None
             }
         }
         if let Ok(_f) = value.try_float(vm) {

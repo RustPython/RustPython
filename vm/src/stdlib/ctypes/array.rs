@@ -106,6 +106,7 @@ impl PyCArray {
 }
 
 impl PyCArray {
+    #[allow(unused)]
     pub fn to_arg(&self, _vm: &VirtualMachine) -> PyResult<libffi::middle::Arg> {
         let value = self.value.read();
         let py_bytes = value.payload::<PyBytes>().unwrap();
