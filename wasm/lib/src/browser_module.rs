@@ -1,18 +1,17 @@
 use rustpython_vm::VirtualMachine;
 
 pub(crate) use _browser::make_module;
+use crate::wasm_builtins::window;
+use rustpython_vm::PyRef;
+use rustpython_vm::builtins::PyModule;
+use rustpython_vm::PyPayload;
 
 #[pymodule]
 mod _browser {
     use crate::{convert, js_module::PyPromise, vm_class::weak_vm, wasm_builtins::window};
     use js_sys::Promise;
     use rustpython_vm::{
-        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyStrRef},
-        class::PyClassImpl,
-        convert::ToPyObject,
-        function::{ArgCallable, OptionalArg},
-        import::import_source,
+        builtins::{PyDictRef, PyStrRef}, class::PyClassImpl, convert::ToPyObject, function::{ArgCallable, OptionalArg}, import::import_source, types::Constructor, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine
     };
     use wasm_bindgen::{JsCast, prelude::*};
     use wasm_bindgen_futures::JsFuture;
@@ -168,6 +167,26 @@ mod _browser {
 
     #[pyclass]
     impl Document {
+        #[pygetset]
+        fn body(&self, vm: &VirtualMachine) -> PyResult {
+            let body = self
+                .doc
+                .body()
+                .map(|elem| HTMLElement { elem })
+                .to_pyobject(vm);
+            Ok(body)
+        }
+
+        #[pymethod]
+        fn get_element_by_id(&self, id: PyStrRef, vm: &VirtualMachine) -> PyResult {
+            let elem = self
+                .doc
+                .get_element_by_id(id.as_str())
+                .map(|elem| Element { elem })
+                .to_pyobject(vm);
+            Ok(elem)
+        }
+
         #[pymethod]
         fn query(&self, query: PyStrRef, vm: &VirtualMachine) -> PyResult {
             let elem = self
@@ -177,6 +196,19 @@ mod _browser {
                 .map(|elem| Element { elem })
                 .to_pyobject(vm);
             Ok(elem)
+        }
+
+        #[pygetset]
+        fn title(&self, vm: &VirtualMachine) -> PyResult {
+            let title = self
+                .doc
+                .title();
+            Ok(vm.ctx.new_str(title).into())
+        }
+
+        #[pygetset(setter)]
+        fn set_title(&self, title: PyStrRef) {
+            self.doc.set_title(title.as_str());
         }
     }
 
@@ -221,6 +253,27 @@ mod _browser {
         }
     }
 
+    #[pyattr]
+    #[pyclass(module = "browser", name)]
+    #[derive(Debug, PyPayload)]
+    struct HTMLElement {
+        elem: web_sys::HtmlElement,
+    }
+
+    #[pyclass]
+    impl HTMLElement {
+        #[pygetset]
+        fn title(&self, vm: &VirtualMachine) -> PyResult {
+            let title = self.elem.title();
+            Ok(vm.ctx.new_str(title).into())
+        }
+
+        #[pygetset(setter)]
+        fn set_title(&self, title: PyStrRef) {
+            self.elem.set_title(title.as_str());
+        }
+    }
+
     #[pyfunction]
     fn load_module(module: PyStrRef, path: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let weak_vm = weak_vm(vm);
@@ -257,7 +310,17 @@ mod _browser {
     }
 }
 
+fn init_browser_module(vm: &VirtualMachine) -> PyRef<PyModule> {
+    let module = make_module(vm);
+
+    extend_module!(vm, &module, {
+        "window" => crate::js_module::PyJsValue::new(crate::wasm_builtins::window()).into_ref(&vm.ctx),
+    });
+
+    module
+}
+
 pub fn setup_browser_module(vm: &mut VirtualMachine) {
-    vm.add_native_module("_browser".to_owned(), Box::new(make_module));
+    vm.add_native_module("_browser".to_owned(), Box::new(init_browser_module));
     vm.add_frozen(py_freeze!(dir = "Lib"));
 }
