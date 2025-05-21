@@ -1,4 +1,4 @@
-use super::{PyType, PyTypeRef};
+use super::PyTypeRef;
 use crate::{
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -6,17 +6,11 @@ use crate::{
     types::{Constructor, IterNext, Iterable, SelfIter},
 };
 
-#[pyclass(module = false, name = "filter", traverse)]
+#[pyclass(module = false, name = "filter", traverse, ctx = filter_type)]
 #[derive(Debug)]
 pub struct PyFilter {
     predicate: PyObjectRef,
     iterator: PyIter,
-}
-
-impl PyPayload for PyFilter {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.filter_type
-    }
 }
 
 impl Constructor for PyFilter {

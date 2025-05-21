@@ -23,7 +23,7 @@ mod _bz2 {
 
     #[pyattr]
     #[pyclass(name = "BZ2Decompressor")]
-    #[derive(PyPayload)]
+    #[derive()]
     struct BZ2Decompressor {
         state: PyMutex<DecompressState<Decompress>>,
     }
@@ -113,7 +113,7 @@ mod _bz2 {
 
     #[pyattr]
     #[pyclass(name = "BZ2Compressor")]
-    #[derive(PyPayload)]
+    #[derive()]
     struct BZ2Compressor {
         state: PyMutex<CompressorState>,
     }

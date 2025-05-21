@@ -153,7 +153,7 @@ pub(crate) mod _struct {
 
     #[pyattr]
     #[pyclass(name = "unpack_iterator", traverse)]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct UnpackIterator {
         #[pytraverse(skip)]
         format_spec: FormatSpec,
@@ -232,7 +232,7 @@ pub(crate) mod _struct {
 
     #[pyattr]
     #[pyclass(name = "Struct", traverse)]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct PyStruct {
         #[pytraverse(skip)]
         spec: FormatSpec,

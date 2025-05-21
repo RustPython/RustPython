@@ -432,7 +432,7 @@ pub(super) mod _os {
 
     #[pyattr]
     #[pyclass(name)]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct DirEntry {
         file_name: std::ffi::OsString,
         pathval: PathBuf,
@@ -623,7 +623,7 @@ pub(super) mod _os {
 
     #[pyattr]
     #[pyclass(name = "ScandirIter")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct ScandirIterator {
         entries: PyRwLock<Option<fs::ReadDir>>,
         mode: OutputMode,

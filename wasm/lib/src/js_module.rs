@@ -56,7 +56,7 @@ mod _js {
 
     #[pyattr]
     #[pyclass(module = "_js", name = "JSValue")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     pub struct PyJsValue {
         pub(crate) value: JsValue,
     }
@@ -289,7 +289,7 @@ mod _js {
 
     #[pyattr]
     #[pyclass(module = "_js", name = "JSClosure")]
-    #[derive(PyPayload)]
+    #[derive()]
     struct JsClosure {
         closure: cell::RefCell<Option<(ClosureType, PyJsValueRef)>>,
         destroyed: cell::Cell<bool>,
@@ -384,7 +384,7 @@ mod _js {
 
     #[pyattr]
     #[pyclass(module = "_js", name = "Promise")]
-    #[derive(Debug, Clone, PyPayload)]
+    #[derive(Debug, Clone)]
     pub struct PyPromise {
         value: PromiseKind,
     }
@@ -556,7 +556,7 @@ mod _js {
     }
 
     #[pyclass(no_attr, module = "_js", name = "AwaitPromise")]
-    #[derive(PyPayload)]
+    #[derive()]
     struct AwaitPromise {
         obj: cell::Cell<Option<PyObjectRef>>,
     }

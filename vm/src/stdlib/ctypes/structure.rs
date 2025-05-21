@@ -2,14 +2,14 @@ use super::base::PyCData;
 use crate::builtins::{PyList, PyStr, PyTuple, PyTypeRef};
 use crate::function::FuncArgs;
 use crate::types::GetAttr;
-use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
+use crate::{AsObject, Py, PyObjectRef, PyResult, VirtualMachine};
 use rustpython_common::lock::PyRwLock;
 use rustpython_vm::types::Constructor;
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-#[pyclass(module = "_ctypes", name = "Structure", base = "PyCData")]
-#[derive(PyPayload, Debug)]
+#[pyclass(module = "_ctypes", name = "Structure", base = PyCData)]
+#[derive(Debug)]
 pub struct PyCStructure {
     #[allow(dead_code)]
     field_data: PyRwLock<HashMap<String, PyObjectRef>>,

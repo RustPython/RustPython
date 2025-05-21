@@ -34,7 +34,7 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 ///     - `IMMUTABLETYPE`: class attributes are immutable.
 /// - `with`: which trait implementations are to be included in the python class.
 /// ```rust, ignore
-/// #[pyclass(module = "my_module", name = "MyClass", base = "BaseClass")]
+/// #[pyclass(module = "my_module", name = "MyClass", base = BaseClass)]
 /// struct MyStruct {
 ///    x: i32,
 /// }

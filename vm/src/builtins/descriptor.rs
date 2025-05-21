@@ -1,6 +1,6 @@
 use super::{PyStr, PyStrInterned, PyType};
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
     builtins::{PyTypeRef, builtin_func::PyNativeMethod, type_},
     class::PyClassImpl,
     function::{FuncArgs, PyMethodDef, PyMethodFlags, PySetterValue},
@@ -22,7 +22,7 @@ pub struct PyDescriptorOwned {
     pub qualname: PyRwLock<Option<String>>,
 }
 
-#[pyclass(name = "method_descriptor", module = false)]
+#[pyclass(name = "method_descriptor", module = false, ctx = method_descriptor_type)]
 pub struct PyMethodDescriptor {
     pub common: PyDescriptor,
     pub method: &'static PyMethodDef,
@@ -41,12 +41,6 @@ impl PyMethodDescriptor {
             method,
             objclass: typ,
         }
-    }
-}
-
-impl PyPayload for PyMethodDescriptor {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.method_descriptor_type
     }
 }
 
@@ -217,17 +211,11 @@ impl std::fmt::Debug for PyMemberDef {
 }
 
 // PyMemberDescrObject in CPython
-#[pyclass(name = "member_descriptor", module = false)]
+#[pyclass(name = "member_descriptor", module = false, ctx = member_descriptor_type)]
 #[derive(Debug)]
 pub struct PyMemberDescriptor {
     pub common: PyDescriptorOwned,
     pub member: PyMemberDef,
-}
-
-impl PyPayload for PyMemberDescriptor {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.member_descriptor_type
-    }
 }
 
 fn calculate_qualname(descr: &PyDescriptorOwned, vm: &VirtualMachine) -> PyResult<Option<String>> {

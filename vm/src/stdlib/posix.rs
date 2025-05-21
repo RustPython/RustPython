@@ -660,7 +660,7 @@ pub mod module {
 
     #[pyattr]
     #[pyclass(name = "sched_param")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct SchedParam {
         sched_priority: PyObjectRef,
     }

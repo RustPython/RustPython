@@ -161,7 +161,7 @@ mod _browser {
 
     #[pyattr]
     #[pyclass(module = "browser", name)]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct Document {
         doc: web_sys::Document,
     }
@@ -193,7 +193,7 @@ mod _browser {
 
     #[pyattr]
     #[pyclass(module = "browser", name)]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct Element {
         elem: web_sys::Element,
     }

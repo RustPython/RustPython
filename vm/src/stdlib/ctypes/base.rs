@@ -1,4 +1,3 @@
-use super::array::{PyCArray, PyCArrayType};
 use crate::builtins::PyType;
 use crate::builtins::{PyBytes, PyFloat, PyInt, PyNone, PyStr, PyTypeRef};
 use crate::convert::ToPyObject;
@@ -143,6 +142,7 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
     }
 }
 
+#[derive(Default)]
 pub struct RawBuffer {
     #[allow(dead_code)]
     pub inner: Box<[u8]>,
@@ -151,15 +151,23 @@ pub struct RawBuffer {
 }
 
 #[pyclass(name = "_CData", module = "_ctypes")]
+#[derive(Default)]
 pub struct PyCData {
     _objects: AtomicCell<Vec<PyObjectRef>>,
     _buffer: PyRwLock<RawBuffer>,
 }
 
+impl std::fmt::Debug for PyCData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PyCData").finish_non_exhaustive()
+    }
+}
+
 #[pyclass]
 impl PyCData {}
 
-#[pyclass(module = "_ctypes", name = "PyCSimpleType", base = "PyType")]
+#[pyclass(module = "_ctypes", name = "PyCSimpleType", base = PyType)]
+#[derive(Debug)]
 pub struct PyCSimpleType {}
 
 #[pyclass(flags(BASETYPE))]
@@ -178,10 +186,9 @@ impl PyCSimpleType {
 #[pyclass(
     module = "_ctypes",
     name = "_SimpleCData",
-    base = "PyCData",
+    base = PyCData,
     metaclass = "PyCSimpleType"
 )]
-#[derive(PyPayload)]
 pub struct PyCSimple {
     pub _type_: String,
     pub value: AtomicCell<PyObjectRef>,
@@ -246,26 +253,6 @@ impl PyCSimple {
         let content = set_primitive(zelf._type_.as_str(), &value, vm)?;
         zelf.value.store(content);
         Ok(())
-    }
-
-    #[pyclassmethod]
-    fn repeat(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
-        if n < 0 {
-            return Err(vm.new_value_error(format!("Array length must be >= 0, not {}", n)));
-        }
-        Ok(PyCArrayType {
-            inner: PyCArray {
-                typ: PyRwLock::new(cls),
-                length: AtomicCell::new(n as usize),
-                value: PyRwLock::new(vm.ctx.none()),
-            },
-        }
-        .to_pyobject(vm))
-    }
-
-    #[pyclassmethod(magic)]
-    fn mul(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
-        PyCSimple::repeat(cls, n, vm)
     }
 }
 

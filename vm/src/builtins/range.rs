@@ -1,6 +1,4 @@
-use super::{
-    PyInt, PyIntRef, PySlice, PyTupleRef, PyType, PyTypeRef, builtins_iter, tuple::tuple_hash,
-};
+use super::{PyInt, PyIntRef, PySlice, PyTupleRef, PyTypeRef, builtins_iter, tuple::tuple_hash};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine, atomic_func,
@@ -59,18 +57,12 @@ fn iter_search(
     }
 }
 
-#[pyclass(module = false, name = "range")]
+#[pyclass(module = false, name = "range", ctx = range_type)]
 #[derive(Debug, Clone)]
 pub struct PyRange {
     pub start: PyIntRef,
     pub stop: PyIntRef,
     pub step: PyIntRef,
-}
-
-impl PyPayload for PyRange {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.range_type
-    }
 }
 
 impl PyRange {
@@ -523,19 +515,13 @@ impl Representable for PyRange {
 //
 // This doesn't preclude the range from containing large values, since start and step
 // can be BigInts, we can store any arbitrary range of values.
-#[pyclass(module = false, name = "longrange_iterator")]
+#[pyclass(module = false, name = "longrange_iterator", ctx = long_range_iterator_type)]
 #[derive(Debug)]
 pub struct PyLongRangeIterator {
     index: AtomicCell<usize>,
     start: BigInt,
     step: BigInt,
     length: BigInt,
-}
-
-impl PyPayload for PyLongRangeIterator {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.long_range_iterator_type
-    }
 }
 
 #[pyclass(with(Unconstructible, IterNext, Iterable))]
@@ -588,19 +574,13 @@ impl IterNext for PyLongRangeIterator {
 
 // When start, stop, step are isize, we can use a faster more compact representation
 // that only operates using isize to track values.
-#[pyclass(module = false, name = "range_iterator")]
+#[pyclass(module = false, name = "range_iterator", ctx = range_iterator_type)]
 #[derive(Debug)]
 pub struct PyRangeIterator {
     index: AtomicCell<usize>,
     start: isize,
     step: isize,
     length: usize,
-}
-
-impl PyPayload for PyRangeIterator {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.range_iterator_type
-    }
 }
 
 #[pyclass(with(Unconstructible, IterNext, Iterable))]

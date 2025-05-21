@@ -303,13 +303,15 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
     Ok(tokens)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn generate_class_def(
     ident: &Ident,
     name: &str,
     module_name: Option<&str>,
-    base: Option<String>,
+    base: Option<&syn::ExprPath>,
     metaclass: Option<String>,
     unhashable: bool,
+    is_pystruct: bool,
     attrs: &[Attribute],
 ) -> Result<TokenStream> {
     let doc = attrs.doc().or_else(|| {
@@ -340,26 +342,13 @@ fn generate_class_def(
         quote!(false)
     };
     let basicsize = quote!(std::mem::size_of::<#ident>());
-    let is_pystruct = attrs.iter().any(|attr| {
-        attr.path().is_ident("derive")
-            && if let Ok(Meta::List(l)) = attr.parse_meta() {
-                l.nested
-                    .into_iter()
-                    .any(|n| n.get_ident().is_some_and(|p| p == "PyStructSequence"))
-            } else {
-                false
-            }
-    });
     if base.is_some() && is_pystruct {
         bail_span!(ident, "PyStructSequence cannot have `base` class attr",);
     }
     let base_class = if is_pystruct {
         Some(quote! { rustpython_vm::builtins::PyTuple })
     } else {
-        base.as_ref().map(|typ| {
-            let typ = Ident::new(typ, ident.span());
-            quote_spanned! { ident.span() => #typ }
-        })
+        base.map(|typ| quote!(#typ))
     }
     .map(|typ| {
         quote! {
@@ -381,10 +370,19 @@ fn generate_class_def(
     });
 
     let base_or_object = if let Some(base) = base {
-        let base = Ident::new(&base, ident.span());
         quote! { #base }
     } else {
         quote! { ::rustpython_vm::builtins::PyBaseObject }
+    };
+
+    let type_id = if is_pystruct {
+        quote!(::std::option::Option::None)
+    } else {
+        quote! {
+            fn _check<__T: ::rustpython_vm::PyPayload>() {}
+            _check::<Self>();
+            ::std::option::Option::Some(::std::any::TypeId::of::<Self>())
+        }
     };
 
     let tokens = quote! {
@@ -399,12 +397,16 @@ fn generate_class_def(
             type Base = #base_or_object;
         }
 
-        impl ::rustpython_vm::class::StaticType for #ident {
+        unsafe impl ::rustpython_vm::class::StaticType for #ident {
             fn static_cell() -> &'static ::rustpython_vm::common::static_cell::StaticCell<::rustpython_vm::builtins::PyTypeRef> {
                 ::rustpython_vm::common::static_cell! {
                     static CELL: ::rustpython_vm::builtins::PyTypeRef;
                 }
                 &CELL
+            }
+
+            fn type_id() -> ::std::option::Option<::std::any::TypeId> {
+                #type_id
             }
 
             #meta_class
@@ -427,6 +429,18 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     let base = class_meta.base()?;
     let metaclass = class_meta.metaclass()?;
     let unhashable = class_meta.unhashable()?;
+    let manual_payload = class_meta.manual_payload()?;
+
+    let is_pystruct = attrs.iter().any(|attr| {
+        attr.path().is_ident("derive")
+            && if let Ok(Meta::List(l)) = attr.parse_meta() {
+                l.nested
+                    .into_iter()
+                    .any(|n| n.get_ident().is_some_and(|p| p == "PyStructSequence"))
+            } else {
+                false
+            }
+    });
 
     let class_def = generate_class_def(
         ident,
@@ -435,6 +449,7 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
         base,
         metaclass,
         unhashable,
+        is_pystruct,
         attrs,
     )?;
 
@@ -487,14 +502,23 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
         }
     };
 
-    let impl_payload = if let Some(ctx_type_name) = class_meta.ctx_name()? {
-        let ctx_type_ident = Ident::new(&ctx_type_name, ident.span()); // FIXME span
-
-        // We need this to make extend mechanism work:
+    let impl_payload = if !(is_pystruct || manual_payload) {
+        let base_ty = base
+            .as_ref()
+            .map(|t| quote!(#t))
+            .unwrap_or_else(|| quote!(::rustpython_vm::builtins::PyBaseObject));
+        let get_class = if let Some(ctx_type_ident) = class_meta.ctx_name()? {
+            quote!(ctx.types.#ctx_type_ident)
+        } else if let Some(ctx_type_ident) = class_meta.exception_ctx_name()? {
+            quote!(ctx.exceptions.#ctx_type_ident)
+        } else {
+            quote!(<Self as ::rustpython_vm::class::StaticType>::static_type())
+        };
         quote! {
             impl ::rustpython_vm::PyPayload for #ident {
+            type Super = #base_ty;
                 fn class(ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
-                    ctx.types.#ctx_type_ident
+                    #get_class
                 }
             }
         }
@@ -537,21 +561,12 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: Item) -> Result
     let class_meta = ExceptionItemMeta::from_nested(ident.clone(), fake_ident, attr.into_iter())?;
     let class_name = class_meta.class_name()?;
 
-    let base_class_name = class_meta.base()?;
-    let impl_payload = if let Some(ctx_type_name) = class_meta.ctx_name()? {
-        let ctx_type_ident = Ident::new(&ctx_type_name, ident.span()); // FIXME span
-
-        // We need this to make extend mechanism work:
-        quote! {
-            impl ::rustpython_vm::PyPayload for #ident {
-                fn class(ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
-                    ctx.exceptions.#ctx_type_ident
-                }
-            }
-        }
-    } else {
-        quote! {}
-    };
+    let base_class_name = class_meta
+        .base()?
+        .ok_or_else(|| syn::Error::new(Span::call_site(), "pyexception must specify base"))?;
+    let ctx_type_ident = class_meta
+        .ctx_name()?
+        .ok_or_else(|| syn::Error::new(Span::call_site(), "pyexception must specify ctx"))?;
     let impl_pyclass = if class_meta.has_impl()? {
         quote! {
             #[pyexception]
@@ -562,9 +577,8 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: Item) -> Result
     };
 
     let ret = quote! {
-        #[pyclass(module = false, name = #class_name, base = #base_class_name)]
+        #[pyclass(module = false, name = #class_name, base = #base_class_name, exception_ctx = #ctx_type_ident)]
         #item
-        #impl_payload
         #impl_pyclass
     };
     Ok(ret)

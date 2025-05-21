@@ -1,8 +1,7 @@
-use crate::object::{MaybeTraverse, Py, PyObjectRef, PyRef, PyResult};
+use super::{MaybeTraverse, Py, PyObjectBuilder, PyObjectRef, PyRef, PyResult, core::SuperPayload};
 use crate::{
     PyRefExact,
-    builtins::{PyBaseExceptionRef, PyType, PyTypeRef},
-    types::PyTypeFlags,
+    builtins::{PyType, PyTypeRef},
     vm::{Context, VirtualMachine},
 };
 
@@ -19,68 +18,64 @@ cfg_if::cfg_if! {
 pub trait PyPayload:
     std::fmt::Debug + MaybeTraverse + PyThreadingConstraint + Sized + 'static
 {
+    #[allow(private_bounds)]
+    type Super: SuperPayload;
+
     fn class(ctx: &Context) -> &'static Py<PyType>;
 
     #[inline]
-    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef
+    where
+        Self::Super: SuperPyDefault,
+    {
         self.into_ref(&vm.ctx).into()
     }
 
     #[inline]
-    fn _into_ref(self, cls: PyTypeRef, ctx: &Context) -> PyRef<Self> {
-        let dict = if cls.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
-            Some(ctx.new_dict())
-        } else {
-            None
-        };
-        PyRef::new_ref(self, cls, dict)
+    fn into_exact_ref(self, ctx: &Context) -> PyRefExact<Self>
+    where
+        Self::Super: SuperPyDefault,
+    {
+        PyObjectBuilder::new(self).build_exact(ctx)
     }
 
     #[inline]
-    fn into_exact_ref(self, ctx: &Context) -> PyRefExact<Self> {
-        unsafe {
-            // Self::into_ref() always returns exact typed PyRef
-            PyRefExact::new_unchecked(self.into_ref(ctx))
-        }
+    fn into_ref(self, ctx: &Context) -> PyRef<Self>
+    where
+        Self::Super: SuperPyDefault,
+    {
+        PyObjectBuilder::new(self).build(ctx)
     }
 
     #[inline]
-    fn into_ref(self, ctx: &Context) -> PyRef<Self> {
-        let cls = Self::class(ctx);
-        self._into_ref(cls.to_owned(), ctx)
-    }
-
-    #[inline]
-    fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult<PyRef<Self>> {
-        let exact_class = Self::class(&vm.ctx);
-        if cls.fast_issubclass(exact_class) {
-            Ok(self._into_ref(cls, &vm.ctx))
-        } else {
-            #[cold]
-            #[inline(never)]
-            fn _into_ref_with_type_error(
-                vm: &VirtualMachine,
-                cls: &PyTypeRef,
-                exact_class: &Py<PyType>,
-            ) -> PyBaseExceptionRef {
-                vm.new_type_error(format!(
-                    "'{}' is not a subtype of '{}'",
-                    &cls.name(),
-                    exact_class.name()
-                ))
-            }
-            Err(_into_ref_with_type_error(vm, &cls, exact_class))
-        }
+    fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult<PyRef<Self>>
+    where
+        Self::Super: SuperPyDefault,
+    {
+        PyObjectBuilder::new(self).build_with_type(cls, vm)
     }
 }
 
-pub trait PyObjectPayload:
-    std::any::Any + std::fmt::Debug + MaybeTraverse + PyThreadingConstraint + 'static
-{
+pub use PyPayload as PyObjectPayload;
+
+pub trait PyDefault {
+    fn py_default(ctx: &Context) -> Self;
 }
 
-impl<T: PyPayload + 'static> PyObjectPayload for T {}
+impl<T: Default> PyDefault for T {
+    fn py_default(_ctx: &Context) -> Self {
+        T::default()
+    }
+}
 
-pub trait SlotOffset {
-    fn offset() -> usize;
+/// Implemented for `PyPayload::Super` types that implement [`PyDefault`].
+pub trait SuperPyDefault: SuperPayload {
+    #[doc(hidden)]
+    fn py_from_header(header: super::PyObjHeader, ctx: &Context) -> Self::Repr;
+}
+
+/// Implemented for `PyPayload::Super` types that implement [`Default`].
+pub trait SuperDefault: SuperPayload + SuperPyDefault {
+    #[doc(hidden)]
+    fn from_header(header: super::PyObjHeader) -> Self::Repr;
 }

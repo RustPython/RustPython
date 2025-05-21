@@ -1,6 +1,6 @@
 use super::{
     PositionIterInternal, PyBytes, PyBytesRef, PyInt, PyListRef, PySlice, PyStr, PyStrRef, PyTuple,
-    PyTupleRef, PyType, PyTypeRef,
+    PyTupleRef, PyTypeRef,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
@@ -37,7 +37,7 @@ pub struct PyMemoryViewNewArgs {
     object: PyObjectRef,
 }
 
-#[pyclass(module = false, name = "memoryview")]
+#[pyclass(module = false, name = "memoryview", ctx = memoryview_type)]
 #[derive(Debug)]
 pub struct PyMemoryView {
     // avoid double release when memoryview had released the buffer before drop
@@ -1048,12 +1048,6 @@ impl Hashable for PyMemoryView {
     }
 }
 
-impl PyPayload for PyMemoryView {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.memoryview_type
-    }
-}
-
 impl Representable for PyMemoryView {
     #[inline]
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
@@ -1122,16 +1116,10 @@ impl Iterable for PyMemoryView {
     }
 }
 
-#[pyclass(module = false, name = "memory_iterator")]
+#[pyclass(module = false, name = "memory_iterator", ctx = memoryviewiterator_type)]
 #[derive(Debug, Traverse)]
 pub struct PyMemoryViewIterator {
     internal: PyMutex<PositionIterInternal<PyRef<PyMemoryView>>>,
-}
-
-impl PyPayload for PyMemoryViewIterator {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.memoryviewiterator_type
-    }
 }
 
 #[pyclass(with(Unconstructible, IterNext, Iterable))]

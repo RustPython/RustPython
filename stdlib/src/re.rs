@@ -22,7 +22,7 @@ mod re {
 
     #[pyattr]
     #[pyclass(module = "re", name = "Pattern")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug, )]
     struct PyPattern {
         regex: Regex,
         pattern: String,
@@ -78,7 +78,7 @@ mod re {
     /// Inner data for a match object.
     #[pyattr]
     #[pyclass(module = "re", name = "Match", traverse)]
-    #[derive(PyPayload, Traverse)]
+    #[derive(, Traverse)]
     struct PyMatch {
         haystack: PyStrRef,
         #[pytraverse(skip)]

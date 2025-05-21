@@ -8,6 +8,7 @@ use crate::{
         Either, FromArgs, FuncArgs, OptionalArg, PyComparisonValue, PyMethodDef, PySetterValue,
     },
     identifier,
+    object::{PyDefault, SuperPyDefault},
     protocol::{
         PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyNumber, PyNumberMethods,
         PyNumberSlots, PySequence, PySequenceMethods,
@@ -782,12 +783,12 @@ pub trait Constructor: PyPayload {
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult;
 }
 
-pub trait DefaultConstructor: PyPayload + Default {
+pub trait DefaultConstructor: PyPayload<Super: SuperPyDefault> + PyDefault {
     fn construct_and_init(args: Self::Args, vm: &VirtualMachine) -> PyResult<PyRef<Self>>
     where
         Self: Initializer,
     {
-        let this = Self::default().into_ref(&vm.ctx);
+        let this = Self::py_default(&vm.ctx).into_ref(&vm.ctx);
         Self::init(this.clone(), args, vm)?;
         Ok(this)
     }
@@ -809,7 +810,9 @@ where
     type Args = FuncArgs;
 
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Self::default().into_ref_with_type(vm, cls).map(Into::into)
+        Self::py_default(&vm.ctx)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
     }
 
     fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {

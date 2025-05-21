@@ -1,4 +1,4 @@
-use super::{PyStr, PyStrRef, PyType, PyTypeRef, PyWeak};
+use super::{PyStr, PyStrRef, PyTypeRef, PyWeak};
 use crate::{
     Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
     class::PyClassImpl,
@@ -13,16 +13,10 @@ use crate::{
 };
 use std::sync::LazyLock;
 
-#[pyclass(module = false, name = "weakproxy", unhashable = true, traverse)]
+#[pyclass(module = false, name = "weakproxy", unhashable = true, traverse, ctx = weakproxy_type)]
 #[derive(Debug)]
 pub struct PyWeakProxy {
     weak: PyRef<PyWeak>,
-}
-
-impl PyPayload for PyWeakProxy {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.weakproxy_type
-    }
 }
 
 #[derive(FromArgs)]

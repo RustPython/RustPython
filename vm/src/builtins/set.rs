@@ -2,11 +2,11 @@
  * Builtin set type with a sequence of unique items.
  */
 use super::{
-    IterStatus, PositionIterInternal, PyDict, PyDictRef, PyGenericAlias, PyTupleRef, PyType,
-    PyTypeRef, builtins_iter,
+    IterStatus, PositionIterInternal, PyDict, PyDictRef, PyGenericAlias, PyTupleRef, PyTypeRef,
+    builtins_iter,
 };
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     atomic_func,
     class::PyClassImpl,
     common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc},
@@ -32,7 +32,7 @@ use std::{fmt, ops::Deref};
 
 pub type SetContentType = dict_inner::Dict<()>;
 
-#[pyclass(module = false, name = "set", unhashable = true, traverse)]
+#[pyclass(module = false, name = "set", unhashable = true, traverse, ctx = set_type)]
 #[derive(Default)]
 pub struct PySet {
     pub(super) inner: PySetInner,
@@ -74,7 +74,7 @@ impl PySet {
     }
 }
 
-#[pyclass(module = false, name = "frozenset", unhashable = true)]
+#[pyclass(module = false, name = "frozenset", unhashable = true, ctx = frozenset_type)]
 pub struct PyFrozenSet {
     inner: PySetInner,
     hash: PyAtomic<PyHash>,
@@ -149,18 +149,6 @@ impl fmt::Debug for PyFrozenSet {
         // TODO: implement more detailed, non-recursive Debug formatter
         f.write_str("PyFrozenSet ")?;
         f.debug_set().entries(self.elements().iter()).finish()
-    }
-}
-
-impl PyPayload for PySet {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.set_type
-    }
-}
-
-impl PyPayload for PyFrozenSet {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.frozenset_type
     }
 }
 
@@ -1257,7 +1245,7 @@ impl TryFromObject for AnySet {
     }
 }
 
-#[pyclass(module = false, name = "set_iterator")]
+#[pyclass(module = false, name = "set_iterator", ctx = set_iterator_type)]
 pub(crate) struct PySetIterator {
     size: DictSize,
     internal: PyMutex<PositionIterInternal<PyRc<SetContentType>>>,
@@ -1267,12 +1255,6 @@ impl fmt::Debug for PySetIterator {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO: implement more detailed, non-recursive Debug formatter
         f.write_str("set_iterator")
-    }
-}
-
-impl PyPayload for PySetIterator {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.set_iterator_type
     }
 }
 

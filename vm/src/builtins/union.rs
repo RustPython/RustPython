@@ -15,7 +15,7 @@ use std::sync::LazyLock;
 
 const CLS_ATTRS: &[&str] = &["__module__"];
 
-#[pyclass(module = "types", name = "UnionType", traverse)]
+#[pyclass(module = "types", name = "UnionType", traverse, ctx = union_type)]
 pub struct PyUnion {
     args: PyTupleRef,
     parameters: PyTupleRef,
@@ -24,12 +24,6 @@ pub struct PyUnion {
 impl fmt::Debug for PyUnion {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("UnionObject")
-    }
-}
-
-impl PyPayload for PyUnion {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.union_type
     }
 }
 

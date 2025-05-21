@@ -14,7 +14,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 mod _socket {
     use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
     use crate::vm::{
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyRef, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         common::os::ErrorExt,
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
@@ -783,7 +783,7 @@ mod _socket {
     #[pyattr(name = "socket")]
     #[pyattr(name = "SocketType")]
     #[pyclass(name = "socket")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     pub struct PySocket {
         kind: AtomicCell<i32>,
         family: AtomicCell<i32>,

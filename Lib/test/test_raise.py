@@ -270,8 +270,6 @@ class TestTracebackType(unittest.TestCase):
         tb.tb_next = new_tb
         self.assertIs(tb.tb_next, new_tb)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructor(self):
         other_tb = get_tb()
         frame = sys._getframe()

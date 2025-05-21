@@ -1,4 +1,4 @@
-use super::{PyType, PyTypeRef};
+use super::PyTypeRef;
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::PyTupleRef,
@@ -9,18 +9,12 @@ use crate::{
 };
 use rustpython_common::atomic::{self, PyAtomic, Radium};
 
-#[pyclass(module = false, name = "zip", traverse)]
+#[pyclass(module = false, name = "zip", traverse, ctx = zip_type)]
 #[derive(Debug)]
 pub struct PyZip {
     iterators: Vec<PyIter>,
     #[pytraverse(skip)]
     strict: PyAtomic<bool>,
-}
-
-impl PyPayload for PyZip {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.zip_type
-    }
 }
 
 #[derive(FromArgs)]

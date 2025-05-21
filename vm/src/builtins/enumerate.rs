@@ -1,6 +1,4 @@
-use super::{
-    IterStatus, PositionIterInternal, PyGenericAlias, PyIntRef, PyTupleRef, PyType, PyTypeRef,
-};
+use super::{IterStatus, PositionIterInternal, PyGenericAlias, PyIntRef, PyTupleRef, PyTypeRef};
 use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
@@ -13,18 +11,12 @@ use crate::{
 use malachite_bigint::BigInt;
 use num_traits::Zero;
 
-#[pyclass(module = false, name = "enumerate", traverse)]
+#[pyclass(module = false, name = "enumerate", traverse, ctx = enumerate_type)]
 #[derive(Debug)]
 pub struct PyEnumerate {
     #[pytraverse(skip)]
     counter: PyRwLock<BigInt>,
     iterator: PyIter,
-}
-
-impl PyPayload for PyEnumerate {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.enumerate_type
-    }
 }
 
 #[derive(FromArgs)]
@@ -85,16 +77,10 @@ impl IterNext for PyEnumerate {
     }
 }
 
-#[pyclass(module = false, name = "reversed", traverse)]
+#[pyclass(module = false, name = "reversed", traverse, ctx = reverse_iter_type)]
 #[derive(Debug)]
 pub struct PyReverseSequenceIterator {
     internal: PyMutex<PositionIterInternal<PyObjectRef>>,
-}
-
-impl PyPayload for PyReverseSequenceIterator {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.reverse_iter_type
-    }
 }
 
 #[pyclass(with(IterNext, Iterable))]
