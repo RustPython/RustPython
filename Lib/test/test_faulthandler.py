@@ -372,7 +372,6 @@ class FaultHandlerTests(unittest.TestCase):
             'Segmentation fault',
             all_threads=False)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; AttributeError: module 'msvcrt' has no attribute 'GetErrorMode'")
     @skip_segfault_on_android
     def test_disable(self):
         code = """
@@ -961,8 +960,6 @@ class FaultHandlerTests(unittest.TestCase):
         self.assertEqual(output, [])
         self.assertEqual(exitcode, 0xC0000005)
 
-    # TODO: RUSTPYTHON, AssertionError: Lists differ
-    @unittest.expectedFailure
     def test_cancel_later_without_dump_traceback_later(self):
         # bpo-37933: Calling cancel_dump_traceback_later()
         # without dump_traceback_later() must not segfault.
