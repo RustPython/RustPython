@@ -175,7 +175,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                     ShellExecResult::Ok => {
                         if continuing_block {
                             if empty_line_given {
-                                // We should exit continue mode since the block succesfully executed
+                                // We should exit continue mode since the block successfully executed
                                 continuing_block = false;
                                 full_input.clear();
                             }
