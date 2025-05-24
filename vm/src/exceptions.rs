@@ -1627,7 +1627,11 @@ pub(super) mod types {
         }
     }
 
-    #[pyexception(name, base = "PySyntaxError", ctx = "incomplete_input_error")]
+    #[pyexception(
+        name = "_IncompleteInputError",
+        base = "PySyntaxError",
+        ctx = "incomplete_input_error"
+    )]
     #[derive(Debug)]
     pub struct PyIncompleteInputError {}
 
