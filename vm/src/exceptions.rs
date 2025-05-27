@@ -495,6 +495,7 @@ pub struct ExceptionZoo {
     pub not_implemented_error: &'static Py<PyType>,
     pub recursion_error: &'static Py<PyType>,
     pub syntax_error: &'static Py<PyType>,
+    pub incomplete_input_error: &'static Py<PyType>,
     pub indentation_error: &'static Py<PyType>,
     pub tab_error: &'static Py<PyType>,
     pub system_error: &'static Py<PyType>,
@@ -743,6 +744,7 @@ impl ExceptionZoo {
         let recursion_error = PyRecursionError::init_builtin_type();
 
         let syntax_error = PySyntaxError::init_builtin_type();
+        let incomplete_input_error = PyIncompleteInputError::init_builtin_type();
         let indentation_error = PyIndentationError::init_builtin_type();
         let tab_error = PyTabError::init_builtin_type();
 
@@ -817,6 +819,7 @@ impl ExceptionZoo {
             not_implemented_error,
             recursion_error,
             syntax_error,
+            incomplete_input_error,
             indentation_error,
             tab_error,
             system_error,
@@ -965,6 +968,7 @@ impl ExceptionZoo {
             "end_offset" => ctx.none(),
             "text" => ctx.none(),
         });
+        extend_exception!(PyIncompleteInputError, ctx, excs.incomplete_input_error);
         extend_exception!(PyIndentationError, ctx, excs.indentation_error);
         extend_exception!(PyTabError, ctx, excs.tab_error);
 
@@ -1620,6 +1624,28 @@ pub(super) mod types {
             };
 
             vm.ctx.new_str(msg_with_location_info)
+        }
+    }
+
+    #[pyexception(
+        name = "_IncompleteInputError",
+        base = "PySyntaxError",
+        ctx = "incomplete_input_error"
+    )]
+    #[derive(Debug)]
+    pub struct PyIncompleteInputError {}
+
+    #[pyexception]
+    impl PyIncompleteInputError {
+        #[pyslot]
+        #[pymethod(name = "__init__")]
+        pub(crate) fn slot_init(
+            zelf: PyObjectRef,
+            _args: FuncArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            zelf.set_attr("name", vm.ctx.new_str("SyntaxError"), vm)?;
+            Ok(())
         }
     }
 
