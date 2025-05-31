@@ -1392,7 +1392,7 @@ mod array {
         internal: PyMutex<PositionIterInternal<PyArrayRef>>,
     }
 
-    #[pyclass(with(IterNext, Iterable), flags(HAS_DICT))]
+    #[pyclass(with(IterNext, Iterable), flags(HAS_DICT, DISALLOW_INSTANTIATION))]
     impl PyArrayIter {
         #[pymethod(magic)]
         fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {

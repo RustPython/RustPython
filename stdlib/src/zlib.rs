@@ -225,7 +225,7 @@ mod zlib {
         inner: PyMutex<PyDecompressInner>,
     }
 
-    #[pyclass]
+    #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl PyDecompress {
         #[pygetset]
         fn eof(&self) -> bool {
@@ -381,7 +381,7 @@ mod zlib {
         inner: PyMutex<CompressState<CompressInner>>,
     }
 
-    #[pyclass]
+    #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl PyCompress {
         #[pymethod]
         fn compress(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
