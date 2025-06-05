@@ -320,10 +320,11 @@ impl VirtualMachine {
     }
 
     #[cfg(any(feature = "parser", feature = "compiler"))]
-    pub fn new_syntax_error(
+    pub fn new_syntax_error_maybe_incomplete(
         &self,
         error: &crate::compiler::CompileError,
         source: Option<&str>,
+        allow_incomplete: bool,
     ) -> PyBaseExceptionRef {
         use crate::source::SourceLocation;
 
@@ -344,11 +345,101 @@ impl VirtualMachine {
             }) => self.ctx.exceptions.indentation_error,
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error:
+                    ruff_python_parser::ParseErrorType::Lexical(
+                        ruff_python_parser::LexicalErrorType::Eof,
+                    ),
+                ..
+            }) => {
+                if allow_incomplete {
+                    self.ctx.exceptions.incomplete_input_error
+                } else {
+                    self.ctx.exceptions.syntax_error
+                }
+            }
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error:
+                    ruff_python_parser::ParseErrorType::Lexical(
+                        ruff_python_parser::LexicalErrorType::FStringError(
+                            ruff_python_parser::FStringErrorType::UnterminatedTripleQuotedString,
+                        ),
+                    ),
+                ..
+            }) => {
+                if allow_incomplete {
+                    self.ctx.exceptions.incomplete_input_error
+                } else {
+                    self.ctx.exceptions.syntax_error
+                }
+            }
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error:
+                    ruff_python_parser::ParseErrorType::Lexical(
+                        ruff_python_parser::LexicalErrorType::UnclosedStringError,
+                    ),
+                raw_location,
+                ..
+            }) => {
+                if allow_incomplete {
+                    let mut is_incomplete = false;
+
+                    if let Some(source) = source {
+                        let loc = raw_location.start().to_usize();
+                        let mut iter = source.chars();
+                        if let Some(quote) = iter.nth(loc) {
+                            if iter.next() == Some(quote) && iter.next() == Some(quote) {
+                                is_incomplete = true;
+                            }
+                        }
+                    }
+
+                    if is_incomplete {
+                        self.ctx.exceptions.incomplete_input_error
+                    } else {
+                        self.ctx.exceptions.syntax_error
+                    }
+                } else {
+                    self.ctx.exceptions.syntax_error
+                }
+            }
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error: ruff_python_parser::ParseErrorType::OtherError(s),
+                raw_location,
                 ..
             }) => {
                 if s.starts_with("Expected an indented block after") {
-                    self.ctx.exceptions.indentation_error
+                    if allow_incomplete {
+                        // Check that all chars in the error are whitespace, if so, the source is
+                        // incomplete. Otherwise, we've found code that might violates
+                        // indentation rules.
+                        let mut is_incomplete = true;
+                        if let Some(source) = source {
+                            let start = raw_location.start().to_usize();
+                            let end = raw_location.end().to_usize();
+                            let mut iter = source.chars();
+                            iter.nth(start);
+                            for _ in start..end {
+                                if let Some(c) = iter.next() {
+                                    if !c.is_ascii_whitespace() {
+                                        is_incomplete = false;
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+
+                        if is_incomplete {
+                            self.ctx.exceptions.incomplete_input_error
+                        } else {
+                            self.ctx.exceptions.indentation_error
+                        }
+                    } else {
+                        self.ctx.exceptions.indentation_error
+                    }
                 } else {
                     self.ctx.exceptions.syntax_error
                 }
@@ -408,6 +499,15 @@ impl VirtualMachine {
             .set_attr("filename", self.ctx.new_str(error.source_path()), self)
             .unwrap();
         syntax_error
+    }
+
+    #[cfg(any(feature = "parser", feature = "compiler"))]
+    pub fn new_syntax_error(
+        &self,
+        error: &crate::compiler::CompileError,
+        source: Option<&str>,
+    ) -> PyBaseExceptionRef {
+        self.new_syntax_error_maybe_incomplete(error, source, false)
     }
 
     pub fn new_import_error(&self, msg: String, name: PyStrRef) -> PyBaseExceptionRef {

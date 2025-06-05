@@ -65,14 +65,10 @@ def _maybe_compile(compiler, source, filename, symbol):
             try:
                 compiler(source + "\n", filename, symbol)
                 return None
+            except _IncompleteInputError as e:
+                return None
             except SyntaxError as e:
-                # XXX: RustPython; support multiline definitions in REPL
-                # See also: https://github.com/RustPython/RustPython/pull/5743
-                strerr = str(e)
-                if source.endswith(":") and "expected an indented block" in strerr:
-                    return None
-                elif "incomplete input" in str(e):
-                    return None
+                pass
                 # fallthrough
 
     return compiler(source, filename, symbol, incomplete_input=False)
