@@ -27,7 +27,7 @@ mod _collections {
     use std::collections::VecDeque;
 
     #[pyattr]
-    #[pyclass(name = "deque", unhashable = true)]
+    #[pyclass(module = "collections", name = "deque", unhashable = true)]
     #[derive(Debug, Default, PyPayload)]
     struct PyDeque {
         deque: PyRwLock<VecDeque<PyObjectRef>>,
