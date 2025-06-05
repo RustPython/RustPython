@@ -1388,12 +1388,12 @@ impl Instruction {
                 let value = ctx.get_constant(idx.get(arg) as usize);
                 match value.borrow_constant() {
                     BorrowedConstant::Code { code } if expand_code_objects => {
-                        write!(f, "{:pad$}({:?}):", op, code)?;
+                        write!(f, "{op:pad$}({code:?}):")?;
                         code.display_inner(f, true, level + 1)?;
                         Ok(())
                     }
                     c => {
-                        write!(f, "{:pad$}(", op)?;
+                        write!(f, "{op:pad$}(")?;
                         c.fmt_display(f)?;
                         write!(f, ")")
                     }

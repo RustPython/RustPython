@@ -151,7 +151,7 @@ pub fn compile_program(
     let mut compiler = Compiler::new(opts, source_code, "<module>".to_owned());
     compiler.compile_program(ast, symbol_table)?;
     let code = compiler.pop_code_object();
-    trace!("Compilation completed: {:?}", code);
+    trace!("Compilation completed: {code:?}");
     Ok(code)
 }
 
@@ -166,7 +166,7 @@ pub fn compile_program_single(
     let mut compiler = Compiler::new(opts, source_code, "<module>".to_owned());
     compiler.compile_program_single(&ast.body, symbol_table)?;
     let code = compiler.pop_code_object();
-    trace!("Compilation completed: {:?}", code);
+    trace!("Compilation completed: {code:?}");
     Ok(code)
 }
 
@@ -180,7 +180,7 @@ pub fn compile_block_expression(
     let mut compiler = Compiler::new(opts, source_code, "<module>".to_owned());
     compiler.compile_block_expr(&ast.body, symbol_table)?;
     let code = compiler.pop_code_object();
-    trace!("Compilation completed: {:?}", code);
+    trace!("Compilation completed: {code:?}");
     Ok(code)
 }
 
@@ -233,7 +233,7 @@ fn eprint_location(zelf: &Compiler<'_>) {
 fn unwrap_internal<T>(zelf: &Compiler<'_>, r: InternalResult<T>) -> T {
     if let Err(ref r_err) = r {
         eprintln!("=== CODEGEN PANIC INFO ===");
-        eprintln!("This IS an internal error: {}", r_err);
+        eprintln!("This IS an internal error: {r_err}");
         eprint_location(zelf);
         eprintln!("=== END PANIC INFO ===");
     }
@@ -671,7 +671,7 @@ impl Compiler<'_> {
 
     fn compile_statement(&mut self, statement: &Stmt) -> CompileResult<()> {
         use ruff_python_ast::*;
-        trace!("Compiling {:?}", statement);
+        trace!("Compiling {statement:?}");
         self.set_source_range(statement.range());
 
         match &statement {
@@ -1907,7 +1907,7 @@ impl Compiler<'_> {
 
     fn compile_error_forbidden_name(&mut self, name: &str) -> CodegenError {
         // TODO: make into error (fine for now since it realistically errors out earlier)
-        panic!("Failing due to forbidden name {:?}", name);
+        panic!("Failing due to forbidden name {name:?}");
     }
 
     /// Ensures that `pc.fail_pop` has at least `n + 1` entries.
@@ -3209,7 +3209,7 @@ impl Compiler<'_> {
 
     fn compile_expression(&mut self, expression: &Expr) -> CompileResult<()> {
         use ruff_python_ast::*;
-        trace!("Compiling {:?}", expression);
+        trace!("Compiling {expression:?}");
         let range = expression.range();
         self.set_source_range(range);
 
@@ -4432,7 +4432,7 @@ pub fn ruff_int_to_bigint(int: &Int) -> Result<BigInt, CodegenErrorType> {
 fn parse_big_integer(int: &Int) -> Result<BigInt, CodegenErrorType> {
     // TODO: Improve ruff API
     // Can we avoid this copy?
-    let s = format!("{}", int);
+    let s = format!("{int}");
     let mut s = s.as_str();
     // See: https://peps.python.org/pep-0515/#literal-grammar
     let radix = match s.get(0..2) {
