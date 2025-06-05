@@ -2088,8 +2088,6 @@ class TestDocString(unittest.TestCase):
 
         self.assertDocStrEqual(C.__doc__, "C(x:List[int]=<factory>)")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_docstring_deque_field(self):
         @dataclass
         class C:
@@ -2097,8 +2095,6 @@ class TestDocString(unittest.TestCase):
 
         self.assertDocStrEqual(C.__doc__, "C(x:collections.deque)")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_docstring_deque_field_with_default_factory(self):
         @dataclass
         class C:
