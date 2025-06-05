@@ -83,7 +83,7 @@ class ExceptionClassTests(unittest.TestCase):
         exc_set = set(e for e in exc_set if not e.startswith('_'))
         # RUSTPYTHON specific
         exc_set.discard("JitError")
-        # RUSTPYTHON specific
+        # TODO: RUSTPYTHON; this will be officially introduced in Python 3.15
         exc_set.discard("IncompleteInputError")
         self.assertEqual(len(exc_set), 0, "%s not accounted for" % exc_set)
 
