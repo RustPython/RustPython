@@ -247,7 +247,7 @@ pub(super) mod _os {
             let [] = dir_fd.0;
             let name = name.to_wide_cstring(vm)?;
             let flags = flags | libc::O_NOINHERIT;
-            Fd::wopen(&name, flags, mode)
+            crt_fd::wopen(&name, flags, mode)
         };
         #[cfg(not(windows))]
         let fd = {
@@ -853,8 +853,8 @@ pub(super) mod _os {
 
     #[cfg(windows)]
     fn stat_inner(
-        file: OsPathOrFd,
-        dir_fd: DirFd<{ STAT_DIR_FD as usize }>,
+        file: OsPathOrFd<'_>,
+        dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,
         follow_symlinks: FollowSymlinks,
     ) -> io::Result<Option<StatStruct>> {
         // TODO: replicate CPython's win32_xstat
