@@ -335,12 +335,13 @@ pub fn ftruncate(fd: Borrowed<'_>, len: Offset) -> io::Result<()> {
 
 #[cfg(windows)]
 pub fn as_handle(fd: Borrowed<'_>) -> io::Result<BorrowedHandle<'_>> {
+    use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
     unsafe extern "C" {
         fn _get_osfhandle(fd: Borrowed<'_>) -> c::intptr_t;
     }
     let handle = unsafe { suppress_iph!(_get_osfhandle(fd)) };
-    if handle == -1 {
-        Err(io::Error::last_os_error())
+    if handle as HANDLE == INVALID_HANDLE_VALUE {
+        Err(crate::os::last_os_error())
     } else {
         Ok(unsafe { BorrowedHandle::borrow_raw(handle as _) })
     }
