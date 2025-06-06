@@ -82,8 +82,6 @@ class ReprTests(unittest.TestCase):
         expected = repr(t3)[:-2] + "+++)"
         eq(r3.repr(t3), expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_container(self):
         from array import array
         from collections import deque
