@@ -676,7 +676,7 @@ impl fmt::Debug for Wtf8 {
             write_str_escaped(formatter, unsafe {
                 str::from_utf8_unchecked(&self.bytes[pos..surrogate_pos])
             })?;
-            write!(formatter, "\\u{{{:x}}}", surrogate)?;
+            write!(formatter, "\\u{{{surrogate:x}}}")?;
             pos = surrogate_pos + 3;
         }
         write_str_escaped(formatter, unsafe {
