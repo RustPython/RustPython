@@ -19,7 +19,7 @@
         "serve": "^14.2.4",
         "webpack": "^5.97.1",
         "webpack-cli": "^6.0.1",
-        "webpack-dev-server": "^5.2.0"
+        "webpack-dev-server": "^5.2.1"
     },
     "scripts": {
         "dev": "webpack serve",
