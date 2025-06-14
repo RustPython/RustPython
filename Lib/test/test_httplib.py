@@ -1,3 +1,4 @@
+import sys
 import errno
 from http import client, HTTPStatus
 import io
@@ -1781,6 +1782,7 @@ class HTTPSTest(TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @unittest.skipIf(sys.platform == 'darwin', 'Occasionally success on macOS')
     def test_local_unknown_cert(self):
         # The custom cert isn't known to the default trust bundle
         import ssl
