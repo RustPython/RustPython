@@ -446,6 +446,39 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
+    fn listvolumes(vm: &VirtualMachine) -> PyResult<PyListRef> {
+        let mut volumes = vec![];
+        let mut buffer = [0u16; 257];
+        let find = unsafe { FileSystem::FindFirstVolumeW(buffer.as_mut_ptr(), buffer.len() as _) };
+        if find == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
+            return Err(errno_err(vm));
+        }
+        let mut err = 0;
+        while err == 0 {
+            let s = unsafe { widestring::WideCString::from_ptr_str(buffer.as_mut_ptr()) };
+            let s = s.to_string_lossy();
+            if s.is_empty() {
+                break;
+            }
+            volumes.push(s.to_string());
+            let ret = unsafe {
+                FileSystem::FindNextVolumeW(find, buffer.as_mut_ptr(), buffer.len() as _)
+            };
+            if ret == 0 {
+                err = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+            }
+        }
+        if find != windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
+            unsafe { FileSystem::FindVolumeClose(find) };
+        }
+        if err != 0 && err != windows_sys::Win32::Foundation::ERROR_NO_MORE_FILES as i32 {
+            return Err(std::io::Error::from_raw_os_error(err).to_pyexception(vm));
+        }
+        let volumes: Vec<_> = volumes.into_iter().map(|v| vm.new_pyobj(v)).collect();
+        Ok(vm.ctx.new_list(volumes))
+    }
+
+    #[pyfunction]
     fn set_handle_inheritable(
         handle: intptr_t,
         inheritable: bool,
@@ -475,4 +508,5 @@ pub(crate) mod module {
     pub(crate) fn support_funcs() -> Vec<SupportFunc> {
         Vec::new()
     }
+}
 }
