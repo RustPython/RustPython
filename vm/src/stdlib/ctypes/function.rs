@@ -77,7 +77,7 @@ impl Function {
                 }
             })
             .collect::<PyResult<Vec<Type>>>()?;
-        let terminated = format!("{}\0", function);
+        let terminated = format!("{function}\0");
         let pointer: Symbol<'_, FP> = unsafe {
             library
                 .get(terminated.as_bytes())

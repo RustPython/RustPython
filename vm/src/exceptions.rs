@@ -206,7 +206,7 @@ impl VirtualMachine {
                 lineno
             )?;
         } else if let Some(filename) = maybe_filename {
-            filename_suffix = format!(" ({})", filename);
+            filename_suffix = format!(" ({filename})");
         }
 
         if let Some(text) = maybe_text {
@@ -215,7 +215,7 @@ impl VirtualMachine {
             let l_text = r_text.trim_start_matches([' ', '\n', '\x0c']); // \x0c is \f
             let spaces = (r_text.len() - l_text.len()) as isize;
 
-            writeln!(output, "    {}", l_text)?;
+            writeln!(output, "    {l_text}")?;
 
             let maybe_offset: Option<isize> =
                 getattr("offset").and_then(|obj| obj.try_to_value::<isize>(vm).ok());
@@ -1615,7 +1615,7 @@ pub(super) mod types {
                     format!("{} ({}, line {})", msg, basename(filename.as_str()), lineno)
                 }
                 (Some(lineno), None) => {
-                    format!("{} (line {})", msg, lineno)
+                    format!("{msg} (line {lineno})")
                 }
                 (None, Some(filename)) => {
                     format!("{} ({})", msg, basename(filename.as_str()))

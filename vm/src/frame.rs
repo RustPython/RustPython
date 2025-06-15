@@ -1667,7 +1667,7 @@ impl ExecutingFrame<'_> {
                 .topmost_exception()
                 .ok_or_else(|| vm.new_runtime_error("No active exception to reraise".to_owned()))?,
         };
-        debug!("Exception raised: {:?} with cause: {:?}", exception, cause);
+        debug!("Exception raised: {exception:?} with cause: {cause:?}");
         if let Some(cause) = cause {
             exception.set_cause(cause);
         }

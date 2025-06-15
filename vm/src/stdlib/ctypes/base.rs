@@ -251,7 +251,7 @@ impl PyCSimple {
     #[pyclassmethod]
     fn repeat(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
         if n < 0 {
-            return Err(vm.new_value_error(format!("Array length must be >= 0, not {}", n)));
+            return Err(vm.new_value_error(format!("Array length must be >= 0, not {n}")));
         }
         Ok(PyCArrayType {
             inner: PyCArray {

@@ -53,7 +53,7 @@ impl GetAttr for PyCStructure {
         let data = zelf.data.read();
         match data.get(&name) {
             Some(value) => Ok(value.clone()),
-            None => Err(vm.new_attribute_error(format!("No attribute named {}", name))),
+            None => Err(vm.new_attribute_error(format!("No attribute named {name}"))),
         }
     }
 }

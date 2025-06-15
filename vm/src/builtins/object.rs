@@ -53,14 +53,12 @@ impl Constructor for PyBaseObject {
                     0 => {}
                     1 => {
                         return Err(vm.new_type_error(format!(
-                            "class {} without an implementation for abstract method '{}'",
-                            name, methods
+                            "class {name} without an implementation for abstract method '{methods}'"
                         )));
                     }
                     2.. => {
                         return Err(vm.new_type_error(format!(
-                            "class {} without an implementation for abstract methods '{}'",
-                            name, methods
+                            "class {name} without an implementation for abstract methods '{methods}'"
                         )));
                     }
                     // TODO: remove `allow` when redox build doesn't complain about it

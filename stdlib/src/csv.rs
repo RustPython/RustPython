@@ -347,11 +347,8 @@ mod _csv {
             let arg_len = rest.args.len();
             if arg_len != 1 {
                 return Err(vm.new_type_error(
-                    format!(
-                        "field_size_limit() takes at most 1 argument ({} given)",
-                        arg_len
-                    )
-                    .to_string(),
+                    format!("field_size_limit() takes at most 1 argument ({arg_len} given)")
+                        .to_string(),
                 ));
             }
             let Ok(new_size) = rest.args.first().unwrap().try_int(vm) else {
@@ -701,7 +698,7 @@ mod _csv {
                     if let Some(dialect) = g.get(name) {
                         Ok(self.update_py_dialect(*dialect))
                     } else {
-                        Err(new_csv_error(vm, format!("{} is not registered.", name)))
+                        Err(new_csv_error(vm, format!("{name} is not registered.")))
                     }
                     // TODO
                     // Maybe need to update the obj from HashMap

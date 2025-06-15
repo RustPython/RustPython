@@ -51,8 +51,7 @@ impl PyObject {
                     Err(err) => return err,
                 };
                 vm.new_value_error(format!(
-                    "invalid literal for int() with base {}: {}",
-                    base, repr,
+                    "invalid literal for int() with base {base}: {repr}",
                 ))
             })?;
             Ok(PyInt::from(i).into_ref(&vm.ctx))
@@ -475,10 +474,9 @@ impl PyNumber<'_> {
                 warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
                     format!(
-                        "__int__ returned non-int (type {}).  \
+                        "__int__ returned non-int (type {ret_class}).  \
                     The ability to return an instance of a strict subclass of int \
                     is deprecated, and may be removed in a future version of Python.",
-                        ret_class
                     ),
                     1,
                     vm,
@@ -509,10 +507,9 @@ impl PyNumber<'_> {
                 warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
                     format!(
-                        "__index__ returned non-int (type {}).  \
+                        "__index__ returned non-int (type {ret_class}).  \
                     The ability to return an instance of a strict subclass of int \
                     is deprecated, and may be removed in a future version of Python.",
-                        ret_class
                     ),
                     1,
                     vm,
@@ -543,10 +540,9 @@ impl PyNumber<'_> {
                 warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
                     format!(
-                        "__float__ returned non-float (type {}).  \
+                        "__float__ returned non-float (type {ret_class}).  \
                     The ability to return an instance of a strict subclass of float \
                     is deprecated, and may be removed in a future version of Python.",
-                        ret_class
                     ),
                     1,
                     vm,
