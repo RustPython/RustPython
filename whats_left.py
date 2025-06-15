@@ -40,7 +40,7 @@ if implementation != "CPython":
     sys.exit(f"whats_left.py must be run under CPython, got {implementation} instead")
 if sys.version_info[:2] < (3, 13):
     sys.exit(
-        f"whats_left.py must be run under CPython 3.13 or newer, got {implementation} {sys.version} instead"
+        f"whats_left.py must be run under CPython 3.13 or newer, got {implementation} {sys.version} instead. If you have uv, try `uv run python -I whats_left.py` to select a proper Python interpreter easier."
     )
 
 
