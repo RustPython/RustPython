@@ -13,6 +13,7 @@ use libffi::middle::{Arg, Cif, CodePtr, Type};
 use libloading::Symbol;
 use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
+use std::ffi::CString;
 use std::fmt::Debug;
 
 // https://github.com/python/cpython/blob/4f8bb3947cfbc20f970ff9d9531e1132a9e95396/Modules/_ctypes/callproc.c#L15
@@ -77,10 +78,11 @@ impl Function {
                 }
             })
             .collect::<PyResult<Vec<Type>>>()?;
-        let terminated = format!("{function}\0");
+        let c_function_name = CString::new(function)
+            .map_err(|_| vm.new_value_error("Function name contains null bytes".to_string()))?;
         let pointer: Symbol<'_, FP> = unsafe {
             library
-                .get(terminated.as_bytes())
+                .get(c_function_name.as_bytes())
                 .map_err(|err| err.to_string())
                 .map_err(|err| vm.new_attribute_error(err))?
         };

@@ -346,10 +346,9 @@ mod _csv {
         if !rest.args.is_empty() {
             let arg_len = rest.args.len();
             if arg_len != 1 {
-                return Err(vm.new_type_error(
-                    format!("field_size_limit() takes at most 1 argument ({arg_len} given)")
-                        .to_string(),
-                ));
+                return Err(vm.new_type_error(format!(
+                    "field_size_limit() takes at most 1 argument ({arg_len} given)"
+                )));
             }
             let Ok(new_size) = rest.args.first().unwrap().try_int(vm) else {
                 return Err(vm.new_type_error("limit must be an integer".to_string()));

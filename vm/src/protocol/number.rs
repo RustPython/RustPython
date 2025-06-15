@@ -476,7 +476,7 @@ impl PyNumber<'_> {
                     format!(
                         "__int__ returned non-int (type {ret_class}).  \
                     The ability to return an instance of a strict subclass of int \
-                    is deprecated, and may be removed in a future version of Python.",
+                    is deprecated, and may be removed in a future version of Python."
                     ),
                     1,
                     vm,
@@ -509,7 +509,7 @@ impl PyNumber<'_> {
                     format!(
                         "__index__ returned non-int (type {ret_class}).  \
                     The ability to return an instance of a strict subclass of int \
-                    is deprecated, and may be removed in a future version of Python.",
+                    is deprecated, and may be removed in a future version of Python."
                     ),
                     1,
                     vm,
@@ -542,7 +542,7 @@ impl PyNumber<'_> {
                     format!(
                         "__float__ returned non-float (type {ret_class}).  \
                     The ability to return an instance of a strict subclass of float \
-                    is deprecated, and may be removed in a future version of Python.",
+                    is deprecated, and may be removed in a future version of Python."
                     ),
                     1,
                     vm,
