@@ -8,10 +8,10 @@ pub use libc::stat as StatStruct;
 pub use windows::{StatStruct, fstat};
 
 #[cfg(not(windows))]
-pub fn fstat(fd: libc::c_int) -> std::io::Result<StatStruct> {
+pub fn fstat(fd: crate::crt_fd::Borrowed<'_>) -> std::io::Result<StatStruct> {
     let mut stat = std::mem::MaybeUninit::uninit();
     unsafe {
-        let ret = libc::fstat(fd, stat.as_mut_ptr());
+        let ret = libc::fstat(fd.as_raw(), stat.as_mut_ptr());
         if ret == -1 {
             Err(crate::os::last_os_error())
         } else {
@@ -22,15 +22,15 @@ pub fn fstat(fd: libc::c_int) -> std::io::Result<StatStruct> {
 
 #[cfg(windows)]
 pub mod windows {
-    use crate::suppress_iph;
+    use crate::crt_fd;
     use crate::windows::ToWideString;
     use libc::{S_IFCHR, S_IFDIR, S_IFMT};
     use std::ffi::{CString, OsStr, OsString};
     use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::io::AsRawHandle;
     use std::sync::OnceLock;
     use windows_sys::Win32::Foundation::{
-        BOOL, ERROR_INVALID_HANDLE, ERROR_NOT_SUPPORTED, FILETIME, FreeLibrary, HANDLE,
-        INVALID_HANDLE_VALUE, SetLastError,
+        BOOL, ERROR_INVALID_HANDLE, ERROR_NOT_SUPPORTED, FILETIME, FreeLibrary, SetLastError,
     };
     use windows_sys::Win32::Storage::FileSystem::{
         BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_READONLY,
@@ -94,26 +94,14 @@ pub mod windows {
         }
     }
 
-    unsafe extern "C" {
-        fn _get_osfhandle(fd: i32) -> libc::intptr_t;
-    }
-
-    fn get_osfhandle(fd: i32) -> std::io::Result<isize> {
-        let ret = unsafe { suppress_iph!(_get_osfhandle(fd)) };
-        if ret as HANDLE == INVALID_HANDLE_VALUE {
-            Err(crate::os::last_os_error())
-        } else {
-            Ok(ret)
-        }
-    }
-
     // _Py_fstat_noraise in cpython
-    pub fn fstat(fd: libc::c_int) -> std::io::Result<StatStruct> {
-        let h = get_osfhandle(fd);
+    pub fn fstat(fd: crt_fd::Borrowed<'_>) -> std::io::Result<StatStruct> {
+        let h = crt_fd::as_handle(fd);
         if h.is_err() {
             unsafe { SetLastError(ERROR_INVALID_HANDLE) };
         }
         let h = h?;
+        let h = h.as_raw_handle();
         // reset stat?
 
         let file_type = unsafe { GetFileType(h as _) };
