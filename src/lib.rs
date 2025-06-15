@@ -197,12 +197,12 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     }
     let res = match run_mode {
         RunMode::Command(command) => {
-            debug!("Running command {}", command);
+            debug!("Running command {command}");
             vm.run_code_string(scope.clone(), &command, "<stdin>".to_owned())
                 .map(drop)
         }
         RunMode::Module(module) => {
-            debug!("Running module {}", module);
+            debug!("Running module {module}");
             vm.run_module(&module)
         }
         RunMode::InstallPip(installer) => install_pip(installer, scope.clone(), vm),

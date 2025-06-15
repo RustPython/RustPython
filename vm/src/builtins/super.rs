@@ -1,3 +1,4 @@
+// cspell:ignore cmeth
 /*! Python `super` class.
 
 See also [CPython source code.](https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/Objects/typeobject.c#L7663)
@@ -125,8 +126,8 @@ impl Initializer for PySuper {
             (typ, obj)
         };
 
-        let mut inner = PySuperInner::new(typ, obj, vm)?;
-        std::mem::swap(&mut inner, &mut zelf.inner.write());
+        let inner = PySuperInner::new(typ, obj, vm)?;
+        *zelf.inner.write() = inner;
 
         Ok(())
     }

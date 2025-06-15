@@ -1175,7 +1175,7 @@ mod _io {
                         vm.call_method(self.raw.as_ref().unwrap(), "readinto", (mem_obj.clone(),));
 
                     mem_obj.release();
-                    std::mem::swap(v, &mut read_buf.take());
+                    *v = read_buf.take();
 
                     res?
                 }

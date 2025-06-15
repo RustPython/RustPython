@@ -49,7 +49,7 @@ impl VirtualMachine {
                 self.run_code_string(scope, &source, path.to_owned())?;
             }
             Err(err) => {
-                error!("Failed reading file '{}': {}", path, err);
+                error!("Failed reading file '{path}': {err}");
                 // TODO: Need to change to ExitCode or Termination
                 std::process::exit(1);
             }

@@ -419,7 +419,7 @@ impl StandardEncoding {
                 match encoding {
                     "be" => Some(Self::Utf32Be),
                     "le" => Some(Self::Utf32Le),
-                    _ => return None,
+                    _ => None,
                 }
             } else {
                 None
@@ -1116,7 +1116,7 @@ fn replace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRe
         let replace = replacement_char.repeat(range.end - range.start);
         Ok((replace.to_pyobject(vm), range.end))
     } else {
-        return Err(bad_err_type(err, vm));
+        Err(bad_err_type(err, vm))
     }
 }
 

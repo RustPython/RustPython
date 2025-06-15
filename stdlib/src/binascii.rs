@@ -756,8 +756,7 @@ impl ToPyException for Base64DecodeError {
             InvalidLastSymbol(_, PAD) => "Excess data after padding".to_owned(),
             InvalidLastSymbol(length, _) => {
                 format!(
-                    "Invalid base64-encoded string: number of data characters {} cannot be 1 more than a multiple of 4",
-                    length
+                    "Invalid base64-encoded string: number of data characters {length} cannot be 1 more than a multiple of 4"
                 )
             }
             // TODO: clean up errors

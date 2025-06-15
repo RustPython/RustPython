@@ -132,8 +132,7 @@ impl PyProperty {
         let func_args_len = func_args.args.len();
         let (_owner, name): (PyObjectRef, PyObjectRef) = func_args.bind(vm).map_err(|_e| {
             vm.new_type_error(format!(
-                "__set_name__() takes 2 positional arguments but {} were given",
-                func_args_len
+                "__set_name__() takes 2 positional arguments but {func_args_len} were given"
             ))
         })?;
 

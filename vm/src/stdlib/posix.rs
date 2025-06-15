@@ -1989,7 +1989,7 @@ pub mod module {
         let pathname = vm.ctx.new_dict();
         for variant in PathconfVar::iter() {
             // get the name of variant as a string to use as the dictionary key
-            let key = vm.ctx.new_str(format!("{:?}", variant));
+            let key = vm.ctx.new_str(format!("{variant:?}"));
             // get the enum from the string and convert it to an integer for the dictionary value
             let value = vm.ctx.new_int(variant as u8);
             pathname
@@ -2185,7 +2185,7 @@ pub mod module {
         let names = vm.ctx.new_dict();
         for variant in SysconfVar::iter() {
             // get the name of variant as a string to use as the dictionary key
-            let key = vm.ctx.new_str(format!("{:?}", variant));
+            let key = vm.ctx.new_str(format!("{variant:?}"));
             // get the enum from the string and convert it to an integer for the dictionary value
             let value = vm.ctx.new_int(variant as u8);
             names

@@ -66,10 +66,9 @@ impl PyObjectRef {
                 warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
                     format!(
-                        "__complex__ returned non-complex (type {}).  \
+                        "__complex__ returned non-complex (type {ret_class}).  \
                     The ability to return an instance of a strict subclass of complex \
-                    is deprecated, and may be removed in a future version of Python.",
-                        ret_class
+                    is deprecated, and may be removed in a future version of Python."
                     ),
                     1,
                     vm,
