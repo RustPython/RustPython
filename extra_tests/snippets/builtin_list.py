@@ -326,7 +326,7 @@ x[0] = "a"
 assert x == ["a", 2, 3, 4, 5]
 x[-1] = "b"
 assert x == ["a", 2, 3, 4, "b"]
-# make sure refrences are assigned correctly
+# make sure references are assigned correctly
 y = []
 x[1] = y
 y.append(100)
@@ -434,7 +434,7 @@ x[2:8] = []
 y[2:8:1] = []
 assert x == [0, 1, 8, 9]
 assert x == y
-# make sure refrences are assigned correctly
+# make sure references are assigned correctly
 yy = []
 x = a[:]
 y = a[:]

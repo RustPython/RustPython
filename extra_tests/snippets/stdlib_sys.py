@@ -113,7 +113,7 @@ if sys.platform.startswith("win"):
     assert 0 <= winver.suite_mask <= all_masks
     assert 1 <= winver.product_type <= 3
 
-    # XXX if platform_version is implemented correctly, this'll break on compatiblity mode or a build without manifest
+    # XXX if platform_version is implemented correctly, this'll break on compatibility mode or a build without manifest
     # these fields can mismatch in CPython
     assert winver.major == winver.platform_version[0]
     assert winver.minor == winver.platform_version[1]

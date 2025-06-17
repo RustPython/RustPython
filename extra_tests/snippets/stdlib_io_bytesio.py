@@ -50,7 +50,7 @@ def test_04():
 
 def test_05():
     """
-    Tests that the write method accpets bytearray
+    Tests that the write method accepts bytearray
     """
     bytes_string = b"Test String 5"
 
