@@ -2074,8 +2074,6 @@ class NameErrorTests(unittest.TestCase):
 
 
 class AttributeErrorTests(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_attributes(self):
         # Setting 'attr' should not be a problem.
         exc = AttributeError('Ouch!')
@@ -2087,8 +2085,6 @@ class AttributeErrorTests(unittest.TestCase):
         self.assertEqual(exc.name, 'carry')
         self.assertIs(exc.obj, sentinel)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_getattr_has_name_and_obj(self):
         class A:
             blech = None

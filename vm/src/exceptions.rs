@@ -1260,9 +1260,32 @@ pub(super) mod types {
     #[derive(Debug)]
     pub struct PyAssertionError {}
 
-    #[pyexception(name, base = "PyException", ctx = "attribute_error", impl)]
+    #[pyexception(name, base = "PyException", ctx = "attribute_error")]
     #[derive(Debug)]
     pub struct PyAttributeError {}
+
+    #[pyexception]
+    impl PyAttributeError {
+        #[pyslot]
+        #[pymethod(name = "__init__")]
+        pub(crate) fn slot_init(
+            zelf: PyObjectRef,
+            args: ::rustpython_vm::function::FuncArgs,
+            vm: &::rustpython_vm::VirtualMachine,
+        ) -> ::rustpython_vm::PyResult<()> {
+            zelf.set_attr(
+                "name",
+                vm.unwrap_or_none(args.kwargs.get("name").cloned()),
+                vm,
+            )?;
+            zelf.set_attr(
+                "obj",
+                vm.unwrap_or_none(args.kwargs.get("obj").cloned()),
+                vm,
+            )?;
+            Ok(())
+        }
+    }
 
     #[pyexception(name, base = "PyException", ctx = "buffer_error", impl)]
     #[derive(Debug)]

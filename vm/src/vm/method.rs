@@ -79,13 +79,7 @@ impl PyMethod {
         } else if let Some(getter) = cls.get_attr(identifier!(vm, __getattr__)) {
             getter.call((obj, name.to_owned()), vm).map(Self::Attribute)
         } else {
-            let exc = vm.new_attribute_error(format!(
-                "'{}' object has no attribute '{}'",
-                cls.name(),
-                name
-            ));
-            vm.set_attribute_error_context(&exc, obj.clone(), name.to_owned());
-            Err(exc)
+            Err(vm.new_no_attribute_error(obj.clone(), name.to_owned()))
         }
     }
 
