@@ -187,11 +187,7 @@ impl PyObject {
             } else {
                 dict.del_item(attr_name, vm).map_err(|e| {
                     if e.fast_isinstance(vm.ctx.exceptions.key_error) {
-                        vm.new_attribute_error(format!(
-                            "'{}' object has no attribute '{}'",
-                            self.class().name(),
-                            attr_name.as_str(),
-                        ))
+                        vm.new_no_attribute_error(self.to_owned(), attr_name.to_owned())
                     } else {
                         e
                     }
@@ -199,22 +195,13 @@ impl PyObject {
             }
             Ok(())
         } else {
-            Err(vm.new_attribute_error(format!(
-                "'{}' object has no attribute '{}'",
-                self.class().name(),
-                attr_name.as_str(),
-            )))
+            Err(vm.new_no_attribute_error(self.to_owned(), attr_name.to_owned()))
         }
     }
 
     pub fn generic_getattr(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-        self.generic_getattr_opt(name, None, vm)?.ok_or_else(|| {
-            vm.new_attribute_error(format!(
-                "'{}' object has no attribute '{}'",
-                self.class().name(),
-                name
-            ))
-        })
+        self.generic_getattr_opt(name, None, vm)?
+            .ok_or_else(|| vm.new_no_attribute_error(self.to_owned(), name.to_owned()))
     }
 
     /// CPython _PyObject_GenericGetAttrWithDict

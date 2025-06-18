@@ -135,6 +135,20 @@ impl VirtualMachine {
         self.new_exception_msg(attribute_error, msg)
     }
 
+    pub fn new_no_attribute_error(&self, obj: PyObjectRef, name: PyStrRef) -> PyBaseExceptionRef {
+        let msg = format!(
+            "'{}' object has no attribute '{}'",
+            obj.class().name(),
+            name
+        );
+        let attribute_error = self.new_attribute_error(msg);
+
+        // Use existing set_attribute_error_context function
+        self.set_attribute_error_context(&attribute_error, obj, name);
+
+        attribute_error
+    }
+
     pub fn new_type_error(&self, msg: String) -> PyBaseExceptionRef {
         let type_error = self.ctx.exceptions.type_error.to_owned();
         self.new_exception_msg(type_error, msg)

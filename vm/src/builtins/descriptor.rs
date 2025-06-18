@@ -287,11 +287,7 @@ fn get_slot_from_object(
             .get_slot(offset)
             .unwrap_or_else(|| vm.ctx.new_bool(false).into()),
         MemberKind::ObjectEx => obj.get_slot(offset).ok_or_else(|| {
-            vm.new_attribute_error(format!(
-                "'{}' object has no attribute '{}'",
-                obj.class().name(),
-                member.name
-            ))
+            vm.new_no_attribute_error(obj.clone(), vm.ctx.new_str(member.name.clone()))
         })?,
     };
     Ok(slot)
