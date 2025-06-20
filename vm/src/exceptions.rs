@@ -1750,7 +1750,8 @@ pub(super) mod types {
             type Args = (PyStrRef, ArgBytesLike, isize, isize, PyStrRef);
             let (encoding, object, start, end, reason): Args = args.bind(vm)?;
             zelf.set_attr("encoding", encoding, vm)?;
-            zelf.set_attr("object", object, vm)?;
+            let object_as_bytes = vm.ctx.new_bytes(object.borrow_buf().to_vec());
+            zelf.set_attr("object", object_as_bytes, vm)?;
             zelf.set_attr("start", vm.ctx.new_int(start), vm)?;
             zelf.set_attr("end", vm.ctx.new_int(end), vm)?;
             zelf.set_attr("reason", reason, vm)?;
