@@ -1602,6 +1602,44 @@ pub(super) mod types {
 
     #[pyexception]
     impl PySyntaxError {
+        #[pyslot]
+        #[pymethod(name = "__init__")]
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let len = args.args.len();
+            let new_args = args;
+
+            zelf.set_attr("print_file_and_line", vm.ctx.none(), vm)?;
+
+            if len == 2 {
+                if let Ok(location_tuple) = new_args.args[1]
+                    .clone()
+                    .downcast::<crate::builtins::PyTuple>()
+                {
+                    #[allow(clippy::len_zero)]
+                    if location_tuple.len() >= 1 {
+                        zelf.set_attr("filename", location_tuple.fast_getitem(0).clone(), vm)?;
+                    }
+                    if location_tuple.len() >= 2 {
+                        zelf.set_attr("lineno", location_tuple.fast_getitem(1).clone(), vm)?;
+                    }
+                    if location_tuple.len() >= 3 {
+                        zelf.set_attr("offset", location_tuple.fast_getitem(2).clone(), vm)?;
+                    }
+                    if location_tuple.len() >= 4 {
+                        zelf.set_attr("text", location_tuple.fast_getitem(3).clone(), vm)?;
+                    }
+                    if location_tuple.len() >= 5 {
+                        zelf.set_attr("end_lineno", location_tuple.fast_getitem(4).clone(), vm)?;
+                    }
+                    if location_tuple.len() >= 6 {
+                        zelf.set_attr("end_offset", location_tuple.fast_getitem(5).clone(), vm)?;
+                    }
+                }
+            }
+
+            PyBaseException::slot_init(zelf, new_args, vm)
+        }
+
         #[pymethod(magic)]
         fn str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
             fn basename(filename: &str) -> &str {
