@@ -93,8 +93,6 @@ class TracebackCases(unittest.TestCase):
         self.assertEqual(err[1].find("("), err[2].find("^"))  # in the right place
         self.assertEqual(err[2].count("^"), 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nocaret(self):
         exc = SyntaxError("error", ("x.py", 23, None, "bad syntax"))
         err = traceback.format_exception_only(SyntaxError, exc)
@@ -748,8 +746,6 @@ class BaseExceptionReportingTests:
         self.assertIn('inner_raise() # Marker', blocks[2])
         self.check_zero_div(blocks[2])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_syntax_error_offset_at_eol(self):
         # See #10186.
         def e():
@@ -808,8 +804,6 @@ class BaseExceptionReportingTests:
         exp = f'<unknown>.{X.__qualname__}: I am X\n'
         self.assertEqual(exp, err)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_syntax_error_various_offsets(self):
         for offset in range(-5, 10):
             for add in [0, 2]:
