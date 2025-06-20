@@ -2349,8 +2349,6 @@ class AttributeErrorTests(unittest.TestCase):
 
 
 class ImportErrorTests(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_attributes(self):
         # Setting 'name' and 'path' should not be a problem.
         exc = ImportError('test')
@@ -2385,8 +2383,6 @@ class ImportErrorTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, msg):
             ImportError('test', invalid='keyword', another=True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reset_attributes(self):
         exc = ImportError('test', name='name', path='path')
         self.assertEqual(exc.args, ('test',))

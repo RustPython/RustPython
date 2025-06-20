@@ -1308,17 +1308,21 @@ pub(super) mod types {
             args: ::rustpython_vm::function::FuncArgs,
             vm: &::rustpython_vm::VirtualMachine,
         ) -> ::rustpython_vm::PyResult<()> {
-            zelf.set_attr(
-                "name",
-                vm.unwrap_or_none(args.kwargs.get("name").cloned()),
-                vm,
-            )?;
-            zelf.set_attr(
-                "path",
-                vm.unwrap_or_none(args.kwargs.get("path").cloned()),
-                vm,
-            )?;
-            Ok(())
+            let mut kwargs = args.kwargs.clone();
+            let name = kwargs.swap_remove("name");
+            let path = kwargs.swap_remove("path");
+
+            // Check for any remaining invalid keyword arguments
+            if let Some(invalid_key) = kwargs.keys().next() {
+                return Err(vm.new_type_error(format!(
+                    "'{}' is an invalid keyword argument for ImportError",
+                    invalid_key
+                )));
+            }
+
+            zelf.set_attr("name", vm.unwrap_or_none(name), vm)?;
+            zelf.set_attr("path", vm.unwrap_or_none(path), vm)?;
+            PyBaseException::slot_init(zelf, args, vm)
         }
         #[pymethod(magic)]
         fn reduce(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
