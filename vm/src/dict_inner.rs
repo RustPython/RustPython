@@ -146,6 +146,7 @@ impl GenIndexes {
             mask,
         }
     }
+
     fn next(&mut self) -> usize {
         let prev = self.idx;
         self.idx = prev

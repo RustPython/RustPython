@@ -331,6 +331,7 @@ impl SequenceIndexOp for BigInt {
             self.try_into().unwrap_or(len)
         }
     }
+
     fn wrapped_at(&self, _len: usize) -> Option<usize> {
         unimplemented!("please add one once we need it")
     }
