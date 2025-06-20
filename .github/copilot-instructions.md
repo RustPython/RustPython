@@ -96,7 +96,7 @@ Run `./whats_left.py` to get a list of unimplemented methods, which is helpful w
 ### Rust Code
 
 - Follow the default rustfmt code style (`cargo fmt` to format)
-- Use clippy to lint code (`cargo clippy`)
+- **IMPORTANT**: Always run clippy to lint code (`cargo clippy`) before completing tasks. Fix any warnings or lints that are introduced by your changes
 - Follow Rust best practices for error handling and memory management
 - Use the macro system (`pyclass`, `pymodule`, `pyfunction`, etc.) when implementing Python functionality in Rust
 
