@@ -214,7 +214,7 @@ pub struct ByteInnerTranslateOptions {
 impl ByteInnerTranslateOptions {
     pub fn get_value(self, vm: &VirtualMachine) -> PyResult<(Vec<u8>, Vec<u8>)> {
         let table = self.table.map_or_else(
-            || Ok((0..=255).collect::<Vec<u8>>()),
+            || Ok((0..=u8::MAX).collect::<Vec<u8>>()),
             |v| {
                 let bytes = v
                     .try_into_value::<PyBytesInner>(vm)
@@ -424,8 +424,8 @@ impl PyBytesInner {
         let mut new: Vec<u8> = Vec::with_capacity(self.elements.len());
         for w in &self.elements {
             match w {
-                65..=90 => new.push(w.to_ascii_lowercase()),
-                97..=122 => new.push(w.to_ascii_uppercase()),
+                b'A'..=b'Z' => new.push(w.to_ascii_lowercase()),
+                b'a'..=b'z' => new.push(w.to_ascii_uppercase()),
                 x => new.push(*x),
             }
         }
@@ -491,10 +491,11 @@ impl PyBytesInner {
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         let (width, fillchar) = options.get_value("center", vm)?;
-        Ok(if self.len() as isize >= width {
+        let len = self.len();
+        Ok(if len as isize >= width {
             Vec::from(&self.elements[..])
         } else {
-            pad(&self.elements, width as usize, fillchar, self.len())
+            pad(&self.elements, width as usize, fillchar, len)
         })
     }
 
@@ -564,7 +565,7 @@ impl PyBytesInner {
         }
         let mut res = vec![];
 
-        for i in 0..=255 {
+        for i in 0..=u8::MAX {
             res.push(if let Some(position) = from.elements.find_byte(i) {
                 to.elements[position]
             } else {
@@ -929,7 +930,7 @@ impl PyBytesInner {
 
         for i in &self.elements {
             match i {
-                65..=90 | 97..=122 => {
+                b'A'..=b'Z' | b'a'..=b'z' => {
                     if spaced {
                         res.push(i.to_ascii_uppercase());
                         spaced = false
@@ -1011,6 +1012,7 @@ impl AnyStrWrapper<[u8]> for PyBytesInner {
     fn as_ref(&self) -> Option<&[u8]> {
         Some(&self.elements)
     }
+
     fn is_empty(&self) -> bool {
         self.elements.is_empty()
     }
@@ -1036,9 +1038,11 @@ impl anystr::AnyChar for u8 {
     fn is_lowercase(self) -> bool {
         self.is_ascii_lowercase()
     }
+
     fn is_uppercase(self) -> bool {
         self.is_ascii_uppercase()
     }
+
     fn bytes_len(self) -> usize {
         1
     }
