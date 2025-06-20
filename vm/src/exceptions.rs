@@ -237,9 +237,10 @@ impl VirtualMachine {
                 let colno = offset - 1 - spaces;
                 let end_colno = end_offset - 1 - spaces;
                 if colno >= 0 {
-                    let caret_space = l_text.chars().collect::<Vec<_>>()[..colno as usize]
-                        .iter()
-                        .map(|c| if c.is_whitespace() { *c } else { ' ' })
+                    let caret_space = l_text
+                        .chars()
+                        .take(colno as usize)
+                        .map(|c| if c.is_whitespace() { c } else { ' ' })
                         .collect::<String>();
 
                     let mut error_width = end_colno - colno;
