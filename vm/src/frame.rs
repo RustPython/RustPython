@@ -1541,19 +1541,11 @@ impl ExecutingFrame<'_> {
         let map_obj = vm.ctx.new_dict();
         for obj in self.pop_multiple(size) {
             // Use keys() method for all mapping objects to preserve order
-            let Some(keys_method) = vm.get_method(obj.clone(), vm.ctx.intern_str("keys")) else {
-                return Err(
-                    vm.new_type_error(format!("'{}' object is not a mapping", obj.class().name()))
-                );
-            };
-
-            let keys = keys_method?.call((), vm)?.get_iter(vm)?;
-            while let PyIterReturn::Return(key) = keys.next(vm)? {
+            Self::iterate_mapping_keys(vm, &obj, "keyword argument", |key| {
                 // Check for keyword argument restrictions
                 if key.downcast_ref::<PyStr>().is_none() {
                     return Err(vm.new_type_error("keywords must be strings".to_owned()));
                 }
-
                 if map_obj.contains_key(&*key, vm) {
                     let key_repr = &key.repr(vm)?;
                     let msg = format!(
@@ -1565,7 +1557,8 @@ impl ExecutingFrame<'_> {
 
                 let value = obj.get_item(&*key, vm)?;
                 map_obj.set_item(&*key, value, vm)?;
-            }
+                Ok(())
+            })?;
         }
 
         self.push_value(map_obj.into());
@@ -1614,19 +1607,14 @@ impl ExecutingFrame<'_> {
             let mut kwargs = IndexMap::new();
 
             // Use keys() method for all mapping objects to preserve order
-            let Some(keys_method) = vm.get_method(kw_obj.clone(), vm.ctx.intern_str("keys")) else {
-                return Err(vm.new_type_error("argument after ** must be a mapping".to_owned()));
-            };
-
-            // Handle custom mapping objects like OrderedDict using keys() method
-            let keys = keys_method?.call((), vm)?.get_iter(vm)?;
-            while let PyIterReturn::Return(key) = keys.next(vm)? {
+            Self::iterate_mapping_keys(vm, &kw_obj, "argument after **", |key| {
                 let key_str = key
                     .payload_if_subclass::<PyStr>(vm)
                     .ok_or_else(|| vm.new_type_error("keywords must be strings".to_owned()))?;
                 let value = kw_obj.get_item(&*key, vm)?;
                 kwargs.insert(key_str.as_str().to_owned(), value);
-            }
+                Ok(())
+            })?;
             kwargs
         } else {
             IndexMap::new()
@@ -1636,6 +1624,28 @@ impl ExecutingFrame<'_> {
             .as_slice()
             .to_vec();
         Ok(FuncArgs { args, kwargs })
+    }
+
+    /// Helper function to iterate over mapping keys using the keys() method.
+    /// This ensures proper order preservation for OrderedDict and other custom mappings.
+    fn iterate_mapping_keys<F>(
+        vm: &VirtualMachine,
+        mapping: &PyObjectRef,
+        error_prefix: &str,
+        mut key_handler: F,
+    ) -> PyResult<()>
+    where
+        F: FnMut(PyObjectRef) -> PyResult<()>,
+    {
+        let Some(keys_method) = vm.get_method(mapping.clone(), vm.ctx.intern_str("keys")) else {
+            return Err(vm.new_type_error(format!("{} must be a mapping", error_prefix)));
+        };
+
+        let keys = keys_method?.call((), vm)?.get_iter(vm)?;
+        while let PyIterReturn::Return(key) = keys.next(vm)? {
+            key_handler(key)?;
+        }
+        Ok(())
     }
 
     #[inline]
