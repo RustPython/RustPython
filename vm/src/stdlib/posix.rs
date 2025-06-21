@@ -1496,7 +1496,7 @@ pub mod module {
 
             if self.setsid {
                 // Note: POSIX_SPAWN_SETSID may not be available on all platforms
-                #[cfg(any(target_os = "linux"))]
+                #[cfg(target_os = "linux")]
                 {
                     flags |= 0x0080; // POSIX_SPAWN_SETSID value on Linux
                 }
