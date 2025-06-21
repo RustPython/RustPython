@@ -26,17 +26,17 @@ pub(crate) mod module {
 
     #[derive(FromArgs)]
     #[allow(unused)]
-    pub(super) struct SymlinkArgs {
+    pub(super) struct SymlinkArgs<'a> {
         src: OsPath,
         dst: OsPath,
         #[pyarg(flatten)]
         _target_is_directory: TargetIsDirectory,
         #[pyarg(flatten)]
-        _dir_fd: DirFd<{ _os::SYMLINK_DIR_FD as usize }>,
+        _dir_fd: DirFd<'a, { _os::SYMLINK_DIR_FD as usize }>,
     }
 
     #[pyfunction]
-    pub(super) fn symlink(_args: SymlinkArgs, vm: &VirtualMachine) -> PyResult<()> {
+    pub(super) fn symlink(_args: SymlinkArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
         os_unimpl("os.symlink", vm)
     }
 
