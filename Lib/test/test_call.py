@@ -13,8 +13,6 @@ import gc
 
 class FunctionCalls(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_kwargs_order(self):
         # bpo-34320:  **kwargs should preserve order of passed OrderedDict
         od = collections.OrderedDict([('a', 1), ('b', 2)])

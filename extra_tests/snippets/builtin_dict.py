@@ -358,3 +358,53 @@ next(it)
 assert it.__length_hint__() == 0
 assert_raises(StopIteration, next, it)
 assert it.__length_hint__() == 0
+
+# Test dictionary unpacking with non-mapping objects
+# This should raise TypeError for non-mapping objects
+with assert_raises(TypeError) as cm:
+    {**[1, 2]}
+assert "'list' object is not a mapping" in str(cm.exception)
+
+with assert_raises(TypeError) as cm:
+    {**[[1, 2], [3, 4]]}
+assert "'list' object is not a mapping" in str(cm.exception)
+
+with assert_raises(TypeError) as cm:
+    {**"string"}
+assert "'str' object is not a mapping" in str(cm.exception)
+
+with assert_raises(TypeError) as cm:
+    {**(1, 2, 3)}
+assert "'tuple' object is not a mapping" in str(cm.exception)
+
+# Test that valid mappings still work
+assert {**{"a": 1}, **{"b": 2}} == {"a": 1, "b": 2}
+
+# Test OrderedDict unpacking preserves order
+import collections
+
+od = collections.OrderedDict([("a", 1), ("b", 2)])
+od.move_to_end("a")  # Move 'a' to end: ['b', 'a']
+expected_order = list(od.items())  # [('b', 2), ('a', 1)]
+
+
+def test_func(**kwargs):
+    return kwargs
+
+
+result = test_func(**od)
+assert list(result.items()) == expected_order, (
+    f"Expected {expected_order}, got {list(result.items())}"
+)
+
+# Test multiple OrderedDict unpacking
+od1 = collections.OrderedDict([("x", 10), ("y", 20)])
+od2 = collections.OrderedDict([("z", 30), ("w", 40)])
+od2.move_to_end("z")  # Move 'z' to end: ['w', 'z']
+
+result = test_func(**od1, **od2)
+# Should preserve order: x, y, w, z
+expected_keys = ["x", "y", "w", "z"]
+assert list(result.keys()) == expected_keys, (
+    f"Expected {expected_keys}, got {list(result.keys())}"
+)

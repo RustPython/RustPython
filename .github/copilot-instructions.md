@@ -102,6 +102,7 @@ Run `./whats_left.py` to get a list of unimplemented methods, which is helpful w
 
 ### Python Code
 
+- **IMPORTANT**: In most cases, Python code should not be edited. Bug fixes should be made through Rust code modifications only
 - Follow PEP 8 style for custom Python code
 - Use ruff for linting Python code
 - Minimize modifications to CPython standard library files
