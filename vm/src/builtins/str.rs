@@ -528,7 +528,7 @@ impl PyStr {
             radd?.call((zelf,), vm)
         } else {
             Err(vm.new_type_error(format!(
-                "can only concatenate str (not \"{}\") to str",
+                r#"can only concatenate str (not "{}") to str"#,
                 other.class().name()
             )))
         }
@@ -570,6 +570,7 @@ impl PyStr {
             hash => hash,
         }
     }
+
     #[cold]
     fn _compute_hash(&self, vm: &VirtualMachine) -> hash::PyHash {
         let hash_val = vm.state.hash_secret.hash_bytes(self.as_bytes());
@@ -583,6 +584,7 @@ impl PyStr {
     pub fn byte_len(&self) -> usize {
         self.data.len()
     }
+
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
@@ -1439,6 +1441,7 @@ impl PyStr {
 struct CharLenStr<'a>(&'a str, usize);
 impl std::ops::Deref for CharLenStr<'_> {
     type Target = str;
+
     fn deref(&self) -> &Self::Target {
         self.0
     }
@@ -1852,6 +1855,7 @@ impl AnyStrWrapper<Wtf8> for PyStrRef {
     fn as_ref(&self) -> Option<&Wtf8> {
         Some(self.as_wtf8())
     }
+
     fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
@@ -1861,6 +1865,7 @@ impl AnyStrWrapper<str> for PyStrRef {
     fn as_ref(&self) -> Option<&str> {
         self.data.as_str()
     }
+
     fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
@@ -1870,6 +1875,7 @@ impl AnyStrWrapper<AsciiStr> for PyStrRef {
     fn as_ref(&self) -> Option<&AsciiStr> {
         self.data.as_ascii()
     }
+
     fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
@@ -1893,9 +1899,11 @@ impl anystr::AnyChar for char {
     fn is_lowercase(self) -> bool {
         self.is_lowercase()
     }
+
     fn is_uppercase(self) -> bool {
         self.is_uppercase()
     }
+
     fn bytes_len(self) -> usize {
         self.len_utf8()
     }
@@ -2122,9 +2130,11 @@ impl anystr::AnyChar for ascii::AsciiChar {
     fn is_lowercase(self) -> bool {
         self.is_lowercase()
     }
+
     fn is_uppercase(self) -> bool {
         self.is_uppercase()
     }
+
     fn bytes_len(self) -> usize {
         1
     }
