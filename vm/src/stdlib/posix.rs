@@ -1308,20 +1308,33 @@ pub mod module {
         env: crate::function::ArgMapping,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<CString>> {
-        let keys = env.mapping().keys(vm)?;
-        let values = env.mapping().values(vm)?;
+        let items = env.mapping().items(vm)?;
 
-        let keys = PyListRef::try_from_object(vm, keys)
-            .map_err(|_| vm.new_type_error("env.keys() is not a list".to_owned()))?
-            .borrow_vec()
-            .to_vec();
-        let values = PyListRef::try_from_object(vm, values)
-            .map_err(|_| vm.new_type_error("env.values() is not a list".to_owned()))?
-            .borrow_vec()
-            .to_vec();
+        // Convert items to list if it isn't already
+        let items = vm.ctx.new_list(
+            items
+                .get_iter(vm)?
+                .iter(vm)?
+                .collect::<PyResult<Vec<_>>>()?,
+        );
 
-        keys.into_iter()
-            .zip(values)
+        items
+            .borrow_vec()
+            .iter()
+            .map(|item| {
+                let tuple = item
+                    .downcast_ref::<crate::builtins::PyTuple>()
+                    .ok_or_else(|| vm.new_type_error("items() should return tuples".to_owned()))?;
+                let tuple_items = tuple.as_slice();
+                if tuple_items.len() != 2 {
+                    return Err(vm.new_value_error(
+                        "items() tuples should have exactly 2 elements".to_owned(),
+                    ));
+                }
+                Ok((tuple_items[0].clone(), tuple_items[1].clone()))
+            })
+            .collect::<PyResult<Vec<_>>>()?
+            .into_iter()
             .map(|(k, v)| {
                 let k = OsPath::try_from_object(vm, k)?.into_bytes();
                 let v = OsPath::try_from_object(vm, v)?.into_bytes();

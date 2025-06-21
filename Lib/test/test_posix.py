@@ -1730,8 +1730,6 @@ class _PosixSpawnMixin:
             self.assertEqual(pid2, pid)
             self.assertNotEqual(status, 0)
 
-    # TODO: RUSTPYTHON: TypeError: '_Environ' object is not a mapping
-    @unittest.expectedFailure
     def test_specify_environment(self):
         envfile = os_helper.TESTFN
         self.addCleanup(os_helper.unlink, envfile)
