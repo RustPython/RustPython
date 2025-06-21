@@ -107,6 +107,7 @@ where
     O: Borrow<PyObject>,
 {
     type Target = PyObject;
+
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         self.0.borrow()
@@ -242,7 +243,7 @@ impl<'a, T, O> PyIterIter<'a, T, O>
 where
     O: Borrow<PyObject>,
 {
-    pub fn new(vm: &'a VirtualMachine, obj: O, length_hint: Option<usize>) -> Self {
+    pub const fn new(vm: &'a VirtualMachine, obj: O, length_hint: Option<usize>) -> Self {
         Self {
             vm,
             obj,
