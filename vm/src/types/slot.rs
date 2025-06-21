@@ -1116,7 +1116,7 @@ impl PyComparisonOp {
         }
     }
 
-    pub fn operator_token(self) -> &'static str {
+    pub const fn operator_token(self) -> &'static str {
         match self {
             Self::Lt => "<",
             Self::Le => "<=",

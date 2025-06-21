@@ -302,12 +302,14 @@ pub trait FromArgOptional {
     type Inner: TryFromObject;
     fn from_inner(x: Self::Inner) -> Self;
 }
+
 impl<T: TryFromObject> FromArgOptional for OptionalArg<T> {
     type Inner = T;
     fn from_inner(x: T) -> Self {
         Self::Present(x)
     }
 }
+
 impl<T: TryFromObject> FromArgOptional for T {
     type Inner = Self;
     fn from_inner(x: Self) -> Self {
@@ -342,7 +344,7 @@ where
 }
 
 impl<T> KwArgs<T> {
-    pub fn new(map: IndexMap<String, T>) -> Self {
+    pub const fn new(map: IndexMap<String, T>) -> Self {
         KwArgs(map)
     }
 
@@ -354,11 +356,13 @@ impl<T> KwArgs<T> {
         self.0.is_empty()
     }
 }
+
 impl<T> FromIterator<(String, T)> for KwArgs<T> {
     fn from_iter<I: IntoIterator<Item = (String, T)>>(iter: I) -> Self {
         KwArgs(iter.into_iter().collect())
     }
 }
+
 impl<T> Default for KwArgs<T> {
     fn default() -> Self {
         KwArgs(IndexMap::new())
@@ -408,7 +412,7 @@ where
 }
 
 impl<T> PosArgs<T> {
-    pub fn new(args: Vec<T>) -> Self {
+    pub const fn new(args: Vec<T>) -> Self {
         Self(args)
     }
 

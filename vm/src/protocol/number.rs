@@ -18,7 +18,7 @@ pub type PyNumberTernaryFunc = fn(&PyObject, &PyObject, &PyObject, &VirtualMachi
 
 impl PyObject {
     #[inline]
-    pub fn to_number(&self) -> PyNumber<'_> {
+    pub const fn to_number(&self) -> PyNumber<'_> {
         PyNumber(self)
     }
 
@@ -440,7 +440,7 @@ impl Deref for PyNumber<'_> {
 }
 
 impl<'a> PyNumber<'a> {
-    pub(crate) fn obj(self) -> &'a PyObject {
+    pub(crate) const fn obj(self) -> &'a PyObject {
         self.0
     }
 

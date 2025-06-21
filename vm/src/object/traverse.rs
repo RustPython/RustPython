@@ -158,6 +158,7 @@ unsafe impl<A: Traverse> Traverse for (A,) {
         self.0.traverse(tracer_fn);
     }
 }
+
 trace_tuple!((A, 0), (B, 1));
 trace_tuple!((A, 0), (B, 1), (C, 2));
 trace_tuple!((A, 0), (B, 1), (C, 2), (D, 3));

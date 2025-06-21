@@ -491,6 +491,7 @@ pub struct PyObject(PyInner<Erased>);
 
 impl Deref for PyObjectRef {
     type Target = PyObject;
+
     #[inline(always)]
     fn deref(&self) -> &PyObject {
         unsafe { self.ptr.as_ref() }
