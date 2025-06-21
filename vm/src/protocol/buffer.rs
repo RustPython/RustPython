@@ -378,12 +378,7 @@ impl BufferDescriptor {
     }
 
     pub fn is_zero_in_shape(&self) -> bool {
-        for (shape, _, _) in self.dim_desc.iter().cloned() {
-            if shape == 0 {
-                return true;
-            }
-        }
-        false
+        self.dim_desc.iter().any(|(shape, _, _)| *shape == 0)
     }
 
     // TODO: support fortain order
