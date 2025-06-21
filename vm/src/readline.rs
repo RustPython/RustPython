@@ -138,15 +138,19 @@ impl<H: Helper> Readline<H> {
     pub fn new(helper: H) -> Self {
         Readline(readline_inner::Readline::new(helper))
     }
+
     pub fn load_history(&mut self, path: &Path) -> OtherResult<()> {
         self.0.load_history(path)
     }
+
     pub fn save_history(&mut self, path: &Path) -> OtherResult<()> {
         self.0.save_history(path)
     }
+
     pub fn add_history_entry(&mut self, entry: &str) -> OtherResult<()> {
         self.0.add_history_entry(entry)
     }
+
     pub fn readline(&mut self, prompt: &str) -> ReadlineResult {
         self.0.readline(prompt)
     }

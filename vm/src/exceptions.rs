@@ -237,9 +237,10 @@ impl VirtualMachine {
                 let colno = offset - 1 - spaces;
                 let end_colno = end_offset - 1 - spaces;
                 if colno >= 0 {
-                    let caret_space = l_text.chars().collect::<Vec<_>>()[..colno as usize]
-                        .iter()
-                        .map(|c| if c.is_whitespace() { *c } else { ' ' })
+                    let caret_space = l_text
+                        .chars()
+                        .take(colno as usize)
+                        .map(|c| if c.is_whitespace() { c } else { ' ' })
                         .collect::<String>();
 
                     let mut error_width = end_colno - colno;
@@ -1619,24 +1620,23 @@ pub(super) mod types {
                     .clone()
                     .downcast::<crate::builtins::PyTuple>()
                 {
-                    #[allow(clippy::len_zero)]
-                    if location_tuple.len() >= 1 {
-                        zelf.set_attr("filename", location_tuple.fast_getitem(0).clone(), vm)?;
-                    }
-                    if location_tuple.len() >= 2 {
-                        zelf.set_attr("lineno", location_tuple.fast_getitem(1).clone(), vm)?;
-                    }
-                    if location_tuple.len() >= 3 {
-                        zelf.set_attr("offset", location_tuple.fast_getitem(2).clone(), vm)?;
-                    }
-                    if location_tuple.len() >= 4 {
-                        zelf.set_attr("text", location_tuple.fast_getitem(3).clone(), vm)?;
-                    }
-                    if location_tuple.len() >= 5 {
-                        zelf.set_attr("end_lineno", location_tuple.fast_getitem(4).clone(), vm)?;
-                    }
-                    if location_tuple.len() >= 6 {
-                        zelf.set_attr("end_offset", location_tuple.fast_getitem(5).clone(), vm)?;
+                    let location_tup_len = location_tuple.len();
+                    for (i, &attr) in [
+                        "filename",
+                        "lineno",
+                        "offset",
+                        "text",
+                        "end_lineno",
+                        "end_offset",
+                    ]
+                    .iter()
+                    .enumerate()
+                    {
+                        if location_tup_len > i {
+                            zelf.set_attr(attr, location_tuple.fast_getitem(i).clone(), vm)?;
+                        } else {
+                            break;
+                        }
                     }
                 }
             }
