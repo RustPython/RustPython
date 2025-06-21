@@ -209,8 +209,6 @@ class BaseBytesTest:
         except (OverflowError, MemoryError):
             pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructor_exceptions(self):
         # Issue #34974: bytes and bytearray constructors replace unexpected
         # exceptions.

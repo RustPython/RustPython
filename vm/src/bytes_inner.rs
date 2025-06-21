@@ -118,35 +118,44 @@ impl ByteInnerNewOptions {
 
         match (self.source, self.encoding, self.errors) {
             (OptionalArg::Present(obj), OptionalArg::Missing, OptionalArg::Missing) => {
-                match_class!(match obj {
-                    i @ PyInt => {
-                        Ok(Self::get_value_from_size(i, vm)?)
+                // Try __index__ first to handle int-like objects that might raise custom exceptions
+                if let Some(index_result) = obj.try_index_opt(vm) {
+                    match index_result {
+                        Ok(index) => Self::get_value_from_size(index, vm),
+                        Err(e) => Err(e), // Propagate the original exception (e.g., ZeroDivisionError)
                     }
-                    _s @ PyStr => Err(STRING_WITHOUT_ENCODING),
-                    obj => {
-                        Ok(Self::get_value_from_source(obj, vm)?)
-                    }
-                })
+                } else {
+                    match_class!(match obj {
+                        i @ PyInt => {
+                            Self::get_value_from_size(i, vm)
+                        }
+                        _s @ PyStr => Err(vm.new_type_error(STRING_WITHOUT_ENCODING.to_owned())),
+                        obj => {
+                            Self::get_value_from_source(obj, vm)
+                        }
+                    })
+                }
             }
             (OptionalArg::Present(obj), OptionalArg::Present(encoding), errors) => {
                 if let Ok(s) = obj.downcast::<PyStr>() {
-                    Ok(Self::get_value_from_string(s, encoding, errors, vm)?)
+                    Self::get_value_from_string(s, encoding, errors, vm)
                 } else {
-                    Err(ENCODING_WITHOUT_STRING)
+                    Err(vm.new_type_error(ENCODING_WITHOUT_STRING.to_owned()))
                 }
             }
             (OptionalArg::Missing, OptionalArg::Missing, OptionalArg::Missing) => {
                 Ok(PyBytesInner::default())
             }
-            (OptionalArg::Missing, OptionalArg::Present(_), _) => Err(ENCODING_WITHOUT_STRING),
+            (OptionalArg::Missing, OptionalArg::Present(_), _) => {
+                Err(vm.new_type_error(ENCODING_WITHOUT_STRING.to_owned()))
+            }
             (OptionalArg::Missing, _, OptionalArg::Present(_)) => {
-                Err("errors without a string argument")
+                Err(vm.new_type_error("errors without a string argument".to_owned()))
             }
             (OptionalArg::Present(_), OptionalArg::Missing, OptionalArg::Present(_)) => {
-                Err(STRING_WITHOUT_ENCODING)
+                Err(vm.new_type_error(STRING_WITHOUT_ENCODING.to_owned()))
             }
         }
-        .map_err(|e| vm.new_type_error(e.to_owned()))
     }
 }
 
