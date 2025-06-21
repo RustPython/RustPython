@@ -47,6 +47,7 @@ where
         fmt::Display::fmt(&**self, f)
     }
 }
+
 impl<T: fmt::Display> fmt::Display for Py<T>
 where
     T: PyObjectPayload + fmt::Display,
@@ -72,6 +73,7 @@ impl<T: PyPayload> PyExact<T> {
 
 impl<T: PyPayload> Deref for PyExact<T> {
     type Target = Py<T>;
+
     #[inline(always)]
     fn deref(&self) -> &Py<T> {
         &self.inner
@@ -108,6 +110,7 @@ impl<T: PyObjectPayload> AsRef<Py<T>> for PyExact<T> {
 
 impl<T: PyPayload> std::borrow::ToOwned for PyExact<T> {
     type Owned = PyRefExact<T>;
+
     fn to_owned(&self) -> Self::Owned {
         let owned = self.inner.to_owned();
         unsafe { PyRefExact::new_unchecked(owned) }
@@ -181,6 +184,7 @@ impl<T: PyPayload> TryFromObject for PyRefExact<T> {
 
 impl<T: PyPayload> Deref for PyRefExact<T> {
     type Target = PyExact<T>;
+
     #[inline(always)]
     fn deref(&self) -> &PyExact<T> {
         unsafe { PyExact::ref_unchecked(self.inner.deref()) }
