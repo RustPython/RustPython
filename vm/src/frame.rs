@@ -796,6 +796,19 @@ impl ExecutingFrame<'_> {
                     .top_value()
                     .downcast_ref::<PyDict>()
                     .expect("exact dict expected");
+
+                // For dictionary unpacking {**x}, x must be a mapping
+                // Check if the object has the mapping protocol (keys method)
+                if vm
+                    .get_method(other.clone(), vm.ctx.intern_str("keys"))
+                    .is_none()
+                {
+                    return Err(vm.new_type_error(format!(
+                        "'{}' object is not a mapping",
+                        other.class().name()
+                    )));
+                }
+
                 dict.merge_object(other, vm)?;
                 Ok(None)
             }
