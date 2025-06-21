@@ -1361,6 +1361,16 @@ pub mod module {
         file_actions: Option<crate::function::ArgIterable<PyTupleRef>>,
         #[pyarg(named, default)]
         setsigdef: Option<crate::function::ArgIterable<i32>>,
+        #[pyarg(named, default)]
+        setpgroup: Option<libc::pid_t>,
+        #[pyarg(named, default)]
+        resetids: bool,
+        #[pyarg(named, default)]
+        setsid: bool,
+        #[pyarg(named, default)]
+        setsigmask: Option<crate::function::ArgIterable<i32>>,
+        #[pyarg(named, default)]
+        scheduler: Option<PyTupleRef>,
     }
 
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
@@ -1457,6 +1467,58 @@ pub mod module {
                 assert!(
                     unsafe { libc::posix_spawnattr_setsigdefault(&mut attrp, set.as_ref()) } == 0
                 );
+            }
+
+            // Handle new posix_spawn attributes
+            let mut flags = 0i32;
+
+            if let Some(pgid) = self.setpgroup {
+                assert!(unsafe { libc::posix_spawnattr_setpgroup(&mut attrp, pgid) } == 0);
+                flags |= libc::POSIX_SPAWN_SETPGROUP;
+            }
+
+            if self.resetids {
+                flags |= libc::POSIX_SPAWN_RESETIDS;
+            }
+
+            if self.setsid {
+                // Note: POSIX_SPAWN_SETSID may not be available on all platforms
+                #[cfg(any(target_os = "linux"))]
+                {
+                    flags |= 0x0080; // POSIX_SPAWN_SETSID value on Linux
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    return Err(vm.new_not_implemented_error(
+                        "setsid parameter is not supported on this platform".to_owned(),
+                    ));
+                }
+            }
+
+            if let Some(sigs) = self.setsigmask {
+                use nix::sys::signal;
+                let mut set = signal::SigSet::empty();
+                for sig in sigs.iter(vm)? {
+                    let sig = sig?;
+                    let sig = signal::Signal::try_from(sig).map_err(|_| {
+                        vm.new_value_error(format!("signal number {sig} out of range"))
+                    })?;
+                    set.add(sig);
+                }
+                assert!(unsafe { libc::posix_spawnattr_setsigmask(&mut attrp, set.as_ref()) } == 0);
+                flags |= libc::POSIX_SPAWN_SETSIGMASK;
+            }
+
+            if let Some(_scheduler) = self.scheduler {
+                // TODO: Implement scheduler parameter handling
+                // This requires platform-specific sched_param struct handling
+                return Err(vm.new_not_implemented_error(
+                    "scheduler parameter is not yet implemented".to_owned(),
+                ));
+            }
+
+            if flags != 0 {
+                assert!(unsafe { libc::posix_spawnattr_setflags(&mut attrp, flags as i16) } == 0);
             }
 
             let mut args: Vec<CString> = self
