@@ -16,7 +16,7 @@ use crate::{
 macro_rules! define_exception_fn {
     // With doc
     (
-        $fn_name:ident, $attr:ident,
+        fn $fn_name:ident, $attr:ident,
         doc = $doc:literal
     ) => {
         #[doc = $doc]
