@@ -79,14 +79,12 @@ impl TryFromObject for Fildes {
             Ok(i) => i,
             Err(obj) => {
                 let fileno_meth = vm.get_attribute_opt(obj, "fileno")?.ok_or_else(|| {
-                    vm.new_type_error(
-                        "argument must be an int, or have a fileno() method.".to_owned(),
-                    )
+                    vm.new_type_error("argument must be an int, or have a fileno() method.")
                 })?;
                 fileno_meth
                     .call((), vm)?
                     .downcast()
-                    .map_err(|_| vm.new_type_error("fileno() returned a non-integer".to_owned()))?
+                    .map_err(|_| vm.new_type_error("fileno() returned a non-integer"))?
             }
         };
         let fd = int.try_to_primitive(vm)?;
@@ -168,7 +166,7 @@ mod _io {
 
     fn ensure_unclosed(file: &PyObject, msg: &str, vm: &VirtualMachine) -> PyResult<()> {
         if file.get_attr("closed", vm)?.try_to_bool(vm)? {
-            Err(vm.new_value_error(msg.to_owned()))
+            Err(vm.new_value_error(msg))
         } else {
             Ok(())
         }
@@ -226,7 +224,7 @@ mod _io {
     }
 
     pub(super) fn io_closed_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_value_error("I/O operation on closed file".to_owned())
+        vm.new_value_error("I/O operation on closed file")
     }
 
     #[pyattr]
@@ -243,7 +241,7 @@ mod _io {
             }
             OptionalArg::Present(1) => SeekFrom::Current(offset.try_into_value(vm)?),
             OptionalArg::Present(2) => SeekFrom::End(offset.try_into_value(vm)?),
-            _ => return Err(vm.new_value_error("invalid value for how".to_owned())),
+            _ => return Err(vm.new_value_error("invalid value for how")),
         };
         Ok(seek)
     }
@@ -694,9 +692,9 @@ mod _io {
                     slice.copy_from_slice(&data);
                     Ok(data.len())
                 }
-                None => Err(vm.new_value_error(
-                    "readinto: buffer and read data have different lengths".to_owned(),
-                )),
+                None => {
+                    Err(vm.new_value_error("readinto: buffer and read data have different lengths"))
+                }
             }
         }
         #[pymethod]
@@ -769,7 +767,7 @@ mod _io {
                 } else {
                     "I/O operation on uninitialized object"
                 };
-                Err(vm.new_value_error(msg.to_owned()))
+                Err(vm.new_value_error(msg))
             }
         }
 
@@ -1399,7 +1397,7 @@ mod _io {
         fn lock(&self, vm: &VirtualMachine) -> PyResult<PyThreadMutexGuard<'_, BufferedData>> {
             self.data()
                 .lock()
-                .ok_or_else(|| vm.new_runtime_error("reentrant call inside buffered io".to_owned()))
+                .ok_or_else(|| vm.new_runtime_error("reentrant call inside buffered io"))
         }
 
         #[pyslot]
@@ -1430,9 +1428,7 @@ mod _io {
 
             let buffer_size = match buffer_size {
                 OptionalArg::Present(i) if i <= 0 => {
-                    return Err(
-                        vm.new_value_error("buffer size must be strictly positive".to_owned())
-                    );
+                    return Err(vm.new_value_error("buffer size must be strictly positive"));
                 }
                 OptionalArg::Present(i) => i as usize,
                 OptionalArg::Missing => DEFAULT_BUFFER_SIZE,
@@ -1519,7 +1515,7 @@ mod _io {
             data.flags.insert(BufferedFlags::DETACHED);
             data.raw
                 .take()
-                .ok_or_else(|| vm.new_value_error("raw stream has been detached".to_owned()))
+                .ok_or_else(|| vm.new_value_error("raw stream has been detached"))
         }
         #[pymethod]
         fn seekable(&self, vm: &VirtualMachine) -> PyResult {
@@ -1621,7 +1617,7 @@ mod _io {
             let raw = data.check_init(vm)?;
             let n = size.size.map(|s| *s).unwrap_or(-1);
             if n < -1 {
-                return Err(vm.new_value_error("read length must be non-negative or -1".to_owned()));
+                return Err(vm.new_value_error("read length must be non-negative or -1"));
             }
             ensure_unclosed(raw, "read of closed file", vm)?;
             match n.to_usize() {
@@ -2282,13 +2278,13 @@ mod _io {
         ) -> PyResult<PyThreadMutexGuard<'_, Option<TextIOData>>> {
             self.data
                 .lock()
-                .ok_or_else(|| vm.new_runtime_error("reentrant call inside textio".to_owned()))
+                .ok_or_else(|| vm.new_runtime_error("reentrant call inside textio"))
         }
 
         fn lock(&self, vm: &VirtualMachine) -> PyResult<PyMappedThreadMutexGuard<'_, TextIOData>> {
             let lock = self.lock_opt(vm)?;
             PyThreadMutexGuard::try_map(lock, |x| x.as_mut())
-                .map_err(|_| vm.new_value_error("I/O operation on uninitialized object".to_owned()))
+                .map_err(|_| vm.new_value_error("I/O operation on uninitialized object"))
         }
 
         #[allow(clippy::type_complexity)]
@@ -2421,9 +2417,7 @@ mod _io {
             let mut textio = self.lock(vm)?;
             match chunk_size {
                 PySetterValue::Assign(chunk_size) => textio.chunk_size = chunk_size,
-                PySetterValue::Delete => {
-                    Err(vm.new_attribute_error("cannot delete attribute".to_owned()))?
-                }
+                PySetterValue::Delete => Err(vm.new_attribute_error("cannot delete attribute"))?,
             };
             // TODO: RUSTPYTHON
             // Change chunk_size type, validate it manually and throws ValueError if invalid.
@@ -2511,7 +2505,7 @@ mod _io {
             vm.call_method(zelf.as_object(), "flush", ())?;
             let cookie_obj = crate::builtins::PyIntRef::try_from_object(vm, cookie)?;
             let cookie = TextIOCookie::parse(cookie_obj.as_bigint())
-                .ok_or_else(|| vm.new_value_error("invalid cookie".to_owned()))?;
+                .ok_or_else(|| vm.new_value_error("invalid cookie"))?;
             let mut textio = zelf.lock(vm)?;
             vm.call_method(&textio.buffer, "seek", (cookie.start_pos,))?;
             textio.set_decoded_chars(None);
@@ -2528,7 +2522,7 @@ mod _io {
                 } = *textio;
                 let decoder = decoder
                     .as_ref()
-                    .ok_or_else(|| vm.new_value_error("invalid cookie".to_owned()))?;
+                    .ok_or_else(|| vm.new_value_error("invalid cookie"))?;
                 let input_chunk = vm.call_method(buffer, "read", (cookie.bytes_to_feed,))?;
                 let input_chunk: PyBytesRef = input_chunk.downcast().map_err(|obj| {
                     vm.new_type_error(format!(
@@ -2544,7 +2538,7 @@ mod _io {
                     .is_code_point_boundary(cookie.bytes_to_skip as usize);
                 textio.set_decoded_chars(Some(decoded));
                 if !pos_is_valid {
-                    return Err(vm.new_os_error("can't restore logical file position".to_owned()));
+                    return Err(vm.new_os_error("can't restore logical file position"));
                 }
                 textio.decoded_chars_used = cookie.num_to_skip();
             } else {
@@ -2567,7 +2561,7 @@ mod _io {
                 ));
             }
             if !textio.telling {
-                return Err(vm.new_os_error("telling position disabled by next() call".to_owned()));
+                return Err(vm.new_os_error("telling position disabled by next() call"));
             }
             textio.write_pending(vm)?;
             drop(textio);
@@ -2656,9 +2650,7 @@ mod _io {
                     let final_decoded_chars = n_decoded.chars + decoded.char_len();
                     cookie.need_eof = true;
                     if final_decoded_chars < num_to_skip.chars {
-                        return Err(
-                            vm.new_os_error("can't reconstruct logical file position".to_owned())
-                        );
+                        return Err(vm.new_os_error("can't reconstruct logical file position"));
                     }
                 }
             }
@@ -3010,7 +3002,7 @@ mod _io {
 
     fn parse_decoder_state(state: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyBytesRef, i32)> {
         use crate::builtins::{PyTuple, int};
-        let state_err = || vm.new_type_error("illegal decoder state".to_owned());
+        let state_err = || vm.new_type_error("illegal decoder state");
         let state = state.downcast::<PyTuple>().map_err(|_| state_err())?;
         match state.as_slice() {
             [buf, flags] => {
@@ -3220,7 +3212,7 @@ mod _io {
         ) -> PyResult<PyThreadMutexGuard<'_, Option<IncrementalNewlineDecoderData>>> {
             self.data
                 .lock()
-                .ok_or_else(|| vm.new_runtime_error("reentrant call inside nldecoder".to_owned()))
+                .ok_or_else(|| vm.new_runtime_error("reentrant call inside nldecoder"))
         }
 
         fn lock(
@@ -3228,9 +3220,8 @@ mod _io {
             vm: &VirtualMachine,
         ) -> PyResult<PyMappedThreadMutexGuard<'_, IncrementalNewlineDecoderData>> {
             let lock = self.lock_opt(vm)?;
-            PyThreadMutexGuard::try_map(lock, |x| x.as_mut()).map_err(|_| {
-                vm.new_value_error("I/O operation on uninitialized nldecoder".to_owned())
-            })
+            PyThreadMutexGuard::try_map(lock, |x| x.as_mut())
+                .map_err(|_| vm.new_value_error("I/O operation on uninitialized nldecoder"))
         }
 
         #[pymethod]
@@ -3466,15 +3457,14 @@ mod _io {
             let bytes = data.as_bytes();
             self.buffer(vm)?
                 .write(bytes)
-                .ok_or_else(|| vm.new_type_error("Error Writing String".to_owned()))
+                .ok_or_else(|| vm.new_type_error("Error Writing String"))
         }
 
         // return the entire contents of the underlying
         #[pymethod]
         fn getvalue(&self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             let bytes = self.buffer(vm)?.getvalue();
-            Wtf8Buf::from_bytes(bytes)
-                .map_err(|_| vm.new_value_error("Error Retrieving Value".to_owned()))
+            Wtf8Buf::from_bytes(bytes).map_err(|_| vm.new_value_error("Error Retrieving Value"))
         }
 
         // skip to the jth position
@@ -3498,7 +3488,7 @@ mod _io {
             let data = self.buffer(vm)?.read(size.to_usize()).unwrap_or_default();
 
             let value = Wtf8Buf::from_bytes(data)
-                .map_err(|_| vm.new_value_error("Error Retrieving Value".to_owned()))?;
+                .map_err(|_| vm.new_value_error("Error Retrieving Value"))?;
             Ok(value)
         }
 
@@ -3512,8 +3502,7 @@ mod _io {
             // TODO size should correspond to the number of characters, at the moments its the number of
             // bytes.
             let input = self.buffer(vm)?.readline(size.to_usize(), vm)?;
-            Wtf8Buf::from_bytes(input)
-                .map_err(|_| vm.new_value_error("Error Retrieving Value".to_owned()))
+            Wtf8Buf::from_bytes(input).map_err(|_| vm.new_value_error("Error Retrieving Value"))
         }
 
         #[pymethod]
@@ -3580,7 +3569,7 @@ mod _io {
         fn write(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<u64> {
             let mut buffer = self.try_resizable(vm)?;
             data.with_ref(|b| buffer.write(b))
-                .ok_or_else(|| vm.new_type_error("Error Writing Bytes".to_owned()))
+                .ok_or_else(|| vm.new_type_error("Error Writing Bytes"))
         }
 
         // Retrieves the entire bytes object value from the underlying buffer
@@ -3606,7 +3595,7 @@ mod _io {
             let ret = buf
                 .cursor
                 .read(&mut obj.borrow_buf_mut())
-                .map_err(|_| vm.new_value_error("Error readinto from Take".to_owned()))?;
+                .map_err(|_| vm.new_value_error("Error readinto from Take"))?;
 
             Ok(ret)
         }
@@ -3874,7 +3863,7 @@ mod _io {
                 None
             };
             if let Some(msg) = msg {
-                return Err(vm.new_value_error(msg.to_owned()));
+                return Err(vm.new_value_error(msg));
             }
         }
 
@@ -3923,9 +3912,7 @@ mod _io {
 
         if buffering == 0 {
             let ret = match mode.encode {
-                EncodeMode::Text => {
-                    Err(vm.new_value_error("can't have unbuffered text I/O".to_owned()))
-                }
+                EncodeMode::Text => Err(vm.new_value_error("can't have unbuffered text I/O")),
                 EncodeMode::Bytes => Ok(raw),
             };
             return ret;
@@ -4196,7 +4183,7 @@ mod fileio {
             let arg_fd = if let Some(i) = name.payload::<crate::builtins::PyInt>() {
                 let fd = i.try_to_primitive(vm)?;
                 if fd < 0 {
-                    return Err(vm.new_value_error("negative file descriptor".to_owned()));
+                    return Err(vm.new_value_error("negative file descriptor"));
                 }
                 Some(fd)
             } else {
@@ -4217,15 +4204,13 @@ mod fileio {
             } else {
                 zelf.closefd.store(true);
                 if !args.closefd {
-                    return Err(
-                        vm.new_value_error("Cannot use closefd=False with file name".to_owned())
-                    );
+                    return Err(vm.new_value_error("Cannot use closefd=False with file name"));
                 }
 
                 if let Some(opener) = args.opener {
                     let fd = opener.call((name.clone(), flags), vm)?;
                     if !fd.fast_isinstance(vm.ctx.types.int_type) {
-                        return Err(vm.new_type_error("expected integer from opener".to_owned()));
+                        return Err(vm.new_type_error("expected integer from opener"));
                     }
                     let fd = i32::try_from_object(vm, fd)?;
                     if fd < 0 {

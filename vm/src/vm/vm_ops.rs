@@ -128,7 +128,7 @@ impl VirtualMachine {
             })?
             .try_to_primitive::<isize>(self)?;
         if hint.is_negative() {
-            Err(self.new_value_error("__length_hint__() should return >= 0".to_owned()))
+            Err(self.new_value_error("__length_hint__() should return >= 0"))
         } else {
             Ok(Some(hint as usize))
         }
@@ -142,7 +142,7 @@ impl VirtualMachine {
         } else {
             let n = n as usize;
             if length > crate::stdlib::sys::MAXSIZE as usize / n {
-                Err(self.new_overflow_error("repeated value are too long".to_owned()))
+                Err(self.new_overflow_error("repeated value are too long"))
             } else {
                 Ok(n)
             }
@@ -407,16 +407,18 @@ impl VirtualMachine {
             return Ok(result);
         }
         if let Ok(seq_a) = PySequence::try_protocol(a, self) {
-            let n =
-                b.try_index(self)?.as_bigint().to_isize().ok_or_else(|| {
-                    self.new_overflow_error("repeated bytes are too long".to_owned())
-                })?;
+            let n = b
+                .try_index(self)?
+                .as_bigint()
+                .to_isize()
+                .ok_or_else(|| self.new_overflow_error("repeated bytes are too long"))?;
             return seq_a.repeat(n, self);
         } else if let Ok(seq_b) = PySequence::try_protocol(b, self) {
-            let n =
-                a.try_index(self)?.as_bigint().to_isize().ok_or_else(|| {
-                    self.new_overflow_error("repeated bytes are too long".to_owned())
-                })?;
+            let n = a
+                .try_index(self)?
+                .as_bigint()
+                .to_isize()
+                .ok_or_else(|| self.new_overflow_error("repeated bytes are too long"))?;
             return seq_b.repeat(n, self);
         }
         Err(self.new_unsupported_bin_op_error(a, b, "*"))
@@ -433,16 +435,18 @@ impl VirtualMachine {
             return Ok(result);
         }
         if let Ok(seq_a) = PySequence::try_protocol(a, self) {
-            let n =
-                b.try_index(self)?.as_bigint().to_isize().ok_or_else(|| {
-                    self.new_overflow_error("repeated bytes are too long".to_owned())
-                })?;
+            let n = b
+                .try_index(self)?
+                .as_bigint()
+                .to_isize()
+                .ok_or_else(|| self.new_overflow_error("repeated bytes are too long"))?;
             return seq_a.inplace_repeat(n, self);
         } else if let Ok(seq_b) = PySequence::try_protocol(b, self) {
-            let n =
-                a.try_index(self)?.as_bigint().to_isize().ok_or_else(|| {
-                    self.new_overflow_error("repeated bytes are too long".to_owned())
-                })?;
+            let n = a
+                .try_index(self)?
+                .as_bigint()
+                .to_isize()
+                .ok_or_else(|| self.new_overflow_error("repeated bytes are too long"))?;
             /* Note that the right hand operand should not be
              * mutated in this case so inplace_repeat is not
              * used. */
