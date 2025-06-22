@@ -13,6 +13,22 @@ use crate::{
     vm::VirtualMachine,
 };
 
+macro_rules! define_exception_fn {
+    (
+        fn $fn_name:ident, $attr:ident, $python_repr:ident
+    ) => {
+        #[doc = concat!(
+                    "Create a new python ",
+                    stringify!($python_repr),
+                    " object.\nUseful for raising errors from python functions implemented in rust."
+                )]
+        pub fn $fn_name(&self, msg: String) -> PyBaseExceptionRef {
+            let err = self.ctx.exceptions.$attr.to_owned();
+            self.new_exception_msg(err, msg)
+        }
+    };
+}
+
 /// Collection of object creation helpers
 impl VirtualMachine {
     /// Create a new python object
@@ -125,16 +141,6 @@ impl VirtualMachine {
         )
     }
 
-    pub fn new_lookup_error(&self, msg: String) -> PyBaseExceptionRef {
-        let lookup_error = self.ctx.exceptions.lookup_error.to_owned();
-        self.new_exception_msg(lookup_error, msg)
-    }
-
-    pub fn new_attribute_error(&self, msg: String) -> PyBaseExceptionRef {
-        let attribute_error = self.ctx.exceptions.attribute_error.to_owned();
-        self.new_exception_msg(attribute_error, msg)
-    }
-
     pub fn new_no_attribute_error(&self, obj: PyObjectRef, name: PyStrRef) -> PyBaseExceptionRef {
         let msg = format!(
             "'{}' object has no attribute '{}'",
@@ -147,11 +153,6 @@ impl VirtualMachine {
         self.set_attribute_error_context(&attribute_error, obj, name);
 
         attribute_error
-    }
-
-    pub fn new_type_error(&self, msg: String) -> PyBaseExceptionRef {
-        let type_error = self.ctx.exceptions.type_error.to_owned();
-        self.new_exception_msg(type_error, msg)
     }
 
     pub fn new_name_error(&self, msg: String, name: PyStrRef) -> PyBaseExceptionRef {
@@ -199,11 +200,6 @@ impl VirtualMachine {
         ))
     }
 
-    pub fn new_os_error(&self, msg: String) -> PyBaseExceptionRef {
-        let os_error = self.ctx.exceptions.os_error.to_owned();
-        self.new_exception_msg(os_error, msg)
-    }
-
     pub fn new_errno_error(&self, errno: i32, msg: String) -> PyBaseExceptionRef {
         let vm = self;
         let exc_type =
@@ -211,17 +207,6 @@ impl VirtualMachine {
 
         let errno_obj = vm.new_pyobj(errno);
         vm.new_exception(exc_type.to_owned(), vec![errno_obj, vm.new_pyobj(msg)])
-    }
-
-    pub fn new_system_error(&self, msg: String) -> PyBaseExceptionRef {
-        let sys_error = self.ctx.exceptions.system_error.to_owned();
-        self.new_exception_msg(sys_error, msg)
-    }
-
-    // TODO: remove & replace with new_unicode_decode_error_real
-    pub fn new_unicode_decode_error(&self, msg: String) -> PyBaseExceptionRef {
-        let unicode_decode_error = self.ctx.exceptions.unicode_decode_error.to_owned();
-        self.new_exception_msg(unicode_decode_error, msg)
     }
 
     pub fn new_unicode_decode_error_real(
@@ -254,12 +239,6 @@ impl VirtualMachine {
         exc
     }
 
-    // TODO: remove & replace with new_unicode_encode_error_real
-    pub fn new_unicode_encode_error(&self, msg: String) -> PyBaseExceptionRef {
-        let unicode_encode_error = self.ctx.exceptions.unicode_encode_error.to_owned();
-        self.new_exception_msg(unicode_encode_error, msg)
-    }
-
     pub fn new_unicode_encode_error_real(
         &self,
         encoding: PyStrRef,
@@ -290,47 +269,10 @@ impl VirtualMachine {
         exc
     }
 
-    /// Create a new python ValueError object. Useful for raising errors from
-    /// python functions implemented in rust.
-    pub fn new_value_error(&self, msg: String) -> PyBaseExceptionRef {
-        let value_error = self.ctx.exceptions.value_error.to_owned();
-        self.new_exception_msg(value_error, msg)
-    }
-
-    pub fn new_buffer_error(&self, msg: String) -> PyBaseExceptionRef {
-        let buffer_error = self.ctx.exceptions.buffer_error.to_owned();
-        self.new_exception_msg(buffer_error, msg)
-    }
-
     // TODO: don't take ownership should make the success path faster
     pub fn new_key_error(&self, obj: PyObjectRef) -> PyBaseExceptionRef {
         let key_error = self.ctx.exceptions.key_error.to_owned();
         self.new_exception(key_error, vec![obj])
-    }
-
-    pub fn new_index_error(&self, msg: String) -> PyBaseExceptionRef {
-        let index_error = self.ctx.exceptions.index_error.to_owned();
-        self.new_exception_msg(index_error, msg)
-    }
-
-    pub fn new_not_implemented_error(&self, msg: String) -> PyBaseExceptionRef {
-        let not_implemented_error = self.ctx.exceptions.not_implemented_error.to_owned();
-        self.new_exception_msg(not_implemented_error, msg)
-    }
-
-    pub fn new_recursion_error(&self, msg: String) -> PyBaseExceptionRef {
-        let recursion_error = self.ctx.exceptions.recursion_error.to_owned();
-        self.new_exception_msg(recursion_error, msg)
-    }
-
-    pub fn new_zero_division_error(&self, msg: String) -> PyBaseExceptionRef {
-        let zero_division_error = self.ctx.exceptions.zero_division_error.to_owned();
-        self.new_exception_msg(zero_division_error, msg)
-    }
-
-    pub fn new_overflow_error(&self, msg: String) -> PyBaseExceptionRef {
-        let overflow_error = self.ctx.exceptions.overflow_error.to_owned();
-        self.new_exception_msg(overflow_error, msg)
     }
 
     #[cfg(any(feature = "parser", feature = "compiler"))]
@@ -531,16 +473,6 @@ impl VirtualMachine {
         exc
     }
 
-    pub fn new_runtime_error(&self, msg: String) -> PyBaseExceptionRef {
-        let runtime_error = self.ctx.exceptions.runtime_error.to_owned();
-        self.new_exception_msg(runtime_error, msg)
-    }
-
-    pub fn new_memory_error(&self, msg: String) -> PyBaseExceptionRef {
-        let memory_error_type = self.ctx.exceptions.memory_error.to_owned();
-        self.new_exception_msg(memory_error_type, msg)
-    }
-
     pub fn new_stop_iteration(&self, value: Option<PyObjectRef>) -> PyBaseExceptionRef {
         let dict = self.ctx.new_dict();
         let args = if let Some(value) = value {
@@ -607,8 +539,31 @@ impl VirtualMachine {
         )
     }
 
-    pub fn new_eof_error(&self, msg: String) -> PyBaseExceptionRef {
-        let eof_error = self.ctx.exceptions.eof_error.to_owned();
-        self.new_exception_msg(eof_error, msg)
-    }
+    define_exception_fn!(fn new_lookup_error, lookup_error, LookupError);
+    define_exception_fn!(fn new_eof_error, eof_error, EOFError);
+    define_exception_fn!(fn new_attribute_error, attribute_error, AttributeError);
+    define_exception_fn!(fn new_type_error, type_error, TypeError);
+    define_exception_fn!(fn new_os_error, os_error, OSError);
+    define_exception_fn!(fn new_system_error, system_error, SystemError);
+
+    // TODO: remove & replace with new_unicode_decode_error_real
+    define_exception_fn!(fn new_unicode_decode_error, unicode_decode_error, UnicodeDecodeError);
+
+    // TODO: remove & replace with new_unicode_encode_error_real
+    define_exception_fn!(fn new_unicode_encode_error, unicode_encode_error, UnicodeEncodeError);
+
+    define_exception_fn!(fn new_value_error, value_error, ValueError);
+
+    define_exception_fn!(fn new_buffer_error, buffer_error, BufferError);
+    define_exception_fn!(fn new_index_error, index_error, IndexError);
+    define_exception_fn!(
+     fn new_not_implemented_error,
+        not_implemented_error,
+        NotImplementedError
+    );
+    define_exception_fn!(fn new_recursion_error, recursion_error, RecursionError);
+    define_exception_fn!(fn new_zero_division_error, zero_division_error, ZeroDivisionError);
+    define_exception_fn!(fn new_overflow_error, overflow_error, OverflowError);
+    define_exception_fn!(fn new_runtime_error, runtime_error, RuntimeError);
+    define_exception_fn!(fn new_memory_error, memory_error, MemoryError);
 }
