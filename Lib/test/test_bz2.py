@@ -676,8 +676,6 @@ class BZ2CompressorTest(BaseTest):
         finally:
             data = None
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testPickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             with self.assertRaises(TypeError):
@@ -736,8 +734,6 @@ class BZ2DecompressorTest(BaseTest):
             compressed = None
             decompressed = None
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testPickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             with self.assertRaises(TypeError):
