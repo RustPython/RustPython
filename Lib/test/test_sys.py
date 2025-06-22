@@ -260,8 +260,6 @@ class SysModuleTest(unittest.TestCase):
     # testing sys.settrace() is done in test_sys_settrace.py
     # testing sys.setprofile() is done in test_sys_setprofile.py
 
-    # TODO: RUSTPYTHON, AttributeError: module 'sys' has no attribute 'setswitchinterval'
-    @unittest.expectedFailure
     def test_switchinterval(self):
         self.assertRaises(TypeError, sys.setswitchinterval)
         self.assertRaises(TypeError, sys.setswitchinterval, "a")

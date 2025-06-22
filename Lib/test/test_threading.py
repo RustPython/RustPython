@@ -412,8 +412,6 @@ class ThreadTests(BaseTestCase):
             b"Woke up, sleep function is: <built-in function sleep>")
         self.assertEqual(err, b"")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_enumerate_after_join(self):
         # Try hard to trigger #1703448: a thread is still returned in
         # threading.enumerate() after it has been join()ed.

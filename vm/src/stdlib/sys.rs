@@ -799,6 +799,25 @@ mod sys {
         crate::vm::thread::COROUTINE_ORIGIN_TRACKING_DEPTH.with(|cell| cell.get()) as _
     }
 
+    #[pyfunction]
+    fn getswitchinterval(vm: &VirtualMachine) -> f64 {
+        // Return the stored switch interval
+        vm.state.switch_interval.load()
+    }
+
+    // TODO: vm.state.switch_interval is currently not used anywhere in the VM
+    #[pyfunction]
+    fn setswitchinterval(interval: f64, vm: &VirtualMachine) -> PyResult<()> {
+        // Validate the interval parameter like CPython does
+        if interval <= 0.0 {
+            return Err(vm.new_value_error("switch interval must be strictly positive".to_owned()));
+        }
+
+        // Store the switch interval value
+        vm.state.switch_interval.store(interval);
+        Ok(())
+    }
+
     #[derive(FromArgs)]
     struct SetAsyncgenHooksArgs {
         #[pyarg(any, optional)]

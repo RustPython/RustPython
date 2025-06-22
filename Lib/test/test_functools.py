@@ -1691,8 +1691,6 @@ class TestLRU:
         for attr in self.module.WRAPPER_ASSIGNMENTS:
             self.assertEqual(getattr(g, attr), getattr(f, attr))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @threading_helper.requires_working_threading()
     def test_lru_cache_threaded(self):
         n, m = 5, 11
