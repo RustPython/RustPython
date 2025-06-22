@@ -16,7 +16,7 @@ pub(crate) mod _struct {
         function::{ArgBytesLike, ArgMemoryBuffer, PosArgs},
         match_class,
         protocol::PyIterReturn,
-        types::{Constructor, IterNext, Iterable, SelfIter},
+        types::{Constructor, IterNext, Iterable, Representable, SelfIter},
     };
     use crossbeam_utils::atomic::AtomicCell;
 
@@ -251,7 +251,7 @@ pub(crate) mod _struct {
         }
     }
 
-    #[pyclass(with(Constructor))]
+    #[pyclass(with(Constructor, Representable))]
     impl PyStruct {
         #[pygetset]
         fn format(&self) -> PyStrRef {
@@ -303,6 +303,13 @@ pub(crate) mod _struct {
             vm: &VirtualMachine,
         ) -> PyResult<UnpackIterator> {
             UnpackIterator::new(vm, self.spec.clone(), buffer)
+        }
+    }
+
+    impl Representable for PyStruct {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            Ok(format!("Struct('{}')", zelf.format.as_str()))
         }
     }
 

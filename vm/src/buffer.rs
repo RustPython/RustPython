@@ -242,6 +242,12 @@ impl FormatCode {
             let c = chars
                 .next()
                 .ok_or_else(|| "repeat count given without format specifier".to_owned())?;
+
+            // Check for embedded null character
+            if c == 0 {
+                return Err("embedded null character".to_owned());
+            }
+
             let code = FormatType::try_from(c)
                 .ok()
                 .filter(|c| match c {
