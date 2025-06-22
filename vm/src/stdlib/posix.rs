@@ -1486,7 +1486,10 @@ pub mod module {
             let mut flags = 0i32;
 
             if let Some(pgid) = self.setpgroup {
-                assert!(unsafe { libc::posix_spawnattr_setpgroup(&mut attrp, pgid) } == 0);
+                let ret = unsafe { libc::posix_spawnattr_setpgroup(&mut attrp, pgid) };
+                if ret != 0 {
+                    return Err(vm.new_os_error(format!("posix_spawnattr_setpgroup failed: {ret}")));
+                }
                 flags |= libc::POSIX_SPAWN_SETPGROUP;
             }
 
@@ -1518,7 +1521,12 @@ pub mod module {
                     })?;
                     set.add(sig);
                 }
-                assert!(unsafe { libc::posix_spawnattr_setsigmask(&mut attrp, set.as_ref()) } == 0);
+                let ret = unsafe { libc::posix_spawnattr_setsigmask(&mut attrp, set.as_ref()) };
+                if ret != 0 {
+                    return Err(
+                        vm.new_os_error(format!("posix_spawnattr_setsigmask failed: {ret}"))
+                    );
+                }
                 flags |= libc::POSIX_SPAWN_SETSIGMASK;
             }
 
@@ -1531,7 +1539,15 @@ pub mod module {
             }
 
             if flags != 0 {
-                assert!(unsafe { libc::posix_spawnattr_setflags(&mut attrp, flags as i16) } == 0);
+                // Check for potential overflow when casting to c_short
+                if flags > libc::c_short::MAX as i32 {
+                    return Err(vm.new_value_error("Too many flags set for posix_spawn".to_owned()));
+                }
+                let ret =
+                    unsafe { libc::posix_spawnattr_setflags(&mut attrp, flags as libc::c_short) };
+                if ret != 0 {
+                    return Err(vm.new_os_error(format!("posix_spawnattr_setflags failed: {ret}")));
+                }
             }
 
             let mut args: Vec<CString> = self
