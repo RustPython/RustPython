@@ -258,8 +258,6 @@ class BinASCIITest(unittest.TestCase):
         self.assertEqual(binascii.hexlify(self.type2test(s)), t)
         self.assertEqual(binascii.unhexlify(self.type2test(t)), u)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_hex_separator(self):
         """Test that hexlify and b2a_hex are binary versions of bytes.hex."""
         # Logic of separators is tested in test_bytes.py.  This checks that
@@ -388,8 +386,6 @@ class BinASCIITest(unittest.TestCase):
             except Exception as err:
                 self.fail("{}({!r}) raises {!r}".format(func, empty, err))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unicode_b2a(self):
         # Unicode strings are not accepted by b2a_* functions.
         for func in set(all_functions) - set(a2b_functions):
