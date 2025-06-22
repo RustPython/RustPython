@@ -73,6 +73,7 @@ unic-ucd-category  = { workspace = true }
 unic-ucd-age       = { workspace = true }
 unic-ucd-ident     = { workspace = true }
 ucd = "0.1.1"
+unicode-bidi-mirroring = { workspace = true }
 
 # compression
 adler32 = "1.2.0"
