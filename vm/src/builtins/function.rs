@@ -406,6 +406,17 @@ impl PyFunction {
         Ok(vm.unwrap_or_none(zelf.closure.clone().map(|x| x.to_pyobject(vm))))
     }
 
+    #[pymember(magic)]
+    fn builtins(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        let zelf = Self::_as_pyref(&zelf, vm)?;
+        // Get __builtins__ from the function's globals dict
+        let builtins = zelf
+            .globals
+            .get_item("__builtins__", vm)
+            .unwrap_or_else(|_| vm.builtins.clone().into());
+        Ok(builtins)
+    }
+
     #[pygetset(magic)]
     fn name(&self) -> PyStrRef {
         self.name.lock().clone()
