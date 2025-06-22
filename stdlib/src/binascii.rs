@@ -43,14 +43,120 @@ mod decl {
 
     #[pyfunction(name = "b2a_hex")]
     #[pyfunction]
-    fn hexlify(data: ArgBytesLike) -> Vec<u8> {
+    fn hexlify(
+        data: ArgBytesLike,
+        sep: OptionalArg<ArgAsciiBuffer>,
+        bytes_per_sep: OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        let bytes_per_sep = bytes_per_sep.unwrap_or(1);
+
         data.with_ref(|bytes| {
-            let mut hex = Vec::<u8>::with_capacity(bytes.len() * 2);
-            for b in bytes {
-                hex.push(hex_nibble(b >> 4));
-                hex.push(hex_nibble(b & 0xf));
+            // Get separator character if provided
+            let sep_char = if let OptionalArg::Present(sep_buf) = sep {
+                sep_buf.with_ref(|sep_bytes| {
+                    if sep_bytes.len() != 1 {
+                        return Err(vm.new_value_error("sep must be length 1.".to_owned()));
+                    }
+                    let sep_char = sep_bytes[0];
+                    if !sep_char.is_ascii() {
+                        return Err(vm.new_value_error("sep must be ASCII.".to_owned()));
+                    }
+                    Ok(Some(sep_char))
+                })?
+            } else {
+                None
+            };
+
+            // If no separator or bytes_per_sep is 0, use simple hexlify
+            if sep_char.is_none() || bytes_per_sep == 0 || bytes.is_empty() {
+                let mut hex = Vec::<u8>::with_capacity(bytes.len() * 2);
+                for b in bytes {
+                    hex.push(hex_nibble(b >> 4));
+                    hex.push(hex_nibble(b & 0xf));
+                }
+                return Ok(hex);
             }
-            hex
+
+            let sep_char = sep_char.unwrap();
+            let abs_bytes_per_sep = bytes_per_sep.unsigned_abs();
+
+            // If separator interval is >= data length, no separators needed
+            if abs_bytes_per_sep >= bytes.len() {
+                let mut hex = Vec::<u8>::with_capacity(bytes.len() * 2);
+                for b in bytes {
+                    hex.push(hex_nibble(b >> 4));
+                    hex.push(hex_nibble(b & 0xf));
+                }
+                return Ok(hex);
+            }
+
+            // Calculate result length
+            let num_separators = (bytes.len() - 1) / abs_bytes_per_sep;
+            let result_len = bytes.len() * 2 + num_separators;
+            let mut hex = vec![0u8; result_len];
+
+            if bytes_per_sep < 0 {
+                // Left-to-right processing (negative bytes_per_sep)
+                let mut i = 0; // input index
+                let mut j = 0; // output index
+                let chunks = bytes.len() / abs_bytes_per_sep;
+
+                // Process complete chunks
+                for _ in 0..chunks {
+                    for _ in 0..abs_bytes_per_sep {
+                        let b = bytes[i];
+                        hex[j] = hex_nibble(b >> 4);
+                        hex[j + 1] = hex_nibble(b & 0xf);
+                        i += 1;
+                        j += 2;
+                    }
+                    if i < bytes.len() {
+                        hex[j] = sep_char;
+                        j += 1;
+                    }
+                }
+
+                // Process remaining bytes
+                while i < bytes.len() {
+                    let b = bytes[i];
+                    hex[j] = hex_nibble(b >> 4);
+                    hex[j + 1] = hex_nibble(b & 0xf);
+                    i += 1;
+                    j += 2;
+                }
+            } else {
+                // Right-to-left processing (positive bytes_per_sep)
+                let mut i = bytes.len() as isize - 1; // input index
+                let mut j = result_len as isize - 1; // output index
+                let chunks = bytes.len() / abs_bytes_per_sep;
+
+                // Process complete chunks from right
+                for _ in 0..chunks {
+                    for _ in 0..abs_bytes_per_sep {
+                        let b = bytes[i as usize];
+                        hex[j as usize] = hex_nibble(b & 0xf);
+                        hex[(j - 1) as usize] = hex_nibble(b >> 4);
+                        i -= 1;
+                        j -= 2;
+                    }
+                    if i >= 0 {
+                        hex[j as usize] = sep_char;
+                        j -= 1;
+                    }
+                }
+
+                // Process remaining bytes
+                while i >= 0 {
+                    let b = bytes[i as usize];
+                    hex[j as usize] = hex_nibble(b & 0xf);
+                    hex[(j - 1) as usize] = hex_nibble(b >> 4);
+                    i -= 1;
+                    j -= 2;
+                }
+            }
+
+            Ok(hex)
         })
     }
 
@@ -368,7 +474,7 @@ mod decl {
     #[derive(FromArgs)]
     struct B2aQpArgs {
         #[pyarg(any)]
-        data: ArgAsciiBuffer,
+        data: ArgBytesLike,
         #[pyarg(named, default = false)]
         quotetabs: bool,
         #[pyarg(named, default = true)]
