@@ -22,9 +22,10 @@ macro_rules! define_exception_fn {
                     stringify!($python_repr),
                     " object.\nUseful for raising errors from python functions implemented in rust."
                 )]
-        pub fn $fn_name(&self, msg: String) -> PyBaseExceptionRef {
+        pub fn $fn_name(&self, msg: impl Into<String>) -> PyBaseExceptionRef
+        {
             let err = self.ctx.exceptions.$attr.to_owned();
-            self.new_exception_msg(err, msg)
+            self.new_exception_msg(err, msg.into())
         }
     };
 }

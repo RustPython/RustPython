@@ -207,7 +207,7 @@ impl Representable for PyModule {
         let module_repr = importlib.get_attr("_module_repr", vm)?;
         let repr = module_repr.call((zelf.to_owned(),), vm)?;
         repr.downcast()
-            .map_err(|_| vm.new_type_error("_module_repr did not return a string".into()))
+            .map_err(|_| vm.new_type_error("_module_repr did not return a string"))
     }
 
     #[cold]

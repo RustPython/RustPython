@@ -57,7 +57,7 @@ pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyBaseExceptionRef) -> JsV
 
 pub fn js_py_typeerror(vm: &VirtualMachine, js_err: JsValue) -> PyBaseExceptionRef {
     let msg = js_err.unchecked_into::<js_sys::Error>().to_string();
-    vm.new_type_error(msg.into())
+    vm.new_type_error(msg)
 }
 
 pub fn js_err_to_py_err(vm: &VirtualMachine, js_err: &JsValue) -> PyBaseExceptionRef {
