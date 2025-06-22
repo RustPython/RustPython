@@ -121,8 +121,6 @@ class ExceptionClassTests(unittest.TestCase):
                 [repr(exc), exc.__class__.__name__ + '()'])
         self.interface_test_driver(results)
 
-    # TODO: RUSTPYTHON - BaseException.__setstate__ method not implemented
-    @unittest.expectedFailure
     def test_setstate_refcount_no_crash(self):
         # gh-97591: Acquire strong reference before calling tp_hash slot
         # in PyObject_SetAttr.
