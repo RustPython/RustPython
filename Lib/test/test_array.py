@@ -176,15 +176,13 @@ class ArrayReconstructorTest(unittest.TestCase):
                 self.assertEqual(a, b,
                     msg="{0!r} != {1!r}; testcase={2!r}".format(a, b, testcase))
 
-    # TODO: RUSTPYTHON - requires UTF-32 encoding support in codecs and proper array reconstructor implementation
-    @unittest.expectedFailure
     def test_unicode(self):
         teststr = "Bonne Journ\xe9e \U0002030a\U00020347"
         testcases = (
             (UTF16_LE, "UTF-16-LE"),
             (UTF16_BE, "UTF-16-BE"),
-            (UTF32_LE, "UTF-32-LE"), # TODO: RUSTPYTHON
-            (UTF32_BE, "UTF-32-BE")  # TODO: RUSTPYTHON
+            (UTF32_LE, "UTF-32-LE"),
+            (UTF32_BE, "UTF-32-BE")
         )
         for testcase in testcases:
             mformat_code, encoding = testcase
