@@ -25,7 +25,7 @@ macro_rules! define_exception_fn {
         pub fn $fn_name(&self, msg: impl Into<String>) -> PyBaseExceptionRef
         {
             let err = self.ctx.exceptions.$attr.to_owned();
-            self.new_exception_msg(err, msg.into())
+            self.new_exception_msg(err, msg)
         }
     };
 }
@@ -117,8 +117,12 @@ impl VirtualMachine {
     /// type is passed in, it may not be fully initialized; try using
     /// [`vm.invoke_exception()`][Self::invoke_exception] or
     /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
-    pub fn new_exception_msg(&self, exc_type: PyTypeRef, msg: String) -> PyBaseExceptionRef {
-        self.new_exception(exc_type, vec![self.ctx.new_str(msg).into()])
+    pub fn new_exception_msg(
+        &self,
+        exc_type: PyTypeRef,
+        msg: impl Into<String>,
+    ) -> PyBaseExceptionRef {
+        self.new_exception(exc_type, vec![self.ctx.new_str(msg.into()).into()])
     }
 
     /// Instantiate an exception with `msg` as the only argument and `dict` for object
@@ -129,14 +133,14 @@ impl VirtualMachine {
     pub fn new_exception_msg_dict(
         &self,
         exc_type: PyTypeRef,
-        msg: String,
+        msg: impl Into<String>,
         dict: PyDictRef,
     ) -> PyBaseExceptionRef {
         PyRef::new_ref(
             // TODO: this constructor might be invalid, because multiple
             // exception (even builtin ones) are using custom constructors,
             // see `OSError` as an example:
-            PyBaseException::new(vec![self.ctx.new_str(msg).into()], self),
+            PyBaseException::new(vec![self.ctx.new_str(msg.into()).into()], self),
             exc_type,
             Some(dict),
         )
@@ -156,7 +160,7 @@ impl VirtualMachine {
         attribute_error
     }
 
-    pub fn new_name_error(&self, msg: String, name: PyStrRef) -> PyBaseExceptionRef {
+    pub fn new_name_error(&self, msg: impl Into<String>, name: PyStrRef) -> PyBaseExceptionRef {
         let name_error_type = self.ctx.exceptions.name_error.to_owned();
         let name_error = self.new_exception_msg(name_error_type, msg);
         name_error.as_object().set_attr("name", name, self).unwrap();
@@ -201,13 +205,16 @@ impl VirtualMachine {
         ))
     }
 
-    pub fn new_errno_error(&self, errno: i32, msg: String) -> PyBaseExceptionRef {
+    pub fn new_errno_error(&self, errno: i32, msg: impl Into<String>) -> PyBaseExceptionRef {
         let vm = self;
         let exc_type =
             crate::exceptions::errno_to_exc_type(errno, vm).unwrap_or(vm.ctx.exceptions.os_error);
 
         let errno_obj = vm.new_pyobj(errno);
-        vm.new_exception(exc_type.to_owned(), vec![errno_obj, vm.new_pyobj(msg)])
+        vm.new_exception(
+            exc_type.to_owned(),
+            vec![errno_obj, vm.new_pyobj(msg.into())],
+        )
     }
 
     pub fn new_unicode_decode_error_real(
@@ -467,7 +474,7 @@ impl VirtualMachine {
         self.new_syntax_error_maybe_incomplete(error, source, false)
     }
 
-    pub fn new_import_error(&self, msg: String, name: PyStrRef) -> PyBaseExceptionRef {
+    pub fn new_import_error(&self, msg: impl Into<String>, name: PyStrRef) -> PyBaseExceptionRef {
         let import_error = self.ctx.exceptions.import_error.to_owned();
         let exc = self.new_exception_msg(import_error, msg);
         exc.as_object().set_attr("name", name, self).unwrap();
