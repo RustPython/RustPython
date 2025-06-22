@@ -1308,20 +1308,33 @@ pub mod module {
         env: crate::function::ArgMapping,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<CString>> {
-        let keys = env.mapping().keys(vm)?;
-        let values = env.mapping().values(vm)?;
+        let items = env.mapping().items(vm)?;
 
-        let keys = PyListRef::try_from_object(vm, keys)
-            .map_err(|_| vm.new_type_error("env.keys() is not a list".to_owned()))?
-            .borrow_vec()
-            .to_vec();
-        let values = PyListRef::try_from_object(vm, values)
-            .map_err(|_| vm.new_type_error("env.values() is not a list".to_owned()))?
-            .borrow_vec()
-            .to_vec();
+        // Convert items to list if it isn't already
+        let items = vm.ctx.new_list(
+            items
+                .get_iter(vm)?
+                .iter(vm)?
+                .collect::<PyResult<Vec<_>>>()?,
+        );
 
-        keys.into_iter()
-            .zip(values)
+        items
+            .borrow_vec()
+            .iter()
+            .map(|item| {
+                let tuple = item
+                    .downcast_ref::<crate::builtins::PyTuple>()
+                    .ok_or_else(|| vm.new_type_error("items() should return tuples".to_owned()))?;
+                let tuple_items = tuple.as_slice();
+                if tuple_items.len() != 2 {
+                    return Err(vm.new_value_error(
+                        "items() tuples should have exactly 2 elements".to_owned(),
+                    ));
+                }
+                Ok((tuple_items[0].clone(), tuple_items[1].clone()))
+            })
+            .collect::<PyResult<Vec<_>>>()?
+            .into_iter()
             .map(|(k, v)| {
                 let k = OsPath::try_from_object(vm, k)?.into_bytes();
                 let v = OsPath::try_from_object(vm, v)?.into_bytes();
@@ -1361,6 +1374,16 @@ pub mod module {
         file_actions: Option<crate::function::ArgIterable<PyTupleRef>>,
         #[pyarg(named, default)]
         setsigdef: Option<crate::function::ArgIterable<i32>>,
+        #[pyarg(named, default)]
+        setpgroup: Option<libc::pid_t>,
+        #[pyarg(named, default)]
+        resetids: bool,
+        #[pyarg(named, default)]
+        setsid: bool,
+        #[pyarg(named, default)]
+        setsigmask: Option<crate::function::ArgIterable<i32>>,
+        #[pyarg(named, default)]
+        scheduler: Option<PyTupleRef>,
     }
 
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
@@ -1457,6 +1480,74 @@ pub mod module {
                 assert!(
                     unsafe { libc::posix_spawnattr_setsigdefault(&mut attrp, set.as_ref()) } == 0
                 );
+            }
+
+            // Handle new posix_spawn attributes
+            let mut flags = 0i32;
+
+            if let Some(pgid) = self.setpgroup {
+                let ret = unsafe { libc::posix_spawnattr_setpgroup(&mut attrp, pgid) };
+                if ret != 0 {
+                    return Err(vm.new_os_error(format!("posix_spawnattr_setpgroup failed: {ret}")));
+                }
+                flags |= libc::POSIX_SPAWN_SETPGROUP;
+            }
+
+            if self.resetids {
+                flags |= libc::POSIX_SPAWN_RESETIDS;
+            }
+
+            if self.setsid {
+                // Note: POSIX_SPAWN_SETSID may not be available on all platforms
+                #[cfg(target_os = "linux")]
+                {
+                    flags |= 0x0080; // POSIX_SPAWN_SETSID value on Linux
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    return Err(vm.new_not_implemented_error(
+                        "setsid parameter is not supported on this platform".to_owned(),
+                    ));
+                }
+            }
+
+            if let Some(sigs) = self.setsigmask {
+                use nix::sys::signal;
+                let mut set = signal::SigSet::empty();
+                for sig in sigs.iter(vm)? {
+                    let sig = sig?;
+                    let sig = signal::Signal::try_from(sig).map_err(|_| {
+                        vm.new_value_error(format!("signal number {sig} out of range"))
+                    })?;
+                    set.add(sig);
+                }
+                let ret = unsafe { libc::posix_spawnattr_setsigmask(&mut attrp, set.as_ref()) };
+                if ret != 0 {
+                    return Err(
+                        vm.new_os_error(format!("posix_spawnattr_setsigmask failed: {ret}"))
+                    );
+                }
+                flags |= libc::POSIX_SPAWN_SETSIGMASK;
+            }
+
+            if let Some(_scheduler) = self.scheduler {
+                // TODO: Implement scheduler parameter handling
+                // This requires platform-specific sched_param struct handling
+                return Err(vm.new_not_implemented_error(
+                    "scheduler parameter is not yet implemented".to_owned(),
+                ));
+            }
+
+            if flags != 0 {
+                // Check for potential overflow when casting to c_short
+                if flags > libc::c_short::MAX as i32 {
+                    return Err(vm.new_value_error("Too many flags set for posix_spawn".to_owned()));
+                }
+                let ret =
+                    unsafe { libc::posix_spawnattr_setflags(&mut attrp, flags as libc::c_short) };
+                if ret != 0 {
+                    return Err(vm.new_os_error(format!("posix_spawnattr_setflags failed: {ret}")));
+                }
             }
 
             let mut args: Vec<CString> = self

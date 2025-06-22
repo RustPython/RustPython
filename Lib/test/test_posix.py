@@ -1730,8 +1730,6 @@ class _PosixSpawnMixin:
             self.assertEqual(pid2, pid)
             self.assertNotEqual(status, 0)
 
-    # TODO: RUSTPYTHON: TypeError: '_Environ' object is not a mapping
-    @unittest.expectedFailure
     def test_specify_environment(self):
         envfile = os_helper.TESTFN
         self.addCleanup(os_helper.unlink, envfile)
@@ -1765,8 +1763,6 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
-    # TODO: RUSTPYTHON: TypeError: Unexpected keyword argument resetids
-    @unittest.expectedFailure
     def test_resetids_explicit_default(self):
         pid = self.spawn_func(
             sys.executable,
@@ -1776,8 +1772,6 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
-    # TODO: RUSTPYTHON: TypeError: Unexpected keyword argument resetids
-    @unittest.expectedFailure
     def test_resetids(self):
         pid = self.spawn_func(
             sys.executable,
@@ -1787,8 +1781,6 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
-    # TODO: RUSTPYTHON: TypeError: Unexpected keyword argument setpgroup
-    @unittest.expectedFailure
     def test_setpgroup(self):
         pid = self.spawn_func(
             sys.executable,
@@ -1819,8 +1811,6 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
-    # TODO: RUSTPYTHON: TypeError: Unexpected keyword argument setsigmask
-    @unittest.expectedFailure
     def test_setsigmask_wrong_type(self):
         with self.assertRaises(TypeError):
             self.spawn_func(sys.executable,
@@ -1836,8 +1826,6 @@ class _PosixSpawnMixin:
                             os.environ, setsigmask=[signal.NSIG,
                                                     signal.NSIG+1])
 
-    # TODO: RUSTPYTHON: TypeError: Unexpected keyword argument setsid
-    @unittest.expectedFailure
     def test_setsid(self):
         rfd, wfd = os.pipe()
         self.addCleanup(os.close, rfd)
@@ -1902,7 +1890,6 @@ class _PosixSpawnMixin:
                             [sys.executable, "-c", "pass"],
                             os.environ, setsigdef=[signal.NSIG, signal.NSIG+1])
 
-    # TODO: RUSTPYTHON: TypeError: Unexpected keyword argument scheduler
     @unittest.expectedFailure
     @requires_sched
     @unittest.skipIf(sys.platform.startswith(('freebsd', 'netbsd')),
@@ -1924,7 +1911,6 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
-    # TODO: RUSTPYTHON: TypeError: Unexpected keyword argument scheduler
     @unittest.expectedFailure
     @requires_sched
     @unittest.skipIf(sys.platform.startswith(('freebsd', 'netbsd')),
