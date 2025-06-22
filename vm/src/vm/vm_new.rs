@@ -14,22 +14,14 @@ use crate::{
 };
 
 macro_rules! define_exception_fn {
-    // With doc
     (
-        fn $fn_name:ident, $attr:ident,
-        doc = $doc:literal
+        fn $fn_name:ident, $attr:ident, $python_repr:ident
     ) => {
-        #[doc = $doc]
-        pub fn $fn_name(&self, msg: String) -> PyBaseExceptionRef {
-            let err = self.ctx.exceptions.$attr.to_owned();
-            self.new_exception_msg(err, msg)
-        }
-    };
-
-    // Without doc
-    (
-        $fn_name:ident, $attr:ident
-    ) => {
+        #[doc = concat!(
+                    "Create a new python ",
+                    stringify!($python_repr),
+                    " object.\nUseful for raising errors from python functions implemented in rust."
+                )]
         pub fn $fn_name(&self, msg: String) -> PyBaseExceptionRef {
             let err = self.ctx.exceptions.$attr.to_owned();
             self.new_exception_msg(err, msg)
@@ -547,32 +539,31 @@ impl VirtualMachine {
         )
     }
 
-    define_exception_fn!(new_lookup_error, lookup_error);
-    define_exception_fn!(new_eof_error, eof_error);
-    define_exception_fn!(new_attribute_error, attribute_error);
-    define_exception_fn!(new_type_error, type_error);
-    define_exception_fn!(new_os_error, os_error);
-    define_exception_fn!(new_system_error, system_error);
+    define_exception_fn!(fn new_lookup_error, lookup_error, LookupError);
+    define_exception_fn!(fn new_eof_error, eof_error, EOFError);
+    define_exception_fn!(fn new_attribute_error, attribute_error, AttributeError);
+    define_exception_fn!(fn new_type_error, type_error, TypeError);
+    define_exception_fn!(fn new_os_error, os_error, OSError);
+    define_exception_fn!(fn new_system_error, system_error, SystemError);
 
     // TODO: remove & replace with new_unicode_decode_error_real
-    define_exception_fn!(new_unicode_decode_error, unicode_decode_error);
+    define_exception_fn!(fn new_unicode_decode_error, unicode_decode_error, UnicodeDecodeError);
 
     // TODO: remove & replace with new_unicode_encode_error_real
-    define_exception_fn!(new_unicode_encode_error, unicode_encode_error);
+    define_exception_fn!(fn new_unicode_encode_error, unicode_encode_error, UnicodeEncodeError);
 
+    define_exception_fn!(fn new_value_error, value_error, ValueError);
+
+    define_exception_fn!(fn new_buffer_error, buffer_error, BufferError);
+    define_exception_fn!(fn new_index_error, index_error, IndexError);
     define_exception_fn!(
-        new_value_error,
-        value_error,
-        doc = "Create a new python ValueError object.
-        Useful for raising errors from python functions implemented in rust."
+     fn new_not_implemented_error,
+        not_implemented_error,
+        NotImplementedError
     );
-
-    define_exception_fn!(new_buffer_error, buffer_error);
-    define_exception_fn!(new_index_error, index_error);
-    define_exception_fn!(new_not_implemented_error, not_implemented_error);
-    define_exception_fn!(new_recursion_error, recursion_error);
-    define_exception_fn!(new_zero_division_error, zero_division_error);
-    define_exception_fn!(new_overflow_error, overflow_error);
-    define_exception_fn!(new_runtime_error, runtime_error);
-    define_exception_fn!(new_memory_error, memory_error);
+    define_exception_fn!(fn new_recursion_error, recursion_error, RecursionError);
+    define_exception_fn!(fn new_zero_division_error, zero_division_error, ZeroDivisionError);
+    define_exception_fn!(fn new_overflow_error, overflow_error, OverflowError);
+    define_exception_fn!(fn new_runtime_error, runtime_error, RuntimeError);
+    define_exception_fn!(fn new_memory_error, memory_error, MemoryError);
 }
