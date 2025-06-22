@@ -796,6 +796,19 @@ impl ExecutingFrame<'_> {
                     .top_value()
                     .downcast_ref::<PyDict>()
                     .expect("exact dict expected");
+
+                // For dictionary unpacking {**x}, x must be a mapping
+                // Check if the object has the mapping protocol (keys method)
+                if vm
+                    .get_method(other.clone(), vm.ctx.intern_str("keys"))
+                    .is_none()
+                {
+                    return Err(vm.new_type_error(format!(
+                        "'{}' object is not a mapping",
+                        other.class().name()
+                    )));
+                }
+
                 dict.merge_object(other, vm)?;
                 Ok(None)
             }
@@ -1527,11 +1540,12 @@ impl ExecutingFrame<'_> {
         let size = size as usize;
         let map_obj = vm.ctx.new_dict();
         for obj in self.pop_multiple(size) {
-            // Take all key-value pairs from the dict:
-            let dict: PyDictRef = obj.downcast().map_err(|obj| {
-                vm.new_type_error(format!("'{}' object is not a mapping", obj.class().name()))
-            })?;
-            for (key, value) in dict {
+            // Use keys() method for all mapping objects to preserve order
+            Self::iterate_mapping_keys(vm, &obj, "keyword argument", |key| {
+                // Check for keyword argument restrictions
+                if key.downcast_ref::<PyStr>().is_none() {
+                    return Err(vm.new_type_error("keywords must be strings".to_owned()));
+                }
                 if map_obj.contains_key(&*key, vm) {
                     let key_repr = &key.repr(vm)?;
                     let msg = format!(
@@ -1540,8 +1554,11 @@ impl ExecutingFrame<'_> {
                     );
                     return Err(vm.new_type_error(msg));
                 }
+
+                let value = obj.get_item(&*key, vm)?;
                 map_obj.set_item(&*key, value, vm)?;
-            }
+                Ok(())
+            })?;
         }
 
         self.push_value(map_obj.into());
@@ -1586,17 +1603,18 @@ impl ExecutingFrame<'_> {
 
     fn collect_ex_args(&mut self, vm: &VirtualMachine, has_kwargs: bool) -> PyResult<FuncArgs> {
         let kwargs = if has_kwargs {
-            let kw_dict: PyDictRef = self.pop_value().downcast().map_err(|_| {
-                // TODO: check collections.abc.Mapping
-                vm.new_type_error("Kwargs must be a dict.".to_owned())
-            })?;
+            let kw_obj = self.pop_value();
             let mut kwargs = IndexMap::new();
-            for (key, value) in kw_dict.into_iter() {
-                let key = key
+
+            // Use keys() method for all mapping objects to preserve order
+            Self::iterate_mapping_keys(vm, &kw_obj, "argument after **", |key| {
+                let key_str = key
                     .payload_if_subclass::<PyStr>(vm)
                     .ok_or_else(|| vm.new_type_error("keywords must be strings".to_owned()))?;
-                kwargs.insert(key.as_str().to_owned(), value);
-            }
+                let value = kw_obj.get_item(&*key, vm)?;
+                kwargs.insert(key_str.as_str().to_owned(), value);
+                Ok(())
+            })?;
             kwargs
         } else {
             IndexMap::new()
@@ -1606,6 +1624,28 @@ impl ExecutingFrame<'_> {
             .as_slice()
             .to_vec();
         Ok(FuncArgs { args, kwargs })
+    }
+
+    /// Helper function to iterate over mapping keys using the keys() method.
+    /// This ensures proper order preservation for OrderedDict and other custom mappings.
+    fn iterate_mapping_keys<F>(
+        vm: &VirtualMachine,
+        mapping: &PyObjectRef,
+        error_prefix: &str,
+        mut key_handler: F,
+    ) -> PyResult<()>
+    where
+        F: FnMut(PyObjectRef) -> PyResult<()>,
+    {
+        let Some(keys_method) = vm.get_method(mapping.clone(), vm.ctx.intern_str("keys")) else {
+            return Err(vm.new_type_error(format!("{} must be a mapping", error_prefix)));
+        };
+
+        let keys = keys_method?.call((), vm)?.get_iter(vm)?;
+        while let PyIterReturn::Return(key) = keys.next(vm)? {
+            key_handler(key)?;
+        }
+        Ok(())
     }
 
     #[inline]
