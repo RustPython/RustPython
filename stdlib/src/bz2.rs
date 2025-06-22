@@ -103,6 +103,11 @@ mod _bz2 {
             self.state.lock().needs_input()
         }
 
+        #[pymethod(name = "__reduce__")]
+        fn reduce(&self, vm: &VirtualMachine) -> PyResult<()> {
+            Err(vm.new_type_error("cannot pickle '_bz2.BZ2Decompressor' object".to_owned()))
+        }
+
         // TODO: mro()?
     }
 
@@ -184,6 +189,11 @@ mod _bz2 {
             let out = encoder.take().unwrap().finish().unwrap();
             state.flushed = true;
             Ok(vm.ctx.new_bytes(out.to_vec()))
+        }
+
+        #[pymethod(name = "__reduce__")]
+        fn reduce(&self, vm: &VirtualMachine) -> PyResult<()> {
+            Err(vm.new_type_error("cannot pickle '_bz2.BZ2Compressor' object".to_owned()))
         }
     }
 }
