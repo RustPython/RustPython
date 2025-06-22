@@ -818,8 +818,6 @@ class UnpackIteratorTest(unittest.TestCase):
         with self.assertRaises(struct.error):
             s.iter_unpack(b"12")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_uninstantiable(self):
         iter_unpack_type = type(struct.Struct(">ibcp").iter_unpack(b""))
         self.assertRaises(TypeError, iter_unpack_type)
