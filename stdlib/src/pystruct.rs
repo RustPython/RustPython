@@ -16,7 +16,7 @@ pub(crate) mod _struct {
         function::{ArgBytesLike, ArgMemoryBuffer, PosArgs},
         match_class,
         protocol::PyIterReturn,
-        types::{Constructor, IterNext, Iterable, Representable, SelfIter},
+        types::{Constructor, IterNext, Iterable, Representable, SelfIter, Unconstructible},
     };
     use crossbeam_utils::atomic::AtomicCell;
 
@@ -163,7 +163,7 @@ pub(crate) mod _struct {
     }
 
     impl UnpackIterator {
-        fn new(
+        fn with_buffer(
             vm: &VirtualMachine,
             format_spec: FormatSpec,
             buffer: ArgBytesLike,
@@ -191,7 +191,7 @@ pub(crate) mod _struct {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable))]
+    #[pyclass(with(Unconstructible, IterNext, Iterable))]
     impl UnpackIterator {
         #[pymethod(magic)]
         fn length_hint(&self) -> usize {
@@ -199,6 +199,7 @@ pub(crate) mod _struct {
         }
     }
     impl SelfIter for UnpackIterator {}
+    impl Unconstructible for UnpackIterator {}
     impl IterNext for UnpackIterator {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let size = zelf.format_spec.size;
@@ -222,7 +223,7 @@ pub(crate) mod _struct {
         vm: &VirtualMachine,
     ) -> PyResult<UnpackIterator> {
         let format_spec = fmt.format_spec(vm)?;
-        UnpackIterator::new(vm, format_spec, buffer)
+        UnpackIterator::with_buffer(vm, format_spec, buffer)
     }
 
     #[pyfunction]
@@ -302,7 +303,7 @@ pub(crate) mod _struct {
             buffer: ArgBytesLike,
             vm: &VirtualMachine,
         ) -> PyResult<UnpackIterator> {
-            UnpackIterator::new(vm, self.spec.clone(), buffer)
+            UnpackIterator::with_buffer(vm, self.spec.clone(), buffer)
         }
     }
 
