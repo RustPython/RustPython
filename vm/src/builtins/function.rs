@@ -759,8 +759,11 @@ impl PyCell {
             .ok_or_else(|| vm.new_value_error("Cell is empty".to_owned()))
     }
     #[pygetset(setter)]
-    fn set_cell_contents(&self, x: PyObjectRef) {
-        self.set(Some(x))
+    fn set_cell_contents(&self, x: PySetterValue) {
+        match x {
+            PySetterValue::Assign(value) => self.set(Some(value)),
+            PySetterValue::Delete => self.set(None),
+        }
     }
 }
 

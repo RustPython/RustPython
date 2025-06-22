@@ -140,8 +140,6 @@ class FunctionPropertiesTest(FuncAttrsTest):
             self.fail("shouldn't be able to read an empty cell")
         a = 12
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_set_cell(self):
         a = 12
         def f(): return a
