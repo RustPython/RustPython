@@ -179,8 +179,6 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         self.assertRaises(TypeError, self.db.decomposition)
         self.assertRaises(TypeError, self.db.decomposition, 'xx')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_mirrored(self):
         self.assertEqual(self.db.mirrored('\uFFFE'), 0)
         self.assertEqual(self.db.mirrored('a'), 0)

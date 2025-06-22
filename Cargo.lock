@@ -2496,6 +2496,7 @@ dependencies = [
  "unic-ucd-bidi",
  "unic-ucd-category",
  "unic-ucd-ident",
+ "unicode-bidi-mirroring",
  "unicode-casing",
  "unicode_names2",
  "uuid",
@@ -3146,6 +3147,12 @@ checksum = "96bd2f2237fe450fcd0a1d2f5f4e91711124f7857ba2e964247776ebeeb7b0c4"
 dependencies = [
  "unic-common",
 ]
+
+[[package]]
+name = "unicode-bidi-mirroring"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23cb788ffebc92c5948d0e997106233eeb1d8b9512f93f41651f52b6c5f5af86"
 
 [[package]]
 name = "unicode-casing"

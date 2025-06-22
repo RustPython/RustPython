@@ -23,6 +23,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
         "bidirectional",
         "east_asian_width",
         "normalize",
+        "mirrored",
     ]
     .into_iter()
     {
@@ -72,6 +73,7 @@ mod unicodedata {
     use unic_ucd_age::{Age, UNICODE_VERSION, UnicodeVersion};
     use unic_ucd_bidi::BidiClass;
     use unic_ucd_category::GeneralCategory;
+    use unicode_bidi_mirroring::is_mirroring;
 
     #[pyattr]
     #[pyclass(name = "UCD")]
@@ -191,6 +193,21 @@ mod unicodedata {
                 Nfkd => text.map_utf8(|s| s.nfkd()).collect(),
             };
             Ok(normalized_text)
+        }
+
+        #[pymethod]
+        fn mirrored(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<i32> {
+            match self.extract_char(character, vm)? {
+                Some(c) => {
+                    if let Some(ch) = c.to_char() {
+                        // Check if the character is mirrored in bidirectional text using Unicode standard
+                        Ok(if is_mirroring(ch) { 1 } else { 0 })
+                    } else {
+                        Ok(0)
+                    }
+                }
+                None => Ok(0),
+            }
         }
 
         #[pygetset]
