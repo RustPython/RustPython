@@ -55,8 +55,6 @@ class Test(unittest.TestCase):
         syslog.openlog()
         syslog.syslog('test message from python test_syslog')
 
-    # TODO: RUSTPYTHON; AttributeError: module 'sys' has no attribute 'getswitchinterval'
-    @unittest.expectedFailure
     @threading_helper.requires_working_threading()
     def test_syslog_threaded(self):
         start = threading.Event()
