@@ -1743,8 +1743,6 @@ class AtexitTests(unittest.TestCase):
         self.assertFalse(err)
         self.assertEqual(out.strip(), b'parrot')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_atexit_called_once(self):
         rc, out, err = assert_python_ok("-c", """if True:
             import threading
