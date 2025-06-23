@@ -378,8 +378,6 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertRaises(ValueError, ('a' * 100).rindex, '\U00100304a')
         self.assertRaises(ValueError, ('\u0102' * 100).rindex, '\U00100304\u0102')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_maketrans_translate(self):
         # these work with plain translate()
         self.checkequalnofix('bbbc', 'abababc', 'translate',

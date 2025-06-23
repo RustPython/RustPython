@@ -1416,6 +1416,10 @@ impl PyStr {
                                     "string keys in translate table must be of length 1".to_owned(),
                                 ));
                             }
+                        } else {
+                            return Err(vm.new_type_error(
+                                "keys in translate table must be strings or integers".to_owned(),
+                            ));
                         }
                     }
                     Ok(new_dict.to_pyobject(vm))
