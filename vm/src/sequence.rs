@@ -101,7 +101,7 @@ where
         let n = vm.check_repeat_or_overflow_error(self.as_ref().len(), n)?;
 
         if n > 1 && std::mem::size_of_val(self.as_ref()) >= MAX_MEMORY_SIZE / n {
-            return Err(vm.new_memory_error("".to_owned()));
+            return Err(vm.new_memory_error(""));
         }
 
         let mut v = Vec::with_capacity(n * self.as_ref().len());

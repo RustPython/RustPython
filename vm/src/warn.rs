@@ -109,7 +109,7 @@ fn get_filter(
 
     let filters: PyListRef = filters
         .try_into_value(vm)
-        .map_err(|_| vm.new_value_error("_warnings.filters must be a list".to_string()))?;
+        .map_err(|_| vm.new_value_error("_warnings.filters must be a list"))?;
 
     /* WarningsState.filters could change while we are iterating over it. */
     for i in 0..filters.borrow_vec().len() {
@@ -125,7 +125,7 @@ fn get_filter(
         let action = if let Some(action) = tmp_item.first() {
             action.str(vm).map(|action| action.into_object())
         } else {
-            Err(vm.new_type_error("action must be a string".to_string()))
+            Err(vm.new_type_error("action must be a string"))
         };
 
         let good_msg = if let Some(msg) = tmp_item.get(1) {
@@ -224,7 +224,7 @@ fn warn_explicit(
 ) -> PyResult<()> {
     let registry: PyObjectRef = registry
         .try_into_value(vm)
-        .map_err(|_| vm.new_type_error("'registry' must be a dict or None".to_owned()))?;
+        .map_err(|_| vm.new_type_error("'registry' must be a dict or None"))?;
 
     // Normalize module.
     let module = match module.or_else(|| normalize_module(&filename, vm)) {
@@ -314,13 +314,11 @@ fn call_show_warning(
         return show_warning(filename, lineno, message, category, source_line, vm);
     };
     if !show_fn.is_callable() {
-        return Err(
-            vm.new_type_error("warnings._showwarnmsg() must be set to a callable".to_owned())
-        );
+        return Err(vm.new_type_error("warnings._showwarnmsg() must be set to a callable"));
     }
     let Some(warnmsg_cls) = get_warnings_attr(vm, identifier!(&vm.ctx, WarningMessage), false)?
     else {
-        return Err(vm.new_type_error("unable to get warnings.WarningMessage".to_owned()));
+        return Err(vm.new_type_error("unable to get warnings.WarningMessage"));
     };
 
     let msg = warnmsg_cls.call(
