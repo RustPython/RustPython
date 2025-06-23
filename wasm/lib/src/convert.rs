@@ -70,7 +70,7 @@ pub fn js_err_to_py_err(vm: &VirtualMachine, js_err: &JsValue) -> PyBaseExceptio
                 _ => vm.ctx.exceptions.exception_type,
             }
             .to_owned();
-            vm.new_exception_msg(exc_type, err.message().into())
+            vm.new_exception_msg(exc_type, err.message())
         }
         None => vm.new_exception_msg(
             vm.ctx.exceptions.exception_type.to_owned(),
