@@ -1061,6 +1061,22 @@ pub(crate) fn get_text_signature_from_internal_doc<'a>(
     find_signature(name, internal_doc).and_then(get_signature)
 }
 
+// _PyType_GetDocFromInternalDoc in CPython
+fn get_doc_from_internal_doc<'a>(name: &str, internal_doc: &'a str) -> &'a str {
+    // Similar to CPython's _PyType_DocWithoutSignature
+    // If the doc starts with the type name and a '(', it's a signature
+    if let Some(doc_without_sig) = find_signature(name, internal_doc) {
+        // Find where the signature ends
+        if let Some(sig_end_pos) = doc_without_sig.find(SIGNATURE_END_MARKER) {
+            let after_sig = &doc_without_sig[sig_end_pos + SIGNATURE_END_MARKER.len()..];
+            // Return the documentation after the signature, or empty string if none
+            return after_sig;
+        }
+    }
+    // If no signature found, return the whole doc
+    internal_doc
+}
+
 impl GetAttr for PyType {
     fn getattro(zelf: &Py<Self>, name_str: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         #[cold]
@@ -1120,6 +1136,55 @@ impl Py<PyType> {
     fn get_mro(&self) -> PyTuple {
         let elements: Vec<PyObjectRef> = self.mro_map_collect(|x| x.as_object().to_owned());
         PyTuple::new_unchecked(elements.into_boxed_slice())
+    }
+
+    #[pygetset(magic)]
+    fn doc(&self, vm: &VirtualMachine) -> PyResult {
+        // Similar to CPython's type_get_doc
+        // For non-heap types (static types), check if there's an internal doc
+        if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            if let Some(internal_doc) = self.slots.doc {
+                // Process internal doc, removing signature if present
+                let doc_str = get_doc_from_internal_doc(&self.name(), internal_doc);
+                return Ok(vm.ctx.new_str(doc_str).into());
+            }
+        }
+
+        // Check if there's a __doc__ in the type's dict
+        if let Some(doc_attr) = self.get_attr(vm.ctx.intern_str("__doc__")) {
+            // If it's a descriptor, call its __get__ method
+            let descr_get = doc_attr
+                .class()
+                .mro_find_map(|cls| cls.slots.descr_get.load());
+            if let Some(descr_get) = descr_get {
+                descr_get(doc_attr, None, Some(self.to_owned().into()), vm)
+            } else {
+                Ok(doc_attr)
+            }
+        } else {
+            Ok(vm.ctx.none())
+        }
+    }
+
+    #[pygetset(magic, setter)]
+    fn set_doc(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        // Similar to CPython's type_set_doc
+        let value = value.ok_or_else(|| {
+            vm.new_type_error(format!(
+                "cannot delete '__doc__' attribute of type '{}'",
+                self.name()
+            ))
+        })?;
+
+        // Check if we can set this special type attribute
+        self.check_set_special_type_attr(&value, identifier!(vm, __doc__), vm)?;
+
+        // Set the __doc__ in the type's dict
+        self.attributes
+            .write()
+            .insert(identifier!(vm, __doc__), value);
+
+        Ok(())
     }
 
     #[pymethod(magic)]

@@ -345,15 +345,28 @@ impl GetDescriptor for PyMemberDescriptor {
     fn descr_get(
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
-        _cls: Option<PyObjectRef>,
+        cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
+        let descr = Self::_as_pyref(&zelf, vm)?;
         match obj {
-            Some(x) => {
-                let zelf = Self::_as_pyref(&zelf, vm)?;
-                zelf.member.get(x, vm)
+            Some(x) => descr.member.get(x, vm),
+            None => {
+                // When accessed from class (not instance), for __doc__ member descriptor,
+                // return the class's docstring if available
+                // When accessed from class (not instance), check if the class has
+                // an attribute with the same name as this member descriptor
+                if let Some(cls) = cls {
+                    if let Ok(cls_type) = cls.downcast::<PyType>() {
+                        if let Some(interned) = vm.ctx.interned_str(descr.member.name.as_str()) {
+                            if let Some(attr) = cls_type.attributes.read().get(&interned) {
+                                return Ok(attr.clone());
+                            }
+                        }
+                    }
+                }
+                Ok(zelf)
             }
-            None => Ok(zelf),
         }
     }
 }

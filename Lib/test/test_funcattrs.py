@@ -357,8 +357,6 @@ class FunctionDictsTest(FuncAttrsTest):
         else:
             self.fail("deleting function dictionary should raise TypeError")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unassigned_dict(self):
         self.assertEqual(self.b.__dict__, {})
 
@@ -379,8 +377,6 @@ class FunctionDocstringTest(FuncAttrsTest):
         self.assertEqual(self.fi.a.__doc__, docstr)
         self.cannot_set_attr(self.fi.a, "__doc__", docstr, AttributeError)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_delete_docstring(self):
         self.b.__doc__ = "The docstring"
         del self.b.__doc__

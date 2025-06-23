@@ -417,10 +417,15 @@ impl PyFunction {
     }
 
     #[pymember(magic)]
-    fn doc(_vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf: PyRef<PyFunction> = zelf.downcast().unwrap_or_else(|_| unreachable!());
-        let doc = zelf.doc.lock();
-        Ok(doc.clone())
+    fn doc(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult {
+        // When accessed from instance, obj is the PyFunction instance
+        if let Ok(func) = obj.downcast::<PyFunction>() {
+            let doc = func.doc.lock();
+            Ok(doc.clone())
+        } else {
+            // When accessed from class, return None as there's no instance
+            Ok(vm.ctx.none())
+        }
     }
 
     #[pymember(magic, setter)]
