@@ -52,6 +52,8 @@ def f4():
 
 assert f4.__doc__ == "test4"
 
+assert type(lambda: None).__doc__.startswith("Create a function object."), type(f4).__doc__
+
 
 def revdocstr(f):
     d = f.__doc__
