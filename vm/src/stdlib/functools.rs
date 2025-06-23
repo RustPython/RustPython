@@ -244,7 +244,7 @@ mod _functools {
             let mut final_kwargs = IndexMap::new();
 
             // Add keywords from self.keywords
-            for (key, value) in inner.keywords.clone() {
+            for (key, value) in &*inner.keywords {
                 let key_str = key
                     .downcast::<crate::builtins::PyStr>()
                     .map_err(|_| vm.new_type_error("keywords must be strings".to_owned()))?;
@@ -291,27 +291,24 @@ mod _functools {
                 let class_name = zelf.class().name();
                 let module = zelf.class().module(vm);
 
-                // Check if this is a subclass by comparing with the base partial type
-                let is_subclass = !zelf.class().is(PyPartial::class(&vm.ctx));
-
-                let qualified_name = if !is_subclass {
+                let qualified_name = if zelf.class().is(PyPartial::class(&vm.ctx)) {
                     // For the base partial class, always use functools.partial
-                    "functools.partial".to_string()
+                    "functools.partial".to_owned()
                 } else {
                     // For subclasses, check if they're defined in __main__ or test modules
                     match module.downcast::<crate::builtins::PyStr>() {
                         Ok(module_str) => {
                             let module_name = module_str.as_str();
                             match module_name {
-                                "builtins" | "" | "__main__" => class_name.to_string(),
+                                "builtins" | "" | "__main__" => class_name.to_owned(),
                                 name if name.starts_with("test.") || name == "test" => {
                                     // For test modules, just use the class name without module prefix
-                                    class_name.to_string()
+                                    class_name.to_owned()
                                 }
                                 _ => format!("{}.{}", module_name, class_name),
                             }
                         }
-                        Err(_) => class_name.to_string(),
+                        Err(_) => class_name.to_owned(),
                     }
                 };
 
