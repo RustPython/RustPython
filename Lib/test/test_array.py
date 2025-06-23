@@ -176,7 +176,7 @@ class ArrayReconstructorTest(unittest.TestCase):
                 self.assertEqual(a, b,
                     msg="{0!r} != {1!r}; testcase={2!r}".format(a, b, testcase))
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON - requires UTF-32 encoding support in codecs and proper array reconstructor implementation
     @unittest.expectedFailure
     def test_unicode(self):
         teststr = "Bonne Journ\xe9e \U0002030a\U00020347"

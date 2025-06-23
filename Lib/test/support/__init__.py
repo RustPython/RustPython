@@ -1933,8 +1933,7 @@ def _check_tracemalloc():
                                      "if tracemalloc module is tracing "
                                      "memory allocations")
 
-
-# TODO: RUSTPYTHON (comment out before)
+# TODO: RUSTPYTHON; GC is not supported yet
 # def check_free_after_iterating(test, iter, cls, args=()):
 #     class A(cls):
 #         def __del__(self):

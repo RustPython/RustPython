@@ -647,6 +647,24 @@ impl PyRef<PyBaseException> {
             vm.new_tuple((self.class().to_owned(), self.args()))
         }
     }
+
+    #[pymethod(magic)]
+    fn setstate(self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        if !vm.is_none(&state) {
+            let dict = state
+                .downcast::<crate::builtins::PyDict>()
+                .map_err(|_| vm.new_type_error("state is not a dictionary".to_owned()))?;
+
+            for (key, value) in &dict {
+                let key_str = key.str(vm)?;
+                if key_str.as_str().starts_with("__") {
+                    continue;
+                }
+                self.as_object().set_attr(&key_str, value.clone(), vm)?;
+            }
+        }
+        Ok(vm.ctx.none())
+    }
 }
 
 impl Constructor for PyBaseException {

@@ -83,7 +83,7 @@ class ExceptionClassTests(unittest.TestCase):
         exc_set = set(e for e in exc_set if not e.startswith('_'))
         # RUSTPYTHON specific
         exc_set.discard("JitError")
-        # TODO: RUSTPYTHON; this will be officially introduced in Python 3.15
+        # XXX: RUSTPYTHON; IncompleteInputError will be officially introduced in Python 3.15
         exc_set.discard("IncompleteInputError")
         self.assertEqual(len(exc_set), 0, "%s not accounted for" % exc_set)
 
@@ -121,8 +121,6 @@ class ExceptionClassTests(unittest.TestCase):
                 [repr(exc), exc.__class__.__name__ + '()'])
         self.interface_test_driver(results)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setstate_refcount_no_crash(self):
         # gh-97591: Acquire strong reference before calling tp_hash slot
         # in PyObject_SetAttr.
