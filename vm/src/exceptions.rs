@@ -427,8 +427,7 @@ impl ExceptionCtor {
         match (self, exc_inst) {
             // both are instances; which would we choose?
             (Self::Instance(_exc_a), Some(_exc_b)) => {
-                Err(vm
-                    .new_type_error("instance exception may not have a separate value".to_owned()))
+                Err(vm.new_type_error("instance exception may not have a separate value"))
             }
             // if the "type" is an instance and the value isn't, use the "type"
             (Self::Instance(exc), None) => Ok(exc),
@@ -653,7 +652,7 @@ impl PyRef<PyBaseException> {
         if !vm.is_none(&state) {
             let dict = state
                 .downcast::<crate::builtins::PyDict>()
-                .map_err(|_| vm.new_type_error("state is not a dictionary".to_owned()))?;
+                .map_err(|_| vm.new_type_error("state is not a dictionary"))?;
 
             for (key, value) in &dict {
                 let key_str = key.str(vm)?;
@@ -672,7 +671,7 @@ impl Constructor for PyBaseException {
 
     fn py_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if cls.is(PyBaseException::class(&vm.ctx)) && !args.kwargs.is_empty() {
-            return Err(vm.new_type_error("BaseException() takes no keyword arguments".to_owned()));
+            return Err(vm.new_type_error("BaseException() takes no keyword arguments"));
         }
         PyBaseException::new(args.args, vm)
             .into_ref_with_type(vm, cls)
@@ -1130,7 +1129,7 @@ impl serde::Serialize for SerializeException<'_, '_> {
 }
 
 pub fn cstring_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
-    vm.new_value_error("embedded null character".to_owned())
+    vm.new_value_error("embedded null character")
 }
 
 impl ToPyException for std::ffi::NulError {
@@ -1334,8 +1333,7 @@ pub(super) mod types {
             // Check for any remaining invalid keyword arguments
             if let Some(invalid_key) = kwargs.keys().next() {
                 return Err(vm.new_type_error(format!(
-                    "'{}' is an invalid keyword argument for ImportError",
-                    invalid_key
+                    "'{invalid_key}' is an invalid keyword argument for ImportError"
                 )));
             }
 

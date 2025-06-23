@@ -549,7 +549,7 @@ impl Packable for f16 {
         // "from_f64 should be preferred in any non-`const` context" except it gives the wrong result :/
         let f_16 = f16::from_f64_const(f_64);
         if f_16.is_infinite() != f_64.is_infinite() {
-            return Err(vm.new_overflow_error("float too large to pack with e format".to_owned()));
+            return Err(vm.new_overflow_error("float too large to pack with e format"));
         }
         f_16.to_bits().pack_int::<E>(data);
         Ok(())
