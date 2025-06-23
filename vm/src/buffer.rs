@@ -497,15 +497,12 @@ fn get_int_or_index<T>(vm: &VirtualMachine, arg: PyObjectRef) -> PyResult<T>
 where
     T: PrimInt + for<'a> TryFrom<&'a BigInt>,
 {
-    let index = arg.try_index_opt(vm).unwrap_or_else(|| {
-        Err(new_struct_error(
-            vm,
-            "required argument is not an integer".to_owned(),
-        ))
-    })?;
+    let index = arg
+        .try_index_opt(vm)
+        .unwrap_or_else(|| Err(new_struct_error(vm, "required argument is not an integer")))?;
     index
         .try_to_primitive(vm)
-        .map_err(|_| new_struct_error(vm, "argument out of range".to_owned()))
+        .map_err(|_| new_struct_error(vm, "argument out of range"))
 }
 
 make_pack_prim_int!(i8);
@@ -586,12 +583,11 @@ impl Packable for bool {
 
 fn pack_char(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()> {
     let v = PyBytesRef::try_from_object(vm, arg)?;
-    let ch = *v.as_bytes().iter().exactly_one().map_err(|_| {
-        new_struct_error(
-            vm,
-            "char format requires a bytes object of length 1".to_owned(),
-        )
-    })?;
+    let ch = *v
+        .as_bytes()
+        .iter()
+        .exactly_one()
+        .map_err(|_| new_struct_error(vm, "char format requires a bytes object of length 1"))?;
     data[0] = ch;
     Ok(())
 }
@@ -647,7 +643,7 @@ pub fn struct_error_type(vm: &VirtualMachine) -> &'static PyTypeRef {
     INSTANCE.get_or_init(|| vm.ctx.new_exception_type("struct", "error", None))
 }
 
-pub fn new_struct_error(vm: &VirtualMachine, msg: String) -> PyBaseExceptionRef {
+pub fn new_struct_error(vm: &VirtualMachine, msg: impl Into<String>) -> PyBaseExceptionRef {
     // can't just STRUCT_ERROR.get().unwrap() cause this could be called before from buffer
     // machinery, independent of whether _struct was ever imported
     vm.new_exception_msg(struct_error_type(vm).clone(), msg)
