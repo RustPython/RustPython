@@ -95,7 +95,7 @@ impl PyProperty {
         match value {
             PySetterValue::Assign(value) => {
                 if let Some(setter) = zelf.setter.read().as_ref() {
-                    setter.call((obj.clone(), value), vm).map(drop)
+                    setter.call((obj, value), vm).map(drop)
                 } else {
                     let error_msg = zelf.format_property_error(&obj, "setter", vm)?;
                     Err(vm.new_attribute_error(error_msg))
@@ -103,7 +103,7 @@ impl PyProperty {
             }
             PySetterValue::Delete => {
                 if let Some(deleter) = zelf.deleter.read().as_ref() {
-                    deleter.call((obj.clone(),), vm).map(drop)
+                    deleter.call((obj,), vm).map(drop)
                 } else {
                     let error_msg = zelf.format_property_error(&obj, "deleter", vm)?;
                     Err(vm.new_attribute_error(error_msg))
@@ -166,29 +166,33 @@ impl PyProperty {
 
     // Python builder functions
 
-    #[pymethod]
-    fn getter(
+    // Helper method to create a new property with updated attributes
+    fn clone_property_with(
         zelf: PyRef<Self>,
-        getter: Option<PyObjectRef>,
+        new_getter: Option<PyObjectRef>,
+        new_setter: Option<PyObjectRef>,
+        new_deleter: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        let new_getter = getter.or_else(|| zelf.fget());
-
-        // Determine doc based on getter_doc flag
+        // Determine doc based on getter_doc flag and whether we're updating the getter
         let doc = if zelf.getter_doc.load(Ordering::Relaxed) && new_getter.is_some() {
             // If the original property uses getter doc and we have a new getter,
             // pass Py_None to let __init__ get the doc from the new getter
+            Some(vm.ctx.none())
+        } else if zelf.getter_doc.load(Ordering::Relaxed) {
+            // If original used getter_doc but we're not changing the getter,
+            // pass None to let init get doc from existing getter
             Some(vm.ctx.none())
         } else {
             // Otherwise use the existing doc
             zelf.doc_getter()
         };
 
-        // Create property args
+        // Create property args with updated values
         let args = PropertyArgs {
-            fget: new_getter,
-            fset: zelf.fset(),
-            fdel: zelf.fdel(),
+            fget: new_getter.or_else(|| zelf.fget()),
+            fset: new_setter.or_else(|| zelf.fset()),
+            fdel: new_deleter.or_else(|| zelf.fdel()),
             doc,
             name: None,
         };
@@ -207,37 +211,21 @@ impl PyProperty {
     }
 
     #[pymethod]
+    fn getter(
+        zelf: PyRef<Self>,
+        getter: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
+        Self::clone_property_with(zelf, getter, None, None, vm)
+    }
+
+    #[pymethod]
     fn setter(
         zelf: PyRef<Self>,
         setter: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        // For setter, we need to preserve doc handling from the original property
-        let doc = if zelf.getter_doc.load(Ordering::Relaxed) {
-            // If original used getter_doc, pass None to let init get doc from getter
-            Some(vm.ctx.none())
-        } else {
-            zelf.doc_getter()
-        };
-
-        let args = PropertyArgs {
-            fget: zelf.fget(),
-            fset: setter.or_else(|| zelf.fset()),
-            fdel: zelf.fdel(),
-            doc,
-            name: None,
-        };
-
-        let new_prop = PyProperty::py_new(zelf.class().to_owned(), FuncArgs::default(), vm)?;
-        let new_prop_ref = new_prop.downcast::<PyProperty>().unwrap();
-        PyProperty::init(new_prop_ref.clone(), args, vm)?;
-
-        // Copy the name if it exists
-        if let Some(name) = zelf.name.read().clone() {
-            *new_prop_ref.name.write() = Some(name);
-        }
-
-        Ok(new_prop_ref)
+        Self::clone_property_with(zelf, None, setter, None, vm)
     }
 
     #[pymethod]
@@ -246,32 +234,7 @@ impl PyProperty {
         deleter: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        // For deleter, we need to preserve doc handling from the original property
-        let doc = if zelf.getter_doc.load(Ordering::Relaxed) {
-            // If original used getter_doc, pass None to let init get doc from getter
-            Some(vm.ctx.none())
-        } else {
-            zelf.doc_getter()
-        };
-
-        let args = PropertyArgs {
-            fget: zelf.fget(),
-            fset: zelf.fset(),
-            fdel: deleter.or_else(|| zelf.fdel()),
-            doc,
-            name: None,
-        };
-
-        let new_prop = PyProperty::py_new(zelf.class().to_owned(), FuncArgs::default(), vm)?;
-        let new_prop_ref = new_prop.downcast::<PyProperty>().unwrap();
-        PyProperty::init(new_prop_ref.clone(), args, vm)?;
-
-        // Copy the name if it exists
-        if let Some(name) = zelf.name.read().clone() {
-            *new_prop_ref.name.write() = Some(name);
-        }
-
-        Ok(new_prop_ref)
+        Self::clone_property_with(zelf, None, None, deleter, vm)
     }
 
     #[pygetset(magic)]
@@ -365,11 +328,6 @@ impl Initializer for PyProperty {
     type Args = PropertyArgs;
 
     fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        *zelf.getter.write() = args.fget.clone();
-        *zelf.setter.write() = args.fset;
-        *zelf.deleter.write() = args.fdel;
-        *zelf.name.write() = args.name.map(|a| a.as_object().to_owned());
-
         // Set doc and getter_doc flag
         let mut getter_doc = false;
 
@@ -411,6 +369,10 @@ impl Initializer for PyProperty {
             }
         }
 
+        *zelf.getter.write() = args.fget;
+        *zelf.setter.write() = args.fset;
+        *zelf.deleter.write() = args.fdel;
+        *zelf.name.write() = args.name.map(|a| a.as_object().to_owned());
         zelf.getter_doc.store(getter_doc, Ordering::Relaxed);
 
         Ok(())
