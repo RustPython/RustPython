@@ -6,11 +6,12 @@ pub(crate) use _hashlib::make_module;
 pub mod _hashlib {
     use crate::common::lock::PyRwLock;
     use crate::vm::{
-        PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyBytes, PyStrRef, PyTypeRef},
         convert::ToPyObject,
         function::{ArgBytesLike, ArgStrOrBytesLike, FuncArgs, OptionalArg},
         protocol::PyBuffer,
+        types::Representable,
     };
     use blake2::{Blake2b512, Blake2s256};
     use digest::{DynDigest, core_api::BlockSizeUser};
@@ -96,7 +97,7 @@ pub mod _hashlib {
         }
     }
 
-    #[pyclass]
+    #[pyclass(with(Representable))]
     impl PyHasher {
         fn new(name: &str, d: HashWrapper) -> Self {
             PyHasher {
@@ -143,6 +144,15 @@ pub mod _hashlib {
         #[pymethod]
         fn copy(&self) -> Self {
             PyHasher::new(&self.name, self.ctx.read().clone())
+        }
+    }
+
+    impl Representable for PyHasher {
+        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            Ok(format!(
+                "<{} _hashlib.HASH object @ {:#x}>",
+                zelf.name, zelf as *const _ as usize
+            ))
         }
     }
 
