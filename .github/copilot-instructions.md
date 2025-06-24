@@ -84,7 +84,11 @@ cd extra_tests
 pytest -v
 
 # Run the Python test module
-cargo run --release -- -m test
+cargo run --release -- -m test ${TEST_MODULE}
+cargo run --release -- -m test test_unicode # to test test_unicode.py
+
+# Run the Python test module with specific function
+cargo run --release -- -m test test_unicode -k test_unicode_escape
 ```
 
 ### Determining What to Implement
