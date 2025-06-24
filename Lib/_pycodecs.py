@@ -1075,16 +1075,46 @@ def PyUnicode_EncodeUTF16(s, size, errors, byteorder="little"):
     elif byteorder == "big":
         bom = "big"
 
-    for c in s:
-        ch = ord(c)
-        ch2 = 0
-        if ch >= 0x10000:
+    i = 0
+    while i < len(s):
+        ch = ord(s[i])
+        
+        # Check for surrogates - each surrogate is invalid in UTF-16
+        # regardless of whether it could form a pair
+        if 0xD800 <= ch <= 0xDFFF:
+            # Surrogate - handle with error handler
+            startinpos = i
+            endinpos = i + 1
+            res = unicode_call_errorhandler(
+                errors, "utf-16-le" if bom == "little" else "utf-16-be",
+                "surrogates not allowed", s, startinpos, endinpos
+            )
+            # res[0] is the replacement string, res[1] is the new position
+            for replacement_char in res[0]:
+                rch = ord(replacement_char)
+                if rch >= 0x10000:
+                    # Encode as surrogate pair
+                    rch2 = 0xDC00 | ((rch - 0x10000) & 0x3FF)
+                    rch = 0xD800 | ((rch - 0x10000) >> 10)
+                    p += STORECHAR(rch, bom)
+                    p += STORECHAR(rch2, bom)
+                elif 0xD800 <= rch <= 0xDFFF:
+                    # Don't encode surrogates in the replacement
+                    pass
+                else:
+                    p += STORECHAR(rch, bom)
+            i = res[1]
+        elif ch >= 0x10000:
+            # Regular character above BMP - encode as surrogate pair
             ch2 = 0xDC00 | ((ch - 0x10000) & 0x3FF)
             ch = 0xD800 | ((ch - 0x10000) >> 10)
-
-        p += STORECHAR(ch, bom)
-        if ch2:
+            p += STORECHAR(ch, bom)
             p += STORECHAR(ch2, bom)
+            i += 1
+        else:
+            # Regular BMP character
+            p += STORECHAR(ch, bom)
+            i += 1
 
     return p
 
@@ -1183,9 +1213,29 @@ def PyUnicode_EncodeUTF32(s, size, errors, byteorder="little"):
     if size == 0:
         return p
 
-    for c in s:
-        ch = ord(c)
-        p += STORECHAR32(ch, bom)
+    i = 0
+    while i < len(s):
+        ch = ord(s[i])
+        
+        # Check for surrogates - they are not valid in UTF-32
+        if 0xD800 <= ch <= 0xDFFF:
+            # Surrogate - handle with error handler
+            startinpos = i
+            endinpos = i + 1
+            res = unicode_call_errorhandler(
+                errors, "utf-32-le" if bom == "little" else "utf-32-be",
+                "surrogates not allowed", s, startinpos, endinpos, False
+            )
+            # res[0] is the replacement string, res[1] is the new position
+            for replacement_char in res[0]:
+                rch = ord(replacement_char)
+                # Don't encode surrogates in the replacement
+                if not (0xD800 <= rch <= 0xDFFF):
+                    p += STORECHAR32(rch, bom)
+            i = res[1]
+        else:
+            p += STORECHAR32(ch, bom)
+            i += 1
 
     return p
 
