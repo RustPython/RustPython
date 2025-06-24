@@ -2356,8 +2356,6 @@ order (MRO) for bases """
         else:
             self.fail("expected ZeroDivisionError from bad property")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")
     def test_properties_doc_attrib(self):
@@ -2384,8 +2382,6 @@ order (MRO) for bases """
             class X(object):
                 p = property(_testcapi.test_with_docstring)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_properties_plus(self):
         class C(object):
             foo = property(doc="hello")

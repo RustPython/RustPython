@@ -10,6 +10,7 @@ use crate::{
     function::{FuncArgs, PySetterValue},
     types::{Constructor, GetDescriptor, Initializer},
 };
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[pyclass(module = false, name = "property", traverse)]
 #[derive(Debug)]
@@ -19,6 +20,8 @@ pub struct PyProperty {
     deleter: PyRwLock<Option<PyObjectRef>>,
     doc: PyRwLock<Option<PyObjectRef>>,
     name: PyRwLock<Option<PyObjectRef>>,
+    #[pytraverse(skip)]
+    getter_doc: std::sync::atomic::AtomicBool,
 }
 
 impl PyPayload for PyProperty {
@@ -54,13 +57,31 @@ impl GetDescriptor for PyProperty {
         } else if let Some(getter) = zelf.getter.read().as_ref() {
             getter.call((obj,), vm)
         } else {
-            Err(vm.new_attribute_error("property has no getter".to_string()))
+            let error_msg = zelf.format_property_error(&obj, "getter", vm)?;
+            Err(vm.new_attribute_error(error_msg))
         }
     }
 }
 
 #[pyclass(with(Constructor, Initializer, GetDescriptor), flags(BASETYPE))]
 impl PyProperty {
+    // Helper method to get property name
+    fn get_property_name(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        // First check if name was set via __set_name__
+        if let Some(name) = self.name.read().as_ref() {
+            return Some(name.clone());
+        }
+
+        // Otherwise try to get __name__ from getter
+        if let Some(getter) = self.getter.read().as_ref() {
+            if let Ok(name) = getter.get_attr("__name__", vm) {
+                return Some(name);
+            }
+        }
+
+        None
+    }
+
     // Descriptor methods
 
     #[pyslot]
@@ -76,14 +97,16 @@ impl PyProperty {
                 if let Some(setter) = zelf.setter.read().as_ref() {
                     setter.call((obj, value), vm).map(drop)
                 } else {
-                    Err(vm.new_attribute_error("property has no setter".to_owned()))
+                    let error_msg = zelf.format_property_error(&obj, "setter", vm)?;
+                    Err(vm.new_attribute_error(error_msg))
                 }
             }
             PySetterValue::Delete => {
                 if let Some(deleter) = zelf.deleter.read().as_ref() {
                     deleter.call((obj,), vm).map(drop)
                 } else {
-                    Err(vm.new_attribute_error("property has no deleter".to_owned()))
+                    let error_msg = zelf.format_property_error(&obj, "deleter", vm)?;
+                    Err(vm.new_attribute_error(error_msg))
                 }
             }
         }
@@ -143,20 +166,57 @@ impl PyProperty {
 
     // Python builder functions
 
+    // Helper method to create a new property with updated attributes
+    fn clone_property_with(
+        zelf: PyRef<Self>,
+        new_getter: Option<PyObjectRef>,
+        new_setter: Option<PyObjectRef>,
+        new_deleter: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
+        // Determine doc based on getter_doc flag and whether we're updating the getter
+        let doc = if zelf.getter_doc.load(Ordering::Relaxed) && new_getter.is_some() {
+            // If the original property uses getter doc and we have a new getter,
+            // pass Py_None to let __init__ get the doc from the new getter
+            Some(vm.ctx.none())
+        } else if zelf.getter_doc.load(Ordering::Relaxed) {
+            // If original used getter_doc but we're not changing the getter,
+            // pass None to let init get doc from existing getter
+            Some(vm.ctx.none())
+        } else {
+            // Otherwise use the existing doc
+            zelf.doc_getter()
+        };
+
+        // Create property args with updated values
+        let args = PropertyArgs {
+            fget: new_getter.or_else(|| zelf.fget()),
+            fset: new_setter.or_else(|| zelf.fset()),
+            fdel: new_deleter.or_else(|| zelf.fdel()),
+            doc,
+            name: None,
+        };
+
+        // Create new property using py_new and init
+        let new_prop = PyProperty::py_new(zelf.class().to_owned(), FuncArgs::default(), vm)?;
+        let new_prop_ref = new_prop.downcast::<PyProperty>().unwrap();
+        PyProperty::init(new_prop_ref.clone(), args, vm)?;
+
+        // Copy the name if it exists
+        if let Some(name) = zelf.name.read().clone() {
+            *new_prop_ref.name.write() = Some(name);
+        }
+
+        Ok(new_prop_ref)
+    }
+
     #[pymethod]
     fn getter(
         zelf: PyRef<Self>,
         getter: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        PyProperty {
-            getter: PyRwLock::new(getter.or_else(|| zelf.fget())),
-            setter: PyRwLock::new(zelf.fset()),
-            deleter: PyRwLock::new(zelf.fdel()),
-            doc: PyRwLock::new(None),
-            name: PyRwLock::new(None),
-        }
-        .into_ref_with_type(vm, zelf.class().to_owned())
+        Self::clone_property_with(zelf, getter, None, None, vm)
     }
 
     #[pymethod]
@@ -165,14 +225,7 @@ impl PyProperty {
         setter: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        PyProperty {
-            getter: PyRwLock::new(zelf.fget()),
-            setter: PyRwLock::new(setter.or_else(|| zelf.fset())),
-            deleter: PyRwLock::new(zelf.fdel()),
-            doc: PyRwLock::new(None),
-            name: PyRwLock::new(None),
-        }
-        .into_ref_with_type(vm, zelf.class().to_owned())
+        Self::clone_property_with(zelf, None, setter, None, vm)
     }
 
     #[pymethod]
@@ -181,32 +234,41 @@ impl PyProperty {
         deleter: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        PyProperty {
-            getter: PyRwLock::new(zelf.fget()),
-            setter: PyRwLock::new(zelf.fset()),
-            deleter: PyRwLock::new(deleter.or_else(|| zelf.fdel())),
-            doc: PyRwLock::new(None),
-            name: PyRwLock::new(None),
-        }
-        .into_ref_with_type(vm, zelf.class().to_owned())
+        Self::clone_property_with(zelf, None, None, deleter, vm)
     }
 
     #[pygetset(magic)]
-    fn isabstractmethod(&self, vm: &VirtualMachine) -> PyObjectRef {
-        let getter_abstract = match self.getter.read().to_owned() {
-            Some(getter) => getter
-                .get_attr("__isabstractmethod__", vm)
-                .unwrap_or_else(|_| vm.ctx.new_bool(false).into()),
-            _ => vm.ctx.new_bool(false).into(),
+    fn isabstractmethod(&self, vm: &VirtualMachine) -> PyResult {
+        // Helper to check if a method is abstract
+        let is_abstract = |method: &PyObjectRef| -> PyResult<bool> {
+            match method.get_attr("__isabstractmethod__", vm) {
+                Ok(isabstract) => isabstract.try_to_bool(vm),
+                Err(_) => Ok(false),
+            }
         };
-        let setter_abstract = match self.setter.read().to_owned() {
-            Some(setter) => setter
-                .get_attr("__isabstractmethod__", vm)
-                .unwrap_or_else(|_| vm.ctx.new_bool(false).into()),
-            _ => vm.ctx.new_bool(false).into(),
-        };
-        vm._or(&setter_abstract, &getter_abstract)
-            .unwrap_or_else(|_| vm.ctx.new_bool(false).into())
+
+        // Check getter
+        if let Some(getter) = self.getter.read().as_ref() {
+            if is_abstract(getter)? {
+                return Ok(vm.ctx.new_bool(true).into());
+            }
+        }
+
+        // Check setter
+        if let Some(setter) = self.setter.read().as_ref() {
+            if is_abstract(setter)? {
+                return Ok(vm.ctx.new_bool(true).into());
+            }
+        }
+
+        // Check deleter
+        if let Some(deleter) = self.deleter.read().as_ref() {
+            if is_abstract(deleter)? {
+                return Ok(vm.ctx.new_bool(true).into());
+            }
+        }
+
+        Ok(vm.ctx.new_bool(false).into())
     }
 
     #[pygetset(magic, setter)]
@@ -215,6 +277,33 @@ impl PyProperty {
             getter.set_attr("__isabstractmethod__", value, vm)?;
         }
         Ok(())
+    }
+
+    // Helper method to format property error messages
+    #[cold]
+    fn format_property_error(
+        &self,
+        obj: &PyObjectRef,
+        error_type: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<String> {
+        let prop_name = self.get_property_name(vm);
+        let obj_type = obj.class();
+        let qualname = obj_type.qualname(vm);
+
+        match prop_name {
+            Some(name) => Ok(format!(
+                "property {} of {} object has no {}",
+                name.repr(vm)?,
+                qualname.repr(vm)?,
+                error_type
+            )),
+            None => Ok(format!(
+                "property of {} object has no {}",
+                qualname.repr(vm)?,
+                error_type
+            )),
+        }
     }
 }
 
@@ -228,6 +317,7 @@ impl Constructor for PyProperty {
             deleter: PyRwLock::new(None),
             doc: PyRwLock::new(None),
             name: PyRwLock::new(None),
+            getter_doc: AtomicBool::new(false),
         }
         .into_ref_with_type(vm, cls)
         .map(Into::into)
@@ -237,12 +327,53 @@ impl Constructor for PyProperty {
 impl Initializer for PyProperty {
     type Args = PropertyArgs;
 
-    fn init(zelf: PyRef<Self>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        // Set doc and getter_doc flag
+        let mut getter_doc = false;
+
+        // Helper to get doc from getter
+        let get_getter_doc = |fget: &PyObjectRef| -> Option<PyObjectRef> {
+            fget.get_attr("__doc__", vm)
+                .ok()
+                .filter(|doc| !vm.is_none(doc))
+        };
+
+        let doc = match args.doc {
+            Some(doc) if !vm.is_none(&doc) => Some(doc),
+            _ => {
+                // No explicit doc or doc is None, try to get from getter
+                args.fget.as_ref().and_then(|fget| {
+                    get_getter_doc(fget).inspect(|_| {
+                        getter_doc = true;
+                    })
+                })
+            }
+        };
+
+        // Check if this is a property subclass
+        let is_exact_property = zelf.class().is(vm.ctx.types.property_type);
+
+        if is_exact_property {
+            // For exact property type, store doc in the field
+            *zelf.doc.write() = doc;
+        } else {
+            // For property subclass, set __doc__ as an attribute
+            let doc_to_set = doc.unwrap_or_else(|| vm.ctx.none());
+            match zelf.as_object().set_attr("__doc__", doc_to_set, vm) {
+                Ok(()) => {}
+                Err(e) if !getter_doc && e.class().is(vm.ctx.exceptions.attribute_error) => {
+                    // Silently ignore AttributeError for backwards compatibility
+                    // (only when not using getter_doc)
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
         *zelf.getter.write() = args.fget;
         *zelf.setter.write() = args.fset;
         *zelf.deleter.write() = args.fdel;
-        *zelf.doc.write() = args.doc;
         *zelf.name.write() = args.name.map(|a| a.as_object().to_owned());
+        zelf.getter_doc.store(getter_doc, Ordering::Relaxed);
 
         Ok(())
     }
