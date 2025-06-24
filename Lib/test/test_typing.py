@@ -374,7 +374,6 @@ class LiteralStringTests(BaseTestCase):
 
 class TypeVarTests(BaseTestCase):
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basic_plain(self):
         T = TypeVar('T')
         # T equals itself.
@@ -405,7 +404,6 @@ class TypeVarTests(BaseTestCase):
         self.assertIs(T.__module__, None)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_attributes(self):
         T_bound = TypeVar('T_bound', bound=int)
         self.assertEqual(T_bound.__name__, 'T_bound')
@@ -448,14 +446,11 @@ class TypeVarTests(BaseTestCase):
             issubclass(T, int)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constrained_error(self):
         with self.assertRaises(TypeError):
             X = TypeVar('X', int)
             X
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_union_unique(self):
         X = TypeVar('X')
         Y = TypeVar('Y')
@@ -486,7 +481,6 @@ class TypeVarTests(BaseTestCase):
         self.assertNotEqual(Union[A, str], Union[A])
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr(self):
         self.assertEqual(repr(T), '~T')
         self.assertEqual(repr(KT), '~KT')
@@ -502,7 +496,6 @@ class TypeVarTests(BaseTestCase):
         self.assertNotEqual(TypeVar('T', int, str), TypeVar('T', int, str))
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_cannot_subclass(self):
         with self.assertRaisesRegex(TypeError, NOT_A_BASE_TYPE % 'TypeVar'):
             class V(TypeVar): pass
@@ -515,8 +508,6 @@ class TypeVarTests(BaseTestCase):
         with self.assertRaises(TypeError):
             TypeVar('A')()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bound_errors(self):
         with self.assertRaises(TypeError):
             TypeVar('X', bound=Union)
@@ -533,22 +524,16 @@ class TypeVarTests(BaseTestCase):
                 )
         exec(code, {})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_bivariant(self):
         with self.assertRaises(ValueError):
             TypeVar('T', covariant=True, contravariant=True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_cannot_combine_explicit_and_infer(self):
         with self.assertRaises(ValueError):
             TypeVar('T', covariant=True, infer_variance=True)
         with self.assertRaises(ValueError):
             TypeVar('T', contravariant=True, infer_variance=True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_var_substitution(self):
         T = TypeVar('T')
         subst = T.__typing_subst__
@@ -591,7 +576,6 @@ class TypeVarTests(BaseTestCase):
                 del vals
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructor(self):
         T = TypeVar(name="T")
         self.assertEqual(T.__name__, "T")
@@ -648,8 +632,6 @@ class TypeVarTests(BaseTestCase):
         self.assertIs(T.__infer_variance__, True)
 
 class TypeParameterDefaultsTests(BaseTestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_typevar(self):
         T = TypeVar('T', default=int)
         self.assertEqual(T.__default__, int)
@@ -844,8 +826,6 @@ class TypeParameterDefaultsTests(BaseTestCase):
         ):
             Test = A[int]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         global U, U_co, U_contra, U_default  # pickle wants to reference the class by name
         U = TypeVar('U')
@@ -3695,8 +3675,6 @@ class GenericTests(BaseTestCase):
         self.assertEqual(repr(MySimpleMapping),
                          f"<class '{__name__}.MySimpleMapping'>")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_chain_repr(self):
         T = TypeVar('T')
         S = TypeVar('S')
@@ -3721,8 +3699,6 @@ class GenericTests(BaseTestCase):
         self.assertTrue(str(Z).endswith(
             '.C[typing.Tuple[str, int]]'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_new_repr(self):
         T = TypeVar('T')
         U = TypeVar('U', covariant=True)
@@ -3734,8 +3710,6 @@ class GenericTests(BaseTestCase):
         self.assertEqual(repr(List[S][T][int]), 'typing.List[int]')
         self.assertEqual(repr(List[int]), 'typing.List[int]')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_new_repr_complex(self):
         T = TypeVar('T')
         TS = TypeVar('TS')
@@ -3862,8 +3836,6 @@ class GenericTests(BaseTestCase):
         class C(typing.Dict[str, T]): ...
         self.assertEqual(C.__orig_bases__, (typing.Dict[str, T],))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_naive_runtime_checks(self):
         def naive_dict_check(obj, tp):
             # Check if a dictionary conforms to Dict type
@@ -3919,8 +3891,6 @@ class GenericTests(BaseTestCase):
         self.assertEqual(C.__orig_bases__, (List[T][U][V],))
         self.assertEqual(D.__orig_bases__, (C, List[T][U][V]))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subscript_meta(self):
         T = TypeVar('T')
         class Meta(type): ...
@@ -3972,8 +3942,6 @@ class GenericTests(BaseTestCase):
         self.assertTrue(repr(Tuple[mod_generics_cache.B.A[str]])
                         .endswith('mod_generics_cache.B.A[str]]'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_extended_generic_rules_eq(self):
         T = TypeVar('T')
         U = TypeVar('U')
@@ -3990,8 +3958,6 @@ class GenericTests(BaseTestCase):
         self.assertEqual(Callable[[T], T][KT], Callable[[KT], KT])
         self.assertEqual(Callable[..., List[T]][int], Callable[..., List[int]])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_extended_generic_rules_repr(self):
         T = TypeVar('T')
         self.assertEqual(repr(Union[Tuple, Callable]).replace('typing.', ''),
@@ -4298,8 +4264,6 @@ class GenericTests(BaseTestCase):
                     )
         del PP
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy_and_deepcopy(self):
         T = TypeVar('T')
         class Node(Generic[T]): ...
@@ -8419,8 +8383,6 @@ class AnnotatedTests(BaseTestCase):
             with self.subTest(args=args):
                 self.assertEqual(expr2, Union[args])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_specialize(self):
         L = Annotated[List[T], "my decoration"]
         LI = Annotated[List[int], "my decoration"]
@@ -8471,8 +8433,6 @@ class AnnotatedTests(BaseTestCase):
         self.assertEqual(a.x, c.x)
         self.assertEqual(a.classvar, c.classvar)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_instantiate_generic(self):
         MyCount = Annotated[typing.Counter[T], "my decoration"]
         self.assertEqual(MyCount([4, 4, 5]), {4: 2, 5: 1})
@@ -8601,8 +8561,6 @@ class AnnotatedTests(BaseTestCase):
             self.assertEqual(x.bar, 'abc')
             self.assertEqual(x.x, 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subst(self):
         dec = "a decoration"
         dec2 = "another decoration"
@@ -8748,8 +8706,6 @@ class AnnotatedTests(BaseTestCase):
         with self.assertRaises(TypeError):
             J[int]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_annotated_in_other_types(self):
         X = List[Annotated[T, 5]]
         self.assertEqual(X[int], List[Annotated[int, 5]])

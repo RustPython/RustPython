@@ -1498,7 +1498,7 @@ fn best_base<'a>(bases: &'a [PyTypeRef], vm: &VirtualMachine) -> PyResult<&'a Py
         if !base_i.slots.flags.has_feature(PyTypeFlags::BASETYPE) {
             return Err(vm.new_type_error(format!(
                 "type '{}' is not an acceptable base type",
-                base_i.name()
+                base_i.slot_name()
             )));
         }
 
