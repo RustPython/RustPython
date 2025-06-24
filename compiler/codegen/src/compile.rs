@@ -1317,6 +1317,14 @@ impl Compiler<'_> {
             self.compile_statements(body)?;
             emit!(self, Instruction::PopException);
 
+            // Delete the exception variable if it was bound
+            if let Some(alias) = name {
+                // Set the variable to None before deleting (as CPython does)
+                self.emit_load_const(ConstantData::None);
+                self.store_name(alias.as_str())?;
+                self.compile_name(alias.as_str(), NameUsage::Delete)?;
+            }
+
             if !finalbody.is_empty() {
                 emit!(self, Instruction::PopBlock); // pop excepthandler block
                 // We enter the finally block, without exception.
