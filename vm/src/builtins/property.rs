@@ -57,13 +57,31 @@ impl GetDescriptor for PyProperty {
         } else if let Some(getter) = zelf.getter.read().as_ref() {
             getter.call((obj,), vm)
         } else {
-            Err(vm.new_attribute_error("property has no getter".to_string()))
+            let error_msg = zelf.format_property_error(&obj, "getter", vm)?;
+            Err(vm.new_attribute_error(error_msg))
         }
     }
 }
 
 #[pyclass(with(Constructor, Initializer, GetDescriptor), flags(BASETYPE))]
 impl PyProperty {
+    // Helper method to get property name
+    fn get_property_name(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        // First check if name was set via __set_name__
+        if let Some(name) = self.name.read().as_ref() {
+            return Some(name.clone());
+        }
+
+        // Otherwise try to get __name__ from getter
+        if let Some(getter) = self.getter.read().as_ref() {
+            if let Ok(name) = getter.get_attr("__name__", vm) {
+                return Some(name);
+            }
+        }
+
+        None
+    }
+
     // Descriptor methods
 
     #[pyslot]
@@ -77,16 +95,18 @@ impl PyProperty {
         match value {
             PySetterValue::Assign(value) => {
                 if let Some(setter) = zelf.setter.read().as_ref() {
-                    setter.call((obj, value), vm).map(drop)
+                    setter.call((obj.clone(), value), vm).map(drop)
                 } else {
-                    Err(vm.new_attribute_error("property has no setter".to_owned()))
+                    let error_msg = zelf.format_property_error(&obj, "setter", vm)?;
+                    Err(vm.new_attribute_error(error_msg))
                 }
             }
             PySetterValue::Delete => {
                 if let Some(deleter) = zelf.deleter.read().as_ref() {
-                    deleter.call((obj,), vm).map(drop)
+                    deleter.call((obj.clone(),), vm).map(drop)
                 } else {
-                    Err(vm.new_attribute_error("property has no deleter".to_owned()))
+                    let error_msg = zelf.format_property_error(&obj, "deleter", vm)?;
+                    Err(vm.new_attribute_error(error_msg))
                 }
             }
         }
@@ -256,33 +276,32 @@ impl PyProperty {
 
     #[pygetset(magic)]
     fn isabstractmethod(&self, vm: &VirtualMachine) -> PyResult {
-        // Check getter first
+        // Helper to check if a method is abstract
+        let is_abstract = |method: &PyObjectRef| -> PyResult<bool> {
+            match method.get_attr("__isabstractmethod__", vm) {
+                Ok(isabstract) => isabstract.try_to_bool(vm),
+                Err(_) => Ok(false),
+            }
+        };
+
+        // Check getter
         if let Some(getter) = self.getter.read().as_ref() {
-            if let Ok(isabstract) = getter.get_attr("__isabstractmethod__", vm) {
-                let is_true = isabstract.try_to_bool(vm)?;
-                if is_true {
-                    return Ok(vm.ctx.new_bool(true).into());
-                }
+            if is_abstract(getter)? {
+                return Ok(vm.ctx.new_bool(true).into());
             }
         }
 
         // Check setter
         if let Some(setter) = self.setter.read().as_ref() {
-            if let Ok(isabstract) = setter.get_attr("__isabstractmethod__", vm) {
-                let is_true = isabstract.try_to_bool(vm)?;
-                if is_true {
-                    return Ok(vm.ctx.new_bool(true).into());
-                }
+            if is_abstract(setter)? {
+                return Ok(vm.ctx.new_bool(true).into());
             }
         }
 
         // Check deleter
         if let Some(deleter) = self.deleter.read().as_ref() {
-            if let Ok(isabstract) = deleter.get_attr("__isabstractmethod__", vm) {
-                let is_true = isabstract.try_to_bool(vm)?;
-                if is_true {
-                    return Ok(vm.ctx.new_bool(true).into());
-                }
+            if is_abstract(deleter)? {
+                return Ok(vm.ctx.new_bool(true).into());
             }
         }
 
@@ -295,6 +314,33 @@ impl PyProperty {
             getter.set_attr("__isabstractmethod__", value, vm)?;
         }
         Ok(())
+    }
+
+    // Helper method to format property error messages
+    #[cold]
+    fn format_property_error(
+        &self,
+        obj: &PyObjectRef,
+        error_type: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<String> {
+        let prop_name = self.get_property_name(vm);
+        let obj_type = obj.class();
+        let qualname = obj_type.qualname(vm);
+
+        match prop_name {
+            Some(name) => Ok(format!(
+                "property {} of {} object has no {}",
+                name.repr(vm)?,
+                qualname.repr(vm)?,
+                error_type
+            )),
+            None => Ok(format!(
+                "property of {} object has no {}",
+                qualname.repr(vm)?,
+                error_type
+            )),
+        }
     }
 }
 

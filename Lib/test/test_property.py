@@ -340,20 +340,14 @@ class _PropertyUnreachableAttribute:
     def setUpClass(cls):
         cls.obj = cls.cls()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_property(self):
         with self.assertRaisesRegex(AttributeError, self._format_exc_msg("has no getter")):
             self.obj.foo
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_set_property(self):
         with self.assertRaisesRegex(AttributeError, self._format_exc_msg("has no setter")):
             self.obj.foo = None
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_del_property(self):
         with self.assertRaisesRegex(AttributeError, self._format_exc_msg("has no deleter")):
             del self.obj.foo
