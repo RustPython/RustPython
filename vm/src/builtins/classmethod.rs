@@ -67,19 +67,34 @@ impl Constructor for PyClassMethod {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
-        let doc = callable.get_attr("__doc__", vm);
+        // Create a dictionary to hold copied attributes
+        let dict = vm.ctx.new_dict();
 
-        let result = PyClassMethod {
+        // Copy attributes from the callable to the dict
+        // This is similar to functools.wraps in CPython
+        if let Ok(doc) = callable.get_attr("__doc__", vm) {
+            dict.set_item(identifier!(vm.ctx, __doc__), doc, vm)?;
+        }
+        if let Ok(name) = callable.get_attr("__name__", vm) {
+            dict.set_item(identifier!(vm.ctx, __name__), name, vm)?;
+        }
+        if let Ok(qualname) = callable.get_attr("__qualname__", vm) {
+            dict.set_item(identifier!(vm.ctx, __qualname__), qualname, vm)?;
+        }
+        if let Ok(module) = callable.get_attr("__module__", vm) {
+            dict.set_item(identifier!(vm.ctx, __module__), module, vm)?;
+        }
+        if let Ok(annotations) = callable.get_attr("__annotations__", vm) {
+            dict.set_item(identifier!(vm.ctx, __annotations__), annotations, vm)?;
+        }
+
+        // Create PyClassMethod instance with the pre-populated dict
+        let classmethod = PyClassMethod {
             callable: PyMutex::new(callable),
-        }
-        .into_ref_with_type(vm, cls)?;
-        let obj = PyObjectRef::from(result);
+        };
 
-        if let Ok(doc) = doc {
-            obj.set_attr("__doc__", doc, vm)?;
-        }
-
-        Ok(obj)
+        let result = PyRef::new_ref(classmethod, cls, Some(dict));
+        Ok(PyObjectRef::from(result))
     }
 }
 

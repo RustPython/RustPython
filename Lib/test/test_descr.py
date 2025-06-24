@@ -1558,8 +1558,6 @@ order (MRO) for bases """
         else:
             self.fail("finding the most derived metaclass should have failed")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_classmethods(self):
         # Testing class methods...
         class C(object):
