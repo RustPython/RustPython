@@ -184,7 +184,7 @@ impl Representable for PyClassMethod {
                 .map(|n| n.as_str()),
             class.module(vm).downcast_ref::<PyStr>().map(|m| m.as_str()),
         ) {
-            (None, _) => return Err(vm.new_type_error("Unknown qualified name".into())),
+            (None, _) => return Err(vm.new_type_error("Unknown qualified name")),
             (Some(qualname), Some(module)) if module != "builtins" => {
                 format!("<{module}.{qualname}({callable})>")
             }

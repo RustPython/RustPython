@@ -59,7 +59,7 @@ pub fn assert_in_range(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
     if (1..NSIG as i32).contains(&signum) {
         Ok(())
     } else {
-        Err(vm.new_value_error("signal number out of range".to_owned()))
+        Err(vm.new_value_error("signal number out of range"))
     }
 }
 

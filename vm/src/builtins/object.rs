@@ -350,7 +350,7 @@ impl PyBaseObject {
                 .map(|n| n.as_str()),
             class.module(vm).downcast_ref::<PyStr>().map(|m| m.as_str()),
         ) {
-            (None, _) => Err(vm.new_type_error("Unknown qualified name".into())),
+            (None, _) => Err(vm.new_type_error("Unknown qualified name")),
             (Some(qualname), Some(module)) if module != "builtins" => Ok(PyStr::from(format!(
                 "<{}.{} object at {:#x}>",
                 module,

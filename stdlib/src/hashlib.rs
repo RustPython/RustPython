@@ -108,7 +108,7 @@ pub mod _hashlib {
 
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("cannot create '_hashlib.HASH' instances".into()))
+            Err(vm.new_type_error("cannot create '_hashlib.HASH' instances"))
         }
 
         #[pygetset]
@@ -181,7 +181,7 @@ pub mod _hashlib {
 
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("cannot create '_hashlib.HASHXOF' instances".into()))
+            Err(vm.new_type_error("cannot create '_hashlib.HASHXOF' instances"))
         }
 
         #[pygetset]
@@ -347,7 +347,7 @@ pub mod _hashlib {
 
     #[pyfunction]
     fn hmac_new(_args: NewHMACHashArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        Err(vm.new_type_error("cannot create 'hmac' instances".into())) // TODO: RUSTPYTHON support hmac
+        Err(vm.new_type_error("cannot create 'hmac' instances")) // TODO: RUSTPYTHON support hmac
     }
 
     pub trait ThreadSafeDynDigest: DynClone + DynDigest + Sync + Send {}

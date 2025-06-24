@@ -28,17 +28,17 @@ impl IntoPyException for FormatSpecError {
                 vm.new_value_error(msg)
             }
             FormatSpecError::PrecisionNotAllowed => {
-                vm.new_value_error("Precision not allowed in integer format specifier".to_owned())
+                vm.new_value_error("Precision not allowed in integer format specifier")
             }
             FormatSpecError::NotAllowed(s) => {
                 let msg = format!("{s} not allowed with integer format specifier 'c'");
                 vm.new_value_error(msg)
             }
             FormatSpecError::UnableToConvert => {
-                vm.new_value_error("Unable to convert int to float".to_owned())
+                vm.new_value_error("Unable to convert int to float")
             }
             FormatSpecError::CodeNotInRange => {
-                vm.new_overflow_error("%c arg not in range(0x110000)".to_owned())
+                vm.new_overflow_error("%c arg not in range(0x110000)")
             }
             FormatSpecError::NotImplemented(c, s) => {
                 let msg = format!("Format code '{c}' for object of type '{s}' not implemented yet");
@@ -52,9 +52,9 @@ impl ToPyException for FormatParseError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {
             FormatParseError::UnmatchedBracket => {
-                vm.new_value_error("expected '}' before end of string".to_owned())
+                vm.new_value_error("expected '}' before end of string")
             }
-            _ => vm.new_value_error("Unexpected error parsing format string".to_owned()),
+            _ => vm.new_value_error("Unexpected error parsing format string"),
         }
     }
 }
@@ -130,8 +130,7 @@ pub(crate) fn format(
         FieldType::Auto => {
             if seen_index {
                 return Err(vm.new_value_error(
-                    "cannot switch from manual field specification to automatic field numbering"
-                        .to_owned(),
+                    "cannot switch from manual field specification to automatic field numbering",
                 ));
             }
             auto_argument_index += 1;
@@ -139,13 +138,12 @@ pub(crate) fn format(
                 .args
                 .get(auto_argument_index - 1)
                 .cloned()
-                .ok_or_else(|| vm.new_index_error("tuple index out of range".to_owned()))
+                .ok_or_else(|| vm.new_index_error("tuple index out of range"))
         }
         FieldType::Index(index) => {
             if auto_argument_index != 0 {
                 return Err(vm.new_value_error(
-                    "cannot switch from automatic field numbering to manual field specification"
-                        .to_owned(),
+                    "cannot switch from automatic field numbering to manual field specification",
                 ));
             }
             seen_index = true;
@@ -153,7 +151,7 @@ pub(crate) fn format(
                 .args
                 .get(index)
                 .cloned()
-                .ok_or_else(|| vm.new_index_error("tuple index out of range".to_owned()))
+                .ok_or_else(|| vm.new_index_error("tuple index out of range"))
         }
         FieldType::Keyword(keyword) => keyword
             .as_str()
@@ -170,7 +168,7 @@ pub(crate) fn format_map(
 ) -> PyResult<Wtf8Buf> {
     format_internal(vm, format, &mut |field_type| match field_type {
         FieldType::Auto | FieldType::Index(_) => {
-            Err(vm.new_value_error("Format string contains positional fields".to_owned()))
+            Err(vm.new_value_error("Format string contains positional fields"))
         }
         FieldType::Keyword(keyword) => dict.get_item(&keyword, vm),
     })

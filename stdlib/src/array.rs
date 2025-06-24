@@ -581,7 +581,7 @@ mod array {
                 .chars()
                 .exactly_one()
                 .map(|ch| Self(ch as _))
-                .map_err(|_| vm.new_type_error("array item must be unicode character".into()))
+                .map_err(|_| vm.new_type_error("array item must be unicode character"))
         }
         fn byteswap(self) -> Self {
             Self(self.0.swap_bytes())
@@ -832,9 +832,9 @@ mod array {
                 ))
             })?;
             if zelf.read().typecode() != 'u' {
-                return Err(vm.new_value_error(
-                    "fromunicode() may only be called on unicode type arrays".into(),
-                ));
+                return Err(
+                    vm.new_value_error("fromunicode() may only be called on unicode type arrays")
+                );
             }
             let mut w = zelf.try_resizable(vm)?;
             let bytes = Self::_unicode_to_wchar_bytes(wtf8, w.itemsize());
@@ -846,9 +846,9 @@ mod array {
         fn tounicode(&self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             let array = self.array.read();
             if array.typecode() != 'u' {
-                return Err(vm.new_value_error(
-                    "tounicode() may only be called on unicode type arrays".into(),
-                ));
+                return Err(
+                    vm.new_value_error("tounicode() may only be called on unicode type arrays")
+                );
             }
             let bytes = array.get_bytes();
             Self::_wchar_bytes_to_string(bytes, self.itemsize(), vm)
@@ -1500,7 +1500,7 @@ mod array {
                 .unwrap_or(u8::MAX)
                 .try_into()
                 .map_err(|_| {
-                    vm.new_value_error("third argument must be a valid machine format code.".into())
+                    vm.new_value_error("third argument must be a valid machine format code.")
                 })
         }
     }
@@ -1572,11 +1572,11 @@ mod array {
     fn check_type_code(spec: PyStrRef, vm: &VirtualMachine) -> PyResult<ArrayContentType> {
         let spec = spec.as_str().chars().exactly_one().map_err(|_| {
             vm.new_type_error(
-                "_array_reconstructor() argument 2 must be a unicode character, not str".into(),
+                "_array_reconstructor() argument 2 must be a unicode character, not str",
             )
         })?;
         ArrayContentType::from_char(spec)
-            .map_err(|_| vm.new_value_error("second argument must be a valid type code".into()))
+            .map_err(|_| vm.new_value_error("second argument must be a valid type code"))
     }
 
     macro_rules! chunk_to_obj {
@@ -1609,7 +1609,7 @@ mod array {
         let format = args.mformat_code;
         let bytes = args.items.as_bytes();
         if bytes.len() % format.item_size() != 0 {
-            return Err(vm.new_value_error("bytes length not a multiple of item size".into()));
+            return Err(vm.new_value_error("bytes length not a multiple of item size"));
         }
         if MachineFormatCode::from_typecode(array.typecode()) == Some(format) {
             array.frombytes(bytes);
@@ -1642,9 +1642,8 @@ mod array {
             })?,
             MachineFormatCode::Utf16 { big_endian } => {
                 let utf16: Vec<_> = chunks.map(|b| chunk_to_obj!(b, u16, big_endian)).collect();
-                let s = String::from_utf16(&utf16).map_err(|_| {
-                    vm.new_unicode_encode_error("items cannot decode as utf16".into())
-                })?;
+                let s = String::from_utf16(&utf16)
+                    .map_err(|_| vm.new_unicode_encode_error("items cannot decode as utf16"))?;
                 let bytes = PyArray::_unicode_to_wchar_bytes((*s).as_ref(), array.itemsize());
                 array.frombytes_move(bytes);
             }

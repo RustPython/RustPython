@@ -136,9 +136,7 @@ mod _js {
                 } else if proto.value.is_null() {
                     Object::create(proto.value.unchecked_ref())
                 } else {
-                    return Err(
-                        vm.new_value_error("prototype must be an Object or null".to_owned())
-                    );
+                    return Err(vm.new_value_error("prototype must be an Object or null"));
                 }
             } else {
                 Object::new()
@@ -184,7 +182,7 @@ mod _js {
             let func = self
                 .value
                 .dyn_ref::<js_sys::Function>()
-                .ok_or_else(|| vm.new_type_error("JS value is not callable".to_owned()))?;
+                .ok_or_else(|| vm.new_type_error("JS value is not callable"))?;
             let js_args = args.iter().map(|x| -> &PyJsValue { x }).collect::<Array>();
             let res = match opts.this {
                 Some(this) => Reflect::apply(func, &this.value, &js_args),
@@ -216,7 +214,7 @@ mod _js {
             let ctor = self
                 .value
                 .dyn_ref::<js_sys::Function>()
-                .ok_or_else(|| vm.new_type_error("JS value is not callable".to_owned()))?;
+                .ok_or_else(|| vm.new_type_error("JS value is not callable"))?;
             let proto = opts
                 .prototype
                 .as_ref()
@@ -361,9 +359,7 @@ mod _js {
         #[pymethod]
         fn destroy(&self, vm: &VirtualMachine) -> PyResult<()> {
             let (closure, _) = self.closure.replace(None).ok_or_else(|| {
-                vm.new_value_error(
-                    "can't destroy closure has already been destroyed or detached".to_owned(),
-                )
+                vm.new_value_error("can't destroy closure has already been destroyed or detached")
             })?;
             drop(closure);
             self.destroyed.set(true);
@@ -372,9 +368,7 @@ mod _js {
         #[pymethod]
         fn detach(&self, vm: &VirtualMachine) -> PyResult<PyJsValueRef> {
             let (closure, js_val) = self.closure.replace(None).ok_or_else(|| {
-                vm.new_value_error(
-                    "can't detach closure has already been detached or destroyed".to_owned(),
-                )
+                vm.new_value_error("can't detach closure has already been detached or destroyed")
             })?;
             closure.forget();
             self.detached.set(true);
@@ -574,9 +568,7 @@ mod _js {
             match self.obj.take() {
                 Some(prom) => {
                     if val.is_some() {
-                        Err(vm.new_type_error(
-                            "can't send non-None value to an AwaitPromise".to_owned(),
-                        ))
+                        Err(vm.new_type_error("can't send non-None value to an AwaitPromise"))
                     } else {
                         Ok(PyIterReturn::Return(prom))
                     }
