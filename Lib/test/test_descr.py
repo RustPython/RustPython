@@ -2532,8 +2532,6 @@ order (MRO) for bases """
             else:
                 self.fail("no ValueError from dict(%r)" % bad)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dir(self):
         # Testing dir() ...
         junk = 12
