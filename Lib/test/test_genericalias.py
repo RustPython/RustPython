@@ -275,8 +275,6 @@ class BaseTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             MyType[int]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         alias = GenericAlias(list, T)
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
@@ -286,8 +284,6 @@ class BaseTest(unittest.TestCase):
             self.assertEqual(loaded.__args__, alias.__args__)
             self.assertEqual(loaded.__parameters__, alias.__parameters__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy(self):
         class X(list):
             def __copy__(self):
