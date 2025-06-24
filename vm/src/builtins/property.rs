@@ -255,21 +255,38 @@ impl PyProperty {
     }
 
     #[pygetset(magic)]
-    fn isabstractmethod(&self, vm: &VirtualMachine) -> PyObjectRef {
-        let getter_abstract = match self.getter.read().to_owned() {
-            Some(getter) => getter
-                .get_attr("__isabstractmethod__", vm)
-                .unwrap_or_else(|_| vm.ctx.new_bool(false).into()),
-            _ => vm.ctx.new_bool(false).into(),
-        };
-        let setter_abstract = match self.setter.read().to_owned() {
-            Some(setter) => setter
-                .get_attr("__isabstractmethod__", vm)
-                .unwrap_or_else(|_| vm.ctx.new_bool(false).into()),
-            _ => vm.ctx.new_bool(false).into(),
-        };
-        vm._or(&setter_abstract, &getter_abstract)
-            .unwrap_or_else(|_| vm.ctx.new_bool(false).into())
+    fn isabstractmethod(&self, vm: &VirtualMachine) -> PyResult {
+        // Check getter first
+        if let Some(getter) = self.getter.read().as_ref() {
+            if let Ok(isabstract) = getter.get_attr("__isabstractmethod__", vm) {
+                let is_true = isabstract.try_to_bool(vm)?;
+                if is_true {
+                    return Ok(vm.ctx.new_bool(true).into());
+                }
+            }
+        }
+
+        // Check setter
+        if let Some(setter) = self.setter.read().as_ref() {
+            if let Ok(isabstract) = setter.get_attr("__isabstractmethod__", vm) {
+                let is_true = isabstract.try_to_bool(vm)?;
+                if is_true {
+                    return Ok(vm.ctx.new_bool(true).into());
+                }
+            }
+        }
+
+        // Check deleter
+        if let Some(deleter) = self.deleter.read().as_ref() {
+            if let Ok(isabstract) = deleter.get_attr("__isabstractmethod__", vm) {
+                let is_true = isabstract.try_to_bool(vm)?;
+                if is_true {
+                    return Ok(vm.ctx.new_bool(true).into());
+                }
+            }
+        }
+
+        Ok(vm.ctx.new_bool(false).into())
     }
 
     #[pygetset(magic, setter)]
@@ -329,7 +346,25 @@ impl Initializer for PyProperty {
             }
         };
 
-        *zelf.doc.write() = doc;
+        // Check if this is a property subclass
+        let is_exact_property = zelf.class().is(vm.ctx.types.property_type);
+
+        if is_exact_property {
+            // For exact property type, store doc in the field
+            *zelf.doc.write() = doc;
+        } else {
+            // For property subclass, set __doc__ as an attribute
+            let doc_to_set = doc.unwrap_or_else(|| vm.ctx.none());
+            match zelf.as_object().set_attr("__doc__", doc_to_set, vm) {
+                Ok(()) => {}
+                Err(e) if !getter_doc && e.class().is(vm.ctx.exceptions.attribute_error) => {
+                    // Silently ignore AttributeError for backwards compatibility
+                    // (only when not using getter_doc)
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
         zelf.getter_doc.store(getter_doc, Ordering::Relaxed);
 
         Ok(())
