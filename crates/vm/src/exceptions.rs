@@ -223,37 +223,49 @@ impl VirtualMachine {
             if let Some(offset) = maybe_offset {
                 let maybe_end_offset: Option<isize> =
                     getattr("end_offset").and_then(|obj| obj.try_to_value::<isize>(vm).ok());
+                let maybe_end_lineno: Option<isize> =
+                    getattr("end_lineno").and_then(|obj| obj.try_to_value::<isize>(vm).ok());
+                let maybe_lineno_int: Option<isize> =
+                    getattr("lineno").and_then(|obj| obj.try_to_value::<isize>(vm).ok());
 
-                let mut end_offset = match maybe_end_offset {
-                    Some(0) | None => offset,
-                    Some(end_offset) => end_offset,
+                // Only show caret if end_lineno is same as lineno (or not set)
+                let same_line = match (maybe_lineno_int, maybe_end_lineno) {
+                    (Some(lineno), Some(end_lineno)) => lineno == end_lineno,
+                    _ => true,
                 };
 
-                if offset == end_offset || end_offset == -1 {
-                    end_offset = offset + 1;
-                }
+                if same_line {
+                    let mut end_offset = match maybe_end_offset {
+                        Some(0) | None => offset,
+                        Some(end_offset) => end_offset,
+                    };
 
-                // Convert 1-based column offset to 0-based index into stripped text
-                let colno = offset - 1 - spaces;
-                let end_colno = end_offset - 1 - spaces;
-                if colno >= 0 {
-                    let caret_space = l_text
-                        .chars()
-                        .take(colno as usize)
-                        .map(|c| if c.is_whitespace() { c } else { ' ' })
-                        .collect::<String>();
-
-                    let mut error_width = end_colno - colno;
-                    if error_width < 1 {
-                        error_width = 1;
+                    if offset == end_offset || end_offset == -1 {
+                        end_offset = offset + 1;
                     }
 
-                    writeln!(
-                        output,
-                        "    {}{}",
-                        caret_space,
-                        "^".repeat(error_width as usize)
-                    )?;
+                    // Convert 1-based column offset to 0-based index into stripped text
+                    let colno = offset - 1 - spaces;
+                    let end_colno = end_offset - 1 - spaces;
+                    if colno >= 0 {
+                        let caret_space = l_text
+                            .chars()
+                            .take(colno as usize)
+                            .map(|c| if c.is_whitespace() { c } else { ' ' })
+                            .collect::<String>();
+
+                        let mut error_width = end_colno - colno;
+                        if error_width < 1 {
+                            error_width = 1;
+                        }
+
+                        writeln!(
+                            output,
+                            "    {}{}",
+                            caret_space,
+                            "^".repeat(error_width as usize)
+                        )?;
+                    }
                 }
             }
         }
