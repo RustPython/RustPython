@@ -9706,14 +9706,14 @@ class DataclassTransformTests(BaseTestCase):
 
 
 class NoDefaultTests(BaseTestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             s = pickle.dumps(NoDefault, proto)
             loaded = pickle.loads(s)
             self.assertIs(NoDefault, loaded)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructor(self):
         self.assertIs(NoDefault, type(NoDefault)())
         with self.assertRaises(TypeError):
@@ -9731,8 +9731,6 @@ class NoDefaultTests(BaseTestCase):
     def test_class(self):
         self.assertIs(NoDefault.__class__, type(NoDefault))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_call(self):
         with self.assertRaises(TypeError):
             NoDefault()

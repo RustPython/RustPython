@@ -1,4 +1,14 @@
-pub(crate) use _typing::make_module;
+use crate::{PyRef, VirtualMachine, stdlib::PyModule};
+
+pub(crate) use _typing::NoDefault;
+
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
+    let module = _typing::make_module(vm);
+    extend_module!(vm, &module, {
+        "NoDefault" => vm.ctx.typing_no_default.clone(),
+    });
+    module
+}
 
 #[pymodule]
 pub(crate) mod _typing {
@@ -109,7 +119,8 @@ pub(crate) mod _typing {
         #[pygetset(magic)]
         fn default(&self, vm: &VirtualMachine) -> PyResult {
             let mut default_value = self.default_value.lock();
-            if !vm.is_none(&default_value) {
+            // Check if default_value is NoDefault (not just None)
+            if !default_value.is(&vm.ctx.typing_no_default) {
                 return Ok(default_value.clone());
             }
             if !vm.is_none(&self.evaluate_default) {
@@ -117,7 +128,7 @@ pub(crate) mod _typing {
                 Ok(default_value.clone())
             } else {
                 // Return NoDefault singleton
-                vm.import("typing", 0)?.get_attr("NoDefault", vm)
+                Ok(vm.ctx.typing_no_default.clone().into())
             }
         }
 
@@ -142,16 +153,8 @@ pub(crate) mod _typing {
                 return true;
             }
             let default_value = self.default_value.lock();
-            if vm.is_none(&default_value) {
-                return false;
-            }
-            // Check if default_value is NoDefault
-            if let Ok(typing_module) = vm.import("typing", 0) {
-                if let Ok(no_default) = typing_module.get_attr("NoDefault", vm) {
-                    return !default_value.is(&no_default);
-                }
-            }
-            true
+            // Check if default_value is not NoDefault
+            !default_value.is(&vm.ctx.typing_no_default)
         }
     }
 
@@ -264,8 +267,12 @@ pub(crate) mod _typing {
             };
 
             // Handle default value
-            let default_value = default.unwrap_or_else(|| vm.ctx.none());
-            let evaluate_default = vm.ctx.none();
+            let (default_value, evaluate_default) = if let Some(default) = default {
+                (default, vm.ctx.none())
+            } else {
+                // If no default provided, use NoDefault singleton
+                (vm.ctx.typing_no_default.clone().into(), vm.ctx.none())
+            };
 
             let typevar = TypeVar {
                 name,
@@ -408,10 +415,9 @@ pub(crate) mod _typing {
         }
     }
 
-    #[pyattr]
-    #[pyclass(name = "NoDefault", module = "typing")]
+    #[pyclass(no_attr, name = "NoDefaultType", module = "typing")]
     #[derive(Debug, PyPayload)]
-    pub(crate) struct NoDefault;
+    pub struct NoDefault;
 
     #[pyclass(with(Constructor), flags(BASETYPE))]
     impl NoDefault {
@@ -429,8 +435,8 @@ pub(crate) mod _typing {
                 return Err(vm.new_type_error("NoDefaultType takes no arguments".to_owned()));
             }
 
-            // Return singleton instance
-            vm.import("typing", 0)?.get_attr("NoDefault", vm)
+            // Return singleton instance from context
+            Ok(vm.ctx.typing_no_default.clone().into())
         }
     }
 
