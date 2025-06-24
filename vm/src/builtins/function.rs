@@ -8,7 +8,7 @@ use super::{
 #[cfg(feature = "jit")]
 use crate::common::lock::OnceCell;
 use crate::common::lock::PyMutex;
-use crate::convert::ToPyObject;
+use crate::convert::{ToPyObject, TryFromObject};
 use crate::function::ArgMapping;
 use crate::object::{Traverse, TraverseFn};
 use crate::{
@@ -31,6 +31,7 @@ use rustpython_jit::CompiledCode;
 pub struct PyFunction {
     code: PyRef<PyCode>,
     globals: PyDictRef,
+    builtins: PyObjectRef,
     closure: Option<PyTupleTyped<PyCellRef>>,
     defaults_and_kwdefaults: PyMutex<(Option<PyTupleRef>, Option<PyDictRef>)>,
     name: PyMutex<PyStrRef>,
@@ -53,6 +54,7 @@ unsafe impl Traverse for PyFunction {
 
 impl PyFunction {
     #[allow(clippy::too_many_arguments)]
+    #[inline]
     pub(crate) fn new(
         code: PyRef<PyCode>,
         globals: PyDictRef,
@@ -62,24 +64,42 @@ impl PyFunction {
         qualname: PyStrRef,
         type_params: PyTupleRef,
         annotations: PyDictRef,
-        module: PyObjectRef,
         doc: PyObjectRef,
-    ) -> Self {
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
         let name = PyMutex::new(code.obj_name.to_owned());
-        PyFunction {
+        let module = vm.unwrap_or_none(globals.get_item_opt(identifier!(vm, __name__), vm)?);
+        let builtins = globals.get_item("__builtins__", vm).unwrap_or_else(|_| {
+            // If not in globals, inherit from current execution context
+            if let Some(frame) = vm.current_frame() {
+                frame.builtins.clone().into()
+            } else {
+                vm.builtins.clone().into()
+            }
+        });
+
+        let func = PyFunction {
             code,
             globals,
+            builtins,
             closure,
             defaults_and_kwdefaults: PyMutex::new((defaults, kw_only_defaults)),
             name,
             qualname: PyMutex::new(qualname),
             type_params: PyMutex::new(type_params),
-            #[cfg(feature = "jit")]
-            jitted_code: OnceCell::new(),
             annotations: PyMutex::new(annotations),
             module: PyMutex::new(module),
             doc: PyMutex::new(doc),
-        }
+            #[cfg(feature = "jit")]
+            jitted_code: OnceCell::new(),
+        };
+
+        // let name = qualname.as_str().split('.').next_back().unwrap();
+        // func.set_attr(identifier!(vm, __name__), vm.new_pyobj(name), vm)?;
+        // func.set_attr(identifier!(vm, __qualname__), qualname, vm)?;
+        // func.set_attr(identifier!(vm, __doc__), doc, vm)?;
+
+        Ok(func)
     }
 
     fn fill_locals_from_args(
@@ -362,7 +382,7 @@ impl PyPayload for PyFunction {
 }
 
 #[pyclass(
-    with(GetDescriptor, Callable, Representable),
+    with(GetDescriptor, Callable, Representable, Constructor),
     flags(HAS_DICT, METHOD_DESCRIPTOR)
 )]
 impl PyFunction {
@@ -404,6 +424,12 @@ impl PyFunction {
     fn closure(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf = Self::_as_pyref(&zelf, vm)?;
         Ok(vm.unwrap_or_none(zelf.closure.clone().map(|x| x.to_pyobject(vm))))
+    }
+
+    #[pymember(magic)]
+    fn builtins(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        let zelf = Self::_as_pyref(&zelf, vm)?;
+        Ok(zelf.builtins.clone())
     }
 
     #[pygetset(magic)]
@@ -552,6 +578,81 @@ impl Representable for PyFunction {
             zelf.qualname(),
             zelf.get_id()
         ))
+    }
+}
+
+#[derive(FromArgs)]
+pub struct PyFunctionNewArgs {
+    #[pyarg(positional)]
+    code: PyRef<PyCode>,
+    #[pyarg(positional)]
+    globals: PyDictRef,
+    #[pyarg(any, optional)]
+    name: OptionalArg<PyStrRef>,
+    #[pyarg(any, optional)]
+    defaults: OptionalArg<PyTupleRef>,
+    #[pyarg(any, optional)]
+    closure: OptionalArg<PyTupleRef>,
+    #[pyarg(any, optional)]
+    kwdefaults: OptionalArg<PyDictRef>,
+}
+
+impl Constructor for PyFunction {
+    type Args = PyFunctionNewArgs;
+
+    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        // Handle closure - must be a tuple of cells
+        let closure = if let Some(closure_tuple) = args.closure.into_option() {
+            // Check that closure length matches code's free variables
+            if closure_tuple.len() != args.code.freevars.len() {
+                return Err(vm.new_value_error(format!(
+                    "{} requires closure of length {}, not {}",
+                    args.code.obj_name,
+                    args.code.freevars.len(),
+                    closure_tuple.len()
+                )));
+            }
+
+            // Validate that all items are cells and create typed tuple
+            let typed_closure =
+                PyTupleTyped::<PyCellRef>::try_from_object(vm, closure_tuple.into())?;
+            Some(typed_closure)
+        } else if !args.code.freevars.is_empty() {
+            return Err(vm.new_type_error("arg 5 (closure) must be tuple".to_owned()));
+        } else {
+            None
+        };
+
+        // Get function name - use provided name or default to code object name
+        let name = args
+            .name
+            .into_option()
+            .unwrap_or_else(|| PyStr::from(args.code.obj_name.as_str()).into_ref(&vm.ctx));
+
+        // Get qualname - for now just use the name
+        let qualname = name.clone();
+
+        // Create empty type_params and annotations
+        let type_params = vm.ctx.new_tuple(vec![]);
+        let annotations = vm.ctx.new_dict();
+
+        // Get doc from code object - for now just use None
+        let doc = vm.ctx.none();
+
+        let func = PyFunction::new(
+            args.code,
+            args.globals,
+            closure,
+            args.defaults.into_option(),
+            args.kwdefaults.into_option(),
+            qualname,
+            type_params,
+            annotations,
+            doc,
+            vm,
+        )?;
+
+        func.into_ref_with_type(vm, cls).map(Into::into)
     }
 }
 
