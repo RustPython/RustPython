@@ -4,7 +4,8 @@ use crate::object::{Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
-        PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, traceback::PyTracebackRef,
+        PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
+        traceback::{PyTraceback, PyTracebackRef},
     },
     class::{PyClassImpl, StaticType},
     convert::{ToPyException, ToPyObject},
@@ -324,7 +325,7 @@ impl VirtualMachine {
         let ctor = ExceptionCtor::try_from_object(self, exc_type)?;
         let exc = ctor.instantiate_value(exc_val, self)?;
         if let Some(tb) = Option::<PyTracebackRef>::try_from_object(self, exc_tb)? {
-            exc.set_traceback(Some(tb));
+            exc.set_traceback_typed(Some(tb));
         }
         Ok(exc)
     }
@@ -584,7 +585,25 @@ impl PyBaseException {
     }
 
     #[pygetset(magic, setter)]
-    pub fn set_traceback(&self, traceback: Option<PyTracebackRef>) {
+    pub fn set_traceback(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let traceback = if vm.is_none(&value) {
+            None
+        } else {
+            match value.downcast::<PyTraceback>() {
+                Ok(tb) => Some(tb),
+                Err(_) => {
+                    return Err(
+                        vm.new_type_error("__traceback__ must be a traceback or None".to_owned())
+                    );
+                }
+            }
+        };
+        self.set_traceback_typed(traceback);
+        Ok(())
+    }
+
+    // Helper method for internal use that doesn't require PyObjectRef
+    pub(crate) fn set_traceback_typed(&self, traceback: Option<PyTracebackRef>) {
         *self.traceback.write() = traceback;
     }
 

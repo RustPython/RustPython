@@ -607,8 +607,6 @@ class ExceptionTests(unittest.TestCase):
         self.assertIsInstance(e, MyException)
         self.assertEqual(e.__traceback__, tb)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testInvalidTraceback(self):
         try:
             Exception().__traceback__ = 5

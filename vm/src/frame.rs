@@ -387,7 +387,7 @@ impl ExecutingFrame<'_> {
                         let new_traceback =
                             PyTraceback::new(next, frame.object.to_owned(), frame.lasti(), loc.row);
                         vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.row);
-                        exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
+                        exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
 
                         vm.contextualize_exception(&exception);
 
