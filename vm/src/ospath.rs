@@ -133,18 +133,20 @@ pub struct IOErrorBuilder<'a> {
 }
 
 impl<'a> IOErrorBuilder<'a> {
-    pub fn new(error: &'a std::io::Error) -> Self {
+    pub const fn new(error: &'a std::io::Error) -> Self {
         Self {
             error,
             filename: None,
             filename2: None,
         }
     }
+
     pub(crate) fn filename(mut self, filename: impl Into<OsPathOrFd>) -> Self {
         let filename = filename.into();
         self.filename.replace(filename);
         self
     }
+
     pub(crate) fn filename2(mut self, filename: impl Into<OsPathOrFd>) -> Self {
         let filename = filename.into();
         self.filename2.replace(filename);

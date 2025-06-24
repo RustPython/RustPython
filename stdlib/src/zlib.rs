@@ -231,10 +231,12 @@ mod zlib {
         fn eof(&self) -> bool {
             self.inner.lock().eof
         }
+
         #[pygetset]
         fn unused_data(&self) -> PyBytesRef {
             self.inner.lock().unused_data.clone()
         }
+
         #[pygetset]
         fn unconsumed_tail(&self) -> PyBytesRef {
             self.inner.lock().unconsumed_tail.clone()
@@ -414,7 +416,7 @@ mod zlib {
     const CHUNKSIZE: usize = u32::MAX as usize;
 
     impl CompressInner {
-        fn new(compress: Compress) -> Self {
+        const fn new(compress: Compress) -> Self {
             Self { compress }
         }
     }
@@ -481,6 +483,7 @@ mod zlib {
             };
             Self(Some(compression))
         }
+
         fn ok_or_else(
             self,
             f: impl FnOnce() -> PyBaseExceptionRef,
@@ -527,6 +530,7 @@ mod zlib {
         fn total_in(&self) -> u64 {
             self.total_in()
         }
+
         fn decompress_vec(
             &mut self,
             input: &[u8],
@@ -545,6 +549,7 @@ mod zlib {
         fn total_in(&self) -> u64 {
             self.decompress.total_in()
         }
+
         fn decompress_vec(
             &mut self,
             input: &[u8],
@@ -553,6 +558,7 @@ mod zlib {
         ) -> Result<Self::Status, Self::Error> {
             self.decompress.decompress_vec(input, output, flush)
         }
+
         fn maybe_set_dict(&mut self, err: Self::Error) -> Result<(), Self::Error> {
             let zdict = err.needs_dictionary().and(self.zdict.as_ref()).ok_or(err)?;
             self.decompress.set_dictionary(&zdict.borrow_buf())?;
