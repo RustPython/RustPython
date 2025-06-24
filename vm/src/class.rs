@@ -96,7 +96,12 @@ pub trait PyClassImpl: PyClassDef {
         }
         Self::impl_extend_class(ctx, class);
         if let Some(doc) = Self::DOC {
-            class.set_attr(identifier!(ctx, __doc__), ctx.new_str(doc).into());
+            // Only set __doc__ if it doesn't already exist (e.g., as a member descriptor)
+            // This matches CPython's behavior in type_dict_set_doc
+            let doc_attr_name = identifier!(ctx, __doc__);
+            if class.attributes.read().get(doc_attr_name).is_none() {
+                class.set_attr(doc_attr_name, ctx.new_str(doc).into());
+            }
         }
         if let Some(module_name) = Self::MODULE_NAME {
             class.set_attr(

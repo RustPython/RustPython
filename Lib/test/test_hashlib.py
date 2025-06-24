@@ -456,8 +456,6 @@ class HashLibTestCase(unittest.TestCase):
             # split for sha3_512 / _sha3.sha3 object
             self.assertIn(name.split("_")[0], repr(m))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_blocksize_name(self):
         self.check_blocksize_name('md5', 64, 16)
         self.check_blocksize_name('sha1', 64, 20)
@@ -500,8 +498,6 @@ class HashLibTestCase(unittest.TestCase):
         self.check_sha3('shake_128', 256, 1344, b'\x1f')
         self.check_sha3('shake_256', 512, 1088, b'\x1f')
 
-    # TODO: RUSTPYTHON implement all blake2 params
-    @unittest.expectedFailure
     @requires_blake2
     def test_blocksize_name_blake2(self):
         self.check_blocksize_name('blake2b', 128, 64)

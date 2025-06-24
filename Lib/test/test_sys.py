@@ -167,8 +167,6 @@ class ExceptHookTest(unittest.TestCase):
         self.assertIn("""    text\n""", err)
         self.assertTrue(err.endswith("SyntaxError: msg\n"))
 
-    # TODO: RUSTPYTHON, print argument error to stderr in sys.excepthook instead of throwing
-    @unittest.expectedFailure
     def test_excepthook(self):
         with test.support.captured_output("stderr") as stderr:
             sys.excepthook(1, '1', 1)

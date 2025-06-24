@@ -607,8 +607,6 @@ class ExceptionTests(unittest.TestCase):
         self.assertIsInstance(e, MyException)
         self.assertEqual(e.__traceback__, tb)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testInvalidTraceback(self):
         try:
             Exception().__traceback__ = 5
@@ -701,8 +699,6 @@ class ExceptionTests(unittest.TestCase):
         self.assertTrue(str(Exception('a')))
         self.assertTrue(str(Exception('a', 'b')))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception_cleanup_names(self):
         # Make sure the local variable bound to the exception instance by
         # an "except" statement is only visible inside the except block.
@@ -725,8 +721,6 @@ class ExceptionTests(unittest.TestCase):
         with self.assertRaises(UnboundLocalError):
             e
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testExceptionCleanupState(self):
         # Make sure exception state is cleaned up as soon as the except
         # block is left. See #2507
@@ -1573,8 +1567,6 @@ class ExceptionTests(unittest.TestCase):
         gc_collect()  # For PyPy or other GCs.
         self.assertEqual(wr(), None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @no_tracing
     @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def test_recursion_error_cleanup(self):

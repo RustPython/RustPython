@@ -1,4 +1,4 @@
-use super::{PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef};
+use super::{PyDict, PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyStrInterned, pystr::AsPyStr},
@@ -170,10 +170,11 @@ impl PyModule {
 
     #[pymethod(magic)]
     fn dir(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        let dict = zelf
-            .as_object()
-            .dict()
-            .ok_or_else(|| vm.new_value_error("module has no dict".to_owned()))?;
+        // First check if __dict__ attribute exists and is actually a dictionary
+        let dict_attr = zelf.as_object().get_attr(identifier!(vm, __dict__), vm)?;
+        let dict = dict_attr
+            .downcast::<PyDict>()
+            .map_err(|_| vm.new_type_error("<module>.__dict__ is not a dictionary".to_owned()))?;
         let attrs = dict.into_iter().map(|(k, _v)| k).collect();
         Ok(attrs)
     }

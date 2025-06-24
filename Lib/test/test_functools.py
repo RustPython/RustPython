@@ -396,8 +396,6 @@ class TestPartialC(TestPartial, unittest.TestCase):
         module = c_functools
         partial = c_functools.partial
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_attributes_unwritable(self):
         # attributes should not be writable
         p = self.partial(capture, 1, 2, a=10, b=20)
