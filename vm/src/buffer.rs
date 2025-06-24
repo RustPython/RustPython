@@ -646,5 +646,5 @@ pub fn struct_error_type(vm: &VirtualMachine) -> &'static PyTypeRef {
 pub fn new_struct_error(vm: &VirtualMachine, msg: impl Into<String>) -> PyBaseExceptionRef {
     // can't just STRUCT_ERROR.get().unwrap() cause this could be called before from buffer
     // machinery, independent of whether _struct was ever imported
-    vm.new_exception_msg(struct_error_type(vm).clone(), msg)
+    vm.new_exception_msg(struct_error_type(vm).clone(), msg.into())
 }
