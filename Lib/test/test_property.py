@@ -100,32 +100,24 @@ class PropertyTests(unittest.TestCase):
         self.assertRaises(PropertySet, setattr, sub, "spam", None)
         self.assertRaises(PropertyDel, delattr, sub, "spam")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")
     def test_property_decorator_subclass_doc(self):
         sub = SubClass()
         self.assertEqual(sub.__class__.spam.__doc__, "SubClass.getter")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")
     def test_property_decorator_baseclass_doc(self):
         base = BaseClass()
         self.assertEqual(base.__class__.spam.__doc__, "BaseClass.getter")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_property_decorator_doc(self):
         base = PropertyDocBase()
         sub = PropertyDocSub()
         self.assertEqual(base.__class__.spam.__doc__, "spam spam spam")
         self.assertEqual(sub.__class__.spam.__doc__, "spam spam spam")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")
     def test_property_getter_doc_override(self):
@@ -169,8 +161,6 @@ class PropertyTests(unittest.TestCase):
         p.__doc__ = 'extended'
         self.assertEqual(p.__doc__, 'extended')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")
     def test_property_decorator_doc_writable(self):

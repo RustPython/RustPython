@@ -10,6 +10,7 @@ use crate::{
     function::{FuncArgs, PySetterValue},
     types::{Constructor, GetDescriptor, Initializer},
 };
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[pyclass(module = false, name = "property", traverse)]
 #[derive(Debug)]
@@ -19,6 +20,8 @@ pub struct PyProperty {
     deleter: PyRwLock<Option<PyObjectRef>>,
     doc: PyRwLock<Option<PyObjectRef>>,
     name: PyRwLock<Option<PyObjectRef>>,
+    #[pytraverse(skip)]
+    getter_doc: std::sync::atomic::AtomicBool,
 }
 
 impl PyPayload for PyProperty {
@@ -149,14 +152,38 @@ impl PyProperty {
         getter: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        PyProperty {
-            getter: PyRwLock::new(getter.or_else(|| zelf.fget())),
-            setter: PyRwLock::new(zelf.fset()),
-            deleter: PyRwLock::new(zelf.fdel()),
-            doc: PyRwLock::new(None),
-            name: PyRwLock::new(None),
+        let new_getter = getter.or_else(|| zelf.fget());
+
+        // Determine doc based on getter_doc flag
+        let doc = if zelf.getter_doc.load(Ordering::Relaxed) && new_getter.is_some() {
+            // If the original property uses getter doc and we have a new getter,
+            // pass Py_None to let __init__ get the doc from the new getter
+            Some(vm.ctx.none())
+        } else {
+            // Otherwise use the existing doc
+            zelf.doc_getter()
+        };
+
+        // Create property args
+        let args = PropertyArgs {
+            fget: new_getter,
+            fset: zelf.fset(),
+            fdel: zelf.fdel(),
+            doc,
+            name: None,
+        };
+
+        // Create new property using py_new and init
+        let new_prop = PyProperty::py_new(zelf.class().to_owned(), FuncArgs::default(), vm)?;
+        let new_prop_ref = new_prop.downcast::<PyProperty>().unwrap();
+        PyProperty::init(new_prop_ref.clone(), args, vm)?;
+
+        // Copy the name if it exists
+        if let Some(name) = zelf.name.read().clone() {
+            *new_prop_ref.name.write() = Some(name);
         }
-        .into_ref_with_type(vm, zelf.class().to_owned())
+
+        Ok(new_prop_ref)
     }
 
     #[pymethod]
@@ -165,14 +192,32 @@ impl PyProperty {
         setter: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        PyProperty {
-            getter: PyRwLock::new(zelf.fget()),
-            setter: PyRwLock::new(setter.or_else(|| zelf.fset())),
-            deleter: PyRwLock::new(zelf.fdel()),
-            doc: PyRwLock::new(None),
-            name: PyRwLock::new(None),
+        // For setter, we need to preserve doc handling from the original property
+        let doc = if zelf.getter_doc.load(Ordering::Relaxed) {
+            // If original used getter_doc, pass None to let init get doc from getter
+            Some(vm.ctx.none())
+        } else {
+            zelf.doc_getter()
+        };
+
+        let args = PropertyArgs {
+            fget: zelf.fget(),
+            fset: setter.or_else(|| zelf.fset()),
+            fdel: zelf.fdel(),
+            doc,
+            name: None,
+        };
+
+        let new_prop = PyProperty::py_new(zelf.class().to_owned(), FuncArgs::default(), vm)?;
+        let new_prop_ref = new_prop.downcast::<PyProperty>().unwrap();
+        PyProperty::init(new_prop_ref.clone(), args, vm)?;
+
+        // Copy the name if it exists
+        if let Some(name) = zelf.name.read().clone() {
+            *new_prop_ref.name.write() = Some(name);
         }
-        .into_ref_with_type(vm, zelf.class().to_owned())
+
+        Ok(new_prop_ref)
     }
 
     #[pymethod]
@@ -181,14 +226,32 @@ impl PyProperty {
         deleter: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        PyProperty {
-            getter: PyRwLock::new(zelf.fget()),
-            setter: PyRwLock::new(zelf.fset()),
-            deleter: PyRwLock::new(deleter.or_else(|| zelf.fdel())),
-            doc: PyRwLock::new(None),
-            name: PyRwLock::new(None),
+        // For deleter, we need to preserve doc handling from the original property
+        let doc = if zelf.getter_doc.load(Ordering::Relaxed) {
+            // If original used getter_doc, pass None to let init get doc from getter
+            Some(vm.ctx.none())
+        } else {
+            zelf.doc_getter()
+        };
+
+        let args = PropertyArgs {
+            fget: zelf.fget(),
+            fset: zelf.fset(),
+            fdel: deleter.or_else(|| zelf.fdel()),
+            doc,
+            name: None,
+        };
+
+        let new_prop = PyProperty::py_new(zelf.class().to_owned(), FuncArgs::default(), vm)?;
+        let new_prop_ref = new_prop.downcast::<PyProperty>().unwrap();
+        PyProperty::init(new_prop_ref.clone(), args, vm)?;
+
+        // Copy the name if it exists
+        if let Some(name) = zelf.name.read().clone() {
+            *new_prop_ref.name.write() = Some(name);
         }
-        .into_ref_with_type(vm, zelf.class().to_owned())
+
+        Ok(new_prop_ref)
     }
 
     #[pygetset(magic)]
@@ -228,6 +291,7 @@ impl Constructor for PyProperty {
             deleter: PyRwLock::new(None),
             doc: PyRwLock::new(None),
             name: PyRwLock::new(None),
+            getter_doc: AtomicBool::new(false),
         }
         .into_ref_with_type(vm, cls)
         .map(Into::into)
@@ -237,12 +301,36 @@ impl Constructor for PyProperty {
 impl Initializer for PyProperty {
     type Args = PropertyArgs;
 
-    fn init(zelf: PyRef<Self>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
-        *zelf.getter.write() = args.fget;
+    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        *zelf.getter.write() = args.fget.clone();
         *zelf.setter.write() = args.fset;
         *zelf.deleter.write() = args.fdel;
-        *zelf.doc.write() = args.doc;
         *zelf.name.write() = args.name.map(|a| a.as_object().to_owned());
+
+        // Set doc and getter_doc flag
+        let mut getter_doc = false;
+
+        // Helper to get doc from getter
+        let get_getter_doc = |fget: &PyObjectRef| -> Option<PyObjectRef> {
+            fget.get_attr("__doc__", vm)
+                .ok()
+                .filter(|doc| !vm.is_none(doc))
+        };
+
+        let doc = match args.doc {
+            Some(doc) if !vm.is_none(&doc) => Some(doc),
+            _ => {
+                // No explicit doc or doc is None, try to get from getter
+                args.fget.as_ref().and_then(|fget| {
+                    get_getter_doc(fget).inspect(|_| {
+                        getter_doc = true;
+                    })
+                })
+            }
+        };
+
+        *zelf.doc.write() = doc;
+        zelf.getter_doc.store(getter_doc, Ordering::Relaxed);
 
         Ok(())
     }
