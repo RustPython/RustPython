@@ -655,7 +655,6 @@ class TypeParameterDefaultsTests(BaseTestCase):
         self.assertFalse(T.has_default())
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_paramspec(self):
         P = ParamSpec('P', default=(str, int))
         self.assertEqual(P.__default__, (str, int))
@@ -684,7 +683,6 @@ class TypeParameterDefaultsTests(BaseTestCase):
         self.assertFalse(P.has_default())
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_typevartuple(self):
         Ts = TypeVarTuple('Ts', default=Unpack[Tuple[str, int]])
         self.assertEqual(Ts.__default__, Unpack[Tuple[str, int]])
@@ -1287,7 +1285,6 @@ class UnpackTests(BaseTestCase):
 class TypeVarTupleTests(BaseTestCase):
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_name(self):
         Ts = TypeVarTuple('Ts')
         self.assertEqual(Ts.__name__, 'Ts')
@@ -1295,7 +1292,6 @@ class TypeVarTupleTests(BaseTestCase):
         self.assertEqual(Ts2.__name__, 'Ts2')
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_module(self):
         Ts = TypeVarTuple('Ts')
         self.assertEqual(Ts.__module__, __name__)
@@ -2048,7 +2044,6 @@ class TypeVarTuplePicklingTests(BaseTestCase):
     # statements at the start of each test.
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @all_pickle_protocols
     def test_pickling_then_unpickling_results_in_same_identity(self, proto):
         global global_Ts1  # See explanation at start of class.
@@ -4276,7 +4271,6 @@ class GenericTests(BaseTestCase):
             self.assertEqual(t, deepcopy(t))
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_immutability_by_copy_and_pickle(self):
         # Special forms like Union, Any, etc., generic aliases to containers like List,
         # Mapping, etc., and type variabcles are considered immutable by copy and pickle.
@@ -8799,7 +8793,6 @@ class TypeAliasTests(BaseTestCase):
 class ParamSpecTests(BaseTestCase):
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basic_plain(self):
         P = ParamSpec('P')
         self.assertEqual(P, P)
@@ -9008,7 +9001,6 @@ class ParamSpecTests(BaseTestCase):
         self.assertEqual(B.__args__, ((int, str,), Tuple[bytes, float]))
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_var_substitution(self):
         P = ParamSpec("P")
         subst = P.__typing_subst__
@@ -9020,7 +9012,6 @@ class ParamSpecTests(BaseTestCase):
         self.assertEqual(subst(Concatenate[int, P]), Concatenate[int, P])
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bad_var_substitution(self):
         T = TypeVar('T')
         P = ParamSpec('P')
@@ -9239,7 +9230,6 @@ class ConcatenateTests(BaseTestCase):
                 self.assertIn(required_item, dir_items)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_valid_uses(self):
         P = ParamSpec('P')
         T = TypeVar('T')

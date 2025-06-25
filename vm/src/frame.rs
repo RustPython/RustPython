@@ -1282,7 +1282,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::TypeVarTuple => {
                 let type_var_tuple_name = self.pop_value();
                 let type_var_tuple: PyObjectRef =
-                    _typing::make_typevartuple(type_var_tuple_name.clone())
+                    _typing::make_typevartuple(type_var_tuple_name.clone(), vm)
                         .into_ref(&vm.ctx)
                         .into();
                 self.push_value(type_var_tuple);

@@ -338,7 +338,7 @@ pub(crate) mod _typing {
     }
 
     #[pyattr]
-    #[pyclass(name = "ParamSpec")]
+    #[pyclass(name = "ParamSpec", module = "typing")]
     #[derive(Debug, PyPayload)]
     #[allow(dead_code)]
     pub(crate) struct ParamSpec {
@@ -351,11 +351,29 @@ pub(crate) mod _typing {
         infer_variance: bool,
     }
 
-    #[pyclass(flags(BASETYPE))]
+    #[pyclass(flags(HAS_DICT), with(AsNumber, Constructor))]
     impl ParamSpec {
         #[pygetset(magic)]
         fn name(&self) -> PyObjectRef {
             self.name.clone()
+        }
+
+        #[pygetset]
+        fn args(zelf: crate::PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            let self_obj: PyObjectRef = zelf.into();
+            let psa = ParamSpecArgs {
+                __origin__: self_obj,
+            };
+            Ok(psa.into_ref(&vm.ctx).into())
+        }
+
+        #[pygetset]
+        fn kwargs(zelf: crate::PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            let self_obj: PyObjectRef = zelf.into();
+            let psk = ParamSpecKwargs {
+                __origin__: self_obj,
+            };
+            Ok(psk.into_ref(&vm.ctx).into())
         }
 
         #[pygetset(magic)]
@@ -383,16 +401,19 @@ pub(crate) mod _typing {
 
         #[pygetset(magic)]
         fn default(&self, vm: &VirtualMachine) -> PyResult {
-            if let Some(default_value) = self.default_value.clone() {
-                return Ok(default_value);
+            if let Some(ref default_value) = self.default_value {
+                // Check if default_value is NoDefault (not just None)
+                if !default_value.is(&vm.ctx.typing_no_default) {
+                    return Ok(default_value.clone());
+                }
             }
             // handle evaluate_default
             if let Some(evaluate_default) = self.evaluate_default.clone() {
-                let default_value = vm.call_method(evaluate_default.as_ref(), "__call__", ())?;
+                let default_value = evaluate_default.call((), vm)?;
                 return Ok(default_value);
             }
-            // TODO: this isn't up to spec
-            Ok(vm.ctx.none())
+            // Return NoDefault singleton
+            Ok(vm.ctx.typing_no_default.clone().into())
         }
 
         #[pygetset]
@@ -400,7 +421,6 @@ pub(crate) mod _typing {
             if let Some(evaluate_default) = self.evaluate_default.clone() {
                 return evaluate_default;
             }
-            // TODO: default_value case
             vm.ctx.none()
         }
 
@@ -410,9 +430,153 @@ pub(crate) mod _typing {
         }
 
         #[pymethod]
-        fn has_default(&self) -> PyResult<bool> {
-            // TODO: fix
-            Ok(self.evaluate_default.is_some() || self.default_value.is_some())
+        fn has_default(&self, vm: &VirtualMachine) -> bool {
+            if self.evaluate_default.is_some() {
+                return true;
+            }
+            if let Some(ref default_value) = self.default_value {
+                // Check if default_value is not NoDefault
+                !default_value.is(&vm.ctx.typing_no_default)
+            } else {
+                false
+            }
+        }
+
+        #[pymethod(magic)]
+        fn typing_subst(
+            zelf: crate::PyRef<Self>,
+            arg: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let self_obj: PyObjectRef = zelf.into();
+            _call_typing_func_object(vm, "_paramspec_subst", (self_obj, arg))
+        }
+
+        #[pymethod(magic)]
+        fn typing_prepare_subst(
+            zelf: crate::PyRef<Self>,
+            alias: PyObjectRef,
+            args: PyTupleRef,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let self_obj: PyObjectRef = zelf.into();
+            _call_typing_func_object(vm, "_paramspec_prepare_subst", (self_obj, alias, args))
+        }
+    }
+
+    impl AsNumber for ParamSpec {
+        fn as_number() -> &'static PyNumberMethods {
+            static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+                or: Some(|a, b, vm| {
+                    _call_typing_func_object(vm, "_make_union", (a.to_owned(), b.to_owned()))
+                }),
+                ..PyNumberMethods::NOT_IMPLEMENTED
+            };
+            &AS_NUMBER
+        }
+    }
+
+    impl Constructor for ParamSpec {
+        type Args = FuncArgs;
+
+        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            let mut kwargs = args.kwargs;
+            // Parse arguments manually
+            let name = if args.args.is_empty() {
+                // Check if name is provided as keyword argument
+                if let Some(name) = kwargs.swap_remove("name") {
+                    name
+                } else {
+                    return Err(vm.new_type_error(
+                        "ParamSpec() missing required argument: 'name' (pos 1)".to_owned(),
+                    ));
+                }
+            } else if args.args.len() == 1 {
+                args.args[0].clone()
+            } else {
+                return Err(
+                    vm.new_type_error("ParamSpec() takes at most 1 positional argument".to_owned())
+                );
+            };
+
+            let bound = kwargs.swap_remove("bound");
+            let covariant = kwargs
+                .swap_remove("covariant")
+                .map(|v| v.try_to_bool(vm))
+                .transpose()?
+                .unwrap_or(false);
+            let contravariant = kwargs
+                .swap_remove("contravariant")
+                .map(|v| v.try_to_bool(vm))
+                .transpose()?
+                .unwrap_or(false);
+            let infer_variance = kwargs
+                .swap_remove("infer_variance")
+                .map(|v| v.try_to_bool(vm))
+                .transpose()?
+                .unwrap_or(false);
+            let default = kwargs.swap_remove("default");
+
+            // Check for unexpected keyword arguments
+            if !kwargs.is_empty() {
+                let unexpected_keys: Vec<String> = kwargs.keys().map(|s| s.to_string()).collect();
+                return Err(vm.new_type_error(format!(
+                    "ParamSpec() got unexpected keyword argument(s): {}",
+                    unexpected_keys.join(", ")
+                )));
+            }
+
+            // Check for invalid combinations
+            if covariant && contravariant {
+                return Err(
+                    vm.new_value_error("Bivariant type variables are not supported.".to_owned())
+                );
+            }
+
+            if infer_variance && (covariant || contravariant) {
+                return Err(vm.new_value_error(
+                    "Variance cannot be specified with infer_variance".to_owned(),
+                ));
+            }
+
+            // Handle default value
+            let default_value = if let Some(default) = default {
+                Some(default)
+            } else {
+                // If no default provided, use NoDefault singleton
+                Some(vm.ctx.typing_no_default.clone().into())
+            };
+
+            let paramspec = ParamSpec {
+                name,
+                bound,
+                default_value,
+                evaluate_default: None,
+                covariant,
+                contravariant,
+                infer_variance,
+            };
+
+            let obj = paramspec.into_ref_with_type(vm, cls)?;
+            let obj_ref: PyObjectRef = obj.into();
+
+            // Set __module__ from the current frame
+            if let Some(frame) = vm.current_frame() {
+                if let Ok(module_name) = frame.globals.get_item("__name__", vm) {
+                    // Set __module__ to None for modules that start with "<"
+                    if let Ok(name_str) = module_name.str(vm) {
+                        if name_str.as_str().starts_with('<') {
+                            obj_ref.set_attr("__module__", vm.ctx.none(), vm)?;
+                        } else {
+                            obj_ref.set_attr("__module__", module_name, vm)?;
+                        }
+                    } else {
+                        obj_ref.set_attr("__module__", module_name, vm)?;
+                    }
+                }
+            }
+
+            Ok(obj_ref)
         }
     }
 
@@ -461,34 +625,221 @@ pub(crate) mod _typing {
     }
 
     #[pyattr]
-    #[pyclass(name = "TypeVarTuple")]
+    #[pyclass(name = "TypeVarTuple", module = "typing")]
     #[derive(Debug, PyPayload)]
     #[allow(dead_code)]
     pub(crate) struct TypeVarTuple {
         name: PyObjectRef,
+        default_value: parking_lot::Mutex<PyObjectRef>,
+        evaluate_default: PyObjectRef,
     }
-    #[pyclass(flags(BASETYPE))]
-    impl TypeVarTuple {}
+    #[pyclass(flags(HAS_DICT), with(Constructor))]
+    impl TypeVarTuple {
+        #[pygetset(magic)]
+        fn name(&self) -> PyObjectRef {
+            self.name.clone()
+        }
 
-    pub(crate) fn make_typevartuple(name: PyObjectRef) -> TypeVarTuple {
-        TypeVarTuple { name }
+        #[pygetset(magic)]
+        fn default(&self, vm: &VirtualMachine) -> PyResult {
+            let mut default_value = self.default_value.lock();
+            // Check if default_value is NoDefault (not just None)
+            if !default_value.is(&vm.ctx.typing_no_default) {
+                return Ok(default_value.clone());
+            }
+            if !vm.is_none(&self.evaluate_default) {
+                *default_value = self.evaluate_default.call((), vm)?;
+                Ok(default_value.clone())
+            } else {
+                // Return NoDefault singleton
+                Ok(vm.ctx.typing_no_default.clone().into())
+            }
+        }
+
+        #[pymethod]
+        fn has_default(&self, vm: &VirtualMachine) -> bool {
+            if !vm.is_none(&self.evaluate_default) {
+                return true;
+            }
+            let default_value = self.default_value.lock();
+            // Check if default_value is not NoDefault
+            !default_value.is(&vm.ctx.typing_no_default)
+        }
+
+        #[pymethod(magic)]
+        fn reduce(&self) -> PyObjectRef {
+            self.name.clone()
+        }
+    }
+
+    impl Constructor for TypeVarTuple {
+        type Args = FuncArgs;
+
+        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            let mut kwargs = args.kwargs;
+            // Parse arguments manually
+            let name = if args.args.is_empty() {
+                // Check if name is provided as keyword argument
+                if let Some(name) = kwargs.swap_remove("name") {
+                    name
+                } else {
+                    return Err(vm.new_type_error(
+                        "TypeVarTuple() missing required argument: 'name' (pos 1)".to_owned(),
+                    ));
+                }
+            } else if args.args.len() == 1 {
+                args.args[0].clone()
+            } else {
+                return Err(vm.new_type_error(
+                    "TypeVarTuple() takes at most 1 positional argument".to_owned(),
+                ));
+            };
+
+            let default = kwargs.swap_remove("default");
+
+            // Check for unexpected keyword arguments
+            if !kwargs.is_empty() {
+                let unexpected_keys: Vec<String> = kwargs.keys().map(|s| s.to_string()).collect();
+                return Err(vm.new_type_error(format!(
+                    "TypeVarTuple() got unexpected keyword argument(s): {}",
+                    unexpected_keys.join(", ")
+                )));
+            }
+
+            // Handle default value
+            let (default_value, evaluate_default) = if let Some(default) = default {
+                (default, vm.ctx.none())
+            } else {
+                // If no default provided, use NoDefault singleton
+                (vm.ctx.typing_no_default.clone().into(), vm.ctx.none())
+            };
+
+            let typevartuple = TypeVarTuple {
+                name,
+                default_value: parking_lot::Mutex::new(default_value),
+                evaluate_default,
+            };
+
+            let obj = typevartuple.into_ref_with_type(vm, cls)?;
+            let obj_ref: PyObjectRef = obj.into();
+
+            // Set __module__ from the current frame
+            if let Some(frame) = vm.current_frame() {
+                if let Ok(module_name) = frame.globals.get_item("__name__", vm) {
+                    // Set __module__ to None for modules that start with "<"
+                    if let Ok(name_str) = module_name.str(vm) {
+                        if name_str.as_str().starts_with('<') {
+                            obj_ref.set_attr("__module__", vm.ctx.none(), vm)?;
+                        } else {
+                            obj_ref.set_attr("__module__", module_name, vm)?;
+                        }
+                    } else {
+                        obj_ref.set_attr("__module__", module_name, vm)?;
+                    }
+                }
+            }
+
+            Ok(obj_ref)
+        }
+    }
+
+    pub(crate) fn make_typevartuple(name: PyObjectRef, vm: &VirtualMachine) -> TypeVarTuple {
+        TypeVarTuple {
+            name,
+            default_value: parking_lot::Mutex::new(vm.ctx.typing_no_default.clone().into()),
+            evaluate_default: vm.ctx.none(),
+        }
     }
 
     #[pyattr]
     #[pyclass(name = "ParamSpecArgs")]
     #[derive(Debug, PyPayload)]
     #[allow(dead_code)]
-    pub(crate) struct ParamSpecArgs {}
-    #[pyclass(flags(BASETYPE))]
-    impl ParamSpecArgs {}
+    pub(crate) struct ParamSpecArgs {
+        __origin__: PyObjectRef,
+    }
+    #[pyclass(flags(BASETYPE), with(Constructor, Representable))]
+    impl ParamSpecArgs {
+        #[pygetset(magic)]
+        fn origin(&self) -> PyObjectRef {
+            self.__origin__.clone()
+        }
+
+        #[pymethod(magic)]
+        fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+            // Check if other has __origin__ attribute
+            if let Ok(other_origin) = other.get_attr("__origin__", vm) {
+                return Ok(self.__origin__.is(&other_origin));
+            }
+            Ok(false)
+        }
+    }
+
+    impl Constructor for ParamSpecArgs {
+        type Args = (PyObjectRef,);
+
+        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            let origin = args.0;
+            let psa = ParamSpecArgs { __origin__: origin };
+            psa.into_ref_with_type(vm, cls).map(Into::into)
+        }
+    }
+
+    impl Representable for ParamSpecArgs {
+        #[inline(always)]
+        fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            // Check if origin is a ParamSpec
+            if let Ok(name) = zelf.__origin__.get_attr("__name__", vm) {
+                return Ok(format!("{}.args", name.str(vm)?));
+            }
+            Ok(format!("{:?}.args", zelf.__origin__))
+        }
+    }
 
     #[pyattr]
     #[pyclass(name = "ParamSpecKwargs")]
     #[derive(Debug, PyPayload)]
     #[allow(dead_code)]
-    pub(crate) struct ParamSpecKwargs {}
-    #[pyclass(flags(BASETYPE))]
-    impl ParamSpecKwargs {}
+    pub(crate) struct ParamSpecKwargs {
+        __origin__: PyObjectRef,
+    }
+    #[pyclass(flags(BASETYPE), with(Constructor, Representable))]
+    impl ParamSpecKwargs {
+        #[pygetset(magic)]
+        fn origin(&self) -> PyObjectRef {
+            self.__origin__.clone()
+        }
+
+        #[pymethod(magic)]
+        fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+            // Check if other has __origin__ attribute
+            if let Ok(other_origin) = other.get_attr("__origin__", vm) {
+                return Ok(self.__origin__.is(&other_origin));
+            }
+            Ok(false)
+        }
+    }
+
+    impl Constructor for ParamSpecKwargs {
+        type Args = (PyObjectRef,);
+
+        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            let origin = args.0;
+            let psa = ParamSpecKwargs { __origin__: origin };
+            psa.into_ref_with_type(vm, cls).map(Into::into)
+        }
+    }
+
+    impl Representable for ParamSpecKwargs {
+        #[inline(always)]
+        fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            // Check if origin is a ParamSpec
+            if let Ok(name) = zelf.__origin__.get_attr("__name__", vm) {
+                return Ok(format!("{}.kwargs", name.str(vm)?));
+            }
+            Ok(format!("{:?}.kwargs", zelf.__origin__))
+        }
+    }
 
     #[pyattr]
     #[pyclass(name)]
