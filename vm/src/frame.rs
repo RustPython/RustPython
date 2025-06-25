@@ -492,8 +492,6 @@ impl ExecutingFrame<'_> {
         extend_arg: &mut bool,
         vm: &VirtualMachine,
     ) -> FrameResult {
-        vm.check_signals()?;
-
         flame_guard!(format!(
             "Frame::execute_instruction({})",
             instruction.display(arg, &self.code.code).to_string()
@@ -873,6 +871,7 @@ impl ExecutingFrame<'_> {
                 self.unwind_blocks(vm, UnwindReason::Returning { value })
             }
             bytecode::Instruction::YieldValue => {
+                vm.check_signals()?;
                 let value = self.pop_value();
                 let value = if self.code.flags.contains(bytecode::CodeFlags::IS_COROUTINE) {
                     PyAsyncGenWrappedValue(value).into_pyobject(vm)
@@ -881,7 +880,10 @@ impl ExecutingFrame<'_> {
                 };
                 Ok(Some(ExecutionResult::Yield(value)))
             }
-            bytecode::Instruction::YieldFrom => self.execute_yield_from(vm),
+            bytecode::Instruction::YieldFrom => {
+                vm.check_signals()?;
+                self.execute_yield_from(vm)
+            }
             bytecode::Instruction::SetupAnnotation => self.setup_annotations(vm),
             bytecode::Instruction::SetupLoop => {
                 self.push_block(BlockType::Loop);
@@ -1008,6 +1010,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::WithCleanupFinish => {
+                vm.check_signals()?;
                 let block = self.pop_block();
                 let (reason, prev_exc) = match block.typ {
                     BlockType::FinallyHandler { reason, prev_exc } => (reason, prev_exc),
@@ -1027,6 +1030,7 @@ impl ExecutingFrame<'_> {
                 }
             }
             bytecode::Instruction::PopBlock => {
+                vm.check_signals()?;
                 self.pop_block();
                 Ok(None)
             }
@@ -1115,6 +1119,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::EndAsyncFor => {
+                vm.check_signals()?;
                 let exc = self.pop_value();
                 let except_block = self.pop_block(); // pushed by TryExcept unwind
                 debug_assert_eq!(except_block.level, self.state.stack.len());
@@ -1170,11 +1175,16 @@ impl ExecutingFrame<'_> {
                 self.execute_method_call(args, vm)
             }
             bytecode::Instruction::Jump { target } => {
+                vm.check_signals()?;
                 self.jump(target.get(arg));
                 Ok(None)
             }
-            bytecode::Instruction::JumpIfTrue { target } => self.jump_if(vm, target.get(arg), true),
+            bytecode::Instruction::JumpIfTrue { target } => {
+                vm.check_signals()?;
+                self.jump_if(vm, target.get(arg), true)
+            }
             bytecode::Instruction::JumpIfFalse { target } => {
+                vm.check_signals()?;
                 self.jump_if(vm, target.get(arg), false)
             }
             bytecode::Instruction::JumpIfTrueOrPop { target } => {
@@ -1184,7 +1194,10 @@ impl ExecutingFrame<'_> {
                 self.jump_if_or_pop(vm, target.get(arg), false)
             }
 
-            bytecode::Instruction::Raise { kind } => self.execute_raise(vm, kind.get(arg)),
+            bytecode::Instruction::Raise { kind } => {
+                vm.check_signals()?;
+                self.execute_raise(vm, kind.get(arg))
+            }
 
             bytecode::Instruction::Break { target } => self.unwind_blocks(
                 vm,
@@ -1192,12 +1205,15 @@ impl ExecutingFrame<'_> {
                     target: target.get(arg),
                 },
             ),
-            bytecode::Instruction::Continue { target } => self.unwind_blocks(
-                vm,
-                UnwindReason::Continue {
-                    target: target.get(arg),
-                },
-            ),
+            bytecode::Instruction::Continue { target } => {
+                vm.check_signals()?;
+                self.unwind_blocks(
+                    vm,
+                    UnwindReason::Continue {
+                        target: target.get(arg),
+                    },
+                )
+            }
             bytecode::Instruction::PrintExpr => self.print_expr(vm),
             bytecode::Instruction::LoadBuildClass => {
                 self.push_value(vm.builtins.get_attr(identifier!(vm, __build_class__), vm)?);
