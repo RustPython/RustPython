@@ -302,17 +302,7 @@ pub(crate) mod _typing {
 
             let obj = typevar.into_ref_with_type(vm, cls)?;
             let obj_ref: PyObjectRef = obj.into();
-
-            // Set __module__ from the current frame
-            if let Some(frame) = vm.current_frame() {
-                if let Ok(module_name) = frame.globals.get_item("__name__", vm) {
-                    // Don't set __module__ if it's None
-                    if !vm.is_none(&module_name) {
-                        obj_ref.set_attr("__module__", module_name, vm)?;
-                    }
-                }
-            }
-
+            set_module_from_caller(&obj_ref, vm)?;
             Ok(obj_ref)
         }
     }
@@ -559,23 +549,7 @@ pub(crate) mod _typing {
 
             let obj = paramspec.into_ref_with_type(vm, cls)?;
             let obj_ref: PyObjectRef = obj.into();
-
-            // Set __module__ from the current frame
-            if let Some(frame) = vm.current_frame() {
-                if let Ok(module_name) = frame.globals.get_item("__name__", vm) {
-                    // Set __module__ to None for modules that start with "<"
-                    if let Ok(name_str) = module_name.str(vm) {
-                        if name_str.as_str().starts_with('<') {
-                            obj_ref.set_attr("__module__", vm.ctx.none(), vm)?;
-                        } else {
-                            obj_ref.set_attr("__module__", module_name, vm)?;
-                        }
-                    } else {
-                        obj_ref.set_attr("__module__", module_name, vm)?;
-                    }
-                }
-            }
-
+            set_module_from_caller(&obj_ref, vm)?;
             Ok(obj_ref)
         }
     }
@@ -722,23 +696,7 @@ pub(crate) mod _typing {
 
             let obj = typevartuple.into_ref_with_type(vm, cls)?;
             let obj_ref: PyObjectRef = obj.into();
-
-            // Set __module__ from the current frame
-            if let Some(frame) = vm.current_frame() {
-                if let Ok(module_name) = frame.globals.get_item("__name__", vm) {
-                    // Set __module__ to None for modules that start with "<"
-                    if let Ok(name_str) = module_name.str(vm) {
-                        if name_str.as_str().starts_with('<') {
-                            obj_ref.set_attr("__module__", vm.ctx.none(), vm)?;
-                        } else {
-                            obj_ref.set_attr("__module__", module_name, vm)?;
-                        }
-                    } else {
-                        obj_ref.set_attr("__module__", module_name, vm)?;
-                    }
-                }
-            }
-
+            set_module_from_caller(&obj_ref, vm)?;
             Ok(obj_ref)
         }
     }
@@ -893,4 +851,40 @@ pub(crate) mod _typing {
     //         &AS_MAPPING
     //     }
     // }
+
+    /// Get the module of the caller frame, similar to CPython's caller() function.
+    /// Returns the module name or None if not found.
+    ///
+    /// Note: CPython's implementation (in typevarobject.c) gets the module from the
+    /// frame's function object using PyFunction_GetModule(f->f_funcobj). However,
+    /// RustPython's Frame doesn't store a reference to the function object, so we
+    /// get the module name from the frame's globals dictionary instead.
+    fn caller(vm: &VirtualMachine) -> Option<PyObjectRef> {
+        let frame = vm.current_frame()?;
+
+        // In RustPython, we get the module name from frame's globals
+        // This is similar to CPython's sys._getframe().f_globals.get('__name__')
+        frame.globals.get_item("__name__", vm).ok()
+    }
+
+    /// Set __module__ attribute for an object based on the caller's module.
+    /// This follows CPython's behavior for TypeVar and similar objects.
+    fn set_module_from_caller(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        // Note: CPython gets module from frame->f_funcobj, but RustPython's Frame
+        // architecture is different - we use globals['__name__'] instead
+        if let Some(module_name) = caller(vm) {
+            // Special handling for certain module names
+            if let Ok(name_str) = module_name.str(vm) {
+                let name = name_str.as_str();
+                // CPython sets __module__ to None for builtins and <...> modules
+                if name == "builtins" || name.starts_with('<') {
+                    // Don't set __module__ attribute at all (CPython behavior)
+                    // This allows the typing module to handle it
+                    return Ok(());
+                }
+            }
+            obj.set_attr("__module__", module_name, vm)?;
+        }
+        Ok(())
+    }
 }
