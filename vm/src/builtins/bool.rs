@@ -66,7 +66,7 @@ impl PyObjectRef {
 
                     let len_val = int_obj.as_bigint();
                     if len_val.sign() == Sign::Minus {
-                        return Err(vm.new_value_error("__len__() should return >= 0".to_owned()));
+                        return Err(vm.new_value_error("__len__() should return >= 0"));
                     }
                     !len_val.is_zero()
                 }

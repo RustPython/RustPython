@@ -128,7 +128,7 @@ mod _sre {
             let result = func.call((pattern, repl.clone()), vm)?;
             result
                 .downcast::<Self>()
-                .map_err(|_| vm.new_runtime_error("expected SRE_Template".to_owned()))
+                .map_err(|_| vm.new_runtime_error("expected SRE_Template"))
         }
     }
 
@@ -138,7 +138,7 @@ mod _sre {
         template: PyListRef,
         vm: &VirtualMachine,
     ) -> PyResult<Template> {
-        let err = || vm.new_type_error("invalid template".to_owned());
+        let err = || vm.new_type_error("invalid template");
 
         let mut items = Vec::with_capacity(1);
         let v = template.borrow_vec();
@@ -152,7 +152,7 @@ mod _sre {
         for trunk in trunks {
             let index: usize = trunk[0]
                 .payload::<PyInt>()
-                .ok_or_else(|| vm.new_type_error("expected usize".to_owned()))?
+                .ok_or_else(|| vm.new_type_error("expected usize"))?
                 .try_to_primitive(vm)?;
             items.push((index, trunk[1].clone()));
         }
@@ -678,7 +678,7 @@ mod _sre {
         ) -> PyResult<(isize, isize)> {
             let index = group.map_or(Ok(0), |group| {
                 self.get_index(group, vm)
-                    .ok_or_else(|| vm.new_index_error("no such group".to_owned()))
+                    .ok_or_else(|| vm.new_index_error("no such group"))
             })?;
             Ok(self.regs[index])
         }

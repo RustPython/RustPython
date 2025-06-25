@@ -19,9 +19,10 @@ impl PyObject {
         f: impl FnOnce(&[u8]) -> R,
     ) -> PyResult<R> {
         let buffer = PyBuffer::try_from_borrowed_object(vm, self)?;
-        buffer.as_contiguous().map(|x| f(&x)).ok_or_else(|| {
-            vm.new_type_error("non-contiguous buffer is not a bytes-like object".to_owned())
-        })
+        buffer
+            .as_contiguous()
+            .map(|x| f(&x))
+            .ok_or_else(|| vm.new_type_error("non-contiguous buffer is not a bytes-like object"))
     }
 
     pub fn try_rw_bytes_like<R>(
@@ -33,9 +34,7 @@ impl PyObject {
         buffer
             .as_contiguous_mut()
             .map(|mut x| f(&mut x))
-            .ok_or_else(|| {
-                vm.new_type_error("buffer is not a read-write bytes-like object".to_owned())
-            })
+            .ok_or_else(|| vm.new_type_error("buffer is not a read-write bytes-like object"))
     }
 }
 
@@ -82,7 +81,7 @@ impl<'a> TryFromBorrowedObject<'a> for ArgBytesLike {
         if buffer.desc.is_contiguous() {
             Ok(Self(buffer))
         } else {
-            Err(vm.new_type_error("non-contiguous buffer is not a bytes-like object".to_owned()))
+            Err(vm.new_type_error("non-contiguous buffer is not a bytes-like object"))
         }
     }
 }
@@ -122,9 +121,9 @@ impl<'a> TryFromBorrowedObject<'a> for ArgMemoryBuffer {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         let buffer = PyBuffer::try_from_borrowed_object(vm, obj)?;
         if !buffer.desc.is_contiguous() {
-            Err(vm.new_type_error("non-contiguous buffer is not a bytes-like object".to_owned()))
+            Err(vm.new_type_error("non-contiguous buffer is not a bytes-like object"))
         } else if buffer.desc.readonly {
-            Err(vm.new_type_error("buffer is not a read-write bytes-like object".to_owned()))
+            Err(vm.new_type_error("buffer is not a read-write bytes-like object"))
         } else {
             Ok(Self(buffer))
         }
@@ -176,9 +175,7 @@ impl TryFromObject for ArgAsciiBuffer {
                 if string.as_str().is_ascii() {
                     Ok(ArgAsciiBuffer::String(string))
                 } else {
-                    Err(vm.new_value_error(
-                        "string argument should contain only ASCII characters".to_owned(),
-                    ))
+                    Err(vm.new_value_error("string argument should contain only ASCII characters"))
                 }
             }
             Err(obj) => ArgBytesLike::try_from_object(vm, obj).map(ArgAsciiBuffer::Buffer),

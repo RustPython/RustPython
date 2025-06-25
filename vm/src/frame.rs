@@ -1265,7 +1265,7 @@ impl ExecutingFrame<'_> {
                 let type_params: PyTupleRef = self
                     .pop_value()
                     .downcast()
-                    .map_err(|_| vm.new_type_error("Type params must be a tuple.".to_owned()))?;
+                    .map_err(|_| vm.new_type_error("Type params must be a tuple."))?;
                 let value = self.pop_value();
                 let type_alias = _typing::TypeAliasType::new(name, type_params, value);
                 self.push_value(type_alias.into_ref(&vm.ctx).into());
@@ -1544,7 +1544,7 @@ impl ExecutingFrame<'_> {
             Self::iterate_mapping_keys(vm, &obj, "keyword argument", |key| {
                 // Check for keyword argument restrictions
                 if key.downcast_ref::<PyStr>().is_none() {
-                    return Err(vm.new_type_error("keywords must be strings".to_owned()));
+                    return Err(vm.new_type_error("keywords must be strings"));
                 }
                 if map_obj.contains_key(&*key, vm) {
                     let key_repr = &key.repr(vm)?;
@@ -1610,7 +1610,7 @@ impl ExecutingFrame<'_> {
             Self::iterate_mapping_keys(vm, &kw_obj, "argument after **", |key| {
                 let key_str = key
                     .payload_if_subclass::<PyStr>(vm)
-                    .ok_or_else(|| vm.new_type_error("keywords must be strings".to_owned()))?;
+                    .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
                 let value = kw_obj.get_item(&*key, vm)?;
                 kwargs.insert(key_str.as_str().to_owned(), value);
                 Ok(())
@@ -1689,9 +1689,7 @@ impl ExecutingFrame<'_> {
                 } else {
                     // if the cause arg is an exception, we overwrite it
                     let ctor = ExceptionCtor::try_from_object(vm, val).map_err(|_| {
-                        vm.new_type_error(
-                            "exception causes must derive from BaseException".to_owned(),
-                        )
+                        vm.new_type_error("exception causes must derive from BaseException")
                     })?;
                     Some(ctor.instantiate(vm)?)
                 })
@@ -1705,7 +1703,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::RaiseKind::Reraise => vm
                 .topmost_exception()
-                .ok_or_else(|| vm.new_runtime_error("No active exception to reraise".to_owned()))?,
+                .ok_or_else(|| vm.new_runtime_error("No active exception to reraise"))?,
         };
         #[cfg(debug_assertions)]
         debug!("Exception raised: {exception:?} with cause: {cause:?}");
@@ -1880,7 +1878,7 @@ impl ExecutingFrame<'_> {
         let type_params: PyTupleRef = if flags.contains(bytecode::MakeFunctionFlags::TYPE_PARAMS) {
             self.pop_value()
                 .downcast()
-                .map_err(|_| vm.new_type_error("Type params must be a tuple.".to_owned()))?
+                .map_err(|_| vm.new_type_error("Type params must be a tuple."))?
         } else {
             vm.ctx.empty_tuple.clone()
         };
@@ -2026,7 +2024,7 @@ impl ExecutingFrame<'_> {
         let displayhook = vm
             .sys_module
             .get_attr("displayhook", vm)
-            .map_err(|_| vm.new_runtime_error("lost sys.displayhook".to_owned()))?;
+            .map_err(|_| vm.new_runtime_error("lost sys.displayhook"))?;
         displayhook.call((expr,), vm)?;
 
         Ok(None)
@@ -2112,15 +2110,13 @@ impl ExecutingFrame<'_> {
                             .is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)?
                         {
                             return Err(vm.new_type_error(
-                                "catching classes that do not inherit from BaseException is not allowed"
-                                    .to_owned(),
+                                "catching classes that do not inherit from BaseException is not allowed",
                             ));
                         }
                     }
                 } else if !b.is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)? {
                     return Err(vm.new_type_error(
-                        "catching classes that do not inherit from BaseException is not allowed"
-                            .to_owned(),
+                        "catching classes that do not inherit from BaseException is not allowed",
                     ));
                 }
 

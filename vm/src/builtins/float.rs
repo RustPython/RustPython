@@ -79,13 +79,11 @@ macro_rules! impl_try_from_object_float {
 impl_try_from_object_float!(f32, f64);
 
 fn inner_div(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
-    float_ops::div(v1, v2)
-        .ok_or_else(|| vm.new_zero_division_error("float division by zero".to_owned()))
+    float_ops::div(v1, v2).ok_or_else(|| vm.new_zero_division_error("float division by zero"))
 }
 
 fn inner_mod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
-    float_ops::mod_(v1, v2)
-        .ok_or_else(|| vm.new_zero_division_error("float mod by zero".to_owned()))
+    float_ops::mod_(v1, v2).ok_or_else(|| vm.new_zero_division_error("float mod by zero"))
 }
 
 pub fn try_to_bigint(value: f64, vm: &VirtualMachine) -> PyResult<BigInt> {
@@ -93,12 +91,10 @@ pub fn try_to_bigint(value: f64, vm: &VirtualMachine) -> PyResult<BigInt> {
         Some(int) => Ok(int),
         None => {
             if value.is_infinite() {
-                Err(vm.new_overflow_error(
-                    "OverflowError: cannot convert float infinity to integer".to_owned(),
-                ))
-            } else if value.is_nan() {
                 Err(vm
-                    .new_value_error("ValueError: cannot convert float NaN to integer".to_owned()))
+                    .new_overflow_error("OverflowError: cannot convert float infinity to integer"))
+            } else if value.is_nan() {
+                Err(vm.new_value_error("ValueError: cannot convert float NaN to integer"))
             } else {
                 // unreachable unless BigInt has a bug
                 unreachable!(
@@ -111,12 +107,11 @@ pub fn try_to_bigint(value: f64, vm: &VirtualMachine) -> PyResult<BigInt> {
 }
 
 fn inner_floordiv(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
-    float_ops::floordiv(v1, v2)
-        .ok_or_else(|| vm.new_zero_division_error("float floordiv by zero".to_owned()))
+    float_ops::floordiv(v1, v2).ok_or_else(|| vm.new_zero_division_error("float floordiv by zero"))
 }
 
 fn inner_divmod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
-    float_ops::divmod(v1, v2).ok_or_else(|| vm.new_zero_division_error("float divmod()".to_owned()))
+    float_ops::divmod(v1, v2).ok_or_else(|| vm.new_zero_division_error("float divmod()"))
 }
 
 pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
@@ -219,9 +214,9 @@ impl PyFloat {
     #[pystaticmethod(magic)]
     fn getformat(spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         if !matches!(spec.as_str(), "double" | "float") {
-            return Err(vm.new_value_error(
-                "__getformat__() argument 1 must be 'double' or 'float'".to_owned(),
-            ));
+            return Err(
+                vm.new_value_error("__getformat__() argument 1 must be 'double' or 'float'")
+            );
         }
 
         const BIG_ENDIAN: bool = cfg!(target_endian = "big");
@@ -357,7 +352,7 @@ impl PyFloat {
         vm: &VirtualMachine,
     ) -> PyResult {
         if mod_val.flatten().is_some() {
-            Err(vm.new_type_error("floating point pow() does not accept a 3rd argument".to_owned()))
+            Err(vm.new_type_error("floating point pow() does not accept a 3rd argument"))
         } else {
             self.complex_op(other, |a, b| float_pow(a, b, vm), vm)
         }
@@ -423,9 +418,8 @@ impl PyFloat {
                 None if ndigits.is_positive() => i32::MAX,
                 None => i32::MIN,
             };
-            let float = float_ops::round_float_digits(self.value, ndigits).ok_or_else(|| {
-                vm.new_overflow_error("overflow occurred during round".to_owned())
-            })?;
+            let float = float_ops::round_float_digits(self.value, ndigits)
+                .ok_or_else(|| vm.new_overflow_error("overflow occurred during round"))?;
             vm.ctx.new_float(float).into()
         } else {
             let fract = self.value.fract();
@@ -482,9 +476,9 @@ impl PyFloat {
             .map(|(numer, denom)| (vm.ctx.new_bigint(&numer), vm.ctx.new_bigint(&denom)))
             .ok_or_else(|| {
                 if value.is_infinite() {
-                    vm.new_overflow_error("cannot convert Infinity to integer ratio".to_owned())
+                    vm.new_overflow_error("cannot convert Infinity to integer ratio")
                 } else if value.is_nan() {
-                    vm.new_value_error("cannot convert NaN to integer ratio".to_owned())
+                    vm.new_value_error("cannot convert NaN to integer ratio")
                 } else {
                     unreachable!("finite float must able to convert to integer ratio")
                 }
@@ -493,9 +487,8 @@ impl PyFloat {
 
     #[pyclassmethod]
     fn fromhex(cls: PyTypeRef, string: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let result = crate::literal::float::from_hex(string.as_str().trim()).ok_or_else(|| {
-            vm.new_value_error("invalid hexadecimal floating-point string".to_owned())
-        })?;
+        let result = crate::literal::float::from_hex(string.as_str().trim())
+            .ok_or_else(|| vm.new_value_error("invalid hexadecimal floating-point string"))?;
         PyType::call(&cls, vec![vm.ctx.new_float(result).into()].into(), vm)
     }
 

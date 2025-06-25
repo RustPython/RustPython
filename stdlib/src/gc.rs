@@ -16,61 +16,61 @@ mod gc {
 
     #[pyfunction]
     fn enable(_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_not_implemented_error("".to_owned()))
+        Err(vm.new_not_implemented_error(""))
     }
 
     #[pyfunction]
     fn disable(_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_not_implemented_error("".to_owned()))
+        Err(vm.new_not_implemented_error(""))
     }
 
     #[pyfunction]
     fn get_count(_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_not_implemented_error("".to_owned()))
+        Err(vm.new_not_implemented_error(""))
     }
 
     #[pyfunction]
     fn get_debug(_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_not_implemented_error("".to_owned()))
+        Err(vm.new_not_implemented_error(""))
     }
 
     #[pyfunction]
     fn get_objects(_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_not_implemented_error("".to_owned()))
+        Err(vm.new_not_implemented_error(""))
     }
 
     #[pyfunction]
     fn get_refererts(_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_not_implemented_error("".to_owned()))
+        Err(vm.new_not_implemented_error(""))
     }
 
     #[pyfunction]
     fn get_referrers(_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_not_implemented_error("".to_owned()))
+        Err(vm.new_not_implemented_error(""))
     }
 
     #[pyfunction]
     fn get_stats(_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_not_implemented_error("".to_owned()))
+        Err(vm.new_not_implemented_error(""))
     }
 
     #[pyfunction]
     fn get_threshold(_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_not_implemented_error("".to_owned()))
+        Err(vm.new_not_implemented_error(""))
     }
 
     #[pyfunction]
     fn is_tracked(_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_not_implemented_error("".to_owned()))
+        Err(vm.new_not_implemented_error(""))
     }
 
     #[pyfunction]
     fn set_debug(_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_not_implemented_error("".to_owned()))
+        Err(vm.new_not_implemented_error(""))
     }
 
     #[pyfunction]
     fn set_threshold(_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_not_implemented_error("".to_owned()))
+        Err(vm.new_not_implemented_error(""))
     }
 }

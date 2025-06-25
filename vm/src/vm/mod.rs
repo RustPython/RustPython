@@ -630,7 +630,7 @@ impl VirtualMachine {
                     .builtins
                     .get_attr(identifier!(self, __import__), self)
                     .map_err(|_| {
-                        self.new_import_error("__import__ not found".to_owned(), module.to_owned())
+                        self.new_import_error("__import__ not found", module.to_owned())
                     })?;
 
                 let (locals, globals) = if let Some(frame) = self.current_frame() {

@@ -147,7 +147,7 @@ pub(crate) mod _signal {
         _handler: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        Err(vm.new_not_implemented_error("signal is not implemented on this platform".to_owned()))
+        Err(vm.new_not_implemented_error("signal is not implemented on this platform"))
     }
 
     #[cfg(any(unix, windows))]
@@ -161,7 +161,7 @@ pub(crate) mod _signal {
         let signal_handlers = vm
             .signal_handlers
             .as_deref()
-            .ok_or_else(|| vm.new_value_error("signal only works in main thread".to_owned()))?;
+            .ok_or_else(|| vm.new_value_error("signal only works in main thread"))?;
 
         let sig_handler =
             match usize::try_from_borrowed_object(vm, &handler).ok() {
@@ -169,8 +169,7 @@ pub(crate) mod _signal {
                 Some(SIG_IGN) => SIG_IGN,
                 None if handler.is_callable() => run_signal as sighandler_t,
                 _ => return Err(vm.new_type_error(
-                    "signal handler must be signal.SIG_IGN, signal.SIG_DFL, or a callable object"
-                        .to_owned(),
+                    "signal handler must be signal.SIG_IGN, signal.SIG_DFL, or a callable object",
                 )),
             };
         signal::check_signals(vm)?;
@@ -194,7 +193,7 @@ pub(crate) mod _signal {
         let signal_handlers = vm
             .signal_handlers
             .as_deref()
-            .ok_or_else(|| vm.new_value_error("getsignal only works in main thread".to_owned()))?;
+            .ok_or_else(|| vm.new_value_error("getsignal only works in main thread"))?;
         let handler = signal_handlers.borrow()[signalnum as usize]
             .clone()
             .unwrap_or_else(|| vm.ctx.none());
@@ -238,7 +237,7 @@ pub(crate) mod _signal {
         let fd = args.fd;
 
         if vm.signal_handlers.is_none() {
-            return Err(vm.new_value_error("signal only works in main thread".to_owned()));
+            return Err(vm.new_value_error("signal only works in main thread"));
         }
 
         #[cfg(windows)]

@@ -69,7 +69,7 @@ mod _random {
         #[pymethod]
         fn getrandbits(&self, k: isize, vm: &VirtualMachine) -> PyResult<BigInt> {
             match k {
-                ..0 => Err(vm.new_value_error("number of bits must be non-negative".to_owned())),
+                ..0 => Err(vm.new_value_error("number of bits must be non-negative")),
                 0 => Ok(BigInt::zero()),
                 mut k => {
                     let mut rng = self.rng.lock();
@@ -117,11 +117,11 @@ mod _random {
             let state: &[_; mt19937::N + 1] = state
                 .as_slice()
                 .try_into()
-                .map_err(|_| vm.new_value_error("state vector is the wrong size".to_owned()))?;
+                .map_err(|_| vm.new_value_error("state vector is the wrong size"))?;
             let (index, state) = state.split_last().unwrap();
             let index: usize = index.try_to_value(vm)?;
             if index > mt19937::N {
-                return Err(vm.new_value_error("invalid state".to_owned()));
+                return Err(vm.new_value_error("invalid state"));
             }
             let state: [u32; mt19937::N] = state
                 .iter()

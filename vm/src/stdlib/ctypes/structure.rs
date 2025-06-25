@@ -22,24 +22,22 @@ impl Constructor for PyCStructure {
     fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
         let fields_attr = cls
             .get_class_attr(vm.ctx.interned_str("_fields_").unwrap())
-            .ok_or_else(|| {
-                vm.new_attribute_error("Structure must have a _fields_ attribute".to_string())
-            })?;
+            .ok_or_else(|| vm.new_attribute_error("Structure must have a _fields_ attribute"))?;
         // downcast into list
-        let fields = fields_attr.downcast_ref::<PyList>().ok_or_else(|| {
-            vm.new_type_error("Structure _fields_ attribute must be a list".to_string())
-        })?;
+        let fields = fields_attr
+            .downcast_ref::<PyList>()
+            .ok_or_else(|| vm.new_type_error("Structure _fields_ attribute must be a list"))?;
         let fields = fields.borrow_vec();
         let mut field_data = HashMap::new();
         for field in fields.iter() {
             let field = field
                 .downcast_ref::<PyTuple>()
-                .ok_or_else(|| vm.new_type_error("Field must be a tuple".to_string()))?;
+                .ok_or_else(|| vm.new_type_error("Field must be a tuple"))?;
             let name = field
                 .first()
                 .unwrap()
                 .downcast_ref::<PyStr>()
-                .ok_or_else(|| vm.new_type_error("Field name must be a string".to_string()))?;
+                .ok_or_else(|| vm.new_type_error("Field name must be a string"))?;
             let typ = field.get(1).unwrap().clone();
             field_data.insert(name.as_str().to_string(), typ);
         }

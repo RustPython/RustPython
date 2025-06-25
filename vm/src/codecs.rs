@@ -85,9 +85,7 @@ impl PyCodec {
             .downcast::<PyTuple>()
             .ok()
             .filter(|tuple| tuple.len() == 2)
-            .ok_or_else(|| {
-                vm.new_type_error("encoder must return a tuple (object, integer)".to_owned())
-            })?;
+            .ok_or_else(|| vm.new_type_error("encoder must return a tuple (object, integer)"))?;
         // we don't actually care about the integer
         Ok(res[0].clone())
     }
@@ -107,9 +105,7 @@ impl PyCodec {
             .downcast::<PyTuple>()
             .ok()
             .filter(|tuple| tuple.len() == 2)
-            .ok_or_else(|| {
-                vm.new_type_error("decoder must return a tuple (object,integer)".to_owned())
-            })?;
+            .ok_or_else(|| vm.new_type_error("decoder must return a tuple (object,integer)"))?;
         // we don't actually care about the integer
         Ok(res[0].clone())
     }
@@ -144,9 +140,7 @@ impl TryFromObject for PyCodec {
         obj.downcast::<PyTuple>()
             .ok()
             .and_then(|tuple| PyCodec::from_tuple(tuple).ok())
-            .ok_or_else(|| {
-                vm.new_type_error("codec search functions must return 4-tuples".to_owned())
-            })
+            .ok_or_else(|| vm.new_type_error("codec search functions must return 4-tuples"))
     }
 }
 
@@ -203,7 +197,7 @@ impl CodecsRegistry {
 
     pub fn register(&self, search_function: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if !search_function.is_callable() {
-            return Err(vm.new_type_error("argument must be callable".to_owned()));
+            return Err(vm.new_type_error("argument must be callable"));
         }
         self.inner.write().search_path.push(search_function);
         Ok(())
@@ -786,9 +780,9 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for StandardError {
             Strict => errors::Strict.handle_decode_error(ctx, byte_range, reason),
             Ignore => errors::Ignore.handle_decode_error(ctx, byte_range, reason),
             Replace => errors::Replace.handle_decode_error(ctx, byte_range, reason),
-            XmlCharRefReplace => Err(ctx.vm.new_type_error(
-                "don't know how to handle UnicodeDecodeError in error callback".to_owned(),
-            )),
+            XmlCharRefReplace => Err(ctx
+                .vm
+                .new_type_error("don't know how to handle UnicodeDecodeError in error callback")),
             BackslashReplace => {
                 errors::BackslashReplace.handle_decode_error(ctx, byte_range, reason)
             }
@@ -856,11 +850,8 @@ impl<'a> EncodeErrorHandler<PyEncodeContext<'a>> for ErrorsHandler<'_> {
         };
         let encode_exc = ctx.error_encoding(range.clone(), reason);
         let res = handler.call((encode_exc.clone(),), vm)?;
-        let tuple_err = || {
-            vm.new_type_error(
-                "encoding error handler must return (str/bytes, int) tuple".to_owned(),
-            )
-        };
+        let tuple_err =
+            || vm.new_type_error("encoding error handler must return (str/bytes, int) tuple");
         let (replace, restart) = match res.payload::<PyTuple>().map(|tup| tup.as_slice()) {
             Some([replace, restart]) => (replace.clone(), restart),
             _ => return Err(tuple_err()),
@@ -914,12 +905,11 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for ErrorsHandler<'_> {
         if !new_data.is(&data_bytes) {
             let new_data: PyBytesRef = new_data
                 .downcast()
-                .map_err(|_| vm.new_type_error("object attribute must be bytes".to_owned()))?;
+                .map_err(|_| vm.new_type_error("object attribute must be bytes"))?;
             ctx.data = PyDecodeData::Modified(new_data);
         }
         let data = &*ctx.data;
-        let tuple_err =
-            || vm.new_type_error("decoding error handler must return (str, int) tuple".to_owned());
+        let tuple_err = || vm.new_type_error("decoding error handler must return (str, int) tuple");
         match res.payload::<PyTuple>().map(|tup| tup.as_slice()) {
             Some([replace, restart]) => {
                 let replace = replace
@@ -1091,7 +1081,7 @@ fn bad_err_type(err: PyObjectRef, vm: &VirtualMachine) -> PyBaseExceptionRef {
 fn strict_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let err = err
         .downcast()
-        .unwrap_or_else(|_| vm.new_type_error("codec must pass exception instance".to_owned()));
+        .unwrap_or_else(|_| vm.new_type_error("codec must pass exception instance"));
     Err(err)
 }
 

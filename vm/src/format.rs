@@ -13,11 +13,11 @@ impl IntoPyException for FormatSpecError {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {
             FormatSpecError::DecimalDigitsTooMany => {
-                vm.new_value_error("Too many decimal digits in format string".to_owned())
+                vm.new_value_error("Too many decimal digits in format string")
             }
-            FormatSpecError::PrecisionTooBig => vm.new_value_error("Precision too big".to_owned()),
+            FormatSpecError::PrecisionTooBig => vm.new_value_error("Precision too big"),
             FormatSpecError::InvalidFormatSpecifier => {
-                vm.new_value_error("Invalid format specifier".to_owned())
+                vm.new_value_error("Invalid format specifier")
             }
             FormatSpecError::UnspecifiedFormat(c1, c2) => {
                 let msg = format!("Cannot specify '{c1}' with '{c2}'.");

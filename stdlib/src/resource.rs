@@ -123,7 +123,7 @@ mod resource {
         };
         res.map(Rusage::from).map_err(|e| {
             if e.kind() == io::ErrorKind::InvalidInput {
-                vm.new_value_error("invalid who parameter".to_owned())
+                vm.new_value_error("invalid who parameter")
             } else {
                 e.to_pyexception(vm)
             }
@@ -139,7 +139,7 @@ mod resource {
                     rlim_cur: cur & RLIM_INFINITY,
                     rlim_max: max & RLIM_INFINITY,
                 })),
-                _ => Err(vm.new_value_error("expected a tuple of 2 integers".to_owned())),
+                _ => Err(vm.new_value_error("expected a tuple of 2 integers")),
             }
         }
     }
@@ -153,7 +153,7 @@ mod resource {
     fn getrlimit(resource: i32, vm: &VirtualMachine) -> PyResult<Limits> {
         #[allow(clippy::unnecessary_cast)]
         if resource < 0 || resource >= RLIM_NLIMITS as i32 {
-            return Err(vm.new_value_error("invalid resource specified".to_owned()));
+            return Err(vm.new_value_error("invalid resource specified"));
         }
         let rlimit = unsafe {
             let mut rlimit = mem::MaybeUninit::<libc::rlimit>::uninit();
@@ -169,7 +169,7 @@ mod resource {
     fn setrlimit(resource: i32, limits: Limits, vm: &VirtualMachine) -> PyResult<()> {
         #[allow(clippy::unnecessary_cast)]
         if resource < 0 || resource >= RLIM_NLIMITS as i32 {
-            return Err(vm.new_value_error("invalid resource specified".to_owned()));
+            return Err(vm.new_value_error("invalid resource specified"));
         }
         let res = unsafe {
             if libc::setrlimit(resource as _, &limits.0) == -1 {
@@ -180,10 +180,10 @@ mod resource {
         };
         res.map_err(|e| match e.kind() {
             io::ErrorKind::InvalidInput => {
-                vm.new_value_error("current limit exceeds maximum limit".to_owned())
+                vm.new_value_error("current limit exceeds maximum limit")
             }
             io::ErrorKind::PermissionDenied => {
-                vm.new_value_error("not allowed to raise maximum limit".to_owned())
+                vm.new_value_error("not allowed to raise maximum limit")
             }
             _ => e.to_pyexception(vm),
         })

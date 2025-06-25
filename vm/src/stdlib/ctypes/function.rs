@@ -47,23 +47,18 @@ impl Function {
                     let converted = ffi_type_from_str(&arg._type_);
                     return match converted {
                         Some(t) => Ok(t),
-                        None => Err(vm.new_type_error("Invalid type".to_string())), // TODO: add type name
+                        None => Err(vm.new_type_error("Invalid type")), // TODO: add type name
                     };
                 }
                 if let Some(arg) = arg.payload_if_subclass::<PyCArray>(vm) {
                     let t = arg.typ.read();
                     let ty_attributes = t.attributes.read();
-                    let ty_pystr =
-                        ty_attributes
-                            .get(vm.ctx.intern_str("_type_"))
-                            .ok_or_else(|| {
-                                vm.new_type_error("Expected a ctypes simple type".to_string())
-                            })?;
+                    let ty_pystr = ty_attributes
+                        .get(vm.ctx.intern_str("_type_"))
+                        .ok_or_else(|| vm.new_type_error("Expected a ctypes simple type"))?;
                     let ty_str = ty_pystr
                         .downcast_ref::<PyStr>()
-                        .ok_or_else(|| {
-                            vm.new_type_error("Expected a ctypes simple type".to_string())
-                        })?
+                        .ok_or_else(|| vm.new_type_error("Expected a ctypes simple type"))?
                         .to_string();
                     let converted = ffi_type_from_str(&ty_str);
                     match converted {
@@ -71,15 +66,15 @@ impl Function {
                             // TODO: Use
                             Ok(Type::void())
                         }
-                        None => Err(vm.new_type_error("Invalid type".to_string())), // TODO: add type name
+                        None => Err(vm.new_type_error("Invalid type")), // TODO: add type name
                     }
                 } else {
-                    Err(vm.new_type_error("Expected a ctypes simple type".to_string()))
+                    Err(vm.new_type_error("Expected a ctypes simple type"))
                 }
             })
             .collect::<PyResult<Vec<Type>>>()?;
         let c_function_name = CString::new(function)
-            .map_err(|_| vm.new_value_error("Function name contains null bytes".to_string()))?;
+            .map_err(|_| vm.new_value_error("Function name contains null bytes"))?;
         let pointer: Symbol<'_, FP> = unsafe {
             library
                 .get(c_function_name.as_bytes())
@@ -90,7 +85,7 @@ impl Function {
         let return_type = match ret_type {
             // TODO: Fix this
             Some(_t) => {
-                return Err(vm.new_not_implemented_error("Return type not implemented".to_string()));
+                return Err(vm.new_not_implemented_error("Return type not implemented"));
             }
             None => Type::c_int(),
         };
@@ -118,7 +113,7 @@ impl Function {
                 if let Some(d) = arg.payload_if_subclass::<PyCArray>(vm) {
                     return Ok(d.to_arg(vm).unwrap());
                 }
-                Err(vm.new_type_error("Expected a ctypes simple type".to_string()))
+                Err(vm.new_type_error("Expected a ctypes simple type"))
             })
             .collect::<PyResult<Vec<Arg>>>()?;
         // TODO: FIX return
@@ -152,14 +147,14 @@ impl Constructor for PyCFuncPtr {
     fn py_new(_cls: PyTypeRef, (tuple, _args): Self::Args, vm: &VirtualMachine) -> PyResult {
         let name = tuple
             .first()
-            .ok_or(vm.new_type_error("Expected a tuple with at least 2 elements".to_string()))?
+            .ok_or(vm.new_type_error("Expected a tuple with at least 2 elements"))?
             .downcast_ref::<PyStr>()
-            .ok_or(vm.new_type_error("Expected a string".to_string()))?
+            .ok_or(vm.new_type_error("Expected a string"))?
             .to_string();
         let handler = tuple
             .into_iter()
             .nth(1)
-            .ok_or(vm.new_type_error("Expected a tuple with at least 2 elements".to_string()))?
+            .ok_or(vm.new_type_error("Expected a tuple with at least 2 elements"))?
             .clone();
         Ok(Self {
             _flags_: AtomicCell::new(0),
@@ -182,16 +177,16 @@ impl Callable for PyCFuncPtr {
                 .get_lib(
                     handle
                         .to_usize()
-                        .ok_or(vm.new_value_error("Invalid handle".to_string()))?,
+                        .ok_or(vm.new_value_error("Invalid handle"))?,
                 )
-                .ok_or_else(|| vm.new_value_error("Library not found".to_string()))?;
+                .ok_or_else(|| vm.new_value_error("Library not found"))?;
             let inner_lib = library.lib.lock();
             let name = zelf.name.read();
             let res_type = zelf._restype_.read();
             let func = Function::load(
                 inner_lib
                     .as_ref()
-                    .ok_or_else(|| vm.new_value_error("Library not found".to_string()))?,
+                    .ok_or_else(|| vm.new_value_error("Library not found"))?,
                 &name,
                 &args.args,
                 &res_type,

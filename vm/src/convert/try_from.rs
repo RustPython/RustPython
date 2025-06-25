@@ -130,7 +130,7 @@ impl TryFromObject for std::time::Duration {
             let sec = int?
                 .as_bigint()
                 .to_u64()
-                .ok_or_else(|| vm.new_value_error("value out of range".to_owned()))?;
+                .ok_or_else(|| vm.new_value_error("value out of range"))?;
             Ok(Duration::from_secs(sec))
         } else {
             Err(vm.new_type_error(format!(

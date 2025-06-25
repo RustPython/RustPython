@@ -176,7 +176,7 @@ pub trait AnyStr {
         SW: Fn(&Self, isize, &VirtualMachine) -> Vec<PyObjectRef>,
     {
         if args.sep.as_ref().is_some_and(|sep| sep.is_empty()) {
-            return Err(vm.new_value_error("empty separator".to_owned()));
+            return Err(vm.new_value_error("empty separator"));
         }
         let splits = if let Some(pattern) = args.sep {
             let Some(pattern) = pattern.as_ref() else {
@@ -331,7 +331,7 @@ pub trait AnyStr {
         S: std::iter::Iterator<Item = &'a Self>,
     {
         if sub.is_empty() {
-            return Err(vm.new_value_error("empty separator".to_owned()));
+            return Err(vm.new_value_error("empty separator"));
         }
 
         let mut sp = split();

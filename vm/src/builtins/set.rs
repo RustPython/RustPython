@@ -1308,7 +1308,7 @@ impl IterNext for PySetIterator {
         let next = if let IterStatus::Active(dict) = &internal.status {
             if dict.has_changed_size(&zelf.size) {
                 internal.status = IterStatus::Exhausted;
-                return Err(vm.new_runtime_error("set changed size during iteration".to_owned()));
+                return Err(vm.new_runtime_error("set changed size during iteration"));
             }
             match dict.next_entry(internal.position) {
                 Some((position, key, _)) => {

@@ -78,7 +78,7 @@ impl PyDict {
             let iter = other.get_iter(vm)?;
             loop {
                 fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
-                    vm.new_value_error("Iterator must have exactly two elements".to_owned())
+                    vm.new_value_error("Iterator must have exactly two elements")
                 }
                 let element = match iter.next(vm)? {
                     PyIterReturn::Return(obj) => obj,
@@ -103,7 +103,7 @@ impl PyDict {
             dict.insert(vm, &*key, value)?;
         }
         if dict_other.entries.has_changed_size(dict_size) {
-            return Err(vm.new_runtime_error("dict mutated during update".to_owned()));
+            return Err(vm.new_runtime_error("dict mutated during update"));
         }
         Ok(())
     }

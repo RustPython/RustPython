@@ -428,7 +428,7 @@ mod _ssl {
     #[pyfunction(name = "RAND_bytes")]
     fn rand_bytes(n: i32, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         if n < 0 {
-            return Err(vm.new_value_error("num must be positive".to_owned()));
+            return Err(vm.new_value_error("num must be positive"));
         }
         let mut buf = vec![0; n as usize];
         openssl::rand::rand_bytes(&mut buf).map_err(|e| convert_openssl_error(vm, e))?;
@@ -438,7 +438,7 @@ mod _ssl {
     #[pyfunction(name = "RAND_pseudo_bytes")]
     fn rand_pseudo_bytes(n: i32, vm: &VirtualMachine) -> PyResult<(Vec<u8>, bool)> {
         if n < 0 {
-            return Err(vm.new_value_error("num must be positive".to_owned()));
+            return Err(vm.new_value_error("num must be positive"));
         }
         let mut buf = vec![0; n as usize];
         let ret = unsafe { sys::RAND_bytes(buf.as_mut_ptr(), n) };
@@ -473,14 +473,14 @@ mod _ssl {
 
         fn py_new(cls: PyTypeRef, proto_version: Self::Args, vm: &VirtualMachine) -> PyResult {
             let proto = SslVersion::try_from(proto_version)
-                .map_err(|_| vm.new_value_error("invalid protocol version".to_owned()))?;
+                .map_err(|_| vm.new_value_error("invalid protocol version"))?;
             let method = match proto {
                 // SslVersion::Ssl3 => unsafe { ssl::SslMethod::from_ptr(sys::SSLv3_method()) },
                 SslVersion::Tls => ssl::SslMethod::tls(),
                 // TODO: Tls1_1, Tls1_2 ?
                 SslVersion::TlsClient => ssl::SslMethod::tls_client(),
                 SslVersion::TlsServer => ssl::SslMethod::tls_server(),
-                _ => return Err(vm.new_value_error("invalid protocol version".to_owned())),
+                _ => return Err(vm.new_value_error("invalid protocol version")),
             };
             let mut builder =
                 SslContextBuilder::new(method).map_err(|e| convert_openssl_error(vm, e))?;
@@ -550,8 +550,7 @@ mod _ssl {
             value: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let value = value
-                .ok_or_else(|| vm.new_attribute_error("cannot delete attribute".to_owned()))?;
+            let value = value.ok_or_else(|| vm.new_attribute_error("cannot delete attribute"))?;
             *self.post_handshake_auth.lock() = value.is_true(vm)?;
             Ok(())
         }
@@ -597,12 +596,11 @@ mod _ssl {
         fn set_verify_mode(&self, cert: i32, vm: &VirtualMachine) -> PyResult<()> {
             let mut ctx = self.builder();
             let cert_req = CertRequirements::try_from(cert)
-                .map_err(|_| vm.new_value_error("invalid value for verify_mode".to_owned()))?;
+                .map_err(|_| vm.new_value_error("invalid value for verify_mode"))?;
             let mode = match cert_req {
                 CertRequirements::None if self.check_hostname.load() => {
                     return Err(vm.new_value_error(
-                        "Cannot set verify_mode to CERT_NONE when check_hostname is enabled."
-                            .to_owned(),
+                        "Cannot set verify_mode to CERT_NONE when check_hostname is enabled.",
                     ));
                 }
                 CertRequirements::None => SslVerifyMode::NONE,
@@ -671,7 +669,7 @@ mod _ssl {
             #[cfg(not(ossl102))]
             {
                 Err(vm.new_not_implemented_error(
-                    "The NPN extension requires OpenSSL 1.0.1 or later.".to_owned(),
+                    "The NPN extension requires OpenSSL 1.0.1 or later.",
                 ))
             }
         }
@@ -683,9 +681,7 @@ mod _ssl {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             if let (None, None, None) = (&args.cafile, &args.capath, &args.cadata) {
-                return Err(
-                    vm.new_type_error("cafile, capath and cadata cannot be all omitted".to_owned())
-                );
+                return Err(vm.new_type_error("cafile, capath and cadata cannot be all omitted"));
             }
             if let Some(cafile) = &args.cafile {
                 cafile.ensure_no_nul(vm)?
@@ -696,9 +692,7 @@ mod _ssl {
 
             #[cold]
             fn invalid_cadata(vm: &VirtualMachine) -> PyBaseExceptionRef {
-                vm.new_type_error(
-                    "cadata should be an ASCII string or a bytes-like object".to_owned(),
-                )
+                vm.new_type_error("cadata should be an ASCII string or a bytes-like object")
             }
 
             let mut ctx = self.builder();
@@ -762,9 +756,7 @@ mod _ssl {
             } = args;
             // TODO: requires passing a callback to C
             if password.is_some() {
-                return Err(
-                    vm.new_not_implemented_error("password arg not yet supported".to_owned())
-                );
+                return Err(vm.new_not_implemented_error("password arg not yet supported"));
             }
             let mut ctx = self.builder();
             let key_path = keyfile.map(|path| path.to_path_buf(vm)).transpose()?;
@@ -800,8 +792,7 @@ mod _ssl {
                 let hostname = hostname.as_str();
                 if hostname.is_empty() || hostname.starts_with('.') {
                     return Err(vm.new_value_error(
-                        "server_hostname cannot be an empty string or start with a leading dot."
-                            .to_owned(),
+                        "server_hostname cannot be an empty string or start with a leading dot.",
                     ));
                 }
                 let ip = hostname.parse::<std::net::IpAddr>();
@@ -996,7 +987,7 @@ mod _ssl {
             let binary = binary.unwrap_or(false);
             let stream = self.stream.read();
             if !stream.ssl().is_init_finished() {
-                return Err(vm.new_value_error("handshake not done yet".to_owned()));
+                return Err(vm.new_value_error("handshake not done yet"));
             }
             stream
                 .ssl()

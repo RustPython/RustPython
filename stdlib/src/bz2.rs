@@ -105,7 +105,7 @@ mod _bz2 {
 
         #[pymethod(name = "__reduce__")]
         fn reduce(&self, vm: &VirtualMachine) -> PyResult<()> {
-            Err(vm.new_type_error("cannot pickle '_bz2.BZ2Decompressor' object".to_owned()))
+            Err(vm.new_type_error("cannot pickle '_bz2.BZ2Decompressor' object"))
         }
 
         // TODO: mro()?
@@ -140,9 +140,7 @@ mod _bz2 {
             let level = match compresslevel {
                 valid_level @ 1..=9 => bzip2::Compression::new(valid_level as u32),
                 _ => {
-                    return Err(
-                        vm.new_value_error("compresslevel must be between 1 and 9".to_owned())
-                    );
+                    return Err(vm.new_value_error("compresslevel must be between 1 and 9"));
                 }
             };
 
@@ -164,7 +162,7 @@ mod _bz2 {
         fn compress(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
             let mut state = self.state.lock();
             if state.flushed {
-                return Err(vm.new_value_error("Compressor has been flushed".to_owned()));
+                return Err(vm.new_value_error("Compressor has been flushed"));
             }
 
             // let CompressorState { flushed, encoder } = &mut *state;
@@ -179,7 +177,7 @@ mod _bz2 {
         fn flush(&self, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
             let mut state = self.state.lock();
             if state.flushed {
-                return Err(vm.new_value_error("Repeated call to flush()".to_owned()));
+                return Err(vm.new_value_error("Repeated call to flush()"));
             }
 
             // let CompressorState { flushed, encoder } = &mut *state;
@@ -193,7 +191,7 @@ mod _bz2 {
 
         #[pymethod(name = "__reduce__")]
         fn reduce(&self, vm: &VirtualMachine) -> PyResult<()> {
-            Err(vm.new_type_error("cannot pickle '_bz2.BZ2Compressor' object".to_owned()))
+            Err(vm.new_type_error("cannot pickle '_bz2.BZ2Compressor' object"))
         }
     }
 }

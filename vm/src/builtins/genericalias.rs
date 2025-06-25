@@ -52,7 +52,7 @@ impl Constructor for PyGenericAlias {
 
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
         if !args.kwargs.is_empty() {
-            return Err(vm.new_type_error("GenericAlias() takes no keyword arguments".to_owned()));
+            return Err(vm.new_type_error("GenericAlias() takes no keyword arguments"));
         }
         let (origin, arguments): (_, PyObjectRef) = args.bind(vm)?;
         PyGenericAlias::new(origin, arguments, vm)
@@ -193,14 +193,12 @@ impl PyGenericAlias {
 
     #[pymethod(magic)]
     fn instancecheck(_zelf: PyRef<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Err(vm
-            .new_type_error("isinstance() argument 2 cannot be a parameterized generic".to_owned()))
+        Err(vm.new_type_error("isinstance() argument 2 cannot be a parameterized generic"))
     }
 
     #[pymethod(magic)]
     fn subclasscheck(_zelf: PyRef<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Err(vm
-            .new_type_error("issubclass() argument 2 cannot be a parameterized generic".to_owned()))
+        Err(vm.new_type_error("issubclass() argument 2 cannot be a parameterized generic"))
     }
 
     #[pymethod(magic)]

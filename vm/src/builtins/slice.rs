@@ -66,9 +66,7 @@ impl PySlice {
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let slice: PySlice = match args.args.len() {
             0 => {
-                return Err(
-                    vm.new_type_error("slice() must have at least one arguments.".to_owned())
-                );
+                return Err(vm.new_type_error("slice() must have at least one arguments."));
             }
             1 => {
                 let stop = args.bind(vm)?;
@@ -106,7 +104,7 @@ impl PySlice {
             step = this_step.as_bigint().clone();
 
             if step.is_zero() {
-                return Err(vm.new_value_error("slice step cannot be zero.".to_owned()));
+                return Err(vm.new_value_error("slice step cannot be zero."));
             }
         }
 
@@ -177,7 +175,7 @@ impl PySlice {
     fn indices(&self, length: ArgIndex, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let length = length.as_bigint();
         if length.is_negative() {
-            return Err(vm.new_value_error("length should not be negative.".to_owned()));
+            return Err(vm.new_value_error("length should not be negative."));
         }
         let (start, stop, step) = self.inner_indices(length, vm)?;
         Ok(vm.new_tuple((start, stop, step)))

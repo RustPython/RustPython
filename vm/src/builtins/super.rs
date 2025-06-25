@@ -81,10 +81,10 @@ impl Initializer for PySuper {
         } else {
             let frame = vm
                 .current_frame()
-                .ok_or_else(|| vm.new_runtime_error("super(): no current frame".to_owned()))?;
+                .ok_or_else(|| vm.new_runtime_error("super(): no current frame"))?;
 
             if frame.code.arg_count == 0 {
-                return Err(vm.new_runtime_error("super(): no arguments".to_owned()));
+                return Err(vm.new_runtime_error("super(): no arguments"));
             }
             let obj = frame.fastlocals.lock()[0]
                 .clone()
@@ -99,15 +99,15 @@ impl Initializer for PySuper {
                         None
                     }
                 })
-                .ok_or_else(|| vm.new_runtime_error("super(): arg[0] deleted".to_owned()))?;
+                .ok_or_else(|| vm.new_runtime_error("super(): arg[0] deleted"))?;
 
             let mut typ = None;
             for (i, var) in frame.code.freevars.iter().enumerate() {
                 if var.as_str() == "__class__" {
                     let i = frame.code.cellvars.len() + i;
-                    let class = frame.cells_frees[i].get().ok_or_else(|| {
-                        vm.new_runtime_error("super(): empty __class__ cell".to_owned())
-                    })?;
+                    let class = frame.cells_frees[i]
+                        .get()
+                        .ok_or_else(|| vm.new_runtime_error("super(): empty __class__ cell"))?;
                     typ = Some(class.downcast().map_err(|o| {
                         vm.new_type_error(format!(
                             "super(): __class__ is not a type ({})",
@@ -119,7 +119,7 @@ impl Initializer for PySuper {
             }
             let typ = typ.ok_or_else(|| {
                 vm.new_type_error(
-                    "super must be called with 1 argument or from inside class method".to_owned(),
+                    "super must be called with 1 argument or from inside class method",
                 )
             })?;
 
@@ -252,8 +252,7 @@ fn super_check(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult
             return Ok(cls);
         }
     }
-    Err(vm
-        .new_type_error("super(type, obj): obj must be an instance or subtype of type".to_owned()))
+    Err(vm.new_type_error("super(type, obj): obj must be an instance or subtype of type"))
 }
 
 pub fn init(context: &Context) {

@@ -656,15 +656,11 @@ mod array {
             vm: &VirtualMachine,
         ) -> PyResult {
             let spec = spec.as_str().chars().exactly_one().map_err(|_| {
-                vm.new_type_error(
-                    "array() argument 1 must be a unicode character, not str".to_owned(),
-                )
+                vm.new_type_error("array() argument 1 must be a unicode character, not str")
             })?;
 
             if cls.is(PyArray::class(&vm.ctx)) && !kwargs.is_empty() {
-                return Err(
-                    vm.new_type_error("array.array() takes no keyword arguments".to_owned())
-                );
+                return Err(vm.new_type_error("array.array() takes no keyword arguments"));
             }
 
             let mut array =
@@ -856,9 +852,7 @@ mod array {
 
         fn _from_bytes(&self, b: &[u8], itemsize: usize, vm: &VirtualMachine) -> PyResult<()> {
             if b.len() % itemsize != 0 {
-                return Err(
-                    vm.new_value_error("bytes length not a multiple of item size".to_owned())
-                );
+                return Err(vm.new_value_error("bytes length not a multiple of item size"));
             }
             if b.len() / itemsize > 0 {
                 self.try_resizable(vm)?.frombytes(b);
@@ -877,7 +871,7 @@ mod array {
         fn fromfile(&self, f: PyObjectRef, n: isize, vm: &VirtualMachine) -> PyResult<()> {
             let itemsize = self.itemsize();
             if n < 0 {
-                return Err(vm.new_value_error("negative count".to_owned()));
+                return Err(vm.new_value_error("negative count"));
             }
             let n = vm.check_repeat_or_overflow_error(itemsize, n)?;
             let n_bytes = n * itemsize;
@@ -885,7 +879,7 @@ mod array {
             let b = vm.call_method(&f, "read", (n_bytes,))?;
             let b = b
                 .downcast::<PyBytes>()
-                .map_err(|_| vm.new_type_error("read() didn't return bytes".to_owned()))?;
+                .map_err(|_| vm.new_type_error("read() didn't return bytes"))?;
 
             let not_enough_bytes = b.len() != n_bytes;
 
@@ -927,7 +921,7 @@ mod array {
         fn pop(zelf: &Py<Self>, i: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
             let mut w = zelf.try_resizable(vm)?;
             if w.len() == 0 {
-                Err(vm.new_index_error("pop from empty array".to_owned()))
+                Err(vm.new_index_error("pop from empty array"))
             } else {
                 w.pop(i.unwrap_or(-1), vm)
             }

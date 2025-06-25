@@ -103,7 +103,7 @@ mod decl {
             .unwrap_or_else(Err)
             .map_err(|DumpError| {
                 vm.new_not_implemented_error(
-                    "TODO: not implemented yet or marshal unsupported type".to_owned(),
+                    "TODO: not implemented yet or marshal unsupported type",
                 )
             })?;
         Ok(PyBytes::from(buf))
@@ -204,7 +204,7 @@ mod decl {
     #[pyfunction]
     fn loads(pybuffer: PyBuffer, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let buf = pybuffer.as_contiguous().ok_or_else(|| {
-            vm.new_buffer_error("Buffer provided to marshal.loads() is not contiguous".to_owned())
+            vm.new_buffer_error("Buffer provided to marshal.loads() is not contiguous")
         })?;
         marshal::deserialize_value(&mut &buf[..], PyMarshalBag(vm)).map_err(|e| match e {
             marshal::MarshalError::Eof => vm.new_exception_msg(
@@ -212,16 +212,16 @@ mod decl {
                 "marshal data too short".to_owned(),
             ),
             marshal::MarshalError::InvalidBytecode => {
-                vm.new_value_error("Couldn't deserialize python bytecode".to_owned())
+                vm.new_value_error("Couldn't deserialize python bytecode")
             }
             marshal::MarshalError::InvalidUtf8 => {
-                vm.new_value_error("invalid utf8 in marshalled string".to_owned())
+                vm.new_value_error("invalid utf8 in marshalled string")
             }
             marshal::MarshalError::InvalidLocation => {
-                vm.new_value_error("invalid location in marshalled object".to_owned())
+                vm.new_value_error("invalid location in marshalled object")
             }
             marshal::MarshalError::BadType => {
-                vm.new_value_error("bad marshal data (unknown type code)".to_owned())
+                vm.new_value_error("bad marshal data (unknown type code)")
             }
         })
     }

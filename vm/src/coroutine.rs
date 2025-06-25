@@ -120,8 +120,7 @@ impl Coro {
                 } else if jen.class().is(vm.ctx.types.async_generator)
                     && e.fast_isinstance(vm.ctx.exceptions.stop_async_iteration)
                 {
-                    let err = vm
-                        .new_runtime_error("async generator raised StopAsyncIteration".to_owned());
+                    let err = vm.new_runtime_error("async generator raised StopAsyncIteration");
                     err.set_cause(Some(e));
                     Err(err)
                 } else {

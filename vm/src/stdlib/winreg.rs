@@ -167,7 +167,7 @@ mod winreg {
 
         if reserved != 0 {
             // RegKey::open_subkey* doesn't have a reserved param, so this'll do
-            return Err(vm.new_value_error("reserved param must be 0".to_owned()));
+            return Err(vm.new_value_error("reserved param must be 0"));
         }
 
         let sub_key = sub_key.as_ref().map_or("", |s| s.as_str());
@@ -261,7 +261,7 @@ mod winreg {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         if typ != REG_SZ {
-            return Err(vm.new_type_error("type must be winreg.REG_SZ".to_owned()));
+            return Err(vm.new_type_error("type must be winreg.REG_SZ"));
         }
         let subkey = subkey.as_ref().map_or("", |s| s.as_str());
         key.with_key(|k| k.set_value(subkey, &OsStr::new(value.as_str())))
@@ -305,7 +305,7 @@ mod winreg {
             // RegType::REG_QWORD_BIG_ENDIAN => bytes_to_int!(u64, from_be_bytes, REG_DWORD_BIG_ENDIAN),
             RegType::REG_SZ | RegType::REG_EXPAND_SZ => {
                 let wide_slice = bytes_to_wide(&value.bytes).ok_or_else(|| {
-                    vm.new_value_error("REG_SZ string doesn't have an even byte length".to_owned())
+                    vm.new_value_error("REG_SZ string doesn't have an even byte length")
                 })?;
                 let nul_pos = wide_slice
                     .iter()
@@ -319,9 +319,7 @@ mod winreg {
                     return Ok(vm.ctx.new_list(vec![]).into());
                 }
                 let wide_slice = bytes_to_wide(&value.bytes).ok_or_else(|| {
-                    vm.new_value_error(
-                        "REG_MULTI_SZ string doesn't have an even byte length".to_owned(),
-                    )
+                    vm.new_value_error("REG_MULTI_SZ string doesn't have an even byte length")
                 })?;
                 let wide_slice = if let Some((0, rest)) = wide_slice.split_last() {
                     rest

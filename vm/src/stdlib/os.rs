@@ -108,7 +108,7 @@ impl<const AVAILABLE: usize> FromArgs for DirFd<AVAILABLE> {
         };
         if AVAILABLE == 0 && fd != DEFAULT_DIR_FD {
             return Err(vm
-                .new_not_implemented_error("dir_fd unavailable on this platform".to_owned())
+                .new_not_implemented_error("dir_fd unavailable on this platform")
                 .into());
         }
         Ok(Self([fd; AVAILABLE]))
@@ -122,7 +122,7 @@ pub(super) struct FollowSymlinks(
 
 fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsStr> {
     rustpython_common::os::bytes_as_os_str(b)
-        .map_err(|_| vm.new_unicode_decode_error("can't decode path for utf-8".to_owned()))
+        .map_err(|_| vm.new_unicode_decode_error("can't decode path for utf-8"))
 }
 
 #[pymodule(sub)]
@@ -343,9 +343,9 @@ pub(super) mod _os {
                 #[cfg(not(all(unix, not(target_os = "redox"))))]
                 {
                     let _ = fno;
-                    return Err(vm.new_not_implemented_error(
-                        "can't pass fd to listdir on this platform".to_owned(),
-                    ));
+                    return Err(
+                        vm.new_not_implemented_error("can't pass fd to listdir on this platform")
+                    );
                 }
                 #[cfg(all(unix, not(target_os = "redox")))]
                 {
@@ -388,10 +388,10 @@ pub(super) mod _os {
         let key = env_bytes_as_bytes(&key);
         let value = env_bytes_as_bytes(&value);
         if key.contains(&b'\0') || value.contains(&b'\0') {
-            return Err(vm.new_value_error("embedded null byte".to_string()));
+            return Err(vm.new_value_error("embedded null byte"));
         }
         if key.is_empty() || key.contains(&b'=') {
-            return Err(vm.new_value_error("illegal environment variable name".to_string()));
+            return Err(vm.new_value_error("illegal environment variable name"));
         }
         let key = super::bytes_as_os_str(key, vm)?;
         let value = super::bytes_as_os_str(value, vm)?;
@@ -404,7 +404,7 @@ pub(super) mod _os {
     fn unsetenv(key: Either<PyStrRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<()> {
         let key = env_bytes_as_bytes(&key);
         if key.contains(&b'\0') {
-            return Err(vm.new_value_error("embedded null byte".to_string()));
+            return Err(vm.new_value_error("embedded null byte"));
         }
         if key.is_empty() || key.contains(&b'=') {
             return Err(vm.new_errno_error(
@@ -971,7 +971,7 @@ pub(super) mod _os {
     #[pyfunction]
     fn urandom(size: isize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         if size < 0 {
-            return Err(vm.new_value_error("negative argument not allowed".to_owned()));
+            return Err(vm.new_value_error("negative argument not allowed"));
         }
         let mut buf = vec![0u8; size as usize];
         getrandom::fill(&mut buf).map_err(|e| io::Error::from(e).into_pyexception(vm))?;
@@ -1051,16 +1051,13 @@ pub(super) mod _os {
         let (acc, modif) = match (args.times, args.ns) {
             (Some(t), None) => {
                 let (a, m) = parse_tup(&t).ok_or_else(|| {
-                    vm.new_type_error(
-                        "utime: 'times' must be either a tuple of two ints or None".to_owned(),
-                    )
+                    vm.new_type_error("utime: 'times' must be either a tuple of two ints or None")
                 })?;
                 (a.try_into_value(vm)?, m.try_into_value(vm)?)
             }
             (None, Some(ns)) => {
-                let (a, m) = parse_tup(&ns).ok_or_else(|| {
-                    vm.new_type_error("utime: 'ns' must be a tuple of two ints".to_owned())
-                })?;
+                let (a, m) = parse_tup(&ns)
+                    .ok_or_else(|| vm.new_type_error("utime: 'ns' must be a tuple of two ints"))?;
                 let ns_in_sec: PyObjectRef = vm.ctx.new_int(1_000_000_000).into();
                 let ns_to_dur = |obj: PyObjectRef| {
                     let divmod = vm._divmod(&obj, &ns_in_sec)?;
@@ -1089,7 +1086,7 @@ pub(super) mod _os {
             }
             (Some(_), Some(_)) => {
                 return Err(vm.new_value_error(
-                    "utime: you may specify either 'times' or 'ns' but not both".to_owned(),
+                    "utime: you may specify either 'times' or 'ns' but not both",
                 ));
             }
         };
@@ -1286,7 +1283,7 @@ pub(super) mod _os {
         let count: usize = args
             .count
             .try_into()
-            .map_err(|_| vm.new_value_error("count should >= 0".to_string()))?;
+            .map_err(|_| vm.new_value_error("count should >= 0"))?;
 
         // The flags argument is provided to allow
         // for future extensions and currently must be to 0.

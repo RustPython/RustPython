@@ -102,7 +102,7 @@ pub fn get_jit_arg_types(func: &Py<PyFunction>, vm: &VirtualMachine) -> PyResult
 
         Ok(arg_types)
     } else {
-        Err(vm.new_type_error("Function annotations aren't a dict".to_owned()))
+        Err(vm.new_type_error("Function annotations aren't a dict"))
     }
 }
 
@@ -121,7 +121,7 @@ pub fn jit_ret_type(func: &Py<PyFunction>, vm: &VirtualMachine) -> PyResult<Opti
             Ok(None)
         }
     } else {
-        Err(vm.new_type_error("Function annotations aren't a dict".to_owned()))
+        Err(vm.new_type_error("Function annotations aren't a dict"))
     }
 }
 

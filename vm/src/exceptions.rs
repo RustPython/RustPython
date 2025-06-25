@@ -591,9 +591,7 @@ impl PyBaseException {
             match value.downcast::<PyTraceback>() {
                 Ok(tb) => Some(tb),
                 Err(_) => {
-                    return Err(
-                        vm.new_type_error("__traceback__ must be a traceback or None".to_owned())
-                    );
+                    return Err(vm.new_type_error("__traceback__ must be a traceback or None"));
                 }
             }
         };

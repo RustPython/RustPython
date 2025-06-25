@@ -270,11 +270,11 @@ mod _csv {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let Some(name) = name.payload_if_subclass::<PyStr>(vm) else {
-            return Err(vm.new_type_error("argument 0 must be a string".to_string()));
+            return Err(vm.new_type_error("argument 0 must be a string"));
         };
         let dialect = match dialect {
             OptionalArg::Present(d) => PyDialect::try_from_object(vm, d)
-                .map_err(|_| vm.new_type_error("argument 1 must be a dialect object".to_owned()))?,
+                .map_err(|_| vm.new_type_error("argument 1 must be a dialect object"))?,
             OptionalArg::Missing => opts.result(vm)?,
         };
         let dialect = opts.update_py_dialect(dialect);
@@ -328,7 +328,7 @@ mod _csv {
         vm: &VirtualMachine,
     ) -> PyResult<rustpython_vm::builtins::PyListRef> {
         if !rest.args.is_empty() || !rest.kwargs.is_empty() {
-            return Err(vm.new_type_error("too many argument".to_string()));
+            return Err(vm.new_type_error("too many argument"));
         }
         let g = GLOBAL_HASHMAP.lock();
         let t = g
@@ -351,7 +351,7 @@ mod _csv {
                 )));
             }
             let Ok(new_size) = rest.args.first().unwrap().try_int(vm) else {
-                return Err(vm.new_type_error("limit must be an integer".to_string()));
+                return Err(vm.new_type_error("limit must be an integer"));
             };
             *GLOBAL_FIELD_LIMIT.lock() = new_size.try_to_primitive::<isize>(vm)?;
         }
@@ -392,7 +392,7 @@ mod _csv {
             Some(write_meth) => write_meth,
             None if file.is_callable() => file,
             None => {
-                return Err(vm.new_type_error("argument 1 must have a \"write\" method".to_owned()));
+                return Err(vm.new_type_error("argument 1 must have a \"write\" method"));
             }
         };
 
@@ -438,9 +438,7 @@ mod _csv {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
             let num = obj.try_int(vm)?.try_to_primitive::<isize>(vm)?;
             num.try_into().map_err(|_| {
-                vm.new_value_error(
-                    "can not convert to QuoteStyle enum from input argument".to_string(),
-                )
+                vm.new_value_error("can not convert to QuoteStyle enum from input argument")
             })
         }
     }
@@ -1016,7 +1014,7 @@ mod _csv {
                     prev_end = end;
                     let s = std::str::from_utf8(&buffer[range.clone()])
                         // not sure if this is possible - the input was all strings
-                        .map_err(|_e| vm.new_unicode_decode_error("csv not utf8".to_owned()))?;
+                        .map_err(|_e| vm.new_unicode_decode_error("csv not utf8"))?;
                     // Rustpython TODO!
                     // Incomplete implementation
                     if let QuoteStyle::Nonnumeric = zelf.dialect.quoting {
@@ -1125,7 +1123,7 @@ mod _csv {
                 handle_res!(writer.terminator(&mut buffer[buffer_offset..]));
             }
             let s = std::str::from_utf8(&buffer[..buffer_offset])
-                .map_err(|_| vm.new_unicode_decode_error("csv not utf8".to_owned()))?;
+                .map_err(|_| vm.new_unicode_decode_error("csv not utf8"))?;
 
             self.write.call((s,), vm)
         }

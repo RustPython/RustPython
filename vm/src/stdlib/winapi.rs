@@ -325,9 +325,7 @@ mod _winapi {
         let values = ArgSequence::try_from_object(vm, values)?.into_vec();
 
         if keys.len() != values.len() {
-            return Err(
-                vm.new_runtime_error("environment changed size during iteration".to_owned())
-            );
+            return Err(vm.new_runtime_error("environment changed size during iteration"));
         }
 
         let mut out = widestring::WideString::new();
@@ -340,7 +338,7 @@ mod _winapi {
                 return Err(crate::exceptions::cstring_error(vm));
             }
             if k.is_empty() || k[1..].contains('=') {
-                return Err(vm.new_value_error("illegal environment variable name".to_owned()));
+                return Err(vm.new_value_error("illegal environment variable name"));
             }
             out.push_str(k);
             out.push_str("=");
@@ -474,7 +472,7 @@ mod _winapi {
                 .unwrap()
         };
         if handle.is_invalid() {
-            return Err(vm.new_runtime_error("LoadLibrary failed".to_owned()));
+            return Err(vm.new_runtime_error("LoadLibrary failed"));
         }
         Ok(handle.0)
     }
@@ -487,7 +485,7 @@ mod _winapi {
         let length =
             unsafe { windows::Win32::System::LibraryLoader::GetModuleFileNameW(handle, &mut path) };
         if length == 0 {
-            return Err(vm.new_runtime_error("GetModuleFileName failed".to_owned()));
+            return Err(vm.new_runtime_error("GetModuleFileName failed"));
         }
 
         let (path, _) = path.split_at(length as usize);

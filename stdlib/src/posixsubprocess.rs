@@ -35,7 +35,7 @@ mod _posixsubprocess {
     #[pyfunction]
     fn fork_exec(args: ForkExecArgs, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
         if args.preexec_fn.is_some() {
-            return Err(vm.new_not_implemented_error("preexec_fn not supported yet".to_owned()));
+            return Err(vm.new_not_implemented_error("preexec_fn not supported yet"));
         }
         let extra_groups = args
             .groups_list

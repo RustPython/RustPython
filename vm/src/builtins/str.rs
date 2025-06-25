@@ -619,7 +619,7 @@ impl PyStr {
         UnicodeEscape::new_repr(self.as_wtf8())
             .str_repr()
             .to_string()
-            .ok_or_else(|| vm.new_overflow_error("string is too long to generate repr".to_owned()))
+            .ok_or_else(|| vm.new_overflow_error("string is too long to generate repr"))
     }
 
     #[pymethod]
@@ -1165,13 +1165,13 @@ impl PyStr {
     #[pymethod]
     fn index(&self, args: FindArgs, vm: &VirtualMachine) -> PyResult<usize> {
         self._find(args, |r, s| Some(Self::_to_char_idx(r, r.find(s)?)))
-            .ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
+            .ok_or_else(|| vm.new_value_error("substring not found"))
     }
 
     #[pymethod]
     fn rindex(&self, args: FindArgs, vm: &VirtualMachine) -> PyResult<usize> {
         self._find(args, |r, s| Some(Self::_to_char_idx(r, r.rfind(s)?)))
-            .ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
+            .ok_or_else(|| vm.new_value_error("substring not found"))
     }
 
     #[pymethod]
@@ -1267,9 +1267,7 @@ impl PyStr {
     ) -> PyResult<Wtf8Buf> {
         let fillchar = fillchar.map_or(Ok(' '.into()), |ref s| {
             s.as_wtf8().code_points().exactly_one().map_err(|_| {
-                vm.new_type_error(
-                    "The fill character must be exactly one character long".to_owned(),
-                )
+                vm.new_type_error("The fill character must be exactly one character long")
             })
         })?;
         Ok(if self.len() as isize >= width {
@@ -1342,15 +1340,13 @@ impl PyStr {
                             .to_u32()
                             .and_then(std::char::from_u32)
                             .ok_or_else(|| {
-                                vm.new_value_error(
-                                    "character mapping must be in range(0x110000)".to_owned(),
-                                )
+                                vm.new_value_error("character mapping must be in range(0x110000)")
                             })?;
                         translated.push(ch);
                     } else if !vm.is_none(&value) {
-                        return Err(vm.new_type_error(
-                            "character mapping must return integer, None or str".to_owned(),
-                        ));
+                        return Err(
+                            vm.new_type_error("character mapping must return integer, None or str")
+                        );
                     }
                 }
                 _ => translated.push(c),
@@ -1386,13 +1382,12 @@ impl PyStr {
                         Ok(new_dict.to_pyobject(vm))
                     } else {
                         Err(vm.new_value_error(
-                            "the first two maketrans arguments must have equal length".to_owned(),
+                            "the first two maketrans arguments must have equal length",
                         ))
                     }
                 }
                 _ => Err(vm.new_type_error(
-                    "first maketrans argument must be a string if there is a second argument"
-                        .to_owned(),
+                    "first maketrans argument must be a string if there is a second argument",
                 )),
             }
         } else {
@@ -1413,19 +1408,19 @@ impl PyStr {
                                 new_dict.set_item(&*num_value.to_pyobject(vm), val, vm)?;
                             } else {
                                 return Err(vm.new_value_error(
-                                    "string keys in translate table must be of length 1".to_owned(),
+                                    "string keys in translate table must be of length 1",
                                 ));
                             }
                         } else {
                             return Err(vm.new_type_error(
-                                "keys in translate table must be strings or integers".to_owned(),
+                                "keys in translate table must be strings or integers",
                             ));
                         }
                     }
                     Ok(new_dict.to_pyobject(vm))
                 }
                 _ => Err(vm.new_value_error(
-                    "if you give only one argument to maketrans it must be a dict".to_owned(),
+                    "if you give only one argument to maketrans it must be a dict",
                 )),
             }
         }

@@ -195,7 +195,7 @@ mod _json {
         type Args = (PyStrRef, isize);
         fn call(zelf: &Py<Self>, (pystr, idx): Self::Args, vm: &VirtualMachine) -> PyResult {
             if idx < 0 {
-                return Err(vm.new_value_error("idx cannot be negative".to_owned()));
+                return Err(vm.new_value_error("idx cannot be negative"));
             }
             let idx = idx as usize;
             let mut chars = pystr.as_str().chars();

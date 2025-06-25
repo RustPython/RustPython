@@ -845,7 +845,7 @@ impl DictKey for str {
     }
 
     fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
-        Err(vm.new_type_error("'str' object cannot be interpreted as an integer".to_owned()))
+        Err(vm.new_type_error("'str' object cannot be interpreted as an integer"))
     }
 }
 
@@ -902,7 +902,7 @@ impl DictKey for Wtf8 {
     }
 
     fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
-        Err(vm.new_type_error("'str' object cannot be interpreted as an integer".to_owned()))
+        Err(vm.new_type_error("'str' object cannot be interpreted as an integer"))
     }
 }
 
@@ -959,7 +959,7 @@ impl DictKey for [u8] {
     }
 
     fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
-        Err(vm.new_type_error("'str' object cannot be interpreted as an integer".to_owned()))
+        Err(vm.new_type_error("'str' object cannot be interpreted as an integer"))
     }
 }
 

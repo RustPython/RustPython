@@ -62,7 +62,7 @@ mod mmap {
             libc::MADV_DODUMP => Advice::DoDump,
             #[cfg(target_os = "linux")]
             libc::MADV_HWPOISON => Advice::HwPoison,
-            _ => return Err(vm.new_value_error("Not a valid Advice value".to_owned())),
+            _ => return Err(vm.new_value_error("Not a valid Advice value")),
         })
     }
 
@@ -83,7 +83,7 @@ mod mmap {
                 1 => Self::Read,
                 2 => Self::Write,
                 3 => Self::Copy,
-                _ => return Err(vm.new_value_error("Not a valid AccessMode value".to_owned())),
+                _ => return Err(vm.new_value_error("Not a valid AccessMode value")),
             })
         }
     }
@@ -266,7 +266,7 @@ mod mmap {
                     s.try_to_primitive::<usize>(vm)
                         .ok()
                         .filter(|s| *s < len)
-                        .ok_or_else(|| vm.new_value_error("madvise start out of bounds".to_owned()))
+                        .ok_or_else(|| vm.new_value_error("madvise start out of bounds"))
                 })
                 .transpose()?
                 .unwrap_or(0);
@@ -274,13 +274,13 @@ mod mmap {
                 .length
                 .map(|s| {
                     s.try_to_primitive::<usize>(vm)
-                        .map_err(|_| vm.new_value_error("madvise length invalid".to_owned()))
+                        .map_err(|_| vm.new_value_error("madvise length invalid"))
                 })
                 .transpose()?
                 .unwrap_or(len);
 
             if isize::MAX as usize - start < length {
-                return Err(vm.new_overflow_error("madvise length too large".to_owned()));
+                return Err(vm.new_overflow_error("madvise length too large"));
             }
 
             let length = if start + length > len {
@@ -312,24 +312,18 @@ mod mmap {
         ) -> PyResult {
             let map_size = length;
             if map_size < 0 {
-                return Err(
-                    vm.new_overflow_error("memory mapped length must be positive".to_owned())
-                );
+                return Err(vm.new_overflow_error("memory mapped length must be positive"));
             }
             let mut map_size = map_size as usize;
 
             if offset < 0 {
-                return Err(
-                    vm.new_overflow_error("memory mapped offset must be positive".to_owned())
-                );
+                return Err(vm.new_overflow_error("memory mapped offset must be positive"));
             }
 
             if (access != AccessMode::Default)
                 && ((flags != MAP_SHARED) || (prot != (PROT_WRITE | PROT_READ)))
             {
-                return Err(vm.new_value_error(
-                    "mmap can't specify both access and flags, prot.".to_owned(),
-                ));
+                return Err(vm.new_value_error("mmap can't specify both access and flags, prot."));
             }
 
             // TODO: memmap2 doesn't support mapping with pro and flags right now
@@ -356,22 +350,18 @@ mod mmap {
 
                 if map_size == 0 {
                     if file_len == 0 {
-                        return Err(vm.new_value_error("cannot mmap an empty file".to_owned()));
+                        return Err(vm.new_value_error("cannot mmap an empty file"));
                     }
 
                     if offset > file_len {
-                        return Err(
-                            vm.new_value_error("mmap offset is greater than file size".to_owned())
-                        );
+                        return Err(vm.new_value_error("mmap offset is greater than file size"));
                     }
 
                     map_size = (file_len - offset)
                         .try_into()
-                        .map_err(|_| vm.new_value_error("mmap length is too large".to_owned()))?;
+                        .map_err(|_| vm.new_value_error("mmap length is too large"))?;
                 } else if offset > file_len || file_len - offset < map_size as libc::off_t {
-                    return Err(
-                        vm.new_value_error("mmap length is greater than file size".to_owned())
-                    );
+                    return Err(vm.new_value_error("mmap length is greater than file size"));
                 }
             }
 
@@ -526,9 +516,7 @@ mod mmap {
             f: impl FnOnce(&mut MmapMut) -> R,
         ) -> PyResult<R> {
             if matches!(self.access, AccessMode::Read) {
-                return Err(
-                    vm.new_type_error("mmap can't modify a readonly memory map.".to_owned())
-                );
+                return Err(vm.new_type_error("mmap can't modify a readonly memory map."));
             }
 
             match self.check_valid(vm)?.deref_mut().as_mut().unwrap() {
@@ -541,7 +529,7 @@ mod mmap {
             let m = self.mmap.lock();
 
             if m.is_none() {
-                return Err(vm.new_value_error("mmap closed or invalid".to_owned()));
+                return Err(vm.new_value_error("mmap closed or invalid"));
             }
 
             Ok(m)
@@ -551,18 +539,14 @@ mod mmap {
         #[allow(dead_code)]
         fn check_resizeable(&self, vm: &VirtualMachine) -> PyResult<()> {
             if self.exports.load() > 0 {
-                return Err(vm.new_buffer_error(
-                    "mmap can't resize with extant buffers exported.".to_owned(),
-                ));
+                return Err(vm.new_buffer_error("mmap can't resize with extant buffers exported."));
             }
 
             if self.access == AccessMode::Write || self.access == AccessMode::Default {
                 return Ok(());
             }
 
-            Err(vm.new_type_error(
-                "mmap can't resize a readonly or copy-on-write memory map.".to_owned(),
-            ))
+            Err(vm.new_type_error("mmap can't resize a readonly or copy-on-write memory map."))
         }
 
         #[pygetset]
@@ -577,7 +561,7 @@ mod mmap {
             }
 
             if self.exports.load() > 0 {
-                return Err(vm.new_buffer_error("cannot close exported pointers exist.".to_owned()));
+                return Err(vm.new_buffer_error("cannot close exported pointers exist."));
             }
             let mut mmap = self.mmap.lock();
             self.closed.store(true);
@@ -642,7 +626,7 @@ mod mmap {
         fn flush(&self, options: FlushOptions, vm: &VirtualMachine) -> PyResult<()> {
             let (offset, size) = options
                 .values(self.len())
-                .ok_or_else(|| vm.new_value_error("flush values out of range".to_owned()))?;
+                .ok_or_else(|| vm.new_value_error("flush values out of range"))?;
 
             if self.access == AccessMode::Read || self.access == AccessMode::Copy {
                 return Ok(());
@@ -707,9 +691,8 @@ mod mmap {
             }
 
             let size = self.len();
-            let (dest, src, cnt) = args(dest, src, cnt, size, vm).ok_or_else(|| {
-                vm.new_value_error("source, destination, or count out of range".to_owned())
-            })?;
+            let (dest, src, cnt) = args(dest, src, cnt, size, vm)
+                .ok_or_else(|| vm.new_value_error("source, destination, or count out of range"))?;
 
             let dest_end = dest + cnt;
             let src_end = src + cnt;
@@ -762,7 +745,7 @@ mod mmap {
         fn read_byte(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
             let pos = self.pos();
             if pos >= self.len() {
-                return Err(vm.new_value_error("read byte out of range".to_owned()));
+                return Err(vm.new_value_error("read byte out of range"));
             }
 
             let b = match self.check_valid(vm)?.deref().as_ref().unwrap() {
@@ -814,7 +797,7 @@ mod mmap {
         #[pymethod]
         fn resize(&self, _newsize: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
             self.check_resizeable(vm)?;
-            Err(vm.new_system_error("mmap: resizing not available--no mremap()".to_owned()))
+            Err(vm.new_system_error("mmap: resizing not available--no mremap()"))
         }
 
         #[pymethod]
@@ -833,22 +816,22 @@ mod mmap {
                     // relative to current position
                     let pos = self.pos();
                     if (((isize::MAX as usize) - pos) as isize) < dist {
-                        return Err(vm.new_value_error("seek out of range".to_owned()));
+                        return Err(vm.new_value_error("seek out of range"));
                     }
                     pos as isize + dist
                 }
                 2 => {
                     // relative to end
                     if (((isize::MAX as usize) - size) as isize) < dist {
-                        return Err(vm.new_value_error("seek out of range".to_owned()));
+                        return Err(vm.new_value_error("seek out of range"));
                     }
                     size as isize + dist
                 }
-                _ => return Err(vm.new_value_error("unknown seek type".to_owned())),
+                _ => return Err(vm.new_value_error("unknown seek type")),
             };
 
             if new_pos < 0 || (new_pos as usize) > size {
-                return Err(vm.new_value_error("seek out of range".to_owned()));
+                return Err(vm.new_value_error("seek out of range"));
             }
 
             self.pos.store(new_pos as usize);
@@ -877,7 +860,7 @@ mod mmap {
             let data = bytes.borrow_buf();
 
             if pos > size || size - pos < data.len() {
-                return Err(vm.new_value_error("data out of range".to_owned()));
+                return Err(vm.new_value_error("data out of range"));
             }
 
             let len = self.try_writable(vm, |mmap| {
@@ -900,7 +883,7 @@ mod mmap {
             let size = self.len();
 
             if pos >= size {
-                return Err(vm.new_value_error("write byte out of range".to_owned()));
+                return Err(vm.new_value_error("write byte out of range"));
             }
 
             self.try_writable(vm, |mmap| {
@@ -943,7 +926,7 @@ mod mmap {
         fn getitem_by_index(&self, i: isize, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let i = i
                 .wrapped_at(self.len())
-                .ok_or_else(|| vm.new_index_error("mmap index out of range".to_owned()))?;
+                .ok_or_else(|| vm.new_index_error("mmap index out of range"))?;
 
             let b = match self.check_valid(vm)?.deref().as_ref().unwrap() {
                 MmapObj::Read(mmap) => mmap[i],
@@ -1020,7 +1003,7 @@ mod mmap {
         ) -> PyResult<()> {
             let i: usize = i
                 .wrapped_at(self.len())
-                .ok_or_else(|| vm.new_index_error("mmap index out of range".to_owned()))?;
+                .ok_or_else(|| vm.new_index_error("mmap index out of range"))?;
 
             let b = value_from_object(vm, &value)?;
 
@@ -1042,7 +1025,7 @@ mod mmap {
             let bytes = bytes_from_object(vm, &value)?;
 
             if bytes.len() != slice_len {
-                return Err(vm.new_index_error("mmap slice assignment is wrong size".to_owned()));
+                return Err(vm.new_index_error("mmap slice assignment is wrong size"));
             }
 
             if slice_len == 0 {

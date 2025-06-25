@@ -162,7 +162,7 @@ mod cmath {
         let abs_tol = args.abs_tol.map_or(0.0, Into::into);
 
         if rel_tol < 0.0 || abs_tol < 0.0 {
-            return Err(vm.new_value_error("tolerances must be non-negative".to_owned()));
+            return Err(vm.new_value_error("tolerances must be non-negative"));
         }
 
         if a == b {
@@ -201,7 +201,7 @@ mod cmath {
         if !result.is_finite() && value.is_finite() {
             // CPython doesn't return `inf` when called with finite
             // values, it raises OverflowError instead.
-            Err(vm.new_overflow_error("math range error".to_owned()))
+            Err(vm.new_overflow_error("math range error"))
         } else {
             Ok(result)
         }

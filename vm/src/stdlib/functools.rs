@@ -102,9 +102,9 @@ mod _functools {
 
         #[pymethod(magic)]
         fn setstate(zelf: &Py<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let state_tuple = state.downcast::<PyTuple>().map_err(|_| {
-                vm.new_type_error("argument to __setstate__ must be a tuple".to_owned())
-            })?;
+            let state_tuple = state
+                .downcast::<PyTuple>()
+                .map_err(|_| vm.new_type_error("argument to __setstate__ must be a tuple"))?;
 
             if state_tuple.len() != 4 {
                 return Err(vm.new_type_error(format!(
@@ -119,12 +119,12 @@ mod _functools {
             let dict = &state_tuple[3];
 
             if !func.is_callable() {
-                return Err(vm.new_type_error("invalid partial state".to_owned()));
+                return Err(vm.new_type_error("invalid partial state"));
             }
 
             // Validate that args is a tuple (or subclass)
             if !args.fast_isinstance(vm.ctx.types.tuple_type) {
-                return Err(vm.new_type_error("invalid partial state".to_owned()));
+                return Err(vm.new_type_error("invalid partial state"));
             }
             // Always convert to base tuple, even if it's a subclass
             let args_tuple = match args.clone().downcast::<PyTuple>() {
@@ -143,7 +143,7 @@ mod _functools {
                 let dict = kwds
                     .clone()
                     .downcast::<PyDict>()
-                    .map_err(|_| vm.new_type_error("invalid partial state".to_owned()))?;
+                    .map_err(|_| vm.new_type_error("invalid partial state"))?;
                 if dict.class().is(vm.ctx.types.dict_type) {
                     // It's already a base dict
                     dict
@@ -180,7 +180,7 @@ mod _functools {
             let dict_obj = dict
                 .clone()
                 .downcast::<PyDict>()
-                .map_err(|_| vm.new_type_error("invalid partial state".to_owned()))?;
+                .map_err(|_| vm.new_type_error("invalid partial state"))?;
 
             // Clear existing dict and update with new values
             instance_dict.clear();
@@ -196,12 +196,13 @@ mod _functools {
         type Args = FuncArgs;
 
         fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            let (func, args_slice) = args.args.split_first().ok_or_else(|| {
-                vm.new_type_error("partial expected at least 1 argument, got 0".to_owned())
-            })?;
+            let (func, args_slice) = args
+                .args
+                .split_first()
+                .ok_or_else(|| vm.new_type_error("partial expected at least 1 argument, got 0"))?;
 
             if !func.is_callable() {
-                return Err(vm.new_type_error("the first argument must be callable".to_owned()));
+                return Err(vm.new_type_error("the first argument must be callable"));
             }
 
             // Handle nested partial objects
@@ -247,7 +248,7 @@ mod _functools {
             for (key, value) in &*inner.keywords {
                 let key_str = key
                     .downcast::<crate::builtins::PyStr>()
-                    .map_err(|_| vm.new_type_error("keywords must be strings".to_owned()))?;
+                    .map_err(|_| vm.new_type_error("keywords must be strings"))?;
                 final_kwargs.insert(key_str.as_str().to_owned(), value);
             }
 

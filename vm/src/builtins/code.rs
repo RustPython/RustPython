@@ -237,7 +237,7 @@ impl Representable for PyCode {
 impl PyCode {
     #[pyslot]
     fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_type_error("Cannot directly create code object".to_owned()))
+        Err(vm.new_type_error("Cannot directly create code object"))
     }
 
     #[pygetset]

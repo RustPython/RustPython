@@ -40,7 +40,7 @@ mod math {
         if !result.is_finite() && value.is_finite() {
             // CPython doesn't return `inf` when called with finite
             // values, it raises OverflowError instead.
-            Err(vm.new_overflow_error("math range error".to_owned()))
+            Err(vm.new_overflow_error("math range error"))
         } else {
             Ok(result)
         }
@@ -87,7 +87,7 @@ mod math {
         let abs_tol = args.abs_tol.map_or(0.0, |value| value.into());
 
         if rel_tol < 0.0 || abs_tol < 0.0 {
-            return Err(vm.new_value_error("tolerances must be non-negative".to_owned()));
+            return Err(vm.new_value_error("tolerances must be non-negative"));
         }
 
         if a == b {
@@ -138,7 +138,7 @@ mod math {
     fn log(x: PyObjectRef, base: OptionalArg<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
         let base = base.map(|b| *b).unwrap_or(std::f64::consts::E);
         if base.is_sign_negative() {
-            return Err(vm.new_value_error("math domain error".to_owned()));
+            return Err(vm.new_value_error("math domain error"));
         }
         log2(x, vm).map(|log_x| log_x / base.log2())
     }
@@ -149,7 +149,7 @@ mod math {
         if x.is_nan() || x > -1.0_f64 {
             Ok(x.ln_1p())
         } else {
-            Err(vm.new_value_error("math domain error".to_owned()))
+            Err(vm.new_value_error("math domain error"))
         }
     }
 
@@ -171,7 +171,7 @@ mod math {
                 if x.is_nan() || x > 0.0_f64 {
                     Ok(x.log2())
                 } else {
-                    Err(vm.new_value_error("math domain error".to_owned()))
+                    Err(vm.new_value_error("math domain error"))
                 }
             }
             Err(float_err) => {
@@ -180,7 +180,7 @@ mod math {
                     if x.is_positive() {
                         Ok(int_log2(x))
                     } else {
-                        Err(vm.new_value_error("math domain error".to_owned()))
+                        Err(vm.new_value_error("math domain error"))
                     }
                 } else {
                     // Return the float error, as it will be more intuitive to users
@@ -203,13 +203,13 @@ mod math {
         if x < 0.0 && x.is_finite() && y.fract() != 0.0 && y.is_finite()
             || x == 0.0 && y < 0.0 && y != f64::NEG_INFINITY
         {
-            return Err(vm.new_value_error("math domain error".to_owned()));
+            return Err(vm.new_value_error("math domain error"));
         }
 
         let value = x.powf(y);
 
         if x.is_finite() && y.is_finite() && value.is_infinite() {
-            return Err(vm.new_overflow_error("math range error".to_string()));
+            return Err(vm.new_overflow_error("math range error"));
         }
 
         Ok(value)
@@ -225,7 +225,7 @@ mod math {
             if value.is_zero() {
                 return Ok(-0.0f64);
             }
-            return Err(vm.new_value_error("math domain error".to_owned()));
+            return Err(vm.new_value_error("math domain error"));
         }
         Ok(value.sqrt())
     }
@@ -235,7 +235,7 @@ mod math {
         let value = x.as_bigint();
 
         if value.is_negative() {
-            return Err(vm.new_value_error("isqrt() argument must be nonnegative".to_owned()));
+            return Err(vm.new_value_error("isqrt() argument must be nonnegative"));
         }
         Ok(value.sqrt())
     }
@@ -247,7 +247,7 @@ mod math {
         if x.is_nan() || (-1.0_f64..=1.0_f64).contains(&x) {
             Ok(x.acos())
         } else {
-            Err(vm.new_value_error("math domain error".to_owned()))
+            Err(vm.new_value_error("math domain error"))
         }
     }
 
@@ -257,7 +257,7 @@ mod math {
         if x.is_nan() || (-1.0_f64..=1.0_f64).contains(&x) {
             Ok(x.asin())
         } else {
-            Err(vm.new_value_error("math domain error".to_owned()))
+            Err(vm.new_value_error("math domain error"))
         }
     }
 
@@ -274,7 +274,7 @@ mod math {
     #[pyfunction]
     fn cos(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
         if x.is_infinite() {
-            return Err(vm.new_value_error("math domain error".to_owned()));
+            return Err(vm.new_value_error("math domain error"));
         }
         call_math_func!(cos, x, vm)
     }
@@ -378,9 +378,7 @@ mod math {
         let mut diffs = vec![];
 
         if p.len() != q.len() {
-            return Err(vm.new_value_error(
-                "both points must have the same number of dimensions".to_owned(),
-            ));
+            return Err(vm.new_value_error("both points must have the same number of dimensions"));
         }
 
         for i in 0..p.len() {
@@ -411,7 +409,7 @@ mod math {
     #[pyfunction]
     fn sin(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
         if x.is_infinite() {
-            return Err(vm.new_value_error("math domain error".to_owned()));
+            return Err(vm.new_value_error("math domain error"));
         }
         call_math_func!(sin, x, vm)
     }
@@ -419,7 +417,7 @@ mod math {
     #[pyfunction]
     fn tan(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
         if x.is_infinite() {
-            return Err(vm.new_value_error("math domain error".to_owned()));
+            return Err(vm.new_value_error("math domain error"));
         }
         call_math_func!(tan, x, vm)
     }
@@ -440,7 +438,7 @@ mod math {
     fn acosh(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
         let x = *x;
         if x.is_sign_negative() || x.is_zero() {
-            Err(vm.new_value_error("math domain error".to_owned()))
+            Err(vm.new_value_error("math domain error"))
         } else {
             Ok(x.acosh())
         }
@@ -455,7 +453,7 @@ mod math {
     fn atanh(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
         let x = *x;
         if x >= 1.0_f64 || x <= -1.0_f64 {
-            Err(vm.new_value_error("math domain error".to_owned()))
+            Err(vm.new_value_error("math domain error"))
         } else {
             Ok(x.atanh())
         }
@@ -645,9 +643,7 @@ mod math {
                     // as a result of a nan or inf in the
                     // summands
                     if xsave.is_finite() {
-                        return Err(
-                            vm.new_overflow_error("intermediate overflow in fsum".to_owned())
-                        );
+                        return Err(vm.new_overflow_error("intermediate overflow in fsum"));
                     }
                     if xsave.is_infinite() {
                         inf_sum += xsave;
@@ -662,7 +658,7 @@ mod math {
         }
         if special_sum != 0.0 {
             return if inf_sum.is_nan() {
-                Err(vm.new_value_error("-inf + inf in fsum".to_owned()))
+                Err(vm.new_value_error("-inf + inf in fsum"))
             } else {
                 Ok(special_sum)
             };
@@ -712,9 +708,7 @@ mod math {
         let value = x.as_bigint();
         let one = BigInt::one();
         if value.is_negative() {
-            return Err(
-                vm.new_value_error("factorial() not defined for negative values".to_owned())
-            );
+            return Err(vm.new_value_error("factorial() not defined for negative values"));
         } else if *value <= one {
             return Ok(one);
         }
@@ -745,7 +739,7 @@ mod math {
         };
 
         if n.is_negative() || v.is_negative() {
-            return Err(vm.new_value_error("perm() not defined for negative values".to_owned()));
+            return Err(vm.new_value_error("perm() not defined for negative values"));
         }
         if v > n {
             return Ok(BigInt::zero());
@@ -768,7 +762,7 @@ mod math {
         let zero = BigInt::zero();
 
         if n.is_negative() || k.is_negative() {
-            return Err(vm.new_value_error("comb() not defined for negative values".to_owned()));
+            return Err(vm.new_value_error("comb() not defined for negative values"));
         }
 
         let temp = n - k;
@@ -832,9 +826,7 @@ mod math {
         match steps {
             Some(steps) => {
                 if steps < 0 {
-                    return Err(
-                        vm.new_value_error("steps must be a non-negative integer".to_string())
-                    );
+                    return Err(vm.new_value_error("steps must be a non-negative integer"));
                 }
                 Ok(float_ops::nextafter_with_steps(
                     *arg.x,
@@ -867,7 +859,7 @@ mod math {
         let r = fmod(x, y);
 
         if r.is_nan() && !x.is_nan() && !y.is_nan() {
-            return Err(vm.new_value_error("math domain error".to_owned()));
+            return Err(vm.new_value_error("math domain error"));
         }
 
         Ok(r)
@@ -880,7 +872,7 @@ mod math {
 
         if x.is_finite() && y.is_finite() {
             if y == 0.0 {
-                return Err(vm.new_value_error("math domain error".to_owned()));
+                return Err(vm.new_value_error("math domain error"));
             }
 
             let abs_x = x.abs();
@@ -897,7 +889,7 @@ mod math {
             return Ok(1.0_f64.copysign(x) * r);
         }
         if x.is_infinite() && !y.is_nan() {
-            return Err(vm.new_value_error("math domain error".to_owned()));
+            return Err(vm.new_value_error("math domain error"));
         }
         if x.is_nan() || y.is_nan() {
             return Ok(f64::NAN);
@@ -905,7 +897,7 @@ mod math {
         if y.is_infinite() {
             Ok(x)
         } else {
-            Err(vm.new_value_error("math domain error".to_owned()))
+            Err(vm.new_value_error("math domain error"))
         }
     }
 
@@ -956,7 +948,7 @@ mod math {
                 }
                 (None, None) => break,
                 _ => {
-                    return Err(vm.new_value_error("Inputs are not the same length".to_string()));
+                    return Err(vm.new_value_error("Inputs are not the same length"));
                 }
             }
         }
@@ -979,10 +971,10 @@ mod math {
 
         if result.is_nan() {
             if !x.is_nan() && !y.is_nan() && !z.is_nan() {
-                return Err(vm.new_value_error("invalid operation in fma".to_string()));
+                return Err(vm.new_value_error("invalid operation in fma"));
             }
         } else if x.is_finite() && y.is_finite() && z.is_finite() {
-            return Err(vm.new_overflow_error("overflow in fma".to_string()));
+            return Err(vm.new_overflow_error("overflow in fma"));
         }
 
         Ok(result)
@@ -991,7 +983,7 @@ mod math {
 
 fn pymath_error_to_exception(err: pymath::Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
     match err {
-        pymath::Error::EDOM => vm.new_value_error("math domain error".to_owned()),
-        pymath::Error::ERANGE => vm.new_overflow_error("math range error".to_owned()),
+        pymath::Error::EDOM => vm.new_value_error("math domain error"),
+        pymath::Error::ERANGE => vm.new_overflow_error("math range error"),
     }
 }

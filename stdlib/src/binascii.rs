@@ -56,11 +56,11 @@ mod decl {
             let sep_char = if let OptionalArg::Present(sep_buf) = sep {
                 sep_buf.with_ref(|sep_bytes| {
                     if sep_bytes.len() != 1 {
-                        return Err(vm.new_value_error("sep must be length 1.".to_owned()));
+                        return Err(vm.new_value_error("sep must be length 1."));
                     }
                     let sep_char = sep_bytes[0];
                     if !sep_char.is_ascii() {
-                        return Err(vm.new_value_error("sep must be ASCII.".to_owned()));
+                        return Err(vm.new_value_error("sep must be ASCII."));
                     }
                     Ok(Some(sep_char))
                 })?

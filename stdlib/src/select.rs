@@ -246,7 +246,7 @@ mod decl {
         });
         if let Some(timeout) = timeout {
             if timeout < 0.0 {
-                return Err(vm.new_value_error("timeout must be positive".to_owned()));
+                return Err(vm.new_value_error("timeout must be positive"));
             }
         }
         let deadline = timeout.map(|s| time::time(vm).unwrap() + s);
@@ -353,9 +353,7 @@ mod decl {
                 } else if let Some(float) = obj.payload::<PyFloat>() {
                     let float = float.to_f64();
                     if float.is_nan() {
-                        return Err(
-                            vm.new_value_error("Invalid value NaN (not a number)".to_owned())
-                        );
+                        return Err(vm.new_value_error("Invalid value NaN (not a number)"));
                     }
                     if float.is_sign_negative() {
                         None
@@ -367,9 +365,10 @@ mod decl {
                     if int.as_bigint().is_negative() {
                         None
                     } else {
-                        let n = int.as_bigint().to_u64().ok_or_else(|| {
-                            vm.new_overflow_error("value out of range".to_owned())
-                        })?;
+                        let n = int
+                            .as_bigint()
+                            .to_u64()
+                            .ok_or_else(|| vm.new_overflow_error("value out of range"))?;
                         Some(if MILLIS {
                             Duration::from_millis(n)
                         } else {
@@ -430,17 +429,16 @@ mod decl {
                 use crate::builtins::PyInt;
                 let int = obj
                     .downcast::<PyInt>()
-                    .map_err(|_| vm.new_type_error("argument must be an integer".to_owned()))?;
+                    .map_err(|_| vm.new_type_error("argument must be an integer"))?;
 
                 let val = int.as_bigint();
                 if val.is_negative() {
-                    return Err(vm.new_value_error("negative event mask".to_owned()));
+                    return Err(vm.new_value_error("negative event mask"));
                 }
 
                 // Try converting to i16, should raise OverflowError if too large
-                let mask = i16::try_from(val).map_err(|_| {
-                    vm.new_overflow_error("event mask value out of range".to_owned())
-                })?;
+                let mask = i16::try_from(val)
+                    .map_err(|_| vm.new_overflow_error("event mask value out of range"))?;
 
                 Ok(EventMask(mask))
             }
@@ -497,7 +495,7 @@ mod decl {
                 let TimeoutArg(timeout) = timeout.unwrap_or_default();
                 let timeout_ms = match timeout {
                     Some(d) => i32::try_from(d.as_millis())
-                        .map_err(|_| vm.new_overflow_error("value out of range".to_owned()))?,
+                        .map_err(|_| vm.new_overflow_error("value out of range"))?,
                     None => -1i32,
                 };
                 let deadline = timeout.map(|d| Instant::now() + d);
@@ -579,7 +577,7 @@ mod decl {
             type Args = EpollNewArgs;
             fn py_new(cls: PyTypeRef, args: EpollNewArgs, vm: &VirtualMachine) -> PyResult {
                 if let ..=-2 | 0 = args.sizehint {
-                    return Err(vm.new_value_error("negative sizehint".to_owned()));
+                    return Err(vm.new_value_error("negative sizehint"));
                 }
                 if !matches!(args.flags, 0 | libc::EPOLL_CLOEXEC) {
                     return Err(vm.new_os_error("invalid flags".to_owned()));
@@ -625,9 +623,8 @@ mod decl {
                 &self,
                 vm: &VirtualMachine,
             ) -> PyResult<impl Deref<Target = OwnedFd> + '_> {
-                PyRwLockReadGuard::try_map(self.epoll_fd.read(), |x| x.as_ref()).map_err(|_| {
-                    vm.new_value_error("I/O operation on closed epoll object".to_owned())
-                })
+                PyRwLockReadGuard::try_map(self.epoll_fd.read(), |x| x.as_ref())
+                    .map_err(|_| vm.new_value_error("I/O operation on closed epoll object"))
             }
 
             #[pymethod]
@@ -680,7 +677,7 @@ mod decl {
                     timeout
                         .map(rustix::event::Timespec::try_from)
                         .transpose()
-                        .map_err(|_| vm.new_overflow_error("timeout is too large".to_owned()))?;
+                        .map_err(|_| vm.new_overflow_error("timeout is too large"))?;
 
                 let deadline = timeout.map(|d| Instant::now() + d);
                 let maxevents = match maxevents {

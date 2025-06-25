@@ -101,9 +101,7 @@ impl PyUnion {
             .iter()
             .any(|x| x.class().is(vm.ctx.types.generic_alias_type))
         {
-            Err(vm.new_type_error(
-                "isinstance() argument 2 cannot be a parameterized generic".to_owned(),
-            ))
+            Err(vm.new_type_error("isinstance() argument 2 cannot be a parameterized generic"))
         } else {
             obj.is_instance(zelf.args().as_object(), vm)
         }
@@ -116,9 +114,7 @@ impl PyUnion {
             .iter()
             .any(|x| x.class().is(vm.ctx.types.generic_alias_type))
         {
-            Err(vm.new_type_error(
-                "issubclass() argument 2 cannot be a parameterized generic".to_owned(),
-            ))
+            Err(vm.new_type_error("issubclass() argument 2 cannot be a parameterized generic"))
         } else {
             obj.is_subclass(zelf.args().as_object(), vm)
         }

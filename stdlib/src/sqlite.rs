@@ -1015,9 +1015,7 @@ mod _sqlite {
                 sleep,
             } = args;
             if zelf.is(&target) {
-                return Err(
-                    vm.new_value_error("target cannot be the same connection instance".to_owned())
-                );
+                return Err(vm.new_value_error("target cannot be the same connection instance"));
             }
 
             let pages = if pages == 0 { -1 } else { pages };
@@ -1165,7 +1163,7 @@ mod _sqlite {
             let data = Box::into_raw(Box::new(data));
 
             if !callable.is_callable() {
-                return Err(vm.new_type_error("parameter must be callable".to_owned()));
+                return Err(vm.new_type_error("parameter must be callable"));
             }
 
             let ret = unsafe {
@@ -1889,12 +1887,12 @@ mod _sqlite {
                         return self.data.getitem_by_index(vm, i);
                     }
                 }
-                Err(vm.new_index_error("No item with that key".to_owned()))
+                Err(vm.new_index_error("No item with that key"))
             } else if let Some(slice) = needle.payload::<PySlice>() {
                 let list = self.data.getitem_by_slice(vm, slice.to_saturated(vm)?)?;
                 Ok(vm.ctx.new_tuple(list).into())
             } else {
-                Err(vm.new_index_error("Index must be int or string".to_owned()))
+                Err(vm.new_index_error("Index must be int or string"))
             }
         }
     }
@@ -1908,7 +1906,7 @@ mod _sqlite {
                 .inner(vm)?
                 .description
                 .clone()
-                .ok_or_else(|| vm.new_value_error("no description in Cursor".to_owned()))?;
+                .ok_or_else(|| vm.new_value_error("no description in Cursor"))?;
 
             Self {
                 data: args.1,
@@ -2069,8 +2067,7 @@ mod _sqlite {
             let mut inner = self.inner(vm)?;
             let blob_len = inner.blob.bytes();
 
-            let overflow_err =
-                || vm.new_overflow_error("seek offset results in overflow".to_owned());
+            let overflow_err = || vm.new_overflow_error("seek offset results in overflow");
 
             match origin {
                 libc::SEEK_SET => {}
@@ -2080,13 +2077,13 @@ mod _sqlite {
                 libc::SEEK_END => offset = offset.checked_add(blob_len).ok_or_else(overflow_err)?,
                 _ => {
                     return Err(vm.new_value_error(
-                        "'origin' should be os.SEEK_SET, os.SEEK_CUR, or os.SEEK_END".to_owned(),
+                        "'origin' should be os.SEEK_SET, os.SEEK_CUR, or os.SEEK_END",
                     ));
                 }
             }
 
             if offset < 0 || offset > blob_len {
-                Err(vm.new_value_error("offset out of blob range".to_owned()))
+                Err(vm.new_value_error("offset out of blob range"))
             } else {
                 inner.offset = offset;
                 Ok(())
@@ -2123,7 +2120,7 @@ mod _sqlite {
                 index += length;
             }
             if index < 0 || index >= length {
-                Err(vm.new_index_error("Blob index out of range".to_owned()))
+                Err(vm.new_index_error("Blob index out of range"))
             } else {
                 Ok(index)
             }
@@ -2139,7 +2136,7 @@ mod _sqlite {
             if length <= max_write as usize {
                 Ok(length as c_int)
             } else {
-                Err(vm.new_value_error("data longer than blob length".to_owned()))
+                Err(vm.new_value_error("data longer than blob length"))
             }
         }
 
@@ -2176,7 +2173,7 @@ mod _sqlite {
                 }
                 Ok(vm.ctx.new_bytes(buf).into())
             } else {
-                Err(vm.new_type_error("Blob indices must be integers".to_owned()))
+                Err(vm.new_type_error("Blob indices must be integers"))
             }
         }
 
@@ -2187,7 +2184,7 @@ mod _sqlite {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let Some(value) = value else {
-                return Err(vm.new_type_error("Blob doesn't support deletion".to_owned()));
+                return Err(vm.new_type_error("Blob doesn't support deletion"));
             };
             let inner = self.inner(vm)?;
 
@@ -2205,14 +2202,12 @@ mod _sqlite {
                 let ret = inner.blob.write_single(value, index);
                 self.check(ret, vm)
             } else if let Some(_slice) = needle.payload::<PySlice>() {
-                Err(vm.new_not_implemented_error(
-                    "Blob slice assignment is not implemented".to_owned(),
-                ))
+                Err(vm.new_not_implemented_error("Blob slice assignment is not implemented"))
                 // let blob_len = inner.blob.bytes();
                 // let slice = slice.to_saturated(vm)?;
                 // let (range, step, length) = slice.adjust_indices(blob_len as usize);
             } else {
-                Err(vm.new_type_error("Blob indices must be integers".to_owned()))
+                Err(vm.new_type_error("Blob indices must be integers"))
             }
         }
 
@@ -2871,9 +2866,8 @@ mod _sqlite {
                 SQLITE_TEXT => {
                     let text =
                         ptr_to_vec(sqlite3_value_text(val), sqlite3_value_bytes(val), db, vm)?;
-                    let text = String::from_utf8(text).map_err(|_| {
-                        vm.new_value_error("invalid utf-8 with SQLITE_TEXT".to_owned())
-                    })?;
+                    let text = String::from_utf8(text)
+                        .map_err(|_| vm.new_value_error("invalid utf-8 with SQLITE_TEXT"))?;
                     vm.ctx.new_str(text).into()
                 }
                 SQLITE_BLOB => {
@@ -2893,10 +2887,10 @@ mod _sqlite {
 
     fn ptr_to_str<'a>(p: *const libc::c_char, vm: &VirtualMachine) -> PyResult<&'a str> {
         if p.is_null() {
-            return Err(vm.new_memory_error("string pointer is null".to_owned()));
+            return Err(vm.new_memory_error("string pointer is null"));
         }
         unsafe { CStr::from_ptr(p).to_str() }
-            .map_err(|_| vm.new_value_error("Invalid UIF-8 codepoint".to_owned()))
+            .map_err(|_| vm.new_value_error("Invalid UIF-8 codepoint"))
     }
 
     fn ptr_to_string(
@@ -2906,7 +2900,7 @@ mod _sqlite {
         vm: &VirtualMachine,
     ) -> PyResult<String> {
         let s = ptr_to_vec(p, nbytes, db, vm)?;
-        String::from_utf8(s).map_err(|_| vm.new_value_error("invalid utf-8".to_owned()))
+        String::from_utf8(s).map_err(|_| vm.new_value_error("invalid utf-8"))
     }
 
     fn ptr_to_vec(
@@ -2917,12 +2911,12 @@ mod _sqlite {
     ) -> PyResult<Vec<u8>> {
         if p.is_null() {
             if !db.is_null() && unsafe { sqlite3_errcode(db) } == SQLITE_NOMEM {
-                Err(vm.new_memory_error("sqlite out of memory".to_owned()))
+                Err(vm.new_memory_error("sqlite out of memory"))
             } else {
                 Ok(vec![])
             }
         } else if nbytes < 0 {
-            Err(vm.new_system_error("negative size with ptr".to_owned()))
+            Err(vm.new_system_error("negative size with ptr"))
         } else {
             Ok(unsafe { std::slice::from_raw_parts(p.cast(), nbytes as usize) }.to_vec())
         }
@@ -2931,19 +2925,19 @@ mod _sqlite {
     fn str_to_ptr_len(s: &PyStr, vm: &VirtualMachine) -> PyResult<(*const libc::c_char, i32)> {
         let s = s
             .to_str()
-            .ok_or_else(|| vm.new_unicode_encode_error("surrogates not allowed".to_owned()))?;
+            .ok_or_else(|| vm.new_unicode_encode_error("surrogates not allowed"))?;
         let len = c_int::try_from(s.len())
-            .map_err(|_| vm.new_overflow_error("TEXT longer than INT_MAX bytes".to_owned()))?;
+            .map_err(|_| vm.new_overflow_error("TEXT longer than INT_MAX bytes"))?;
         let ptr = s.as_ptr().cast();
         Ok((ptr, len))
     }
 
     fn buffer_to_ptr_len(buffer: &PyBuffer, vm: &VirtualMachine) -> PyResult<(*const c_void, i32)> {
-        let bytes = buffer.as_contiguous().ok_or_else(|| {
-            vm.new_buffer_error("underlying buffer is not C-contiguous".to_owned())
-        })?;
+        let bytes = buffer
+            .as_contiguous()
+            .ok_or_else(|| vm.new_buffer_error("underlying buffer is not C-contiguous"))?;
         let len = c_int::try_from(bytes.len())
-            .map_err(|_| vm.new_overflow_error("BLOB longer than INT_MAX bytes".to_owned()))?;
+            .map_err(|_| vm.new_overflow_error("BLOB longer than INT_MAX bytes"))?;
         let ptr = bytes.as_ptr().cast();
         Ok((ptr, len))
     }
@@ -3007,8 +3001,7 @@ mod _sqlite {
             .map(|&x| x.as_ptr().cast())
             .ok_or_else(|| {
                 vm.new_value_error(
-                    "isolation_level string must be '', 'DEFERRED', 'IMMEDIATE', or 'EXCLUSIVE'"
-                        .to_owned(),
+                    "isolation_level string must be '', 'DEFERRED', 'IMMEDIATE', or 'EXCLUSIVE'",
                 )
             })
     }

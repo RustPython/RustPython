@@ -62,9 +62,7 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
             {
                 Ok(value.clone())
             } else {
-                Err(vm.new_type_error(
-                    "one character bytes, bytearray or integer expected".to_string(),
-                ))
+                Err(vm.new_type_error("one character bytes, bytearray or integer expected"))
             }
         }
         "u" => {
@@ -72,7 +70,7 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
                 if b {
                     Ok(value.clone())
                 } else {
-                    Err(vm.new_type_error("one character unicode string expected".to_string()))
+                    Err(vm.new_type_error("one character unicode string expected"))
                 }
             } else {
                 Err(vm.new_type_error(format!(
@@ -137,7 +135,7 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
             {
                 Ok(value.clone())
             } else {
-                Err(vm.new_type_error("cannot be converted to pointer".to_string()))
+                Err(vm.new_type_error("cannot be converted to pointer"))
             }
         }
     }
@@ -234,7 +232,7 @@ impl PyCSimple {
     pub fn value(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let zelf: &Py<Self> = instance
             .downcast_ref()
-            .ok_or_else(|| vm.new_type_error("cannot get value of instance".to_string()))?;
+            .ok_or_else(|| vm.new_type_error("cannot get value of instance"))?;
         Ok(unsafe { (*zelf.value.as_ptr()).clone() })
     }
 
@@ -242,7 +240,7 @@ impl PyCSimple {
     fn set_value(instance: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let zelf: PyRef<Self> = instance
             .downcast()
-            .map_err(|_| vm.new_type_error("cannot set value of instance".to_string()))?;
+            .map_err(|_| vm.new_type_error("cannot set value of instance"))?;
         let content = set_primitive(zelf._type_.as_str(), &value, vm)?;
         zelf.value.store(content);
         Ok(())
