@@ -181,9 +181,7 @@ impl Constructor for PyComplex {
                     let (re, im) = s
                         .to_str()
                         .and_then(rustpython_literal::complex::parse_str)
-                        .ok_or_else(|| {
-                            vm.new_value_error("complex() arg is a malformed string")
-                        })?;
+                        .ok_or_else(|| vm.new_value_error("complex() arg is a malformed string"))?;
                     return Self::from(Complex64 { re, im })
                         .into_ref_with_type(vm, cls)
                         .map(Into::into);
@@ -204,9 +202,7 @@ impl Constructor for PyComplex {
                 if let Some(c) = obj.try_complex(vm)? {
                     c
                 } else if obj.class().fast_issubclass(vm.ctx.types.str_type) {
-                    return Err(
-                        vm.new_type_error("complex() second arg can't be a string")
-                    );
+                    return Err(vm.new_type_error("complex() second arg can't be a string"));
                 } else {
                     return Err(vm.new_type_error(format!(
                         "complex() second argument must be a number, not '{}'",

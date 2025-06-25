@@ -550,8 +550,7 @@ mod _ssl {
             value: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let value = value
-                .ok_or_else(|| vm.new_attribute_error("cannot delete attribute"))?;
+            let value = value.ok_or_else(|| vm.new_attribute_error("cannot delete attribute"))?;
             *self.post_handshake_auth.lock() = value.is_true(vm)?;
             Ok(())
         }
@@ -682,9 +681,7 @@ mod _ssl {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             if let (None, None, None) = (&args.cafile, &args.capath, &args.cadata) {
-                return Err(
-                    vm.new_type_error("cafile, capath and cadata cannot be all omitted")
-                );
+                return Err(vm.new_type_error("cafile, capath and cadata cannot be all omitted"));
             }
             if let Some(cafile) = &args.cafile {
                 cafile.ensure_no_nul(vm)?
@@ -695,9 +692,7 @@ mod _ssl {
 
             #[cold]
             fn invalid_cadata(vm: &VirtualMachine) -> PyBaseExceptionRef {
-                vm.new_type_error(
-                    "cadata should be an ASCII string or a bytes-like object",
-                )
+                vm.new_type_error("cadata should be an ASCII string or a bytes-like object")
             }
 
             let mut ctx = self.builder();
@@ -761,9 +756,7 @@ mod _ssl {
             } = args;
             // TODO: requires passing a callback to C
             if password.is_some() {
-                return Err(
-                    vm.new_not_implemented_error("password arg not yet supported")
-                );
+                return Err(vm.new_not_implemented_error("password arg not yet supported"));
             }
             let mut ctx = self.builder();
             let key_path = keyfile.map(|path| path.to_path_buf(vm)).transpose()?;

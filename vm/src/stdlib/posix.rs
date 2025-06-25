@@ -989,9 +989,7 @@ pub mod module {
             .first()
             .ok_or_else(|| vm.new_value_error("execv() arg 2 must not be empty"))?;
         if first.to_bytes().is_empty() {
-            return Err(
-                vm.new_value_error("execv() arg 2 first element cannot be empty")
-            );
+            return Err(vm.new_value_error("execv() arg 2 first element cannot be empty"));
         }
 
         unistd::execv(&path, &argv)
@@ -1018,9 +1016,7 @@ pub mod module {
             .ok_or_else(|| vm.new_value_error("execve() arg 2 must not be empty"))?;
 
         if first.to_bytes().is_empty() {
-            return Err(
-                vm.new_value_error("execve() arg 2 first element cannot be empty")
-            );
+            return Err(vm.new_value_error("execve() arg 2 first element cannot be empty"));
         }
 
         let env = env
@@ -1326,9 +1322,7 @@ pub mod module {
                     .ok_or_else(|| vm.new_type_error("items() should return tuples"))?;
                 let tuple_items = tuple.as_slice();
                 if tuple_items.len() != 2 {
-                    return Err(vm.new_value_error(
-                        "items() tuples should have exactly 2 elements",
-                    ));
+                    return Err(vm.new_value_error("items() tuples should have exactly 2 elements"));
                 }
                 Ok((tuple_items[0].clone(), tuple_items[1].clone()))
             })
@@ -1338,19 +1332,13 @@ pub mod module {
                 let k = OsPath::try_from_object(vm, k)?.into_bytes();
                 let v = OsPath::try_from_object(vm, v)?.into_bytes();
                 if k.contains(&0) {
-                    return Err(
-                        vm.new_value_error("envp dict key cannot contain a nul byte")
-                    );
+                    return Err(vm.new_value_error("envp dict key cannot contain a nul byte"));
                 }
                 if k.contains(&b'=') {
-                    return Err(vm.new_value_error(
-                        "envp dict key cannot contain a '=' character",
-                    ));
+                    return Err(vm.new_value_error("envp dict key cannot contain a '=' character"));
                 }
                 if v.contains(&0) {
-                    return Err(
-                        vm.new_value_error("envp dict value cannot contain a nul byte")
-                    );
+                    return Err(vm.new_value_error("envp dict value cannot contain a nul byte"));
                 }
                 let mut env = k;
                 env.push(b'=');
@@ -1414,14 +1402,11 @@ pub mod module {
                 for action in it.iter(vm)? {
                     let action = action?;
                     let (id, args) = action.split_first().ok_or_else(|| {
-                        vm.new_type_error(
-                            "Each file_actions element must be a non-empty tuple",
-                        )
+                        vm.new_type_error("Each file_actions element must be a non-empty tuple")
                     })?;
                     let id = i32::try_from_borrowed_object(vm, id)?;
-                    let id = PosixSpawnFileActionIdentifier::try_from(id).map_err(|_| {
-                        vm.new_type_error("Unknown file_actions identifier")
-                    })?;
+                    let id = PosixSpawnFileActionIdentifier::try_from(id)
+                        .map_err(|_| vm.new_type_error("Unknown file_actions identifier"))?;
                     let args: crate::function::FuncArgs = args.to_vec().into();
                     let ret = match id {
                         PosixSpawnFileActionIdentifier::Open => {
@@ -1532,9 +1517,9 @@ pub mod module {
             if let Some(_scheduler) = self.scheduler {
                 // TODO: Implement scheduler parameter handling
                 // This requires platform-specific sched_param struct handling
-                return Err(vm.new_not_implemented_error(
-                    "scheduler parameter is not yet implemented",
-                ));
+                return Err(
+                    vm.new_not_implemented_error("scheduler parameter is not yet implemented")
+                );
             }
 
             if flags != 0 {
@@ -1553,9 +1538,8 @@ pub mod module {
                 .args
                 .iter(vm)?
                 .map(|res| {
-                    CString::new(res?.into_bytes()).map_err(|_| {
-                        vm.new_value_error("path should not have nul bytes")
-                    })
+                    CString::new(res?.into_bytes())
+                        .map_err(|_| vm.new_value_error("path should not have nul bytes"))
                 })
                 .collect::<Result<_, _>>()?;
             let argv: Vec<*mut libc::c_char> = args
@@ -1854,9 +1838,10 @@ pub mod module {
                 Ok(int) => int.try_to_primitive(vm)?,
                 Err(obj) => {
                     let s = PyStrRef::try_from_object(vm, obj)?;
-                    s.as_str().parse::<PathconfVar>().map_err(|_| {
-                        vm.new_value_error("unrecognized configuration name")
-                    })? as i32
+                    s.as_str()
+                        .parse::<PathconfVar>()
+                        .map_err(|_| vm.new_value_error("unrecognized configuration name"))?
+                        as i32
                 }
             };
             Ok(Self(i))

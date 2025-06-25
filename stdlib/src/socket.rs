@@ -953,9 +953,7 @@ mod _socket {
                     })?;
                     if tuple.len() != 2 {
                         return Err(vm
-                            .new_type_error(
-                                "AF_INET address must be a pair (host, post)",
-                            )
+                            .new_type_error("AF_INET address must be a pair (host, post)")
                             .into());
                     }
                     let addr = Address::from_tuple(&tuple, vm)?;
@@ -1244,9 +1242,7 @@ mod _socket {
                         vm.new_value_error("negative buffersize in recvfrom_into")
                     })?;
                     buf.get_mut(..i).ok_or_else(|| {
-                        vm.new_value_error(
-                            "nbytes is greater than the length of the buffer",
-                        )
+                        vm.new_value_error("nbytes is greater than the length of the buffer")
                     })?
                 }
                 OptionalArg::Missing => buf,
@@ -1315,9 +1311,9 @@ mod _socket {
             let (flags, address) = match arg3 {
                 OptionalArg::Present(arg3) => {
                     // should just be i32::try_from_obj but tests check for error message
-                    let int = arg2.try_index_opt(vm).unwrap_or_else(|| {
-                        Err(vm.new_type_error("an integer is required"))
-                    })?;
+                    let int = arg2
+                        .try_index_opt(vm)
+                        .unwrap_or_else(|| Err(vm.new_type_error("an integer is required")))?;
                     let flags = int.try_to_primitive::<i32>(vm)?;
                     (flags, arg3)
                 }
@@ -1368,9 +1364,9 @@ mod _socket {
                     &ancdata,
                     |obj| -> PyResult<(i32, i32, ArgBytesLike)> {
                         let seq: Vec<PyObjectRef> = obj.try_into_value(vm)?;
-                        let [lvl, typ, data]: [PyObjectRef; 3] = seq.try_into().map_err(|_| {
-                            vm.new_type_error("expected a sequence of length 3")
-                        })?;
+                        let [lvl, typ, data]: [PyObjectRef; 3] = seq
+                            .try_into()
+                            .map_err(|_| vm.new_type_error("expected a sequence of length 3"))?;
                         Ok((
                             lvl.try_into_value(vm)?,
                             typ.try_into_value(vm)?,
@@ -1779,9 +1775,9 @@ mod _socket {
         protocolname: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        let port = port.to_u16().ok_or_else(|| {
-            vm.new_overflow_error("getservbyport: port must be 0-65535.")
-        })?;
+        let port = port
+            .to_u16()
+            .ok_or_else(|| vm.new_overflow_error("getservbyport: port must be 0-65535."))?;
         let cstr_proto = protocolname
             .as_ref()
             .map(|s| s.to_cstring(vm))
@@ -2060,9 +2056,7 @@ mod _socket {
         match address.len() {
             2..=4 => {}
             _ => {
-                return Err(vm
-                    .new_type_error("illegal sockaddr argument")
-                    .into());
+                return Err(vm.new_type_error("illegal sockaddr argument").into());
             }
         }
         let (addr, flowinfo, scopeid) = Address::from_tuple_ipv6(&address, vm)?;

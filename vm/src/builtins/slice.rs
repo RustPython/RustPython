@@ -66,9 +66,7 @@ impl PySlice {
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let slice: PySlice = match args.args.len() {
             0 => {
-                return Err(
-                    vm.new_type_error("slice() must have at least one arguments.")
-                );
+                return Err(vm.new_type_error("slice() must have at least one arguments."));
             }
             1 => {
                 let stop = args.bind(vm)?;

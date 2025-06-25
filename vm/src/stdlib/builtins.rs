@@ -134,9 +134,9 @@ mod builtins {
             let optimize: u8 = if optimize == -1 {
                 vm.state.settings.optimize
             } else {
-                optimize.try_into().map_err(|_| {
-                    vm.new_value_error("compile() optimize value invalid")
-                })?
+                optimize
+                    .try_into()
+                    .map_err(|_| vm.new_value_error("compile() optimize value invalid"))?
             };
 
             if args
@@ -831,9 +831,8 @@ mod builtins {
     #[pyfunction]
     fn vars(obj: OptionalArg, vm: &VirtualMachine) -> PyResult {
         if let OptionalArg::Present(obj) = obj {
-            obj.get_attr(identifier!(vm, __dict__), vm).map_err(|_| {
-                vm.new_type_error("vars() argument must have __dict__ attribute")
-            })
+            obj.get_attr(identifier!(vm, __dict__), vm)
+                .map_err(|_| vm.new_type_error("vars() argument must have __dict__ attribute"))
         } else {
             Ok(vm.current_locals()?.into())
         }

@@ -121,8 +121,8 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
         state.into()
     };
 
-    let slot_names = type_slot_names(obj.class(), vm)
-        .map_err(|_| vm.new_type_error("cannot pickle object"))?;
+    let slot_names =
+        type_slot_names(obj.class(), vm).map_err(|_| vm.new_type_error("cannot pickle object"))?;
 
     if required {
         let mut basicsize = obj.class().slots.basicsize;

@@ -1015,9 +1015,7 @@ mod _sqlite {
                 sleep,
             } = args;
             if zelf.is(&target) {
-                return Err(
-                    vm.new_value_error("target cannot be the same connection instance")
-                );
+                return Err(vm.new_value_error("target cannot be the same connection instance"));
             }
 
             let pages = if pages == 0 { -1 } else { pages };
@@ -2069,8 +2067,7 @@ mod _sqlite {
             let mut inner = self.inner(vm)?;
             let blob_len = inner.blob.bytes();
 
-            let overflow_err =
-                || vm.new_overflow_error("seek offset results in overflow");
+            let overflow_err = || vm.new_overflow_error("seek offset results in overflow");
 
             match origin {
                 libc::SEEK_SET => {}
@@ -2205,9 +2202,7 @@ mod _sqlite {
                 let ret = inner.blob.write_single(value, index);
                 self.check(ret, vm)
             } else if let Some(_slice) = needle.payload::<PySlice>() {
-                Err(vm.new_not_implemented_error(
-                    "Blob slice assignment is not implemented",
-                ))
+                Err(vm.new_not_implemented_error("Blob slice assignment is not implemented"))
                 // let blob_len = inner.blob.bytes();
                 // let slice = slice.to_saturated(vm)?;
                 // let (range, step, length) = slice.adjust_indices(blob_len as usize);
@@ -2871,9 +2866,8 @@ mod _sqlite {
                 SQLITE_TEXT => {
                     let text =
                         ptr_to_vec(sqlite3_value_text(val), sqlite3_value_bytes(val), db, vm)?;
-                    let text = String::from_utf8(text).map_err(|_| {
-                        vm.new_value_error("invalid utf-8 with SQLITE_TEXT")
-                    })?;
+                    let text = String::from_utf8(text)
+                        .map_err(|_| vm.new_value_error("invalid utf-8 with SQLITE_TEXT"))?;
                     vm.ctx.new_str(text).into()
                 }
                 SQLITE_BLOB => {
@@ -2939,9 +2933,9 @@ mod _sqlite {
     }
 
     fn buffer_to_ptr_len(buffer: &PyBuffer, vm: &VirtualMachine) -> PyResult<(*const c_void, i32)> {
-        let bytes = buffer.as_contiguous().ok_or_else(|| {
-            vm.new_buffer_error("underlying buffer is not C-contiguous")
-        })?;
+        let bytes = buffer
+            .as_contiguous()
+            .ok_or_else(|| vm.new_buffer_error("underlying buffer is not C-contiguous"))?;
         let len = c_int::try_from(bytes.len())
             .map_err(|_| vm.new_overflow_error("BLOB longer than INT_MAX bytes"))?;
         let ptr = bytes.as_ptr().cast();

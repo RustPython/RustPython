@@ -248,9 +248,7 @@ mod decl {
             }
             Either::B(int) => DateTime::<chrono::offset::Utc>::from_timestamp(int, 0),
         };
-        timestamp.ok_or_else(|| {
-            vm.new_overflow_error("timestamp out of range for platform time_t")
-        })
+        timestamp.ok_or_else(|| vm.new_overflow_error("timestamp out of range for platform time_t"))
     }
 
     impl OptionalArg<Either<f64, i64>> {
@@ -491,8 +489,7 @@ mod decl {
         }
 
         fn to_date_time(&self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
-            let invalid_overflow =
-                || vm.new_overflow_error("mktime argument out of range");
+            let invalid_overflow = || vm.new_overflow_error("mktime argument out of range");
             let invalid_value = || vm.new_value_error("invalid struct_time parameter");
 
             macro_rules! field {
@@ -747,9 +744,7 @@ mod platform {
                 let u = (tv.tv_usec as i64).checked_mul(US_TO_NS)?;
                 t.checked_add(u)
             })(tv)
-            .ok_or_else(|| {
-                vm.new_overflow_error("timestamp too large to convert to i64")
-            })
+            .ok_or_else(|| vm.new_overflow_error("timestamp too large to convert to i64"))
         }
         let ru = getrusage(UsageWho::RUSAGE_SELF).map_err(|e| e.into_pyexception(vm))?;
         let utime = from_timeval(ru.user_time().into(), vm)?;
@@ -844,9 +839,10 @@ mod platform {
         let ticks = unsafe { GetTickCount64() };
 
         Ok(Duration::from_nanos(
-            (ticks as i64).checked_mul(MS_TO_NS).ok_or_else(|| {
-                vm.new_overflow_error("timestamp too large to convert to i64")
-            })? as u64,
+            (ticks as i64)
+                .checked_mul(MS_TO_NS)
+                .ok_or_else(|| vm.new_overflow_error("timestamp too large to convert to i64"))?
+                as u64,
         ))
     }
 

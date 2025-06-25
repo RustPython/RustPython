@@ -67,9 +67,10 @@ impl ByteInnerNewOptions {
     }
 
     fn get_value_from_size(size: PyIntRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
-        let size = size.as_bigint().to_isize().ok_or_else(|| {
-            vm.new_overflow_error("cannot fit 'int' into an index-sized integer")
-        })?;
+        let size = size
+            .as_bigint()
+            .to_isize()
+            .ok_or_else(|| vm.new_overflow_error("cannot fit 'int' into an index-sized integer"))?;
         let size = if size < 0 {
             return Err(vm.new_value_error("negative count"));
         } else {
@@ -244,9 +245,7 @@ impl ByteInnerTranslateOptions {
                     .ok()
                     .filter(|v| v.elements.len() == 256)
                     .ok_or_else(|| {
-                        vm.new_value_error(
-                            "translation table must be 256 characters long",
-                        )
+                        vm.new_value_error("translation table must be 256 characters long")
                     })?;
                 Ok(bytes.elements.to_vec())
             },
@@ -582,9 +581,7 @@ impl PyBytesInner {
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         if from.len() != to.len() {
-            return Err(
-                vm.new_value_error("the two maketrans arguments must have equal length")
-            );
+            return Err(vm.new_value_error("the two maketrans arguments must have equal length"));
         }
         let mut res = vec![];
 

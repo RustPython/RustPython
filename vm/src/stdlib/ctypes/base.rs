@@ -62,9 +62,7 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
             {
                 Ok(value.clone())
             } else {
-                Err(vm.new_type_error(
-                    "one character bytes, bytearray or integer expected",
-                ))
+                Err(vm.new_type_error("one character bytes, bytearray or integer expected"))
             }
         }
         "u" => {

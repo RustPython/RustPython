@@ -233,9 +233,7 @@ impl PyPayload for PyMemberDescriptor {
 fn calculate_qualname(descr: &PyDescriptorOwned, vm: &VirtualMachine) -> PyResult<Option<String>> {
     if let Some(qualname) = vm.get_attribute_opt(descr.typ.clone().into(), "__qualname__")? {
         let str = qualname.downcast::<PyStr>().map_err(|_| {
-            vm.new_type_error(
-                "<descriptor>.__objclass__.__qualname__ is not a unicode object",
-            )
+            vm.new_type_error("<descriptor>.__objclass__.__qualname__ is not a unicode object")
         })?;
         Ok(Some(format!("{}.{}", str, descr.name)))
     } else {
@@ -306,9 +304,7 @@ fn set_slot_at_object(
             match value {
                 PySetterValue::Assign(v) => {
                     if !v.class().is(vm.ctx.types.bool_type) {
-                        return Err(
-                            vm.new_type_error("attribute value type must be bool")
-                        );
+                        return Err(vm.new_type_error("attribute value type must be bool"));
                     }
 
                     obj.set_slot(offset, Some(v))

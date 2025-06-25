@@ -243,9 +243,7 @@ mod symtable {
         #[pymethod]
         fn get_namespace(&self, vm: &VirtualMachine) -> PyResult {
             if self.namespaces.len() != 1 {
-                return Err(
-                    vm.new_value_error("namespace is bound to multiple namespaces")
-                );
+                return Err(vm.new_value_error("namespace is bound to multiple namespaces"));
             }
             Ok(to_py_symbol_table(self.namespaces.first().unwrap().clone())
                 .into_ref(&vm.ctx)

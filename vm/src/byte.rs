@@ -14,9 +14,7 @@ pub fn bytes_from_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Vec<u8
         }
     }
 
-    Err(vm.new_type_error(
-        "can assign only bytes, buffers, or iterables of ints in range(0, 256)",
-    ))
+    Err(vm.new_type_error("can assign only bytes, buffers, or iterables of ints in range(0, 256)"))
 }
 
 pub fn value_from_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<u8> {

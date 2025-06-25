@@ -140,9 +140,7 @@ mod _bz2 {
             let level = match compresslevel {
                 valid_level @ 1..=9 => bzip2::Compression::new(valid_level as u32),
                 _ => {
-                    return Err(
-                        vm.new_value_error("compresslevel must be between 1 and 9")
-                    );
+                    return Err(vm.new_value_error("compresslevel must be between 1 and 9"));
                 }
             };
 

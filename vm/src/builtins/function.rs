@@ -492,16 +492,12 @@ impl PyFunction {
         match value {
             PySetterValue::Assign(value) => {
                 let Ok(qualname) = value.downcast::<PyStr>() else {
-                    return Err(vm.new_type_error(
-                        "__qualname__ must be set to a string object",
-                    ));
+                    return Err(vm.new_type_error("__qualname__ must be set to a string object"));
                 };
                 *self.qualname.lock() = qualname;
             }
             PySetterValue::Delete => {
-                return Err(
-                    vm.new_type_error("__qualname__ must be set to a string object")
-                );
+                return Err(vm.new_type_error("__qualname__ must be set to a string object"));
             }
         }
         Ok(())
@@ -523,9 +519,7 @@ impl PyFunction {
                 *self.type_params.lock() = value;
             }
             PySetterValue::Delete => {
-                return Err(
-                    vm.new_type_error("__type_params__ must be set to a tuple object")
-                );
+                return Err(vm.new_type_error("__type_params__ must be set to a tuple object"));
             }
         }
         Ok(())

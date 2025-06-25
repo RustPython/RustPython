@@ -1689,9 +1689,7 @@ impl ExecutingFrame<'_> {
                 } else {
                     // if the cause arg is an exception, we overwrite it
                     let ctor = ExceptionCtor::try_from_object(vm, val).map_err(|_| {
-                        vm.new_type_error(
-                            "exception causes must derive from BaseException",
-                        )
+                        vm.new_type_error("exception causes must derive from BaseException")
                     })?;
                     Some(ctor.instantiate(vm)?)
                 })

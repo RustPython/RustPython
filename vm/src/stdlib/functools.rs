@@ -102,9 +102,9 @@ mod _functools {
 
         #[pymethod(magic)]
         fn setstate(zelf: &Py<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let state_tuple = state.downcast::<PyTuple>().map_err(|_| {
-                vm.new_type_error("argument to __setstate__ must be a tuple")
-            })?;
+            let state_tuple = state
+                .downcast::<PyTuple>()
+                .map_err(|_| vm.new_type_error("argument to __setstate__ must be a tuple"))?;
 
             if state_tuple.len() != 4 {
                 return Err(vm.new_type_error(format!(
@@ -196,9 +196,10 @@ mod _functools {
         type Args = FuncArgs;
 
         fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            let (func, args_slice) = args.args.split_first().ok_or_else(|| {
-                vm.new_type_error("partial expected at least 1 argument, got 0")
-            })?;
+            let (func, args_slice) = args
+                .args
+                .split_first()
+                .ok_or_else(|| vm.new_type_error("partial expected at least 1 argument, got 0"))?;
 
             if !func.is_callable() {
                 return Err(vm.new_type_error("the first argument must be callable"));

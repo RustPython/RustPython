@@ -312,24 +312,18 @@ mod mmap {
         ) -> PyResult {
             let map_size = length;
             if map_size < 0 {
-                return Err(
-                    vm.new_overflow_error("memory mapped length must be positive")
-                );
+                return Err(vm.new_overflow_error("memory mapped length must be positive"));
             }
             let mut map_size = map_size as usize;
 
             if offset < 0 {
-                return Err(
-                    vm.new_overflow_error("memory mapped offset must be positive")
-                );
+                return Err(vm.new_overflow_error("memory mapped offset must be positive"));
             }
 
             if (access != AccessMode::Default)
                 && ((flags != MAP_SHARED) || (prot != (PROT_WRITE | PROT_READ)))
             {
-                return Err(vm.new_value_error(
-                    "mmap can't specify both access and flags, prot.",
-                ));
+                return Err(vm.new_value_error("mmap can't specify both access and flags, prot."));
             }
 
             // TODO: memmap2 doesn't support mapping with pro and flags right now
@@ -360,18 +354,14 @@ mod mmap {
                     }
 
                     if offset > file_len {
-                        return Err(
-                            vm.new_value_error("mmap offset is greater than file size")
-                        );
+                        return Err(vm.new_value_error("mmap offset is greater than file size"));
                     }
 
                     map_size = (file_len - offset)
                         .try_into()
                         .map_err(|_| vm.new_value_error("mmap length is too large"))?;
                 } else if offset > file_len || file_len - offset < map_size as libc::off_t {
-                    return Err(
-                        vm.new_value_error("mmap length is greater than file size")
-                    );
+                    return Err(vm.new_value_error("mmap length is greater than file size"));
                 }
             }
 
@@ -526,9 +516,7 @@ mod mmap {
             f: impl FnOnce(&mut MmapMut) -> R,
         ) -> PyResult<R> {
             if matches!(self.access, AccessMode::Read) {
-                return Err(
-                    vm.new_type_error("mmap can't modify a readonly memory map.")
-                );
+                return Err(vm.new_type_error("mmap can't modify a readonly memory map."));
             }
 
             match self.check_valid(vm)?.deref_mut().as_mut().unwrap() {
@@ -551,18 +539,14 @@ mod mmap {
         #[allow(dead_code)]
         fn check_resizeable(&self, vm: &VirtualMachine) -> PyResult<()> {
             if self.exports.load() > 0 {
-                return Err(vm.new_buffer_error(
-                    "mmap can't resize with extant buffers exported.",
-                ));
+                return Err(vm.new_buffer_error("mmap can't resize with extant buffers exported."));
             }
 
             if self.access == AccessMode::Write || self.access == AccessMode::Default {
                 return Ok(());
             }
 
-            Err(vm.new_type_error(
-                "mmap can't resize a readonly or copy-on-write memory map.",
-            ))
+            Err(vm.new_type_error("mmap can't resize a readonly or copy-on-write memory map."))
         }
 
         #[pygetset]
@@ -707,9 +691,8 @@ mod mmap {
             }
 
             let size = self.len();
-            let (dest, src, cnt) = args(dest, src, cnt, size, vm).ok_or_else(|| {
-                vm.new_value_error("source, destination, or count out of range")
-            })?;
+            let (dest, src, cnt) = args(dest, src, cnt, size, vm)
+                .ok_or_else(|| vm.new_value_error("source, destination, or count out of range"))?;
 
             let dest_end = dest + cnt;
             let src_end = src + cnt;

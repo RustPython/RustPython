@@ -325,9 +325,7 @@ mod _winapi {
         let values = ArgSequence::try_from_object(vm, values)?.into_vec();
 
         if keys.len() != values.len() {
-            return Err(
-                vm.new_runtime_error("environment changed size during iteration")
-            );
+            return Err(vm.new_runtime_error("environment changed size during iteration"));
         }
 
         let mut out = widestring::WideString::new();

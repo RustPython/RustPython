@@ -193,14 +193,12 @@ impl PyGenericAlias {
 
     #[pymethod(magic)]
     fn instancecheck(_zelf: PyRef<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Err(vm
-            .new_type_error("isinstance() argument 2 cannot be a parameterized generic"))
+        Err(vm.new_type_error("isinstance() argument 2 cannot be a parameterized generic"))
     }
 
     #[pymethod(magic)]
     fn subclasscheck(_zelf: PyRef<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Err(vm
-            .new_type_error("issubclass() argument 2 cannot be a parameterized generic"))
+        Err(vm.new_type_error("issubclass() argument 2 cannot be a parameterized generic"))
     }
 
     #[pymethod(magic)]

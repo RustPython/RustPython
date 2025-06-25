@@ -39,9 +39,7 @@ impl<'a> TryFromBorrowedObject<'a> for ArgByteOrder {
             |s: &PyStr| match s.as_str() {
                 "big" => Ok(Self::Big),
                 "little" => Ok(Self::Little),
-                _ => {
-                    Err(vm.new_value_error("byteorder must be either 'little' or 'big'"))
-                }
+                _ => Err(vm.new_value_error("byteorder must be either 'little' or 'big'")),
             },
             vm,
         )

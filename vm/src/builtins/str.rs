@@ -1267,9 +1267,7 @@ impl PyStr {
     ) -> PyResult<Wtf8Buf> {
         let fillchar = fillchar.map_or(Ok(' '.into()), |ref s| {
             s.as_wtf8().code_points().exactly_one().map_err(|_| {
-                vm.new_type_error(
-                    "The fill character must be exactly one character long",
-                )
+                vm.new_type_error("The fill character must be exactly one character long")
             })
         })?;
         Ok(if self.len() as isize >= width {
@@ -1342,15 +1340,13 @@ impl PyStr {
                             .to_u32()
                             .and_then(std::char::from_u32)
                             .ok_or_else(|| {
-                                vm.new_value_error(
-                                    "character mapping must be in range(0x110000)",
-                                )
+                                vm.new_value_error("character mapping must be in range(0x110000)")
                             })?;
                         translated.push(ch);
                     } else if !vm.is_none(&value) {
-                        return Err(vm.new_type_error(
-                            "character mapping must return integer, None or str",
-                        ));
+                        return Err(
+                            vm.new_type_error("character mapping must return integer, None or str")
+                        );
                     }
                 }
                 _ => translated.push(c),

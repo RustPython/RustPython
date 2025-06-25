@@ -17,9 +17,9 @@ mod decl {
             #[cfg(not(feature = "compiler"))]
             {
                 let _ = co_str;
-                return Err(vm.new_runtime_error(
-                    "dis.dis() with str argument requires `compiler` feature",
-                ));
+                return Err(
+                    vm.new_runtime_error("dis.dis() with str argument requires `compiler` feature")
+                );
             }
             #[cfg(feature = "compiler")]
             {

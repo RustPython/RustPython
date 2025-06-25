@@ -202,9 +202,9 @@ pub(crate) fn len_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize
     if len.is_negative() {
         return Err(vm.new_value_error("__len__() should return >= 0"));
     }
-    let len = len.to_isize().ok_or_else(|| {
-        vm.new_overflow_error("cannot fit 'int' into an index-sized integer")
-    })?;
+    let len = len
+        .to_isize()
+        .ok_or_else(|| vm.new_overflow_error("cannot fit 'int' into an index-sized integer"))?;
     Ok(len as usize)
 }
 
@@ -1155,9 +1155,9 @@ impl PyComparisonOp {
 pub trait GetAttr: PyPayload {
     #[pyslot]
     fn slot_getattro(obj: &PyObject, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-        let zelf = obj.downcast_ref().ok_or_else(|| {
-            vm.new_type_error("unexpected payload for __getattribute__")
-        })?;
+        let zelf = obj
+            .downcast_ref()
+            .ok_or_else(|| vm.new_type_error("unexpected payload for __getattribute__"))?;
         Self::getattro(zelf, name, vm)
     }
 

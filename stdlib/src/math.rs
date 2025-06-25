@@ -378,9 +378,7 @@ mod math {
         let mut diffs = vec![];
 
         if p.len() != q.len() {
-            return Err(vm.new_value_error(
-                "both points must have the same number of dimensions",
-            ));
+            return Err(vm.new_value_error("both points must have the same number of dimensions"));
         }
 
         for i in 0..p.len() {
@@ -645,9 +643,7 @@ mod math {
                     // as a result of a nan or inf in the
                     // summands
                     if xsave.is_finite() {
-                        return Err(
-                            vm.new_overflow_error("intermediate overflow in fsum")
-                        );
+                        return Err(vm.new_overflow_error("intermediate overflow in fsum"));
                     }
                     if xsave.is_infinite() {
                         inf_sum += xsave;
@@ -712,9 +708,7 @@ mod math {
         let value = x.as_bigint();
         let one = BigInt::one();
         if value.is_negative() {
-            return Err(
-                vm.new_value_error("factorial() not defined for negative values")
-            );
+            return Err(vm.new_value_error("factorial() not defined for negative values"));
         } else if *value <= one {
             return Ok(one);
         }
@@ -832,9 +826,7 @@ mod math {
         match steps {
             Some(steps) => {
                 if steps < 0 {
-                    return Err(
-                        vm.new_value_error("steps must be a non-negative integer")
-                    );
+                    return Err(vm.new_value_error("steps must be a non-negative integer"));
                 }
                 Ok(float_ops::nextafter_with_steps(
                     *arg.x,

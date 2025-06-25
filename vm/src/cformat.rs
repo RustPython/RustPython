@@ -117,8 +117,7 @@ fn spec_format_bytes(
                     return Ok(spec.format_char(buf[0]));
                 }
             }
-            Err(vm
-                .new_type_error("%c requires an integer in range(256) or a single byte"))
+            Err(vm.new_type_error("%c requires an integer in range(256) or a single byte"))
         }
     }
 }
@@ -193,9 +192,7 @@ fn spec_format_string(
                     .as_bigint()
                     .to_u32()
                     .and_then(CodePoint::from_u32)
-                    .ok_or_else(|| {
-                        vm.new_overflow_error("%c arg not in range(0x110000)")
-                    })?;
+                    .ok_or_else(|| vm.new_overflow_error("%c arg not in range(0x110000)"))?;
                 return Ok(spec.format_char(ch));
             }
             if let Some(s) = obj.payload::<PyStr>() {
@@ -359,9 +356,7 @@ pub(crate) fn cformat_bytes(
 
                 let value = match value_iter.next() {
                     Some(obj) => Ok(obj.clone()),
-                    None => {
-                        Err(vm.new_type_error("not enough arguments for format string"))
-                    }
+                    None => Err(vm.new_type_error("not enough arguments for format string")),
                 }?;
                 let part_result = spec_format_bytes(vm, &spec, value)?;
                 result.extend(part_result);
@@ -409,8 +404,7 @@ pub(crate) fn cformat_string(
             }
             Ok(result)
         } else {
-            Err(vm
-                .new_type_error("not all arguments converted during string formatting"))
+            Err(vm.new_type_error("not all arguments converted during string formatting"))
         };
     }
 
@@ -455,9 +449,7 @@ pub(crate) fn cformat_string(
 
                 let value = match value_iter.next() {
                     Some(obj) => Ok(obj.clone()),
-                    None => {
-                        Err(vm.new_type_error("not enough arguments for format string"))
-                    }
+                    None => Err(vm.new_type_error("not enough arguments for format string")),
                 }?;
                 let part_result = spec_format_string(vm, &spec, value, idx)?;
                 result.push_wtf8(&part_result);

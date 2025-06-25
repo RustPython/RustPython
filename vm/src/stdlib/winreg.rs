@@ -319,9 +319,7 @@ mod winreg {
                     return Ok(vm.ctx.new_list(vec![]).into());
                 }
                 let wide_slice = bytes_to_wide(&value.bytes).ok_or_else(|| {
-                    vm.new_value_error(
-                        "REG_MULTI_SZ string doesn't have an even byte length",
-                    )
+                    vm.new_value_error("REG_MULTI_SZ string doesn't have an even byte length")
                 })?;
                 let wide_slice = if let Some((0, rest)) = wide_slice.split_last() {
                     rest

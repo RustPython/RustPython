@@ -46,8 +46,7 @@ mod _bisect {
         // Default is always a Some so we can safely unwrap.
         let lo = handle_default(lo, vm)?
             .map(|value| {
-                usize::try_from(value)
-                    .map_err(|_| vm.new_value_error("lo must be non-negative"))
+                usize::try_from(value).map_err(|_| vm.new_value_error("lo must be non-negative"))
             })
             .unwrap_or(Ok(0))?;
         let hi = handle_default(hi, vm)?

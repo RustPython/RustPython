@@ -760,9 +760,7 @@ mod sys {
             .to_usize()
             .filter(|&u| u >= 1)
             .ok_or_else(|| {
-                vm.new_value_error(
-                    "recursion limit must be greater than or equal to one",
-                )
+                vm.new_value_error("recursion limit must be greater than or equal to one")
             })?;
         let recursion_depth = vm.current_recursion_depth();
 

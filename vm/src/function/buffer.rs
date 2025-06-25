@@ -19,9 +19,10 @@ impl PyObject {
         f: impl FnOnce(&[u8]) -> R,
     ) -> PyResult<R> {
         let buffer = PyBuffer::try_from_borrowed_object(vm, self)?;
-        buffer.as_contiguous().map(|x| f(&x)).ok_or_else(|| {
-            vm.new_type_error("non-contiguous buffer is not a bytes-like object")
-        })
+        buffer
+            .as_contiguous()
+            .map(|x| f(&x))
+            .ok_or_else(|| vm.new_type_error("non-contiguous buffer is not a bytes-like object"))
     }
 
     pub fn try_rw_bytes_like<R>(
@@ -33,9 +34,7 @@ impl PyObject {
         buffer
             .as_contiguous_mut()
             .map(|mut x| f(&mut x))
-            .ok_or_else(|| {
-                vm.new_type_error("buffer is not a read-write bytes-like object")
-            })
+            .ok_or_else(|| vm.new_type_error("buffer is not a read-write bytes-like object"))
     }
 }
 
@@ -176,9 +175,7 @@ impl TryFromObject for ArgAsciiBuffer {
                 if string.as_str().is_ascii() {
                     Ok(ArgAsciiBuffer::String(string))
                 } else {
-                    Err(vm.new_value_error(
-                        "string argument should contain only ASCII characters",
-                    ))
+                    Err(vm.new_value_error("string argument should contain only ASCII characters"))
                 }
             }
             Err(obj) => ArgBytesLike::try_from_object(vm, obj).map(ArgAsciiBuffer::Buffer),

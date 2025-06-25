@@ -184,9 +184,9 @@ pub(crate) mod _typing {
                 if let Some(name) = kwargs.swap_remove("name") {
                     (name, vec![])
                 } else {
-                    return Err(vm.new_type_error(
-                        "TypeVar() missing required argument: 'name' (pos 1)",
-                    ));
+                    return Err(
+                        vm.new_type_error("TypeVar() missing required argument: 'name' (pos 1)")
+                    );
                 }
             } else if args.args.len() == 1 {
                 (args.args[0].clone(), vec![])
@@ -225,15 +225,11 @@ pub(crate) mod _typing {
 
             // Check for invalid combinations
             if covariant && contravariant {
-                return Err(
-                    vm.new_value_error("Bivariant type variables are not supported.")
-                );
+                return Err(vm.new_value_error("Bivariant type variables are not supported."));
             }
 
             if infer_variance && (covariant || contravariant) {
-                return Err(vm.new_value_error(
-                    "Variance cannot be specified with infer_variance",
-                ));
+                return Err(vm.new_value_error("Variance cannot be specified with infer_variance"));
             }
 
             // Handle constraints and bound
@@ -243,9 +239,7 @@ pub(crate) mod _typing {
                     return Err(vm.new_type_error("A single constraint is not allowed"));
                 }
                 if bound.is_some() {
-                    return Err(
-                        vm.new_type_error("Constraints cannot be used with bound")
-                    );
+                    return Err(vm.new_type_error("Constraints cannot be used with bound"));
                 }
                 let constraints_tuple = vm.ctx.new_tuple(constraints);
                 (constraints_tuple.clone().into(), constraints_tuple.into())

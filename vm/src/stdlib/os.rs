@@ -343,9 +343,9 @@ pub(super) mod _os {
                 #[cfg(not(all(unix, not(target_os = "redox"))))]
                 {
                     let _ = fno;
-                    return Err(vm.new_not_implemented_error(
-                        "can't pass fd to listdir on this platform",
-                    ));
+                    return Err(
+                        vm.new_not_implemented_error("can't pass fd to listdir on this platform")
+                    );
                 }
                 #[cfg(all(unix, not(target_os = "redox")))]
                 {
@@ -1051,16 +1051,13 @@ pub(super) mod _os {
         let (acc, modif) = match (args.times, args.ns) {
             (Some(t), None) => {
                 let (a, m) = parse_tup(&t).ok_or_else(|| {
-                    vm.new_type_error(
-                        "utime: 'times' must be either a tuple of two ints or None",
-                    )
+                    vm.new_type_error("utime: 'times' must be either a tuple of two ints or None")
                 })?;
                 (a.try_into_value(vm)?, m.try_into_value(vm)?)
             }
             (None, Some(ns)) => {
-                let (a, m) = parse_tup(&ns).ok_or_else(|| {
-                    vm.new_type_error("utime: 'ns' must be a tuple of two ints")
-                })?;
+                let (a, m) = parse_tup(&ns)
+                    .ok_or_else(|| vm.new_type_error("utime: 'ns' must be a tuple of two ints"))?;
                 let ns_in_sec: PyObjectRef = vm.ctx.new_int(1_000_000_000).into();
                 let ns_to_dur = |obj: PyObjectRef| {
                     let divmod = vm._divmod(&obj, &ns_in_sec)?;

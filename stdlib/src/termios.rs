@@ -198,9 +198,7 @@ mod termios {
     fn tcsetattr(fd: i32, when: i32, attributes: PyListRef, vm: &VirtualMachine) -> PyResult<()> {
         let [iflag, oflag, cflag, lflag, ispeed, ospeed, cc] =
             <&[PyObjectRef; 7]>::try_from(&*attributes.borrow_vec())
-                .map_err(|_| {
-                    vm.new_type_error("tcsetattr, arg 3: must be 7 element list")
-                })?
+                .map_err(|_| vm.new_type_error("tcsetattr, arg 3: must be 7 element list"))?
                 .clone();
         let mut termios = Termios::from_fd(fd).map_err(|e| termios_error(e, vm))?;
         termios.c_iflag = iflag.try_into_value(vm)?;

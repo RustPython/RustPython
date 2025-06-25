@@ -332,9 +332,9 @@ mod _operator {
             }
             (Either::B(a), Either::B(b)) => a.with_ref(|a| b.with_ref(|b| constant_time_eq(a, b))),
             _ => {
-                return Err(vm.new_type_error(
-                    "unsupported operand types(s) or combination of types",
-                ));
+                return Err(
+                    vm.new_type_error("unsupported operand types(s) or combination of types")
+                );
             }
         };
         Ok(res)

@@ -142,9 +142,9 @@ impl PyMemoryView {
 
     fn getitem_by_idx(&self, i: isize, vm: &VirtualMachine) -> PyResult {
         if self.desc.ndim() != 1 {
-            return Err(vm.new_not_implemented_error(
-                "multi-dimensional sub-views are not implemented",
-            ));
+            return Err(
+                vm.new_not_implemented_error("multi-dimensional sub-views are not implemented")
+            );
         }
         let (shape, stride, suboffset) = self.desc.dim_desc[0];
         let index = i
@@ -222,9 +222,7 @@ impl PyMemoryView {
     fn pos_from_multi_index(&self, indexes: &[isize], vm: &VirtualMachine) -> PyResult<usize> {
         match indexes.len().cmp(&self.desc.ndim()) {
             Ordering::Less => {
-                return Err(
-                    vm.new_not_implemented_error("sub-views are not implemented")
-                );
+                return Err(vm.new_not_implemented_error("sub-views are not implemented"));
             }
             Ordering::Greater => {
                 return Err(vm.new_type_error(format!(
@@ -740,9 +738,7 @@ impl PyMemoryView {
         let format_spec = Self::parse_format(format.as_str(), vm)?;
         let itemsize = format_spec.size();
         if self.desc.len % itemsize != 0 {
-            return Err(
-                vm.new_type_error("memoryview: length is not a multiple of itemsize")
-            );
+            return Err(vm.new_type_error("memoryview: length is not a multiple of itemsize"));
         }
 
         Ok(Self {
@@ -765,9 +761,7 @@ impl PyMemoryView {
     fn cast(&self, args: CastArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         self.try_not_released(vm)?;
         if !self.desc.is_contiguous() {
-            return Err(vm.new_type_error(
-                "memoryview: casts are restricted to C-contiguous views",
-            ));
+            return Err(vm.new_type_error("memoryview: casts are restricted to C-contiguous views"));
         }
 
         let CastArgs { format, shape } = args;
@@ -797,9 +791,7 @@ impl PyMemoryView {
             let shape_ndim = shape.len();
             // TODO: MAX_NDIM
             if self.desc.ndim() != 1 && shape_ndim != 1 {
-                return Err(
-                    vm.new_type_error("memoryview: cast must be 1D -> ND or ND -> 1D")
-                );
+                return Err(vm.new_type_error("memoryview: cast must be 1D -> ND or ND -> 1D"));
             }
 
             let mut other = self.cast_to_1d(format, vm)?;
@@ -819,9 +811,7 @@ impl PyMemoryView {
                 let x = usize::try_from_borrowed_object(vm, x)?;
 
                 if x > isize::MAX as usize / product_shape {
-                    return Err(vm.new_value_error(
-                        "memoryview.cast(): product(shape) > SSIZE_MAX",
-                    ));
+                    return Err(vm.new_value_error("memoryview.cast(): product(shape) > SSIZE_MAX"));
                 }
                 product_shape *= x;
                 dim_descriptor.push((x, 0, 0));
@@ -833,9 +823,9 @@ impl PyMemoryView {
             }
 
             if product_shape != other.desc.len {
-                return Err(vm.new_type_error(
-                    "memoryview: product(shape) * itemsize != buffer size",
-                ));
+                return Err(
+                    vm.new_type_error("memoryview: product(shape) * itemsize != buffer size")
+                );
             }
 
             other.desc.dim_desc = dim_descriptor;
@@ -1038,9 +1028,7 @@ impl Hashable for PyMemoryView {
             .get_or_try_init(|| {
                 zelf.try_not_released(vm)?;
                 if !zelf.desc.readonly {
-                    return Err(
-                        vm.new_value_error("cannot hash writable memoryview object")
-                    );
+                    return Err(vm.new_value_error("cannot hash writable memoryview object"));
                 }
                 Ok(zelf.contiguous_or_collect(|bytes| vm.state.hash_secret.hash_bytes(bytes)))
             })

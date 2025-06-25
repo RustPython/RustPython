@@ -22,13 +22,11 @@ impl Constructor for PyCStructure {
     fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
         let fields_attr = cls
             .get_class_attr(vm.ctx.interned_str("_fields_").unwrap())
-            .ok_or_else(|| {
-                vm.new_attribute_error("Structure must have a _fields_ attribute")
-            })?;
+            .ok_or_else(|| vm.new_attribute_error("Structure must have a _fields_ attribute"))?;
         // downcast into list
-        let fields = fields_attr.downcast_ref::<PyList>().ok_or_else(|| {
-            vm.new_type_error("Structure _fields_ attribute must be a list")
-        })?;
+        let fields = fields_attr
+            .downcast_ref::<PyList>()
+            .ok_or_else(|| vm.new_type_error("Structure _fields_ attribute must be a list"))?;
         let fields = fields.borrow_vec();
         let mut field_data = HashMap::new();
         for field in fields.iter() {

@@ -353,9 +353,7 @@ mod decl {
                 } else if let Some(float) = obj.payload::<PyFloat>() {
                     let float = float.to_f64();
                     if float.is_nan() {
-                        return Err(
-                            vm.new_value_error("Invalid value NaN (not a number)")
-                        );
+                        return Err(vm.new_value_error("Invalid value NaN (not a number)"));
                     }
                     if float.is_sign_negative() {
                         None
@@ -367,9 +365,10 @@ mod decl {
                     if int.as_bigint().is_negative() {
                         None
                     } else {
-                        let n = int.as_bigint().to_u64().ok_or_else(|| {
-                            vm.new_overflow_error("value out of range")
-                        })?;
+                        let n = int
+                            .as_bigint()
+                            .to_u64()
+                            .ok_or_else(|| vm.new_overflow_error("value out of range"))?;
                         Some(if MILLIS {
                             Duration::from_millis(n)
                         } else {
@@ -438,9 +437,8 @@ mod decl {
                 }
 
                 // Try converting to i16, should raise OverflowError if too large
-                let mask = i16::try_from(val).map_err(|_| {
-                    vm.new_overflow_error("event mask value out of range")
-                })?;
+                let mask = i16::try_from(val)
+                    .map_err(|_| vm.new_overflow_error("event mask value out of range"))?;
 
                 Ok(EventMask(mask))
             }
@@ -625,9 +623,8 @@ mod decl {
                 &self,
                 vm: &VirtualMachine,
             ) -> PyResult<impl Deref<Target = OwnedFd> + '_> {
-                PyRwLockReadGuard::try_map(self.epoll_fd.read(), |x| x.as_ref()).map_err(|_| {
-                    vm.new_value_error("I/O operation on closed epoll object")
-                })
+                PyRwLockReadGuard::try_map(self.epoll_fd.read(), |x| x.as_ref())
+                    .map_err(|_| vm.new_value_error("I/O operation on closed epoll object"))
             }
 
             #[pymethod]

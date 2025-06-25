@@ -149,9 +149,8 @@ fn inner_lshift(base: &BigInt, bits: &BigInt, vm: &VirtualMachine) -> PyResult {
         bits,
         |base, bits| base << bits,
         |bits, vm| {
-            bits.to_usize().ok_or_else(|| {
-                vm.new_overflow_error("the number is too large to convert to int")
-            })
+            bits.to_usize()
+                .ok_or_else(|| vm.new_overflow_error("the number is too large to convert to int"))
         },
         vm,
     )
@@ -209,9 +208,7 @@ impl Constructor for PyInt {
 
     fn py_new(cls: PyTypeRef, options: Self::Args, vm: &VirtualMachine) -> PyResult {
         if cls.is(vm.ctx.types.bool_type) {
-            return Err(
-                vm.new_type_error("int.__new__(bool) is not safe, use bool.__new__()")
-            );
+            return Err(vm.new_type_error("int.__new__(bool) is not safe, use bool.__new__()"));
         }
 
         let value = if let OptionalArg::Present(val) = options.val_options {
@@ -221,9 +218,7 @@ impl Constructor for PyInt {
                     .as_bigint()
                     .to_u32()
                     .filter(|&v| v == 0 || (2..=36).contains(&v))
-                    .ok_or_else(|| {
-                        vm.new_value_error("int() base must be >= 2 and <= 36, or 0")
-                    })?;
+                    .ok_or_else(|| vm.new_value_error("int() base must be >= 2 and <= 36, or 0"))?;
                 try_int_radix(&val, base, vm)
             } else {
                 let val = if cls.is(vm.ctx.types.int_type) {
@@ -434,9 +429,7 @@ impl PyInt {
                         }
                     }
                     let a = inverse(a % modulus, modulus).ok_or_else(|| {
-                        vm.new_value_error(
-                            "base is not invertible for the given modulus",
-                        )
+                        vm.new_value_error("base is not invertible for the given modulus")
                     })?;
                     let b = -b;
                     a.modpow(&b, modulus)
@@ -633,9 +626,7 @@ impl PyInt {
         let value = self.as_bigint();
         match value.sign() {
             Sign::Minus if !signed => {
-                return Err(
-                    vm.new_overflow_error("can't convert negative int to unsigned")
-                );
+                return Err(vm.new_overflow_error("can't convert negative int to unsigned"));
             }
             Sign::NoSign => return Ok(vec![0u8; byte_len].into()),
             _ => {}

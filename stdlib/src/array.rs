@@ -656,15 +656,11 @@ mod array {
             vm: &VirtualMachine,
         ) -> PyResult {
             let spec = spec.as_str().chars().exactly_one().map_err(|_| {
-                vm.new_type_error(
-                    "array() argument 1 must be a unicode character, not str",
-                )
+                vm.new_type_error("array() argument 1 must be a unicode character, not str")
             })?;
 
             if cls.is(PyArray::class(&vm.ctx)) && !kwargs.is_empty() {
-                return Err(
-                    vm.new_type_error("array.array() takes no keyword arguments")
-                );
+                return Err(vm.new_type_error("array.array() takes no keyword arguments"));
             }
 
             let mut array =
@@ -856,9 +852,7 @@ mod array {
 
         fn _from_bytes(&self, b: &[u8], itemsize: usize, vm: &VirtualMachine) -> PyResult<()> {
             if b.len() % itemsize != 0 {
-                return Err(
-                    vm.new_value_error("bytes length not a multiple of item size")
-                );
+                return Err(vm.new_value_error("bytes length not a multiple of item size"));
             }
             if b.len() / itemsize > 0 {
                 self.try_resizable(vm)?.frombytes(b);

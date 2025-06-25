@@ -233,9 +233,7 @@ pub(crate) mod module {
             .ok_or_else(|| vm.new_value_error("execv() arg 2 must not be empty"))?;
 
         if first.is_empty() {
-            return Err(
-                vm.new_value_error("execv() arg 2 first element cannot be empty")
-            );
+            return Err(vm.new_value_error("execv() arg 2 first element cannot be empty"));
         }
 
         let argv_execv: Vec<*const u16> = argv

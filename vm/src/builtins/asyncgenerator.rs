@@ -206,16 +206,16 @@ impl PyAsyncGenASend {
     fn send(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let val = match self.state.load() {
             AwaitableState::Closed => {
-                return Err(vm.new_runtime_error(
-                    "cannot reuse already awaited __anext__()/asend()",
-                ));
+                return Err(
+                    vm.new_runtime_error("cannot reuse already awaited __anext__()/asend()")
+                );
             }
             AwaitableState::Iter => val, // already running, all good
             AwaitableState::Init => {
                 if self.ag.running_async.load() {
-                    return Err(vm.new_runtime_error(
-                        "anext(): asynchronous generator is already running",
-                    ));
+                    return Err(
+                        vm.new_runtime_error("anext(): asynchronous generator is already running")
+                    );
                 }
                 self.ag.running_async.store(true);
                 self.state.store(AwaitableState::Iter);
@@ -243,9 +243,7 @@ impl PyAsyncGenASend {
         vm: &VirtualMachine,
     ) -> PyResult {
         if let AwaitableState::Closed = self.state.load() {
-            return Err(
-                vm.new_runtime_error("cannot reuse already awaited __anext__()/asend()")
-            );
+            return Err(vm.new_runtime_error("cannot reuse already awaited __anext__()/asend()"));
         }
 
         let res = self.ag.inner.throw(
@@ -301,8 +299,7 @@ impl PyAsyncGenAThrow {
     fn send(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match self.state.load() {
             AwaitableState::Closed => {
-                Err(vm
-                    .new_runtime_error("cannot reuse already awaited aclose()/athrow()"))
+                Err(vm.new_runtime_error("cannot reuse already awaited aclose()/athrow()"))
             }
             AwaitableState::Init => {
                 if self.ag.running_async.load() {

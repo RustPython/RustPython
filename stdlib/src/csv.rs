@@ -438,9 +438,7 @@ mod _csv {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
             let num = obj.try_int(vm)?.try_to_primitive::<isize>(vm)?;
             num.try_into().map_err(|_| {
-                vm.new_value_error(
-                    "can not convert to QuoteStyle enum from input argument",
-                )
+                vm.new_value_error("can not convert to QuoteStyle enum from input argument")
             })
         }
     }

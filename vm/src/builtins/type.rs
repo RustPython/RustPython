@@ -1510,9 +1510,7 @@ fn best_base<'a>(bases: &'a [PyTypeRef], vm: &VirtualMachine) -> PyResult<&'a Py
             winner = Some(candidate);
             base = Some(base_i.deref());
         } else {
-            return Err(
-                vm.new_type_error("multiple bases have instance layout conflict")
-            );
+            return Err(vm.new_type_error("multiple bases have instance layout conflict"));
         }
     }
 

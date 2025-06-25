@@ -1984,9 +1984,9 @@ mod decl {
             if n.lt(&BigInt::one()) {
                 return Err(vm.new_value_error("n must be at least one"));
             }
-            let n = n.to_usize().ok_or(
-                vm.new_overflow_error("Python int too large to convert to usize"),
-            )?;
+            let n = n
+                .to_usize()
+                .ok_or(vm.new_overflow_error("Python int too large to convert to usize"))?;
             let iterable = iterable_ref.get_iter(vm)?;
 
             Self {

@@ -93,18 +93,16 @@ impl Frame {
             PySetterValue::Assign(value) => {
                 let zelf: FrameRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
 
-                let value: PyIntRef = value.downcast().map_err(|_| {
-                    vm.new_type_error("attribute value type must be bool")
-                })?;
+                let value: PyIntRef = value
+                    .downcast()
+                    .map_err(|_| vm.new_type_error("attribute value type must be bool"))?;
 
                 let mut trace_lines = zelf.trace_lines.lock();
                 *trace_lines = !value.as_bigint().is_zero();
 
                 Ok(())
             }
-            PySetterValue::Delete => {
-                Err(vm.new_type_error("can't delete numeric/char attribute"))
-            }
+            PySetterValue::Delete => Err(vm.new_type_error("can't delete numeric/char attribute")),
         }
     }
 }

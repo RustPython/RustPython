@@ -105,9 +105,9 @@ impl Initializer for PySuper {
             for (i, var) in frame.code.freevars.iter().enumerate() {
                 if var.as_str() == "__class__" {
                     let i = frame.code.cellvars.len() + i;
-                    let class = frame.cells_frees[i].get().ok_or_else(|| {
-                        vm.new_runtime_error("super(): empty __class__ cell")
-                    })?;
+                    let class = frame.cells_frees[i]
+                        .get()
+                        .ok_or_else(|| vm.new_runtime_error("super(): empty __class__ cell"))?;
                     typ = Some(class.downcast().map_err(|o| {
                         vm.new_type_error(format!(
                             "super(): __class__ is not a type ({})",
@@ -252,8 +252,7 @@ fn super_check(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult
             return Ok(cls);
         }
     }
-    Err(vm
-        .new_type_error("super(type, obj): obj must be an instance or subtype of type"))
+    Err(vm.new_type_error("super(type, obj): obj must be an instance or subtype of type"))
 }
 
 pub fn init(context: &Context) {

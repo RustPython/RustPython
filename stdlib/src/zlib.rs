@@ -291,10 +291,11 @@ mod zlib {
 
         #[pymethod]
         fn decompress(&self, args: DecompressArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            let max_length: usize =
-                args.raw_max_length().unwrap_or(0).try_into().map_err(|_| {
-                    vm.new_value_error("max_length must be non-negative")
-                })?;
+            let max_length: usize = args
+                .raw_max_length()
+                .unwrap_or(0)
+                .try_into()
+                .map_err(|_| vm.new_value_error("max_length must be non-negative"))?;
             let max_length = (max_length != 0).then_some(max_length);
             let data = &*args.data();
 
@@ -357,8 +358,7 @@ mod zlib {
             zdict,
             ..
         } = args;
-        let level =
-            level.ok_or_else(|| vm.new_value_error("invalid initialization option"))?;
+        let level = level.ok_or_else(|| vm.new_value_error("invalid initialization option"))?;
         #[allow(unused_mut)]
         let mut compress = InitOptions::new(wbits.value, vm)?.compress(level);
         if let Some(zdict) = zdict {

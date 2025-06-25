@@ -47,8 +47,7 @@ where
     ) -> PyResult<()> {
         let (range, step, slice_len) = slice.adjust_indices(self.as_ref().len());
         if slice_len != items.len() {
-            Err(vm
-                .new_buffer_error("Existing exports of data: object cannot be re-sized"))
+            Err(vm.new_buffer_error("Existing exports of data: object cannot be re-sized"))
         } else if step == 1 {
             self.do_set_range(range, items);
             Ok(())
@@ -267,18 +266,14 @@ impl SequenceIndex {
         if let Some(i) = obj.payload::<PyInt>() {
             // TODO: number protocol
             i.try_to_primitive(vm)
-                .map_err(|_| {
-                    vm.new_index_error("cannot fit 'int' into an index-sized integer")
-                })
+                .map_err(|_| vm.new_index_error("cannot fit 'int' into an index-sized integer"))
                 .map(Self::Int)
         } else if let Some(slice) = obj.payload::<PySlice>() {
             slice.to_saturated(vm).map(Self::Slice)
         } else if let Some(i) = obj.try_index_opt(vm) {
             // TODO: __index__ for indices is no more supported?
             i?.try_to_primitive(vm)
-                .map_err(|_| {
-                    vm.new_index_error("cannot fit 'int' into an index-sized integer")
-                })
+                .map_err(|_| vm.new_index_error("cannot fit 'int' into an index-sized integer"))
                 .map(Self::Int)
         } else {
             Err(vm.new_type_error(format!(
@@ -461,9 +456,7 @@ fn to_isize_index(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Option<isize>
         return Ok(None);
     }
     let result = obj.try_index_opt(vm).unwrap_or_else(|| {
-        Err(vm.new_type_error(
-            "slice indices must be integers or None or have an __index__ method",
-        ))
+        Err(vm.new_type_error("slice indices must be integers or None or have an __index__ method"))
     })?;
     let value = result.as_bigint();
     let is_negative = value.is_negative();
