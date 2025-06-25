@@ -607,7 +607,7 @@ pub(crate) mod _typing {
         default_value: parking_lot::Mutex<PyObjectRef>,
         evaluate_default: PyObjectRef,
     }
-    #[pyclass(flags(HAS_DICT), with(Constructor))]
+    #[pyclass(flags(HAS_DICT), with(Constructor, Representable))]
     impl TypeVarTuple {
         #[pygetset(magic)]
         fn name(&self) -> PyObjectRef {
@@ -698,6 +698,14 @@ pub(crate) mod _typing {
             let obj_ref: PyObjectRef = obj.into();
             set_module_from_caller(&obj_ref, vm)?;
             Ok(obj_ref)
+        }
+    }
+
+    impl Representable for TypeVarTuple {
+        #[inline(always)]
+        fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let name = zelf.name.str(vm)?;
+            Ok(format!("*{}", name))
         }
     }
 
