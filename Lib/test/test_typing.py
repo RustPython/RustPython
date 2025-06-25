@@ -464,8 +464,6 @@ class TypeVarTests(BaseTestCase):
         self.assertEqual(Union[X, int].__parameters__, (X,))
         self.assertIs(Union[X, int].__origin__, Union)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_or(self):
         X = TypeVar('X')
         # use a string because str doesn't implement
@@ -9719,8 +9717,6 @@ class NoDefaultTests(BaseTestCase):
         with self.assertRaises(TypeError):
             type(NoDefault)(1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr(self):
         self.assertEqual(repr(NoDefault), 'typing.NoDefault')
 

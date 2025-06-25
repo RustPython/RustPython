@@ -16,7 +16,8 @@ pub(crate) mod _typing {
         AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyGenericAlias, PyTupleRef, PyTypeRef, pystr::AsPyStr},
         function::{FuncArgs, IntoFuncArgs},
-        types::{Constructor, Representable},
+        protocol::PyNumberMethods,
+        types::{AsNumber, Constructor, Representable},
     };
 
     pub(crate) fn _call_typing_func_object<'a>(
@@ -59,7 +60,7 @@ pub(crate) mod _typing {
         contravariant: bool,
         infer_variance: bool,
     }
-    #[pyclass(flags(HAS_DICT), with(Constructor, Representable))]
+    #[pyclass(flags(HAS_DICT), with(AsNumber, Constructor, Representable))]
     impl TypeVar {
         #[pymethod(magic)]
         fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -170,6 +171,18 @@ pub(crate) mod _typing {
                 format!("~{}", name)
             };
             Ok(repr)
+        }
+    }
+
+    impl AsNumber for TypeVar {
+        fn as_number() -> &'static PyNumberMethods {
+            static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+                or: Some(|a, b, vm| {
+                    _call_typing_func_object(vm, "_make_union", (a.to_owned(), b.to_owned()))
+                }),
+                ..PyNumberMethods::NOT_IMPLEMENTED
+            };
+            &AS_NUMBER
         }
     }
 
@@ -419,7 +432,7 @@ pub(crate) mod _typing {
     #[derive(Debug, PyPayload)]
     pub struct NoDefault;
 
-    #[pyclass(with(Constructor), flags(BASETYPE))]
+    #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
     impl NoDefault {
         #[pymethod(magic)]
         fn reduce(&self, _vm: &VirtualMachine) -> String {
