@@ -58,7 +58,7 @@ mod msvcrt {
     #[pyfunction]
     fn putch(b: PyRef<PyBytes>, vm: &VirtualMachine) -> PyResult<()> {
         let &c = b.as_bytes().iter().exactly_one().map_err(|_| {
-            vm.new_type_error("putch() argument must be a byte string of length 1".to_owned())
+            vm.new_type_error("putch() argument must be a byte string of length 1")
         })?;
         unsafe { suppress_iph!(_putch(c.into())) };
         Ok(())
@@ -66,7 +66,7 @@ mod msvcrt {
     #[pyfunction]
     fn putwch(s: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         let c = s.as_str().chars().exactly_one().map_err(|_| {
-            vm.new_type_error("putch() argument must be a string of length 1".to_owned())
+            vm.new_type_error("putch() argument must be a string of length 1")
         })?;
         unsafe { suppress_iph!(_putwch(c as u16)) };
         Ok(())

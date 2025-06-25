@@ -127,6 +127,6 @@ mod _statistics {
         vm: &VirtualMachine,
     ) -> PyResult<f64> {
         normal_dist_inv_cdf(*p, *mu, *sigma)
-            .ok_or_else(|| vm.new_value_error("inv_cdf undefined for these parameters".to_owned()))
+            .ok_or_else(|| vm.new_value_error("inv_cdf undefined for these parameters"))
     }
 }

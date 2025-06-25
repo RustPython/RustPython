@@ -58,7 +58,7 @@ impl Initializer for PyNamespace {
 
     fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         if !args.args.is_empty() {
-            return Err(vm.new_type_error("no positional arguments expected".to_owned()));
+            return Err(vm.new_type_error("no positional arguments expected"));
         }
         for (name, value) in args.kwargs.into_iter() {
             let name = vm.ctx.new_str(name);

@@ -68,10 +68,10 @@ impl ByteInnerNewOptions {
 
     fn get_value_from_size(size: PyIntRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
         let size = size.as_bigint().to_isize().ok_or_else(|| {
-            vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_owned())
+            vm.new_overflow_error("cannot fit 'int' into an index-sized integer")
         })?;
         let size = if size < 0 {
-            return Err(vm.new_value_error("negative count".to_owned()));
+            return Err(vm.new_value_error("negative count"));
         } else {
             size as usize
         };
@@ -164,7 +164,7 @@ impl ByteInnerNewOptions {
                 Err(vm.new_type_error(ENCODING_WITHOUT_STRING.to_owned()))
             }
             (OptionalArg::Missing, _, OptionalArg::Present(_)) => {
-                Err(vm.new_type_error("errors without a string argument".to_owned()))
+                Err(vm.new_type_error("errors without a string argument"))
             }
             (OptionalArg::Present(_), OptionalArg::Missing, OptionalArg::Present(_)) => {
                 Err(vm.new_type_error(STRING_WITHOUT_ENCODING.to_owned()))
@@ -245,7 +245,7 @@ impl ByteInnerTranslateOptions {
                     .filter(|v| v.elements.len() == 256)
                     .ok_or_else(|| {
                         vm.new_value_error(
-                            "translation table must be 256 characters long".to_owned(),
+                            "translation table must be 256 characters long",
                         )
                     })?;
                 Ok(bytes.elements.to_vec())
@@ -273,7 +273,7 @@ impl PyBytesInner {
     }
 
     fn new_repr_overflow_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_overflow_error("bytes object is too large to make repr".to_owned())
+        vm.new_overflow_error("bytes object is too large to make repr")
     }
 
     pub fn repr_with_name(&self, class_name: &str, vm: &VirtualMachine) -> PyResult<String> {
@@ -583,7 +583,7 @@ impl PyBytesInner {
     ) -> PyResult<Vec<u8>> {
         if from.len() != to.len() {
             return Err(
-                vm.new_value_error("the two maketrans arguments must have equal length".to_owned())
+                vm.new_value_error("the two maketrans arguments must have equal length")
             );
         }
         let mut res = vec![];
@@ -873,7 +873,7 @@ impl PyBytesInner {
         if to.len() as isize - from.len() as isize
             > (isize::MAX - self.elements.len() as isize) / count as isize
         {
-            return Err(vm.new_overflow_error("replace bytes is too long".to_owned()));
+            return Err(vm.new_overflow_error("replace bytes is too long"));
         }
         let result_len = (self.elements.len() as isize
             + count as isize * (to.len() as isize - from.len() as isize))
@@ -1024,7 +1024,7 @@ pub trait ByteOr: ToPrimitive {
     fn byte_or(&self, vm: &VirtualMachine) -> PyResult<u8> {
         match self.to_u8() {
             Some(value) => Ok(value),
-            None => Err(vm.new_value_error("byte must be in range(0, 256)".to_owned())),
+            None => Err(vm.new_value_error("byte must be in range(0, 256)")),
         }
     }
 }
@@ -1254,11 +1254,11 @@ pub fn bytes_to_hex(
         };
 
         if sep.len() != 1 {
-            return Err(vm.new_value_error("sep must be length 1.".to_owned()));
+            return Err(vm.new_value_error("sep must be length 1."));
         }
         let sep = sep[0];
         if sep > 127 {
-            return Err(vm.new_value_error("sep must be ASCII.".to_owned()));
+            return Err(vm.new_value_error("sep must be ASCII."));
         }
 
         Ok(hex_impl(bytes, sep, bytes_per_sep))

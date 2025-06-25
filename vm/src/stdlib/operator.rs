@@ -206,7 +206,7 @@ mod _operator {
                 return Ok(index);
             }
         }
-        Err(vm.new_value_error("sequence.index(x): x not in sequence".to_owned()))
+        Err(vm.new_value_error("sequence.index(x): x not in sequence"))
     }
 
     #[pyfunction]
@@ -325,7 +325,7 @@ mod _operator {
             (Either::A(a), Either::A(b)) => {
                 if !a.as_str().is_ascii() || !b.as_str().is_ascii() {
                     return Err(vm.new_type_error(
-                        "comparing strings with non-ASCII characters is not supported".to_owned(),
+                        "comparing strings with non-ASCII characters is not supported",
                     ));
                 }
                 constant_time_eq(a.as_bytes(), b.as_bytes())
@@ -333,7 +333,7 @@ mod _operator {
             (Either::B(a), Either::B(b)) => a.with_ref(|a| b.with_ref(|b| constant_time_eq(a, b))),
             _ => {
                 return Err(vm.new_type_error(
-                    "unsupported operand types(s) or combination of types".to_owned(),
+                    "unsupported operand types(s) or combination of types",
                 ));
             }
         };
@@ -390,17 +390,17 @@ mod _operator {
             let n_attr = args.args.len();
             // Check we get no keyword and at least one positional.
             if !args.kwargs.is_empty() {
-                return Err(vm.new_type_error("attrgetter() takes no keyword arguments".to_owned()));
+                return Err(vm.new_type_error("attrgetter() takes no keyword arguments"));
             }
             if n_attr == 0 {
-                return Err(vm.new_type_error("attrgetter expected 1 argument, got 0.".to_owned()));
+                return Err(vm.new_type_error("attrgetter expected 1 argument, got 0."));
             }
             let mut attrs = Vec::with_capacity(n_attr);
             for o in args.args {
                 if let Ok(r) = o.try_into_value(vm) {
                     attrs.push(r);
                 } else {
-                    return Err(vm.new_type_error("attribute name must be a string".to_owned()));
+                    return Err(vm.new_type_error("attribute name must be a string"));
                 }
             }
             PyAttrGetter { attrs }
@@ -467,10 +467,10 @@ mod _operator {
         fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
             // Check we get no keyword and at least one positional.
             if !args.kwargs.is_empty() {
-                return Err(vm.new_type_error("itemgetter() takes no keyword arguments".to_owned()));
+                return Err(vm.new_type_error("itemgetter() takes no keyword arguments"));
             }
             if args.args.is_empty() {
-                return Err(vm.new_type_error("itemgetter expected 1 argument, got 0.".to_owned()));
+                return Err(vm.new_type_error("itemgetter expected 1 argument, got 0."));
             }
             PyItemGetter { items: args.args }
                 .into_ref_with_type(vm, cls)
@@ -556,7 +556,7 @@ mod _operator {
                     .into_ref_with_type(vm, cls)
                     .map(Into::into)
             } else {
-                Err(vm.new_type_error("method name must be a string".to_owned()))
+                Err(vm.new_type_error("method name must be a string"))
             }
         }
     }

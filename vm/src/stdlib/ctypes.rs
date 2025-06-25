@@ -160,10 +160,10 @@ pub(crate) mod _ctypes {
                     })
                 }
             } else {
-                Err(vm.new_type_error("class must define a '_type_' string attribute".to_string()))
+                Err(vm.new_type_error("class must define a '_type_' string attribute"))
             }
         } else {
-            Err(vm.new_attribute_error("class must define a '_type_' attribute".to_string()))
+            Err(vm.new_attribute_error("class must define a '_type_' attribute"))
         }
     }
 
@@ -179,7 +179,7 @@ pub(crate) mod _ctypes {
                 let size_of_return = size_of_method.call(vec![], vm)?;
                 Ok(usize::try_from_object(vm, size_of_return)?)
             }
-            _ => Err(vm.new_type_error("this type has no size".to_string())),
+            _ => Err(vm.new_type_error("this type has no size")),
         }
     }
 
@@ -248,26 +248,26 @@ pub(crate) mod _ctypes {
             let simple = obj.downcast_ref::<PyCSimple>().unwrap();
             Ok(simple.value.as_ptr() as usize)
         } else {
-            Err(vm.new_type_error("expected a ctypes instance".to_string()))
+            Err(vm.new_type_error("expected a ctypes instance"))
         }
     }
 
     #[pyfunction]
     fn byref(_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         // TODO: RUSTPYTHON
-        Err(vm.new_value_error("not implemented".to_string()))
+        Err(vm.new_value_error("not implemented"))
     }
 
     #[pyfunction]
     fn alignment(_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         // TODO: RUSTPYTHON
-        Err(vm.new_value_error("not implemented".to_string()))
+        Err(vm.new_value_error("not implemented"))
     }
 
     #[pyfunction]
     fn resize(_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         // TODO: RUSTPYTHON
-        Err(vm.new_value_error("not implemented".to_string()))
+        Err(vm.new_value_error("not implemented"))
     }
 
     #[pyfunction]

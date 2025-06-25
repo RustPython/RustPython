@@ -771,11 +771,11 @@ mod _socket {
 
         // should really just be to_index() but test_socket tests the error messages explicitly
         if obj.fast_isinstance(vm.ctx.types.float_type) {
-            return Err(vm.new_type_error("integer argument expected, got float".to_owned()));
+            return Err(vm.new_type_error("integer argument expected, got float"));
         }
         let int = obj
             .try_index_opt(vm)
-            .unwrap_or_else(|| Err(vm.new_type_error("an integer is required".to_owned())))?;
+            .unwrap_or_else(|| Err(vm.new_type_error("an integer is required")))?;
         int.try_to_primitive::<CastFrom>(vm)
             .map(|sock| sock as RawSocket)
     }
@@ -954,7 +954,7 @@ mod _socket {
                     if tuple.len() != 2 {
                         return Err(vm
                             .new_type_error(
-                                "AF_INET address must be a pair (host, post)".to_owned(),
+                                "AF_INET address must be a pair (host, post)",
                             )
                             .into());
                     }
@@ -979,8 +979,7 @@ mod _socket {
                     match tuple.len() {
                         2..=4 => {}
                         _ => return Err(vm.new_type_error(
-                            "AF_INET6 address must be a tuple (host, port[, flowinfo[, scopeid]])"
-                                .to_owned(),
+                            "AF_INET6 address must be a tuple (host, port[, flowinfo[, scopeid]])",
                         ).into()),
                     }
                     let (addr, flowinfo, scopeid) = Address::from_tuple_ipv6(&tuple, vm)?;
@@ -1219,7 +1218,7 @@ mod _socket {
             let flags = flags.unwrap_or(0);
             let bufsize = bufsize
                 .to_usize()
-                .ok_or_else(|| vm.new_value_error("negative buffersize in recvfrom".to_owned()))?;
+                .ok_or_else(|| vm.new_value_error("negative buffersize in recvfrom"))?;
             let mut buffer = Vec::with_capacity(bufsize);
             let (n, addr) = self.sock_op(vm, SelectKind::Read, || {
                 self.sock()?
@@ -1242,11 +1241,11 @@ mod _socket {
             let buf = match nbytes {
                 OptionalArg::Present(i) => {
                     let i = i.to_usize().ok_or_else(|| {
-                        vm.new_value_error("negative buffersize in recvfrom_into".to_owned())
+                        vm.new_value_error("negative buffersize in recvfrom_into")
                     })?;
                     buf.get_mut(..i).ok_or_else(|| {
                         vm.new_value_error(
-                            "nbytes is greater than the length of the buffer".to_owned(),
+                            "nbytes is greater than the length of the buffer",
                         )
                     })?
                 }
@@ -1317,7 +1316,7 @@ mod _socket {
                 OptionalArg::Present(arg3) => {
                     // should just be i32::try_from_obj but tests check for error message
                     let int = arg2.try_index_opt(vm).unwrap_or_else(|| {
-                        Err(vm.new_type_error("an integer is required".to_owned()))
+                        Err(vm.new_type_error("an integer is required"))
                     })?;
                     let flags = int.try_to_primitive::<i32>(vm)?;
                     (flags, arg3)
@@ -1370,7 +1369,7 @@ mod _socket {
                     |obj| -> PyResult<(i32, i32, ArgBytesLike)> {
                         let seq: Vec<PyObjectRef> = obj.try_into_value(vm)?;
                         let [lvl, typ, data]: [PyObjectRef; 3] = seq.try_into().map_err(|_| {
-                            vm.new_type_error("expected a sequence of length 3".to_owned())
+                            vm.new_type_error("expected a sequence of length 3")
                         })?;
                         Ok((
                             lvl.try_into_value(vm)?,
@@ -1426,7 +1425,7 @@ mod _socket {
             for (lvl, typ, buf) in cmsgs {
                 if pmhdr.is_null() {
                     return Err(vm.new_runtime_error(
-                        "unexpected NULL result from CMSG_FIRSTHDR/CMSG_NXTHDR".to_owned(),
+                        "unexpected NULL result from CMSG_FIRSTHDR/CMSG_NXTHDR",
                     ));
                 }
                 let data = &*buf.borrow_buf();
@@ -1590,7 +1589,7 @@ mod _socket {
                 },
                 _ => {
                     return Err(vm
-                        .new_type_error("expected the value arg xor the optlen arg".to_owned())
+                        .new_type_error("expected the value arg xor the optlen arg")
                         .into());
                 }
             };
@@ -1609,7 +1608,7 @@ mod _socket {
                 c::SHUT_RDWR => Shutdown::Both,
                 _ => {
                     return Err(vm
-                        .new_value_error("`how` must be SHUT_RD, SHUT_WR, or SHUT_RDWR".to_owned())
+                        .new_value_error("`how` must be SHUT_RD, SHUT_WR, or SHUT_RDWR")
                         .into());
                 }
             };
@@ -1646,7 +1645,7 @@ mod _socket {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
             let tuple = PyTupleRef::try_from_object(vm, obj)?;
             if tuple.len() != 2 {
-                Err(vm.new_type_error("Address tuple should have only 2 values".to_owned()))
+                Err(vm.new_type_error("Address tuple should have only 2 values"))
             } else {
                 Self::from_tuple(&tuple, vm)
             }
@@ -1659,7 +1658,7 @@ mod _socket {
             let port = i32::try_from_borrowed_object(vm, &tuple[1])?;
             let port = port
                 .to_u16()
-                .ok_or_else(|| vm.new_overflow_error("port must be 0-65535.".to_owned()))?;
+                .ok_or_else(|| vm.new_overflow_error("port must be 0-65535."))?;
             Ok(Address { host, port })
         }
         fn from_tuple_ipv6(
@@ -1678,7 +1677,7 @@ mod _socket {
                 .transpose()?
                 .unwrap_or(0);
             if flowinfo > 0xfffff {
-                return Err(vm.new_overflow_error("flowinfo must be 0-1048575.".to_owned()));
+                return Err(vm.new_overflow_error("flowinfo must be 0-1048575."));
             }
             Ok((addr, flowinfo, scopeid))
         }
@@ -1781,7 +1780,7 @@ mod _socket {
         vm: &VirtualMachine,
     ) -> PyResult<String> {
         let port = port.to_u16().ok_or_else(|| {
-            vm.new_overflow_error("getservbyport: port must be 0-65535.".to_owned())
+            vm.new_overflow_error("getservbyport: port must be 0-65535.")
         })?;
         let cstr_proto = protocolname
             .as_ref()
@@ -2027,13 +2026,13 @@ mod _socket {
         match af_inet {
             c::AF_INET => {
                 let packed_ip = <&[u8; 4]>::try_from(&*packed_ip).map_err(|_| {
-                    vm.new_value_error("invalid length of packed IP address string".to_owned())
+                    vm.new_value_error("invalid length of packed IP address string")
                 })?;
                 Ok(Ipv4Addr::from(*packed_ip).to_string())
             }
             c::AF_INET6 => {
                 let packed_ip = <&[u8; 16]>::try_from(&*packed_ip).map_err(|_| {
-                    vm.new_value_error("invalid length of packed IP address string".to_owned())
+                    vm.new_value_error("invalid length of packed IP address string")
                 })?;
                 Ok(get_ipv6_addr_str(Ipv6Addr::from(*packed_ip)))
             }
@@ -2062,7 +2061,7 @@ mod _socket {
             2..=4 => {}
             _ => {
                 return Err(vm
-                    .new_type_error("illegal sockaddr argument".to_owned())
+                    .new_type_error("illegal sockaddr argument")
                     .into());
             }
         }
@@ -2294,7 +2293,7 @@ mod _socket {
             .codec_registry
             .encode_text(pyname, "idna", None, vm)?;
         let name = std::str::from_utf8(name.as_bytes())
-            .map_err(|_| vm.new_runtime_error("idna output is not utf8".to_owned()))?;
+            .map_err(|_| vm.new_runtime_error("idna output is not utf8"))?;
         let mut res = dns_lookup::getaddrinfo(Some(name), None, Some(hints))
             .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?;
         Ok(res.next().unwrap().map(|ainfo| ainfo.sockaddr)?)
@@ -2311,7 +2310,7 @@ mod _socket {
             }
         };
         if invalid {
-            return Err(vm.new_value_error("negative file descriptor".to_owned()));
+            return Err(vm.new_value_error("negative file descriptor"));
         }
         Ok(unsafe { sock_from_raw_unchecked(fileno) })
     }
@@ -2517,13 +2516,13 @@ mod _socket {
     #[pyfunction(name = "CMSG_LEN")]
     fn cmsg_len(length: usize, vm: &VirtualMachine) -> PyResult<usize> {
         checked_cmsg_len(length)
-            .ok_or_else(|| vm.new_overflow_error("CMSG_LEN() argument out of range".to_owned()))
+            .ok_or_else(|| vm.new_overflow_error("CMSG_LEN() argument out of range"))
     }
 
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyfunction(name = "CMSG_SPACE")]
     fn cmsg_space(length: usize, vm: &VirtualMachine) -> PyResult<usize> {
         checked_cmsg_space(length)
-            .ok_or_else(|| vm.new_overflow_error("CMSG_SPACE() argument out of range".to_owned()))
+            .ok_or_else(|| vm.new_overflow_error("CMSG_SPACE() argument out of range"))
     }
 }

@@ -369,6 +369,6 @@ pub struct EofError;
 
 impl ToPyException for EofError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_eof_error("End of stream already reached".to_owned())
+        vm.new_eof_error("End of stream already reached")
     }
 }

@@ -151,7 +151,7 @@ mod _lzma {
         fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
             if args.format == FORMAT_RAW && args.memlimit.is_some() {
                 return Err(
-                    vm.new_value_error("Cannot specify memory limit with FORMAT_RAW".to_string())
+                    vm.new_value_error("Cannot specify memory limit with FORMAT_RAW")
                 );
             }
             let memlimit = args.memlimit.unwrap_or(u64::MAX);
@@ -317,7 +317,7 @@ mod _lzma {
             vm: &VirtualMachine,
         ) -> PyResult<Stream> {
             let real_check = int_to_check(check)
-                .ok_or_else(|| vm.new_type_error("Invalid check value".to_string()))?;
+                .ok_or_else(|| vm.new_type_error("Invalid check value"))?;
             if let Some(filters) = filters {
                 let filters = parse_filter_chain_spec(filters, vm)?;
                 Ok(Stream::new_stream_encoder(&filters, real_check)

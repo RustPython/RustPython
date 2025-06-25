@@ -592,7 +592,7 @@ impl PyBaseException {
                 Ok(tb) => Some(tb),
                 Err(_) => {
                     return Err(
-                        vm.new_type_error("__traceback__ must be a traceback or None".to_owned())
+                        vm.new_type_error("__traceback__ must be a traceback or None")
                     );
                 }
             }

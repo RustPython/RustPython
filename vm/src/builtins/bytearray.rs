@@ -414,7 +414,7 @@ impl PyByteArray {
     #[pymethod]
     fn index(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
         let index = self.inner().find(options, |h, n| h.find(n), vm)?;
-        index.ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
+        index.ok_or_else(|| vm.new_value_error("substring not found"))
     }
 
     #[pymethod]
@@ -426,7 +426,7 @@ impl PyByteArray {
     #[pymethod]
     fn rindex(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
         let index = self.inner().find(options, |h, n| h.rfind(n), vm)?;
-        index.ok_or_else(|| vm.new_value_error("substring not found".to_owned()))
+        index.ok_or_else(|| vm.new_value_error("substring not found"))
     }
 
     #[pymethod]
@@ -586,7 +586,7 @@ impl Py<PyByteArray> {
         let elements = &mut self.try_resizable(vm)?.elements;
         let index = elements
             .wrap_index(index.unwrap_or(-1))
-            .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))?;
+            .ok_or_else(|| vm.new_index_error("index out of range"))?;
         Ok(elements.remove(index))
     }
 
@@ -612,7 +612,7 @@ impl Py<PyByteArray> {
         let elements = &mut self.try_resizable(vm)?.elements;
         let index = elements
             .find_byte(value)
-            .ok_or_else(|| vm.new_value_error("value not found in bytearray".to_owned()))?;
+            .ok_or_else(|| vm.new_value_error("value not found in bytearray"))?;
         elements.remove(index);
         Ok(())
     }

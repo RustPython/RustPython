@@ -207,14 +207,14 @@ impl PyAsyncGenASend {
         let val = match self.state.load() {
             AwaitableState::Closed => {
                 return Err(vm.new_runtime_error(
-                    "cannot reuse already awaited __anext__()/asend()".to_owned(),
+                    "cannot reuse already awaited __anext__()/asend()",
                 ));
             }
             AwaitableState::Iter => val, // already running, all good
             AwaitableState::Init => {
                 if self.ag.running_async.load() {
                     return Err(vm.new_runtime_error(
-                        "anext(): asynchronous generator is already running".to_owned(),
+                        "anext(): asynchronous generator is already running",
                     ));
                 }
                 self.ag.running_async.store(true);
@@ -244,7 +244,7 @@ impl PyAsyncGenASend {
     ) -> PyResult {
         if let AwaitableState::Closed = self.state.load() {
             return Err(
-                vm.new_runtime_error("cannot reuse already awaited __anext__()/asend()".to_owned())
+                vm.new_runtime_error("cannot reuse already awaited __anext__()/asend()")
             );
         }
 
@@ -302,7 +302,7 @@ impl PyAsyncGenAThrow {
         match self.state.load() {
             AwaitableState::Closed => {
                 Err(vm
-                    .new_runtime_error("cannot reuse already awaited aclose()/athrow()".to_owned()))
+                    .new_runtime_error("cannot reuse already awaited aclose()/athrow()"))
             }
             AwaitableState::Init => {
                 if self.ag.running_async.load() {
@@ -320,7 +320,7 @@ impl PyAsyncGenAThrow {
                 }
                 if !vm.is_none(&val) {
                     return Err(vm.new_runtime_error(
-                        "can't send non-None value to a just-started async generator".to_owned(),
+                        "can't send non-None value to a just-started async generator",
                     ));
                 }
                 self.state.store(AwaitableState::Iter);
@@ -398,7 +398,7 @@ impl PyAsyncGenAThrow {
     fn yield_close(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         self.ag.running_async.store(false);
         self.state.store(AwaitableState::Closed);
-        vm.new_runtime_error("async generator ignored GeneratorExit".to_owned())
+        vm.new_runtime_error("async generator ignored GeneratorExit")
     }
     fn check_error(&self, exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyBaseExceptionRef {
         self.ag.running_async.store(false);

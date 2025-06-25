@@ -567,7 +567,7 @@ mod _contextvars {
         type Args = FuncArgs;
 
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_runtime_error("Tokens can only be created by ContextVars".to_owned()))
+            Err(vm.new_runtime_error("Tokens can only be created by ContextVars"))
         }
         fn py_new(_cls: PyTypeRef, _args: Self::Args, _vm: &VirtualMachine) -> PyResult {
             unreachable!()

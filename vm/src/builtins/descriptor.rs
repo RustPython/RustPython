@@ -199,7 +199,7 @@ impl PyMemberDef {
         match self.setter {
             MemberSetter::Setter(setter) => match setter {
                 Some(setter) => (setter)(vm, obj, value),
-                None => Err(vm.new_attribute_error("readonly attribute".to_string())),
+                None => Err(vm.new_attribute_error("readonly attribute")),
             },
             MemberSetter::Offset(offset) => set_slot_at_object(obj, offset, self, value, vm),
         }
@@ -234,7 +234,7 @@ fn calculate_qualname(descr: &PyDescriptorOwned, vm: &VirtualMachine) -> PyResul
     if let Some(qualname) = vm.get_attribute_opt(descr.typ.clone().into(), "__qualname__")? {
         let str = qualname.downcast::<PyStr>().map_err(|_| {
             vm.new_type_error(
-                "<descriptor>.__objclass__.__qualname__ is not a unicode object".to_owned(),
+                "<descriptor>.__objclass__.__qualname__ is not a unicode object",
             )
         })?;
         Ok(Some(format!("{}.{}", str, descr.name)))
@@ -307,7 +307,7 @@ fn set_slot_at_object(
                 PySetterValue::Assign(v) => {
                     if !v.class().is(vm.ctx.types.bool_type) {
                         return Err(
-                            vm.new_type_error("attribute value type must be bool".to_owned())
+                            vm.new_type_error("attribute value type must be bool")
                         );
                     }
 

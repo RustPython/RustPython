@@ -265,7 +265,7 @@ mod re {
 
     fn make_regex(vm: &VirtualMachine, pattern: &str, flags: PyRegexFlags) -> PyResult<PyPattern> {
         let unicode = if flags.unicode && flags.ascii {
-            return Err(vm.new_value_error("ASCII and UNICODE flags are incompatible".to_owned()));
+            return Err(vm.new_value_error("ASCII and UNICODE flags are incompatible"));
         } else {
             !flags.ascii
         };

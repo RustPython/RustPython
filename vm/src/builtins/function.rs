@@ -493,14 +493,14 @@ impl PyFunction {
             PySetterValue::Assign(value) => {
                 let Ok(qualname) = value.downcast::<PyStr>() else {
                     return Err(vm.new_type_error(
-                        "__qualname__ must be set to a string object".to_string(),
+                        "__qualname__ must be set to a string object",
                     ));
                 };
                 *self.qualname.lock() = qualname;
             }
             PySetterValue::Delete => {
                 return Err(
-                    vm.new_type_error("__qualname__ must be set to a string object".to_string())
+                    vm.new_type_error("__qualname__ must be set to a string object")
                 );
             }
         }
@@ -524,7 +524,7 @@ impl PyFunction {
             }
             PySetterValue::Delete => {
                 return Err(
-                    vm.new_type_error("__type_params__ must be set to a tuple object".to_string())
+                    vm.new_type_error("__type_params__ must be set to a tuple object")
                 );
             }
         }
@@ -618,7 +618,7 @@ impl Constructor for PyFunction {
                 PyTupleTyped::<PyCellRef>::try_from_object(vm, closure_tuple.into())?;
             Some(typed_closure)
         } else if !args.code.freevars.is_empty() {
-            return Err(vm.new_type_error("arg 5 (closure) must be tuple".to_owned()));
+            return Err(vm.new_type_error("arg 5 (closure) must be tuple"));
         } else {
             None
         };
@@ -862,7 +862,7 @@ impl PyCell {
     #[pygetset]
     fn cell_contents(&self, vm: &VirtualMachine) -> PyResult {
         self.get()
-            .ok_or_else(|| vm.new_value_error("Cell is empty".to_owned()))
+            .ok_or_else(|| vm.new_value_error("Cell is empty"))
     }
     #[pygetset(setter)]
     fn set_cell_contents(&self, x: PySetterValue) {

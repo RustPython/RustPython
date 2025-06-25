@@ -57,7 +57,7 @@ mod _weakref {
             .delete_if(vm, &*key, |wr| {
                 let wr = wr
                     .payload::<PyWeak>()
-                    .ok_or_else(|| vm.new_type_error("not a weakref".to_owned()))?;
+                    .ok_or_else(|| vm.new_type_error("not a weakref"))?;
                 Ok(wr.is_dead())
             })
             .map(drop)

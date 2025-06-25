@@ -51,7 +51,7 @@ impl<'a> TryFromBorrowedObject<'a> for NormalizeForm {
                     "NFKC" => NormalizeForm::Nfkc,
                     "NFD" => NormalizeForm::Nfd,
                     "NFKD" => NormalizeForm::Nfkd,
-                    _ => return Err(vm.new_value_error("invalid normalization form".to_owned())),
+                    _ => return Err(vm.new_value_error("invalid normalization form")),
                 })
             },
             vm,
@@ -102,7 +102,7 @@ mod unicodedata {
                 .code_points()
                 .exactly_one()
                 .map_err(|_| {
-                    vm.new_type_error("argument must be an unicode character, not str".to_owned())
+                    vm.new_type_error("argument must be an unicode character, not str")
                 })?;
 
             Ok(self.check_age(c).then_some(c))
@@ -149,7 +149,7 @@ mod unicodedata {
                     }
                 }
             }
-            default.ok_or_else(|| vm.new_value_error("character name not found!".to_owned()))
+            default.ok_or_else(|| vm.new_value_error("character name not found!"))
         }
 
         #[pymethod]

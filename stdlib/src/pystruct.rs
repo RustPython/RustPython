@@ -39,7 +39,7 @@ pub(crate) mod _struct {
                     ))),
             })
             .ok_or_else(|| {
-                vm.new_unicode_decode_error("Struct format must be a ascii string".to_owned())
+                vm.new_unicode_decode_error("Struct format must be a ascii string")
             })?;
             Ok(IntoStructFormatBytes(fmt))
         }

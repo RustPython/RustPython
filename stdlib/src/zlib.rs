@@ -129,7 +129,7 @@ mod zlib {
                 // 0 => ...
                 9..=15 => Ok(InitOptions::Standard { header, wbits }),
                 25..=31 => Ok(InitOptions::Gzip { wbits: wbits - 16 }),
-                _ => Err(vm.new_value_error("Invalid initialization option".to_owned())),
+                _ => Err(vm.new_value_error("Invalid initialization option")),
             }
         }
 
@@ -293,7 +293,7 @@ mod zlib {
         fn decompress(&self, args: DecompressArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let max_length: usize =
                 args.raw_max_length().unwrap_or(0).try_into().map_err(|_| {
-                    vm.new_value_error("max_length must be non-negative".to_owned())
+                    vm.new_value_error("max_length must be non-negative")
                 })?;
             let max_length = (max_length != 0).then_some(max_length);
             let data = &*args.data();
@@ -312,7 +312,7 @@ mod zlib {
         fn flush(&self, length: OptionalArg<ArgSize>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let length = match length {
                 OptionalArg::Present(ArgSize { value }) if value <= 0 => {
-                    return Err(vm.new_value_error("length must be greater than zero".to_owned()));
+                    return Err(vm.new_value_error("length must be greater than zero"));
                 }
                 OptionalArg::Present(ArgSize { value }) => value as usize,
                 OptionalArg::Missing => DEF_BUF_SIZE,
@@ -358,7 +358,7 @@ mod zlib {
             ..
         } = args;
         let level =
-            level.ok_or_else(|| vm.new_value_error("invalid initialization option".to_owned()))?;
+            level.ok_or_else(|| vm.new_value_error("invalid initialization option"))?;
         #[allow(unused_mut)]
         let mut compress = InitOptions::new(wbits.value, vm)?.compress(level);
         if let Some(zdict) = zdict {

@@ -92,7 +92,7 @@ mod builtins {
             .try_to_primitive::<isize>(vm)?
             .to_u32()
             .and_then(CodePoint::from_u32)
-            .ok_or_else(|| vm.new_value_error("chr() arg not in range(0x110000)".to_owned()))?;
+            .ok_or_else(|| vm.new_value_error("chr() arg not in range(0x110000)"))?;
         Ok(value)
     }
 
@@ -118,7 +118,7 @@ mod builtins {
         #[cfg(not(feature = "ast"))]
         {
             _ = args; // to disable unused warning
-            return Err(vm.new_type_error("AST Not Supported".to_owned()));
+            return Err(vm.new_type_error("AST Not Supported"));
         }
         #[cfg(feature = "ast")]
         {
@@ -135,7 +135,7 @@ mod builtins {
                 vm.state.settings.optimize
             } else {
                 optimize.try_into().map_err(|_| {
-                    vm.new_value_error("compile() optimize value invalid".to_owned())
+                    vm.new_value_error("compile() optimize value invalid")
                 })?
             };
 
@@ -183,7 +183,7 @@ mod builtins {
                 let flags = args.flags.map_or(Ok(0), |v| v.try_to_primitive(vm))?;
 
                 if !(flags & !ast::PY_COMPILE_FLAGS_MASK).is_zero() {
-                    return Err(vm.new_value_error("compile() unrecognized flags".to_owned()));
+                    return Err(vm.new_value_error("compile() unrecognized flags"));
                 }
 
                 let allow_incomplete = !(flags & ast::PY_CF_ALLOW_INCOMPLETE_INPUT).is_zero();
@@ -414,7 +414,7 @@ mod builtins {
             .get_attr(vm.ctx.intern_str("breakpointhook"), vm)
         {
             Ok(hook) => hook.as_ref().call(args, vm),
-            Err(_) => Err(vm.new_runtime_error("lost sys.breakpointhook".to_owned())),
+            Err(_) => Err(vm.new_runtime_error("lost sys.breakpointhook")),
         }
     }
 
@@ -832,7 +832,7 @@ mod builtins {
     fn vars(obj: OptionalArg, vm: &VirtualMachine) -> PyResult {
         if let OptionalArg::Present(obj) = obj {
             obj.get_attr(identifier!(vm, __dict__), vm).map_err(|_| {
-                vm.new_type_error("vars() argument must have __dict__ attribute".to_owned())
+                vm.new_type_error("vars() argument must have __dict__ attribute")
             })
         } else {
             Ok(vm.current_locals()?.into())
@@ -873,7 +873,7 @@ mod builtins {
             };
             let entries: PyTupleRef = entries
                 .downcast()
-                .map_err(|_| vm.new_type_error("__mro_entries__ must return a tuple".to_owned()))?;
+                .map_err(|_| vm.new_type_error("__mro_entries__ must return a tuple"))?;
             let new_bases = new_bases.get_or_insert_with(|| bases[..i].to_vec());
             new_bases.extend_from_slice(&entries);
         }
@@ -903,8 +903,7 @@ mod builtins {
                     } else if !metaclass.fast_issubclass(base_class) {
                         return Err(vm.new_type_error(
                             "metaclass conflict: the metaclass of a derived class must be a (non-strict) \
-                            subclass of the metaclasses of all its bases"
-                                .to_owned(),
+                            subclass of the metaclasses of all its bases",
                         ));
                     }
                 }

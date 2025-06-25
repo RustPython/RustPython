@@ -200,7 +200,7 @@ impl PyRange {
     ) -> PyResult<PyRef<Self>> {
         let step = step.map_or_else(|| vm.ctx.new_int(1), |step| step.into());
         if step.as_bigint().is_zero() {
-            return Err(vm.new_value_error("range() arg 3 must not be zero".to_owned()));
+            return Err(vm.new_value_error("range() arg 3 must not be zero"));
         }
         PyRange {
             start: start.try_index(vm)?,
@@ -304,7 +304,7 @@ impl PyRange {
             }
             RangeIndex::Int(index) => match self.get(index.as_bigint()) {
                 Some(value) => Ok(vm.ctx.new_int(value).into()),
-                None => Err(vm.new_index_error("range object index out of range".to_owned())),
+                None => Err(vm.new_index_error("range object index out of range")),
             },
         }
     }
@@ -675,7 +675,7 @@ fn range_state(length: &BigInt, state: PyObjectRef, vm: &VirtualMachine) -> PyRe
         }
         Ok(index.to_usize().unwrap_or(0))
     } else {
-        Err(vm.new_type_error("an integer is required.".to_owned()))
+        Err(vm.new_type_error("an integer is required."))
     }
 }
 

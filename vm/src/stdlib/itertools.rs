@@ -253,7 +253,7 @@ mod decl {
             let start = start.into_option().unwrap_or_else(|| vm.new_pyobj(0));
             let step = step.into_option().unwrap_or_else(|| vm.new_pyobj(1));
             if !PyNumber::check(&start) || !PyNumber::check(&step) {
-                return Err(vm.new_type_error("a number is required".to_owned()));
+                return Err(vm.new_type_error("a number is required"));
             }
 
             Self {
@@ -397,7 +397,7 @@ mod decl {
             let times = self
                 .times
                 .as_ref()
-                .ok_or_else(|| vm.new_type_error("length of unsized object.".to_owned()))?;
+                .ok_or_else(|| vm.new_type_error("length of unsized object."))?;
             Ok(*times.read())
         }
 
@@ -1489,7 +1489,7 @@ mod decl {
 
             let r = r.as_bigint();
             if r.is_negative() {
-                return Err(vm.new_value_error("r must be non-negative".to_owned()));
+                return Err(vm.new_value_error("r must be non-negative"));
             }
             let r = r.to_usize().unwrap();
 
@@ -1620,7 +1620,7 @@ mod decl {
             let pool: Vec<_> = iterable.try_to_value(vm)?;
             let r = r.as_bigint();
             if r.is_negative() {
-                return Err(vm.new_value_error("r must be non-negative".to_owned()));
+                return Err(vm.new_value_error("r must be non-negative"));
             }
             let r = r.to_usize().unwrap();
 
@@ -1724,11 +1724,11 @@ mod decl {
                 Some(r) => {
                     let val = r
                         .payload::<PyInt>()
-                        .ok_or_else(|| vm.new_type_error("Expected int as r".to_owned()))?
+                        .ok_or_else(|| vm.new_type_error("Expected int as r"))?
                         .as_bigint();
 
                     if val.is_negative() {
-                        return Err(vm.new_value_error("r must be non-negative".to_owned()));
+                        return Err(vm.new_value_error("r must be non-negative"));
                     }
                     val.to_usize().unwrap()
                 }
@@ -1982,10 +1982,10 @@ mod decl {
         ) -> PyResult {
             let n = n.as_bigint();
             if n.lt(&BigInt::one()) {
-                return Err(vm.new_value_error("n must be at least one".to_owned()));
+                return Err(vm.new_value_error("n must be at least one"));
             }
             let n = n.to_usize().ok_or(
-                vm.new_overflow_error("Python int too large to convert to usize".to_owned()),
+                vm.new_overflow_error("Python int too large to convert to usize"),
             )?;
             let iterable = iterable_ref.get_iter(vm)?;
 

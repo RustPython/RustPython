@@ -64,7 +64,7 @@ impl<T> PositionIterInternal<T> {
                 self.position = f(obj, i);
                 Ok(())
             } else {
-                Err(vm.new_type_error("an integer is required.".to_owned()))
+                Err(vm.new_type_error("an integer is required."))
             }
         } else {
             Ok(())

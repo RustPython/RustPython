@@ -279,9 +279,9 @@ impl PyList {
             i += elements.len() as isize;
         }
         if elements.is_empty() {
-            Err(vm.new_index_error("pop from empty list".to_owned()))
+            Err(vm.new_index_error("pop from empty list"))
         } else if i < 0 || i as usize >= elements.len() {
-            Err(vm.new_index_error("pop index out of range".to_owned()))
+            Err(vm.new_index_error("pop index out of range"))
         } else {
             Ok(elements.remove(i as usize))
         }
@@ -324,7 +324,7 @@ impl PyList {
         res?;
 
         if !elements.is_empty() {
-            return Err(vm.new_value_error("list modified during sort".to_owned()));
+            return Err(vm.new_value_error("list modified during sort"));
         }
 
         Ok(())

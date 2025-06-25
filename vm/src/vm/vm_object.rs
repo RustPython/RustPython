@@ -135,7 +135,7 @@ impl VirtualMachine {
         let seq = match obj {
             Some(obj) => self
                 .get_special_method(&obj, identifier!(self, __dir__))?
-                .ok_or_else(|| self.new_type_error("object does not provide __dir__".to_owned()))?
+                .ok_or_else(|| self.new_type_error("object does not provide __dir__"))?
                 .invoke((), self)?,
             None => self.call_method(
                 self.current_locals()?.as_object(),

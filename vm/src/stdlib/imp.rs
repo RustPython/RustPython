@@ -17,7 +17,7 @@ mod lock {
     #[pyfunction]
     fn release_lock(vm: &VirtualMachine) -> PyResult<()> {
         if !IMP_LOCK.is_locked() {
-            Err(vm.new_runtime_error("Global import lock not held".to_owned()))
+            Err(vm.new_runtime_error("Global import lock not held"))
         } else {
             unsafe { IMP_LOCK.unlock() };
             Ok(())

@@ -64,7 +64,7 @@ impl Hashable for PyWeak {
             hash::SENTINEL => {
                 let obj = zelf
                     .upgrade()
-                    .ok_or_else(|| vm.new_type_error("weak object has gone away".to_owned()))?;
+                    .ok_or_else(|| vm.new_type_error("weak object has gone away"))?;
                 let hash = obj.hash(vm)?;
                 match Radium::compare_exchange(
                     &zelf.hash,

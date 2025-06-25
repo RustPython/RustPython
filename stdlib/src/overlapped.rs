@@ -223,7 +223,7 @@ mod _overlapped {
         ) -> PyResult {
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
-                return Err(vm.new_value_error("operation already attempted".to_owned()));
+                return Err(vm.new_value_error("operation already attempted"));
             }
 
             #[cfg(target_pointer_width = "32")]
@@ -368,7 +368,7 @@ mod _overlapped {
         vm: &VirtualMachine,
     ) -> PyResult<isize> {
         if !vm.is_none(&event_attributes) {
-            return Err(vm.new_value_error("EventAttributes must be None".to_owned()));
+            return Err(vm.new_value_error("EventAttributes must be None"));
         }
 
         let name = match name {

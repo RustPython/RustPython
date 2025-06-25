@@ -70,7 +70,7 @@ mod fcntl {
                     let s = arg.borrow_bytes();
                     arg_len = s.len();
                     buf.get_mut(..arg_len)
-                        .ok_or_else(|| vm.new_value_error("fcntl string arg too long".to_owned()))?
+                        .ok_or_else(|| vm.new_value_error("fcntl string arg too long"))?
                         .copy_from_slice(&s)
                 }
                 let ret = unsafe { libc::fcntl(fd, cmd, buf.as_mut_ptr()) };
@@ -104,7 +104,7 @@ mod fcntl {
                 let mut buf = [0u8; BUF_SIZE + 1]; // nul byte
                 let mut fill_buf = |b: &[u8]| {
                     if b.len() > BUF_SIZE {
-                        return Err(vm.new_value_error("fcntl string arg too long".to_owned()));
+                        return Err(vm.new_value_error("fcntl string arg too long"));
                     }
                     buf[..b.len()].copy_from_slice(b);
                     Ok(b.len())
@@ -181,7 +181,7 @@ mod fcntl {
         } else if (cmd & libc::LOCK_EX) != 0 {
             try_into_l_type!(libc::F_WRLCK)
         } else {
-            return Err(vm.new_value_error("unrecognized lockf argument".to_owned()));
+            return Err(vm.new_value_error("unrecognized lockf argument"));
         }?;
         l.l_start = match start {
             OptionalArg::Present(s) => s.try_to_primitive(vm)?,

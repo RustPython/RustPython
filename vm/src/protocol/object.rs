@@ -96,7 +96,7 @@ impl PyObject {
         if self.payload_is::<PyAsyncGen>() {
             vm.call_special_method(self, identifier!(vm, __aiter__), ())
         } else {
-            Err(vm.new_type_error("wrong argument type".to_owned()))
+            Err(vm.new_type_error("wrong argument type"))
         }
     }
 

@@ -34,7 +34,7 @@ where
         let pos = self
             .as_ref()
             .wrap_index(index)
-            .ok_or_else(|| vm.new_index_error("assignment index out of range".to_owned()))?;
+            .ok_or_else(|| vm.new_index_error("assignment index out of range"))?;
         self.do_set(pos, value);
         Ok(())
     }
@@ -48,7 +48,7 @@ where
         let (range, step, slice_len) = slice.adjust_indices(self.as_ref().len());
         if slice_len != items.len() {
             Err(vm
-                .new_buffer_error("Existing exports of data: object cannot be re-sized".to_owned()))
+                .new_buffer_error("Existing exports of data: object cannot be re-sized"))
         } else if step == 1 {
             self.do_set_range(range, items);
             Ok(())
@@ -90,7 +90,7 @@ where
         let pos = self
             .as_ref()
             .wrap_index(index)
-            .ok_or_else(|| vm.new_index_error("assignment index out of range".to_owned()))?;
+            .ok_or_else(|| vm.new_index_error("assignment index out of range"))?;
         self.do_delete(pos);
         Ok(())
     }
@@ -206,7 +206,7 @@ pub trait SliceableSequenceOp {
     fn getitem_by_index(&self, vm: &VirtualMachine, index: isize) -> PyResult<Self::Item> {
         let pos = self
             .wrap_index(index)
-            .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))?;
+            .ok_or_else(|| vm.new_index_error("index out of range"))?;
         Ok(self.do_get(pos))
     }
 }
@@ -268,7 +268,7 @@ impl SequenceIndex {
             // TODO: number protocol
             i.try_to_primitive(vm)
                 .map_err(|_| {
-                    vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned())
+                    vm.new_index_error("cannot fit 'int' into an index-sized integer")
                 })
                 .map(Self::Int)
         } else if let Some(slice) = obj.payload::<PySlice>() {
@@ -277,7 +277,7 @@ impl SequenceIndex {
             // TODO: __index__ for indices is no more supported?
             i?.try_to_primitive(vm)
                 .map_err(|_| {
-                    vm.new_index_error("cannot fit 'int' into an index-sized integer".to_owned())
+                    vm.new_index_error("cannot fit 'int' into an index-sized integer")
                 })
                 .map(Self::Int)
         } else {
@@ -356,7 +356,7 @@ impl SaturatedSlice {
     pub fn with_slice(slice: &PySlice, vm: &VirtualMachine) -> PyResult<Self> {
         let step = to_isize_index(vm, slice.step_ref(vm))?.unwrap_or(1);
         if step == 0 {
-            return Err(vm.new_value_error("slice step cannot be zero".to_owned()));
+            return Err(vm.new_value_error("slice step cannot be zero"));
         }
         let start = to_isize_index(vm, slice.start_ref(vm))?
             .unwrap_or_else(|| if step.is_negative() { isize::MAX } else { 0 });
@@ -462,7 +462,7 @@ fn to_isize_index(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Option<isize>
     }
     let result = obj.try_index_opt(vm).unwrap_or_else(|| {
         Err(vm.new_type_error(
-            "slice indices must be integers or None or have an __index__ method".to_owned(),
+            "slice indices must be integers or None or have an __index__ method",
         ))
     })?;
     let value = result.as_bigint();

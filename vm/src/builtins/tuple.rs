@@ -312,7 +312,7 @@ impl PyTuple {
                 return Ok(index);
             }
         }
-        Err(vm.new_value_error("tuple.index(x): x not in tuple".to_owned()))
+        Err(vm.new_value_error("tuple.index(x): x not in tuple"))
     }
 
     fn _contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {

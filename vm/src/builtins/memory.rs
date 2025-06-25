@@ -134,7 +134,7 @@ impl PyMemoryView {
 
     fn try_not_released(&self, vm: &VirtualMachine) -> PyResult<()> {
         if self.released.load() {
-            Err(vm.new_value_error("operation forbidden on released memoryview object".to_owned()))
+            Err(vm.new_value_error("operation forbidden on released memoryview object"))
         } else {
             Ok(())
         }
@@ -143,13 +143,13 @@ impl PyMemoryView {
     fn getitem_by_idx(&self, i: isize, vm: &VirtualMachine) -> PyResult {
         if self.desc.ndim() != 1 {
             return Err(vm.new_not_implemented_error(
-                "multi-dimensional sub-views are not implemented".to_owned(),
+                "multi-dimensional sub-views are not implemented",
             ));
         }
         let (shape, stride, suboffset) = self.desc.dim_desc[0];
         let index = i
             .wrapped_at(shape)
-            .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))?;
+            .ok_or_else(|| vm.new_index_error("index out of range"))?;
         let index = index as isize * stride + suboffset;
         let pos = (index + self.start as isize) as usize;
         self.unpack_single(pos, vm)
@@ -171,12 +171,12 @@ impl PyMemoryView {
 
     fn setitem_by_idx(&self, i: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if self.desc.ndim() != 1 {
-            return Err(vm.new_not_implemented_error("sub-views are not implemented".to_owned()));
+            return Err(vm.new_not_implemented_error("sub-views are not implemented"));
         }
         let (shape, stride, suboffset) = self.desc.dim_desc[0];
         let index = i
             .wrapped_at(shape)
-            .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))?;
+            .ok_or_else(|| vm.new_index_error("index out of range"))?;
         let index = index as isize * stride + suboffset;
         let pos = (index + self.start as isize) as usize;
         self.pack_single(pos, value, vm)
@@ -223,7 +223,7 @@ impl PyMemoryView {
         match indexes.len().cmp(&self.desc.ndim()) {
             Ordering::Less => {
                 return Err(
-                    vm.new_not_implemented_error("sub-views are not implemented".to_owned())
+                    vm.new_not_implemented_error("sub-views are not implemented")
                 );
             }
             Ordering::Greater => {
@@ -492,7 +492,7 @@ impl Py<PyMemoryView> {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         if self.desc.ndim() != 1 {
-            return Err(vm.new_not_implemented_error("sub-view are not implemented".to_owned()));
+            return Err(vm.new_not_implemented_error("sub-view are not implemented"));
         }
 
         let mut dest = self.new_view();
@@ -502,7 +502,7 @@ impl Py<PyMemoryView> {
         if self.is(&src) {
             return if !is_equiv_structure(&self.desc, &dest.desc) {
                 Err(vm.new_value_error(
-                    "memoryview assignment: lvalue and rvalue have different structures".to_owned(),
+                    "memoryview assignment: lvalue and rvalue have different structures",
                 ))
             } else {
                 // assign self[:] to self
@@ -522,7 +522,7 @@ impl Py<PyMemoryView> {
 
         if !is_equiv_structure(&src.desc, &dest.desc) {
             return Err(vm.new_value_error(
-                "memoryview assignment: lvalue and rvalue have different structures".to_owned(),
+                "memoryview assignment: lvalue and rvalue have different structures",
             ));
         }
 
@@ -666,7 +666,7 @@ impl PyMemoryView {
                     return zelf.unpack_single(0, vm);
                 }
             }
-            return Err(vm.new_type_error("invalid indexing of 0-dim memory".to_owned()));
+            return Err(vm.new_type_error("invalid indexing of 0-dim memory"));
         }
 
         match SubscriptNeedle::try_from_object(vm, needle)? {
@@ -679,9 +679,9 @@ impl PyMemoryView {
     #[pymethod(magic)]
     fn delitem(&self, _needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if self.desc.readonly {
-            return Err(vm.new_type_error("cannot modify read-only memory".to_owned()));
+            return Err(vm.new_type_error("cannot modify read-only memory"));
         }
-        Err(vm.new_type_error("cannot delete memory".to_owned()))
+        Err(vm.new_type_error("cannot delete memory"))
     }
 
     #[pymethod(magic)]
@@ -741,7 +741,7 @@ impl PyMemoryView {
         let itemsize = format_spec.size();
         if self.desc.len % itemsize != 0 {
             return Err(
-                vm.new_type_error("memoryview: length is not a multiple of itemsize".to_owned())
+                vm.new_type_error("memoryview: length is not a multiple of itemsize")
             );
         }
 
@@ -766,7 +766,7 @@ impl PyMemoryView {
         self.try_not_released(vm)?;
         if !self.desc.is_contiguous() {
             return Err(vm.new_type_error(
-                "memoryview: casts are restricted to C-contiguous views".to_owned(),
+                "memoryview: casts are restricted to C-contiguous views",
             ));
         }
 
@@ -775,7 +775,7 @@ impl PyMemoryView {
         if let OptionalArg::Present(shape) = shape {
             if self.desc.is_zero_in_shape() {
                 return Err(vm.new_type_error(
-                    "memoryview: cannot cast view with zeros in shape or strides".to_owned(),
+                    "memoryview: cannot cast view with zeros in shape or strides",
                 ));
             }
 
@@ -798,7 +798,7 @@ impl PyMemoryView {
             // TODO: MAX_NDIM
             if self.desc.ndim() != 1 && shape_ndim != 1 {
                 return Err(
-                    vm.new_type_error("memoryview: cast must be 1D -> ND or ND -> 1D".to_owned())
+                    vm.new_type_error("memoryview: cast must be 1D -> ND or ND -> 1D")
                 );
             }
 
@@ -820,7 +820,7 @@ impl PyMemoryView {
 
                 if x > isize::MAX as usize / product_shape {
                     return Err(vm.new_value_error(
-                        "memoryview.cast(): product(shape) > SSIZE_MAX".to_owned(),
+                        "memoryview.cast(): product(shape) > SSIZE_MAX",
                     ));
                 }
                 product_shape *= x;
@@ -834,7 +834,7 @@ impl PyMemoryView {
 
             if product_shape != other.desc.len {
                 return Err(vm.new_type_error(
-                    "memoryview: product(shape) * itemsize != buffer size".to_owned(),
+                    "memoryview: product(shape) * itemsize != buffer size",
                 ));
             }
 
@@ -858,10 +858,10 @@ impl Py<PyMemoryView> {
     ) -> PyResult<()> {
         self.try_not_released(vm)?;
         if self.desc.readonly {
-            return Err(vm.new_type_error("cannot modify read-only memory".to_owned()));
+            return Err(vm.new_type_error("cannot modify read-only memory"));
         }
         if value.is(&vm.ctx.none) {
-            return Err(vm.new_type_error("cannot delete memory".to_owned()));
+            return Err(vm.new_type_error("cannot delete memory"));
         }
 
         if self.desc.ndim() == 0 {
@@ -873,7 +873,7 @@ impl Py<PyMemoryView> {
                     return self.pack_single(0, value, vm);
                 }
             }
-            return Err(vm.new_type_error("invalid indexing of 0-dim memory".to_owned()));
+            return Err(vm.new_type_error("invalid indexing of 0-dim memory"));
         }
         match SubscriptNeedle::try_from_object(vm, needle)? {
             SubscriptNeedle::Index(i) => self.setitem_by_idx(i, value, vm),
@@ -889,7 +889,7 @@ impl Py<PyMemoryView> {
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_type_error("cannot pickle 'memoryview' object".to_owned()))
+        Err(vm.new_type_error("cannot pickle 'memoryview' object"))
     }
 }
 
@@ -930,11 +930,11 @@ impl TryFromObject for SubscriptNeedle {
                     return Ok(Self::MultiIndex(v));
                 } else if tuple.iter().all(|x| x.payload_is::<PySlice>()) {
                     return Err(vm.new_not_implemented_error(
-                        "multi-dimensional slicing is not implemented".to_owned(),
+                        "multi-dimensional slicing is not implemented",
                     ));
                 }
             }
-            Err(vm.new_type_error("memoryview: invalid slice key".to_owned()))
+            Err(vm.new_type_error("memoryview: invalid slice key"))
         }
     }
 }
@@ -949,7 +949,7 @@ static BUFFER_METHODS: BufferMethods = BufferMethods {
 impl AsBuffer for PyMemoryView {
     fn as_buffer(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
         if zelf.released.load() {
-            Err(vm.new_value_error("operation forbidden on released memoryview object".to_owned()))
+            Err(vm.new_value_error("operation forbidden on released memoryview object"))
         } else {
             Ok(PyBuffer::new(
                 zelf.to_owned().into(),
@@ -1039,7 +1039,7 @@ impl Hashable for PyMemoryView {
                 zelf.try_not_released(vm)?;
                 if !zelf.desc.readonly {
                     return Err(
-                        vm.new_value_error("cannot hash writable memoryview object".to_owned())
+                        vm.new_value_error("cannot hash writable memoryview object")
                     );
                 }
                 Ok(zelf.contiguous_or_collect(|bytes| vm.state.hash_secret.hash_bytes(bytes)))

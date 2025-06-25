@@ -174,7 +174,7 @@ impl PyModule {
         let dict_attr = zelf.as_object().get_attr(identifier!(vm, __dict__), vm)?;
         let dict = dict_attr
             .downcast::<PyDict>()
-            .map_err(|_| vm.new_type_error("<module>.__dict__ is not a dictionary".to_owned()))?;
+            .map_err(|_| vm.new_type_error("<module>.__dict__ is not a dictionary"))?;
         let attrs = dict.into_iter().map(|(k, _v)| k).collect();
         Ok(attrs)
     }

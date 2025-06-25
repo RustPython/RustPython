@@ -79,7 +79,7 @@ pub mod _hashlib {
     impl XofDigestArgs {
         fn length(&self, vm: &VirtualMachine) -> PyResult<usize> {
             usize::try_from(self.length)
-                .map_err(|_| vm.new_value_error("length must be non-negative".to_owned()))
+                .map_err(|_| vm.new_value_error("length must be non-negative"))
         }
     }
 

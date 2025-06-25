@@ -15,7 +15,7 @@ pub fn bytes_from_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Vec<u8
     }
 
     Err(vm.new_type_error(
-        "can assign only bytes, buffers, or iterables of ints in range(0, 256)".to_owned(),
+        "can assign only bytes, buffers, or iterables of ints in range(0, 256)",
     ))
 }
 
@@ -23,5 +23,5 @@ pub fn value_from_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<u8> {
     obj.try_index(vm)?
         .as_bigint()
         .to_u8()
-        .ok_or_else(|| vm.new_value_error("byte must be in range(0, 256)".to_owned()))
+        .ok_or_else(|| vm.new_value_error("byte must be in range(0, 256)"))
 }

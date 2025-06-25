@@ -136,7 +136,7 @@ mod decl {
         not(any(target_os = "emscripten", target_os = "wasi"))
     ))]
     fn _time(vm: &VirtualMachine) -> PyResult<f64> {
-        Err(vm.new_not_implemented_error("time.time".to_owned()))
+        Err(vm.new_not_implemented_error("time.time"))
     }
 
     #[pyfunction]
@@ -249,7 +249,7 @@ mod decl {
             Either::B(int) => DateTime::<chrono::offset::Utc>::from_timestamp(int, 0),
         };
         timestamp.ok_or_else(|| {
-            vm.new_overflow_error("timestamp out of range for platform time_t".to_owned())
+            vm.new_overflow_error("timestamp out of range for platform time_t")
         })
     }
 
@@ -363,7 +363,7 @@ mod decl {
         target_os = "emscripten",
     )))]
     fn get_thread_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        Err(vm.new_not_implemented_error("thread time unsupported in this system".to_owned()))
+        Err(vm.new_not_implemented_error("thread time unsupported in this system"))
     }
 
     #[pyfunction]
@@ -428,7 +428,7 @@ mod decl {
         all(target_arch = "wasm32", not(target_os = "unknown"))
     )))]
     fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        Err(vm.new_not_implemented_error("process time unsupported in this system".to_owned()))
+        Err(vm.new_not_implemented_error("process time unsupported in this system"))
     }
 
     #[pyfunction]
@@ -492,8 +492,8 @@ mod decl {
 
         fn to_date_time(&self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
             let invalid_overflow =
-                || vm.new_overflow_error("mktime argument out of range".to_owned());
-            let invalid_value = || vm.new_value_error("invalid struct_time parameter".to_owned());
+                || vm.new_overflow_error("mktime argument out of range");
+            let invalid_value = || vm.new_value_error("invalid struct_time parameter");
 
             macro_rules! field {
                 ($field:ident) => {
@@ -660,7 +660,7 @@ mod platform {
                 false,
                 clock_getres(ClockId::CLOCK_REALTIME, vm)?,
             ),
-            _ => return Err(vm.new_value_error("unknown clock".to_owned())),
+            _ => return Err(vm.new_value_error("unknown clock")),
         };
 
         Ok(py_namespace!(vm, {
@@ -682,7 +682,7 @@ mod platform {
     )))]
     #[pyfunction]
     fn get_clock_info(_name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyRef<PyNamespace>> {
-        Err(vm.new_not_implemented_error("get_clock_info unsupported on this system".to_owned()))
+        Err(vm.new_not_implemented_error("get_clock_info unsupported on this system"))
     }
 
     pub(super) fn get_monotonic_time(vm: &VirtualMachine) -> PyResult<Duration> {
@@ -748,7 +748,7 @@ mod platform {
                 t.checked_add(u)
             })(tv)
             .ok_or_else(|| {
-                vm.new_overflow_error("timestamp too large to convert to i64".to_owned())
+                vm.new_overflow_error("timestamp too large to convert to i64")
             })
         }
         let ru = getrusage(UsageWho::RUSAGE_SELF).map_err(|e| e.into_pyexception(vm))?;
@@ -791,9 +791,9 @@ mod platform {
         };
 
         if frequency < 1 {
-            Err(vm.new_runtime_error("invalid QueryPerformanceFrequency".to_owned()))
+            Err(vm.new_runtime_error("invalid QueryPerformanceFrequency"))
         } else if frequency > i64::MAX / SEC_TO_NS {
-            Err(vm.new_overflow_error("QueryPerformanceFrequency is too large".to_owned()))
+            Err(vm.new_overflow_error("QueryPerformanceFrequency is too large"))
         } else {
             Ok(frequency)
         }
@@ -845,7 +845,7 @@ mod platform {
 
         Ok(Duration::from_nanos(
             (ticks as i64).checked_mul(MS_TO_NS).ok_or_else(|| {
-                vm.new_overflow_error("timestamp too large to convert to i64".to_owned())
+                vm.new_overflow_error("timestamp too large to convert to i64")
             })? as u64,
         ))
     }
@@ -873,7 +873,7 @@ mod platform {
                 false,
                 get_system_time_adjustment(vm)? as f64 * 1e-7,
             ),
-            _ => return Err(vm.new_value_error("unknown clock".to_owned())),
+            _ => return Err(vm.new_value_error("unknown clock")),
         };
 
         Ok(py_namespace!(vm, {

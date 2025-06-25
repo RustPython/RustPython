@@ -303,7 +303,7 @@ impl PySequence<'_> {
             let elem = elem?;
             if vm.bool_eq(&elem, target)? {
                 if n == isize::MAX as usize {
-                    return Err(vm.new_overflow_error("index exceeds C integer size".to_string()));
+                    return Err(vm.new_overflow_error("index exceeds C integer size"));
                 }
                 n += 1;
             }
@@ -320,7 +320,7 @@ impl PySequence<'_> {
 
         for elem in iter {
             if index == isize::MAX {
-                return Err(vm.new_overflow_error("index exceeds C integer size".to_string()));
+                return Err(vm.new_overflow_error("index exceeds C integer size"));
             }
             index += 1;
 
@@ -330,7 +330,7 @@ impl PySequence<'_> {
             }
         }
 
-        Err(vm.new_value_error("sequence.index(x): x not in sequence".to_string()))
+        Err(vm.new_value_error("sequence.index(x): x not in sequence"))
     }
 
     pub fn extract<F, R>(&self, mut f: F, vm: &VirtualMachine) -> PyResult<Vec<R>>

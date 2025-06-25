@@ -112,7 +112,7 @@ fn to_op_complex(value: &PyObject, vm: &VirtualMachine) -> PyResult<Option<Compl
 
 fn inner_div(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Complex64> {
     if v2.is_zero() {
-        return Err(vm.new_zero_division_error("complex division by zero".to_owned()));
+        return Err(vm.new_zero_division_error("complex division by zero"));
     }
 
     Ok(v1.fdiv(v2))
@@ -132,7 +132,7 @@ fn inner_pow(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Comp
 
     let ans = powc(v1, v2);
     if ans.is_infinite() && !(v1.is_infinite() || v2.is_infinite()) {
-        Err(vm.new_overflow_error("complex exponentiation overflow".to_owned()))
+        Err(vm.new_overflow_error("complex exponentiation overflow"))
     } else {
         Ok(ans)
     }
@@ -175,14 +175,14 @@ impl Constructor for PyComplex {
                 } else if let Some(s) = val.payload_if_subclass::<PyStr>(vm) {
                     if args.imag.is_present() {
                         return Err(vm.new_type_error(
-                            "complex() can't take second arg if first is a string".to_owned(),
+                            "complex() can't take second arg if first is a string",
                         ));
                     }
                     let (re, im) = s
                         .to_str()
                         .and_then(rustpython_literal::complex::parse_str)
                         .ok_or_else(|| {
-                            vm.new_value_error("complex() arg is a malformed string".to_owned())
+                            vm.new_value_error("complex() arg is a malformed string")
                         })?;
                     return Self::from(Complex64 { re, im })
                         .into_ref_with_type(vm, cls)
@@ -205,7 +205,7 @@ impl Constructor for PyComplex {
                     c
                 } else if obj.class().fast_issubclass(vm.ctx.types.str_type) {
                     return Err(
-                        vm.new_type_error("complex() second arg can't be a string".to_owned())
+                        vm.new_type_error("complex() second arg can't be a string")
                     );
                 } else {
                     return Err(vm.new_type_error(format!(
@@ -265,7 +265,7 @@ impl PyComplex {
         let is_finite = im.is_finite() && re.is_finite();
         let abs_result = re.hypot(im);
         if is_finite && abs_result.is_infinite() {
-            Err(vm.new_overflow_error("absolute value too large".to_string()))
+            Err(vm.new_overflow_error("absolute value too large"))
         } else {
             Ok(abs_result)
         }
@@ -366,7 +366,7 @@ impl PyComplex {
         vm: &VirtualMachine,
     ) -> PyResult<PyArithmeticValue<Complex64>> {
         if mod_val.flatten().is_some() {
-            Err(vm.new_value_error("complex modulo not allowed".to_owned()))
+            Err(vm.new_value_error("complex modulo not allowed"))
         } else {
             self.op(other, |a, b| inner_pow(a, b, vm), vm)
         }

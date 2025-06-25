@@ -738,7 +738,7 @@ impl PyType {
     #[pygetset(magic, setter)]
     fn set_dict(&self, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         Err(vm.new_not_implemented_error(
-            "Setting __dict__ attribute on a type isn't yet implemented".to_owned(),
+            "Setting __dict__ attribute on a type isn't yet implemented",
         ))
     }
 
@@ -769,7 +769,7 @@ impl PyType {
             ))
         })?;
         if name.as_bytes().contains(&0) {
-            return Err(vm.new_value_error("type name must not contain null characters".to_owned()));
+            return Err(vm.new_value_error("type name must not contain null characters"));
         }
 
         *self.heaptype_ext.as_ref().unwrap().name.write() = name;
@@ -812,7 +812,7 @@ impl Constructor for PyType {
             args.clone().bind(vm)?;
 
         if name.as_bytes().contains(&0) {
-            return Err(vm.new_value_error("type name must not contain null characters".to_owned()));
+            return Err(vm.new_value_error("type name must not contain null characters"));
         }
 
         let (metatype, base, bases) = if bases.is_empty() {
@@ -829,11 +829,10 @@ impl Constructor for PyType {
                         {
                             Err(vm.new_type_error(
                                 "type() doesn't support MRO entry resolution; \
-                                 use types.new_class()"
-                                    .to_owned(),
+                                 use types.new_class()",
                             ))
                         } else {
-                            Err(vm.new_type_error("bases must be types".to_owned()))
+                            Err(vm.new_type_error("bases must be types"))
                         }
                     })
                 })
@@ -1463,8 +1462,7 @@ fn calculate_meta_class(
 
         return Err(vm.new_type_error(
             "metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass \
-             of the metaclasses of all its bases"
-                .to_owned(),
+             of the metaclasses of all its bases",
         ));
     }
     Ok(winner)
@@ -1513,7 +1511,7 @@ fn best_base<'a>(bases: &'a [PyTypeRef], vm: &VirtualMachine) -> PyResult<&'a Py
             base = Some(base_i.deref());
         } else {
             return Err(
-                vm.new_type_error("multiple bases have instance layout conflict".to_string())
+                vm.new_type_error("multiple bases have instance layout conflict")
             );
         }
     }

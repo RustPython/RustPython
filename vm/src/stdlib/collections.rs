@@ -110,7 +110,7 @@ mod _collections {
             let count = self.mut_count(vm, &obj)?;
 
             if start_state != self.state.load() {
-                return Err(vm.new_runtime_error("deque mutated during iteration".to_owned()));
+                return Err(vm.new_runtime_error("deque mutated during iteration"));
             }
             Ok(count)
         }
@@ -173,7 +173,7 @@ mod _collections {
             let (start, stop) = range.saturate(self.len(), vm)?;
             let index = self.mut_index_range(vm, &needle, start..stop)?;
             if start_state != self.state.load() {
-                Err(vm.new_runtime_error("deque mutated during iteration".to_owned()))
+                Err(vm.new_runtime_error("deque mutated during iteration"))
             } else if let Some(index) = index.into() {
                 Ok(index)
             } else {
@@ -192,7 +192,7 @@ mod _collections {
             let mut deque = self.borrow_deque_mut();
 
             if self.maxlen == Some(deque.len()) {
-                return Err(vm.new_index_error("deque already at its maximum size".to_owned()));
+                return Err(vm.new_index_error("deque already at its maximum size"));
             }
 
             let idx = if idx < 0 {
@@ -217,7 +217,7 @@ mod _collections {
             self.state.fetch_add(1);
             self.borrow_deque_mut()
                 .pop_back()
-                .ok_or_else(|| vm.new_index_error("pop from an empty deque".to_owned()))
+                .ok_or_else(|| vm.new_index_error("pop from an empty deque"))
         }
 
         #[pymethod]
@@ -225,7 +225,7 @@ mod _collections {
             self.state.fetch_add(1);
             self.borrow_deque_mut()
                 .pop_front()
-                .ok_or_else(|| vm.new_index_error("pop from an empty deque".to_owned()))
+                .ok_or_else(|| vm.new_index_error("pop from an empty deque"))
         }
 
         #[pymethod]
@@ -234,13 +234,13 @@ mod _collections {
             let index = self.mut_index(vm, &obj)?;
 
             if start_state != self.state.load() {
-                Err(vm.new_index_error("deque mutated during remove().".to_owned()))
+                Err(vm.new_index_error("deque mutated during remove()."))
             } else if let Some(index) = index.into() {
                 let mut deque = self.borrow_deque_mut();
                 self.state.fetch_add(1);
                 Ok(deque.remove(index).unwrap())
             } else {
-                Err(vm.new_value_error("deque.remove(x): x not in deque".to_owned()))
+                Err(vm.new_value_error("deque.remove(x): x not in deque"))
             }
         }
 
@@ -282,7 +282,7 @@ mod _collections {
             let deque = self.borrow_deque();
             idx.wrapped_at(deque.len())
                 .and_then(|i| deque.get(i).cloned())
-                .ok_or_else(|| vm.new_index_error("deque index out of range".to_owned()))
+                .ok_or_else(|| vm.new_index_error("deque index out of range"))
         }
 
         #[pymethod(magic)]
@@ -291,7 +291,7 @@ mod _collections {
             idx.wrapped_at(deque.len())
                 .and_then(|i| deque.get_mut(i))
                 .map(|x| *x = value)
-                .ok_or_else(|| vm.new_index_error("deque index out of range".to_owned()))
+                .ok_or_else(|| vm.new_index_error("deque index out of range"))
         }
 
         #[pymethod(magic)]
@@ -299,7 +299,7 @@ mod _collections {
             let mut deque = self.borrow_deque_mut();
             idx.wrapped_at(deque.len())
                 .and_then(|i| deque.remove(i).map(drop))
-                .ok_or_else(|| vm.new_index_error("deque index out of range".to_owned()))
+                .ok_or_else(|| vm.new_index_error("deque index out of range"))
         }
 
         #[pymethod(magic)]
@@ -311,7 +311,7 @@ mod _collections {
             let start_state = self.state.load();
             let ret = self.mut_contains(vm, needle)?;
             if start_state != self.state.load() {
-                Err(vm.new_runtime_error("deque mutated during iteration".to_owned()))
+                Err(vm.new_runtime_error("deque mutated during iteration"))
             } else {
                 Ok(ret)
             }
@@ -443,11 +443,11 @@ mod _collections {
                 if !vm.is_none(&obj) {
                     let maxlen: isize = obj
                         .payload::<PyInt>()
-                        .ok_or_else(|| vm.new_type_error("an integer is required.".to_owned()))?
+                        .ok_or_else(|| vm.new_type_error("an integer is required."))?
                         .try_to_primitive(vm)?;
 
                     if maxlen.is_negative() {
-                        return Err(vm.new_value_error("maxlen must be non-negative.".to_owned()));
+                        return Err(vm.new_value_error("maxlen must be non-negative."));
                     }
                     Some(maxlen as usize)
                 } else {
@@ -651,7 +651,7 @@ mod _collections {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.internal.lock().next(|deque, pos| {
                 if zelf.state != deque.state.load() {
-                    return Err(vm.new_runtime_error("Deque mutated during iteration".to_owned()));
+                    return Err(vm.new_runtime_error("Deque mutated during iteration"));
                 }
                 let deque = deque.borrow_deque();
                 Ok(PyIterReturn::from_result(
@@ -717,7 +717,7 @@ mod _collections {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.internal.lock().next(|deque, pos| {
                 if deque.state.load() != zelf.state {
-                    return Err(vm.new_runtime_error("Deque mutated during iteration".to_owned()));
+                    return Err(vm.new_runtime_error("Deque mutated during iteration"));
                 }
                 let deque = deque.borrow_deque();
                 let r = deque

@@ -21,7 +21,7 @@ impl Node for ruff::ConversionFlag {
                 bytecode::ConversionFlag::Ascii => Self::Ascii,
                 bytecode::ConversionFlag::Repr => Self::Repr,
             })
-            .ok_or_else(|| vm.new_value_error("invalid conversion flag".to_owned()))
+            .ok_or_else(|| vm.new_value_error("invalid conversion flag"))
     }
 }
 
@@ -38,7 +38,7 @@ impl Node for ruff::name::Name {
     ) -> PyResult<Self> {
         match object.downcast::<PyStr>() {
             Ok(name) => Ok(Self::new(name)),
-            Err(_) => Err(vm.new_value_error("expected str for name".to_owned())),
+            Err(_) => Err(vm.new_value_error("expected str for name")),
         }
     }
 }

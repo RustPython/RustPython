@@ -288,8 +288,7 @@ pub mod module {
 
         let flags = AccessFlags::from_bits(mode).ok_or_else(|| {
             vm.new_value_error(
-            "One of the flags is wrong, there are only 4 possibilities F_OK, R_OK, W_OK and X_OK"
-                .to_owned(),
+            "One of the flags is wrong, there are only 4 possibilities F_OK, R_OK, W_OK and X_OK",
         )
         })?;
 
@@ -475,7 +474,7 @@ pub mod module {
                 match arg {
                     OptionalArg::Present(obj) => {
                         if !obj.is_callable() {
-                            return Err(vm.new_type_error("Args must be callable".to_owned()));
+                            return Err(vm.new_type_error("Args must be callable"));
                         }
                         Ok(Some(obj))
                     }
@@ -486,7 +485,7 @@ pub mod module {
             let after_in_parent = into_option(self.after_in_parent, vm)?;
             let after_in_child = into_option(self.after_in_child, vm)?;
             if before.is_none() && after_in_parent.is_none() && after_in_child.is_none() {
-                return Err(vm.new_type_error("At least one arg must be present".to_owned()));
+                return Err(vm.new_type_error("At least one arg must be present"));
             }
             Ok((before, after_in_parent, after_in_child))
         }
@@ -988,10 +987,10 @@ pub mod module {
 
         let first = argv
             .first()
-            .ok_or_else(|| vm.new_value_error("execv() arg 2 must not be empty".to_owned()))?;
+            .ok_or_else(|| vm.new_value_error("execv() arg 2 must not be empty"))?;
         if first.to_bytes().is_empty() {
             return Err(
-                vm.new_value_error("execv() arg 2 first element cannot be empty".to_owned())
+                vm.new_value_error("execv() arg 2 first element cannot be empty")
             );
         }
 
@@ -1016,11 +1015,11 @@ pub mod module {
 
         let first = argv
             .first()
-            .ok_or_else(|| vm.new_value_error("execve() arg 2 must not be empty".to_owned()))?;
+            .ok_or_else(|| vm.new_value_error("execve() arg 2 must not be empty"))?;
 
         if first.to_bytes().is_empty() {
             return Err(
-                vm.new_value_error("execve() arg 2 first element cannot be empty".to_owned())
+                vm.new_value_error("execve() arg 2 first element cannot be empty")
             );
         }
 
@@ -1033,7 +1032,7 @@ pub mod module {
                 );
 
                 if memchr::memchr(b'=', &key).is_some() {
-                    return Err(vm.new_value_error("illegal environment variable name".to_owned()));
+                    return Err(vm.new_value_error("illegal environment variable name"));
                 }
 
                 let mut entry = key;
@@ -1324,11 +1323,11 @@ pub mod module {
             .map(|item| {
                 let tuple = item
                     .downcast_ref::<crate::builtins::PyTuple>()
-                    .ok_or_else(|| vm.new_type_error("items() should return tuples".to_owned()))?;
+                    .ok_or_else(|| vm.new_type_error("items() should return tuples"))?;
                 let tuple_items = tuple.as_slice();
                 if tuple_items.len() != 2 {
                     return Err(vm.new_value_error(
-                        "items() tuples should have exactly 2 elements".to_owned(),
+                        "items() tuples should have exactly 2 elements",
                     ));
                 }
                 Ok((tuple_items[0].clone(), tuple_items[1].clone()))
@@ -1340,17 +1339,17 @@ pub mod module {
                 let v = OsPath::try_from_object(vm, v)?.into_bytes();
                 if k.contains(&0) {
                     return Err(
-                        vm.new_value_error("envp dict key cannot contain a nul byte".to_owned())
+                        vm.new_value_error("envp dict key cannot contain a nul byte")
                     );
                 }
                 if k.contains(&b'=') {
                     return Err(vm.new_value_error(
-                        "envp dict key cannot contain a '=' character".to_owned(),
+                        "envp dict key cannot contain a '=' character",
                     ));
                 }
                 if v.contains(&0) {
                     return Err(
-                        vm.new_value_error("envp dict value cannot contain a nul byte".to_owned())
+                        vm.new_value_error("envp dict value cannot contain a nul byte")
                     );
                 }
                 let mut env = k;
@@ -1404,7 +1403,7 @@ pub mod module {
                 .path
                 .clone()
                 .into_cstring(vm)
-                .map_err(|_| vm.new_value_error("path should not have nul bytes".to_owned()))?;
+                .map_err(|_| vm.new_value_error("path should not have nul bytes"))?;
 
             let mut file_actions = unsafe {
                 let mut fa = std::mem::MaybeUninit::uninit();
@@ -1416,12 +1415,12 @@ pub mod module {
                     let action = action?;
                     let (id, args) = action.split_first().ok_or_else(|| {
                         vm.new_type_error(
-                            "Each file_actions element must be a non-empty tuple".to_owned(),
+                            "Each file_actions element must be a non-empty tuple",
                         )
                     })?;
                     let id = i32::try_from_borrowed_object(vm, id)?;
                     let id = PosixSpawnFileActionIdentifier::try_from(id).map_err(|_| {
-                        vm.new_type_error("Unknown file_actions identifier".to_owned())
+                        vm.new_type_error("Unknown file_actions identifier")
                     })?;
                     let args: crate::function::FuncArgs = args.to_vec().into();
                     let ret = match id {
@@ -1429,7 +1428,7 @@ pub mod module {
                             let (fd, path, oflag, mode): (_, OsPath, _, _) = args.bind(vm)?;
                             let path = CString::new(path.into_bytes()).map_err(|_| {
                                 vm.new_value_error(
-                                    "POSIX_SPAWN_OPEN path should not have nul bytes".to_owned(),
+                                    "POSIX_SPAWN_OPEN path should not have nul bytes",
                                 )
                             })?;
                             unsafe {
@@ -1506,7 +1505,7 @@ pub mod module {
                 #[cfg(not(target_os = "linux"))]
                 {
                     return Err(vm.new_not_implemented_error(
-                        "setsid parameter is not supported on this platform".to_owned(),
+                        "setsid parameter is not supported on this platform",
                     ));
                 }
             }
@@ -1534,14 +1533,14 @@ pub mod module {
                 // TODO: Implement scheduler parameter handling
                 // This requires platform-specific sched_param struct handling
                 return Err(vm.new_not_implemented_error(
-                    "scheduler parameter is not yet implemented".to_owned(),
+                    "scheduler parameter is not yet implemented",
                 ));
             }
 
             if flags != 0 {
                 // Check for potential overflow when casting to c_short
                 if flags > libc::c_short::MAX as i32 {
-                    return Err(vm.new_value_error("Too many flags set for posix_spawn".to_owned()));
+                    return Err(vm.new_value_error("Too many flags set for posix_spawn"));
                 }
                 let ret =
                     unsafe { libc::posix_spawnattr_setflags(&mut attrp, flags as libc::c_short) };
@@ -1555,7 +1554,7 @@ pub mod module {
                 .iter(vm)?
                 .map(|res| {
                     CString::new(res?.into_bytes()).map_err(|_| {
-                        vm.new_value_error("path should not have nul bytes".to_owned())
+                        vm.new_value_error("path should not have nul bytes")
                     })
                 })
                 .collect::<Result<_, _>>()?;
@@ -1856,7 +1855,7 @@ pub mod module {
                 Err(obj) => {
                     let s = PyStrRef::try_from_object(vm, obj)?;
                     s.as_str().parse::<PathconfVar>().map_err(|_| {
-                        vm.new_value_error("unrecognized configuration name".to_string())
+                        vm.new_value_error("unrecognized configuration name")
                     })? as i32
                 }
             };
@@ -2252,7 +2251,7 @@ pub mod module {
                         if s.as_str() == "SC_PAGESIZE" {
                             Ok(SysconfVar::SC_PAGESIZE)
                         } else {
-                            Err(vm.new_value_error("unrecognized configuration name".to_string()))
+                            Err(vm.new_value_error("unrecognized configuration name"))
                         }
                     })? as i32
                 }

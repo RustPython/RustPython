@@ -104,7 +104,7 @@ fn spec_format_bytes(
             if let Some(i) = obj.payload::<PyInt>() {
                 let ch = i
                     .try_to_primitive::<u8>(vm)
-                    .map_err(|_| vm.new_overflow_error("%c arg not in range(256)".to_owned()))?;
+                    .map_err(|_| vm.new_overflow_error("%c arg not in range(256)"))?;
                 return Ok(spec.format_char(ch));
             }
             if let Some(b) = obj.payload::<PyBytes>() {
@@ -118,7 +118,7 @@ fn spec_format_bytes(
                 }
             }
             Err(vm
-                .new_type_error("%c requires an integer in range(256) or a single byte".to_owned()))
+                .new_type_error("%c requires an integer in range(256) or a single byte"))
         }
     }
 }
@@ -194,7 +194,7 @@ fn spec_format_string(
                     .to_u32()
                     .and_then(CodePoint::from_u32)
                     .ok_or_else(|| {
-                        vm.new_overflow_error("%c arg not in range(0x110000)".to_owned())
+                        vm.new_overflow_error("%c arg not in range(0x110000)")
                     })?;
                 return Ok(spec.format_char(ch));
             }
@@ -203,7 +203,7 @@ fn spec_format_string(
                     return Ok(spec.format_char(ch));
                 }
             }
-            Err(vm.new_type_error("%c requires int or char".to_owned()))
+            Err(vm.new_type_error("%c requires int or char"))
         }
     }
 }
@@ -218,10 +218,10 @@ fn try_update_quantity_from_element(
                 let i = i.try_to_primitive::<i32>(vm)?.unsigned_abs();
                 Ok(CFormatQuantity::Amount(i as usize))
             } else {
-                Err(vm.new_type_error("* wants int".to_owned()))
+                Err(vm.new_type_error("* wants int"))
             }
         }
-        None => Err(vm.new_type_error("not enough arguments for format string".to_owned())),
+        None => Err(vm.new_type_error("not enough arguments for format string")),
     }
 }
 
@@ -240,10 +240,10 @@ fn try_conversion_flag_from_tuple(
                 };
                 Ok(flags)
             } else {
-                Err(vm.new_type_error("* wants int".to_owned()))
+                Err(vm.new_type_error("* wants int"))
             }
         }
-        None => Err(vm.new_type_error("not enough arguments for format string".to_owned())),
+        None => Err(vm.new_type_error("not enough arguments for format string")),
     }
 }
 
@@ -277,7 +277,7 @@ fn try_update_precision_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
 }
 
 fn specifier_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
-    vm.new_type_error("format requires a mapping".to_owned())
+    vm.new_type_error("format requires a mapping")
 }
 
 pub(crate) fn cformat_bytes(
@@ -313,7 +313,7 @@ pub(crate) fn cformat_bytes(
             }
             Ok(result)
         } else {
-            Err(vm.new_type_error("not all arguments converted during bytes formatting".to_owned()))
+            Err(vm.new_type_error("not all arguments converted during bytes formatting"))
         };
     }
 
@@ -333,7 +333,7 @@ pub(crate) fn cformat_bytes(
             }
             Ok(result)
         } else {
-            Err(vm.new_type_error("format requires a mapping".to_owned()))
+            Err(vm.new_type_error("format requires a mapping"))
         };
     }
 
@@ -360,7 +360,7 @@ pub(crate) fn cformat_bytes(
                 let value = match value_iter.next() {
                     Some(obj) => Ok(obj.clone()),
                     None => {
-                        Err(vm.new_type_error("not enough arguments for format string".to_owned()))
+                        Err(vm.new_type_error("not enough arguments for format string"))
                     }
                 }?;
                 let part_result = spec_format_bytes(vm, &spec, value)?;
@@ -371,7 +371,7 @@ pub(crate) fn cformat_bytes(
 
     // check that all arguments were converted
     if value_iter.next().is_some() && !is_mapping {
-        Err(vm.new_type_error("not all arguments converted during bytes formatting".to_owned()))
+        Err(vm.new_type_error("not all arguments converted during bytes formatting"))
     } else {
         Ok(result)
     }
@@ -410,7 +410,7 @@ pub(crate) fn cformat_string(
             Ok(result)
         } else {
             Err(vm
-                .new_type_error("not all arguments converted during string formatting".to_owned()))
+                .new_type_error("not all arguments converted during string formatting"))
         };
     }
 
@@ -429,7 +429,7 @@ pub(crate) fn cformat_string(
             }
             Ok(result)
         } else {
-            Err(vm.new_type_error("format requires a mapping".to_owned()))
+            Err(vm.new_type_error("format requires a mapping"))
         };
     }
 
@@ -456,7 +456,7 @@ pub(crate) fn cformat_string(
                 let value = match value_iter.next() {
                     Some(obj) => Ok(obj.clone()),
                     None => {
-                        Err(vm.new_type_error("not enough arguments for format string".to_owned()))
+                        Err(vm.new_type_error("not enough arguments for format string"))
                     }
                 }?;
                 let part_result = spec_format_string(vm, &spec, value, idx)?;
@@ -467,7 +467,7 @@ pub(crate) fn cformat_string(
 
     // check that all arguments were converted
     if value_iter.next().is_some() && !is_mapping {
-        Err(vm.new_type_error("not all arguments converted during string formatting".to_owned()))
+        Err(vm.new_type_error("not all arguments converted during string formatting"))
     } else {
         Ok(result)
     }

@@ -132,7 +132,7 @@ pub(crate) mod _thread {
         #[pymethod(name = "release_lock")]
         fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
             if !self.mu.is_locked() {
-                return Err(vm.new_runtime_error("release unlocked lock".to_owned()));
+                return Err(vm.new_runtime_error("release unlocked lock"));
             }
             unsafe { self.mu.unlock() };
             Ok(())
@@ -172,7 +172,7 @@ pub(crate) mod _thread {
     impl Constructor for Lock {
         type Args = FuncArgs;
         fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("cannot create '_thread.lock' instances".to_owned()))
+            Err(vm.new_type_error("cannot create '_thread.lock' instances"))
         }
     }
 
@@ -218,7 +218,7 @@ pub(crate) mod _thread {
         #[pymethod(name = "release_lock")]
         fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
             if !self.mu.is_locked() {
-                return Err(vm.new_runtime_error("release unlocked lock".to_owned()));
+                return Err(vm.new_runtime_error("release unlocked lock"));
             }
             unsafe { self.mu.unlock() };
             Ok(())

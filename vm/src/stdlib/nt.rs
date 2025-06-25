@@ -180,7 +180,7 @@ pub(crate) mod module {
                 OptionalArg::Present(0) => Console::STD_INPUT_HANDLE,
                 OptionalArg::Present(1) | OptionalArg::Missing => Console::STD_OUTPUT_HANDLE,
                 OptionalArg::Present(2) => Console::STD_ERROR_HANDLE,
-                _ => return Err(vm.new_value_error("bad file descriptor".to_owned())),
+                _ => return Err(vm.new_value_error("bad file descriptor")),
             };
             let h = unsafe { Console::GetStdHandle(stdhandle) };
             if h.is_null() {
@@ -230,11 +230,11 @@ pub(crate) mod module {
 
         let first = argv
             .first()
-            .ok_or_else(|| vm.new_value_error("execv() arg 2 must not be empty".to_owned()))?;
+            .ok_or_else(|| vm.new_value_error("execv() arg 2 must not be empty"))?;
 
         if first.is_empty() {
             return Err(
-                vm.new_value_error("execv() arg 2 first element cannot be empty".to_owned())
+                vm.new_value_error("execv() arg 2 first element cannot be empty")
             );
         }
 

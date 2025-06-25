@@ -391,7 +391,7 @@ pub trait BufferResizeGuard {
     fn try_resizable_opt(&self) -> Option<Self::Resizable<'_>>;
     fn try_resizable(&self, vm: &VirtualMachine) -> PyResult<Self::Resizable<'_>> {
         self.try_resizable_opt().ok_or_else(|| {
-            vm.new_buffer_error("Existing exports of data: object cannot be re-sized".to_owned())
+            vm.new_buffer_error("Existing exports of data: object cannot be re-sized")
         })
     }
 }

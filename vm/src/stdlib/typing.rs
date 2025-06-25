@@ -63,7 +63,7 @@ pub(crate) mod _typing {
     impl TypeVar {
         #[pymethod(magic)]
         fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("Cannot subclass an instance of TypeVar".to_owned()))
+            Err(vm.new_type_error("Cannot subclass an instance of TypeVar"))
         }
 
         #[pygetset(magic)]
@@ -185,7 +185,7 @@ pub(crate) mod _typing {
                     (name, vec![])
                 } else {
                     return Err(vm.new_type_error(
-                        "TypeVar() missing required argument: 'name' (pos 1)".to_owned(),
+                        "TypeVar() missing required argument: 'name' (pos 1)",
                     ));
                 }
             } else if args.args.len() == 1 {
@@ -226,13 +226,13 @@ pub(crate) mod _typing {
             // Check for invalid combinations
             if covariant && contravariant {
                 return Err(
-                    vm.new_value_error("Bivariant type variables are not supported.".to_owned())
+                    vm.new_value_error("Bivariant type variables are not supported.")
                 );
             }
 
             if infer_variance && (covariant || contravariant) {
                 return Err(vm.new_value_error(
-                    "Variance cannot be specified with infer_variance".to_owned(),
+                    "Variance cannot be specified with infer_variance",
                 ));
             }
 
@@ -240,11 +240,11 @@ pub(crate) mod _typing {
             let (constraints_obj, evaluate_constraints) = if !constraints.is_empty() {
                 // Check for single constraint
                 if constraints.len() == 1 {
-                    return Err(vm.new_type_error("A single constraint is not allowed".to_owned()));
+                    return Err(vm.new_type_error("A single constraint is not allowed"));
                 }
                 if bound.is_some() {
                     return Err(
-                        vm.new_type_error("Constraints cannot be used with bound".to_owned())
+                        vm.new_type_error("Constraints cannot be used with bound")
                     );
                 }
                 let constraints_tuple = vm.ctx.new_tuple(constraints);
@@ -432,7 +432,7 @@ pub(crate) mod _typing {
 
         fn py_new(_cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
             if !args.args.is_empty() || !args.kwargs.is_empty() {
-                return Err(vm.new_type_error("NoDefaultType takes no arguments".to_owned()));
+                return Err(vm.new_type_error("NoDefaultType takes no arguments"));
             }
 
             // Return singleton instance from context

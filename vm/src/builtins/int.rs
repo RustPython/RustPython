@@ -121,7 +121,7 @@ fn inner_pow(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
 
 fn inner_mod(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_zero() {
-        Err(vm.new_zero_division_error("integer modulo by zero".to_owned()))
+        Err(vm.new_zero_division_error("integer modulo by zero"))
     } else {
         Ok(vm.ctx.new_int(int1.mod_floor(int2)).into())
     }
@@ -129,7 +129,7 @@ fn inner_mod(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
 
 fn inner_floordiv(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_zero() {
-        Err(vm.new_zero_division_error("integer division by zero".to_owned()))
+        Err(vm.new_zero_division_error("integer division by zero"))
     } else {
         Ok(vm.ctx.new_int(int1.div_floor(int2)).into())
     }
@@ -137,7 +137,7 @@ fn inner_floordiv(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult
 
 fn inner_divmod(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if int2.is_zero() {
-        return Err(vm.new_zero_division_error("integer division or modulo by zero".to_owned()));
+        return Err(vm.new_zero_division_error("integer division or modulo by zero"));
     }
     let (div, modulo) = int1.div_mod_floor(int2);
     Ok(vm.new_tuple((div, modulo)).into())
@@ -150,7 +150,7 @@ fn inner_lshift(base: &BigInt, bits: &BigInt, vm: &VirtualMachine) -> PyResult {
         |base, bits| base << bits,
         |bits, vm| {
             bits.to_usize().ok_or_else(|| {
-                vm.new_overflow_error("the number is too large to convert to int".to_owned())
+                vm.new_overflow_error("the number is too large to convert to int")
             })
         },
         vm,
@@ -179,7 +179,7 @@ where
     S: Fn(&BigInt, &VirtualMachine) -> PyResult<usize>,
 {
     if bits.is_negative() {
-        Err(vm.new_value_error("negative shift count".to_owned()))
+        Err(vm.new_value_error("negative shift count"))
     } else if base.is_zero() {
         Ok(vm.ctx.new_int(0).into())
     } else {
@@ -189,7 +189,7 @@ where
 
 fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
     if i2.is_zero() {
-        return Err(vm.new_zero_division_error("division by zero".to_owned()));
+        return Err(vm.new_zero_division_error("division by zero"));
     }
 
     let float = true_div(i1, i2);
@@ -210,7 +210,7 @@ impl Constructor for PyInt {
     fn py_new(cls: PyTypeRef, options: Self::Args, vm: &VirtualMachine) -> PyResult {
         if cls.is(vm.ctx.types.bool_type) {
             return Err(
-                vm.new_type_error("int.__new__(bool) is not safe, use bool.__new__()".to_owned())
+                vm.new_type_error("int.__new__(bool) is not safe, use bool.__new__()")
             );
         }
 
@@ -222,7 +222,7 @@ impl Constructor for PyInt {
                     .to_u32()
                     .filter(|&v| v == 0 || (2..=36).contains(&v))
                     .ok_or_else(|| {
-                        vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_owned())
+                        vm.new_value_error("int() base must be >= 2 and <= 36, or 0")
                     })?;
                 try_int_radix(&val, base, vm)
             } else {
@@ -240,7 +240,7 @@ impl Constructor for PyInt {
                 val.try_int(vm).map(|x| x.as_bigint().clone())
             }
         } else if let OptionalArg::Present(_) = options.base {
-            Err(vm.new_type_error("int() missing string argument".to_owned()))
+            Err(vm.new_type_error("int() missing string argument"))
         } else {
             Ok(Zero::zero())
         }?;
@@ -411,7 +411,7 @@ impl PyInt {
             None => return Ok(vm.ctx.not_implemented()),
         };
         if modulus.is_zero() {
-            return Err(vm.new_value_error("pow() 3rd argument cannot be 0".to_owned()));
+            return Err(vm.new_value_error("pow() 3rd argument cannot be 0"));
         }
 
         self.general_op(
@@ -435,7 +435,7 @@ impl PyInt {
                     }
                     let a = inverse(a % modulus, modulus).ok_or_else(|| {
                         vm.new_value_error(
-                            "base is not invertible for the given modulus".to_owned(),
+                            "base is not invertible for the given modulus",
                         )
                     })?;
                     let b = -b;
@@ -634,7 +634,7 @@ impl PyInt {
         match value.sign() {
             Sign::Minus if !signed => {
                 return Err(
-                    vm.new_overflow_error("can't convert negative int to unsigned".to_owned())
+                    vm.new_overflow_error("can't convert negative int to unsigned")
                 );
             }
             Sign::NoSign => return Ok(vec![0u8; byte_len].into()),
@@ -650,7 +650,7 @@ impl PyInt {
 
         let origin_len = origin_bytes.len();
         if origin_len > byte_len {
-            return Err(vm.new_overflow_error("int too big to convert".to_owned()));
+            return Err(vm.new_overflow_error("int too big to convert"));
         }
 
         let mut append_bytes = match value.sign() {
@@ -882,7 +882,7 @@ pub(crate) fn get_value(obj: &PyObject) -> &BigInt {
 
 pub fn try_to_float(int: &BigInt, vm: &VirtualMachine) -> PyResult<f64> {
     bigint_to_finite_float(int)
-        .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_owned()))
+        .ok_or_else(|| vm.new_overflow_error("int too large to convert to float"))
 }
 
 pub(crate) fn init(context: &Context) {

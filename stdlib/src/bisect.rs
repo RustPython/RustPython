@@ -47,7 +47,7 @@ mod _bisect {
         let lo = handle_default(lo, vm)?
             .map(|value| {
                 usize::try_from(value)
-                    .map_err(|_| vm.new_value_error("lo must be non-negative".to_owned()))
+                    .map_err(|_| vm.new_value_error("lo must be non-negative"))
             })
             .unwrap_or(Ok(0))?;
         let hi = handle_default(hi, vm)?

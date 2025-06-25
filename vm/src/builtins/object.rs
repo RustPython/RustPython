@@ -122,7 +122,7 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
     };
 
     let slot_names = type_slot_names(obj.class(), vm)
-        .map_err(|_| vm.new_type_error("cannot pickle object".to_owned()))?;
+        .map_err(|_| vm.new_type_error("cannot pickle object"))?;
 
     if required {
         let mut basicsize = obj.class().slots.basicsize;
@@ -426,8 +426,7 @@ impl PyBaseObject {
                     Ok(())
                 } else {
                     Err(vm.new_type_error(
-                        "__class__ assignment only supported for mutable types or ModuleType subclasses"
-                            .to_owned(),
+                        "__class__ assignment only supported for mutable types or ModuleType subclasses",
                     ))
                 }
             }
@@ -491,11 +490,11 @@ impl PyBaseObject {
 
 pub fn object_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
     obj.dict()
-        .ok_or_else(|| vm.new_attribute_error("This object has no __dict__".to_owned()))
+        .ok_or_else(|| vm.new_attribute_error("This object has no __dict__"))
 }
 pub fn object_set_dict(obj: PyObjectRef, dict: PyDictRef, vm: &VirtualMachine) -> PyResult<()> {
     obj.set_dict(dict)
-        .map_err(|_| vm.new_attribute_error("This object has no __dict__".to_owned()))
+        .map_err(|_| vm.new_attribute_error("This object has no __dict__"))
 }
 
 pub fn init(ctx: &Context) {

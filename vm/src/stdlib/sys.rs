@@ -507,7 +507,7 @@ mod sys {
     fn _getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRef> {
         let offset = offset.into_option().unwrap_or(0);
         if offset > vm.frames.borrow().len() - 1 {
-            return Err(vm.new_value_error("call stack is not deep enough".to_owned()));
+            return Err(vm.new_value_error("call stack is not deep enough"));
         }
         let idx = vm.frames.borrow().len() - offset - 1;
         let frame = &vm.frames.borrow()[idx];
@@ -761,7 +761,7 @@ mod sys {
             .filter(|&u| u >= 1)
             .ok_or_else(|| {
                 vm.new_value_error(
-                    "recursion limit must be greater than or equal to one".to_owned(),
+                    "recursion limit must be greater than or equal to one",
                 )
             })?;
         let recursion_depth = vm.current_recursion_depth();
@@ -803,7 +803,7 @@ mod sys {
     #[pyfunction]
     fn set_coroutine_origin_tracking_depth(depth: i32, vm: &VirtualMachine) -> PyResult<()> {
         if depth < 0 {
-            return Err(vm.new_value_error("depth must be >= 0".to_owned()));
+            return Err(vm.new_value_error("depth must be >= 0"));
         }
         crate::vm::thread::COROUTINE_ORIGIN_TRACKING_DEPTH.with(|cell| cell.set(depth as _));
         Ok(())
@@ -825,7 +825,7 @@ mod sys {
     fn setswitchinterval(interval: f64, vm: &VirtualMachine) -> PyResult<()> {
         // Validate the interval parameter like CPython does
         if interval <= 0.0 {
-            return Err(vm.new_value_error("switch interval must be strictly positive".to_owned()));
+            return Err(vm.new_value_error("switch interval must be strictly positive"));
         }
 
         // Store the switch interval value
@@ -966,7 +966,7 @@ mod sys {
 
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("cannot create 'sys.flags' instances".to_owned()))
+            Err(vm.new_type_error("cannot create 'sys.flags' instances"))
         }
     }
 
@@ -1100,7 +1100,7 @@ mod sys {
             _args: crate::function::FuncArgs,
             vm: &crate::VirtualMachine,
         ) -> crate::PyResult {
-            Err(vm.new_type_error("cannot create 'sys.version_info' instances".to_owned()))
+            Err(vm.new_type_error("cannot create 'sys.version_info' instances"))
         }
     }
 
@@ -1185,17 +1185,17 @@ impl PyStderr<'_> {
 pub fn get_stdin(vm: &VirtualMachine) -> PyResult {
     vm.sys_module
         .get_attr("stdin", vm)
-        .map_err(|_| vm.new_runtime_error("lost sys.stdin".to_owned()))
+        .map_err(|_| vm.new_runtime_error("lost sys.stdin"))
 }
 pub fn get_stdout(vm: &VirtualMachine) -> PyResult {
     vm.sys_module
         .get_attr("stdout", vm)
-        .map_err(|_| vm.new_runtime_error("lost sys.stdout".to_owned()))
+        .map_err(|_| vm.new_runtime_error("lost sys.stdout"))
 }
 pub fn get_stderr(vm: &VirtualMachine) -> PyResult {
     vm.sys_module
         .get_attr("stderr", vm)
-        .map_err(|_| vm.new_runtime_error("lost sys.stderr".to_owned()))
+        .map_err(|_| vm.new_runtime_error("lost sys.stderr"))
 }
 
 pub(crate) fn sysconfigdata_name() -> String {
