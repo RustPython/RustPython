@@ -13,11 +13,11 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 #[pymodule(name = "_typing")]
 pub(crate) mod decl {
     use crate::{
-        AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        AsObject, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyGenericAlias, PyTupleRef, PyTypeRef, pystr::AsPyStr},
-        function::{FuncArgs, IntoFuncArgs},
+        function::{FuncArgs, IntoFuncArgs, PyComparisonValue},
         protocol::PyNumberMethods,
-        types::{AsNumber, Constructor, Representable},
+        types::{AsNumber, Comparable, Constructor, PyComparisonOp, Representable},
     };
 
     pub(crate) fn _call_typing_func_object<'a>(
@@ -751,7 +751,7 @@ pub(crate) mod decl {
     pub(crate) struct ParamSpecArgs {
         __origin__: PyObjectRef,
     }
-    #[pyclass(flags(BASETYPE), with(Constructor, Representable))]
+    #[pyclass(with(Constructor, Representable, Comparable))]
     impl ParamSpecArgs {
         #[pymethod(magic)]
         fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -761,15 +761,6 @@ pub(crate) mod decl {
         #[pygetset(magic)]
         fn origin(&self) -> PyObjectRef {
             self.__origin__.clone()
-        }
-
-        #[pymethod(magic)]
-        fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-            // Check if other has __origin__ attribute
-            if let Ok(other_origin) = other.get_attr("__origin__", vm) {
-                return Ok(self.__origin__.is(&other_origin));
-            }
-            Ok(false)
         }
     }
 
@@ -794,6 +785,44 @@ pub(crate) mod decl {
         }
     }
 
+    impl Comparable for ParamSpecArgs {
+        fn cmp(
+            zelf: &crate::Py<Self>,
+            other: &PyObject,
+            op: PyComparisonOp,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyComparisonValue> {
+            fn eq(
+                zelf: &crate::Py<ParamSpecArgs>,
+                other: PyObjectRef,
+                vm: &VirtualMachine,
+            ) -> PyResult<bool> {
+                // Check if other has __origin__ attribute
+                if let Ok(other_origin) = other.get_attr("__origin__", vm) {
+                    return Ok(zelf.__origin__.is(&other_origin));
+                }
+                Ok(false)
+            }
+            match op {
+                PyComparisonOp::Eq => {
+                    if let Ok(result) = eq(zelf, other.to_owned(), vm) {
+                        Ok(result.into())
+                    } else {
+                        Ok(PyComparisonValue::NotImplemented)
+                    }
+                }
+                PyComparisonOp::Ne => {
+                    if let Ok(result) = eq(zelf, other.to_owned(), vm) {
+                        Ok((!result).into())
+                    } else {
+                        Ok(PyComparisonValue::NotImplemented)
+                    }
+                }
+                _ => Ok(PyComparisonValue::NotImplemented),
+            }
+        }
+    }
+
     #[pyattr]
     #[pyclass(name = "ParamSpecKwargs", module = "typing")]
     #[derive(Debug, PyPayload)]
@@ -801,7 +830,7 @@ pub(crate) mod decl {
     pub(crate) struct ParamSpecKwargs {
         __origin__: PyObjectRef,
     }
-    #[pyclass(flags(BASETYPE), with(Constructor, Representable))]
+    #[pyclass(with(Constructor, Representable, Comparable))]
     impl ParamSpecKwargs {
         #[pymethod(magic)]
         fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -811,15 +840,6 @@ pub(crate) mod decl {
         #[pygetset(magic)]
         fn origin(&self) -> PyObjectRef {
             self.__origin__.clone()
-        }
-
-        #[pymethod(magic)]
-        fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-            // Check if other has __origin__ attribute
-            if let Ok(other_origin) = other.get_attr("__origin__", vm) {
-                return Ok(self.__origin__.is(&other_origin));
-            }
-            Ok(false)
         }
     }
 
@@ -841,6 +861,44 @@ pub(crate) mod decl {
                 return Ok(format!("{}.kwargs", name.str(vm)?));
             }
             Ok(format!("{:?}.kwargs", zelf.__origin__))
+        }
+    }
+
+    impl Comparable for ParamSpecKwargs {
+        fn cmp(
+            zelf: &crate::Py<Self>,
+            other: &PyObject,
+            op: PyComparisonOp,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyComparisonValue> {
+            fn eq(
+                zelf: &crate::Py<ParamSpecKwargs>,
+                other: PyObjectRef,
+                vm: &VirtualMachine,
+            ) -> PyResult<bool> {
+                // Check if other has __origin__ attribute
+                if let Ok(other_origin) = other.get_attr("__origin__", vm) {
+                    return Ok(zelf.__origin__.is(&other_origin));
+                }
+                Ok(false)
+            }
+            match op {
+                PyComparisonOp::Eq => {
+                    if let Ok(result) = eq(zelf, other.to_owned(), vm) {
+                        Ok(result.into())
+                    } else {
+                        Ok(PyComparisonValue::NotImplemented)
+                    }
+                }
+                PyComparisonOp::Ne => {
+                    if let Ok(result) = eq(zelf, other.to_owned(), vm) {
+                        Ok((!result).into())
+                    } else {
+                        Ok(PyComparisonValue::NotImplemented)
+                    }
+                }
+                _ => Ok(PyComparisonValue::NotImplemented),
+            }
         }
     }
 
@@ -922,6 +980,7 @@ pub(crate) mod decl {
             if let Ok(name_str) = module_name.str(vm) {
                 let name = name_str.as_str();
                 // CPython sets __module__ to None for builtins and <...> modules
+                // Also set to None for exec contexts (no __name__ in globals means exec)
                 if name == "builtins" || name.starts_with('<') {
                     // Don't set __module__ attribute at all (CPython behavior)
                     // This allows the typing module to handle it
@@ -929,6 +988,9 @@ pub(crate) mod decl {
                 }
             }
             obj.set_attr("__module__", module_name, vm)?;
+        } else {
+            // If no module name is found (e.g., in exec context), set __module__ to None
+            obj.set_attr("__module__", vm.ctx.none(), vm)?;
         }
         Ok(())
     }

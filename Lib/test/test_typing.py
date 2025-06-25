@@ -387,8 +387,6 @@ class TypeVarTests(BaseTestCase):
         self.assertIs(T.__infer_variance__, False)
         self.assertEqual(T.__module__, __name__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basic_with_exec(self):
         ns = {}
         exec('from typing import TypeVar; T = TypeVar("T", bound=float)', ns, ns)
@@ -1286,8 +1284,6 @@ class TypeVarTupleTests(BaseTestCase):
         Ts = TypeVarTuple('Ts')
         self.assertEqual(Ts.__module__, __name__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exec(self):
         ns = {}
         exec('from typing import TypeVarTuple; Ts = TypeVarTuple("Ts")', ns)
@@ -8788,8 +8784,6 @@ class ParamSpecTests(BaseTestCase):
         self.assertEqual(P.__name__, 'P')
         self.assertEqual(P.__module__, __name__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basic_with_exec(self):
         ns = {}
         exec('from typing import ParamSpec; P = ParamSpec("P")', ns, ns)
@@ -9177,8 +9171,6 @@ class ParamSpecTests(BaseTestCase):
         self.assertEqual(C2[Concatenate[str, P2]].__parameters__, (P2,))
         self.assertEqual(C2[Concatenate[T, P2]].__parameters__, (T, P2))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_cannot_subclass(self):
         with self.assertRaisesRegex(TypeError, NOT_A_BASE_TYPE % 'ParamSpec'):
             class C(ParamSpec): pass
