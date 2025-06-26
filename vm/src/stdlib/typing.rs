@@ -1,23 +1,23 @@
 use crate::{PyRef, VirtualMachine, stdlib::PyModule};
 
-pub(crate) use _typing::NoDefault;
+pub(crate) use decl::*;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    let module = _typing::make_module(vm);
+    let module = decl::make_module(vm);
     extend_module!(vm, &module, {
         "NoDefault" => vm.ctx.typing_no_default.clone(),
     });
     module
 }
 
-#[pymodule]
-pub(crate) mod _typing {
+#[pymodule(name = "_typing")]
+pub(crate) mod decl {
     use crate::{
-        AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        AsObject, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyGenericAlias, PyTupleRef, PyTypeRef, pystr::AsPyStr},
-        function::{FuncArgs, IntoFuncArgs},
+        function::{FuncArgs, IntoFuncArgs, PyComparisonValue},
         protocol::PyNumberMethods,
-        types::{AsNumber, Constructor, Representable},
+        types::{AsNumber, Comparable, Constructor, PyComparisonOp, Representable},
     };
 
     pub(crate) fn _call_typing_func_object<'a>(
@@ -42,6 +42,13 @@ pub(crate) mod _typing {
     #[pyfunction]
     pub(crate) fn _idfunc(args: FuncArgs, _vm: &VirtualMachine) -> PyObjectRef {
         args.args[0].clone()
+    }
+
+    #[pyfunction(name = "override")]
+    pub(crate) fn r#override(func: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        // Set __override__ attribute to True
+        func.set_attr("__override__", vm.ctx.true_value.clone(), vm)?;
+        Ok(func)
     }
 
     #[pyattr]
@@ -337,6 +344,11 @@ pub(crate) mod _typing {
 
     #[pyclass(flags(HAS_DICT), with(AsNumber, Constructor))]
     impl ParamSpec {
+        #[pymethod(magic)]
+        fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("Cannot subclass an instance of ParamSpec"))
+        }
+
         #[pygetset(magic)]
         fn name(&self) -> PyObjectRef {
             self.name.clone()
@@ -471,16 +483,14 @@ pub(crate) mod _typing {
                 if let Some(name) = kwargs.swap_remove("name") {
                     name
                 } else {
-                    return Err(vm.new_type_error(
-                        "ParamSpec() missing required argument: 'name' (pos 1)".to_owned(),
-                    ));
+                    return Err(
+                        vm.new_type_error("ParamSpec() missing required argument: 'name' (pos 1)")
+                    );
                 }
             } else if args.args.len() == 1 {
                 args.args[0].clone()
             } else {
-                return Err(
-                    vm.new_type_error("ParamSpec() takes at most 1 positional argument".to_owned())
-                );
+                return Err(vm.new_type_error("ParamSpec() takes at most 1 positional argument"));
             };
 
             let bound = kwargs.swap_remove("bound");
@@ -512,15 +522,11 @@ pub(crate) mod _typing {
 
             // Check for invalid combinations
             if covariant && contravariant {
-                return Err(
-                    vm.new_value_error("Bivariant type variables are not supported.".to_owned())
-                );
+                return Err(vm.new_value_error("Bivariant type variables are not supported."));
             }
 
             if infer_variance && (covariant || contravariant) {
-                return Err(vm.new_value_error(
-                    "Variance cannot be specified with infer_variance".to_owned(),
-                ));
+                return Err(vm.new_value_error("Variance cannot be specified with infer_variance"));
             }
 
             // Handle default value
@@ -638,6 +644,27 @@ pub(crate) mod _typing {
         fn reduce(&self) -> PyObjectRef {
             self.name.clone()
         }
+
+        #[pymethod(magic)]
+        fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("Cannot subclass an instance of TypeVarTuple"))
+        }
+
+        #[pymethod(magic)]
+        fn typing_subst(&self, _arg: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("Substitution of bare TypeVarTuple is not supported"))
+        }
+
+        #[pymethod(magic)]
+        fn typing_prepare_subst(
+            zelf: crate::PyRef<Self>,
+            alias: PyObjectRef,
+            args: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let self_obj: PyObjectRef = zelf.into();
+            _call_typing_func_object(vm, "_typevartuple_prepare_subst", (self_obj, alias, args))
+        }
     }
 
     impl Constructor for TypeVarTuple {
@@ -652,15 +679,13 @@ pub(crate) mod _typing {
                     name
                 } else {
                     return Err(vm.new_type_error(
-                        "TypeVarTuple() missing required argument: 'name' (pos 1)".to_owned(),
+                        "TypeVarTuple() missing required argument: 'name' (pos 1)",
                     ));
                 }
             } else if args.args.len() == 1 {
                 args.args[0].clone()
             } else {
-                return Err(vm.new_type_error(
-                    "TypeVarTuple() takes at most 1 positional argument".to_owned(),
-                ));
+                return Err(vm.new_type_error("TypeVarTuple() takes at most 1 positional argument"));
             };
 
             let default = kwargs.swap_remove("default");
@@ -712,26 +737,22 @@ pub(crate) mod _typing {
     }
 
     #[pyattr]
-    #[pyclass(name = "ParamSpecArgs")]
+    #[pyclass(name = "ParamSpecArgs", module = "typing")]
     #[derive(Debug, PyPayload)]
     #[allow(dead_code)]
     pub(crate) struct ParamSpecArgs {
         __origin__: PyObjectRef,
     }
-    #[pyclass(flags(BASETYPE), with(Constructor, Representable))]
+    #[pyclass(with(Constructor, Representable, Comparable))]
     impl ParamSpecArgs {
+        #[pymethod(magic)]
+        fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("Cannot subclass an instance of ParamSpecArgs"))
+        }
+
         #[pygetset(magic)]
         fn origin(&self) -> PyObjectRef {
             self.__origin__.clone()
-        }
-
-        #[pymethod(magic)]
-        fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-            // Check if other has __origin__ attribute
-            if let Ok(other_origin) = other.get_attr("__origin__", vm) {
-                return Ok(self.__origin__.is(&other_origin));
-            }
-            Ok(false)
         }
     }
 
@@ -756,27 +777,61 @@ pub(crate) mod _typing {
         }
     }
 
+    impl Comparable for ParamSpecArgs {
+        fn cmp(
+            zelf: &crate::Py<Self>,
+            other: &PyObject,
+            op: PyComparisonOp,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyComparisonValue> {
+            fn eq(
+                zelf: &crate::Py<ParamSpecArgs>,
+                other: PyObjectRef,
+                vm: &VirtualMachine,
+            ) -> PyResult<bool> {
+                // Check if other has __origin__ attribute
+                if let Ok(other_origin) = other.get_attr("__origin__", vm) {
+                    return Ok(zelf.__origin__.is(&other_origin));
+                }
+                Ok(false)
+            }
+            match op {
+                PyComparisonOp::Eq => {
+                    if let Ok(result) = eq(zelf, other.to_owned(), vm) {
+                        Ok(result.into())
+                    } else {
+                        Ok(PyComparisonValue::NotImplemented)
+                    }
+                }
+                PyComparisonOp::Ne => {
+                    if let Ok(result) = eq(zelf, other.to_owned(), vm) {
+                        Ok((!result).into())
+                    } else {
+                        Ok(PyComparisonValue::NotImplemented)
+                    }
+                }
+                _ => Ok(PyComparisonValue::NotImplemented),
+            }
+        }
+    }
+
     #[pyattr]
-    #[pyclass(name = "ParamSpecKwargs")]
+    #[pyclass(name = "ParamSpecKwargs", module = "typing")]
     #[derive(Debug, PyPayload)]
     #[allow(dead_code)]
     pub(crate) struct ParamSpecKwargs {
         __origin__: PyObjectRef,
     }
-    #[pyclass(flags(BASETYPE), with(Constructor, Representable))]
+    #[pyclass(with(Constructor, Representable, Comparable))]
     impl ParamSpecKwargs {
+        #[pymethod(magic)]
+        fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("Cannot subclass an instance of ParamSpecKwargs"))
+        }
+
         #[pygetset(magic)]
         fn origin(&self) -> PyObjectRef {
             self.__origin__.clone()
-        }
-
-        #[pymethod(magic)]
-        fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-            // Check if other has __origin__ attribute
-            if let Ok(other_origin) = other.get_attr("__origin__", vm) {
-                return Ok(self.__origin__.is(&other_origin));
-            }
-            Ok(false)
         }
     }
 
@@ -798,6 +853,44 @@ pub(crate) mod _typing {
                 return Ok(format!("{}.kwargs", name.str(vm)?));
             }
             Ok(format!("{:?}.kwargs", zelf.__origin__))
+        }
+    }
+
+    impl Comparable for ParamSpecKwargs {
+        fn cmp(
+            zelf: &crate::Py<Self>,
+            other: &PyObject,
+            op: PyComparisonOp,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyComparisonValue> {
+            fn eq(
+                zelf: &crate::Py<ParamSpecKwargs>,
+                other: PyObjectRef,
+                vm: &VirtualMachine,
+            ) -> PyResult<bool> {
+                // Check if other has __origin__ attribute
+                if let Ok(other_origin) = other.get_attr("__origin__", vm) {
+                    return Ok(zelf.__origin__.is(&other_origin));
+                }
+                Ok(false)
+            }
+            match op {
+                PyComparisonOp::Eq => {
+                    if let Ok(result) = eq(zelf, other.to_owned(), vm) {
+                        Ok(result.into())
+                    } else {
+                        Ok(PyComparisonValue::NotImplemented)
+                    }
+                }
+                PyComparisonOp::Ne => {
+                    if let Ok(result) = eq(zelf, other.to_owned(), vm) {
+                        Ok((!result).into())
+                    } else {
+                        Ok(PyComparisonValue::NotImplemented)
+                    }
+                }
+                _ => Ok(PyComparisonValue::NotImplemented),
+            }
         }
     }
 
@@ -879,6 +972,7 @@ pub(crate) mod _typing {
             if let Ok(name_str) = module_name.str(vm) {
                 let name = name_str.as_str();
                 // CPython sets __module__ to None for builtins and <...> modules
+                // Also set to None for exec contexts (no __name__ in globals means exec)
                 if name == "builtins" || name.starts_with('<') {
                     // Don't set __module__ attribute at all (CPython behavior)
                     // This allows the typing module to handle it
@@ -886,6 +980,9 @@ pub(crate) mod _typing {
                 }
             }
             obj.set_attr("__module__", module_name, vm)?;
+        } else {
+            // If no module name is found (e.g., in exec context), set __module__ to None
+            obj.set_attr("__module__", vm.ctx.none(), vm)?;
         }
         Ok(())
     }
