@@ -173,8 +173,6 @@ class BaseTest(unittest.TestCase):
         self.assertEqual(a.__args__, (int,))
         self.assertEqual(a.__parameters__, ())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_parameters(self):
         from typing import List, Dict, Callable
         D0 = dict[str, int]
@@ -214,8 +212,6 @@ class BaseTest(unittest.TestCase):
         self.assertEqual(L5.__args__, (Callable[[K, V], K],))
         self.assertEqual(L5.__parameters__, (K, V))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_parameter_chaining(self):
         from typing import List, Dict, Union, Callable
         self.assertEqual(list[T][int], list[int])

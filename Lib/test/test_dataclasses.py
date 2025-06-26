@@ -1906,8 +1906,6 @@ class TestCase(unittest.TestCase):
         c = Alias(10, 1.0)
         self.assertEqual(c.new_method(), 1.0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generic_dynamic(self):
         T = TypeVar('T')
 
