@@ -13,11 +13,11 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 #[pymodule(name = "_typing")]
 pub(crate) mod decl {
     use crate::{
-        AsObject, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyTupleRef, PyTypeRef, pystr::AsPyStr},
         function::{FuncArgs, IntoFuncArgs, PyComparisonValue},
         protocol::PyNumberMethods,
-        types::{AsNumber, Comparable, Constructor, PyComparisonOp, Representable},
+        types::{AsNumber, Comparable, Constructor, Iterable, PyComparisonOp, Representable},
     };
 
     pub(crate) fn _call_typing_func_object<'a>(
@@ -607,7 +607,7 @@ pub(crate) mod decl {
         default_value: parking_lot::Mutex<PyObjectRef>,
         evaluate_default: PyObjectRef,
     }
-    #[pyclass(flags(HAS_DICT), with(Constructor, Representable))]
+    #[pyclass(flags(HAS_DICT), with(Constructor, Representable, Iterable))]
     impl TypeVarTuple {
         #[pygetset(magic)]
         fn name(&self) -> PyObjectRef {
@@ -664,6 +664,20 @@ pub(crate) mod decl {
         ) -> PyResult {
             let self_obj: PyObjectRef = zelf.into();
             _call_typing_func_object(vm, "_typevartuple_prepare_subst", (self_obj, alias, args))
+        }
+    }
+
+    impl Iterable for TypeVarTuple {
+        fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            // When unpacking TypeVarTuple with *, return [Unpack[self]]
+            // This is how CPython handles Generic[*Ts]
+            let typing = vm.import("typing", 0)?;
+            let unpack = typing.get_attr("Unpack", vm)?;
+            let zelf_obj: PyObjectRef = zelf.into();
+            let unpacked = vm.call_method(&unpack, "__getitem__", (zelf_obj,))?;
+            let list = vm.ctx.new_list(vec![unpacked]);
+            let list_obj: PyObjectRef = list.into();
+            vm.call_method(&list_obj, "__iter__", ())
         }
     }
 
