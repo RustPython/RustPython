@@ -104,6 +104,8 @@ impl PyObject {
         self.get_attr(attr_name, vm).map(|o| !vm.is_none(&o))
     }
 
+    /// Get an attribute by name.
+    /// `attr_name` can be a `&str`, `String`, or `PyStrRef`.
     pub fn get_attr<'a>(&self, attr_name: impl AsPyStr<'a>, vm: &VirtualMachine) -> PyResult {
         let attr_name = attr_name.as_pystr(&vm.ctx);
         self.get_attr_inner(attr_name, vm)

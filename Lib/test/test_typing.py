@@ -538,8 +538,6 @@ class TypeVarTests(BaseTestCase):
         self.assertEqual(subst(int|str), int|str)
         self.assertEqual(subst(Union[int, str]), Union[int, str])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bad_var_substitution(self):
         T = TypeVar('T')
         bad_args = (
@@ -736,8 +734,6 @@ class TypeParameterDefaultsTests(BaseTestCase):
         a4 = Callable[*Ts, T]
         self.assertEqual(a4.__args__, (*Ts, T))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_paramspec_specialization(self):
         T = TypeVar("T")
         P = ParamSpec('P', default=[str, int])
@@ -785,8 +781,6 @@ class TypeParameterDefaultsTests(BaseTestCase):
         self.assertIs(Ts.__default__, NoDefault)
         self.assertFalse(Ts.has_default())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_default_after_non_default(self):
         DefaultStrT = TypeVar('DefaultStrT', default=str)
         T = TypeVar('T')
@@ -796,8 +790,6 @@ class TypeParameterDefaultsTests(BaseTestCase):
         ):
             Test = Generic[DefaultStrT, T]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_need_more_params(self):
         DefaultStrT = TypeVar('DefaultStrT', default=str)
         T = TypeVar('T')
@@ -1638,7 +1630,7 @@ class TypeVarTupleTests(BaseTestCase):
     def test_variadic_class_origin_is_correct(self):
         Ts = TypeVarTuple('Ts')
 
-        # class C(Generic[*Ts]): pass
+        class C(Generic[*Ts]): pass
         self.assertIs(C[int].__origin__, C)
         self.assertIs(C[T].__origin__, C)
         self.assertIs(C[Unpack[Ts]].__origin__, C)
@@ -1766,8 +1758,6 @@ class TypeVarTupleTests(BaseTestCase):
         self.assertEqual(s.__args__, (*Ts1, *Ts2))
         self.assertEqual(u.__args__, (Unpack[Ts1], Unpack[Ts2]))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_variadic_class_with_duplicate_typevartuples_fails(self):
         Ts1 = TypeVarTuple('Ts1')
         Ts2 = TypeVarTuple('Ts2')
@@ -1815,15 +1805,11 @@ class TypeVarTupleTests(BaseTestCase):
         Tuple[int, Unpack[Ts], str]
         Tuple[int, bool, Unpack[Ts], float, str]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_variadic_class_definition_using_packed_typevartuple_fails(self):
         Ts = TypeVarTuple('Ts')
         with self.assertRaises(TypeError):
             class C(Generic[Ts]): pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_variadic_class_definition_using_concrete_types_fails(self):
         Ts = TypeVarTuple('Ts')
         with self.assertRaises(TypeError):
@@ -3193,8 +3179,6 @@ class ProtocolTests(BaseTestCase):
         self.assertIsInstance(C(), P)
         self.assertIsSubclass(C, P)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_protocols_issubclass(self):
         T = TypeVar('T')
 
@@ -3562,8 +3546,6 @@ class GenericTests(BaseTestCase):
         T = TypeVar("T")
         self.assertEqual(List[list[T] | float].__parameters__, (T,))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generic_errors(self):
         T = TypeVar('T')
         S = TypeVar('S')
@@ -3605,8 +3587,6 @@ class GenericTests(BaseTestCase):
                 # but, not when the right arg is also a generic:
                 self.assertRaises(TypeError, isinstance, typ, typ)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_init(self):
         T = TypeVar('T')
         S = TypeVar('S')
@@ -3727,8 +3707,6 @@ class GenericTests(BaseTestCase):
         # returned by the `Immutable[int]()` call
         self.assertIsInstance(Immutable[int](), Immutable)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subscripted_generics_as_proxies(self):
         T = TypeVar('T')
         class C(Generic[T]):
@@ -3838,8 +3816,6 @@ class GenericTests(BaseTestCase):
         self.assertTrue(naive_list_base_check([1, 2, 3], C))
         self.assertFalse(naive_list_base_check(['a', 'b'], C))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_multi_subscr_base(self):
         T = TypeVar('T')
         U = TypeVar('U')
@@ -4096,8 +4072,6 @@ class GenericTests(BaseTestCase):
             set(results.generic_func.__type_params__)
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_extended_generic_rules_subclassing(self):
         class T1(Tuple[T, KT]): ...
         class T2(Tuple[T, ...]): ...
@@ -4135,8 +4109,6 @@ class GenericTests(BaseTestCase):
         with self.assertRaises(TypeError):
             List[ClassVar[int]]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_fail_with_bare_generic(self):
         T = TypeVar('T')
         with self.assertRaises(TypeError):
@@ -4341,8 +4313,6 @@ class GenericTests(BaseTestCase):
         with self.assertRaises(AttributeError):
             d_int.foobar = 'no'
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_errors(self):
         with self.assertRaises(TypeError):
             B = SimpleMapping[XK, Any]
@@ -4596,8 +4566,6 @@ class GenericTests(BaseTestCase):
 
         foo(42)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_implicit_any(self):
         T = TypeVar('T')
 
@@ -5121,8 +5089,6 @@ class NoTypeCheck_WithFunction:
 
 
 class ForwardRefTests(BaseTestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basics(self):
 
         class Node(Generic[T]):
@@ -5387,8 +5353,6 @@ class ForwardRefTests(BaseTestCase):
         with self.assertRaises(TypeError):
             get_type_hints(CF, globals()),
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_syntax_error(self):
 
         with self.assertRaises(SyntaxError):
@@ -6103,8 +6067,6 @@ class GetTypeHintTests(BaseTestCase):
             {'x': int | list[Annotated[str, 'meta']]},
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_type_hints_annotated_refs(self):
 
         Const = Annotated[T, "Const"]
@@ -7103,8 +7065,6 @@ class NamedTupleTests(BaseTestCase):
             class C(NamedTuple, B):
                 y: str
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generic(self):
         class X(NamedTuple, Generic[T]):
             x: T
@@ -7859,8 +7819,6 @@ class TypedDictTests(BaseTestCase):
             class Point3D(Point2DGeneric[T], Generic[KT]):
                 c: KT
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_implicit_any_inheritance(self):
         class A(TypedDict, Generic[T]):
             a: T
@@ -8142,8 +8100,6 @@ class NotRequiredTests(BaseTestCase):
 
 class IOTests(BaseTestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_io(self):
 
         def stuff(a: IO) -> AnyStr:
@@ -8152,8 +8108,6 @@ class IOTests(BaseTestCase):
         a = stuff.__annotations__['a']
         self.assertEqual(a.__parameters__, (AnyStr,))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_textio(self):
 
         def stuff(a: TextIO) -> str:
@@ -8162,8 +8116,6 @@ class IOTests(BaseTestCase):
         a = stuff.__annotations__['a']
         self.assertEqual(a.__parameters__, ())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_binaryio(self):
 
         def stuff(a: BinaryIO) -> bytes:
@@ -8483,8 +8435,6 @@ class AnnotatedTests(BaseTestCase):
         with self.assertRaisesRegex(TypeError, 'at least two arguments'):
             Annotated[int]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         samples = [typing.Any, typing.Union[int, str],
                    typing.Optional[str], Tuple[int, ...],
@@ -8822,8 +8772,6 @@ class ParamSpecTests(BaseTestCase):
             gth(C.foo, globals(), locals()), {"args": P.args, "kwargs": P.kwargs}
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_user_generics(self):
         T = TypeVar("T")
         P = ParamSpec("P")
@@ -8878,8 +8826,6 @@ class ParamSpecTests(BaseTestCase):
         with self.assertRaisesRegex(TypeError, "many arguments for"):
             Z[P_2, bool]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_multiple_paramspecs_in_user_generics(self):
         P = ParamSpec("P")
         P2 = ParamSpec("P2")
@@ -9524,8 +9470,6 @@ class SpecialAttrsTests(BaseTestCase):
             loaded = pickle.loads(s)
             self.assertIs(SpecialAttrsP, loaded)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_genericalias_dir(self):
         class Foo(Generic[T]):
             def bar(self):

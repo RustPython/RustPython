@@ -14,7 +14,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 pub(crate) mod decl {
     use crate::{
         AsObject, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyGenericAlias, PyTupleRef, PyTypeRef, pystr::AsPyStr},
+        builtins::{PyTupleRef, PyTypeRef, pystr::AsPyStr},
         function::{FuncArgs, IntoFuncArgs, PyComparisonValue},
         protocol::PyNumberMethods,
         types::{AsNumber, Comparable, Constructor, PyComparisonOp, Representable},
@@ -920,6 +920,30 @@ pub(crate) mod decl {
         }
     }
 
+    /// Helper function to call typing module functions with cls as first argument
+    /// Similar to CPython's call_typing_args_kwargs
+    fn call_typing_args_kwargs(
+        name: &'static str,
+        cls: PyTypeRef,
+        args: FuncArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let typing = vm.import("typing", 0)?;
+        let func = typing.get_attr(name, vm)?;
+
+        // Prepare arguments: (cls, *args)
+        let mut call_args = vec![cls.into()];
+        call_args.extend(args.args);
+
+        // Call with prepared args and original kwargs
+        let func_args = FuncArgs {
+            args: call_args,
+            kwargs: args.kwargs,
+        };
+
+        func.call(func_args, vm)
+    }
+
     #[pyattr]
     #[pyclass(name)]
     #[derive(Debug, PyPayload)]
@@ -930,8 +954,18 @@ pub(crate) mod decl {
     #[pyclass(flags(BASETYPE))]
     impl Generic {
         #[pyclassmethod(magic)]
-        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
-            PyGenericAlias::new(cls, args, vm)
+        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            // Convert single arg to FuncArgs
+            let func_args = FuncArgs {
+                args: vec![args],
+                kwargs: Default::default(),
+            };
+            call_typing_args_kwargs("_generic_class_getitem", cls, func_args, vm)
+        }
+
+        #[pyclassmethod(magic)]
+        fn init_subclass(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            call_typing_args_kwargs("_generic_init_subclass", cls, args, vm)
         }
     }
 
