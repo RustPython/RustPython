@@ -183,6 +183,27 @@ cargo run --features jit
 cargo run --features ssl
 ```
 
+## Test Code Modification Rules
+
+**CRITICAL: Test code modification restrictions**
+- NEVER comment out or delete any test code lines except for removing `@unittest.expectedFailure` decorators and upper TODO comments
+- NEVER modify test assertions, test logic, or test data
+- When a test cannot pass due to missing language features, keep it as expectedFailure and document the reason
+- The only acceptable modifications to test files are:
+  1. Removing `@unittest.expectedFailure` decorators and the upper TODO comments when tests actually pass
+  2. Adding `@unittest.expectedFailure` decorators when tests cannot be fixed
+
+**Examples of FORBIDDEN modifications:**
+- Commenting out test lines
+- Changing test assertions
+- Modifying test data or expected results
+- Removing test logic
+
+**Correct approach when tests fail due to unsupported syntax:**
+- Keep the test as `@unittest.expectedFailure`
+- Document that it requires PEP 695 support
+- Focus on tests that can be fixed through Rust code changes only
+
 ## Documentation
 
 - Check the [architecture document](architecture/architecture.md) for a high-level overview
