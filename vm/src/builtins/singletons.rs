@@ -44,8 +44,8 @@ impl Constructor for PyNone {
 
 #[pyclass(with(Constructor, AsNumber, Representable))]
 impl PyNone {
-    #[pymethod(magic)]
-    fn bool(&self) -> bool {
+    #[pymethod]
+    fn __bool__(&self) -> bool {
         false
     }
 }
@@ -95,13 +95,13 @@ impl PyNotImplemented {
     // TODO: As per https://bugs.python.org/issue35712, using NotImplemented
     // in boolean contexts will need to raise a DeprecationWarning in 3.9
     // and, eventually, a TypeError.
-    #[pymethod(magic)]
-    fn bool(&self) -> bool {
+    #[pymethod]
+    fn __bool__(&self) -> bool {
         true
     }
 
-    #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyStrRef {
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyStrRef {
         vm.ctx.names.NotImplemented.to_owned()
     }
 }

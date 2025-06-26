@@ -404,7 +404,7 @@ mod zlib {
 
         // TODO: This is an optional feature of Compress
         // #[pymethod]
-        // #[pymethod(magic)]
+        // #[pymethod(name = "__copy__")]
         // #[pymethod(name = "__deepcopy__")]
         // fn copy(&self) -> Self {
         //     todo!("<flate2::Compress as Clone>")

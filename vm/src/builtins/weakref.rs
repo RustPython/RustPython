@@ -52,8 +52,8 @@ impl Constructor for PyWeak {
     flags(BASETYPE)
 )]
 impl PyWeak {
-    #[pyclassmethod(magic)]
-    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
     }
 }

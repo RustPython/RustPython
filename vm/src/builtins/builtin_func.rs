@@ -75,16 +75,16 @@ impl Callable for PyNativeFunction {
 
 #[pyclass(with(Callable, Unconstructible), flags(HAS_DICT))]
 impl PyNativeFunction {
-    #[pygetset(magic)]
-    fn module(zelf: NativeFunctionOrMethod) -> Option<&'static PyStrInterned> {
+    #[pygetset]
+    fn __module__(zelf: NativeFunctionOrMethod) -> Option<&'static PyStrInterned> {
         zelf.0.module
     }
-    #[pygetset(magic)]
-    fn name(zelf: NativeFunctionOrMethod) -> &'static str {
+    #[pygetset]
+    fn __name__(zelf: NativeFunctionOrMethod) -> &'static str {
         zelf.0.value.name
     }
-    #[pygetset(magic)]
-    fn qualname(zelf: NativeFunctionOrMethod, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    #[pygetset]
+    fn __qualname__(zelf: NativeFunctionOrMethod, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let zelf = zelf.0;
         let flags = zelf.value.flags;
         // if flags.contains(PyMethodFlags::CLASS) || flags.contains(PyMethodFlags::STATIC) {
@@ -105,25 +105,25 @@ impl PyNativeFunction {
         };
         Ok(qualname)
     }
-    #[pygetset(magic)]
-    fn doc(zelf: NativeFunctionOrMethod) -> Option<&'static str> {
+    #[pygetset]
+    fn __doc__(zelf: NativeFunctionOrMethod) -> Option<&'static str> {
         zelf.0.value.doc
     }
     #[pygetset(name = "__self__")]
     fn __self__(_zelf: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.none()
     }
-    #[pymethod(magic)]
-    fn reduce(&self) -> &'static str {
+    #[pymethod]
+    fn __reduce__(&self) -> &'static str {
         // TODO: return (getattr, (self.object, self.name)) if this is a method
         self.value.name
     }
-    #[pymethod(magic)]
-    fn reduce_ex(zelf: PyObjectRef, _ver: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __reduce_ex__(zelf: PyObjectRef, _ver: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm.call_special_method(&zelf, identifier!(vm, __reduce__), ())
     }
-    #[pygetset(magic)]
-    fn text_signature(zelf: NativeFunctionOrMethod) -> Option<&'static str> {
+    #[pygetset]
+    fn __text_signature__(zelf: NativeFunctionOrMethod) -> Option<&'static str> {
         let doc = zelf.0.value.doc?;
         let signature = type_::get_text_signature_from_internal_doc(zelf.0.value.name, doc)?;
         Some(signature)
@@ -151,16 +151,19 @@ pub struct PyNativeMethod {
     flags(HAS_DICT)
 )]
 impl PyNativeMethod {
-    #[pygetset(magic)]
-    fn qualname(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    #[pygetset]
+    fn __qualname__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let prefix = zelf.class.name().to_string();
         Ok(vm
             .ctx
             .new_str(format!("{}.{}", prefix, &zelf.func.value.name)))
     }
 
-    #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyResult<(PyObjectRef, (PyObjectRef, &'static str))> {
+    #[pymethod]
+    fn __reduce__(
+        &self,
+        vm: &VirtualMachine,
+    ) -> PyResult<(PyObjectRef, (PyObjectRef, &'static str))> {
         // TODO: return (getattr, (self.object, self.name)) if this is a method
         let getattr = vm.builtins.get_attr("getattr", vm)?;
         let target = self

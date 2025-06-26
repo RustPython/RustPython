@@ -110,8 +110,8 @@ impl Constructor for PyBool {
 
 #[pyclass(with(Constructor, AsNumber, Representable))]
 impl PyBool {
-    #[pymethod(magic)]
-    fn format(obj: PyObjectRef, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+    #[pymethod]
+    fn __format__(obj: PyObjectRef, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         let new_bool = obj.try_to_bool(vm)?;
         FormatSpec::parse(spec.as_str())
             .and_then(|format_spec| format_spec.format_bool(new_bool))
@@ -119,8 +119,8 @@ impl PyBool {
     }
 
     #[pymethod(name = "__ror__")]
-    #[pymethod(magic)]
-    fn or(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    #[pymethod]
+    fn __or__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if lhs.fast_isinstance(vm.ctx.types.bool_type)
             && rhs.fast_isinstance(vm.ctx.types.bool_type)
         {
@@ -128,15 +128,15 @@ impl PyBool {
             let rhs = get_value(&rhs);
             (lhs || rhs).to_pyobject(vm)
         } else if let Some(lhs) = lhs.payload::<PyInt>() {
-            lhs.or(rhs, vm).to_pyobject(vm)
+            lhs.__or__(rhs, vm).to_pyobject(vm)
         } else {
             vm.ctx.not_implemented()
         }
     }
 
     #[pymethod(name = "__rand__")]
-    #[pymethod(magic)]
-    fn and(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    #[pymethod]
+    fn __and__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if lhs.fast_isinstance(vm.ctx.types.bool_type)
             && rhs.fast_isinstance(vm.ctx.types.bool_type)
         {
@@ -144,15 +144,15 @@ impl PyBool {
             let rhs = get_value(&rhs);
             (lhs && rhs).to_pyobject(vm)
         } else if let Some(lhs) = lhs.payload::<PyInt>() {
-            lhs.and(rhs, vm).to_pyobject(vm)
+            lhs.__and__(rhs, vm).to_pyobject(vm)
         } else {
             vm.ctx.not_implemented()
         }
     }
 
     #[pymethod(name = "__rxor__")]
-    #[pymethod(magic)]
-    fn xor(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    #[pymethod]
+    fn __xor__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if lhs.fast_isinstance(vm.ctx.types.bool_type)
             && rhs.fast_isinstance(vm.ctx.types.bool_type)
         {
@@ -160,7 +160,7 @@ impl PyBool {
             let rhs = get_value(&rhs);
             (lhs ^ rhs).to_pyobject(vm)
         } else if let Some(lhs) = lhs.payload::<PyInt>() {
-            lhs.xor(rhs, vm).to_pyobject(vm)
+            lhs.__xor__(rhs, vm).to_pyobject(vm)
         } else {
             vm.ctx.not_implemented()
         }
@@ -170,9 +170,9 @@ impl PyBool {
 impl AsNumber for PyBool {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            and: Some(|a, b, vm| PyBool::and(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
-            xor: Some(|a, b, vm| PyBool::xor(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
-            or: Some(|a, b, vm| PyBool::or(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
+            and: Some(|a, b, vm| PyBool::__and__(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
+            xor: Some(|a, b, vm| PyBool::__xor__(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
+            or: Some(|a, b, vm| PyBool::__or__(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
             ..PyInt::AS_NUMBER
         };
         &AS_NUMBER

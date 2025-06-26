@@ -896,8 +896,8 @@ pub trait GetDescriptor: PyPayload {
     ) -> PyResult;
 
     #[inline]
-    #[pymethod(magic)]
-    fn get(
+    #[pymethod]
+    fn __get__(
         zelf: PyObjectRef,
         obj: PyObjectRef,
         cls: OptionalArg<PyObjectRef>,
@@ -1022,33 +1022,57 @@ pub trait Comparable: PyPayload {
     ) -> PyResult<PyComparisonValue>;
 
     #[inline]
-    #[pymethod(magic)]
-    fn eq(zelf: &Py<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+    #[pymethod]
+    fn __eq__(
+        zelf: &Py<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
         Self::cmp(zelf, &other, PyComparisonOp::Eq, vm)
     }
     #[inline]
-    #[pymethod(magic)]
-    fn ne(zelf: &Py<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+    #[pymethod]
+    fn __ne__(
+        zelf: &Py<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
         Self::cmp(zelf, &other, PyComparisonOp::Ne, vm)
     }
     #[inline]
-    #[pymethod(magic)]
-    fn lt(zelf: &Py<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+    #[pymethod]
+    fn __lt__(
+        zelf: &Py<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
         Self::cmp(zelf, &other, PyComparisonOp::Lt, vm)
     }
     #[inline]
-    #[pymethod(magic)]
-    fn le(zelf: &Py<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+    #[pymethod]
+    fn __le__(
+        zelf: &Py<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
         Self::cmp(zelf, &other, PyComparisonOp::Le, vm)
     }
     #[inline]
-    #[pymethod(magic)]
-    fn ge(zelf: &Py<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+    #[pymethod]
+    fn __ge__(
+        zelf: &Py<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
         Self::cmp(zelf, &other, PyComparisonOp::Ge, vm)
     }
     #[inline]
-    #[pymethod(magic)]
-    fn gt(zelf: &Py<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+    #[pymethod]
+    fn __gt__(
+        zelf: &Py<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
         Self::cmp(zelf, &other, PyComparisonOp::Gt, vm)
     }
 }
@@ -1164,8 +1188,8 @@ pub trait GetAttr: PyPayload {
     fn getattro(zelf: &Py<Self>, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult;
 
     #[inline]
-    #[pymethod(magic)]
-    fn getattribute(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __getattribute__(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         Self::getattro(&zelf, &name, vm)
     }
 }
@@ -1194,8 +1218,8 @@ pub trait SetAttr: PyPayload {
     ) -> PyResult<()>;
 
     #[inline]
-    #[pymethod(magic)]
-    fn setattr(
+    #[pymethod]
+    fn __setattr__(
         zelf: PyRef<Self>,
         name: PyStrRef,
         value: PyObjectRef,
@@ -1205,8 +1229,8 @@ pub trait SetAttr: PyPayload {
     }
 
     #[inline]
-    #[pymethod(magic)]
-    fn delattr(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod]
+    fn __delattr__(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         Self::setattro(&zelf, &name, PySetterValue::Delete, vm)
     }
 }

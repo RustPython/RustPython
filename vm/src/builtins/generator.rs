@@ -37,13 +37,13 @@ impl PyGenerator {
         }
     }
 
-    #[pygetset(magic)]
-    fn name(&self) -> PyStrRef {
+    #[pygetset]
+    fn __name__(&self) -> PyStrRef {
         self.inner.name()
     }
 
-    #[pygetset(magic, setter)]
-    fn set_name(&self, name: PyStrRef) {
+    #[pygetset(setter)]
+    fn set___name__(&self, name: PyStrRef) {
         self.inner.set_name(name)
     }
 

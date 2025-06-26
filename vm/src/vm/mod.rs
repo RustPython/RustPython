@@ -257,7 +257,7 @@ impl VirtualMachine {
             }
 
             let err = self.new_runtime_error(msg);
-            err.set_cause(Some(import_err));
+            err.set___cause__(Some(import_err));
             err
         })?;
         Ok(())
@@ -459,7 +459,7 @@ impl VirtualMachine {
         let unraisablehook = sys_module.get_attr("unraisablehook", self).unwrap();
 
         let exc_type = e.class().to_owned();
-        let exc_traceback = e.traceback().to_pyobject(self); // TODO: actual traceback
+        let exc_traceback = e.__traceback__().to_pyobject(self); // TODO: actual traceback
         let exc_value = e.into();
         let args = stdlib::sys::UnraisableHookArgs {
             exc_type,
@@ -829,14 +829,14 @@ impl VirtualMachine {
         if let Some(context_exc) = self.topmost_exception() {
             if !context_exc.is(exception) {
                 let mut o = context_exc.clone();
-                while let Some(context) = o.context() {
+                while let Some(context) = o.__context__() {
                     if context.is(exception) {
-                        o.set_context(None);
+                        o.set___context__(None);
                         break;
                     }
                     o = context;
                 }
-                exception.set_context(Some(context_exc))
+                exception.set___context__(Some(context_exc))
             }
         }
     }

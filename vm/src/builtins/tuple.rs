@@ -228,8 +228,8 @@ impl PyTuple {
     )
 )]
 impl PyTuple {
-    #[pymethod(magic)]
-    fn add(
+    #[pymethod]
+    fn __add__(
         zelf: PyRef<Self>,
         other: PyObjectRef,
         vm: &VirtualMachine,
@@ -251,8 +251,8 @@ impl PyTuple {
         PyArithmeticValue::from_option(added.ok())
     }
 
-    #[pymethod(magic)]
-    fn bool(&self) -> bool {
+    #[pymethod]
+    fn __bool__(&self) -> bool {
         !self.elements.is_empty()
     }
 
@@ -267,9 +267,9 @@ impl PyTuple {
         Ok(count)
     }
 
-    #[pymethod(magic)]
     #[inline]
-    pub fn len(&self) -> usize {
+    #[pymethod]
+    pub fn __len__(&self) -> usize {
         self.elements.len()
     }
 
@@ -279,8 +279,8 @@ impl PyTuple {
     }
 
     #[pymethod(name = "__rmul__")]
-    #[pymethod(magic)]
-    fn mul(zelf: PyRef<Self>, value: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    #[pymethod]
+    fn __mul__(zelf: PyRef<Self>, value: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         Self::repeat(zelf, value.into(), vm)
     }
 
@@ -294,8 +294,8 @@ impl PyTuple {
         }
     }
 
-    #[pymethod(magic)]
-    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self._getitem(&needle, vm)
     }
 
@@ -324,13 +324,13 @@ impl PyTuple {
         Ok(false)
     }
 
-    #[pymethod(magic)]
-    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    #[pymethod]
+    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self._contains(&needle, vm)
     }
 
-    #[pymethod(magic)]
-    fn getnewargs(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyTupleRef,) {
+    #[pymethod]
+    fn __getnewargs__(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyTupleRef,) {
         // the arguments to pass to tuple() is just one tuple - so we'll be doing tuple(tup), which
         // should just return tup, or tuple_subclass(tup), which'll copy/validate (e.g. for a
         // structseq)
@@ -342,8 +342,8 @@ impl PyTuple {
         (tup_arg,)
     }
 
-    #[pyclassmethod(magic)]
-    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
     }
 }
@@ -364,10 +364,10 @@ impl AsMapping for PyTuple {
 impl AsSequence for PyTuple {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PyTuple::sequence_downcast(seq).len())),
+            length: atomic_func!(|seq, _vm| Ok(PyTuple::sequence_downcast(seq).__len__())),
             concat: atomic_func!(|seq, other, vm| {
                 let zelf = PyTuple::sequence_downcast(seq);
-                match PyTuple::add(zelf.to_owned(), other.to_owned(), vm) {
+                match PyTuple::__add__(zelf.to_owned(), other.to_owned(), vm) {
                     PyArithmeticValue::Implemented(tuple) => Ok(tuple.into()),
                     PyArithmeticValue::NotImplemented => Err(vm.new_type_error(format!(
                         "can only concatenate tuple (not '{}') to tuple",
@@ -464,20 +464,20 @@ impl PyPayload for PyTupleIterator {
 
 #[pyclass(with(Unconstructible, IterNext, Iterable))]
 impl PyTupleIterator {
-    #[pymethod(magic)]
-    fn length_hint(&self) -> usize {
+    #[pymethod]
+    fn __length_hint__(&self) -> usize {
         self.internal.lock().length_hint(|obj| obj.len())
     }
 
-    #[pymethod(magic)]
-    fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod]
+    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
             .lock()
             .set_state(state, |obj, pos| pos.min(obj.len()), vm)
     }
 
-    #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
         self.internal
             .lock()
             .builtins_iter_reduce(|x| x.clone().into(), vm)

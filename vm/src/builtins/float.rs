@@ -204,15 +204,15 @@ fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
     with(Comparable, Hashable, Constructor, AsNumber, Representable)
 )]
 impl PyFloat {
-    #[pymethod(magic)]
-    fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+    #[pymethod]
+    fn __format__(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         FormatSpec::parse(spec.as_str())
             .and_then(|format_spec| format_spec.format_float(self.value))
             .map_err(|err| err.into_pyexception(vm))
     }
 
-    #[pystaticmethod(magic)]
-    fn getformat(spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+    #[pystaticmethod]
+    fn __getformat__(spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         if !matches!(spec.as_str(), "double" | "float") {
             return Err(
                 vm.new_value_error("__getformat__() argument 1 must be 'double' or 'float'")
@@ -229,8 +229,8 @@ impl PyFloat {
         .to_owned())
     }
 
-    #[pymethod(magic)]
-    fn abs(&self) -> f64 {
+    #[pymethod]
+    fn __abs__(&self) -> f64 {
         self.value.abs()
     }
 
@@ -278,18 +278,18 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__radd__")]
-    #[pymethod(magic)]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<f64>> {
+    #[pymethod]
+    fn __add__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<f64>> {
         self.simple_op(other, |a, b| Ok(a + b), vm)
     }
 
-    #[pymethod(magic)]
-    fn bool(&self) -> bool {
+    #[pymethod]
+    fn __bool__(&self) -> bool {
         self.value != 0.0
     }
 
-    #[pymethod(magic)]
-    fn divmod(
+    #[pymethod]
+    fn __divmod__(
         &self,
         other: PyObjectRef,
         vm: &VirtualMachine,
@@ -297,8 +297,8 @@ impl PyFloat {
         self.tuple_op(other, |a, b| inner_divmod(a, b, vm), vm)
     }
 
-    #[pymethod(magic)]
-    fn rdivmod(
+    #[pymethod]
+    fn __rdivmod__(
         &self,
         other: PyObjectRef,
         vm: &VirtualMachine,
@@ -306,8 +306,8 @@ impl PyFloat {
         self.tuple_op(other, |a, b| inner_divmod(b, a, vm), vm)
     }
 
-    #[pymethod(magic)]
-    fn floordiv(
+    #[pymethod]
+    fn __floordiv__(
         &self,
         other: PyObjectRef,
         vm: &VirtualMachine,
@@ -315,8 +315,8 @@ impl PyFloat {
         self.simple_op(other, |a, b| inner_floordiv(a, b, vm), vm)
     }
 
-    #[pymethod(magic)]
-    fn rfloordiv(
+    #[pymethod]
+    fn __rfloordiv__(
         &self,
         other: PyObjectRef,
         vm: &VirtualMachine,
@@ -329,23 +329,27 @@ impl PyFloat {
         self.simple_op(other, |a, b| inner_mod(a, b, vm), vm)
     }
 
-    #[pymethod(magic)]
-    fn rmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<f64>> {
+    #[pymethod]
+    fn __rmod__(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmeticValue<f64>> {
         self.simple_op(other, |a, b| inner_mod(b, a, vm), vm)
     }
 
-    #[pymethod(magic)]
-    fn pos(&self) -> f64 {
+    #[pymethod]
+    fn __pos__(&self) -> f64 {
         self.value
     }
 
-    #[pymethod(magic)]
-    fn neg(&self) -> f64 {
+    #[pymethod]
+    fn __neg__(&self) -> f64 {
         -self.value
     }
 
-    #[pymethod(magic)]
-    fn pow(
+    #[pymethod]
+    fn __pow__(
         &self,
         other: PyObjectRef,
         mod_val: OptionalOption<PyObjectRef>,
@@ -358,28 +362,36 @@ impl PyFloat {
         }
     }
 
-    #[pymethod(magic)]
-    fn rpow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __rpow__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.complex_op(other, |a, b| float_pow(b, a, vm), vm)
     }
 
-    #[pymethod(magic)]
-    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<f64>> {
+    #[pymethod]
+    fn __sub__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<f64>> {
         self.simple_op(other, |a, b| Ok(a - b), vm)
     }
 
-    #[pymethod(magic)]
-    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<f64>> {
+    #[pymethod]
+    fn __rsub__(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmeticValue<f64>> {
         self.simple_op(other, |a, b| Ok(b - a), vm)
     }
 
-    #[pymethod(magic)]
-    fn truediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<f64>> {
+    #[pymethod]
+    fn __truediv__(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmeticValue<f64>> {
         self.simple_op(other, |a, b| inner_div(a, b, vm), vm)
     }
 
-    #[pymethod(magic)]
-    fn rtruediv(
+    #[pymethod]
+    fn __rtruediv__(
         &self,
         other: PyObjectRef,
         vm: &VirtualMachine,
@@ -388,28 +400,28 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__rmul__")]
-    #[pymethod(magic)]
-    fn mul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<f64>> {
+    #[pymethod]
+    fn __mul__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<f64>> {
         self.simple_op(other, |a, b| Ok(a * b), vm)
     }
 
-    #[pymethod(magic)]
-    fn trunc(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
+    #[pymethod]
+    fn __trunc__(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
         try_to_bigint(self.value, vm)
     }
 
-    #[pymethod(magic)]
-    fn floor(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
+    #[pymethod]
+    fn __floor__(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
         try_to_bigint(self.value.floor(), vm)
     }
 
-    #[pymethod(magic)]
-    fn ceil(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
+    #[pymethod]
+    fn __ceil__(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
         try_to_bigint(self.value.ceil(), vm)
     }
 
-    #[pymethod(magic)]
-    fn round(&self, ndigits: OptionalOption<PyIntRef>, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __round__(&self, ndigits: OptionalOption<PyIntRef>, vm: &VirtualMachine) -> PyResult {
         let ndigits = ndigits.flatten();
         let value = if let Some(ndigits) = ndigits {
             let ndigits = ndigits.as_bigint();
@@ -438,13 +450,13 @@ impl PyFloat {
         Ok(value)
     }
 
-    #[pymethod(magic)]
-    fn int(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
-        self.trunc(vm)
+    #[pymethod]
+    fn __int__(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
+        self.__trunc__(vm)
     }
 
-    #[pymethod(magic)]
-    fn float(zelf: PyRef<Self>) -> PyRef<Self> {
+    #[pymethod]
+    fn __float__(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
@@ -497,8 +509,8 @@ impl PyFloat {
         crate::literal::float::to_hex(self.value)
     }
 
-    #[pymethod(magic)]
-    fn getnewargs(&self, vm: &VirtualMachine) -> PyObjectRef {
+    #[pymethod]
+    fn __getnewargs__(&self, vm: &VirtualMachine) -> PyObjectRef {
         (self.value,).to_pyobject(vm)
     }
 }

@@ -197,8 +197,12 @@ mod _contextvars {
             }
         }
 
-        #[pymethod(magic)]
-        fn getitem(&self, var: PyRef<ContextVar>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        #[pymethod]
+        fn __getitem__(
+            &self,
+            var: PyRef<ContextVar>,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyObjectRef> {
             let vars = self.borrow_vars();
             let item = vars
                 .get(&*var)
@@ -206,13 +210,13 @@ mod _contextvars {
             Ok(item.to_owned())
         }
 
-        #[pymethod(magic)]
-        fn len(&self) -> usize {
+        #[pymethod]
+        fn __len__(&self) -> usize {
             self.borrow_vars().len()
         }
 
-        #[pymethod(magic)]
-        fn iter(&self) -> PyResult {
+        #[pymethod]
+        fn __iter__(&self) -> PyResult {
             unimplemented!("Context.__iter__ is currently under construction")
         }
 
@@ -256,7 +260,9 @@ mod _contextvars {
     impl AsMapping for PyContext {
         fn as_mapping() -> &'static PyMappingMethods {
             static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-                length: atomic_func!(|mapping, _vm| Ok(PyContext::mapping_downcast(mapping).len())),
+                length: atomic_func!(|mapping, _vm| Ok(
+                    PyContext::mapping_downcast(mapping).__len__()
+                )),
                 subscript: atomic_func!(|mapping, needle, vm| {
                     let needle = needle.try_to_value(vm)?;
                     let found = PyContext::mapping_downcast(mapping).get_inner(needle);
@@ -470,8 +476,12 @@ mod _contextvars {
             Ok(())
         }
 
-        #[pyclassmethod(magic)]
-        fn class_getitem(_cls: PyTypeRef, _key: PyStrRef, _vm: &VirtualMachine) -> PyResult<()> {
+        #[pyclassmethod]
+        fn __class_getitem__(
+            _cls: PyTypeRef,
+            _key: PyStrRef,
+            _vm: &VirtualMachine,
+        ) -> PyResult<()> {
             unimplemented!("ContextVar.__class_getitem__() is currently under construction")
         }
     }

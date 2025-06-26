@@ -142,8 +142,8 @@ impl PyList {
         Ok(Self::new_ref(elements, &vm.ctx))
     }
 
-    #[pymethod(magic)]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    #[pymethod]
+    fn __add__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         self.concat(&other, vm)
     }
 
@@ -157,8 +157,12 @@ impl PyList {
         Ok(zelf.to_owned().into())
     }
 
-    #[pymethod(magic)]
-    fn iadd(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    #[pymethod]
+    fn __iadd__(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
         let mut seq = extract_cloned(&other, Ok, vm)?;
         zelf.borrow_vec_mut().append(&mut seq);
         Ok(zelf)
@@ -175,13 +179,13 @@ impl PyList {
     }
 
     #[allow(clippy::len_without_is_empty)]
-    #[pymethod(magic)]
-    pub fn len(&self) -> usize {
+    #[pymethod]
+    pub fn __len__(&self) -> usize {
         self.borrow_vec().len()
     }
 
-    #[pymethod(magic)]
-    fn sizeof(&self) -> usize {
+    #[pymethod]
+    fn __sizeof__(&self) -> usize {
         std::mem::size_of::<Self>()
             + self.elements.read().capacity() * std::mem::size_of::<PyObjectRef>()
     }
@@ -191,9 +195,9 @@ impl PyList {
         self.borrow_vec_mut().reverse();
     }
 
-    #[pymethod(magic)]
-    fn reversed(zelf: PyRef<Self>) -> PyListReverseIterator {
-        let position = zelf.len().saturating_sub(1);
+    #[pymethod]
+    fn __reversed__(zelf: PyRef<Self>) -> PyListReverseIterator {
+        let position = zelf.__len__().saturating_sub(1);
         PyListReverseIterator {
             internal: PyMutex::new(PositionIterInternal::new(zelf, position)),
         }
@@ -209,8 +213,8 @@ impl PyList {
         }
     }
 
-    #[pymethod(magic)]
-    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self._getitem(&needle, vm)
     }
 
@@ -224,8 +228,8 @@ impl PyList {
         }
     }
 
-    #[pymethod(magic)]
-    fn setitem(
+    #[pymethod]
+    fn __setitem__(
         &self,
         needle: PyObjectRef,
         value: PyObjectRef,
@@ -234,14 +238,14 @@ impl PyList {
         self._setitem(&needle, value, vm)
     }
 
-    #[pymethod(magic)]
+    #[pymethod]
     #[pymethod(name = "__rmul__")]
-    fn mul(&self, n: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn __mul__(&self, n: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         self.repeat(n.into(), vm)
     }
 
-    #[pymethod(magic)]
-    fn imul(zelf: PyRef<Self>, n: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    #[pymethod]
+    fn __imul__(zelf: PyRef<Self>, n: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         Self::irepeat(zelf, n.into(), vm)
     }
 
@@ -250,8 +254,8 @@ impl PyList {
         self.mut_count(vm, &needle)
     }
 
-    #[pymethod(magic)]
-    pub(crate) fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    #[pymethod]
+    pub(crate) fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.mut_contains(vm, &needle)
     }
 
@@ -262,7 +266,7 @@ impl PyList {
         range: OptionalRangeArgs,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let (start, stop) = range.saturate(self.len(), vm)?;
+        let (start, stop) = range.saturate(self.__len__(), vm)?;
         let index = self.mut_index_range(vm, &needle, start..stop)?;
         if let Some(index) = index.into() {
             Ok(index)
@@ -308,8 +312,8 @@ impl PyList {
         }
     }
 
-    #[pymethod(magic)]
-    fn delitem(&self, subscript: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod]
+    fn __delitem__(&self, subscript: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self._delitem(&subscript, vm)
     }
 
@@ -330,8 +334,8 @@ impl PyList {
         Ok(())
     }
 
-    #[pyclassmethod(magic)]
-    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
     }
 }
@@ -397,7 +401,7 @@ impl Initializer for PyList {
 impl AsMapping for PyList {
     fn as_mapping() -> &'static PyMappingMethods {
         static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-            length: atomic_func!(|mapping, _vm| Ok(PyList::mapping_downcast(mapping).len())),
+            length: atomic_func!(|mapping, _vm| Ok(PyList::mapping_downcast(mapping).__len__())),
             subscript: atomic_func!(
                 |mapping, needle, vm| PyList::mapping_downcast(mapping)._getitem(needle, vm)
             ),
@@ -417,7 +421,7 @@ impl AsMapping for PyList {
 impl AsSequence for PyList {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PyList::sequence_downcast(seq).len())),
+            length: atomic_func!(|seq, _vm| Ok(PyList::sequence_downcast(seq).__len__())),
             concat: atomic_func!(|seq, other, vm| {
                 PyList::sequence_downcast(seq)
                     .concat(other, vm)
@@ -489,7 +493,7 @@ impl Comparable for PyList {
 impl Representable for PyList {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let s = if zelf.len() == 0 {
+        let s = if zelf.__len__() == 0 {
             "[]".to_owned()
         } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             collection_repr(None, "[", "]", zelf.borrow_vec().iter(), vm)?
@@ -541,20 +545,20 @@ impl PyPayload for PyListIterator {
 
 #[pyclass(with(Unconstructible, IterNext, Iterable))]
 impl PyListIterator {
-    #[pymethod(magic)]
-    fn length_hint(&self) -> usize {
-        self.internal.lock().length_hint(|obj| obj.len())
+    #[pymethod]
+    fn __length_hint__(&self) -> usize {
+        self.internal.lock().length_hint(|obj| obj.__len__())
     }
 
-    #[pymethod(magic)]
-    fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod]
+    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
             .lock()
-            .set_state(state, |obj, pos| pos.min(obj.len()), vm)
+            .set_state(state, |obj, pos| pos.min(obj.__len__()), vm)
     }
 
-    #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
         self.internal
             .lock()
             .builtins_iter_reduce(|x| x.clone().into(), vm)
@@ -586,20 +590,20 @@ impl PyPayload for PyListReverseIterator {
 
 #[pyclass(with(Unconstructible, IterNext, Iterable))]
 impl PyListReverseIterator {
-    #[pymethod(magic)]
-    fn length_hint(&self) -> usize {
-        self.internal.lock().rev_length_hint(|obj| obj.len())
+    #[pymethod]
+    fn __length_hint__(&self) -> usize {
+        self.internal.lock().rev_length_hint(|obj| obj.__len__())
     }
 
-    #[pymethod(magic)]
-    fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod]
+    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
             .lock()
-            .set_state(state, |obj, pos| pos.min(obj.len()), vm)
+            .set_state(state, |obj, pos| pos.min(obj.__len__()), vm)
     }
 
-    #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
         self.internal
             .lock()
             .builtins_reversed_reduce(|x| x.clone().into(), vm)

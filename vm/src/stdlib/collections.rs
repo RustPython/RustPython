@@ -93,7 +93,7 @@ mod _collections {
             self.borrow_deque_mut().clear()
         }
 
-        #[pymethod(magic)]
+        #[pymethod(name = "__copy__")]
         #[pymethod]
         fn copy(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             Self {
@@ -170,7 +170,7 @@ mod _collections {
         ) -> PyResult<usize> {
             let start_state = self.state.load();
 
-            let (start, stop) = range.saturate(self.len(), vm)?;
+            let (start, stop) = range.saturate(self.__len__(), vm)?;
             let index = self.mut_index_range(vm, &needle, start..stop)?;
             if start_state != self.state.load() {
                 Err(vm.new_runtime_error("deque mutated during iteration"))
@@ -250,8 +250,8 @@ mod _collections {
             *self.borrow_deque_mut() = rev;
         }
 
-        #[pymethod(magic)]
-        fn reversed(zelf: PyRef<Self>) -> PyResult<PyReverseDequeIterator> {
+        #[pymethod]
+        fn __reversed__(zelf: PyRef<Self>) -> PyResult<PyReverseDequeIterator> {
             Ok(PyReverseDequeIterator {
                 state: zelf.state.load(),
                 internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
@@ -277,16 +277,16 @@ mod _collections {
             self.maxlen
         }
 
-        #[pymethod(magic)]
-        fn getitem(&self, idx: isize, vm: &VirtualMachine) -> PyResult {
+        #[pymethod]
+        fn __getitem__(&self, idx: isize, vm: &VirtualMachine) -> PyResult {
             let deque = self.borrow_deque();
             idx.wrapped_at(deque.len())
                 .and_then(|i| deque.get(i).cloned())
                 .ok_or_else(|| vm.new_index_error("deque index out of range"))
         }
 
-        #[pymethod(magic)]
-        fn setitem(&self, idx: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        #[pymethod]
+        fn __setitem__(&self, idx: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let mut deque = self.borrow_deque_mut();
             idx.wrapped_at(deque.len())
                 .and_then(|i| deque.get_mut(i))
@@ -294,16 +294,16 @@ mod _collections {
                 .ok_or_else(|| vm.new_index_error("deque index out of range"))
         }
 
-        #[pymethod(magic)]
-        fn delitem(&self, idx: isize, vm: &VirtualMachine) -> PyResult<()> {
+        #[pymethod]
+        fn __delitem__(&self, idx: isize, vm: &VirtualMachine) -> PyResult<()> {
             let mut deque = self.borrow_deque_mut();
             idx.wrapped_at(deque.len())
                 .and_then(|i| deque.remove(i).map(drop))
                 .ok_or_else(|| vm.new_index_error("deque index out of range"))
         }
 
-        #[pymethod(magic)]
-        fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        #[pymethod]
+        fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
             self._contains(&needle, vm)
         }
 
@@ -331,9 +331,9 @@ mod _collections {
             Ok(deque)
         }
 
-        #[pymethod(magic)]
+        #[pymethod]
         #[pymethod(name = "__rmul__")]
-        fn mul(&self, n: isize, vm: &VirtualMachine) -> PyResult<Self> {
+        fn __mul__(&self, n: isize, vm: &VirtualMachine) -> PyResult<Self> {
             let deque = self._mul(n, vm)?;
             Ok(PyDeque {
                 deque: PyRwLock::new(deque),
@@ -342,25 +342,25 @@ mod _collections {
             })
         }
 
-        #[pymethod(magic)]
-        fn imul(zelf: PyRef<Self>, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        #[pymethod]
+        fn __imul__(zelf: PyRef<Self>, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             let mul_deque = zelf._mul(n, vm)?;
             *zelf.borrow_deque_mut() = mul_deque;
             Ok(zelf)
         }
 
-        #[pymethod(magic)]
-        fn len(&self) -> usize {
+        #[pymethod]
+        fn __len__(&self) -> usize {
             self.borrow_deque().len()
         }
 
-        #[pymethod(magic)]
-        fn bool(&self) -> bool {
+        #[pymethod]
+        fn __bool__(&self) -> bool {
             !self.borrow_deque().is_empty()
         }
 
-        #[pymethod(magic)]
-        fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        #[pymethod]
+        fn __add__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
             self.concat(&other, vm)
         }
 
@@ -389,8 +389,8 @@ mod _collections {
             }
         }
 
-        #[pymethod(magic)]
-        fn iadd(
+        #[pymethod]
+        fn __iadd__(
             zelf: PyRef<Self>,
             other: PyObjectRef,
             vm: &VirtualMachine,
@@ -399,8 +399,8 @@ mod _collections {
             Ok(zelf)
         }
 
-        #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        #[pymethod]
+        fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let cls = zelf.class().to_owned();
             let value = match zelf.maxlen {
                 Some(v) => vm.new_pyobj((vm.ctx.empty_tuple.clone(), v)),
@@ -409,8 +409,12 @@ mod _collections {
             Ok(vm.new_pyobj((cls, value, vm.ctx.none(), PyDequeIterator::new(zelf))))
         }
 
-        #[pyclassmethod(magic)]
-        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        #[pyclassmethod]
+        fn __class_getitem__(
+            cls: PyTypeRef,
+            args: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyGenericAlias {
             PyGenericAlias::new(cls, args, vm)
         }
     }
@@ -495,7 +499,7 @@ mod _collections {
     impl AsSequence for PyDeque {
         fn as_sequence() -> &'static PySequenceMethods {
             static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-                length: atomic_func!(|seq, _vm| Ok(PyDeque::sequence_downcast(seq).len())),
+                length: atomic_func!(|seq, _vm| Ok(PyDeque::sequence_downcast(seq).__len__())),
                 concat: atomic_func!(|seq, other, vm| {
                     PyDeque::sequence_downcast(seq)
                         .concat(other, vm)
@@ -503,16 +507,16 @@ mod _collections {
                 }),
                 repeat: atomic_func!(|seq, n, vm| {
                     PyDeque::sequence_downcast(seq)
-                        .mul(n, vm)
+                        .__mul__(n, vm)
                         .map(|x| x.into_ref(&vm.ctx).into())
                 }),
-                item: atomic_func!(|seq, i, vm| PyDeque::sequence_downcast(seq).getitem(i, vm)),
+                item: atomic_func!(|seq, i, vm| PyDeque::sequence_downcast(seq).__getitem__(i, vm)),
                 ass_item: atomic_func!(|seq, i, value, vm| {
                     let zelf = PyDeque::sequence_downcast(seq);
                     if let Some(value) = value {
-                        zelf.setitem(i, value, vm)
+                        zelf.__setitem__(i, value, vm)
                     } else {
-                        zelf.delitem(i, vm)
+                        zelf.__delitem__(i, vm)
                     }
                 }),
                 contains: atomic_func!(
@@ -525,7 +529,7 @@ mod _collections {
                 }),
                 inplace_repeat: atomic_func!(|seq, n, vm| {
                     let zelf = PyDeque::sequence_downcast(seq);
-                    PyDeque::imul(zelf.to_owned(), n, vm).map(|x| x.into())
+                    PyDeque::__imul__(zelf.to_owned(), n, vm).map(|x| x.into())
                 }),
             };
 
@@ -569,7 +573,7 @@ mod _collections {
                 .map(|maxlen| format!("], maxlen={maxlen}"))
                 .unwrap_or_else(|| "]".to_owned());
 
-            let s = if zelf.len() == 0 {
+            let s = if zelf.__len__() == 0 {
                 format!("{class_name}([{closing_part})")
             } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                 collection_repr(Some(&class_name), "[", &closing_part, deque.iter(), vm)?
@@ -624,13 +628,13 @@ mod _collections {
             }
         }
 
-        #[pymethod(magic)]
-        fn length_hint(&self) -> usize {
-            self.internal.lock().length_hint(|obj| obj.len())
+        #[pymethod]
+        fn __length_hint__(&self) -> usize {
+            self.internal.lock().length_hint(|obj| obj.__len__())
         }
 
-        #[pymethod(magic)]
-        fn reduce(
+        #[pymethod]
+        fn __reduce__(
             zelf: PyRef<Self>,
             vm: &VirtualMachine,
         ) -> (PyTypeRef, (PyDequeRef, PyObjectRef)) {
@@ -679,7 +683,7 @@ mod _collections {
             (DequeIterArgs { deque, index }, _kwargs): Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let iter = PyDeque::reversed(deque)?;
+            let iter = PyDeque::__reversed__(deque)?;
             if let OptionalArg::Present(index) = index {
                 let index = max(index, 0) as usize;
                 iter.internal.lock().position = index;
@@ -690,13 +694,13 @@ mod _collections {
 
     #[pyclass(with(IterNext, Iterable, Constructor))]
     impl PyReverseDequeIterator {
-        #[pymethod(magic)]
-        fn length_hint(&self) -> usize {
-            self.internal.lock().length_hint(|obj| obj.len())
+        #[pymethod]
+        fn __length_hint__(&self) -> usize {
+            self.internal.lock().length_hint(|obj| obj.__len__())
         }
 
-        #[pymethod(magic)]
-        fn reduce(
+        #[pymethod]
+        fn __reduce__(
             zelf: PyRef<Self>,
             vm: &VirtualMachine,
         ) -> PyResult<(PyTypeRef, (PyDequeRef, PyObjectRef))> {

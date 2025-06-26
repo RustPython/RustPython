@@ -425,14 +425,14 @@ mod _io {
             ctx.new_bool(false)
         }
 
-        #[pymethod(magic)]
-        fn enter(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        #[pymethod]
+        fn __enter__(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             check_closed(&instance, vm)?;
             Ok(instance)
         }
 
-        #[pymethod(magic)]
-        fn exit(instance: PyObjectRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        #[pymethod]
+        fn __exit__(instance: PyObjectRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             vm.call_method(&instance, "close", ())?;
             Ok(())
         }
@@ -1410,7 +1410,7 @@ mod _io {
         fn __init__(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             let (raw, BufferSize { buffer_size }): (PyObjectRef, _) =
                 args.bind(vm).map_err(|e| {
-                    let msg = format!("{}() {}", Self::CLASS_NAME, *e.str(vm));
+                    let msg = format!("{}() {}", Self::CLASS_NAME, *e.__str__(vm));
                     vm.new_exception_msg(e.class().to_owned(), msg)
                 })?;
             self.init(raw, BufferSize { buffer_size }, vm)
@@ -1559,8 +1559,8 @@ mod _io {
             Ok(vm.ctx.new_str(repr))
         }
 
-        #[pymethod(magic)]
-        fn repr(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        #[pymethod]
+        fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
             Self::slot_repr(&zelf, vm)
         }
 
@@ -1601,8 +1601,8 @@ mod _io {
         }
 
         // TODO: this should be the default for an equivalent of _PyObject_GetState
-        #[pymethod(magic)]
-        fn reduce(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        #[pymethod]
+        fn __reduce__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name())))
         }
     }
@@ -1680,7 +1680,7 @@ mod _io {
     fn exception_chain<T>(e1: PyResult<()>, e2: PyResult<T>) -> PyResult<T> {
         match (e1, e2) {
             (Err(e1), Err(e)) => {
-                e.set_context(Some(e1));
+                e.set___context__(Some(e1));
                 Err(e)
             }
             (Err(e), Ok(_)) | (Ok(()), Err(e)) => Err(e),
@@ -2994,8 +2994,8 @@ mod _io {
             Ok(self.lock(vm)?.buffer.clone())
         }
 
-        #[pymethod(magic)]
-        fn reduce(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        #[pymethod]
+        fn __reduce__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name())))
         }
     }
@@ -4503,8 +4503,8 @@ mod fileio {
             Ok(os::isatty(fd))
         }
 
-        #[pymethod(magic)]
-        fn reduce(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        #[pymethod]
+        fn __reduce__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name())))
         }
     }

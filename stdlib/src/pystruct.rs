@@ -191,8 +191,8 @@ pub(crate) mod _struct {
 
     #[pyclass(with(Unconstructible, IterNext, Iterable))]
     impl UnpackIterator {
-        #[pymethod(magic)]
-        fn length_hint(&self) -> usize {
+        #[pymethod]
+        fn __length_hint__(&self) -> usize {
             self.buffer.len().saturating_sub(self.offset.load()) / self.format_spec.size
         }
     }

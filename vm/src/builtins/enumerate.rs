@@ -54,16 +54,16 @@ impl Constructor for PyEnumerate {
 
 #[pyclass(with(Py, IterNext, Iterable, Constructor), flags(BASETYPE))]
 impl PyEnumerate {
-    #[pyclassmethod(magic)]
-    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
     }
 }
 
 #[pyclass]
 impl Py<PyEnumerate> {
-    #[pymethod(magic)]
-    fn reduce(&self) -> (PyTypeRef, (PyIter, BigInt)) {
+    #[pymethod]
+    fn __reduce__(&self) -> (PyTypeRef, (PyIter, BigInt)) {
         (
             self.class().to_owned(),
             (self.iterator.clone(), self.counter.read().clone()),
@@ -106,8 +106,8 @@ impl PyReverseSequenceIterator {
         }
     }
 
-    #[pymethod(magic)]
-    fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
+    #[pymethod]
+    fn __length_hint__(&self, vm: &VirtualMachine) -> PyResult<usize> {
         let internal = self.internal.lock();
         if let IterStatus::Active(obj) = &internal.status {
             if internal.position <= obj.length(vm)? {
@@ -117,13 +117,13 @@ impl PyReverseSequenceIterator {
         Ok(0)
     }
 
-    #[pymethod(magic)]
-    fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod]
+    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal.lock().set_state(state, |_, pos| pos, vm)
     }
 
-    #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
         self.internal
             .lock()
             .builtins_reversed_reduce(|x| x.clone(), vm)

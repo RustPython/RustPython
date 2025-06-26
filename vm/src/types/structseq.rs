@@ -47,8 +47,8 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         Ok(seq)
     }
 
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyResult<String> {
+    #[pymethod]
+    fn __repr__(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyResult<String> {
         let format_field = |(value, name): (&PyObjectRef, _)| {
             let s = value.repr(vm)?;
             Ok(format!("{name}={s}"))
@@ -74,8 +74,8 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         Ok(format!("{}({}{})", Self::TP_NAME, body, suffix))
     }
 
-    #[pymethod(magic)]
-    fn reduce(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
+    #[pymethod]
+    fn __reduce__(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
         vm.new_tuple((zelf.class().to_owned(), (vm.ctx.new_tuple(zelf.to_vec()),)))
     }
 

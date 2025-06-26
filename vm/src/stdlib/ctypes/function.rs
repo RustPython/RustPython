@@ -199,13 +199,13 @@ impl Callable for PyCFuncPtr {
 
 #[pyclass(flags(BASETYPE), with(Callable, Constructor))]
 impl PyCFuncPtr {
-    #[pygetset(magic)]
-    fn name(&self) -> String {
+    #[pygetset]
+    fn __name__(&self) -> String {
         self.name.read().clone()
     }
 
-    #[pygetset(setter, magic)]
-    fn set_name(&self, name: String) {
+    #[pygetset(setter)]
+    fn set___name__(&self, name: String) {
         *self.name.write() = name;
     }
 

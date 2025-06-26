@@ -85,46 +85,46 @@ impl Initializer for PyStaticMethod {
     flags(BASETYPE, HAS_DICT)
 )]
 impl PyStaticMethod {
-    #[pygetset(magic)]
-    fn func(&self) -> PyObjectRef {
+    #[pygetset]
+    fn __func__(&self) -> PyObjectRef {
         self.callable.lock().clone()
     }
 
-    #[pygetset(magic)]
-    fn wrapped(&self) -> PyObjectRef {
+    #[pygetset]
+    fn __wrapped__(&self) -> PyObjectRef {
         self.callable.lock().clone()
     }
 
-    #[pygetset(magic)]
-    fn module(&self, vm: &VirtualMachine) -> PyResult {
+    #[pygetset]
+    fn __module__(&self, vm: &VirtualMachine) -> PyResult {
         self.callable.lock().get_attr("__module__", vm)
     }
 
-    #[pygetset(magic)]
-    fn qualname(&self, vm: &VirtualMachine) -> PyResult {
+    #[pygetset]
+    fn __qualname__(&self, vm: &VirtualMachine) -> PyResult {
         self.callable.lock().get_attr("__qualname__", vm)
     }
 
-    #[pygetset(magic)]
-    fn name(&self, vm: &VirtualMachine) -> PyResult {
+    #[pygetset]
+    fn __name__(&self, vm: &VirtualMachine) -> PyResult {
         self.callable.lock().get_attr("__name__", vm)
     }
 
-    #[pygetset(magic)]
-    fn annotations(&self, vm: &VirtualMachine) -> PyResult {
+    #[pygetset]
+    fn __annotations__(&self, vm: &VirtualMachine) -> PyResult {
         self.callable.lock().get_attr("__annotations__", vm)
     }
 
-    #[pygetset(magic)]
-    fn isabstractmethod(&self, vm: &VirtualMachine) -> PyObjectRef {
+    #[pygetset]
+    fn __isabstractmethod__(&self, vm: &VirtualMachine) -> PyObjectRef {
         match vm.get_attribute_opt(self.callable.lock().clone(), "__isabstractmethod__") {
             Ok(Some(is_abstract)) => is_abstract,
             _ => vm.ctx.new_bool(false).into(),
         }
     }
 
-    #[pygetset(magic, setter)]
-    fn set_isabstractmethod(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pygetset(setter)]
+    fn set___isabstractmethod__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.callable
             .lock()
             .set_attr("__isabstractmethod__", value, vm)?;
@@ -148,10 +148,13 @@ impl Representable for PyStaticMethod {
 
         match (
             class
-                .qualname(vm)
+                .__qualname__(vm)
                 .downcast_ref::<PyStr>()
                 .map(|n| n.as_str()),
-            class.module(vm).downcast_ref::<PyStr>().map(|m| m.as_str()),
+            class
+                .__module__(vm)
+                .downcast_ref::<PyStr>()
+                .map(|m| m.as_str()),
         ) {
             (None, _) => Err(vm.new_type_error("Unknown qualified name")),
             (Some(qualname), Some(module)) if module != "builtins" => {

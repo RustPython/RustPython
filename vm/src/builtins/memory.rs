@@ -641,18 +641,18 @@ impl PyMemoryView {
             .map(|_| self.desc.ndim() <= 1 && self.desc.is_contiguous())
     }
 
-    #[pymethod(magic)]
-    fn enter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    #[pymethod]
+    fn __enter__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.try_not_released(vm).map(|_| zelf)
     }
 
-    #[pymethod(magic)]
-    fn exit(&self, _args: FuncArgs) {
+    #[pymethod]
+    fn __exit__(&self, _args: FuncArgs) {
         self.release();
     }
 
-    #[pymethod(magic)]
-    fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __getitem__(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         zelf.try_not_released(vm)?;
         if zelf.desc.ndim() == 0 {
             // 0-d memoryview can be referenced using mv[...] or mv[()] only
@@ -674,16 +674,16 @@ impl PyMemoryView {
         }
     }
 
-    #[pymethod(magic)]
-    fn delitem(&self, _needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod]
+    fn __delitem__(&self, _needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if self.desc.readonly {
             return Err(vm.new_type_error("cannot modify read-only memory"));
         }
         Err(vm.new_type_error("cannot delete memory"))
     }
 
-    #[pymethod(magic)]
-    fn len(&self, vm: &VirtualMachine) -> PyResult<usize> {
+    #[pymethod]
+    fn __len__(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.try_not_released(vm)?;
         Ok(if self.desc.ndim() == 0 {
             1
@@ -839,8 +839,8 @@ impl PyMemoryView {
 
 #[pyclass]
 impl Py<PyMemoryView> {
-    #[pymethod(magic)]
-    fn setitem(
+    #[pymethod]
+    fn __setitem__(
         &self,
         needle: PyObjectRef,
         value: PyObjectRef,
@@ -872,13 +872,13 @@ impl Py<PyMemoryView> {
         }
     }
 
-    #[pymethod(magic)]
-    fn reduce_ex(&self, _proto: usize, vm: &VirtualMachine) -> PyResult {
-        self.reduce(vm)
+    #[pymethod]
+    fn __reduce_ex__(&self, _proto: usize, vm: &VirtualMachine) -> PyResult {
+        self.__reduce__(vm)
     }
 
-    #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("cannot pickle 'memoryview' object"))
     }
 }
@@ -963,15 +963,15 @@ impl Drop for PyMemoryView {
 impl AsMapping for PyMemoryView {
     fn as_mapping() -> &'static PyMappingMethods {
         static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-            length: atomic_func!(|mapping, vm| PyMemoryView::mapping_downcast(mapping).len(vm)),
+            length: atomic_func!(|mapping, vm| PyMemoryView::mapping_downcast(mapping).__len__(vm)),
             subscript: atomic_func!(|mapping, needle, vm| {
                 let zelf = PyMemoryView::mapping_downcast(mapping);
-                PyMemoryView::getitem(zelf.to_owned(), needle.to_owned(), vm)
+                PyMemoryView::__getitem__(zelf.to_owned(), needle.to_owned(), vm)
             }),
             ass_subscript: atomic_func!(|mapping, needle, value, vm| {
                 let zelf = PyMemoryView::mapping_downcast(mapping);
                 if let Some(value) = value {
-                    zelf.setitem(needle.to_owned(), value, vm)
+                    zelf.__setitem__(needle.to_owned(), value, vm)
                 } else {
                     Err(vm.new_type_error("cannot delete memory".to_owned()))
                 }
@@ -987,7 +987,7 @@ impl AsSequence for PyMemoryView {
             length: atomic_func!(|seq, vm| {
                 let zelf = PyMemoryView::sequence_downcast(seq);
                 zelf.try_not_released(vm)?;
-                zelf.len(vm)
+                zelf.__len__(vm)
             }),
             item: atomic_func!(|seq, i, vm| {
                 let zelf = PyMemoryView::sequence_downcast(seq);
@@ -1124,8 +1124,8 @@ impl PyPayload for PyMemoryViewIterator {
 
 #[pyclass(with(Unconstructible, IterNext, Iterable))]
 impl PyMemoryViewIterator {
-    #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
         self.internal
             .lock()
             .builtins_iter_reduce(|x| x.clone().into(), vm)
@@ -1137,7 +1137,7 @@ impl SelfIter for PyMemoryViewIterator {}
 impl IterNext for PyMemoryViewIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|mv, pos| {
-            let len = mv.len(vm)?;
+            let len = mv.__len__(vm)?;
             Ok(if pos >= len {
                 PyIterReturn::StopIteration(None)
             } else {

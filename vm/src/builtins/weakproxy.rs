@@ -79,8 +79,8 @@ impl PyWeakProxy {
         self.weak.upgrade().ok_or_else(|| new_reference_error(vm))
     }
 
-    #[pymethod(magic)]
-    fn str(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    #[pymethod]
+    fn __str__(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         self.try_upgrade(vm)?.str(vm)
     }
 
@@ -88,23 +88,23 @@ impl PyWeakProxy {
         self.try_upgrade(vm)?.length(vm)
     }
 
-    #[pymethod(magic)]
-    fn bool(&self, vm: &VirtualMachine) -> PyResult<bool> {
+    #[pymethod]
+    fn __bool__(&self, vm: &VirtualMachine) -> PyResult<bool> {
         self.try_upgrade(vm)?.is_true(vm)
     }
 
-    #[pymethod(magic)]
-    fn bytes(&self, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __bytes__(&self, vm: &VirtualMachine) -> PyResult {
         self.try_upgrade(vm)?.bytes(vm)
     }
 
-    #[pymethod(magic)]
-    fn reversed(&self, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __reversed__(&self, vm: &VirtualMachine) -> PyResult {
         let obj = self.try_upgrade(vm)?;
         reversed(obj, vm)
     }
-    #[pymethod(magic)]
-    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    #[pymethod]
+    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.try_upgrade(vm)?.to_sequence().contains(&needle, vm)
     }
 
@@ -189,7 +189,7 @@ impl AsSequence for PyWeakProxy {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, vm| PyWeakProxy::sequence_downcast(seq).len(vm)),
             contains: atomic_func!(|seq, needle, vm| {
-                PyWeakProxy::sequence_downcast(seq).contains(needle.to_owned(), vm)
+                PyWeakProxy::sequence_downcast(seq).__contains__(needle.to_owned(), vm)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });

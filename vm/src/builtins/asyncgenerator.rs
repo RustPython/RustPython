@@ -39,13 +39,13 @@ impl PyAsyncGen {
         }
     }
 
-    #[pygetset(magic)]
-    fn name(&self) -> PyStrRef {
+    #[pygetset]
+    fn __name__(&self) -> PyStrRef {
         self.inner.name()
     }
 
-    #[pygetset(magic, setter)]
-    fn set_name(&self, name: PyStrRef) {
+    #[pygetset(setter)]
+    fn set___name__(&self, name: PyStrRef) {
         self.inner.set_name(name)
     }
 
@@ -66,21 +66,21 @@ impl PyAsyncGen {
         self.inner.frame().code.clone()
     }
 
-    #[pyclassmethod(magic)]
-    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
     }
 }
 
 #[pyclass]
 impl PyRef<PyAsyncGen> {
-    #[pymethod(magic)]
-    fn aiter(self, _vm: &VirtualMachine) -> PyRef<PyAsyncGen> {
+    #[pymethod]
+    fn __aiter__(self, _vm: &VirtualMachine) -> PyRef<PyAsyncGen> {
         self
     }
 
-    #[pymethod(magic)]
-    fn anext(self, vm: &VirtualMachine) -> PyAsyncGenASend {
+    #[pymethod]
+    fn __anext__(self, vm: &VirtualMachine) -> PyAsyncGenASend {
         Self::asend(self, vm.ctx.none(), vm)
     }
 

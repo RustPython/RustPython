@@ -752,6 +752,13 @@ where
         let raw = item_meta.raw()?;
         let sig_doc = text_signature(func.sig(), &py_name);
 
+        // Add #[allow(non_snake_case)] for setter methods like set___name__
+        let method_name = ident.to_string();
+        if method_name.starts_with("set_") && method_name.contains("__") {
+            let allow_attr: Attribute = parse_quote!(#[allow(non_snake_case)]);
+            args.attrs.push(allow_attr);
+        }
+
         let doc = args.attrs.doc().map(|doc| format_doc(&sig_doc, &doc));
         args.context.method_items.add_item(MethodNurseryItem {
             py_name,
@@ -780,6 +787,13 @@ where
         let item_meta = GetSetItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let (py_name, kind) = item_meta.getset_name()?;
+
+        // Add #[allow(non_snake_case)] for setter methods
+        if matches!(kind, GetSetItemKind::Set) {
+            let allow_attr: Attribute = parse_quote!(#[allow(non_snake_case)]);
+            args.attrs.push(allow_attr);
+        }
+
         args.context
             .getset_items
             .add_item(py_name, args.cfgs.to_vec(), kind, ident.clone())?;
@@ -933,6 +947,12 @@ where
             },
             _ => MemberKind::ObjectEx,
         };
+
+        // Add #[allow(non_snake_case)] for setter methods
+        if matches!(member_item_kind, MemberItemKind::Set) {
+            let allow_attr: Attribute = parse_quote!(#[allow(non_snake_case)]);
+            args.attrs.push(allow_attr);
+        }
 
         args.context.member_items.add_item(
             py_name,
@@ -1342,7 +1362,7 @@ impl ItemMeta for SlotItemMeta {
 impl SlotItemMeta {
     fn slot_name(&self) -> Result<Ident> {
         let inner = self.inner();
-        let slot_name = if let Some((_, meta)) = inner.meta_map.get("name") {
+        let method_name = if let Some((_, meta)) = inner.meta_map.get("name") {
             match meta {
                 Meta::Path(path) => path.get_ident().cloned(),
                 _ => None,
@@ -1356,12 +1376,25 @@ impl SlotItemMeta {
             };
             Some(name)
         };
-        slot_name.ok_or_else(|| {
+        let method_name = method_name.ok_or_else(|| {
             err_span!(
                 inner.meta_ident,
                 "#[pyslot] must be of the form #[pyslot] or #[pyslot(slot_name)]",
             )
-        })
+        })?;
+
+        // Strip double underscores from slot names like __init__ -> init
+        let method_name_str = method_name.to_string();
+        let slot_name = if method_name_str.starts_with("__")
+            && method_name_str.ends_with("__")
+            && method_name_str.len() > 4
+        {
+            &method_name_str[2..method_name_str.len() - 2]
+        } else {
+            &method_name_str
+        };
+
+        Ok(proc_macro2::Ident::new(slot_name, slot_name.span()))
     }
 }
 

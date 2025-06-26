@@ -321,82 +321,82 @@ impl PyInt {
 )]
 impl PyInt {
     #[pymethod(name = "__radd__")]
-    #[pymethod(magic)]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
+    #[pymethod]
+    fn __add__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a + b, vm)
     }
 
-    #[pymethod(magic)]
-    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
+    #[pymethod]
+    fn __sub__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a - b, vm)
     }
 
-    #[pymethod(magic)]
-    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
+    #[pymethod]
+    fn __rsub__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| b - a, vm)
     }
 
     #[pymethod(name = "__rmul__")]
-    #[pymethod(magic)]
-    fn mul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
+    #[pymethod]
+    fn __mul__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a * b, vm)
     }
 
-    #[pymethod(magic)]
-    fn truediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __truediv__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.general_op(other, |a, b| inner_truediv(a, b, vm), vm)
     }
 
-    #[pymethod(magic)]
-    fn rtruediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __rtruediv__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.general_op(other, |a, b| inner_truediv(b, a, vm), vm)
     }
 
-    #[pymethod(magic)]
-    fn floordiv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __floordiv__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.general_op(other, |a, b| inner_floordiv(a, b, vm), vm)
     }
 
-    #[pymethod(magic)]
-    fn rfloordiv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __rfloordiv__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.general_op(other, |a, b| inner_floordiv(b, a, vm), vm)
     }
 
-    #[pymethod(magic)]
-    fn lshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __lshift__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.general_op(other, |a, b| inner_lshift(a, b, vm), vm)
     }
 
-    #[pymethod(magic)]
-    fn rlshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __rlshift__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.general_op(other, |a, b| inner_lshift(b, a, vm), vm)
     }
 
-    #[pymethod(magic)]
-    fn rshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __rshift__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.general_op(other, |a, b| inner_rshift(a, b, vm), vm)
     }
 
-    #[pymethod(magic)]
-    fn rrshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __rrshift__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.general_op(other, |a, b| inner_rshift(b, a, vm), vm)
     }
 
     #[pymethod(name = "__rxor__")]
-    #[pymethod(magic)]
-    pub fn xor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
+    #[pymethod]
+    pub fn __xor__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a ^ b, vm)
     }
 
     #[pymethod(name = "__ror__")]
-    #[pymethod(magic)]
-    pub fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
+    #[pymethod]
+    pub fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a | b, vm)
     }
 
     #[pymethod(name = "__rand__")]
-    #[pymethod(magic)]
-    pub fn and(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
+    #[pymethod]
+    pub fn __and__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
         self.int_op(other, |a, b| a & b, vm)
     }
 
@@ -442,8 +442,8 @@ impl PyInt {
         )
     }
 
-    #[pymethod(magic)]
-    fn pow(
+    #[pymethod]
+    fn __pow__(
         &self,
         other: PyObjectRef,
         r#mod: OptionalOption<PyObjectRef>,
@@ -455,8 +455,8 @@ impl PyInt {
         }
     }
 
-    #[pymethod(magic)]
-    fn rpow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __rpow__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.general_op(other, |a, b| inner_pow(b, a, vm), vm)
     }
 
@@ -465,33 +465,33 @@ impl PyInt {
         self.general_op(other, |a, b| inner_mod(a, b, vm), vm)
     }
 
-    #[pymethod(magic)]
-    fn rmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __rmod__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.general_op(other, |a, b| inner_mod(b, a, vm), vm)
     }
 
-    #[pymethod(magic)]
-    fn divmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __divmod__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.general_op(other, |a, b| inner_divmod(a, b, vm), vm)
     }
 
-    #[pymethod(magic)]
-    fn rdivmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __rdivmod__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.general_op(other, |a, b| inner_divmod(b, a, vm), vm)
     }
 
-    #[pymethod(magic)]
-    fn neg(&self) -> BigInt {
+    #[pymethod]
+    fn __neg__(&self) -> BigInt {
         -(&self.value)
     }
 
-    #[pymethod(magic)]
-    fn abs(&self) -> BigInt {
+    #[pymethod]
+    fn __abs__(&self) -> BigInt {
         self.value.abs()
     }
 
-    #[pymethod(magic)]
-    fn round(
+    #[pymethod]
+    fn __round__(
         zelf: PyRef<Self>,
         ndigits: OptionalArg<PyIntRef>,
         vm: &VirtualMachine,
@@ -533,55 +533,55 @@ impl PyInt {
         Ok(zelf)
     }
 
-    #[pymethod(magic)]
-    fn pos(&self) -> BigInt {
+    #[pymethod]
+    fn __pos__(&self) -> BigInt {
         self.value.clone()
     }
 
-    #[pymethod(magic)]
-    fn float(&self, vm: &VirtualMachine) -> PyResult<f64> {
+    #[pymethod]
+    fn __float__(&self, vm: &VirtualMachine) -> PyResult<f64> {
         try_to_float(&self.value, vm)
     }
 
-    #[pymethod(magic)]
-    fn trunc(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
-        zelf.int(vm)
+    #[pymethod]
+    fn __trunc__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
+        zelf.__int__(vm)
     }
 
-    #[pymethod(magic)]
-    fn floor(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
-        zelf.int(vm)
+    #[pymethod]
+    fn __floor__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
+        zelf.__int__(vm)
     }
 
-    #[pymethod(magic)]
-    fn ceil(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
-        zelf.int(vm)
+    #[pymethod]
+    fn __ceil__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
+        zelf.__int__(vm)
     }
 
-    #[pymethod(magic)]
-    fn index(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
-        zelf.int(vm)
+    #[pymethod]
+    fn __index__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
+        zelf.__int__(vm)
     }
 
-    #[pymethod(magic)]
-    fn invert(&self) -> BigInt {
+    #[pymethod]
+    fn __invert__(&self) -> BigInt {
         !(&self.value)
     }
 
-    #[pymethod(magic)]
-    fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+    #[pymethod]
+    fn __format__(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         FormatSpec::parse(spec.as_str())
             .and_then(|format_spec| format_spec.format_int(&self.value))
             .map_err(|err| err.into_pyexception(vm))
     }
 
-    #[pymethod(magic)]
-    fn bool(&self) -> bool {
+    #[pymethod]
+    fn __bool__(&self) -> bool {
         !self.value.is_zero()
     }
 
-    #[pymethod(magic)]
-    fn sizeof(&self) -> usize {
+    #[pymethod]
+    fn __sizeof__(&self) -> usize {
         std::mem::size_of::<Self>() + (((self.value.bits() + 7) & !7) / 8) as usize
     }
 
@@ -597,7 +597,7 @@ impl PyInt {
 
     #[pymethod]
     fn conjugate(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
-        zelf.int(vm)
+        zelf.__int__(vm)
     }
 
     #[pyclassmethod]
@@ -666,7 +666,7 @@ impl PyInt {
 
     #[pygetset]
     fn real(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
-        zelf.int(vm)
+        zelf.__int__(vm)
     }
 
     #[pygetset]
@@ -676,7 +676,7 @@ impl PyInt {
 
     #[pygetset]
     fn numerator(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
-        zelf.int(vm)
+        zelf.__int__(vm)
     }
 
     #[pygetset]
@@ -691,16 +691,16 @@ impl PyInt {
         self.value.iter_u32_digits().map(|n| n.count_ones()).sum()
     }
 
-    #[pymethod(magic)]
-    fn getnewargs(&self, vm: &VirtualMachine) -> PyObjectRef {
+    #[pymethod]
+    fn __getnewargs__(&self, vm: &VirtualMachine) -> PyObjectRef {
         (self.value.clone(),).to_pyobject(vm)
     }
 }
 
 #[pyclass]
 impl PyRef<PyInt> {
-    #[pymethod(magic)]
-    fn int(self, vm: &VirtualMachine) -> PyRefExact<PyInt> {
+    #[pymethod]
+    fn __int__(self, vm: &VirtualMachine) -> PyRefExact<PyInt> {
         self.into_exact_or(&vm.ctx, |zelf| unsafe {
             // TODO: this is actually safe. we need better interface
             PyRefExact::new_unchecked(vm.ctx.new_bigint(&zelf.value))

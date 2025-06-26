@@ -130,18 +130,18 @@ impl PyGetSet {
         Self::descr_set(&zelf, obj, PySetterValue::Delete, vm)
     }
 
-    #[pygetset(magic)]
-    fn name(&self) -> String {
+    #[pygetset]
+    fn __name__(&self) -> String {
         self.name.clone()
     }
 
-    #[pygetset(magic)]
-    fn qualname(&self) -> String {
+    #[pygetset]
+    fn __qualname__(&self) -> String {
         format!("{}.{}", self.class.slot_name(), self.name.clone())
     }
 
-    #[pygetset(magic)]
-    fn objclass(&self) -> PyTypeRef {
+    #[pygetset]
+    fn __objclass__(&self) -> PyTypeRef {
         self.class.to_owned()
     }
 }

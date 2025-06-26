@@ -109,31 +109,31 @@ impl PyMethodDescriptor {
     flags(METHOD_DESCRIPTOR)
 )]
 impl PyMethodDescriptor {
-    #[pygetset(magic)]
-    fn name(&self) -> &'static PyStrInterned {
+    #[pygetset]
+    fn __name__(&self) -> &'static PyStrInterned {
         self.common.name
     }
-    #[pygetset(magic)]
-    fn qualname(&self) -> String {
+    #[pygetset]
+    fn __qualname__(&self) -> String {
         format!("{}.{}", self.common.typ.name(), &self.common.name)
     }
-    #[pygetset(magic)]
-    fn doc(&self) -> Option<&'static str> {
+    #[pygetset]
+    fn __doc__(&self) -> Option<&'static str> {
         self.method.doc
     }
-    #[pygetset(magic)]
-    fn text_signature(&self) -> Option<String> {
+    #[pygetset]
+    fn __text_signature__(&self) -> Option<String> {
         self.method.doc.and_then(|doc| {
             type_::get_text_signature_from_internal_doc(self.method.name, doc)
                 .map(|signature| signature.to_string())
         })
     }
-    #[pygetset(magic)]
-    fn objclass(&self) -> PyTypeRef {
+    #[pygetset]
+    fn __objclass__(&self) -> PyTypeRef {
         self.objclass.to_owned()
     }
-    #[pymethod(magic)]
-    fn reduce(
+    #[pymethod]
+    fn __reduce__(
         &self,
         vm: &VirtualMachine,
     ) -> (Option<PyObjectRef>, (Option<PyObjectRef>, &'static str)) {
@@ -243,13 +243,13 @@ fn calculate_qualname(descr: &PyDescriptorOwned, vm: &VirtualMachine) -> PyResul
 
 #[pyclass(with(GetDescriptor, Unconstructible, Representable), flags(BASETYPE))]
 impl PyMemberDescriptor {
-    #[pygetset(magic)]
-    fn doc(&self) -> Option<String> {
+    #[pygetset]
+    fn __doc__(&self) -> Option<String> {
         self.member.doc.to_owned()
     }
 
-    #[pygetset(magic)]
-    fn qualname(&self, vm: &VirtualMachine) -> PyResult<Option<String>> {
+    #[pygetset]
+    fn __qualname__(&self, vm: &VirtualMachine) -> PyResult<Option<String>> {
         let qualname = self.common.qualname.read();
         Ok(if qualname.is_none() {
             drop(qualname);

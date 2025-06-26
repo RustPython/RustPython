@@ -225,13 +225,13 @@ impl PyRange {
         self.step.clone()
     }
 
-    #[pymethod(magic)]
-    fn reversed(&self, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __reversed__(&self, vm: &VirtualMachine) -> PyResult {
         let start = self.start.as_bigint();
         let step = self.step.as_bigint();
 
         // Use CPython calculation for this:
-        let length = self.len();
+        let length = self.__len__();
         let new_stop = start - step;
         let start = &new_stop + length.clone() * step;
         let step = -step;
@@ -261,18 +261,18 @@ impl PyRange {
         )
     }
 
-    #[pymethod(magic)]
-    fn len(&self) -> BigInt {
+    #[pymethod]
+    fn __len__(&self) -> BigInt {
         self.compute_length()
     }
 
-    #[pymethod(magic)]
-    fn bool(&self) -> bool {
+    #[pymethod]
+    fn __bool__(&self) -> bool {
         !self.is_empty()
     }
 
-    #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
         let range_parameters: Vec<PyObjectRef> = [&self.start, &self.stop, &self.step]
             .iter()
             .map(|x| x.as_object().to_owned())
@@ -281,8 +281,8 @@ impl PyRange {
         (vm.ctx.types.range_type.to_owned(), range_parameters_tuple)
     }
 
-    #[pymethod(magic)]
-    fn getitem(&self, subscript: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __getitem__(&self, subscript: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match RangeIndex::try_from_object(vm, subscript)? {
             RangeIndex::Slice(slice) => {
                 let (mut sub_start, mut sub_stop, mut sub_step) =
@@ -337,8 +337,8 @@ impl Py<PyRange> {
         }
     }
 
-    #[pymethod(magic)]
-    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> bool {
+    #[pymethod]
+    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> bool {
         self.contains_inner(&needle, vm)
     }
 
@@ -377,7 +377,7 @@ impl Py<PyRange> {
 
 impl PyRange {
     fn protocol_length(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        PyInt::from(self.len())
+        PyInt::from(self.__len__())
             .try_to_primitive::<isize>(vm)
             .map(|x| x as usize)
     }
@@ -390,7 +390,7 @@ impl AsMapping for PyRange {
                 |mapping, vm| PyRange::mapping_downcast(mapping).protocol_length(vm)
             ),
             subscript: atomic_func!(|mapping, needle, vm| {
-                PyRange::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
+                PyRange::mapping_downcast(mapping).__getitem__(needle.to_owned(), vm)
             }),
             ..PyMappingMethods::NOT_IMPLEMENTED
         });
@@ -474,7 +474,7 @@ impl Iterable for PyRange {
             zelf.start.as_bigint(),
             zelf.stop.as_bigint(),
             zelf.step.as_bigint(),
-            zelf.len(),
+            zelf.__len__(),
         );
         if let (Some(start), Some(step), Some(_), Some(_)) = (
             start.to_isize(),
@@ -540,8 +540,8 @@ impl PyPayload for PyLongRangeIterator {
 
 #[pyclass(with(Unconstructible, IterNext, Iterable))]
 impl PyLongRangeIterator {
-    #[pymethod(magic)]
-    fn length_hint(&self) -> BigInt {
+    #[pymethod]
+    fn __length_hint__(&self) -> BigInt {
         let index = BigInt::from(self.index.load());
         if index < self.length {
             self.length.clone() - index
@@ -550,14 +550,14 @@ impl PyLongRangeIterator {
         }
     }
 
-    #[pymethod(magic)]
-    fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod]
+    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.index.store(range_state(&self.length, state, vm)?);
         Ok(())
     }
 
-    #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         range_iter_reduce(
             self.start.clone(),
             self.length.clone(),
@@ -605,21 +605,21 @@ impl PyPayload for PyRangeIterator {
 
 #[pyclass(with(Unconstructible, IterNext, Iterable))]
 impl PyRangeIterator {
-    #[pymethod(magic)]
-    fn length_hint(&self) -> usize {
+    #[pymethod]
+    fn __length_hint__(&self) -> usize {
         let index = self.index.load();
         self.length.saturating_sub(index)
     }
 
-    #[pymethod(magic)]
-    fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod]
+    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.index
             .store(range_state(&BigInt::from(self.length), state, vm)?);
         Ok(())
     }
 
-    #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         range_iter_reduce(
             BigInt::from(self.start),
             BigInt::from(self.length),

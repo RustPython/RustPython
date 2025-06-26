@@ -84,18 +84,22 @@ impl PyUnion {
     with(Hashable, Comparable, AsMapping, AsNumber, Representable)
 )]
 impl PyUnion {
-    #[pygetset(magic)]
-    fn parameters(&self) -> PyObjectRef {
+    #[pygetset]
+    fn __parameters__(&self) -> PyObjectRef {
         self.parameters.clone().into()
     }
 
-    #[pygetset(magic)]
-    fn args(&self) -> PyObjectRef {
+    #[pygetset]
+    fn __args__(&self) -> PyObjectRef {
         self.args.clone().into()
     }
 
-    #[pymethod(magic)]
-    fn instancecheck(zelf: PyRef<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    #[pymethod]
+    fn __instancecheck__(
+        zelf: PyRef<Self>,
+        obj: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
         if zelf
             .args
             .iter()
@@ -103,12 +107,16 @@ impl PyUnion {
         {
             Err(vm.new_type_error("isinstance() argument 2 cannot be a parameterized generic"))
         } else {
-            obj.is_instance(zelf.args().as_object(), vm)
+            obj.is_instance(zelf.__args__().as_object(), vm)
         }
     }
 
-    #[pymethod(magic)]
-    fn subclasscheck(zelf: PyRef<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    #[pymethod]
+    fn __subclasscheck__(
+        zelf: PyRef<Self>,
+        obj: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
         if zelf
             .args
             .iter()
@@ -116,13 +124,13 @@ impl PyUnion {
         {
             Err(vm.new_type_error("issubclass() argument 2 cannot be a parameterized generic"))
         } else {
-            obj.is_subclass(zelf.args().as_object(), vm)
+            obj.is_subclass(zelf.__args__().as_object(), vm)
         }
     }
 
     #[pymethod(name = "__ror__")]
-    #[pymethod(magic)]
-    fn or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    #[pymethod]
+    fn __or__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         type_::or_(zelf, other, vm)
     }
 }
@@ -228,7 +236,7 @@ impl AsMapping for PyUnion {
 impl AsNumber for PyUnion {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            or: Some(|a, b, vm| PyUnion::or(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
+            or: Some(|a, b, vm| PyUnion::__or__(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER

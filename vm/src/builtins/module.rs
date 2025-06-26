@@ -168,8 +168,8 @@ impl PyModule {
         PyModule::new().into_ref_with_type(vm, cls).map(Into::into)
     }
 
-    #[pymethod(magic)]
-    fn dir(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+    #[pymethod]
+    fn __dir__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         // First check if __dict__ attribute exists and is actually a dictionary
         let dict_attr = zelf.as_object().get_attr(identifier!(vm, __dict__), vm)?;
         let dict = dict_attr
