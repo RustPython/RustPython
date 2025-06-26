@@ -346,7 +346,7 @@ pub(crate) mod decl {
     impl ParamSpec {
         #[pymethod(magic)]
         fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("Cannot subclass an instance of ParamSpec".to_owned()))
+            Err(vm.new_type_error("Cannot subclass an instance of ParamSpec"))
         }
 
         #[pygetset(magic)]
@@ -483,16 +483,14 @@ pub(crate) mod decl {
                 if let Some(name) = kwargs.swap_remove("name") {
                     name
                 } else {
-                    return Err(vm.new_type_error(
-                        "ParamSpec() missing required argument: 'name' (pos 1)".to_owned(),
-                    ));
+                    return Err(
+                        vm.new_type_error("ParamSpec() missing required argument: 'name' (pos 1)")
+                    );
                 }
             } else if args.args.len() == 1 {
                 args.args[0].clone()
             } else {
-                return Err(
-                    vm.new_type_error("ParamSpec() takes at most 1 positional argument".to_owned())
-                );
+                return Err(vm.new_type_error("ParamSpec() takes at most 1 positional argument"));
             };
 
             let bound = kwargs.swap_remove("bound");
@@ -524,15 +522,11 @@ pub(crate) mod decl {
 
             // Check for invalid combinations
             if covariant && contravariant {
-                return Err(
-                    vm.new_value_error("Bivariant type variables are not supported.".to_owned())
-                );
+                return Err(vm.new_value_error("Bivariant type variables are not supported."));
             }
 
             if infer_variance && (covariant || contravariant) {
-                return Err(vm.new_value_error(
-                    "Variance cannot be specified with infer_variance".to_owned(),
-                ));
+                return Err(vm.new_value_error("Variance cannot be specified with infer_variance"));
             }
 
             // Handle default value
@@ -653,12 +647,12 @@ pub(crate) mod decl {
 
         #[pymethod(magic)]
         fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("Cannot subclass an instance of TypeVarTuple".to_owned()))
+            Err(vm.new_type_error("Cannot subclass an instance of TypeVarTuple"))
         }
 
         #[pymethod(magic)]
         fn typing_subst(&self, _arg: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("Substitution of bare TypeVarTuple is not supported".to_owned()))
+            Err(vm.new_type_error("Substitution of bare TypeVarTuple is not supported"))
         }
 
         #[pymethod(magic)]
@@ -685,15 +679,13 @@ pub(crate) mod decl {
                     name
                 } else {
                     return Err(vm.new_type_error(
-                        "TypeVarTuple() missing required argument: 'name' (pos 1)".to_owned(),
+                        "TypeVarTuple() missing required argument: 'name' (pos 1)",
                     ));
                 }
             } else if args.args.len() == 1 {
                 args.args[0].clone()
             } else {
-                return Err(vm.new_type_error(
-                    "TypeVarTuple() takes at most 1 positional argument".to_owned(),
-                ));
+                return Err(vm.new_type_error("TypeVarTuple() takes at most 1 positional argument"));
             };
 
             let default = kwargs.swap_remove("default");
@@ -755,7 +747,7 @@ pub(crate) mod decl {
     impl ParamSpecArgs {
         #[pymethod(magic)]
         fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("Cannot subclass an instance of ParamSpecArgs".to_owned()))
+            Err(vm.new_type_error("Cannot subclass an instance of ParamSpecArgs"))
         }
 
         #[pygetset(magic)]
@@ -834,7 +826,7 @@ pub(crate) mod decl {
     impl ParamSpecKwargs {
         #[pymethod(magic)]
         fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("Cannot subclass an instance of ParamSpecKwargs".to_owned()))
+            Err(vm.new_type_error("Cannot subclass an instance of ParamSpecKwargs"))
         }
 
         #[pygetset(magic)]
