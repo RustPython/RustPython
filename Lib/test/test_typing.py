@@ -373,7 +373,6 @@ class LiteralStringTests(BaseTestCase):
         self.assertEqual(get_args(alias_3), (LiteralString,))
 
 class TypeVarTests(BaseTestCase):
-    # TODO: RUSTPYTHON
     def test_basic_plain(self):
         T = TypeVar('T')
         # T equals itself.
@@ -403,7 +402,6 @@ class TypeVarTests(BaseTestCase):
         self.assertIs(T.__infer_variance__, False)
         self.assertIs(T.__module__, None)
 
-    # TODO: RUSTPYTHON
     def test_attributes(self):
         T_bound = TypeVar('T_bound', bound=int)
         self.assertEqual(T_bound.__name__, 'T_bound')
@@ -445,7 +443,6 @@ class TypeVarTests(BaseTestCase):
         with self.assertRaises(TypeError):
             issubclass(T, int)
 
-    # TODO: RUSTPYTHON
     def test_constrained_error(self):
         with self.assertRaises(TypeError):
             X = TypeVar('X', int)
@@ -478,7 +475,6 @@ class TypeVarTests(BaseTestCase):
         A = TypeVar('A', str, bytes)
         self.assertNotEqual(Union[A, str], Union[A])
 
-    # TODO: RUSTPYTHON
     def test_repr(self):
         self.assertEqual(repr(T), '~T')
         self.assertEqual(repr(KT), '~KT')
@@ -493,7 +489,6 @@ class TypeVarTests(BaseTestCase):
         self.assertNotEqual(TypeVar('T'), TypeVar('T'))
         self.assertNotEqual(TypeVar('T', int, str), TypeVar('T', int, str))
 
-    # TODO: RUSTPYTHON
     def test_cannot_subclass(self):
         with self.assertRaisesRegex(TypeError, NOT_A_BASE_TYPE % 'TypeVar'):
             class V(TypeVar): pass
@@ -573,7 +568,6 @@ class TypeVarTests(BaseTestCase):
                     vals[x] = cls(str(x))
                 del vals
 
-    # TODO: RUSTPYTHON
     def test_constructor(self):
         T = TypeVar(name="T")
         self.assertEqual(T.__name__, "T")
@@ -654,7 +648,6 @@ class TypeParameterDefaultsTests(BaseTestCase):
         self.assertIs(T.__default__, NoDefault)
         self.assertFalse(T.has_default())
 
-    # TODO: RUSTPYTHON
     def test_paramspec(self):
         P = ParamSpec('P', default=(str, int))
         self.assertEqual(P.__default__, (str, int))
@@ -682,7 +675,6 @@ class TypeParameterDefaultsTests(BaseTestCase):
         self.assertIs(P.__default__, NoDefault)
         self.assertFalse(P.has_default())
 
-    # TODO: RUSTPYTHON
     def test_typevartuple(self):
         Ts = TypeVarTuple('Ts', default=Unpack[Tuple[str, int]])
         self.assertEqual(Ts.__default__, Unpack[Tuple[str, int]])
@@ -1284,14 +1276,12 @@ class UnpackTests(BaseTestCase):
 
 class TypeVarTupleTests(BaseTestCase):
 
-    # TODO: RUSTPYTHON
     def test_name(self):
         Ts = TypeVarTuple('Ts')
         self.assertEqual(Ts.__name__, 'Ts')
         Ts2 = TypeVarTuple('Ts2')
         self.assertEqual(Ts2.__name__, 'Ts2')
 
-    # TODO: RUSTPYTHON
     def test_module(self):
         Ts = TypeVarTuple('Ts')
         self.assertEqual(Ts.__module__, __name__)
@@ -4270,7 +4260,6 @@ class GenericTests(BaseTestCase):
             self.assertEqual(t, copy(t))
             self.assertEqual(t, deepcopy(t))
 
-    # TODO: RUSTPYTHON
     def test_immutability_by_copy_and_pickle(self):
         # Special forms like Union, Any, etc., generic aliases to containers like List,
         # Mapping, etc., and type variabcles are considered immutable by copy and pickle.
@@ -8792,7 +8781,6 @@ class TypeAliasTests(BaseTestCase):
 
 class ParamSpecTests(BaseTestCase):
 
-    # TODO: RUSTPYTHON
     def test_basic_plain(self):
         P = ParamSpec('P')
         self.assertEqual(P, P)
@@ -9000,7 +8988,6 @@ class ParamSpecTests(BaseTestCase):
         B = A[[int, str], bytes, float]
         self.assertEqual(B.__args__, ((int, str,), Tuple[bytes, float]))
 
-    # TODO: RUSTPYTHON
     def test_var_substitution(self):
         P = ParamSpec("P")
         subst = P.__typing_subst__
@@ -9011,7 +8998,6 @@ class ParamSpecTests(BaseTestCase):
         self.assertIs(subst(P), P)
         self.assertEqual(subst(Concatenate[int, P]), Concatenate[int, P])
 
-    # TODO: RUSTPYTHON
     def test_bad_var_substitution(self):
         T = TypeVar('T')
         P = ParamSpec('P')
@@ -9229,7 +9215,6 @@ class ConcatenateTests(BaseTestCase):
             with self.subTest(required_item=required_item):
                 self.assertIn(required_item, dir_items)
 
-    # TODO: RUSTPYTHON
     def test_valid_uses(self):
         P = ParamSpec('P')
         T = TypeVar('T')
