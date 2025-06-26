@@ -643,6 +643,27 @@ pub(crate) mod decl {
         fn reduce(&self) -> PyObjectRef {
             self.name.clone()
         }
+
+        #[pymethod(magic)]
+        fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("Cannot subclass an instance of TypeVarTuple".to_owned()))
+        }
+
+        #[pymethod(magic)]
+        fn typing_subst(&self, _arg: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("Substitution of bare TypeVarTuple is not supported".to_owned()))
+        }
+
+        #[pymethod(magic)]
+        fn typing_prepare_subst(
+            zelf: crate::PyRef<Self>,
+            alias: PyObjectRef,
+            args: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let self_obj: PyObjectRef = zelf.into();
+            _call_typing_func_object(vm, "_typevartuple_prepare_subst", (self_obj, alias, args))
+        }
     }
 
     impl Constructor for TypeVarTuple {
