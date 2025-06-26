@@ -717,7 +717,7 @@ pub(crate) mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "ParamSpecArgs")]
+    #[pyclass(name = "ParamSpecArgs", module = "typing")]
     #[derive(Debug, PyPayload)]
     #[allow(dead_code)]
     pub(crate) struct ParamSpecArgs {
@@ -767,7 +767,7 @@ pub(crate) mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "ParamSpecKwargs")]
+    #[pyclass(name = "ParamSpecKwargs", module = "typing")]
     #[derive(Debug, PyPayload)]
     #[allow(dead_code)]
     pub(crate) struct ParamSpecKwargs {
