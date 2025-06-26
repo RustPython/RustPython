@@ -2446,7 +2446,6 @@ class BaseCallableTests:
         ct3 = Callable[[str, float], list[int]]
         self.assertEqual(repr(ct3), f'{fullname}[[str, float], list[int]]')
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_callable_with_ellipsis(self):
         Callable = self.Callable
         def foo(a: Callable[..., T]):
@@ -3889,8 +3888,6 @@ class GenericTests(BaseTestCase):
         self.assertEqual(repr(Callable[[], List[T]][int]).replace('typing.', ''),
                          'Callable[[], List[int]]')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generic_forward_ref(self):
         def foobar(x: List[List['CC']]): ...
         def foobar2(x: list[list[ForwardRef('CC')]]): ...
@@ -5195,8 +5192,6 @@ class ForwardRefTests(BaseTestCase):
         self.assertEqual(repr(List[ForwardRef('int', module='mod')]),
                          "typing.List[ForwardRef('int', module='mod')]")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_union_forward(self):
 
         def foo(a: Union['T']):
@@ -5211,8 +5206,6 @@ class ForwardRefTests(BaseTestCase):
         self.assertEqual(get_type_hints(foo, globals(), locals()),
                          {'a': tuple[T] | int})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_tuple_forward(self):
 
         def foo(a: Tuple['T']):
@@ -5550,8 +5543,6 @@ class ForwardRefTests(BaseTestCase):
 
 
 class InternalsTests(BaseTestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_deprecation_for_no_type_params_passed_to__evaluate(self):
         with self.assertWarnsRegex(
             DeprecationWarning,
@@ -5967,8 +5958,6 @@ class GetTypeHintTests(BaseTestCase):
         self.assertEqual(gth(ForRefExample.func), expects)
         self.assertEqual(gth(ForRefExample.nested), expects)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_type_hints_annotated(self):
         def foobar(x: List['X']): ...
         X = Annotated[int, (1, 10)]
@@ -6032,8 +6021,6 @@ class GetTypeHintTests(BaseTestCase):
             {"x": typing.Annotated[int | float, "const"]}
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_type_hints_annotated_in_union(self):  # bpo-46603
         def with_union(x: int | list[Annotated[str, 'meta']]): ...
 
@@ -6172,8 +6159,6 @@ class GetTypeHintTests(BaseTestCase):
             "year": NotRequired[Annotated[int, 2000]]
         })
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_type_hints_collections_abc_callable(self):
         # https://github.com/python/cpython/issues/91621
         P = ParamSpec('P')

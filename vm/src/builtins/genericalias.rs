@@ -38,6 +38,7 @@ pub struct PyGenericAlias {
     origin: PyTypeRef,
     args: PyTupleRef,
     parameters: PyTupleRef,
+    starred: bool, // for __unpacked__ attribute
 }
 
 impl fmt::Debug for PyGenericAlias {
@@ -92,6 +93,7 @@ impl PyGenericAlias {
             origin,
             args,
             parameters,
+            starred: false, // default to false, will be set to true for Unpack[...]
         }
     }
 
@@ -154,6 +156,11 @@ impl PyGenericAlias {
     #[pygetset(magic)]
     fn origin(&self) -> PyObjectRef {
         self.origin.clone().into()
+    }
+
+    #[pygetset(magic)]
+    fn unpacked(&self) -> bool {
+        self.starred
     }
 
     #[pymethod(magic)]
