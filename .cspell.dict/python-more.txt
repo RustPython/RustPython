@@ -17,6 +17,7 @@ basicsize
 bdfl
 bigcharset
 bignum
+bivariant
 breakpointhook
 cformat
 chunksize
