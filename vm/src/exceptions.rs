@@ -44,6 +44,9 @@ impl PyPayload for PyBaseException {
     }
 }
 
+const TRACEBACK_LIMIT: usize = 1000;
+const TRACEBACK_RECURSIVE_CUTOFF: usize = 3; // Also hardcoded in traceback.py.
+
 impl VirtualMachine {
     // Why `impl VirtualMachine`?
     // These functions are natively free function in CPython - not methods of PyException
@@ -132,10 +135,40 @@ impl VirtualMachine {
         exc: &PyBaseExceptionRef,
     ) -> Result<(), W::Error> {
         let vm = self;
+
+        // TODO: Get tracebacklimit from sys and replace limit with that if it exists
+        let limit = TRACEBACK_LIMIT;
         if let Some(tb) = exc.traceback.read().clone() {
             writeln!(output, "Traceback (most recent call last):")?;
+            let mut tb_list = vec![];
             for tb in tb.iter() {
-                write_traceback_entry(output, &tb)?;
+                tb_list.push(tb);
+            }
+            let mut repeat_counter = 0;
+            let mut previous_file = "".to_string();
+            let mut previous_line = 0;
+            let mut previous_name = "".to_string();
+            // Gets the last `limit` traceback entries
+            for tb in tb_list.into_iter().rev().take(limit).rev() {
+                if previous_file != tb.frame.code.source_path.as_str()
+                    || previous_line != tb.lineno.get()
+                    || previous_name != tb.frame.code.obj_name.as_str()
+                {
+                    if repeat_counter > TRACEBACK_RECURSIVE_CUTOFF {
+                        write_repeat_traceback_entry(output, repeat_counter)?;
+                    }
+                    previous_file = tb.frame.code.source_path.as_str().to_string();
+                    previous_line = tb.lineno.get();
+                    previous_name = tb.frame.code.obj_name.as_str().to_string();
+                    repeat_counter = 0;
+                }
+                repeat_counter += 1;
+                if repeat_counter <= TRACEBACK_RECURSIVE_CUTOFF {
+                    write_traceback_entry(output, &tb)?;
+                }
+            }
+            if repeat_counter > TRACEBACK_RECURSIVE_CUTOFF {
+                write_repeat_traceback_entry(output, repeat_counter)?;
             }
         }
 
@@ -376,13 +409,24 @@ fn write_traceback_entry<W: Write>(
     writeln!(
         output,
         r##"  File "{}", line {}, in {}"##,
-        filename.trim_start_matches(r"\\?\"),
-        tb_entry.lineno,
-        tb_entry.frame.code.obj_name
+        filename, tb_entry.lineno, tb_entry.frame.code.obj_name
     )?;
     print_source_line(output, filename, tb_entry.lineno.get())?;
 
     Ok(())
+}
+
+fn write_repeat_traceback_entry<W: Write>(
+    output: &mut W,
+    repeat_counter: usize,
+) -> Result<(), W::Error> {
+    let count = repeat_counter - TRACEBACK_RECURSIVE_CUTOFF;
+    writeln!(
+        output,
+        r##"  [Previous line repeated {} more time{}]"##,
+        count,
+        if count == 1 { "" } else { "s" }
+    )
 }
 
 #[derive(Clone)]
@@ -1197,7 +1241,6 @@ pub(crate) fn errno_to_exc_type(_errno: i32, _vm: &VirtualMachine) -> Option<&'s
 }
 
 pub(super) mod types {
-    use crate::common::lock::PyRwLock;
     #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
     use crate::{
         AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
@@ -1208,15 +1251,16 @@ pub(super) mod types {
         function::{ArgBytesLike, FuncArgs},
         types::{Constructor, Initializer},
     };
+    use crate::{PyPayload, builtins::PyListRef, common::lock::PyRwLock, convert::IntoObject};
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use rustpython_common::str::UnicodeEscapeCodepoint;
 
     // This module is designed to be used as `use builtins::*;`.
     // Do not add any pub symbols not included in builtins module.
-    // `PyBaseExceptionRef` is the only exception.
 
     pub type PyBaseExceptionRef = PyRef<PyBaseException>;
+    pub type PyBaseExceptionGroupRef = PyRef<PyBaseExceptionGroup>;
 
     // Sorted By Hierarchy then alphabetized.
 
@@ -1233,13 +1277,238 @@ pub(super) mod types {
     #[derive(Debug)]
     pub struct PySystemExit {}
 
-    #[pyexception(name, base = "PyBaseException", ctx = "base_exception_group", impl)]
+    #[pyexception(name, base = "PyBaseException", ctx = "base_exception_group")]
     #[derive(Debug)]
-    pub struct PyBaseExceptionGroup {}
+    #[allow(unused, dead_code)]
+    pub struct PyBaseExceptionGroup {
+        pub(super) traceback: PyRwLock<Option<PyTracebackRef>>,
+        pub(super) cause: PyRwLock<Option<PyRef<Self>>>,
+        pub(super) context: PyRwLock<Option<PyRef<Self>>>,
+        pub(super) suppress_context: AtomicCell<bool>,
+        pub(super) args: PyRwLock<PyTupleRef>,
+        pub(super) message: PyRwLock<PyStrRef>,
+        pub(super) exceptions: PyRwLock<Vec<PyObjectRef>>,
+        pub(super) notes: PyRwLock<Option<PyListRef>>,
+    }
 
-    #[pyexception(name, base = "PyBaseExceptionGroup", ctx = "exception_group", impl)]
+    #[pyexception]
+    impl PyBaseExceptionGroup {
+        #[pyslot]
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let (message, exceptions): (PyStrRef, PyObjectRef) = args.bind(vm)?;
+            let exceptions = exceptions.to_sequence();
+            let len = exceptions.length(vm)?;
+            if len == 0 {
+                return Err(vm.new_type_error(
+                    "BaseExceptionGroup() requires at least one exception".to_owned(),
+                ));
+            }
+            for i in 0..len {
+                let item = exceptions.get_item(i as isize, vm)?;
+                if !item.is_instance(PyBaseException::class(&vm.ctx).into(), vm)? {
+                    return Err(vm.new_value_error(format!(
+                        "Item {i} of second argument (exceptions) is not an exception"
+                    )));
+                }
+            }
+
+            let is_subclass = !(cls.is(PyBaseExceptionGroup::class(&vm.ctx))
+                || cls.is(PyExceptionGroup::class(&vm.ctx)));
+            for i in 0..len {
+                let item = exceptions.get_item(i as isize, vm)?;
+                if item.is_instance(PyBaseExceptionGroup::class(&vm.ctx).into(), vm)? {
+                    if is_subclass {
+                        return Err(vm.new_type_error(format!(
+                            "Cannot nest BaseExceptions in {}",
+                            cls.name()
+                        )));
+                    } else {
+                        return Err(vm.new_type_error(
+                            "Cannot nest BaseExceptions in an ExceptionGroup".to_owned(),
+                        ));
+                    }
+                }
+            }
+            let mut exceptions_vec = Vec::with_capacity(len);
+            for i in 0..len {
+                let item = exceptions.get_item(i as isize, vm)?;
+                exceptions_vec.push(item.clone());
+            }
+            let mut args = Vec::with_capacity(1 + len);
+            args.push(message.clone().into_object());
+            for i in 0..len {
+                let item = exceptions.get_item(i as isize, vm)?;
+                args.push(item.clone());
+            }
+            Ok(PyBaseExceptionGroup {
+                traceback: PyRwLock::new(None),
+                cause: PyRwLock::new(None),
+                context: PyRwLock::new(None),
+                suppress_context: AtomicCell::new(false),
+                args: PyRwLock::new(vm.ctx.new_tuple(args)),
+                message: PyRwLock::new(message),
+                exceptions: PyRwLock::new(exceptions_vec),
+                notes: PyRwLock::new(None),
+            }
+            .into_pyobject(vm))
+        }
+
+        #[pygetset]
+        fn message(&self) -> PyStrRef {
+            self.message.read().clone()
+        }
+        #[pygetset]
+        fn exceptions(&self, vm: &VirtualMachine) -> PyTupleRef {
+            let exceptions = self.exceptions.read();
+            vm.ctx.new_tuple(exceptions.clone())
+        }
+
+        #[pymethod]
+        fn add_note(&self, note: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+            let mut notes = self.notes.write();
+            if notes.is_none() {
+                *notes = Some(vm.ctx.new_list(vec![]));
+            }
+            notes.as_mut().unwrap().append(note.into());
+            Ok(())
+        }
+
+        #[pymethod(magic)]
+        fn str(&self, vm: &VirtualMachine) -> PyStrRef {
+            let msg = self.message.read();
+            let num_excs = self.exceptions.read().len();
+            let s = format!(
+                "{msg} ({num_excs} sub-exception{p})",
+                p = if num_excs == 1 { "" } else { "s" }
+            );
+            vm.ctx.new_str(s)
+        }
+
+        #[pymethod(magic)]
+        fn repr(&self, vm: &VirtualMachine) -> PyStrRef {
+            let msg = self.message.read();
+            let num_excs = self.exceptions.read().len();
+            // TODO: repr of message
+            let s = format!("{}({msg}, {num_excs})", Self::class(&vm.ctx).name());
+            vm.ctx.new_str(s)
+        }
+    }
+
+    #[pyexception(name, base = "PyBaseExceptionGroup", ctx = "exception_group")]
     #[derive(Debug)]
-    pub struct PyExceptionGroup {}
+    pub struct PyExceptionGroup {
+        pub(super) traceback: PyRwLock<Option<PyTracebackRef>>,
+        pub(super) cause: PyRwLock<Option<PyRef<Self>>>,
+        pub(super) context: PyRwLock<Option<PyRef<Self>>>,
+        pub(super) suppress_context: AtomicCell<bool>,
+        pub(super) args: PyRwLock<PyTupleRef>,
+        pub(super) message: PyRwLock<PyStrRef>,
+        pub(super) exceptions: PyRwLock<Vec<PyObjectRef>>,
+        pub(super) notes: PyRwLock<Option<PyListRef>>,
+    }
+
+    #[pyexception]
+    impl PyExceptionGroup {
+        #[pyslot]
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let (message, exceptions): (PyStrRef, PyObjectRef) = args.bind(vm)?;
+            let exceptions = exceptions.to_sequence();
+            let len = exceptions.length(vm)?;
+            if len == 0 {
+                return Err(vm.new_type_error(
+                    "ExceptionGroup() requires at least one exception".to_owned(),
+                ));
+            }
+            for i in 0..len {
+                let item = exceptions.get_item(i as isize, vm)?;
+                if !item.is_instance(PyBaseException::class(&vm.ctx).into(), vm)? {
+                    return Err(vm.new_value_error(format!(
+                        "Item {i} of second argument (exceptions) is not an exception"
+                    )));
+                }
+            }
+
+            let is_subclass = !(cls.is(PyBaseExceptionGroup::class(&vm.ctx))
+                || cls.is(PyExceptionGroup::class(&vm.ctx)));
+            for i in 0..len {
+                let item = exceptions.get_item(i as isize, vm)?;
+                if item.is_instance(PyBaseExceptionGroup::class(&vm.ctx).into(), vm)? {
+                    if is_subclass {
+                        return Err(vm.new_type_error(format!(
+                            "Cannot nest BaseExceptions in {}",
+                            cls.name()
+                        )));
+                    } else {
+                        return Err(vm.new_type_error(
+                            "Cannot nest BaseExceptions in an ExceptionGroup".to_owned(),
+                        ));
+                    }
+                }
+            }
+            let mut exceptions_vec = Vec::with_capacity(len);
+            for i in 0..len {
+                let item = exceptions.get_item(i as isize, vm)?;
+                exceptions_vec.push(item.clone());
+            }
+            let mut args = Vec::with_capacity(1 + len);
+            args.push(message.clone().into_object());
+            for i in 0..len {
+                let item = exceptions.get_item(i as isize, vm)?;
+                args.push(item.clone());
+            }
+            Ok(Self {
+                traceback: PyRwLock::new(None),
+                cause: PyRwLock::new(None),
+                context: PyRwLock::new(None),
+                suppress_context: AtomicCell::new(false),
+                args: PyRwLock::new(vm.ctx.new_tuple(args)),
+                message: PyRwLock::new(message),
+                exceptions: PyRwLock::new(exceptions_vec),
+                notes: PyRwLock::new(None),
+            }
+            .into_pyobject(vm))
+        }
+
+        #[pygetset]
+        fn message(&self) -> PyStrRef {
+            self.message.read().clone()
+        }
+        #[pygetset]
+        fn exceptions(&self, vm: &VirtualMachine) -> PyTupleRef {
+            let exceptions = self.exceptions.read();
+            vm.ctx.new_tuple(exceptions.clone())
+        }
+
+        #[pymethod]
+        fn add_note(&self, note: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+            let mut notes = self.notes.write();
+            if notes.is_none() {
+                *notes = Some(vm.ctx.new_list(vec![]));
+            }
+            notes.as_mut().unwrap().append(note.into());
+            Ok(())
+        }
+
+        #[pymethod(magic)]
+        fn str(&self, vm: &VirtualMachine) -> PyStrRef {
+            let msg = self.message.read();
+            let num_excs = self.exceptions.read().len();
+            let s = format!(
+                "{msg} ({num_excs} sub-exception{p})",
+                p = if num_excs == 1 { "" } else { "s" }
+            );
+            vm.ctx.new_str(s)
+        }
+
+        #[pymethod(magic)]
+        fn repr(&self, vm: &VirtualMachine) -> PyStrRef {
+            let msg = self.message.read();
+            let num_excs = self.exceptions.read().len();
+            // TODO: repr of message
+            let s = format!("{}({msg}, {num_excs})", Self::class(&vm.ctx).name());
+            vm.ctx.new_str(s)
+        }
+    }
 
     #[pyexception(name, base = "PyBaseException", ctx = "generator_exit", impl)]
     #[derive(Debug)]

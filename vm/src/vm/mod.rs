@@ -397,21 +397,6 @@ impl VirtualMachine {
             );
         }
 
-        if expect_stdlib {
-            // enable python-implemented ExceptionGroup when stdlib exists
-            let py_core_init = || -> PyResult<()> {
-                let exception_group = import::import_frozen(self, "_py_exceptiongroup")?;
-                let base_exception_group = exception_group.get_attr("BaseExceptionGroup", self)?;
-                self.builtins
-                    .set_attr("BaseExceptionGroup", base_exception_group, self)?;
-                let exception_group = exception_group.get_attr("ExceptionGroup", self)?;
-                self.builtins
-                    .set_attr("ExceptionGroup", exception_group, self)?;
-                Ok(())
-            };
-            self.expect_pyresult(py_core_init(), "exceptiongroup initialization failed");
-        }
-
         self.initialized = true;
     }
 
