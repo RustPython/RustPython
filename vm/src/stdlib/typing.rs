@@ -48,7 +48,10 @@ pub(crate) mod decl {
     #[pyfunction(name = "override")]
     pub(crate) fn r#override(func: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // Set __override__ attribute to True
-        func.set_attr("__override__", vm.ctx.true_value.clone(), vm)?;
+        // Skip the attribute silently if it is not writable.
+        // AttributeError happens if the object has __slots__ or a
+        // read-only property, TypeError if it's a builtin class.
+        let _ = func.set_attr("__override__", vm.ctx.true_value.clone(), vm);
         Ok(func)
     }
 

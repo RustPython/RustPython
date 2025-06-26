@@ -3351,8 +3351,6 @@ class ProtocolTests(BaseTestCase):
         self.assertNotIsSubclass(C, Protocol)
         self.assertNotIsInstance(C(), Protocol)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_protocols_issubclass_non_callable(self):
         class C:
             x = 1
@@ -3412,8 +3410,6 @@ class ProtocolTests(BaseTestCase):
         ):
             issubclass(Eggs, Spam)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_weird_caching_with_issubclass_after_isinstance_2(self):
         @runtime_checkable
         class Spam(Protocol):
@@ -3434,8 +3430,6 @@ class ProtocolTests(BaseTestCase):
         ):
             issubclass(Eggs, Spam)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_weird_caching_with_issubclass_after_isinstance_3(self):
         @runtime_checkable
         class Spam(Protocol):
