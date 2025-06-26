@@ -17,10 +17,15 @@ use crate::{
 };
 use std::fmt;
 
-static ATTR_EXCEPTIONS: [&str; 8] = [
+// attr_exceptions
+static ATTR_EXCEPTIONS: [&str; 12] = [
+    "__class__",
+    "__bases__",
     "__origin__",
     "__args__",
+    "__unpacked__",
     "__parameters__",
+    "__typing_unpacked_tuple_args__",
     "__mro_entries__",
     "__reduce_ex__", // needed so we don't look up object.__reduce_ex__
     "__reduce__",

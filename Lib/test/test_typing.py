@@ -2220,8 +2220,6 @@ class UnionTests(BaseTestCase):
         with self.assertRaises(TypeError):
             hash(union3)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr(self):
         self.assertEqual(repr(Union), 'typing.Union')
         u = Union[Employee, int]
@@ -2389,8 +2387,6 @@ class TupleTests(BaseTestCase):
             isinstance((0, 0), Tuple[int, int])
         self.assertIsInstance((0, 0), Tuple)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr(self):
         self.assertEqual(repr(Tuple), 'typing.Tuple')
         self.assertEqual(repr(Tuple[()]), 'typing.Tuple[()]')
@@ -2472,8 +2468,6 @@ class BaseCallableTests:
         with self.assertRaises(TypeError):
             isinstance(None, Callable[[], Any])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr(self):
         Callable = self.Callable
         fullname = f'{Callable.__module__}.Callable'
@@ -2716,11 +2710,6 @@ class BaseCallableTests:
 
 class TypingCallableTests(BaseCallableTests, BaseTestCase):
     Callable = typing.Callable
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_var_substitution(self):
-        super().test_var_substitution()
 
     def test_consistency(self):
         # bpo-42195
@@ -3554,8 +3543,6 @@ class ProtocolTests(BaseTestCase):
 
 class GenericTests(BaseTestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basics(self):
         X = SimpleMapping[str, Any]
         self.assertEqual(X.__parameters__, ())
@@ -3602,8 +3589,6 @@ class GenericTests(BaseTestCase):
         with self.assertRaises(TypeError):
             D[()]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generic_subclass_checks(self):
         for typ in [list[int], List[int],
                     tuple[int, str], Tuple[int, str],
@@ -4515,8 +4500,6 @@ class GenericTests(BaseTestCase):
             (A, collections.abc.Sized, Generic, list, object),
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_multiple_inheritance_with_genericalias_2(self):
         T = TypeVar("T")
 
@@ -4840,8 +4823,6 @@ class FinalTests(BaseTestCase):
         with self.assertRaises(TypeError):
             Optional[Final[int]]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr(self):
         self.assertEqual(repr(Final), 'typing.Final')
         cv = Final[int]
@@ -6500,8 +6481,6 @@ class CollectionsAbcTests(BaseTestCase):
     def test_dict(self):
         self.assertIsSubclass(dict, typing.Dict)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dict_subscribe(self):
         K = TypeVar('K')
         V = TypeVar('V')
@@ -6706,8 +6685,6 @@ class CollectionsAbcTests(BaseTestCase):
         with self.assertRaises(TypeError):
             typing.AsyncGenerator[int, int]()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subclassing(self):
 
         class MMA(typing.MutableMapping):
@@ -7736,8 +7713,6 @@ class TypedDictTests(BaseTestCase):
                     class Wrong(*bases):
                         pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_is_typeddict(self):
         self.assertIs(is_typeddict(Point2D), True)
         self.assertIs(is_typeddict(Union[str, int]), False)
@@ -9270,8 +9245,6 @@ class TypeGuardTests(BaseTestCase):
         with self.assertRaises(TypeError):
             TypeGuard[int, str]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr(self):
         self.assertEqual(repr(TypeGuard), 'typing.TypeGuard')
         cv = TypeGuard[int]
@@ -9322,8 +9295,6 @@ class TypeIsTests(BaseTestCase):
         with self.assertRaises(TypeError):
             TypeIs[int, str]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr(self):
         self.assertEqual(repr(TypeIs), 'typing.TypeIs')
         cv = TypeIs[int]
