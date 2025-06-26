@@ -337,6 +337,11 @@ pub(crate) mod decl {
 
     #[pyclass(flags(HAS_DICT), with(AsNumber, Constructor))]
     impl ParamSpec {
+        #[pymethod(magic)]
+        fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("Cannot subclass an instance of ParamSpec".to_owned()))
+        }
+
         #[pygetset(magic)]
         fn name(&self) -> PyObjectRef {
             self.name.clone()
@@ -720,6 +725,11 @@ pub(crate) mod decl {
     }
     #[pyclass(flags(BASETYPE), with(Constructor, Representable))]
     impl ParamSpecArgs {
+        #[pymethod(magic)]
+        fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("Cannot subclass an instance of ParamSpecArgs".to_owned()))
+        }
+
         #[pygetset(magic)]
         fn origin(&self) -> PyObjectRef {
             self.__origin__.clone()
@@ -765,6 +775,11 @@ pub(crate) mod decl {
     }
     #[pyclass(flags(BASETYPE), with(Constructor, Representable))]
     impl ParamSpecKwargs {
+        #[pymethod(magic)]
+        fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("Cannot subclass an instance of ParamSpecKwargs".to_owned()))
+        }
+
         #[pygetset(magic)]
         fn origin(&self) -> PyObjectRef {
             self.__origin__.clone()
