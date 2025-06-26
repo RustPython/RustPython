@@ -2897,8 +2897,6 @@ class TestSingleDispatch(unittest.TestCase):
         self.assertEqual(types_union(1), "types.UnionType")
         self.assertEqual(types_union(None), "types.UnionType")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_register_genericalias(self):
         @functools.singledispatch
         def f(arg):
@@ -2918,8 +2916,6 @@ class TestSingleDispatch(unittest.TestCase):
         self.assertEqual(f(""), "default")
         self.assertEqual(f(b""), "default")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_register_genericalias_decorator(self):
         @functools.singledispatch
         def f(arg):

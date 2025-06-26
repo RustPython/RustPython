@@ -303,8 +303,6 @@ class BaseTest(unittest.TestCase):
         self.assertEqual(a.__args__, (list[int], list[str]))
         self.assertEqual(a.__parameters__, ())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_union_generic(self):
         a = typing.Union[list[T], tuple[T, ...]]
         self.assertEqual(a.__args__, (list[T], tuple[T, ...]))
