@@ -2930,8 +2930,6 @@ class TestSingleDispatch(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "Invalid first argument to "):
             f.register(typing.List[int] | str)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_register_genericalias_annotation(self):
         @functools.singledispatch
         def f(arg):
