@@ -1,17 +1,17 @@
 use crate::{PyRef, VirtualMachine, stdlib::PyModule};
 
-pub(crate) use _typing::NoDefault;
+pub(crate) use decl::*;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    let module = _typing::make_module(vm);
+    let module = decl::make_module(vm);
     extend_module!(vm, &module, {
         "NoDefault" => vm.ctx.typing_no_default.clone(),
     });
     module
 }
 
-#[pymodule]
-pub(crate) mod _typing {
+#[pymodule(name = "_typing")]
+pub(crate) mod decl {
     use crate::{
         AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyGenericAlias, PyTupleRef, PyTypeRef, pystr::AsPyStr},

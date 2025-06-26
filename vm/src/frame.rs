@@ -17,7 +17,7 @@ use crate::{
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
     source::SourceLocation,
-    stdlib::{builtins, typing::_typing},
+    stdlib::{builtins, typing},
     vm::{Context, PyMethod},
 };
 use indexmap::IndexMap;
@@ -1234,7 +1234,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::TypeVar => {
                 let type_name = self.pop_value();
                 let type_var: PyObjectRef =
-                    _typing::make_typevar(vm, type_name.clone(), vm.ctx.none(), vm.ctx.none())
+                    typing::make_typevar(vm, type_name.clone(), vm.ctx.none(), vm.ctx.none())
                         .into_ref(&vm.ctx)
                         .into();
                 self.push_value(type_var);
@@ -1244,7 +1244,7 @@ impl ExecutingFrame<'_> {
                 let type_name = self.pop_value();
                 let bound = self.pop_value();
                 let type_var: PyObjectRef =
-                    _typing::make_typevar(vm, type_name.clone(), bound, vm.ctx.none())
+                    typing::make_typevar(vm, type_name.clone(), bound, vm.ctx.none())
                         .into_ref(&vm.ctx)
                         .into();
                 self.push_value(type_var);
@@ -1254,7 +1254,7 @@ impl ExecutingFrame<'_> {
                 let type_name = self.pop_value();
                 let constraint = self.pop_value();
                 let type_var: PyObjectRef =
-                    _typing::make_typevar(vm, type_name.clone(), vm.ctx.none(), constraint)
+                    typing::make_typevar(vm, type_name.clone(), vm.ctx.none(), constraint)
                         .into_ref(&vm.ctx)
                         .into();
                 self.push_value(type_var);
@@ -1267,13 +1267,13 @@ impl ExecutingFrame<'_> {
                     .downcast()
                     .map_err(|_| vm.new_type_error("Type params must be a tuple."))?;
                 let value = self.pop_value();
-                let type_alias = _typing::TypeAliasType::new(name, type_params, value);
+                let type_alias = typing::TypeAliasType::new(name, type_params, value);
                 self.push_value(type_alias.into_ref(&vm.ctx).into());
                 Ok(None)
             }
             bytecode::Instruction::ParamSpec => {
                 let param_spec_name = self.pop_value();
-                let param_spec: PyObjectRef = _typing::make_paramspec(param_spec_name.clone())
+                let param_spec: PyObjectRef = typing::make_paramspec(param_spec_name.clone())
                     .into_ref(&vm.ctx)
                     .into();
                 self.push_value(param_spec);
@@ -1282,7 +1282,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::TypeVarTuple => {
                 let type_var_tuple_name = self.pop_value();
                 let type_var_tuple: PyObjectRef =
-                    _typing::make_typevartuple(type_var_tuple_name.clone(), vm)
+                    typing::make_typevartuple(type_var_tuple_name.clone(), vm)
                         .into_ref(&vm.ctx)
                         .into();
                 self.push_value(type_var_tuple);
