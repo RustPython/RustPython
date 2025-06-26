@@ -2547,8 +2547,6 @@ class BaseCallableTests:
 
         del T_pickle, P_pickle, TS_pickle  # cleaning up global state
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_var_substitution(self):
         Callable = self.Callable
         fullname = f"{Callable.__module__}.Callable"
@@ -2719,6 +2717,11 @@ class BaseCallableTests:
 
 class TypingCallableTests(BaseCallableTests, BaseTestCase):
     Callable = typing.Callable
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_var_substitution(self):
+        super().test_var_substitution()
 
     def test_consistency(self):
         # bpo-42195
@@ -8792,8 +8795,6 @@ class ParamSpecTests(BaseTestCase):
         self.assertEqual(P.__name__, 'P')
         self.assertIs(P.__module__, None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_valid_uses(self):
         P = ParamSpec('P')
         T = TypeVar('T')

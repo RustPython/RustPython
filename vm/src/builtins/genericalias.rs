@@ -225,7 +225,7 @@ pub(crate) fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupl
         // Check for __typing_subst__ attribute (like CPython)
         if arg.get_attr(identifier!(vm, __typing_subst__), vm).is_ok() {
             // Use tuple_add equivalent logic
-            if tuple_index_vec(&parameters, arg).is_none() {
+            if tuple_index(&parameters, arg).is_none() {
                 if iparam >= parameters.len() {
                     parameters.resize(iparam + 1, vm.ctx.none());
                 }
@@ -241,7 +241,7 @@ pub(crate) fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupl
                 }
                 for sub_param in sub_params {
                     // Use tuple_add equivalent logic
-                    if tuple_index_vec(&parameters[..iparam], sub_param).is_none() {
+                    if tuple_index(&parameters[..iparam], sub_param).is_none() {
                         if iparam >= parameters.len() {
                             parameters.resize(iparam + 1, vm.ctx.none());
                         }
@@ -259,12 +259,7 @@ pub(crate) fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupl
 }
 
 #[inline]
-fn tuple_index(tuple: &PyTupleRef, item: &PyObjectRef) -> Option<usize> {
-    tuple.iter().position(|element| element.is(item))
-}
-
-#[inline]
-fn tuple_index_vec(vec: &[PyObjectRef], item: &PyObjectRef) -> Option<usize> {
+fn tuple_index(vec: &[PyObjectRef], item: &PyObjectRef) -> Option<usize> {
     vec.iter().position(|element| element.is(item))
 }
 
@@ -284,7 +279,7 @@ fn subs_tvars(
                     let mut sub_args = Vec::new();
 
                     for arg in sub_params.iter() {
-                        if let Some(idx) = tuple_index(params, arg) {
+                        if let Some(idx) = tuple_index(params.as_slice(), arg) {
                             let param = &params[idx];
                             let substituted_arg = &arg_items[idx];
 
@@ -374,7 +369,7 @@ pub fn subs_parameters<F: Fn(&VirtualMachine) -> PyResult<String>>(
     for arg in args.iter() {
         // Check for __typing_subst__ attribute directly (like CPython)
         if let Ok(subst) = arg.get_attr(identifier!(vm, __typing_subst__), vm) {
-            let idx = tuple_index(&parameters, arg).unwrap();
+            let idx = tuple_index(parameters.as_slice(), arg).unwrap();
             if idx < num_items {
                 // Call __typing_subst__ with the argument
                 let substituted = subst.call((arg_items[idx].clone(),), vm)?;
