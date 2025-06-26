@@ -44,6 +44,13 @@ pub(crate) mod decl {
         args.args[0].clone()
     }
 
+    #[pyfunction(name = "override")]
+    pub(crate) fn r#override(func: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        // Set __override__ attribute to True
+        func.set_attr("__override__", vm.ctx.true_value.clone(), vm)?;
+        Ok(func)
+    }
+
     #[pyattr]
     #[pyclass(name = "TypeVar", module = "typing")]
     #[derive(Debug, PyPayload)]
