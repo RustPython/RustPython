@@ -134,7 +134,7 @@
     "birthtime",
     "IFEXEC",
     // "stat"
-    "FIRMLINK",
+    "FIRMLINK"
   ],
   // flagWords - list of words to be always considered incorrect
   "flagWords": [
