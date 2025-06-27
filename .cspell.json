@@ -133,6 +133,8 @@
     // win32
     "birthtime",
     "IFEXEC",
+    // "stat"
+    "FIRMLINK",
   ],
   // flagWords - list of words to be always considered incorrect
   "flagWords": [
