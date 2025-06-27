@@ -350,7 +350,7 @@ mod stat {
     // Convert file mode to string representation
     #[pyfunction]
     fn filemode(mode: Mode) -> String {
-        let mut result = String::with_capacity(9);
+        let mut result = String::with_capacity(10);
 
         // File type
         result.push(filetype(mode));
