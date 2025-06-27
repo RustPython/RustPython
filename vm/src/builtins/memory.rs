@@ -636,7 +636,7 @@ impl PyMemoryView {
 
     #[pygetset]
     fn f_contiguous(&self, vm: &VirtualMachine) -> PyResult<bool> {
-        // TODO: fortain order
+        // TODO: column-major order
         self.try_not_released(vm)
             .map(|_| self.desc.ndim() <= 1 && self.desc.is_contiguous())
     }
