@@ -381,7 +381,7 @@ impl BufferDescriptor {
         self.dim_desc.iter().any(|(shape, _, _)| *shape == 0)
     }
 
-    // TODO: support fortain order
+    // TODO: support column-major order
 }
 
 pub trait BufferResizeGuard {

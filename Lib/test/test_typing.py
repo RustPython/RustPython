@@ -2924,13 +2924,10 @@ class ProtocolTests(BaseTestCase):
             @runtime_checkable
             class Foo[T]: ...
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_runtime_checkable_generic(self):
-        # @runtime_checkable
-        # class Foo[T](Protocol):
-        #     def meth(self) -> T: ...
-        # pass
+        @runtime_checkable
+        class Foo[T](Protocol):
+            def meth(self) -> T: ...
 
         class Impl:
             def meth(self) -> int: ...
@@ -2945,9 +2942,9 @@ class ProtocolTests(BaseTestCase):
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_pep695_generics_can_be_runtime_checkable(self):
-        # @runtime_checkable
-        # class HasX(Protocol):
-        #     x: int
+        @runtime_checkable
+        class HasX(Protocol):
+            x: int
 
         class Bar[T]:
             x: T
@@ -2987,22 +2984,20 @@ class ProtocolTests(BaseTestCase):
 
         self.assertIsInstance(f, HasCallProtocol)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_inheritance_from_nominal(self):
         class C: pass
 
-        # class BP(Protocol): pass
+        class BP(Protocol): pass
 
-        # with self.assertRaises(TypeError):
-        #     class P(C, Protocol):
-        #         pass
-        # with self.assertRaises(TypeError):
-        #     class Q(Protocol, C):
-        #         pass
-        # with self.assertRaises(TypeError):
-        #     class R(BP, C, Protocol):
-        #         pass
+        with self.assertRaises(TypeError):
+            class P(C, Protocol):
+                pass
+        with self.assertRaises(TypeError):
+            class Q(Protocol, C):
+                pass
+        with self.assertRaises(TypeError):
+            class R(BP, C, Protocol):
+                pass
 
         class D(BP, C): pass
 
@@ -3014,7 +3009,7 @@ class ProtocolTests(BaseTestCase):
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_no_instantiation(self):
-        # class P(Protocol): pass
+        class P(Protocol): pass
 
         with self.assertRaises(TypeError):
             P()
@@ -3042,16 +3037,14 @@ class ProtocolTests(BaseTestCase):
         with self.assertRaises(TypeError):
             CG[int](42)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_protocol_defining_init_does_not_get_overridden(self):
         # check that P.__init__ doesn't get clobbered
         # see https://bugs.python.org/issue44807
 
-        # class P(Protocol):
-        #     x: int
-        #     def __init__(self, x: int) -> None:
-        #         self.x = x
+        class P(Protocol):
+            x: int
+            def __init__(self, x: int) -> None:
+                self.x = x
         class C: pass
 
         c = C()
@@ -3478,9 +3471,9 @@ class ProtocolTests(BaseTestCase):
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_no_weird_caching_with_issubclass_after_isinstance_pep695(self):
-        # @runtime_checkable
-        # class Spam[T](Protocol):
-            # x: T
+        @runtime_checkable
+        class Spam[T](Protocol):
+            x: T
 
         class Eggs[T]:
             def __init__(self, x: T) -> None:
