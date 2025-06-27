@@ -42,7 +42,7 @@ impl PyPayload for PyComplex {
 
 impl ToPyObject for Complex64 {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        PyComplex::new_ref(self, &vm.ctx).into()
+        PyComplex::from(self).to_pyobject(vm)
     }
 }
 
@@ -232,10 +232,6 @@ impl Constructor for PyComplex {
 }
 
 impl PyComplex {
-    pub fn new_ref(value: Complex64, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(Self::from(value), ctx.types.complex_type.to_owned(), None)
-    }
-
     pub fn to_complex(&self) -> Complex64 {
         self.value
     }

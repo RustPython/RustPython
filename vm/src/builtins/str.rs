@@ -392,11 +392,6 @@ impl PyStr {
         unsafe { AsciiString::from_ascii_unchecked(bytes) }.into()
     }
 
-    pub fn new_ref(zelf: impl Into<Self>, ctx: &Context) -> PyRef<Self> {
-        let zelf = zelf.into();
-        PyRef::new_ref(zelf, ctx.types.str_type.to_owned(), None)
-    }
-
     fn new_substr(&self, s: Wtf8Buf) -> Self {
         let kind = if self.kind().is_ascii() || s.is_ascii() {
             StrKind::Ascii

@@ -44,16 +44,13 @@ impl fmt::Debug for PyDict {
 }
 
 impl PyPayload for PyDict {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.dict_type
     }
 }
 
 impl PyDict {
-    pub fn new_ref(ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(Self::default(), ctx.types.dict_type.to_owned(), None)
-    }
-
     /// escape hatch to access the underlying data structure directly. prefer adding a method on
     /// PyDict instead of using this
     pub(crate) fn _as_dict_inner(&self) -> &DictContentType {
