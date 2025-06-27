@@ -230,6 +230,7 @@ fn eprint_location(zelf: &Compiler<'_>) {
 }
 
 /// Better traceback for internal error
+#[track_caller]
 fn unwrap_internal<T>(zelf: &Compiler<'_>, r: InternalResult<T>) -> T {
     if let Err(ref r_err) = r {
         eprintln!("=== CODEGEN PANIC INFO ===");
@@ -1705,11 +1706,6 @@ impl Compiler<'_> {
             func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
         }
 
-        // Pop the special type params symbol table
-        if type_params.is_some() {
-            self.pop_symbol_table();
-        }
-
         self.emit_load_const(ConstantData::Code {
             code: Box::new(code),
         });
@@ -1727,6 +1723,11 @@ impl Compiler<'_> {
             CallType::Positional { nargs: 2 }
         };
         self.compile_normal_call(call);
+
+        // Pop the special type params symbol table
+        if type_params.is_some() {
+            self.pop_symbol_table();
+        }
 
         self.apply_decorators(decorator_list);
 
