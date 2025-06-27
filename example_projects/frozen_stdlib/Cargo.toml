@@ -9,3 +9,6 @@ rustpython-vm = { path = "../../vm", default-features = false, features = ["free
 rustpython-pylib = { path = "../../pylib", default-features = false, features = ["freeze-stdlib"] }
 
 [workspace]
+
+[patch.crates-io]
+radium = { version = "1.1.0", git = "https://github.com/youknowone/ferrilab", branch = "fix-nightly" }
