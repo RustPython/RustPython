@@ -115,7 +115,7 @@ impl PyMethodDef {
         })
     }
 
-    pub fn to_function(&'static self) -> PyNativeFunction {
+    pub const fn to_function(&'static self) -> PyNativeFunction {
         PyNativeFunction {
             zelf: None,
             value: self,
@@ -131,7 +131,7 @@ impl PyMethodDef {
         PyMethodDescriptor::new(self, class, ctx)
     }
 
-    pub fn to_bound_method(
+    pub const fn to_bound_method(
         &'static self,
         obj: PyObjectRef,
         class: &'static Py<PyType>,
@@ -273,7 +273,7 @@ pub struct HeapMethodDef {
 }
 
 impl HeapMethodDef {
-    pub fn new(method: PyMethodDef) -> Self {
+    pub const fn new(method: PyMethodDef) -> Self {
         Self { method }
     }
 }

@@ -110,17 +110,20 @@ impl PyMethodDescriptor {
 )]
 impl PyMethodDescriptor {
     #[pygetset]
-    fn __name__(&self) -> &'static PyStrInterned {
+    const fn __name__(&self) -> &'static PyStrInterned {
         self.common.name
     }
+
     #[pygetset]
     fn __qualname__(&self) -> String {
         format!("{}.{}", self.common.typ.name(), &self.common.name)
     }
+
     #[pygetset]
-    fn __doc__(&self) -> Option<&'static str> {
+    const fn __doc__(&self) -> Option<&'static str> {
         self.method.doc
     }
+
     #[pygetset]
     fn __text_signature__(&self) -> Option<String> {
         self.method.doc.and_then(|doc| {
@@ -128,10 +131,12 @@ impl PyMethodDescriptor {
                 .map(|signature| signature.to_string())
         })
     }
+
     #[pygetset]
     fn __objclass__(&self) -> PyTypeRef {
         self.objclass.to_owned()
     }
+
     #[pymethod]
     fn __reduce__(
         &self,

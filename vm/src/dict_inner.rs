@@ -57,12 +57,12 @@ impl IndexEntry {
 
     /// # Safety
     /// idx must not be one of FREE or DUMMY
-    unsafe fn from_index_unchecked(idx: usize) -> Self {
+    const unsafe fn from_index_unchecked(idx: usize) -> Self {
         debug_assert!((idx as isize) >= 0);
         Self(idx as i64)
     }
 
-    fn index(self) -> Option<usize> {
+    const fn index(self) -> Option<usize> {
         if self.0 >= 0 {
             Some(self.0 as usize)
         } else {
@@ -138,7 +138,7 @@ struct GenIndexes {
 }
 
 impl GenIndexes {
-    fn new(hash: HashValue, mask: HashIndex) -> Self {
+    const fn new(hash: HashValue, mask: HashIndex) -> Self {
         let hash = hash.abs();
         Self {
             idx: hash,
@@ -147,7 +147,7 @@ impl GenIndexes {
         }
     }
 
-    fn next(&mut self) -> usize {
+    const fn next(&mut self) -> usize {
         let prev = self.idx;
         self.idx = prev
             .wrapping_mul(5)
@@ -223,7 +223,7 @@ impl<T> DictInner<T> {
         }
     }
 
-    fn size(&self) -> DictSize {
+    const fn size(&self) -> DictSize {
         DictSize {
             indices_size: self.indices.len(),
             entries_size: self.entries.len(),
@@ -233,7 +233,7 @@ impl<T> DictInner<T> {
     }
 
     #[inline]
-    fn should_resize(&self) -> Option<usize> {
+    const fn should_resize(&self) -> Option<usize> {
         if self.filled * 3 > self.indices.len() * 2 {
             Some(self.used * 2)
         } else {
@@ -735,18 +735,22 @@ impl DictKey for PyObject {
     fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
         self.to_owned()
     }
+
     #[inline(always)]
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         self.hash(vm)
     }
+
     #[inline(always)]
     fn key_is(&self, other: &PyObject) -> bool {
         self.is(other)
     }
+
     #[inline(always)]
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
         vm.identical_or_equal(self, other_key)
     }
+
     #[inline]
     fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
         self.try_index(vm)?.try_to_primitive(vm)
@@ -759,10 +763,12 @@ impl DictKey for Py<PyStr> {
     fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
         self.to_owned()
     }
+
     #[inline]
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         Ok(self.hash(vm))
     }
+
     #[inline(always)]
     fn key_is(&self, other: &PyObject) -> bool {
         self.is(other)
@@ -777,6 +783,7 @@ impl DictKey for Py<PyStr> {
             vm.bool_eq(self.as_object(), other_key)
         }
     }
+
     #[inline(always)]
     fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
         self.as_object().key_as_isize(vm)
@@ -785,23 +792,28 @@ impl DictKey for Py<PyStr> {
 
 impl DictKey for PyStrInterned {
     type Owned = PyRefExact<PyStr>;
+
     #[inline]
     fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
         let zelf: &'static PyStrInterned = unsafe { &*(self as *const _) };
         zelf.to_exact()
     }
+
     #[inline]
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         (**self).key_hash(vm)
     }
+
     #[inline]
     fn key_is(&self, other: &PyObject) -> bool {
         (**self).key_is(other)
     }
+
     #[inline]
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
         (**self).key_eq(vm, other_key)
     }
+
     #[inline]
     fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
         (**self).key_as_isize(vm)
@@ -810,22 +822,27 @@ impl DictKey for PyStrInterned {
 
 impl DictKey for PyExact<PyStr> {
     type Owned = PyRefExact<PyStr>;
+
     #[inline]
     fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
         self.to_owned()
     }
+
     #[inline(always)]
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         (**self).key_hash(vm)
     }
+
     #[inline(always)]
     fn key_is(&self, other: &PyObject) -> bool {
         (**self).key_is(other)
     }
+
     #[inline(always)]
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
         (**self).key_eq(vm, other_key)
     }
+
     #[inline(always)]
     fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
         (**self).key_as_isize(vm)
@@ -838,15 +855,18 @@ impl DictKey for PyExact<PyStr> {
 /// to index dictionaries.
 impl DictKey for str {
     type Owned = String;
+
     #[inline(always)]
     fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
         self.to_owned()
     }
+
     #[inline]
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStrRef
         Ok(vm.state.hash_secret.hash_str(self))
     }
+
     #[inline(always)]
     fn key_is(&self, _other: &PyObject) -> bool {
         // No matter who the other pyobject is, we are never the same thing, since
@@ -871,6 +891,7 @@ impl DictKey for str {
 
 impl DictKey for String {
     type Owned = String;
+
     #[inline]
     fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
         self.clone()
@@ -895,15 +916,18 @@ impl DictKey for String {
 
 impl DictKey for Wtf8 {
     type Owned = Wtf8Buf;
+
     #[inline(always)]
     fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
         self.to_owned()
     }
+
     #[inline]
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStrRef
         Ok(vm.state.hash_secret.hash_bytes(self.as_bytes()))
     }
+
     #[inline(always)]
     fn key_is(&self, _other: &PyObject) -> bool {
         // No matter who the other pyobject is, we are never the same thing, since
@@ -928,6 +952,7 @@ impl DictKey for Wtf8 {
 
 impl DictKey for Wtf8Buf {
     type Owned = Wtf8Buf;
+
     #[inline]
     fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
         self.clone()
@@ -952,15 +977,18 @@ impl DictKey for Wtf8Buf {
 
 impl DictKey for [u8] {
     type Owned = Vec<u8>;
+
     #[inline(always)]
     fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
         self.to_owned()
     }
+
     #[inline]
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStrRef
         Ok(vm.state.hash_secret.hash_bytes(self))
     }
+
     #[inline(always)]
     fn key_is(&self, _other: &PyObject) -> bool {
         // No matter who the other pyobject is, we are never the same thing, since
@@ -985,6 +1013,7 @@ impl DictKey for [u8] {
 
 impl DictKey for Vec<u8> {
     type Owned = Vec<u8>;
+
     #[inline]
     fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
         self.clone()
@@ -1009,6 +1038,7 @@ impl DictKey for Vec<u8> {
 
 impl DictKey for usize {
     type Owned = usize;
+
     #[inline]
     fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
         *self

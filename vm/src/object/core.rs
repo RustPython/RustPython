@@ -602,7 +602,7 @@ impl PyObjectRef {
 
 impl PyObject {
     #[inline(always)]
-    fn weak_ref_list(&self) -> Option<&WeakRefList> {
+    const fn weak_ref_list(&self) -> Option<&WeakRefList> {
         Some(&self.0.weak_list)
     }
 
@@ -701,7 +701,7 @@ impl PyObject {
     }
 
     #[inline(always)]
-    fn instance_dict(&self) -> Option<&InstanceDict> {
+    const fn instance_dict(&self) -> Option<&InstanceDict> {
         self.0.dict.as_ref()
     }
 
@@ -772,7 +772,7 @@ impl PyObject {
     }
 
     #[inline(always)]
-    pub fn as_raw(&self) -> *const PyObject {
+    pub const fn as_raw(&self) -> *const PyObject {
         self
     }
 
