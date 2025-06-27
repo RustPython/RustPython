@@ -13,11 +13,18 @@ import warnings
 import requests
 from jinja2 import Environment, FileSystemLoader
 
-parser = argparse.ArgumentParser(description="Find equivalent files in cpython and rustpython")
-parser.add_argument("--cpython", type=pathlib.Path, required=True, help="Path to cpython source code")
-parser.add_argument("--notes", type=pathlib.Path, required=False, help="Path to notes file")
+parser = argparse.ArgumentParser(
+    description="Find equivalent files in cpython and rustpython"
+)
+parser.add_argument(
+    "--cpython", type=pathlib.Path, required=True, help="Path to cpython source code"
+)
+parser.add_argument(
+    "--notes", type=pathlib.Path, required=False, help="Path to notes file"
+)
 
 args = parser.parse_args()
+
 
 def check_pr(pr_id: str) -> bool:
     if pr_id.startswith("#"):
@@ -27,10 +34,12 @@ def check_pr(pr_id: str) -> bool:
     response = requests.get(req).json()
     return response["merged_at"] is not None
 
+
 @dataclasses.dataclass
 class LibUpdate:
     pr: Optional[str] = None
     done: bool = True
+
 
 def parse_updated_lib_issue(issue_body: str) -> dict[str, LibUpdate]:
     lines = issue_body.splitlines()
@@ -47,11 +56,13 @@ def parse_updated_lib_issue(issue_body: str) -> dict[str, LibUpdate]:
                 updated_libs[out[0]] = LibUpdate(out[1], check_pr(out[1]))
     return updated_libs
 
+
 def get_updated_libs() -> dict[str, LibUpdate]:
     issue_id = "5736"
     req = f"https://api.github.com/repos/RustPython/RustPython/issues/{issue_id}"
     response = requests.get(req).json()
     return parse_updated_lib_issue(response["body"])
+
 
 updated_libs = get_updated_libs()
 
@@ -86,12 +97,11 @@ if args.notes:
 
 cpython_lib = args.cpython / "Lib"
 rustpython_lib = pathlib.Path(__file__).parent.parent / "Lib"
-assert rustpython_lib.exists(), "RustPython lib directory does not exist, ensure the find_eq.py script is located in the right place"
+assert rustpython_lib.exists(), (
+    "RustPython lib directory does not exist, ensure the find_eq.py script is located in the right place"
+)
 
-ignored_objs = [
-    "__pycache__",
-    "test"
-]
+ignored_objs = ["__pycache__", "test"]
 # loop through the top-level directories in the cpython lib directory
 libs = []
 for path in cpython_lib.iterdir():
@@ -105,14 +115,24 @@ for path in cpython_lib.iterdir():
 tests = []
 cpython_lib_test = cpython_lib / "test"
 for path in cpython_lib_test.iterdir():
-    if path.is_dir() and path.name not in ignored_objs and path.name.startswith("test_"):
+    if (
+        path.is_dir()
+        and path.name not in ignored_objs
+        and path.name.startswith("test_")
+    ):
         # add the directory name to the list of libraries
         tests.append(path.name)
-    elif path.is_file() and path.name.endswith(".py") and path.name not in ignored_objs and path.name.startswith("test_"):
+    elif (
+        path.is_file()
+        and path.name.endswith(".py")
+        and path.name not in ignored_objs
+        and path.name.startswith("test_")
+    ):
         # add the file name to the list of libraries
         file_name = path.name.replace("test_", "")
         if file_name not in libs and file_name.replace(".py", "") not in libs:
             tests.append(path.name)
+
 
 def check_diff(file1, file2):
     try:
@@ -125,11 +145,13 @@ def check_diff(file1, file2):
     except UnicodeDecodeError:
         return False
 
+
 def check_completion_pr(display_name):
     for lib in updated_libs:
         if lib == str(display_name):
             return updated_libs[lib].done, updated_libs[lib].pr
     return False, None
+
 
 def check_test_completion(rustpython_path, cpython_path):
     if rustpython_path.exists() and rustpython_path.is_file():
@@ -141,17 +163,21 @@ def check_test_completion(rustpython_path, cpython_path):
             return True
     return False
 
+
 def check_lib_completion(rustpython_path, cpython_path):
     test_name = "test_" + rustpython_path.name
     rustpython_test_path = rustpython_lib / "test" / test_name
     cpython_test_path = cpython_lib / "test" / test_name
-    if cpython_test_path.exists() and not check_test_completion(rustpython_test_path, cpython_test_path):
+    if cpython_test_path.exists() and not check_test_completion(
+        rustpython_test_path, cpython_test_path
+    ):
         return False
     if rustpython_path.exists() and rustpython_path.is_file():
         if check_diff(rustpython_path, cpython_path) > 0:
             return False
         return True
     return False
+
 
 def handle_notes(display_path) -> list[str]:
     if str(display_path) in notes:
@@ -161,12 +187,14 @@ def handle_notes(display_path) -> list[str]:
         return res
     return []
 
+
 @dataclasses.dataclass
 class Output:
     name: str
     pr: Optional[str]
     completed: Optional[bool]
     notes: list[str]
+
 
 update_libs_output = []
 add_libs_output = []
@@ -183,12 +211,18 @@ for path in libs:
             # check if the file exists in the rustpython lib directory
             if rustpython_path.exists() and rustpython_path.is_file():
                 completed = check_lib_completion(rustpython_path, cpython_path)
-        update_libs_output.append(Output(str(display_path), pr, completed, handle_notes(display_path)))
+        update_libs_output.append(
+            Output(str(display_path), pr, completed, handle_notes(display_path))
+        )
     else:
         if pr is not None and completed:
-            update_libs_output.append(Output(str(display_path), pr, None, handle_notes(display_path)))
+            update_libs_output.append(
+                Output(str(display_path), pr, None, handle_notes(display_path))
+            )
         else:
-            add_libs_output.append(Output(str(display_path), pr, None, handle_notes(display_path)))
+            add_libs_output.append(
+                Output(str(display_path), pr, None, handle_notes(display_path))
+            )
 
 update_tests_output = []
 add_tests_output = []
@@ -205,24 +239,30 @@ for path in tests:
             # check if the file exists in the rustpython lib directory
             if rustpython_path.exists() and rustpython_path.is_file():
                 completed = check_lib_completion(rustpython_path, cpython_path)
-        update_tests_output.append(Output(str(display_path), pr, completed, handle_notes(display_path)))
+        update_tests_output.append(
+            Output(str(display_path), pr, completed, handle_notes(display_path))
+        )
     else:
         if pr is not None and completed:
-            update_tests_output.append(Output(str(display_path), pr, None, handle_notes(display_path)))
+            update_tests_output.append(
+                Output(str(display_path), pr, None, handle_notes(display_path))
+            )
         else:
-            add_tests_output.append(Output(str(display_path), pr, None, handle_notes(display_path)))
+            add_tests_output.append(
+                Output(str(display_path), pr, None, handle_notes(display_path))
+            )
 
 for note in notes:
     # add a warning for each note that is not attached to a file
     for n in notes[note]:
         warnings.warn(f"Unattached Note: {note} - {n}")
 
-env = Environment(loader=FileSystemLoader('.'))
+env = Environment(loader=FileSystemLoader("."))
 template = env.get_template("checklist_template.md")
 output = template.render(
     update_libs=update_libs_output,
     add_libs=add_libs_output,
     update_tests=update_tests_output,
-    add_tests=add_tests_output
+    add_tests=add_tests_output,
 )
 print(output)
