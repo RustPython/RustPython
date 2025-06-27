@@ -330,12 +330,18 @@ impl PyObject {
 
     pub fn repr(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         vm.with_recursion("while getting the repr of an object", || {
-            match self.class().slots.repr.load() {
-                Some(slot) => slot(self, vm),
-                None => vm
-                    .call_special_method(self, identifier!(vm, __repr__), ())?
-                    .try_into_value(vm), // TODO: remove magic method call once __repr__ is fully ported to slot
-            }
+            // TODO: RustPython does not implement type slots inheritance yet
+            self.class()
+                .mro_find_map(|cls| cls.slots.repr.load())
+                .map_or_else(
+                    || {
+                        Err(vm.new_runtime_error(format!(
+                    "BUG: object of type '{}' has no __repr__ method. This is a bug in RustPython.",
+                    self.class().name()
+                )))
+                    },
+                    |repr| repr(self, vm),
+                )
         })
     }
 

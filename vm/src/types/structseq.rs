@@ -1,6 +1,6 @@
 use crate::{
-    AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    builtins::{PyBaseExceptionRef, PyTuple, PyTupleRef, PyType},
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    builtins::{PyBaseExceptionRef, PyStrRef, PyTuple, PyTupleRef, PyType},
     class::{PyClassImpl, StaticType},
     vm::Context,
 };
@@ -47,31 +47,40 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         Ok(seq)
     }
 
-    #[pymethod]
-    fn __repr__(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyResult<String> {
+    #[pyslot]
+    fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let zelf = zelf
+            .downcast_ref::<PyTuple>()
+            .ok_or_else(|| vm.new_type_error("unexpected payload for __repr__"))?;
+
         let format_field = |(value, name): (&PyObjectRef, _)| {
             let s = value.repr(vm)?;
             Ok(format!("{name}={s}"))
         };
-        let (body, suffix) = if let Some(_guard) =
-            rustpython_vm::recursion::ReprGuard::enter(vm, zelf.as_object())
-        {
-            if Self::REQUIRED_FIELD_NAMES.len() == 1 {
-                let value = zelf.first().unwrap();
-                let formatted = format_field((value, Self::REQUIRED_FIELD_NAMES[0]))?;
-                (formatted, ",")
+        let (body, suffix) =
+            if let Some(_guard) = rustpython_vm::recursion::ReprGuard::enter(vm, zelf.as_ref()) {
+                if Self::REQUIRED_FIELD_NAMES.len() == 1 {
+                    let value = zelf.first().unwrap();
+                    let formatted = format_field((value, Self::REQUIRED_FIELD_NAMES[0]))?;
+                    (formatted, ",")
+                } else {
+                    let fields: PyResult<Vec<_>> = zelf
+                        .iter()
+                        .zip(Self::REQUIRED_FIELD_NAMES.iter().copied())
+                        .map(format_field)
+                        .collect();
+                    (fields?.join(", "), "")
+                }
             } else {
-                let fields: PyResult<Vec<_>> = zelf
-                    .iter()
-                    .zip(Self::REQUIRED_FIELD_NAMES.iter().copied())
-                    .map(format_field)
-                    .collect();
-                (fields?.join(", "), "")
-            }
-        } else {
-            (String::new(), "...")
-        };
-        Ok(format!("{}({}{})", Self::TP_NAME, body, suffix))
+                (String::new(), "...")
+            };
+        let repr_str = format!("{}({}{})", Self::TP_NAME, body, suffix);
+        Ok(vm.ctx.new_str(repr_str))
+    }
+
+    #[pymethod]
+    fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        Self::slot_repr(&zelf, vm)
     }
 
     #[pymethod]
