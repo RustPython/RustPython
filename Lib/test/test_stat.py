@@ -240,40 +240,10 @@ class TestFilemodeCStat(TestFilemode, unittest.TestCase):
     statmod = c_stat
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_devices(self):
-        super().test_devices()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_directory(self):
-        super().test_directory()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_file_attribute_constants(self):
-        super().test_file_attribute_constants()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_link(self):
-        super().test_link()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_mode(self):
-        super().test_mode()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_module_attributes(self):
-        super().test_module_attributes()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_socket(self):
-        super().test_socket()
-
+    if sys.platform == "win32":
+        @unittest.expectedFailure
+        def test_link(self):
+            super().test_link()
 
 class TestFilemodePyStat(TestFilemode, unittest.TestCase):
     statmod = py_stat
