@@ -343,7 +343,7 @@ pub(crate) mod decl {
         infer_variance: bool,
     }
 
-    #[pyclass(flags(HAS_DICT), with(AsNumber, Constructor))]
+    #[pyclass(flags(HAS_DICT), with(AsNumber, Constructor, Representable))]
     impl ParamSpec {
         #[pymethod]
         fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -552,6 +552,14 @@ pub(crate) mod decl {
             let obj_ref: PyObjectRef = obj.into();
             set_module_from_caller(&obj_ref, vm)?;
             Ok(obj_ref)
+        }
+    }
+
+    impl Representable for ParamSpec {
+        #[inline(always)]
+        fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let name = zelf.__name__().str(vm)?;
+            Ok(format!("~{}", name))
         }
     }
 
