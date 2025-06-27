@@ -2960,8 +2960,6 @@ class ProtocolTests(BaseTestCase):
         self.assertNotIsInstance(Capybara('a'), HasX)
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_everything_implements_empty_protocol(self):
         @runtime_checkable
         class Empty(Protocol):
@@ -9238,8 +9236,6 @@ SpecialAttrsT = typing.TypeVar('SpecialAttrsT', int, float, complex)
 
 
 class SpecialAttrsTests(BaseTestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_special_attrs(self):
         cls_to_check = {
             # ABC classes
