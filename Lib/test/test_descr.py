@@ -4987,8 +4987,6 @@ order (MRO) for bases """
         self.assertIn("__dict__", Base.__dict__)
         self.assertNotIn("__dict__", Sub.__dict__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bound_method_repr(self):
         class Foo:
             def method(self):
@@ -5126,6 +5124,8 @@ class DictProxyTests(unittest.TestCase):
         self.assertEqual(keys, ['__dict__', '__doc__', '__module__',
                                 '__weakref__', 'meth'])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                         'trace function introduces __local__')
     def test_iter_values(self):

@@ -616,6 +616,20 @@ impl Py<PyDict> {
         }
     }
 
+    pub fn pop_item<K: DictKey + ?Sized>(
+        &self,
+        key: &K,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        if self.exact_dict(vm) {
+            self.entries.remove_if_exists(vm, key)
+        } else {
+            let value = self.as_object().get_item(key, vm)?;
+            self.as_object().del_item(key, vm)?;
+            Ok(Some(value))
+        }
+    }
+
     pub fn get_chain<K: DictKey + ?Sized>(
         &self,
         other: &Self,

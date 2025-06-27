@@ -366,7 +366,7 @@ impl<T: Clone> Dict<T> {
     where
         K: DictKey + ?Sized,
     {
-        if self.delete_if_exists(vm, key)? {
+        if self.remove_if_exists(vm, key)?.is_some() {
             Ok(())
         } else {
             Err(vm.new_key_error(key.to_pyobject(vm)))
@@ -377,25 +377,45 @@ impl<T: Clone> Dict<T> {
     where
         K: DictKey + ?Sized,
     {
-        self.delete_if(vm, key, |_| Ok(true))
+        self.remove_if_exists(vm, key).map(|opt| opt.is_some())
+    }
+
+    pub fn delete_if<K, F>(&self, vm: &VirtualMachine, key: &K, pred: F) -> PyResult<bool>
+    where
+        K: DictKey + ?Sized,
+        F: Fn(&T) -> PyResult<bool>,
+    {
+        self.remove_if(vm, key, pred).map(|opt| opt.is_some())
+    }
+
+    pub fn remove_if_exists<K>(&self, vm: &VirtualMachine, key: &K) -> PyResult<Option<T>>
+    where
+        K: DictKey + ?Sized,
+    {
+        self.remove_if(vm, key, |_| Ok(true))
     }
 
     /// pred should be VERY CAREFUL about what it does as it is called while
     /// the dict's internal mutex is held
-    pub(crate) fn delete_if<K, F>(&self, vm: &VirtualMachine, key: &K, pred: F) -> PyResult<bool>
+    pub(crate) fn remove_if<K, F>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        pred: F,
+    ) -> PyResult<Option<T>>
     where
         K: DictKey + ?Sized,
         F: Fn(&T) -> PyResult<bool>,
     {
         let hash = key.key_hash(vm)?;
-        let deleted = loop {
+        let removed = loop {
             let lookup = self.lookup(vm, key, hash, None)?;
             match self.pop_inner_if(lookup, &pred)? {
                 ControlFlow::Break(entry) => break entry,
                 ControlFlow::Continue(()) => continue,
             }
         };
-        Ok(deleted.is_some())
+        Ok(removed.map(|entry| entry.value))
     }
 
     pub fn delete_or_insert(&self, vm: &VirtualMachine, key: &PyObject, value: T) -> PyResult<()> {

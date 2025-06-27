@@ -58,8 +58,10 @@ unsafe impl crate::object::Traverse for PyType {
     }
 }
 
+// PyHeapTypeObject in CPython
 pub struct HeapTypeExt {
     pub name: PyRwLock<PyStrRef>,
+    pub qualname: PyRwLock<PyStrRef>,
     pub slots: Option<PyTupleTyped<PyStrRef>>,
     pub sequence_methods: PySequenceMethods,
     pub mapping_methods: PyMappingMethods,
@@ -143,6 +145,16 @@ impl PyPayload for PyType {
     }
 }
 
+fn downcast_qualname(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
+    match value.downcast::<PyStr>() {
+        Ok(value) => Ok(value),
+        Err(value) => Err(vm.new_type_error(format!(
+            "can only assign string to __qualname__, not '{}'",
+            value.class().name()
+        ))),
+    }
+}
+
 impl PyType {
     pub fn new_simple_heap(
         name: &str,
@@ -171,7 +183,8 @@ impl PyType {
 
         let name = ctx.new_str(name);
         let heaptype_ext = HeapTypeExt {
-            name: PyRwLock::new(name),
+            name: PyRwLock::new(name.clone()),
+            qualname: PyRwLock::new(name),
             slots: None,
             sequence_methods: PySequenceMethods::default(),
             mapping_methods: PyMappingMethods::default(),
@@ -577,19 +590,12 @@ impl PyType {
 
     #[pygetset]
     pub fn __qualname__(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.attributes
-            .read()
-            .get(identifier!(vm, __qualname__))
-            .cloned()
-            // We need to exclude this method from going into recursion:
-            .and_then(|found| {
-                if found.fast_isinstance(vm.ctx.types.getset_type) {
-                    None
-                } else {
-                    Some(found)
-                }
-            })
-            .unwrap_or_else(|| vm.ctx.new_str(self.name().deref()).into())
+        if let Some(ref heap_type) = self.heaptype_ext {
+            heap_type.qualname.read().clone().into()
+        } else {
+            // For static types, return the name
+            vm.ctx.new_str(self.name().deref()).into()
+        }
     }
 
     #[pygetset(setter)]
@@ -607,16 +613,14 @@ impl PyType {
                 self.name()
             ))
         })?;
-        if !value.class().fast_issubclass(vm.ctx.types.str_type) {
-            return Err(vm.new_type_error(format!(
-                "can only assign string to {}.__qualname__, not '{}'",
-                self.name(),
-                value.class().name()
-            )));
-        }
-        self.attributes
-            .write()
-            .insert(identifier!(vm, __qualname__), value);
+
+        let str_value = downcast_qualname(value, vm)?;
+
+        let heap_type = self
+            .heaptype_ext
+            .as_ref()
+            .expect("HEAPTYPE should have heaptype_ext");
+        *heap_type.qualname.write() = str_value;
         Ok(())
     }
 
@@ -856,6 +860,14 @@ impl Constructor for PyType {
             (metatype, base.to_owned(), bases)
         };
 
+        let qualname = dict
+            .pop_item(identifier!(vm, __qualname__).as_object(), vm)?
+            .map(|obj| downcast_qualname(obj, vm))
+            .transpose()?
+            .unwrap_or_else(|| {
+                // If __qualname__ is not provided, we can use the name as default
+                name.clone()
+            });
         let mut attributes = dict.to_attributes(vm);
 
         if let Some(f) = attributes.get_mut(identifier!(vm, __init_subclass__)) {
@@ -881,10 +893,6 @@ impl Constructor for PyType {
                 entry.or_insert(module_name);
             }
         }
-
-        attributes
-            .entry(identifier!(vm, __qualname__))
-            .or_insert_with(|| name.clone().into());
 
         if attributes.get(identifier!(vm, __eq__)).is_some()
             && attributes.get(identifier!(vm, __hash__)).is_none()
@@ -952,6 +960,7 @@ impl Constructor for PyType {
             };
             let heaptype_ext = HeapTypeExt {
                 name: PyRwLock::new(name),
+                qualname: PyRwLock::new(qualname),
                 slots: heaptype_slots.to_owned(),
                 sequence_methods: PySequenceMethods::default(),
                 mapping_methods: PyMappingMethods::default(),
