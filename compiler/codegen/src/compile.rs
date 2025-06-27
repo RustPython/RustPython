@@ -491,6 +491,10 @@ impl Compiler<'_> {
     ) -> CompileResult<()> {
         self.symbol_table_stack.push(symbol_table);
 
+        if Self::find_ann(body) {
+            emit!(self, Instruction::SetupAnnotation);
+        }
+
         if let Some((last, body)) = body.split_last() {
             for statement in body {
                 if let Stmt::Expr(StmtExpr { value, .. }) = &statement {
