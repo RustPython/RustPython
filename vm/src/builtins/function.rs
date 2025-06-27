@@ -734,7 +734,7 @@ impl PyBoundMethod {
 
 #[pyclass(
     with(Callable, Comparable, GetAttr, Constructor, Representable),
-    flags(HAS_DICT)
+    flags(IMMUTABLETYPE)
 )]
 impl PyBoundMethod {
     #[pymethod]

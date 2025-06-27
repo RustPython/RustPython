@@ -276,8 +276,6 @@ class InstancemethodAttrTest(FuncAttrsTest):
         self.assertEqual(self.fi.a.__self__, self.fi)
         self.cannot_set_attr(self.fi.a, "__self__", self.fi, AttributeError)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test___func___non_method(self):
         # Behavior should be the same when a method is added via an attr
         # assignment
@@ -331,8 +329,6 @@ class FunctionDictsTest(FuncAttrsTest):
         d = UserDict({'known_attr': 7})
         self.cannot_set_attr(self.fi.a.__func__, '__dict__', d, TypeError)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setting_dict_to_valid(self):
         d = {'known_attr': 7}
         self.b.__dict__ = d
