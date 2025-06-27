@@ -118,6 +118,7 @@ pub struct Frame {
 }
 
 impl PyPayload for Frame {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.frame_type
     }

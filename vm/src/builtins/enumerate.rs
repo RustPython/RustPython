@@ -22,6 +22,7 @@ pub struct PyEnumerate {
 }
 
 impl PyPayload for PyEnumerate {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.enumerate_type
     }
@@ -92,6 +93,7 @@ pub struct PyReverseSequenceIterator {
 }
 
 impl PyPayload for PyReverseSequenceIterator {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.reverse_iter_type
     }

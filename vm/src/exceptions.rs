@@ -39,6 +39,7 @@ impl std::fmt::Debug for PyBaseException {
 }
 
 impl PyPayload for PyBaseException {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.exceptions.base_exception_type
     }

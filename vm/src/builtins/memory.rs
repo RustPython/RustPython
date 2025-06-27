@@ -1037,6 +1037,7 @@ impl Hashable for PyMemoryView {
 }
 
 impl PyPayload for PyMemoryView {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.memoryview_type
     }

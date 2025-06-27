@@ -823,6 +823,7 @@ macro_rules! dict_view {
         }
 
         impl PyPayload for $iter_name {
+            #[inline]
             fn class(ctx: &Context) -> &'static Py<PyType> {
                 ctx.types.$iter_class
             }
@@ -896,6 +897,7 @@ macro_rules! dict_view {
         }
 
         impl PyPayload for $reverse_iter_name {
+            #[inline]
             fn class(ctx: &Context) -> &'static Py<PyType> {
                 ctx.types.$reverse_iter_class
             }

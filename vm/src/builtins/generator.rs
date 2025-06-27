@@ -20,6 +20,7 @@ pub struct PyGenerator {
 }
 
 impl PyPayload for PyGenerator {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.generator_type
     }

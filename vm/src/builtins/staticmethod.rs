@@ -14,6 +14,7 @@ pub struct PyStaticMethod {
 }
 
 impl PyPayload for PyStaticMethod {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.staticmethod_type
     }

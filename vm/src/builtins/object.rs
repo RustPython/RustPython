@@ -22,6 +22,7 @@ use itertools::Itertools;
 pub struct PyBaseObject;
 
 impl PyPayload for PyBaseObject {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.object_type
     }

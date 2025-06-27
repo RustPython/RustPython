@@ -884,6 +884,7 @@ pub struct PyByteArrayIterator {
 }
 
 impl PyPayload for PyByteArrayIterator {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.bytearray_iterator_type
     }

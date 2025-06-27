@@ -78,6 +78,7 @@ impl AsRef<[u8]> for PyBytesRef {
 }
 
 impl PyPayload for PyBytes {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.bytes_type
     }
@@ -683,6 +684,7 @@ pub struct PyBytesIterator {
 }
 
 impl PyPayload for PyBytesIterator {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.bytes_iterator_type
     }

@@ -81,6 +81,7 @@ impl PyObjectRef {
 pub struct PyBool;
 
 impl PyPayload for PyBool {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.bool_type
     }

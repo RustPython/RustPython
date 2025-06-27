@@ -41,6 +41,7 @@ impl From<PyObjectRef> for PyClassMethod {
 }
 
 impl PyPayload for PyClassMethod {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.classmethod_type
     }

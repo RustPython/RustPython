@@ -37,6 +37,7 @@ impl fmt::Debug for PyTuple {
 }
 
 impl PyPayload for PyTuple {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.tuple_type
     }

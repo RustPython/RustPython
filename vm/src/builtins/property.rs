@@ -25,6 +25,7 @@ pub struct PyProperty {
 }
 
 impl PyPayload for PyProperty {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.property_type
     }

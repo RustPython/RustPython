@@ -14,6 +14,7 @@ pub struct PyFilter {
 }
 
 impl PyPayload for PyFilter {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.filter_type
     }

@@ -39,6 +39,7 @@ impl std::fmt::Debug for PyGetSet {
 }
 
 impl PyPayload for PyGetSet {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.getset_type
     }

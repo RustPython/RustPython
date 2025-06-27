@@ -38,6 +38,7 @@ impl PySuperInner {
 }
 
 impl PyPayload for PySuper {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.super_type
     }

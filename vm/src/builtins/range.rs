@@ -68,6 +68,7 @@ pub struct PyRange {
 }
 
 impl PyPayload for PyRange {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.range_type
     }
@@ -533,6 +534,7 @@ pub struct PyLongRangeIterator {
 }
 
 impl PyPayload for PyLongRangeIterator {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.long_range_iterator_type
     }
@@ -598,6 +600,7 @@ pub struct PyRangeIterator {
 }
 
 impl PyPayload for PyRangeIterator {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.range_iterator_type
     }

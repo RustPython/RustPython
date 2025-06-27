@@ -28,6 +28,7 @@ impl fmt::Debug for PyUnion {
 }
 
 impl PyPayload for PyUnion {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.union_type
     }
