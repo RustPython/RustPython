@@ -910,7 +910,7 @@ impl Constructor for PyType {
             vm.ctx
                 .new_getset(
                     "__dict__",
-                    vm.ctx.types.object_type,
+                    vm.ctx.types.type_type,
                     subtype_get_dict,
                     subtype_set_dict,
                 )
