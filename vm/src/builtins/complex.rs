@@ -34,6 +34,7 @@ impl PyComplex {
 }
 
 impl PyPayload for PyComplex {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.complex_type
     }

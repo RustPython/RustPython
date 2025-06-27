@@ -16,6 +16,7 @@ pub struct PyMap {
 }
 
 impl PyPayload for PyMap {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.map_type
     }

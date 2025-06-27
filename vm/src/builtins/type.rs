@@ -137,6 +137,7 @@ impl fmt::Debug for PyType {
 }
 
 impl PyPayload for PyType {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.type_type
     }

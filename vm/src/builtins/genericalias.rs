@@ -49,6 +49,7 @@ impl fmt::Debug for PyGenericAlias {
 }
 
 impl PyPayload for PyGenericAlias {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.generic_alias_type
     }

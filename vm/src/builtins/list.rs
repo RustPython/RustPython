@@ -50,6 +50,7 @@ impl FromIterator<PyObjectRef> for PyList {
 }
 
 impl PyPayload for PyList {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.list_type
     }
@@ -538,6 +539,7 @@ pub struct PyListIterator {
 }
 
 impl PyPayload for PyListIterator {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.list_iterator_type
     }
@@ -583,6 +585,7 @@ pub struct PyListReverseIterator {
 }
 
 impl PyPayload for PyListReverseIterator {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.list_reverseiterator_type
     }

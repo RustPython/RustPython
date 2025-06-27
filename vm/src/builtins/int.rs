@@ -48,6 +48,7 @@ where
 }
 
 impl PyPayload for PyInt {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.int_type
     }

@@ -54,6 +54,7 @@ pub struct PyModule {
 }
 
 impl PyPayload for PyModule {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.module_type
     }

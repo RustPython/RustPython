@@ -20,6 +20,7 @@ pub struct PyWeakProxy {
 }
 
 impl PyPayload for PyWeakProxy {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.weakproxy_type
     }

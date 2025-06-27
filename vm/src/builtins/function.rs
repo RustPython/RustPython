@@ -376,6 +376,7 @@ impl PyFunction {
 }
 
 impl PyPayload for PyFunction {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.function_type
     }
@@ -791,6 +792,7 @@ impl PyBoundMethod {
 }
 
 impl PyPayload for PyBoundMethod {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.bound_method_type
     }
@@ -823,6 +825,7 @@ pub(crate) struct PyCell {
 pub(crate) type PyCellRef = PyRef<PyCell>;
 
 impl PyPayload for PyCell {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.cell_type
     }

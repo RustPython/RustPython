@@ -153,12 +153,14 @@ impl fmt::Debug for PyFrozenSet {
 }
 
 impl PyPayload for PySet {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.set_type
     }
 }
 
 impl PyPayload for PyFrozenSet {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.frozenset_type
     }
@@ -1295,6 +1297,7 @@ impl fmt::Debug for PySetIterator {
 }
 
 impl PyPayload for PySetIterator {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.set_iterator_type
     }

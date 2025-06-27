@@ -12,6 +12,7 @@ use crate::{
 pub struct PyNone;
 
 impl PyPayload for PyNone {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.none_type
     }
@@ -77,6 +78,7 @@ impl AsNumber for PyNone {
 pub struct PyNotImplemented;
 
 impl PyPayload for PyNotImplemented {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.not_implemented_type
     }

@@ -1592,6 +1592,7 @@ pub(crate) fn encode_string(
 }
 
 impl PyPayload for PyStr {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.str_type
     }

@@ -21,6 +21,7 @@ pub struct PyAsyncGen {
 type PyAsyncGenRef = PyRef<PyAsyncGen>;
 
 impl PyPayload for PyAsyncGen {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.async_generator
     }
@@ -141,6 +142,7 @@ impl Unconstructible for PyAsyncGen {}
 #[derive(Debug)]
 pub(crate) struct PyAsyncGenWrappedValue(pub PyObjectRef);
 impl PyPayload for PyAsyncGenWrappedValue {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.async_generator_wrapped_value
     }
@@ -190,6 +192,7 @@ pub(crate) struct PyAsyncGenASend {
 }
 
 impl PyPayload for PyAsyncGenASend {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.async_generator_asend
     }
@@ -283,6 +286,7 @@ pub(crate) struct PyAsyncGenAThrow {
 }
 
 impl PyPayload for PyAsyncGenAThrow {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.async_generator_athrow
     }
