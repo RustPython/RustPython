@@ -220,6 +220,8 @@ def _should_unflatten_callable_args(typ, args):
         >>> P = ParamSpec('P')
         >>> collections.abc.Callable[[int, int], str].__args__ == (int, int, str)
         True
+        >>> collections.abc.Callable[P, str].__args__ == (P, str)
+        True
 
     As a result, if we need to reconstruct the Callable from its __args__,
     we need to unflatten it.
@@ -263,6 +265,8 @@ def _collect_type_parameters(args, *, enforce_default_ordering: bool = True):
 
         >>> P = ParamSpec('P')
         >>> T = TypeVar('T')
+        >>> _collect_type_parameters((T, Callable[P, T]))
+        (~T, ~P)
     """
     # required type parameter cannot appear after parameter with default
     default_encountered = False
@@ -2090,11 +2094,11 @@ class _ProtocolMeta(ABCMeta):
                 and cls.__dict__.get("__subclasshook__") is _proto_hook
             ):
                 _type_check_issubclass_arg_1(other)
-                # non_method_attrs = sorted(cls.__non_callable_proto_members__)
-                # raise TypeError(
-                #     "Protocols with non-method members don't support issubclass()."
-                #     f" Non-method members: {str(non_method_attrs)[1:-1]}."
-                # )
+                non_method_attrs = sorted(cls.__non_callable_proto_members__)
+                raise TypeError(
+                    "Protocols with non-method members don't support issubclass()."
+                    f" Non-method members: {str(non_method_attrs)[1:-1]}."
+                )
         return _abc_subclasscheck(cls, other)
 
     def __instancecheck__(cls, instance):
@@ -2526,6 +2530,18 @@ def get_origin(tp):
 
     This supports generic types, Callable, Tuple, Union, Literal, Final, ClassVar,
     Annotated, and others. Return None for unsupported types.
+
+    Examples::
+
+        >>> P = ParamSpec('P')
+        >>> assert get_origin(Literal[42]) is Literal
+        >>> assert get_origin(int) is None
+        >>> assert get_origin(ClassVar[int]) is ClassVar
+        >>> assert get_origin(Generic) is Generic
+        >>> assert get_origin(Generic[T]) is Generic
+        >>> assert get_origin(Union[T, int]) is Union
+        >>> assert get_origin(List[Tuple[T, T]][int]) is list
+        >>> assert get_origin(P.args) is P
     """
     if isinstance(tp, _AnnotatedAlias):
         return Annotated
@@ -2548,6 +2564,10 @@ def get_args(tp):
 
         >>> T = TypeVar('T')
         >>> assert get_args(Dict[str, int]) == (str, int)
+        >>> assert get_args(int) == ()
+        >>> assert get_args(Union[int, Union[T, int], str][int]) == (int, str)
+        >>> assert get_args(Union[int, Tuple[T, int]][str]) == (int, Tuple[str, int])
+        >>> assert get_args(Callable[[], T][int]) == ([], int)
     """
     if isinstance(tp, _AnnotatedAlias):
         return (tp.__origin__,) + tp.__metadata__
@@ -3225,6 +3245,18 @@ def TypedDict(typename, fields=_sentinel, /, *, total=True):
     associated with a value of a consistent type. This expectation
     is not checked at runtime.
 
+    Usage::
+
+        >>> class Point2D(TypedDict):
+        ...     x: int
+        ...     y: int
+        ...     label: str
+        ...
+        >>> a: Point2D = {'x': 1, 'y': 2, 'label': 'good'}  # OK
+        >>> b: Point2D = {'z': 3, 'label': 'bad'}           # Fails type check
+        >>> Point2D(x=1, y=2, label='first') == dict(x=1, y=2, label='first')
+        True
+
     The type info can be accessed via the Point2D.__annotations__ dict, and
     the Point2D.__required_keys__ and Point2D.__optional_keys__ frozensets.
     TypedDict supports an additional equivalent form::
@@ -3680,44 +3712,43 @@ def dataclass_transform(
         return cls_or_fn
     return decorator
 
-# TODO: RUSTPYTHON
 
-# type _Func = Callable[..., Any]
+type _Func = Callable[..., Any]
 
 
-# def override[F: _Func](method: F, /) -> F:
-#     """Indicate that a method is intended to override a method in a base class.
-#
-#     Usage::
-#
-#         class Base:
-#             def method(self) -> None:
-#                 pass
-#
-#         class Child(Base):
-#             @override
-#             def method(self) -> None:
-#                 super().method()
-#
-#     When this decorator is applied to a method, the type checker will
-#     validate that it overrides a method or attribute with the same name on a
-#     base class.  This helps prevent bugs that may occur when a base class is
-#     changed without an equivalent change to a child class.
-#
-#     There is no runtime checking of this property. The decorator attempts to
-#     set the ``__override__`` attribute to ``True`` on the decorated object to
-#     allow runtime introspection.
-#
-#     See PEP 698 for details.
-#     """
-#     try:
-#         method.__override__ = True
-#     except (AttributeError, TypeError):
-#         # Skip the attribute silently if it is not writable.
-#         # AttributeError happens if the object has __slots__ or a
-#         # read-only property, TypeError if it's a builtin class.
-#         pass
-#     return method
+def override[F: _Func](method: F, /) -> F:
+    """Indicate that a method is intended to override a method in a base class.
+
+    Usage::
+
+        class Base:
+            def method(self) -> None:
+                pass
+
+        class Child(Base):
+            @override
+            def method(self) -> None:
+                super().method()
+
+    When this decorator is applied to a method, the type checker will
+    validate that it overrides a method or attribute with the same name on a
+    base class.  This helps prevent bugs that may occur when a base class is
+    changed without an equivalent change to a child class.
+
+    There is no runtime checking of this property. The decorator attempts to
+    set the ``__override__`` attribute to ``True`` on the decorated object to
+    allow runtime introspection.
+
+    See PEP 698 for details.
+    """
+    try:
+        method.__override__ = True
+    except (AttributeError, TypeError):
+        # Skip the attribute silently if it is not writable.
+        # AttributeError happens if the object has __slots__ or a
+        # read-only property, TypeError if it's a builtin class.
+        pass
+    return method
 
 
 def is_protocol(tp: type, /) -> bool:
@@ -3740,8 +3771,19 @@ def is_protocol(tp: type, /) -> bool:
         and tp != Protocol
     )
 
+
 def get_protocol_members(tp: type, /) -> frozenset[str]:
     """Return the set of members defined in a Protocol.
+
+    Example::
+
+        >>> from typing import Protocol, get_protocol_members
+        >>> class P(Protocol):
+        ...     def a(self) -> str: ...
+        ...     b: int
+        >>> get_protocol_members(P) == frozenset({'a', 'b'})
+        True
+
     Raise a TypeError for arguments that are not Protocols.
     """
     if not is_protocol(tp):
