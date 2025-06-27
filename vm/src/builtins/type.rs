@@ -225,6 +225,10 @@ impl PyType {
             }
         }
 
+        if !slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            slots.flags |= PyTypeFlags::IMMUTABLETYPE
+        }
+
         let new_type = PyRef::new_ref(
             PyType {
                 base: Some(base),
@@ -1225,6 +1229,14 @@ impl SetAttr for PyType {
         value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        if zelf.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+            return Err(vm.new_type_error(format!(
+                "cannot set '{}' attribute of immutable type '{}'",
+                attr_name,
+                zelf.name()
+            )));
+        }
+
         // TODO: pass PyRefExact instead of &str
         let attr_name = vm.ctx.intern_str(attr_name.as_str());
         if let Some(attr) = zelf.get_class_attr(attr_name) {
