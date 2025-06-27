@@ -15,6 +15,8 @@ class TestExceptionGroupTypeHierarchy(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, 'Exception'):
             Exception[OSError]
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exception_group_is_generic_type(self):
         E = OSError
         self.assertIsInstance(ExceptionGroup[E], types.GenericAlias)

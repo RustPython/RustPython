@@ -538,8 +538,6 @@ class TypeVarTests(BaseTestCase):
         self.assertEqual(subst(int|str), int|str)
         self.assertEqual(subst(Union[int, str]), Union[int, str])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bad_var_substitution(self):
         T = TypeVar('T')
         bad_args = (
@@ -717,8 +715,6 @@ class TypeParameterDefaultsTests(BaseTestCase):
         with self.assertRaises(TypeError):
             class Y(Generic[*Ts_default, T]): ...
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_allow_default_after_non_default_in_alias(self):
         T_default = TypeVar('T_default', default=int)
         T = TypeVar('T')
@@ -736,8 +732,6 @@ class TypeParameterDefaultsTests(BaseTestCase):
         a4 = Callable[*Ts, T]
         self.assertEqual(a4.__args__, (*Ts, T))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_paramspec_specialization(self):
         T = TypeVar("T")
         P = ParamSpec('P', default=[str, int])
@@ -785,8 +779,6 @@ class TypeParameterDefaultsTests(BaseTestCase):
         self.assertIs(Ts.__default__, NoDefault)
         self.assertFalse(Ts.has_default())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_default_after_non_default(self):
         DefaultStrT = TypeVar('DefaultStrT', default=str)
         T = TypeVar('T')
@@ -796,8 +788,6 @@ class TypeParameterDefaultsTests(BaseTestCase):
         ):
             Test = Generic[DefaultStrT, T]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_need_more_params(self):
         DefaultStrT = TypeVar('DefaultStrT', default=str)
         T = TypeVar('T')
@@ -1241,9 +1231,8 @@ class UnpackTests(BaseTestCase):
     def test_builtin_tuple(self):
         Ts = TypeVarTuple("Ts")
 
-        # TODO: RUSTPYTHON 
-        # class Old(Generic[*Ts]): ...
-        # class New[*Ts]: ...
+        class Old(Generic[*Ts]): ...
+        class New[*Ts]: ...
 
         PartOld = Old[int, *Ts]
         self.assertEqual(PartOld[str].__args__, (int, str))
@@ -1307,8 +1296,6 @@ class TypeVarTupleTests(BaseTestCase):
         with self.assertRaises(TypeError):
             Ts()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unpacked_typevartuple_is_equal_to_itself(self):
         Ts = TypeVarTuple('Ts')
         self.assertEqual((*Ts,)[0], (*Ts,)[0])
@@ -1319,8 +1306,6 @@ class TypeVarTupleTests(BaseTestCase):
         # self.assertEqual(tuple[*Ts], tuple[*Ts])
         self.assertEqual(Tuple[Unpack[Ts]], Tuple[Unpack[Ts]])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def tests_tuple_arg_ordering_matters(self):
         Ts1 = TypeVarTuple('Ts1')
         Ts2 = TypeVarTuple('Ts2')
@@ -1639,7 +1624,7 @@ class TypeVarTupleTests(BaseTestCase):
     def test_variadic_class_origin_is_correct(self):
         Ts = TypeVarTuple('Ts')
 
-        # class C(Generic[*Ts]): pass
+        class C(Generic[*Ts]): pass
         self.assertIs(C[int].__origin__, C)
         self.assertIs(C[T].__origin__, C)
         self.assertIs(C[Unpack[Ts]].__origin__, C)
@@ -1682,8 +1667,6 @@ class TypeVarTupleTests(BaseTestCase):
         #                  {'args': Unpack[CustomVariadic[int, str]]})
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_tuple_args_are_correct(self):
         Ts = TypeVarTuple('Ts')
 
@@ -1704,8 +1687,6 @@ class TypeVarTupleTests(BaseTestCase):
         self.assertEqual(tuple[*Ts, int].__args__, (*Ts, int))
         self.assertEqual(Tuple[Unpack[Ts]].__args__, (Unpack[Ts],))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_callable_args_are_correct(self):
         Ts = TypeVarTuple('Ts')
         Ts1 = TypeVarTuple('Ts1')
@@ -1767,8 +1748,6 @@ class TypeVarTupleTests(BaseTestCase):
         self.assertEqual(s.__args__, (*Ts1, *Ts2))
         self.assertEqual(u.__args__, (Unpack[Ts1], Unpack[Ts2]))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_variadic_class_with_duplicate_typevartuples_fails(self):
         Ts1 = TypeVarTuple('Ts1')
         Ts2 = TypeVarTuple('Ts2')
@@ -1783,8 +1762,6 @@ class TypeVarTupleTests(BaseTestCase):
         with self.assertRaises(TypeError):
             class F(Generic[Unpack[Ts1], Unpack[Ts2], Unpack[Ts1]]): pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_type_concatenation_in_variadic_class_argument_list_succeeds(self):
         Ts = TypeVarTuple('Ts')
         class C(Generic[Unpack[Ts]]): pass
@@ -1801,8 +1778,6 @@ class TypeVarTupleTests(BaseTestCase):
         C[int, bool, *Ts, float, str]
         C[int, bool, Unpack[Ts], float, str]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_type_concatenation_in_tuple_argument_list_succeeds(self):
         Ts = TypeVarTuple('Ts')
 
@@ -1816,15 +1791,11 @@ class TypeVarTupleTests(BaseTestCase):
         Tuple[int, Unpack[Ts], str]
         Tuple[int, bool, Unpack[Ts], float, str]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_variadic_class_definition_using_packed_typevartuple_fails(self):
         Ts = TypeVarTuple('Ts')
         with self.assertRaises(TypeError):
             class C(Generic[Ts]): pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_variadic_class_definition_using_concrete_types_fails(self):
         Ts = TypeVarTuple('Ts')
         with self.assertRaises(TypeError):
@@ -1832,8 +1803,6 @@ class TypeVarTupleTests(BaseTestCase):
         with self.assertRaises(TypeError):
             class E(Generic[Unpack[Ts], int]): pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_variadic_class_with_2_typevars_accepts_2_or_more_args(self):
         Ts = TypeVarTuple('Ts')
         T1 = TypeVar('T1')
@@ -2037,8 +2006,6 @@ class TypeVarTuplePicklingTests(BaseTestCase):
         global_Ts2 = pickle.loads(pickle.dumps(global_Ts1, proto))
         self.assertIs(global_Ts1, global_Ts2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @all_pickle_protocols
     def test_pickling_then_unpickling_unpacked_results_in_same_identity(self, proto):
         global global_Ts  # See explanation at start of class.
@@ -2052,8 +2019,6 @@ class TypeVarTuplePicklingTests(BaseTestCase):
         unpacked4 = pickle.loads(pickle.dumps(unpacked3, proto))
         self.assertIs(unpacked3, unpacked4)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @all_pickle_protocols
     def test_pickling_then_unpickling_tuple_with_typevartuple_equality(
             self, proto
@@ -2221,8 +2186,6 @@ class UnionTests(BaseTestCase):
         with self.assertRaises(TypeError):
             hash(union3)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr(self):
         self.assertEqual(repr(Union), 'typing.Union')
         u = Union[Employee, int]
@@ -2390,8 +2353,6 @@ class TupleTests(BaseTestCase):
             isinstance((0, 0), Tuple[int, int])
         self.assertIsInstance((0, 0), Tuple)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr(self):
         self.assertEqual(repr(Tuple), 'typing.Tuple')
         self.assertEqual(repr(Tuple[()]), 'typing.Tuple[()]')
@@ -2473,8 +2434,6 @@ class BaseCallableTests:
         with self.assertRaises(TypeError):
             isinstance(None, Callable[[], Any])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr(self):
         Callable = self.Callable
         fullname = f'{Callable.__module__}.Callable'
@@ -2487,7 +2446,6 @@ class BaseCallableTests:
         ct3 = Callable[[str, float], list[int]]
         self.assertEqual(repr(ct3), f'{fullname}[[str, float], list[int]]')
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_callable_with_ellipsis(self):
         Callable = self.Callable
         def foo(a: Callable[..., T]):
@@ -2520,8 +2478,6 @@ class BaseCallableTests:
         alias = Callable[[int, str], float]
         self.assertEqual(weakref.ref(alias)(), alias)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         global T_pickle, P_pickle, TS_pickle  # needed for pickling
         Callable = self.Callable
@@ -2547,8 +2503,6 @@ class BaseCallableTests:
 
         del T_pickle, P_pickle, TS_pickle  # cleaning up global state
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_var_substitution(self):
         Callable = self.Callable
         fullname = f"{Callable.__module__}.Callable"
@@ -3202,8 +3156,6 @@ class ProtocolTests(BaseTestCase):
         self.assertIsInstance(C(), P)
         self.assertIsSubclass(C, P)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_protocols_issubclass(self):
         T = TypeVar('T')
 
@@ -3552,8 +3504,6 @@ class ProtocolTests(BaseTestCase):
 
 class GenericTests(BaseTestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basics(self):
         X = SimpleMapping[str, Any]
         self.assertEqual(X.__parameters__, ())
@@ -3573,8 +3523,6 @@ class GenericTests(BaseTestCase):
         T = TypeVar("T")
         self.assertEqual(List[list[T] | float].__parameters__, (T,))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generic_errors(self):
         T = TypeVar('T')
         S = TypeVar('S')
@@ -3600,8 +3548,6 @@ class GenericTests(BaseTestCase):
         with self.assertRaises(TypeError):
             D[()]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generic_subclass_checks(self):
         for typ in [list[int], List[int],
                     tuple[int, str], Tuple[int, str],
@@ -3618,8 +3564,6 @@ class GenericTests(BaseTestCase):
                 # but, not when the right arg is also a generic:
                 self.assertRaises(TypeError, isinstance, typ, typ)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_init(self):
         T = TypeVar('T')
         S = TypeVar('S')
@@ -3740,8 +3684,6 @@ class GenericTests(BaseTestCase):
         # returned by the `Immutable[int]()` call
         self.assertIsInstance(Immutable[int](), Immutable)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subscripted_generics_as_proxies(self):
         T = TypeVar('T')
         class C(Generic[T]):
@@ -3851,8 +3793,6 @@ class GenericTests(BaseTestCase):
         self.assertTrue(naive_list_base_check([1, 2, 3], C))
         self.assertFalse(naive_list_base_check(['a', 'b'], C))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_multi_subscr_base(self):
         T = TypeVar('T')
         U = TypeVar('U')
@@ -3948,8 +3888,6 @@ class GenericTests(BaseTestCase):
         self.assertEqual(repr(Callable[[], List[T]][int]).replace('typing.', ''),
                          'Callable[[], List[int]]')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generic_forward_ref(self):
         def foobar(x: List[List['CC']]): ...
         def foobar2(x: list[list[ForwardRef('CC')]]): ...
@@ -4046,8 +3984,6 @@ class GenericTests(BaseTestCase):
             set(ann_module695.C.__type_params__)
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pep_695_generic_function_with_future_annotations(self):
         hints_for_generic_function = get_type_hints(ann_module695.generic_function)
         func_t_params = ann_module695.generic_function.__type_params__
@@ -4109,8 +4045,6 @@ class GenericTests(BaseTestCase):
             set(results.generic_func.__type_params__)
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_extended_generic_rules_subclassing(self):
         class T1(Tuple[T, KT]): ...
         class T2(Tuple[T, ...]): ...
@@ -4148,8 +4082,6 @@ class GenericTests(BaseTestCase):
         with self.assertRaises(TypeError):
             List[ClassVar[int]]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_fail_with_bare_generic(self):
         T = TypeVar('T')
         with self.assertRaises(TypeError):
@@ -4354,8 +4286,6 @@ class GenericTests(BaseTestCase):
         with self.assertRaises(AttributeError):
             d_int.foobar = 'no'
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_errors(self):
         with self.assertRaises(TypeError):
             B = SimpleMapping[XK, Any]
@@ -4513,8 +4443,6 @@ class GenericTests(BaseTestCase):
             (A, collections.abc.Sized, Generic, list, object),
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_multiple_inheritance_with_genericalias_2(self):
         T = TypeVar("T")
 
@@ -4611,8 +4539,6 @@ class GenericTests(BaseTestCase):
 
         foo(42)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_implicit_any(self):
         T = TypeVar('T')
 
@@ -4838,8 +4764,6 @@ class FinalTests(BaseTestCase):
         with self.assertRaises(TypeError):
             Optional[Final[int]]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr(self):
         self.assertEqual(repr(Final), 'typing.Final')
         cv = Final[int]
@@ -5138,8 +5062,6 @@ class NoTypeCheck_WithFunction:
 
 
 class ForwardRefTests(BaseTestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basics(self):
 
         class Node(Generic[T]):
@@ -5270,8 +5192,6 @@ class ForwardRefTests(BaseTestCase):
         self.assertEqual(repr(List[ForwardRef('int', module='mod')]),
                          "typing.List[ForwardRef('int', module='mod')]")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_union_forward(self):
 
         def foo(a: Union['T']):
@@ -5286,8 +5206,6 @@ class ForwardRefTests(BaseTestCase):
         self.assertEqual(get_type_hints(foo, globals(), locals()),
                          {'a': tuple[T] | int})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_tuple_forward(self):
 
         def foo(a: Tuple['T']):
@@ -5404,8 +5322,6 @@ class ForwardRefTests(BaseTestCase):
         with self.assertRaises(TypeError):
             get_type_hints(CF, globals()),
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_syntax_error(self):
 
         with self.assertRaises(SyntaxError):
@@ -5627,8 +5543,6 @@ class ForwardRefTests(BaseTestCase):
 
 
 class InternalsTests(BaseTestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_deprecation_for_no_type_params_passed_to__evaluate(self):
         with self.assertWarnsRegex(
             DeprecationWarning,
@@ -6044,8 +5958,6 @@ class GetTypeHintTests(BaseTestCase):
         self.assertEqual(gth(ForRefExample.func), expects)
         self.assertEqual(gth(ForRefExample.nested), expects)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_type_hints_annotated(self):
         def foobar(x: List['X']): ...
         X = Annotated[int, (1, 10)]
@@ -6109,8 +6021,6 @@ class GetTypeHintTests(BaseTestCase):
             {"x": typing.Annotated[int | float, "const"]}
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_type_hints_annotated_in_union(self):  # bpo-46603
         def with_union(x: int | list[Annotated[str, 'meta']]): ...
 
@@ -6120,8 +6030,6 @@ class GetTypeHintTests(BaseTestCase):
             {'x': int | list[Annotated[str, 'meta']]},
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_type_hints_annotated_refs(self):
 
         Const = Annotated[T, "Const"]
@@ -6251,8 +6159,6 @@ class GetTypeHintTests(BaseTestCase):
             "year": NotRequired[Annotated[int, 2000]]
         })
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_type_hints_collections_abc_callable(self):
         # https://github.com/python/cpython/issues/91621
         P = ParamSpec('P')
@@ -6267,8 +6173,6 @@ class GetTypeHintTests(BaseTestCase):
 
 
 class GetUtilitiesTestCase(TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_origin(self):
         T = TypeVar('T')
         Ts = TypeVarTuple('Ts')
@@ -6498,8 +6402,6 @@ class CollectionsAbcTests(BaseTestCase):
     def test_dict(self):
         self.assertIsSubclass(dict, typing.Dict)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dict_subscribe(self):
         K = TypeVar('K')
         V = TypeVar('V')
@@ -6704,8 +6606,6 @@ class CollectionsAbcTests(BaseTestCase):
         with self.assertRaises(TypeError):
             typing.AsyncGenerator[int, int]()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subclassing(self):
 
         class MMA(typing.MutableMapping):
@@ -7124,8 +7024,6 @@ class NamedTupleTests(BaseTestCase):
             class C(NamedTuple, B):
                 y: str
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generic(self):
         class X(NamedTuple, Generic[T]):
             x: T
@@ -7734,8 +7632,6 @@ class TypedDictTests(BaseTestCase):
                     class Wrong(*bases):
                         pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_is_typeddict(self):
         self.assertIs(is_typeddict(Point2D), True)
         self.assertIs(is_typeddict(Union[str, int]), False)
@@ -7882,8 +7778,6 @@ class TypedDictTests(BaseTestCase):
             class Point3D(Point2DGeneric[T], Generic[KT]):
                 c: KT
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_implicit_any_inheritance(self):
         class A(TypedDict, Generic[T]):
             a: T
@@ -8165,8 +8059,6 @@ class NotRequiredTests(BaseTestCase):
 
 class IOTests(BaseTestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_io(self):
 
         def stuff(a: IO) -> AnyStr:
@@ -8175,8 +8067,6 @@ class IOTests(BaseTestCase):
         a = stuff.__annotations__['a']
         self.assertEqual(a.__parameters__, (AnyStr,))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_textio(self):
 
         def stuff(a: TextIO) -> str:
@@ -8185,8 +8075,6 @@ class IOTests(BaseTestCase):
         a = stuff.__annotations__['a']
         self.assertEqual(a.__parameters__, ())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_binaryio(self):
 
         def stuff(a: BinaryIO) -> bytes:
@@ -8506,8 +8394,6 @@ class AnnotatedTests(BaseTestCase):
         with self.assertRaisesRegex(TypeError, 'at least two arguments'):
             Annotated[int]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         samples = [typing.Any, typing.Union[int, str],
                    typing.Optional[str], Tuple[int, ...],
@@ -8792,8 +8678,6 @@ class ParamSpecTests(BaseTestCase):
         self.assertEqual(P.__name__, 'P')
         self.assertIs(P.__module__, None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_valid_uses(self):
         P = ParamSpec('P')
         T = TypeVar('T')
@@ -8847,8 +8731,6 @@ class ParamSpecTests(BaseTestCase):
             gth(C.foo, globals(), locals()), {"args": P.args, "kwargs": P.kwargs}
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_user_generics(self):
         T = TypeVar("T")
         P = ParamSpec("P")
@@ -8903,8 +8785,6 @@ class ParamSpecTests(BaseTestCase):
         with self.assertRaisesRegex(TypeError, "many arguments for"):
             Z[P_2, bool]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_multiple_paramspecs_in_user_generics(self):
         P = ParamSpec("P")
         P2 = ParamSpec("P2")
@@ -9270,8 +9150,6 @@ class TypeGuardTests(BaseTestCase):
         with self.assertRaises(TypeError):
             TypeGuard[int, str]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr(self):
         self.assertEqual(repr(TypeGuard), 'typing.TypeGuard')
         cv = TypeGuard[int]
@@ -9322,8 +9200,6 @@ class TypeIsTests(BaseTestCase):
         with self.assertRaises(TypeError):
             TypeIs[int, str]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr(self):
         self.assertEqual(repr(TypeIs), 'typing.TypeIs')
         cv = TypeIs[int]
@@ -9553,8 +9429,6 @@ class SpecialAttrsTests(BaseTestCase):
             loaded = pickle.loads(s)
             self.assertIs(SpecialAttrsP, loaded)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_genericalias_dir(self):
         class Foo(Generic[T]):
             def bar(self):
