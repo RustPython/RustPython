@@ -18,7 +18,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 
 macro_rules! create_property {
     ($ctx: expr, $attributes: expr, $name: expr, $class: expr, $element: ident) => {
-        let attr = $ctx.new_getset(
+        let attr = $ctx.new_static_getset(
             $name,
             $class,
             move |this: &PyExpatLikeXmlParser| this.$element.read().clone(),

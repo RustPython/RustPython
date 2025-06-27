@@ -85,7 +85,7 @@ pub trait PyClassImpl: PyClassDef {
             let __dict__ = identifier!(ctx, __dict__);
             class.set_attr(
                 __dict__,
-                ctx.new_getset(
+                ctx.new_static_getset(
                     "__dict__",
                     class,
                     crate::builtins::object::object_get_dict,
