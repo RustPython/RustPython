@@ -171,11 +171,11 @@ pub(crate) mod decl {
         fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
             let name = zelf.name.str(vm)?;
             let repr = if zelf.covariant {
-                format!("+{}", name)
+                format!("+{name}")
             } else if zelf.contravariant {
-                format!("-{}", name)
+                format!("-{name}")
             } else {
-                format!("~{}", name)
+                format!("~{name}")
             };
             Ok(repr)
         }
@@ -738,7 +738,7 @@ pub(crate) mod decl {
         #[inline(always)]
         fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
             let name = zelf.name.str(vm)?;
-            Ok(format!("*{}", name))
+            Ok(format!("*{name}"))
         }
     }
 
@@ -785,7 +785,7 @@ pub(crate) mod decl {
         fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
             // Check if origin is a ParamSpec
             if let Ok(name) = zelf.__origin__.get_attr("__name__", vm) {
-                return Ok(format!("{}.args", name.str(vm)?));
+                return Ok(format!("{name}.args", name = name.str(vm)?));
             }
             Ok(format!("{:?}.args", zelf.__origin__))
         }
@@ -864,7 +864,7 @@ pub(crate) mod decl {
         fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
             // Check if origin is a ParamSpec
             if let Ok(name) = zelf.__origin__.get_attr("__name__", vm) {
-                return Ok(format!("{}.kwargs", name.str(vm)?));
+                return Ok(format!("{name}.kwargs", name = name.str(vm)?));
             }
             Ok(format!("{:?}.kwargs", zelf.__origin__))
         }

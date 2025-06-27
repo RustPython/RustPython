@@ -71,7 +71,7 @@ pub fn benchmark_file_parsing(group: &mut BenchmarkGroup<WallTime>, name: &str, 
 pub fn benchmark_pystone(group: &mut BenchmarkGroup<WallTime>, contents: String) {
     // Default is 50_000. This takes a while, so reduce it to 30k.
     for idx in (10_000..=30_000).step_by(10_000) {
-        let code_with_loops = format!("LOOPS = {}\n{}", idx, contents);
+        let code_with_loops = format!("LOOPS = {idx}\n{contents}");
         let code_str = code_with_loops.as_str();
 
         group.throughput(Throughput::Elements(idx as u64));

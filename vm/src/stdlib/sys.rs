@@ -373,11 +373,10 @@ mod sys {
                 let type_name = exc_val.class().name();
                 // TODO: fix error message
                 let msg = format!(
-                    "TypeError: print_exception(): Exception expected for value, {} found\n",
-                    type_name
+                    "TypeError: print_exception(): Exception expected for value, {type_name} found\n"
                 );
                 use crate::py_io::Write;
-                write!(&mut crate::py_io::PyWriter(stderr, vm), "{}", msg)?;
+                write!(&mut crate::py_io::PyWriter(stderr, vm), "{msg}")?;
                 Ok(())
             }
         }

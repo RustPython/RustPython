@@ -41,9 +41,9 @@ fn main() {
 
 fn parse_folder(path: &Path) -> std::io::Result<Vec<ParsedFile>> {
     let mut res = vec![];
-    info!("Parsing folder of python code: {:?}", path);
+    info!("Parsing folder of python code: {path:?}");
     for entry in path.read_dir()? {
-        debug!("Entry: {:?}", entry);
+        debug!("Entry: {entry:?}");
         let entry = entry?;
         let metadata = entry.metadata()?;
 
@@ -56,7 +56,7 @@ fn parse_folder(path: &Path) -> std::io::Result<Vec<ParsedFile>> {
             let parsed_file = parse_python_file(&path);
             match &parsed_file.result {
                 Ok(_) => {}
-                Err(y) => error!("Erreur in file {:?} {:?}", path, y),
+                Err(y) => error!("Erreur in file {path:?} {y:?}"),
             }
 
             res.push(parsed_file);
@@ -66,7 +66,7 @@ fn parse_folder(path: &Path) -> std::io::Result<Vec<ParsedFile>> {
 }
 
 fn parse_python_file(filename: &Path) -> ParsedFile {
-    info!("Parsing file {:?}", filename);
+    info!("Parsing file {filename:?}");
     match std::fs::read_to_string(filename) {
         Err(e) => ParsedFile {
             num_lines: 0,

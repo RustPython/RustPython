@@ -601,7 +601,7 @@ mod array {
 
         fn try_from(ch: WideChar) -> Result<Self, Self::Error> {
             // safe because every configuration of bytes for the types we support are valid
-            u32_to_char(ch.0 as u32)
+            u32_to_char(ch.0 as _)
         }
     }
 
