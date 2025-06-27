@@ -3,18 +3,29 @@
 # --cpython: Path to cpython source code
 # --print-diff: Print the diff between the files
 # --color: Output color
-# --files: Optional globbing pattern to match files in cpython source code 
+# --files: Optional globbing pattern to match files in cpython source code
 # --checklist: output as checklist
 
 import argparse
 import difflib
 import pathlib
 
-parser = argparse.ArgumentParser(description="Find equivalent files in cpython and rustpython")
-parser.add_argument("--cpython", type=pathlib.Path, required=True, help="Path to cpython source code")
-parser.add_argument("--print-diff", action="store_true", help="Print the diff between the files")
+parser = argparse.ArgumentParser(
+    description="Find equivalent files in cpython and rustpython"
+)
+parser.add_argument(
+    "--cpython", type=pathlib.Path, required=True, help="Path to cpython source code"
+)
+parser.add_argument(
+    "--print-diff", action="store_true", help="Print the diff between the files"
+)
 parser.add_argument("--color", action="store_true", help="Output color")
-parser.add_argument("--files", type=str, default="*.py", help="Optional globbing pattern to match files in cpython source code")
+parser.add_argument(
+    "--files",
+    type=str,
+    default="*.py",
+    help="Optional globbing pattern to match files in cpython source code",
+)
 
 args = parser.parse_args()
 
@@ -27,7 +38,9 @@ if not args.cpython.is_absolute():
 
 cpython_lib = args.cpython / "Lib"
 rustpython_lib = pathlib.Path(__file__).parent.parent / "Lib"
-assert rustpython_lib.exists(), "RustPython lib directory does not exist, ensure the find_eq.py script is located in the right place"
+assert rustpython_lib.exists(), (
+    "RustPython lib directory does not exist, ensure the find_eq.py script is located in the right place"
+)
 
 # walk through the cpython lib directory
 cpython_files = []
@@ -48,7 +61,13 @@ for path in cpython_files:
             with open(rustpython_lib / path, "r") as rustpython_file:
                 rustpython_code = rustpython_file.read()
             # compare the files
-            diff = difflib.unified_diff(cpython_code.splitlines(), rustpython_code.splitlines(), lineterm="", fromfile=str(path), tofile=str(path))
+            diff = difflib.unified_diff(
+                cpython_code.splitlines(),
+                rustpython_code.splitlines(),
+                lineterm="",
+                fromfile=str(path),
+                tofile=str(path),
+            )
             # print the diff if there are differences
             diff = list(diff)
             if len(diff) > 0:
