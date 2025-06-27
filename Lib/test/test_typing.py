@@ -1436,8 +1436,6 @@ class TypeVarTupleTests(BaseTestCase):
             with self.assertRaises(TypeError):
                 C[int, Unpack[Ts], Unpack[Ts]]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr_is_correct(self):
         Ts = TypeVarTuple('Ts')
 
@@ -1555,8 +1553,6 @@ class TypeVarTupleTests(BaseTestCase):
         self.assertEndsWith(repr(K[float]), 'A[float, typing.Unpack[typing.Tuple[str, ...]]]')
         self.assertEndsWith(repr(K[float, str]), 'A[float, str, typing.Unpack[typing.Tuple[str, ...]]]')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_cannot_subclass(self):
         with self.assertRaisesRegex(TypeError, NOT_A_BASE_TYPE % 'TypeVarTuple'):
             class C(TypeVarTuple): pass
@@ -3634,8 +3630,6 @@ class GenericTests(BaseTestCase):
             'typing.List[typing.Tuple[typing.List[int], typing.List[int]]]'
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_new_repr_bare(self):
         T = TypeVar('T')
         self.assertEqual(repr(Generic[T]), 'typing.Generic[~T]')
@@ -4300,8 +4294,6 @@ class GenericTests(BaseTestCase):
         self.assertEqual(Y.__qualname__,
                          'GenericTests.test_repr_2.<locals>.Y')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr_3(self):
         T = TypeVar('T')
         T1 = TypeVar('T1')
