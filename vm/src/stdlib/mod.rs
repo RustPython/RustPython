@@ -14,6 +14,7 @@ mod operator;
 // TODO: maybe make this an extension module, if we ever get those
 // mod re;
 mod sre;
+mod stat;
 mod string;
 #[cfg(feature = "compiler")]
 mod symtable;
@@ -89,6 +90,7 @@ pub fn get_module_inits() -> StdlibMap {
             "_operator" => operator::make_module,
             "_signal" => signal::make_module,
             "_sre" => sre::make_module,
+            "_stat" => stat::make_module,
             "_string" => string::make_module,
             "time" => time::make_module,
             "_typing" => typing::make_module,
