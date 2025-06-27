@@ -17,9 +17,9 @@ pub struct PyModuleDef {
     // pub size: isize,
     pub methods: &'static [PyMethodDef],
     pub slots: PyModuleSlots,
-    // traverse: traverseproc
+    // traverse: traverse_proc
     // clear: inquiry
-    // free: freefunc
+    // free: free_func
 }
 
 pub type ModuleCreate =

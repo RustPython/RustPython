@@ -126,12 +126,12 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
 
     if required {
         let mut basicsize = obj.class().slots.basicsize;
-        // if obj.class().slots.dictoffset > 0
+        // if obj.class().slots.dict_offset > 0
         //     && !obj.class().slots.flags.has_feature(PyTypeFlags::MANAGED_DICT)
         // {
         //     basicsize += std::mem::size_of::<PyObjectRef>();
         // }
-        // if obj.class().slots.weaklistoffset > 0 {
+        // if obj.class().slots.weaklist_offset > 0 {
         //     basicsize += std::mem::size_of::<PyObjectRef>();
         // }
         if let Some(ref slot_names) = slot_names {

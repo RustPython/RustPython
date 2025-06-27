@@ -69,17 +69,17 @@ impl ExternalLibs {
         library_path: &str,
         _vm: &VirtualMachine,
     ) -> Result<(usize, &SharedLibrary), libloading::Error> {
-        let nlib = SharedLibrary::new(library_path)?;
-        let key = nlib.get_pointer();
+        let new_lib = SharedLibrary::new(library_path)?;
+        let key = new_lib.get_pointer();
 
         match self.libraries.get(&key) {
             Some(l) => {
                 if l.is_closed() {
-                    self.libraries.insert(key, nlib);
+                    self.libraries.insert(key, new_lib);
                 }
             }
             _ => {
-                self.libraries.insert(key, nlib);
+                self.libraries.insert(key, new_lib);
             }
         };
 

@@ -575,6 +575,7 @@ impl PyStr {
     fn _compute_hash(&self, vm: &VirtualMachine) -> hash::PyHash {
         let hash_val = vm.state.hash_secret.hash_bytes(self.as_bytes());
         debug_assert_ne!(hash_val, hash::SENTINEL);
+        // cspell:ignore cmpxchg
         // like with char_len, we don't need a cmpxchg loop, since it'll always be the same value
         self.hash.store(hash_val, atomic::Ordering::Relaxed);
         hash_val
@@ -2259,7 +2260,9 @@ mod tests {
             ("Format This As Title String", "fOrMaT thIs aS titLe String"),
             ("Format,This-As*Title;String", "fOrMaT,thIs-aS*titLe;String"),
             ("Getint", "getInt"),
+            // cspell:disable-next-line
             ("Greek Ωppercases ...", "greek ωppercases ..."),
+            // cspell:disable-next-line
             ("Greek ῼitlecases ...", "greek ῳitlecases ..."),
         ];
         for (title, input) in tests {
@@ -2274,7 +2277,9 @@ mod tests {
             "A Titlecased Line",
             "A\nTitlecased Line",
             "A Titlecased, Line",
+            // cspell:disable-next-line
             "Greek Ωppercases ...",
+            // cspell:disable-next-line
             "Greek ῼitlecases ...",
         ];
 

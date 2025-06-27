@@ -1,3 +1,4 @@
+// cspell:ignore typevarobject funcobj
 use crate::{PyRef, VirtualMachine, stdlib::PyModule};
 
 pub(crate) use decl::*;

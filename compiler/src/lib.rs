@@ -93,7 +93,7 @@ pub fn compile(
     source_path: &str,
     opts: CompileOpts,
 ) -> Result<CodeObject, CompileError> {
-    // TODO: do this less hackily; ruff's parser should translate a CRLF line
+    // TODO: do this less hacky; ruff's parser should translate a CRLF line
     //       break in a multiline string into just an LF in the parsed value
     #[cfg(windows)]
     let source = &source.replace("\r\n", "\n");

@@ -1,3 +1,4 @@
+// cspell:ignore iparam
 use std::sync::LazyLock;
 
 use super::type_;

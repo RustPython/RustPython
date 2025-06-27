@@ -1,3 +1,4 @@
+// cspell:ignore uncomputed
 use crate::atomic::{PyAtomic, Radium};
 use crate::format::CharLen;
 use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
@@ -424,7 +425,7 @@ pub fn zfill(bytes: &[u8], width: usize) -> Vec<u8> {
     }
 }
 
-/// Convert a string to ascii compatible, escaping unicodes into escape
+/// Convert a string to ascii compatible, escaping unicode-s into escape
 /// sequences.
 pub fn to_ascii(value: &str) -> AsciiString {
     let mut ascii = Vec::new();

@@ -1,5 +1,5 @@
 #[cfg(feature = "jit")]
-mod jitfunc;
+mod jit;
 
 use super::{
     PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStr, PyStrRef, PyTupleRef, PyType,
@@ -324,7 +324,7 @@ impl PyFunction {
     ) -> PyResult {
         #[cfg(feature = "jit")]
         if let Some(jitted_code) = self.jitted_code.get() {
-            match jitfunc::get_jit_args(self, &func_args, jitted_code, vm) {
+            match jit::get_jit_args(self, &func_args, jitted_code, vm) {
                 Ok(args) => {
                     return Ok(args.invoke().to_pyobject(vm));
                 }
@@ -530,10 +530,10 @@ impl PyFunction {
     fn __jit__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
         zelf.jitted_code
             .get_or_try_init(|| {
-                let arg_types = jitfunc::get_jit_arg_types(&zelf, vm)?;
-                let ret_type = jitfunc::jit_ret_type(&zelf, vm)?;
+                let arg_types = jit::get_jit_arg_types(&zelf, vm)?;
+                let ret_type = jit::jit_ret_type(&zelf, vm)?;
                 rustpython_jit::compile(&zelf.code.code, &arg_types, ret_type)
-                    .map_err(|err| jitfunc::new_jit_error(err.to_string(), vm))
+                    .map_err(|err| jit::new_jit_error(err.to_string(), vm))
             })
             .map(drop)
     }

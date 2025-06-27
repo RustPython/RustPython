@@ -26,7 +26,7 @@ pub struct PyDescriptorOwned {
 pub struct PyMethodDescriptor {
     pub common: PyDescriptor,
     pub method: &'static PyMethodDef,
-    // vectorcall: vectorcallfunc,
+    // vectorcall: vector_call_func,
     pub objclass: &'static Py<PyType>, // TODO: move to tp_members
 }
 

@@ -84,6 +84,7 @@ getrandom
 getrecursionlimit
 getrefcount
 getsizeof
+getswitchinterval
 getweakrefcount
 getweakrefs
 getwindowsversion
@@ -167,13 +168,17 @@ pycs
 pyexpat
 PYTHONBREAKPOINT
 PYTHONDEBUG
+PYTHONDONTWRITEBYTECODE
 PYTHONHASHSEED
 PYTHONHOME
 PYTHONINSPECT
+PYTHONINTMAXSTRDIGITS
+PYTHONNOUSERSITE
 PYTHONOPTIMIZE
 PYTHONPATH
 PYTHONPATH
 PYTHONSAFEPATH
+PYTHONUNBUFFERED
 PYTHONVERBOSE
 PYTHONWARNDEFAULTENCODING
 PYTHONWARNINGS
@@ -206,6 +211,7 @@ seennl
 setattro
 setcomp
 setrecursionlimit
+setswitchinterval
 showwarnmsg
 signum
 slotnames

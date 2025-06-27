@@ -443,7 +443,7 @@ mod builtins {
                 .is_ok_and(|fd| fd == expected)
         };
 
-        // everything is normalish, we can just rely on rustyline to use stdin/stdout
+        // everything is normal, we can just rely on rustyline to use stdin/stdout
         if fd_matches(&stdin, 0) && fd_matches(&stdout, 1) && std::io::stdin().is_terminal() {
             let prompt = prompt.as_ref().map_or("", |s| s.as_str());
             let mut readline = Readline::new(());

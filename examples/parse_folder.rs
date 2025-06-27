@@ -56,7 +56,7 @@ fn parse_folder(path: &Path) -> std::io::Result<Vec<ParsedFile>> {
             let parsed_file = parse_python_file(&path);
             match &parsed_file.result {
                 Ok(_) => {}
-                Err(y) => error!("Erreur in file {path:?} {y:?}"),
+                Err(y) => error!("Error in file {path:?} {y:?}"),
             }
 
             res.push(parsed_file);
