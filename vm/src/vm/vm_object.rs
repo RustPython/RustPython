@@ -38,7 +38,7 @@ impl VirtualMachine {
             let mut s = String::new();
             self.write_exception(&mut s, &exc).unwrap();
             error(&s);
-            panic!("{}; exception backtrace above", msg)
+            panic!("{msg}; exception backtrace above")
         }
         #[cfg(all(
             target_arch = "wasm32",
@@ -49,7 +49,7 @@ impl VirtualMachine {
             use crate::convert::ToPyObject;
             let err_string: String = exc.to_pyobject(self).repr(self).unwrap().to_string();
             eprintln!("{err_string}");
-            panic!("{}; python exception not available", msg)
+            panic!("{msg}; python exception not available")
         }
     }
 

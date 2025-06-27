@@ -172,7 +172,7 @@ impl StackMachine {
         if let Some(StackValue::Function(function)) = self.locals.get(name) {
             function.clone()
         } else {
-            panic!("There was no function named {}", name)
+            panic!("There was no function named {name}")
         }
     }
 }

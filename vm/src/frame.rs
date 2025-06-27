@@ -349,7 +349,10 @@ impl ExecutingFrame<'_> {
     }
 
     fn run(&mut self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
-        flame_guard!(format!("Frame::run({})", self.code.obj_name));
+        flame_guard!(format!(
+            "Frame::run({obj_name})",
+            obj_name = self.code.obj_name
+        ));
         // Execute until return or exception:
         let instructions = &self.code.instructions;
         let mut arg_state = bytecode::OpArgState::default();
@@ -941,7 +944,7 @@ impl ExecutingFrame<'_> {
                     .get_attr(identifier!(vm, __exit__), vm)
                     .map_err(|_exc| {
                         vm.new_type_error({
-                            format!("'{} (missed __exit__ method)", error_string())
+                            format!("{} (missed __exit__ method)", error_string())
                         })
                     })?;
                 self.push_value(exit);
@@ -968,7 +971,7 @@ impl ExecutingFrame<'_> {
                     .get_attr(identifier!(vm, __aexit__), vm)
                     .map_err(|_exc| {
                         vm.new_type_error({
-                            format!("'{} (missed __aexit__ method)", error_string())
+                            format!("{} (missed __aexit__ method)", error_string())
                         })
                     })?;
                 self.push_value(aexit);
@@ -1638,7 +1641,7 @@ impl ExecutingFrame<'_> {
         F: FnMut(PyObjectRef) -> PyResult<()>,
     {
         let Some(keys_method) = vm.get_method(mapping.clone(), vm.ctx.intern_str("keys")) else {
-            return Err(vm.new_type_error(format!("{} must be a mapping", error_prefix)));
+            return Err(vm.new_type_error(format!("{error_prefix} must be a mapping")));
         };
 
         let keys = keys_method?.call((), vm)?.get_iter(vm)?;

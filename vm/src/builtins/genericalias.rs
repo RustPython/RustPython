@@ -388,10 +388,9 @@ pub fn subs_parameters<F: Fn(&VirtualMachine) -> PyResult<String>>(
                 new_args.push(substituted);
             } else {
                 // CPython doesn't support default values in this context
-                return Err(vm.new_type_error(format!(
-                    "No argument provided for parameter at index {}",
-                    idx
-                )));
+                return Err(
+                    vm.new_type_error(format!("No argument provided for parameter at index {idx}"))
+                );
             }
         } else {
             new_args.push(subs_tvars(arg.clone(), &parameters, arg_items, vm)?);

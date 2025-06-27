@@ -286,7 +286,10 @@ mod _functools {
                         key.str(vm)?.as_str().to_owned()
                     };
                     let value_str = value.repr(vm)?;
-                    parts.push(format!("{}={}", key_part, value_str.as_str()));
+                    parts.push(format!(
+                        "{key_part}={value_str}",
+                        value_str = value_str.as_str()
+                    ));
                 }
 
                 let class_name = zelf.class().name();
@@ -306,14 +309,17 @@ mod _functools {
                                     // For test modules, just use the class name without module prefix
                                     class_name.to_owned()
                                 }
-                                _ => format!("{}.{}", module_name, class_name),
+                                _ => format!("{module_name}.{class_name}"),
                             }
                         }
                         Err(_) => class_name.to_owned(),
                     }
                 };
 
-                Ok(format!("{}({})", qualified_name, parts.join(", ")))
+                Ok(format!(
+                    "{qualified_name}({parts})",
+                    parts = parts.join(", ")
+                ))
             } else {
                 Ok("...".to_owned())
             }

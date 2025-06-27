@@ -59,7 +59,7 @@ fn main() -> Result<(), lexopt::Error> {
         if script.exists() && script.is_file() {
             let res = display_script(script, mode, opts.clone(), expand_code_objects);
             if let Err(e) = res {
-                error!("Error while compiling {:?}: {}", script, e);
+                error!("Error while compiling {script:?}: {e}");
             }
         } else {
             eprintln!("{script:?} is not a file.");

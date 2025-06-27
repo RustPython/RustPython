@@ -261,7 +261,7 @@ fn test_to_hex() {
         // println!("{} -> {}", f, hex);
         let roundtrip = hexf_parse::parse_hexf64(&hex, false).unwrap();
         // println!("  -> {}", roundtrip);
-        assert!(f == roundtrip, "{} {} {}", f, hex, roundtrip);
+        assert!(f == roundtrip, "{f} {hex} {roundtrip}");
     }
 }
 
