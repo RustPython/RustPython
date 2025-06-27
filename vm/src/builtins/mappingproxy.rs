@@ -116,8 +116,8 @@ impl PyMappingProxy {
         )?))
     }
 
-    #[pymethod(magic)]
-    pub fn getitem(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    pub fn __getitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.get_inner(key.clone(), vm)?
             .ok_or_else(|| vm.new_key_error(key))
     }
@@ -131,8 +131,8 @@ impl PyMappingProxy {
         }
     }
 
-    #[pymethod(magic)]
-    pub fn contains(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    #[pymethod]
+    pub fn __contains__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self._contains(&key, vm)
     }
 
@@ -170,19 +170,19 @@ impl PyMappingProxy {
         }
     }
 
-    #[pyclassmethod(magic)]
-    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
     }
 
-    #[pymethod(magic)]
-    fn len(&self, vm: &VirtualMachine) -> PyResult<usize> {
+    #[pymethod]
+    fn __len__(&self, vm: &VirtualMachine) -> PyResult<usize> {
         let obj = self.to_object(vm)?;
         obj.length(vm)
     }
 
-    #[pymethod(magic)]
-    fn reversed(&self, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __reversed__(&self, vm: &VirtualMachine) -> PyResult {
         vm.call_method(
             self.to_object(vm)?.as_object(),
             identifier!(vm, __reversed__).as_str(),
@@ -190,8 +190,8 @@ impl PyMappingProxy {
         )
     }
 
-    #[pymethod(magic)]
-    fn ior(&self, _args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __ior__(&self, _args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error(format!(
             "\"'|=' is not supported by {}; use '|' instead\"",
             Self::class(&vm.ctx)
@@ -199,8 +199,8 @@ impl PyMappingProxy {
     }
 
     #[pymethod(name = "__ror__")]
-    #[pymethod(magic)]
-    fn or(&self, args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __or__(&self, args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._or(self.copy(vm)?.as_ref(), args.as_ref())
     }
 }
@@ -222,9 +222,11 @@ impl Comparable for PyMappingProxy {
 impl AsMapping for PyMappingProxy {
     fn as_mapping() -> &'static PyMappingMethods {
         static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
-            length: atomic_func!(|mapping, vm| PyMappingProxy::mapping_downcast(mapping).len(vm)),
+            length: atomic_func!(
+                |mapping, vm| PyMappingProxy::mapping_downcast(mapping).__len__(vm)
+            ),
             subscript: atomic_func!(|mapping, needle, vm| {
-                PyMappingProxy::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
+                PyMappingProxy::mapping_downcast(mapping).__getitem__(needle.to_owned(), vm)
             }),
             ..PyMappingMethods::NOT_IMPLEMENTED
         });
@@ -249,14 +251,14 @@ impl AsNumber for PyMappingProxy {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             or: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PyMappingProxy>() {
-                    a.or(b.to_pyobject(vm), vm)
+                    a.__or__(b.to_pyobject(vm), vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
             }),
             inplace_or: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PyMappingProxy>() {
-                    a.ior(b.to_pyobject(vm), vm)
+                    a.__ior__(b.to_pyobject(vm), vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }

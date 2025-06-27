@@ -1,3 +1,5 @@
+// cspell:ignore ossl osslconf
+
 fn main() {
     println!(r#"cargo::rustc-check-cfg=cfg(osslconf, values("OPENSSL_NO_COMP"))"#);
     println!(r#"cargo::rustc-check-cfg=cfg(openssl_vendored)"#);

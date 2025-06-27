@@ -158,8 +158,8 @@ pub(crate) mod _thread {
             Ok(())
         }
 
-        #[pymethod(magic)]
-        fn exit(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        #[pymethod]
+        fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             self.release(vm)
         }
 
@@ -244,8 +244,8 @@ pub(crate) mod _thread {
             self.mu.is_owned_by_current_thread()
         }
 
-        #[pymethod(magic)]
-        fn exit(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        #[pymethod]
+        fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             self.release(vm)
         }
     }

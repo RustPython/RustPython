@@ -64,17 +64,6 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// but so does any object that implements `PyValue`.
 /// Consider using `OptionalArg` for optional arguments.
 /// #### Arguments
-/// - `magic`: marks the method as a magic method: the method name is surrounded with double underscores.
-/// ```rust, ignore
-/// #[pyclass]
-/// impl MyStruct {
-///     // This will be called as the `__add__` method in Python.
-///     #[pymethod(magic)]
-///     fn add(&self, other: &Self) -> PyResult<i32> {
-///        ...
-///     }
-/// }
-/// ```
 /// - `name`: the name of the method in Python,
 ///   by default it is the same as the Rust method, or surrounded by double underscores if magic is present.
 ///   This overrides `magic` and the default name and cannot be used with `magic` to prevent ambiguity.

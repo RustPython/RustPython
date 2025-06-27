@@ -15,8 +15,8 @@ pub(crate) mod _ast {
     #[pyclass(flags(BASETYPE, HAS_DICT))]
     impl NodeAst {
         #[pyslot]
-        #[pymethod(magic)]
-        fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        #[pymethod]
+        fn __init__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             let fields = zelf.get_attr("_fields", vm)?;
             let fields: Vec<PyStrRef> = fields.try_to_value(vm)?;
             let n_args = args.args.len();

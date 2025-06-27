@@ -101,16 +101,16 @@ mod winreg {
             handle as usize
         }
 
-        #[pymethod(magic)]
-        fn bool(&self) -> bool {
+        #[pymethod]
+        fn __bool__(&self) -> bool {
             !self.key().raw_handle().is_null()
         }
-        #[pymethod(magic)]
-        fn enter(zelf: PyRef<Self>) -> PyRef<Self> {
+        #[pymethod]
+        fn __enter__(zelf: PyRef<Self>) -> PyRef<Self> {
             zelf
         }
-        #[pymethod(magic)]
-        fn exit(&self, _cls: PyObjectRef, _exc: PyObjectRef, _tb: PyObjectRef) {
+        #[pymethod]
+        fn __exit__(&self, _cls: PyObjectRef, _exc: PyObjectRef, _tb: PyObjectRef) {
             self.Close();
         }
     }

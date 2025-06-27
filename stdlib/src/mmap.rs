@@ -416,7 +416,7 @@ mod mmap {
         fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
             let buf = PyBuffer::new(
                 zelf.to_owned().into(),
-                BufferDescriptor::simple(zelf.len(), true),
+                BufferDescriptor::simple(zelf.__len__(), true),
                 &BUFFER_METHODS,
             );
 
@@ -427,14 +427,16 @@ mod mmap {
     impl AsMapping for PyMmap {
         fn as_mapping() -> &'static PyMappingMethods {
             static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-                length: atomic_func!(|mapping, _vm| Ok(PyMmap::mapping_downcast(mapping).len())),
+                length: atomic_func!(
+                    |mapping, _vm| Ok(PyMmap::mapping_downcast(mapping).__len__())
+                ),
                 subscript: atomic_func!(|mapping, needle, vm| {
-                    PyMmap::mapping_downcast(mapping)._getitem(needle, vm)
+                    PyMmap::mapping_downcast(mapping).getitem_inner(needle, vm)
                 }),
                 ass_subscript: atomic_func!(|mapping, needle, value, vm| {
                     let zelf = PyMmap::mapping_downcast(mapping);
                     if let Some(value) = value {
-                        PyMmap::_setitem(zelf, needle, value, vm)
+                        PyMmap::setitem_inner(zelf, needle, value, vm)
                     } else {
                         Err(vm
                             .new_type_error("mmap object doesn't support item deletion".to_owned()))
@@ -449,7 +451,7 @@ mod mmap {
         fn as_sequence() -> &'static PySequenceMethods {
             use std::sync::LazyLock;
             static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
-                length: atomic_func!(|seq, _vm| Ok(PyMmap::sequence_downcast(seq).len())),
+                length: atomic_func!(|seq, _vm| Ok(PyMmap::sequence_downcast(seq).__len__())),
                 item: atomic_func!(|seq, i, vm| {
                     let zelf = PyMmap::sequence_downcast(seq);
                     zelf.getitem_by_index(i, vm)
@@ -494,8 +496,8 @@ mod mmap {
             .into()
         }
 
-        #[pymethod(magic)]
-        fn len(&self) -> usize {
+        #[pymethod]
+        fn __len__(&self) -> usize {
             self.size.load()
         }
 
@@ -571,7 +573,7 @@ mod mmap {
         }
 
         fn get_find_range(&self, options: FindOptions) -> (usize, usize) {
-            let size = self.len();
+            let size = self.__len__();
             let start = options
                 .start
                 .map(|start| start.saturated_at(size))
@@ -625,7 +627,7 @@ mod mmap {
         #[pymethod]
         fn flush(&self, options: FlushOptions, vm: &VirtualMachine) -> PyResult<()> {
             let (offset, size) = options
-                .values(self.len())
+                .values(self.__len__())
                 .ok_or_else(|| vm.new_value_error("flush values out of range"))?;
 
             if self.access == AccessMode::Read || self.access == AccessMode::Copy {
@@ -647,7 +649,7 @@ mod mmap {
         #[allow(unused_assignments)]
         #[pymethod]
         fn madvise(&self, options: AdviseOptions, vm: &VirtualMachine) -> PyResult<()> {
-            let (option, _start, _length) = options.values(self.len(), vm)?;
+            let (option, _start, _length) = options.values(self.__len__(), vm)?;
             let advice = advice_try_from_i32(vm, option)?;
 
             //TODO: memmap2 doesn't support madvise range right now.
@@ -690,7 +692,7 @@ mod mmap {
                 Some((dest, src, cnt))
             }
 
-            let size = self.len();
+            let size = self.__len__();
             let (dest, src, cnt) = args(dest, src, cnt, size, vm)
                 .ok_or_else(|| vm.new_value_error("source, destination, or count out of range"))?;
 
@@ -722,7 +724,7 @@ mod mmap {
                 .flatten();
             let mmap = self.check_valid(vm)?;
             let pos = self.pos();
-            let remaining = self.len().saturating_sub(pos);
+            let remaining = self.__len__().saturating_sub(pos);
             let num_bytes = num_bytes
                 .filter(|&n| n >= 0 && (n as usize) <= remaining)
                 .map(|n| n as usize)
@@ -744,7 +746,7 @@ mod mmap {
         #[pymethod]
         fn read_byte(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
             let pos = self.pos();
-            if pos >= self.len() {
+            if pos >= self.__len__() {
                 return Err(vm.new_value_error("read byte out of range"));
             }
 
@@ -763,7 +765,7 @@ mod mmap {
             let pos = self.pos();
             let mmap = self.check_valid(vm)?;
 
-            let remaining = self.len().saturating_sub(pos);
+            let remaining = self.__len__().saturating_sub(pos);
             if remaining == 0 {
                 return Ok(PyBytes::from(vec![]).into_ref(&vm.ctx));
             }
@@ -778,7 +780,7 @@ mod mmap {
             let end_pos = if let Some(i) = eof {
                 pos + i + 1
             } else {
-                self.len()
+                self.__len__()
             };
 
             let bytes = match mmap.deref().as_ref().unwrap() {
@@ -808,7 +810,7 @@ mod mmap {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let how = whence.unwrap_or(0);
-            let size = self.len();
+            let size = self.__len__();
 
             let new_pos = match how {
                 0 => dist, // relative to start
@@ -855,7 +857,7 @@ mod mmap {
         #[pymethod]
         fn write(&self, bytes: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyIntRef> {
             let pos = self.pos();
-            let size = self.len();
+            let size = self.__len__();
 
             let data = bytes.borrow_buf();
 
@@ -880,7 +882,7 @@ mod mmap {
             let b = value_from_object(vm, &byte)?;
 
             let pos = self.pos();
-            let size = self.len();
+            let size = self.__len__();
 
             if pos >= size {
                 return Err(vm.new_value_error("write byte out of range"));
@@ -895,29 +897,29 @@ mod mmap {
             Ok(())
         }
 
-        #[pymethod(magic)]
-        fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            self._getitem(&needle, vm)
+        #[pymethod]
+        fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            self.getitem_inner(&needle, vm)
         }
 
-        #[pymethod(magic)]
-        fn setitem(
+        #[pymethod]
+        fn __setitem__(
             zelf: &Py<Self>,
             needle: PyObjectRef,
             value: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            Self::_setitem(zelf, &needle, value, vm)
+            Self::setitem_inner(zelf, &needle, value, vm)
         }
 
-        #[pymethod(magic)]
-        fn enter(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        #[pymethod]
+        fn __enter__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             let _m = zelf.check_valid(vm)?;
             Ok(zelf.to_owned())
         }
 
-        #[pymethod(magic)]
-        fn exit(zelf: &Py<Self>, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        #[pymethod]
+        fn __exit__(zelf: &Py<Self>, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             zelf.close(vm)
         }
     }
@@ -925,7 +927,7 @@ mod mmap {
     impl PyMmap {
         fn getitem_by_index(&self, i: isize, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let i = i
-                .wrapped_at(self.len())
+                .wrapped_at(self.__len__())
                 .ok_or_else(|| vm.new_index_error("mmap index out of range"))?;
 
             let b = match self.check_valid(vm)?.deref().as_ref().unwrap() {
@@ -941,7 +943,7 @@ mod mmap {
             slice: &SaturatedSlice,
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
-            let (range, step, slice_len) = slice.adjust_indices(self.len());
+            let (range, step, slice_len) = slice.adjust_indices(self.__len__());
 
             let mmap = self.check_valid(vm)?;
 
@@ -976,14 +978,14 @@ mod mmap {
             Ok(PyBytes::from(result_buf).into_ref(&vm.ctx).into())
         }
 
-        fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn getitem_inner(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             match SequenceIndex::try_from_borrowed_object(vm, needle, "mmap")? {
                 SequenceIndex::Int(i) => self.getitem_by_index(i, vm),
                 SequenceIndex::Slice(slice) => self.getitem_by_slice(&slice, vm),
             }
         }
 
-        fn _setitem(
+        fn setitem_inner(
             zelf: &Py<Self>,
             needle: &PyObject,
             value: PyObjectRef,
@@ -1002,7 +1004,7 @@ mod mmap {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let i: usize = i
-                .wrapped_at(self.len())
+                .wrapped_at(self.__len__())
                 .ok_or_else(|| vm.new_index_error("mmap index out of range"))?;
 
             let b = value_from_object(vm, &value)?;
@@ -1020,7 +1022,7 @@ mod mmap {
             value: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let (range, step, slice_len) = slice.adjust_indices(self.len());
+            let (range, step, slice_len) = slice.adjust_indices(self.__len__());
 
             let bytes = bytes_from_object(vm, &value)?;
 
@@ -1079,7 +1081,7 @@ mod mmap {
             let repr = format!(
                 "<mmap.mmap closed=False, access={}, length={}, pos={}, offset={}>",
                 access_str,
-                zelf.len(),
+                zelf.__len__(),
                 zelf.pos(),
                 zelf.offset
             );

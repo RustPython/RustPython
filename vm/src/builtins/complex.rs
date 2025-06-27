@@ -255,8 +255,8 @@ impl PyComplex {
         self.value.im
     }
 
-    #[pymethod(magic)]
-    fn abs(&self, vm: &VirtualMachine) -> PyResult<f64> {
+    #[pymethod]
+    fn __abs__(&self, vm: &VirtualMachine) -> PyResult<f64> {
         let Complex64 { im, re } = self.value;
         let is_finite = im.is_finite() && re.is_finite();
         let abs_result = re.hypot(im);
@@ -284,8 +284,8 @@ impl PyComplex {
     }
 
     #[pymethod(name = "__radd__")]
-    #[pymethod(magic)]
-    fn add(
+    #[pymethod]
+    fn __add__(
         &self,
         other: PyObjectRef,
         vm: &VirtualMachine,
@@ -293,8 +293,8 @@ impl PyComplex {
         self.op(other, |a, b| Ok(a + b), vm)
     }
 
-    #[pymethod(magic)]
-    fn sub(
+    #[pymethod]
+    fn __sub__(
         &self,
         other: PyObjectRef,
         vm: &VirtualMachine,
@@ -302,8 +302,8 @@ impl PyComplex {
         self.op(other, |a, b| Ok(a - b), vm)
     }
 
-    #[pymethod(magic)]
-    fn rsub(
+    #[pymethod]
+    fn __rsub__(
         &self,
         other: PyObjectRef,
         vm: &VirtualMachine,
@@ -317,8 +317,8 @@ impl PyComplex {
     }
 
     #[pymethod(name = "__rmul__")]
-    #[pymethod(magic)]
-    fn mul(
+    #[pymethod]
+    fn __mul__(
         &self,
         other: PyObjectRef,
         vm: &VirtualMachine,
@@ -326,8 +326,8 @@ impl PyComplex {
         self.op(other, |a, b| Ok(a * b), vm)
     }
 
-    #[pymethod(magic)]
-    fn truediv(
+    #[pymethod]
+    fn __truediv__(
         &self,
         other: PyObjectRef,
         vm: &VirtualMachine,
@@ -335,8 +335,8 @@ impl PyComplex {
         self.op(other, |a, b| inner_div(a, b, vm), vm)
     }
 
-    #[pymethod(magic)]
-    fn rtruediv(
+    #[pymethod]
+    fn __rtruediv__(
         &self,
         other: PyObjectRef,
         vm: &VirtualMachine,
@@ -344,18 +344,18 @@ impl PyComplex {
         self.op(other, |a, b| inner_div(b, a, vm), vm)
     }
 
-    #[pymethod(magic)]
-    fn pos(&self) -> Complex64 {
+    #[pymethod]
+    fn __pos__(&self) -> Complex64 {
         self.value
     }
 
-    #[pymethod(magic)]
-    fn neg(&self) -> Complex64 {
+    #[pymethod]
+    fn __neg__(&self) -> Complex64 {
         -self.value
     }
 
-    #[pymethod(magic)]
-    fn pow(
+    #[pymethod]
+    fn __pow__(
         &self,
         other: PyObjectRef,
         mod_val: OptionalOption<PyObjectRef>,
@@ -368,8 +368,8 @@ impl PyComplex {
         }
     }
 
-    #[pymethod(magic)]
-    fn rpow(
+    #[pymethod]
+    fn __rpow__(
         &self,
         other: PyObjectRef,
         vm: &VirtualMachine,
@@ -377,13 +377,13 @@ impl PyComplex {
         self.op(other, |a, b| inner_pow(b, a, vm), vm)
     }
 
-    #[pymethod(magic)]
-    fn bool(&self) -> bool {
+    #[pymethod]
+    fn __bool__(&self) -> bool {
         !Complex64::is_zero(&self.value)
     }
 
-    #[pymethod(magic)]
-    fn getnewargs(&self) -> (f64, f64) {
+    #[pymethod]
+    fn __getnewargs__(&self) -> (f64, f64) {
         let Complex64 { re, im } = self.value;
         (re, im)
     }
@@ -391,8 +391,8 @@ impl PyComplex {
 
 #[pyclass]
 impl PyRef<PyComplex> {
-    #[pymethod(magic)]
-    fn complex(self, vm: &VirtualMachine) -> PyRef<PyComplex> {
+    #[pymethod]
+    fn __complex__(self, vm: &VirtualMachine) -> PyRef<PyComplex> {
         if self.is(vm.ctx.types.complex_type) {
             self
         } else {

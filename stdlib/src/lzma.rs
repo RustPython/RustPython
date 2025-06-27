@@ -140,7 +140,7 @@ mod _lzma {
         #[pyarg(any, default = FORMAT_AUTO)]
         format: i32,
         #[pyarg(any, optional)]
-        memlimit: Option<u64>,
+        mem_limit: Option<u64>,
         #[pyarg(any, optional)]
         filters: Option<u32>,
     }
@@ -149,15 +149,15 @@ mod _lzma {
         type Args = LZMADecompressorConstructorArgs;
 
         fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            if args.format == FORMAT_RAW && args.memlimit.is_some() {
+            if args.format == FORMAT_RAW && args.mem_limit.is_some() {
                 return Err(vm.new_value_error("Cannot specify memory limit with FORMAT_RAW"));
             }
-            let memlimit = args.memlimit.unwrap_or(u64::MAX);
+            let mem_limit = args.mem_limit.unwrap_or(u64::MAX);
             let filters = args.filters.unwrap_or(0);
             let stream_result = match args.format {
-                FORMAT_AUTO => Stream::new_auto_decoder(memlimit, filters),
-                FORMAT_XZ => Stream::new_stream_decoder(memlimit, filters),
-                FORMAT_ALONE => Stream::new_lzma_decoder(memlimit),
+                FORMAT_AUTO => Stream::new_auto_decoder(mem_limit, filters),
+                FORMAT_XZ => Stream::new_stream_decoder(mem_limit, filters),
+                FORMAT_ALONE => Stream::new_lzma_decoder(mem_limit),
                 // TODO: FORMAT_RAW
                 _ => return Err(new_lzma_error("Invalid format", vm)),
             };

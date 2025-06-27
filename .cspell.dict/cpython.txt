@@ -45,7 +45,9 @@ SA_ONSTACK
 stackdepth
 stringlib
 structseq
+subparams
 tok_oldval
+tvars
 unaryop
 unparse
 unparser

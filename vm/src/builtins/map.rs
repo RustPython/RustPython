@@ -34,8 +34,8 @@ impl Constructor for PyMap {
 
 #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
 impl PyMap {
-    #[pymethod(magic)]
-    fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
+    #[pymethod]
+    fn __length_hint__(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.iterators.iter().try_fold(0, |prev, cur| {
             let cur = cur.as_ref().to_owned().length_hint(0, vm)?;
             let max = std::cmp::max(prev, cur);
@@ -43,8 +43,8 @@ impl PyMap {
         })
     }
 
-    #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
         let mut vec = vec![self.mapper.clone()];
         vec.extend(self.iterators.iter().map(|o| o.clone().into()));
         (vm.ctx.types.map_type.to_owned(), vm.new_tuple(vec))

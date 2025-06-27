@@ -752,6 +752,13 @@ where
         let raw = item_meta.raw()?;
         let sig_doc = text_signature(func.sig(), &py_name);
 
+        // Add #[allow(non_snake_case)] for setter methods like set___name__
+        let method_name = ident.to_string();
+        if method_name.starts_with("set_") && method_name.contains("__") {
+            let allow_attr: Attribute = parse_quote!(#[allow(non_snake_case)]);
+            args.attrs.push(allow_attr);
+        }
+
         let doc = args.attrs.doc().map(|doc| format_doc(&sig_doc, &doc));
         args.context.method_items.add_item(MethodNurseryItem {
             py_name,
@@ -780,6 +787,13 @@ where
         let item_meta = GetSetItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let (py_name, kind) = item_meta.getset_name()?;
+
+        // Add #[allow(non_snake_case)] for setter methods
+        if matches!(kind, GetSetItemKind::Set) {
+            let allow_attr: Attribute = parse_quote!(#[allow(non_snake_case)]);
+            args.attrs.push(allow_attr);
+        }
+
         args.context
             .getset_items
             .add_item(py_name, args.cfgs.to_vec(), kind, ident.clone())?;
@@ -933,6 +947,12 @@ where
             },
             _ => MemberKind::ObjectEx,
         };
+
+        // Add #[allow(non_snake_case)] for setter methods
+        if matches!(member_item_kind, MemberItemKind::Set) {
+            let allow_attr: Attribute = parse_quote!(#[allow(non_snake_case)]);
+            args.attrs.push(allow_attr);
+        }
 
         args.context.member_items.add_item(
             py_name,
@@ -1208,7 +1228,7 @@ impl ToTokens for MemberNursery {
 struct MethodItemMeta(ItemMetaInner);
 
 impl ItemMeta for MethodItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "raw"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "raw"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -1225,19 +1245,10 @@ impl MethodItemMeta {
     fn method_name(&self) -> Result<String> {
         let inner = self.inner();
         let name = inner._optional_str("name")?;
-        let magic = inner._bool("magic")?;
-        if magic && name.is_some() {
-            bail_span!(
-                &inner.meta_ident,
-                "A #[{}] method cannot be magic and have a specified name, choose one.",
-                inner.meta_name()
-            );
-        }
         Ok(if let Some(name) = name {
             name
         } else {
-            let name = inner.item_name();
-            if magic { format!("__{name}__") } else { name }
+            inner.item_name()
         })
     }
 }
@@ -1245,7 +1256,7 @@ impl MethodItemMeta {
 struct GetSetItemMeta(ItemMetaInner);
 
 impl ItemMeta for GetSetItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "setter", "deleter"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "setter", "deleter"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -1258,7 +1269,6 @@ impl ItemMeta for GetSetItemMeta {
 impl GetSetItemMeta {
     fn getset_name(&self) -> Result<(String, GetSetItemKind)> {
         let inner = self.inner();
-        let magic = inner._bool("magic")?;
         let kind = match (inner._bool("setter")?, inner._bool("deleter")?) {
             (false, false) => GetSetItemKind::Get,
             (true, false) => GetSetItemKind::Set,
@@ -1299,12 +1309,11 @@ impl GetSetItemMeta {
                     ))
                 }
             };
-            let name = match kind {
+            match kind {
                 GetSetItemKind::Get => sig_name,
                 GetSetItemKind::Set => extract_prefix_name("set_", "setter")?,
                 GetSetItemKind::Delete => extract_prefix_name("del_", "deleter")?,
-            };
-            if magic { format!("__{name}__") } else { name }
+            }
         };
         Ok((py_name, kind))
     }
@@ -1353,7 +1362,7 @@ impl ItemMeta for SlotItemMeta {
 impl SlotItemMeta {
     fn slot_name(&self) -> Result<Ident> {
         let inner = self.inner();
-        let slot_name = if let Some((_, meta)) = inner.meta_map.get("name") {
+        let method_name = if let Some((_, meta)) = inner.meta_map.get("name") {
             match meta {
                 Meta::Path(path) => path.get_ident().cloned(),
                 _ => None,
@@ -1367,19 +1376,32 @@ impl SlotItemMeta {
             };
             Some(name)
         };
-        slot_name.ok_or_else(|| {
+        let method_name = method_name.ok_or_else(|| {
             err_span!(
                 inner.meta_ident,
                 "#[pyslot] must be of the form #[pyslot] or #[pyslot(slot_name)]",
             )
-        })
+        })?;
+
+        // Strip double underscores from slot names like __init__ -> init
+        let method_name_str = method_name.to_string();
+        let slot_name = if method_name_str.starts_with("__")
+            && method_name_str.ends_with("__")
+            && method_name_str.len() > 4
+        {
+            &method_name_str[2..method_name_str.len() - 2]
+        } else {
+            &method_name_str
+        };
+
+        Ok(proc_macro2::Ident::new(slot_name, slot_name.span()))
     }
 }
 
 struct MemberItemMeta(ItemMetaInner);
 
 impl ItemMeta for MemberItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["magic", "type", "setter"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["type", "setter"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -1416,7 +1438,6 @@ impl MemberItemMeta {
                 ))
             }
         };
-        let magic = inner._bool("magic")?;
         let kind = if inner._bool("setter")? {
             MemberItemKind::Set
         } else {
@@ -1426,7 +1447,7 @@ impl MemberItemMeta {
             MemberItemKind::Get => sig_name,
             MemberItemKind::Set => extract_prefix_name("set_", "setter")?,
         };
-        Ok((if magic { format!("__{name}__") } else { name }, kind))
+        Ok((name, kind))
     }
 
     fn member_kind(&self) -> Result<Option<String>> {

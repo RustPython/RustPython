@@ -94,14 +94,14 @@ impl VirtualMachine {
         seen.insert(exc.get_id());
 
         #[allow(clippy::manual_map)]
-        if let Some((cause_or_context, msg)) = if let Some(cause) = exc.cause() {
+        if let Some((cause_or_context, msg)) = if let Some(cause) = exc.__cause__() {
             // This can be a special case: `raise e from e`,
             // we just ignore it and treat like `raise e` without any extra steps.
             Some((
                 cause,
                 "\nThe above exception was the direct cause of the following exception:\n",
             ))
-        } else if let Some(context) = exc.context() {
+        } else if let Some(context) = exc.__context__() {
             // This can be a special case:
             //   e = ValueError('e')
             //   e.__context__ = e
@@ -310,7 +310,7 @@ impl VirtualMachine {
         &self,
         exc: PyBaseExceptionRef,
     ) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
-        let tb = exc.traceback().to_pyobject(self);
+        let tb = exc.__traceback__().to_pyobject(self);
         let class = exc.class().to_owned();
         (class.into(), exc.into(), tb)
     }
@@ -578,13 +578,13 @@ impl PyBaseException {
         Ok(())
     }
 
-    #[pygetset(magic)]
-    pub fn traceback(&self) -> Option<PyTracebackRef> {
+    #[pygetset]
+    pub fn __traceback__(&self) -> Option<PyTracebackRef> {
         self.traceback.read().clone()
     }
 
-    #[pygetset(magic, setter)]
-    pub fn set_traceback(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pygetset(setter)]
+    pub fn set___traceback__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let traceback = if vm.is_none(&value) {
             None
         } else {
@@ -604,25 +604,25 @@ impl PyBaseException {
         *self.traceback.write() = traceback;
     }
 
-    #[pygetset(magic)]
-    pub fn cause(&self) -> Option<PyRef<Self>> {
+    #[pygetset]
+    pub fn __cause__(&self) -> Option<PyRef<Self>> {
         self.cause.read().clone()
     }
 
-    #[pygetset(magic, setter)]
-    pub fn set_cause(&self, cause: Option<PyRef<Self>>) {
+    #[pygetset(setter)]
+    pub fn set___cause__(&self, cause: Option<PyRef<Self>>) {
         let mut c = self.cause.write();
         self.set_suppress_context(true);
         *c = cause;
     }
 
-    #[pygetset(magic)]
-    pub fn context(&self) -> Option<PyRef<Self>> {
+    #[pygetset]
+    pub fn __context__(&self) -> Option<PyRef<Self>> {
         self.context.read().clone()
     }
 
-    #[pygetset(magic, setter)]
-    pub fn set_context(&self, context: Option<PyRef<Self>>) {
+    #[pygetset(setter)]
+    pub fn set___context__(&self, context: Option<PyRef<Self>>) {
         *self.context.write() = context;
     }
 
@@ -636,8 +636,8 @@ impl PyBaseException {
         self.suppress_context.store(suppress_context);
     }
 
-    #[pymethod(magic)]
-    pub(super) fn str(&self, vm: &VirtualMachine) -> PyStrRef {
+    #[pymethod]
+    pub(super) fn __str__(&self, vm: &VirtualMachine) -> PyStrRef {
         let str_args = vm.exception_args_as_string(self.args(), true);
         match str_args.into_iter().exactly_one() {
             Err(i) if i.len() == 0 => vm.ctx.empty_str.to_owned(),
@@ -655,8 +655,8 @@ impl PyRef<PyBaseException> {
         Ok(self)
     }
 
-    #[pymethod(magic)]
-    fn reduce(self, vm: &VirtualMachine) -> PyTupleRef {
+    #[pymethod]
+    fn __reduce__(self, vm: &VirtualMachine) -> PyTupleRef {
         if let Some(dict) = self.as_object().dict().filter(|x| !x.is_empty()) {
             vm.new_tuple((self.class().to_owned(), self.args(), dict))
         } else {
@@ -664,8 +664,8 @@ impl PyRef<PyBaseException> {
         }
     }
 
-    #[pymethod(magic)]
-    fn setstate(self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    #[pymethod]
+    fn __setstate__(self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         if !vm.is_none(&state) {
             let dict = state
                 .downcast::<crate::builtins::PyDict>()
@@ -1098,21 +1098,21 @@ impl serde::Serialize for SerializeException<'_, '_> {
                     s.end()
                 }
             }
-            self.exc.traceback().map(Tracebacks)
+            self.exc.__traceback__().map(Tracebacks)
         };
         struc.serialize_field("traceback", &tbs)?;
         struc.serialize_field(
             "cause",
             &self
                 .exc
-                .cause()
+                .__cause__()
                 .map(|exc| SerializeExceptionOwned { vm: self.vm, exc }),
         )?;
         struc.serialize_field(
             "context",
             &self
                 .exc
-                .context()
+                .__context__()
                 .map(|exc| SerializeExceptionOwned { vm: self.vm, exc }),
         )?;
         struc.serialize_field("suppress_context", &self.exc.get_suppress_context())?;
@@ -1358,8 +1358,8 @@ pub(super) mod types {
             zelf.set_attr("path", vm.unwrap_or_none(path), vm)?;
             PyBaseException::slot_init(zelf, args, vm)
         }
-        #[pymethod(magic)]
-        fn reduce(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
+        #[pymethod]
+        fn __reduce__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
             let obj = exc.as_object().to_owned();
             let mut result: Vec<PyObjectRef> = vec![
                 obj.class().to_owned().into(),
@@ -1392,8 +1392,8 @@ pub(super) mod types {
 
     #[pyexception]
     impl PyKeyError {
-        #[pymethod(magic)]
-        fn str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
+        #[pymethod]
+        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
             let args = exc.args();
             if args.len() == 1 {
                 vm.exception_args_as_string(args, false)
@@ -1401,7 +1401,7 @@ pub(super) mod types {
                     .exactly_one()
                     .unwrap()
             } else {
-                exc.str(vm)
+                exc.__str__(vm)
             }
         }
     }
@@ -1479,8 +1479,8 @@ pub(super) mod types {
             PyBaseException::slot_init(zelf, new_args, vm)
         }
 
-        #[pymethod(magic)]
-        fn str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        #[pymethod]
+        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
             let args = exc.args();
             let obj = exc.as_object().to_owned();
 
@@ -1506,12 +1506,12 @@ pub(super) mod types {
                 };
                 Ok(vm.ctx.new_str(s))
             } else {
-                Ok(exc.str(vm))
+                Ok(exc.__str__(vm))
             }
         }
 
-        #[pymethod(magic)]
-        fn reduce(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
+        #[pymethod]
+        fn __reduce__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
             let args = exc.args();
             let obj = exc.as_object().to_owned();
             let mut result: Vec<PyObjectRef> = vec![obj.class().to_owned().into()];
@@ -1677,8 +1677,8 @@ pub(super) mod types {
             PyBaseException::slot_init(zelf, new_args, vm)
         }
 
-        #[pymethod(magic)]
-        fn str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
+        #[pymethod]
+        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
             fn basename(filename: &str) -> &str {
                 let splitted = if cfg!(windows) {
                     filename.rsplit(&['/', '\\']).next()
@@ -1705,7 +1705,7 @@ pub(super) mod types {
                     .exactly_one()
                     .unwrap()
             } else {
-                return exc.str(vm);
+                return exc.__str__(vm);
             };
 
             let msg_with_location_info: String = match (maybe_lineno, maybe_filename) {
@@ -1795,8 +1795,8 @@ pub(super) mod types {
             Ok(())
         }
 
-        #[pymethod(magic)]
-        fn str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<String> {
+        #[pymethod]
+        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<String> {
             let Ok(object) = exc.as_object().get_attr("object", vm) else {
                 return Ok("".to_owned());
             };
@@ -1845,8 +1845,8 @@ pub(super) mod types {
             Ok(())
         }
 
-        #[pymethod(magic)]
-        fn str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<String> {
+        #[pymethod]
+        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<String> {
             let Ok(object) = exc.as_object().get_attr("object", vm) else {
                 return Ok("".to_owned());
             };
@@ -1895,8 +1895,8 @@ pub(super) mod types {
             Ok(())
         }
 
-        #[pymethod(magic)]
-        fn str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<String> {
+        #[pymethod]
+        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<String> {
             let Ok(object) = exc.as_object().get_attr("object", vm) else {
                 return Ok("".to_owned());
             };

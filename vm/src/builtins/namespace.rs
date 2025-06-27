@@ -40,8 +40,8 @@ impl PyNamespace {
     with(Constructor, Initializer, Comparable, Representable)
 )]
 impl PyNamespace {
-    #[pymethod(magic)]
-    fn reduce(zelf: PyObjectRef, vm: &VirtualMachine) -> PyTupleRef {
+    #[pymethod]
+    fn __reduce__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyTupleRef {
         let dict = zelf.as_object().dict().unwrap();
         let obj = zelf.as_object().to_owned();
         let result: (PyObjectRef, PyObjectRef, PyObjectRef) = (
@@ -96,7 +96,7 @@ impl Representable for PyNamespace {
 
         let repr = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let dict = zelf.as_object().dict().unwrap();
-            let mut parts = Vec::with_capacity(dict.len());
+            let mut parts = Vec::with_capacity(dict.__len__());
             for (key, value) in dict {
                 let k = &key.repr(vm)?;
                 let key_str = k.as_str();

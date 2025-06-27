@@ -496,8 +496,12 @@ mod _sre {
             })
         }
 
-        #[pyclassmethod(magic)]
-        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        #[pyclassmethod]
+        fn __class_getitem__(
+            cls: PyTypeRef,
+            args: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyGenericAlias {
             PyGenericAlias::new(cls, args, vm)
         }
     }
@@ -717,8 +721,8 @@ mod _sre {
             })
         }
 
-        #[pymethod(magic)]
-        fn getitem(
+        #[pymethod]
+        fn __getitem__(
             &self,
             group: PyObjectRef,
             vm: &VirtualMachine,
@@ -806,8 +810,12 @@ mod _sre {
             Some(str_drive.slice(start as usize, end as usize, vm))
         }
 
-        #[pyclassmethod(magic)]
-        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        #[pyclassmethod]
+        fn __class_getitem__(
+            cls: PyTypeRef,
+            args: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyGenericAlias {
             PyGenericAlias::new(cls, args, vm)
         }
     }
@@ -818,7 +826,7 @@ mod _sre {
                 std::sync::LazyLock::new(|| PyMappingMethods {
                     subscript: atomic_func!(|mapping, needle, vm| {
                         Match::mapping_downcast(mapping)
-                            .getitem(needle.to_owned(), vm)
+                            .__getitem__(needle.to_owned(), vm)
                             .map(|x| x.to_pyobject(vm))
                     }),
                     ..PyMappingMethods::NOT_IMPLEMENTED

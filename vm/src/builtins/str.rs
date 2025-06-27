@@ -283,13 +283,13 @@ impl PyPayload for PyStrIterator {
 
 #[pyclass(with(Unconstructible, IterNext, Iterable))]
 impl PyStrIterator {
-    #[pymethod(magic)]
-    fn length_hint(&self) -> usize {
+    #[pymethod]
+    fn __length_hint__(&self) -> usize {
         self.internal.lock().0.length_hint(|obj| obj.char_len())
     }
 
-    #[pymethod(magic)]
-    fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod]
+    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut internal = self.internal.lock();
         internal.1 = usize::MAX;
         internal
@@ -297,8 +297,8 @@ impl PyStrIterator {
             .set_state(state, |obj, pos| pos.min(obj.char_len()), vm)
     }
 
-    #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
         self.internal
             .lock()
             .0
@@ -513,8 +513,8 @@ impl PyStr {
     )
 )]
 impl PyStr {
-    #[pymethod(magic)]
-    fn add(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __add__(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(other) = other.payload::<PyStr>() {
             let bytes = zelf.as_wtf8().py_add(other.as_wtf8());
             Ok(unsafe {
@@ -545,8 +545,8 @@ impl PyStr {
         }
     }
 
-    #[pymethod(magic)]
-    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    #[pymethod]
+    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self._contains(&needle, vm)
     }
 
@@ -558,8 +558,8 @@ impl PyStr {
         Ok(item)
     }
 
-    #[pymethod(magic)]
-    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self._getitem(&needle, vm)
     }
 
@@ -575,6 +575,7 @@ impl PyStr {
     fn _compute_hash(&self, vm: &VirtualMachine) -> hash::PyHash {
         let hash_val = vm.state.hash_secret.hash_bytes(self.as_bytes());
         debug_assert_ne!(hash_val, hash::SENTINEL);
+        // cspell:ignore cmpxchg
         // like with char_len, we don't need a cmpxchg loop, since it'll always be the same value
         self.hash.store(hash_val, atomic::Ordering::Relaxed);
         hash_val
@@ -602,14 +603,14 @@ impl PyStr {
         matches!(self.kind(), StrKind::Ascii)
     }
 
-    #[pymethod(magic)]
-    fn sizeof(&self) -> usize {
+    #[pymethod]
+    fn __sizeof__(&self) -> usize {
         std::mem::size_of::<Self>() + self.byte_len() * std::mem::size_of::<u8>()
     }
 
     #[pymethod(name = "__rmul__")]
-    #[pymethod(magic)]
-    fn mul(zelf: PyRef<Self>, value: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    #[pymethod]
+    fn __mul__(zelf: PyRef<Self>, value: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         Self::repeat(zelf, value.into(), vm)
     }
 
@@ -920,8 +921,8 @@ impl PyStr {
         cformat_string(vm, self.as_wtf8(), values)
     }
 
-    #[pymethod(magic)]
-    fn rmod(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    #[pymethod]
+    fn __rmod__(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.not_implemented()
     }
 
@@ -1431,8 +1432,8 @@ impl PyStr {
         encode_string(zelf, args.encoding, args.errors, vm)
     }
 
-    #[pymethod(magic)]
-    fn getnewargs(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
+    #[pymethod]
+    fn __getnewargs__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
         (zelf.as_str(),).to_pyobject(vm)
     }
 }
@@ -1453,8 +1454,8 @@ impl crate::common::format::CharLen for CharLenStr<'_> {
 
 #[pyclass]
 impl PyRef<PyStr> {
-    #[pymethod(magic)]
-    fn str(self, vm: &VirtualMachine) -> PyRefExact<PyStr> {
+    #[pymethod]
+    fn __str__(self, vm: &VirtualMachine) -> PyRefExact<PyStr> {
         self.into_exact_or(&vm.ctx, |zelf| {
             PyStr::from(zelf.data.clone()).into_exact_ref(&vm.ctx)
         })
@@ -1551,7 +1552,7 @@ impl AsSequence for PyStr {
             length: atomic_func!(|seq, _vm| Ok(PyStr::sequence_downcast(seq).len())),
             concat: atomic_func!(|seq, other, vm| {
                 let zelf = PyStr::sequence_downcast(seq);
-                PyStr::add(zelf.to_owned(), other.to_owned(), vm)
+                PyStr::__add__(zelf.to_owned(), other.to_owned(), vm)
             }),
             repeat: atomic_func!(|seq, n, vm| {
                 let zelf = PyStr::sequence_downcast(seq);
@@ -2259,7 +2260,9 @@ mod tests {
             ("Format This As Title String", "fOrMaT thIs aS titLe String"),
             ("Format,This-As*Title;String", "fOrMaT,thIs-aS*titLe;String"),
             ("Getint", "getInt"),
+            // cspell:disable-next-line
             ("Greek Ωppercases ...", "greek ωppercases ..."),
+            // cspell:disable-next-line
             ("Greek ῼitlecases ...", "greek ῳitlecases ..."),
         ];
         for (title, input) in tests {
@@ -2274,7 +2277,9 @@ mod tests {
             "A Titlecased Line",
             "A\nTitlecased Line",
             "A Titlecased, Line",
+            // cspell:disable-next-line
             "Greek Ωppercases ...",
+            // cspell:disable-next-line
             "Greek ῼitlecases ...",
         ];
 

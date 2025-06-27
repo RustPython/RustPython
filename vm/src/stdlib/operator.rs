@@ -356,8 +356,8 @@ mod _operator {
 
     #[pyclass(with(Callable, Constructor, Representable))]
     impl PyAttrGetter {
-        #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyTypeRef, PyTupleRef)> {
+        #[pymethod]
+        fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyTypeRef, PyTupleRef)> {
             let attrs = vm
                 .ctx
                 .new_tuple(zelf.attrs.iter().map(|v| v.clone().into()).collect());
@@ -455,8 +455,8 @@ mod _operator {
 
     #[pyclass(with(Callable, Constructor, Representable))]
     impl PyItemGetter {
-        #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
+        #[pymethod]
+        fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
             let items = vm.ctx.new_tuple(zelf.items.to_vec());
             vm.new_pyobj((zelf.class().to_owned(), items))
         }
@@ -526,8 +526,8 @@ mod _operator {
 
     #[pyclass(with(Callable, Constructor, Representable))]
     impl PyMethodCaller {
-        #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        #[pymethod]
+        fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             // With no kwargs, return (type(obj), (name, *args)) tuple.
             if zelf.args.kwargs.is_empty() {
                 let mut py_args = vec![zelf.name.as_object().to_owned()];

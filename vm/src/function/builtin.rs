@@ -66,7 +66,7 @@ const fn zst_ref_out_of_thin_air<T: 'static>(x: T) -> &'static T {
 }
 
 /// Get the STATIC_FUNC of the passed function. The same
-/// requirements of zero-sizedness apply, see that documentation for details.
+/// requirements of zero-sized-ness apply, see that documentation for details.
 ///
 /// Equivalent to [`IntoPyNativeFn::into_func()`], but usable in a const context. This is only
 /// valid if the function is zero-sized, i.e. that `std::mem::size_of::<F>() == 0`. If you call

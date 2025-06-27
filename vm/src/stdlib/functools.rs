@@ -100,8 +100,8 @@ mod _functools {
                 .into())
         }
 
-        #[pymethod(magic)]
-        fn setstate(zelf: &Py<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        #[pymethod]
+        fn __setstate__(zelf: &Py<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let state_tuple = state
                 .downcast::<PyTuple>()
                 .map_err(|_| vm.new_type_error("argument to __setstate__ must be a tuple"))?;
@@ -293,7 +293,7 @@ mod _functools {
                 }
 
                 let class_name = zelf.class().name();
-                let module = zelf.class().module(vm);
+                let module = zelf.class().__module__(vm);
 
                 let qualified_name = if zelf.class().is(PyPartial::class(&vm.ctx)) {
                     // For the base partial class, always use functools.partial

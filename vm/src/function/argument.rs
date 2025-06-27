@@ -118,15 +118,15 @@ impl FuncArgs {
     {
         // last `kwarg_names.len()` elements of args in order of appearance in the call signature
         let total_argc = args.len();
-        let kwargc = kwarg_names.len();
-        let posargc = total_argc - kwargc;
+        let kwarg_count = kwarg_names.len();
+        let pos_arg_count = total_argc - kwarg_count;
 
-        let posargs = args.by_ref().take(posargc).collect();
+        let pos_args = args.by_ref().take(pos_arg_count).collect();
 
         let kwargs = kwarg_names.zip_eq(args).collect::<IndexMap<_, _>>();
 
         FuncArgs {
-            args: posargs,
+            args: pos_args,
             kwargs,
         }
     }

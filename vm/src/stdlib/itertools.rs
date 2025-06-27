@@ -62,13 +62,17 @@ mod decl {
             .into_ref_with_type(vm, cls)
         }
 
-        #[pyclassmethod(magic)]
-        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        #[pyclassmethod]
+        fn __class_getitem__(
+            cls: PyTypeRef,
+            args: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyGenericAlias {
             PyGenericAlias::new(cls, args, vm)
         }
 
-        #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        #[pymethod]
+        fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             let source = zelf.source.read().clone();
             let active = zelf.active.read().clone();
             let cls = zelf.class().to_owned();
@@ -83,8 +87,8 @@ mod decl {
             Ok(reduced)
         }
 
-        #[pymethod(magic)]
-        fn setstate(zelf: PyRef<Self>, state: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
+        #[pymethod]
+        fn __setstate__(zelf: PyRef<Self>, state: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
             let args = state.as_slice();
             if args.is_empty() {
                 let msg = String::from("function takes at least 1 arguments (0 given)");
@@ -197,8 +201,8 @@ mod decl {
 
     #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsCompress {
-        #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyIter, PyIter)) {
+        #[pymethod]
+        fn __reduce__(zelf: PyRef<Self>) -> (PyTypeRef, (PyIter, PyIter)) {
             (
                 zelf.class().to_owned(),
                 (zelf.data.clone(), zelf.selectors.clone()),
@@ -270,8 +274,8 @@ mod decl {
         // TODO: Implement this
         // if (lz->cnt == PY_SSIZE_T_MAX)
         //      return Py_BuildValue("0(00)", Py_TYPE(lz), lz->long_cnt, lz->long_step);
-        #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef,)) {
+        #[pymethod]
+        fn __reduce__(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef,)) {
             (zelf.class().to_owned(), (zelf.cur.read().clone(),))
         }
     }
@@ -391,8 +395,8 @@ mod decl {
 
     #[pyclass(with(IterNext, Iterable, Constructor, Representable), flags(BASETYPE))]
     impl PyItertoolsRepeat {
-        #[pymethod(magic)]
-        fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
+        #[pymethod]
+        fn __length_hint__(&self, vm: &VirtualMachine) -> PyResult<usize> {
             // Return TypeError, length_hint picks this up and returns the default.
             let times = self
                 .times
@@ -401,8 +405,8 @@ mod decl {
             Ok(*times.read())
         }
 
-        #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        #[pymethod]
+        fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             let cls = zelf.class().to_owned();
             Ok(match zelf.times {
                 Some(ref times) => vm.new_tuple((cls, (zelf.object.clone(), *times.read()))),
@@ -470,8 +474,8 @@ mod decl {
 
     #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsStarmap {
-        #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter)) {
+        #[pymethod]
+        fn __reduce__(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter)) {
             (
                 zelf.class().to_owned(),
                 (zelf.function.clone(), zelf.iterable.clone()),
@@ -535,16 +539,20 @@ mod decl {
 
     #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsTakewhile {
-        #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter), u32) {
+        #[pymethod]
+        fn __reduce__(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter), u32) {
             (
                 zelf.class().to_owned(),
                 (zelf.predicate.clone(), zelf.iterable.clone()),
                 zelf.stop_flag.load() as _,
             )
         }
-        #[pymethod(magic)]
-        fn setstate(zelf: PyRef<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        #[pymethod]
+        fn __setstate__(
+            zelf: PyRef<Self>,
+            state: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             if let Ok(obj) = ArgIntoBool::try_from_object(vm, state) {
                 zelf.stop_flag.store(*obj);
             }
@@ -618,16 +626,20 @@ mod decl {
 
     #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsDropwhile {
-        #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter), u32) {
+        #[pymethod]
+        fn __reduce__(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter), u32) {
             (
                 zelf.class().to_owned(),
                 (zelf.predicate.clone().into(), zelf.iterable.clone()),
                 (zelf.start_flag.load() as _),
             )
         }
-        #[pymethod(magic)]
-        fn setstate(zelf: PyRef<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        #[pymethod]
+        fn __setstate__(
+            zelf: PyRef<Self>,
+            state: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             if let Ok(obj) = ArgIntoBool::try_from_object(vm, state) {
                 zelf.start_flag.store(*obj);
             }
@@ -951,8 +963,8 @@ mod decl {
             .map(Into::into)
         }
 
-        #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        #[pymethod]
+        fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             let cls = zelf.class().to_owned();
             let itr = zelf.iterable.clone();
             let cur = zelf.cur.take();
@@ -964,8 +976,8 @@ mod decl {
             }
         }
 
-        #[pymethod(magic)]
-        fn setstate(zelf: PyRef<Self>, state: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
+        #[pymethod]
+        fn __setstate__(zelf: PyRef<Self>, state: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
             let args = state.as_slice();
             if args.len() != 1 {
                 let msg = format!("function takes exactly 1 argument ({} given)", args.len());
@@ -1048,8 +1060,8 @@ mod decl {
 
     #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsFilterFalse {
-        #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter)) {
+        #[pymethod]
+        fn __reduce__(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter)) {
             (
                 zelf.class().to_owned(),
                 (zelf.predicate.clone(), zelf.iterable.clone()),
@@ -1118,14 +1130,18 @@ mod decl {
 
     #[pyclass(with(IterNext, Iterable, Constructor))]
     impl PyItertoolsAccumulate {
-        #[pymethod(magic)]
-        fn setstate(zelf: PyRef<Self>, state: PyObjectRef, _vm: &VirtualMachine) -> PyResult<()> {
+        #[pymethod]
+        fn __setstate__(
+            zelf: PyRef<Self>,
+            state: PyObjectRef,
+            _vm: &VirtualMachine,
+        ) -> PyResult<()> {
             *zelf.acc_value.write() = Some(state);
             Ok(())
         }
 
-        #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
+        #[pymethod]
+        fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
             let class = zelf.class().to_owned();
             let bin_op = zelf.bin_op.clone();
             let it = zelf.iterable.clone();
@@ -1287,8 +1303,8 @@ mod decl {
             .into())
         }
 
-        #[pymethod(magic)]
-        fn copy(&self) -> Self {
+        #[pymethod]
+        fn __copy__(&self) -> Self {
             Self {
                 tee_data: PyRc::clone(&self.tee_data),
                 index: AtomicCell::new(self.index.load()),
@@ -1374,8 +1390,8 @@ mod decl {
             }
         }
 
-        #[pymethod(magic)]
-        fn setstate(zelf: PyRef<Self>, state: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
+        #[pymethod]
+        fn __setstate__(zelf: PyRef<Self>, state: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
             let args = state.as_slice();
             if args.len() != zelf.pools.len() {
                 let msg = "Invalid number of arguments".to_string();
@@ -1400,8 +1416,8 @@ mod decl {
             Ok(())
         }
 
-        #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
+        #[pymethod]
+        fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
             let class = zelf.class().to_owned();
 
             if zelf.stop.load() {
@@ -1509,8 +1525,8 @@ mod decl {
 
     #[pyclass(with(IterNext, Iterable, Constructor))]
     impl PyItertoolsCombinations {
-        #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
+        #[pymethod]
+        fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
             let r = zelf.r.load();
 
             let class = zelf.class().to_owned();
@@ -1750,8 +1766,8 @@ mod decl {
 
     #[pyclass(with(IterNext, Iterable, Constructor))]
     impl PyItertoolsPermutations {
-        #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<PyTuple> {
+        #[pymethod]
+        fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<PyTuple> {
             vm.new_tuple((
                 zelf.class().to_owned(),
                 vm.new_tuple((zelf.pool.clone(), vm.ctx.new_int(zelf.r.load()))),
@@ -1863,8 +1879,8 @@ mod decl {
 
     #[pyclass(with(IterNext, Iterable, Constructor))]
     impl PyItertoolsZipLongest {
-        #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        #[pymethod]
+        fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             let args: Vec<PyObjectRef> = zelf
                 .iterators
                 .iter()
@@ -1877,8 +1893,12 @@ mod decl {
             )))
         }
 
-        #[pymethod(magic)]
-        fn setstate(zelf: PyRef<Self>, state: PyObjectRef, _vm: &VirtualMachine) -> PyResult<()> {
+        #[pymethod]
+        fn __setstate__(
+            zelf: PyRef<Self>,
+            state: PyObjectRef,
+            _vm: &VirtualMachine,
+        ) -> PyResult<()> {
             *zelf.fillvalue.write() = state;
             Ok(())
         }

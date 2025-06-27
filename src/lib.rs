@@ -242,6 +242,7 @@ fn write_profile(settings: &Settings) -> Result<(), Box<dyn std::error::Error>> 
         Some("html") => ProfileFormat::Html,
         Some("text") => ProfileFormat::Text,
         None if profile_output == Some("-".as_ref()) => ProfileFormat::Text,
+        // cspell:ignore speedscope
         Some("speedscope") | None => ProfileFormat::SpeedScope,
         Some(other) => {
             error!("Unknown profile format {}", other);

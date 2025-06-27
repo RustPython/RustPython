@@ -1,5 +1,5 @@
 #[cfg(feature = "jit")]
-mod jitfunc;
+mod jit;
 
 use super::{
     PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStr, PyStrRef, PyTupleRef, PyType,
@@ -145,7 +145,7 @@ impl PyFunction {
             if nargs > n_expected_args {
                 return Err(vm.new_type_error(format!(
                     "{}() takes {} positional arguments but {} were given",
-                    self.qualname(),
+                    self.__qualname__(),
                     n_expected_args,
                     nargs
                 )));
@@ -180,7 +180,7 @@ impl PyFunction {
                 if slot.is_some() {
                     return Err(vm.new_type_error(format!(
                         "{}() got multiple values for argument '{}'",
-                        self.qualname(),
+                        self.__qualname__(),
                         name
                     )));
                 }
@@ -192,7 +192,7 @@ impl PyFunction {
             } else {
                 return Err(vm.new_type_error(format!(
                     "{}() got an unexpected keyword argument '{}'",
-                    self.qualname(),
+                    self.__qualname__(),
                     name
                 )));
             }
@@ -200,7 +200,7 @@ impl PyFunction {
         if !posonly_passed_as_kwarg.is_empty() {
             return Err(vm.new_type_error(format!(
                 "{}() got some positional-only arguments passed as keyword arguments: '{}'",
-                self.qualname(),
+                self.__qualname__(),
                 posonly_passed_as_kwarg.into_iter().format(", "),
             )));
         }
@@ -257,7 +257,7 @@ impl PyFunction {
 
                 return Err(vm.new_type_error(format!(
                     "{}() missing {} required positional argument{}: '{}{}{}'",
-                    self.qualname(),
+                    self.__qualname__(),
                     missing_args_len,
                     if missing_args_len == 1 { "" } else { "s" },
                     missing.iter().join("', '"),
@@ -324,7 +324,7 @@ impl PyFunction {
     ) -> PyResult {
         #[cfg(feature = "jit")]
         if let Some(jitted_code) = self.jitted_code.get() {
-            match jitfunc::get_jit_args(self, &func_args, jitted_code, vm) {
+            match jit::get_jit_args(self, &func_args, jitted_code, vm) {
                 Ok(args) => {
                     return Ok(args.invoke().to_pyobject(vm));
                 }
@@ -362,9 +362,9 @@ impl PyFunction {
         let is_gen = code.flags.contains(bytecode::CodeFlags::IS_GENERATOR);
         let is_coro = code.flags.contains(bytecode::CodeFlags::IS_COROUTINE);
         match (is_gen, is_coro) {
-            (true, false) => Ok(PyGenerator::new(frame, self.name()).into_pyobject(vm)),
-            (false, true) => Ok(PyCoroutine::new(frame, self.name()).into_pyobject(vm)),
-            (true, true) => Ok(PyAsyncGen::new(frame, self.name()).into_pyobject(vm)),
+            (true, false) => Ok(PyGenerator::new(frame, self.__name__()).into_pyobject(vm)),
+            (false, true) => Ok(PyCoroutine::new(frame, self.__name__()).into_pyobject(vm)),
+            (true, true) => Ok(PyAsyncGen::new(frame, self.__name__()).into_pyobject(vm)),
             (false, false) => vm.run_frame(frame),
         }
     }
@@ -386,26 +386,26 @@ impl PyPayload for PyFunction {
     flags(HAS_DICT, METHOD_DESCRIPTOR)
 )]
 impl PyFunction {
-    #[pygetset(magic)]
-    fn code(&self) -> PyRef<PyCode> {
+    #[pygetset]
+    fn __code__(&self) -> PyRef<PyCode> {
         self.code.clone()
     }
 
-    #[pygetset(magic)]
-    fn defaults(&self) -> Option<PyTupleRef> {
+    #[pygetset]
+    fn __defaults__(&self) -> Option<PyTupleRef> {
         self.defaults_and_kwdefaults.lock().0.clone()
     }
-    #[pygetset(magic, setter)]
-    fn set_defaults(&self, defaults: Option<PyTupleRef>) {
+    #[pygetset(setter)]
+    fn set___defaults__(&self, defaults: Option<PyTupleRef>) {
         self.defaults_and_kwdefaults.lock().0 = defaults
     }
 
-    #[pygetset(magic)]
-    fn kwdefaults(&self) -> Option<PyDictRef> {
+    #[pygetset]
+    fn __kwdefaults__(&self) -> Option<PyDictRef> {
         self.defaults_and_kwdefaults.lock().1.clone()
     }
-    #[pygetset(magic, setter)]
-    fn set_kwdefaults(&self, kwdefaults: Option<PyDictRef>) {
+    #[pygetset(setter)]
+    fn set___kwdefaults__(&self, kwdefaults: Option<PyDictRef>) {
         self.defaults_and_kwdefaults.lock().1 = kwdefaults
     }
 
@@ -414,36 +414,36 @@ impl PyFunction {
     // {"__globals__",   T_OBJECT,     OFF(func_globals), READONLY},
     // {"__module__",    T_OBJECT,     OFF(func_module), 0},
     // {"__builtins__",  T_OBJECT,     OFF(func_builtins), READONLY},
-    #[pymember(magic)]
-    fn globals(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+    #[pymember]
+    fn __globals__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf = Self::_as_pyref(&zelf, vm)?;
         Ok(zelf.globals.clone().into())
     }
 
-    #[pymember(magic)]
-    fn closure(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+    #[pymember]
+    fn __closure__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf = Self::_as_pyref(&zelf, vm)?;
         Ok(vm.unwrap_or_none(zelf.closure.clone().map(|x| x.to_pyobject(vm))))
     }
 
-    #[pymember(magic)]
-    fn builtins(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+    #[pymember]
+    fn __builtins__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf = Self::_as_pyref(&zelf, vm)?;
         Ok(zelf.builtins.clone())
     }
 
-    #[pygetset(magic)]
-    fn name(&self) -> PyStrRef {
+    #[pygetset]
+    fn __name__(&self) -> PyStrRef {
         self.name.lock().clone()
     }
 
-    #[pygetset(magic, setter)]
-    fn set_name(&self, name: PyStrRef) {
+    #[pygetset(setter)]
+    fn set___name__(&self, name: PyStrRef) {
         *self.name.lock() = name;
     }
 
-    #[pymember(magic)]
-    fn doc(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult {
+    #[pymember]
+    fn __doc__(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult {
         // When accessed from instance, obj is the PyFunction instance
         if let Ok(func) = obj.downcast::<PyFunction>() {
             let doc = func.doc.lock();
@@ -454,41 +454,41 @@ impl PyFunction {
         }
     }
 
-    #[pymember(magic, setter)]
-    fn set_doc(vm: &VirtualMachine, zelf: PyObjectRef, value: PySetterValue) -> PyResult<()> {
+    #[pymember(setter)]
+    fn set___doc__(vm: &VirtualMachine, zelf: PyObjectRef, value: PySetterValue) -> PyResult<()> {
         let zelf: PyRef<PyFunction> = zelf.downcast().unwrap_or_else(|_| unreachable!());
         let value = value.unwrap_or_none(vm);
         *zelf.doc.lock() = value;
         Ok(())
     }
 
-    #[pygetset(magic)]
-    fn module(&self) -> PyObjectRef {
+    #[pygetset]
+    fn __module__(&self) -> PyObjectRef {
         self.module.lock().clone()
     }
 
-    #[pygetset(magic, setter)]
-    fn set_module(&self, module: PySetterValue<PyObjectRef>, vm: &VirtualMachine) {
+    #[pygetset(setter)]
+    fn set___module__(&self, module: PySetterValue<PyObjectRef>, vm: &VirtualMachine) {
         *self.module.lock() = module.unwrap_or_none(vm);
     }
 
-    #[pygetset(magic)]
-    fn annotations(&self) -> PyDictRef {
+    #[pygetset]
+    fn __annotations__(&self) -> PyDictRef {
         self.annotations.lock().clone()
     }
 
-    #[pygetset(magic, setter)]
-    fn set_annotations(&self, annotations: PyDictRef) {
+    #[pygetset(setter)]
+    fn set___annotations__(&self, annotations: PyDictRef) {
         *self.annotations.lock() = annotations
     }
 
-    #[pygetset(magic)]
-    fn qualname(&self) -> PyStrRef {
+    #[pygetset]
+    fn __qualname__(&self) -> PyStrRef {
         self.qualname.lock().clone()
     }
 
-    #[pygetset(magic, setter)]
-    fn set_qualname(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+    #[pygetset(setter)]
+    fn set___qualname__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         match value {
             PySetterValue::Assign(value) => {
                 let Ok(qualname) = value.downcast::<PyStr>() else {
@@ -503,13 +503,13 @@ impl PyFunction {
         Ok(())
     }
 
-    #[pygetset(magic)]
-    fn type_params(&self) -> PyTupleRef {
+    #[pygetset]
+    fn __type_params__(&self) -> PyTupleRef {
         self.type_params.lock().clone()
     }
 
-    #[pygetset(magic, setter)]
-    fn set_type_params(
+    #[pygetset(setter)]
+    fn set___type_params__(
         &self,
         value: PySetterValue<PyTupleRef>,
         vm: &VirtualMachine,
@@ -526,14 +526,14 @@ impl PyFunction {
     }
 
     #[cfg(feature = "jit")]
-    #[pymethod(magic)]
-    fn jit(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod]
+    fn __jit__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
         zelf.jitted_code
             .get_or_try_init(|| {
-                let arg_types = jitfunc::get_jit_arg_types(&zelf, vm)?;
-                let ret_type = jitfunc::jit_ret_type(&zelf, vm)?;
+                let arg_types = jit::get_jit_arg_types(&zelf, vm)?;
+                let ret_type = jit::jit_ret_type(&zelf, vm)?;
                 rustpython_jit::compile(&zelf.code.code, &arg_types, ret_type)
-                    .map_err(|err| jitfunc::new_jit_error(err.to_string(), vm))
+                    .map_err(|err| jit::new_jit_error(err.to_string(), vm))
             })
             .map(drop)
     }
@@ -569,7 +569,7 @@ impl Representable for PyFunction {
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
         Ok(format!(
             "<function {} at {:#x}>",
-            zelf.qualname(),
+            zelf.__qualname__(),
             zelf.get_id()
         ))
     }
@@ -736,8 +736,8 @@ impl PyBoundMethod {
     flags(HAS_DICT)
 )]
 impl PyBoundMethod {
-    #[pymethod(magic)]
-    fn reduce(
+    #[pymethod]
+    fn __reduce__(
         &self,
         vm: &VirtualMachine,
     ) -> (Option<PyObjectRef>, (PyObjectRef, Option<PyObjectRef>)) {
@@ -747,13 +747,13 @@ impl PyBoundMethod {
         (builtins_getattr, (func_self, func_name))
     }
 
-    #[pygetset(magic)]
-    fn doc(&self, vm: &VirtualMachine) -> PyResult {
+    #[pygetset]
+    fn __doc__(&self, vm: &VirtualMachine) -> PyResult {
         self.function.get_attr("__doc__", vm)
     }
 
-    #[pygetset(magic)]
-    fn func(&self) -> PyObjectRef {
+    #[pygetset]
+    fn __func__(&self) -> PyObjectRef {
         self.function.clone()
     }
 
@@ -762,13 +762,13 @@ impl PyBoundMethod {
         self.object.clone()
     }
 
-    #[pygetset(magic)]
-    fn module(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
+    #[pygetset]
+    fn __module__(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
         self.function.get_attr("__module__", vm).ok()
     }
 
-    #[pygetset(magic)]
-    fn qualname(&self, vm: &VirtualMachine) -> PyResult {
+    #[pygetset]
+    fn __qualname__(&self, vm: &VirtualMachine) -> PyResult {
         if self
             .function
             .fast_isinstance(vm.ctx.types.builtin_function_or_method_type)

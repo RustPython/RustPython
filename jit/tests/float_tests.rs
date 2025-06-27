@@ -168,7 +168,7 @@ fn test_power() {
     assert_approx_eq!(pow(-4.5, 4.0), Ok(410.0625));
     assert_approx_eq!(pow(-2.5, 3.0), Ok(-15.625));
     assert_approx_eq!(pow(-2.5, 4.0), Ok(39.0625));
-    // Test positive float base, positive float exponent with nonintegral exponents
+    // Test positive float base, positive float exponent with non-integral exponents
     assert_approx_eq!(pow(2.0, 2.5), Ok(5.656854249492381));
     assert_approx_eq!(pow(3.0, 3.5), Ok(46.76537180435969));
     assert_approx_eq!(pow(4.0, 4.5), Ok(512.0));
@@ -187,7 +187,7 @@ fn test_power() {
     assert_approx_eq!(pow(-2.0, -3.0), Ok(-0.125));
     assert_approx_eq!(pow(-2.0, -4.0), Ok(0.0625));
 
-    // Currently negative float base with nonintegral exponent is not supported:
+    // Currently negative float base with non-integral exponent is not supported:
     // assert_approx_eq!(pow(-2.0, 2.5), Ok(5.656854249492381));
     // assert_approx_eq!(pow(-3.0, 3.5), Ok(-46.76537180435969));
     // assert_approx_eq!(pow(-4.0, 4.5), Ok(512.0));

@@ -261,8 +261,8 @@ impl PyCSimple {
         .to_pyobject(vm))
     }
 
-    #[pyclassmethod(magic)]
-    fn mul(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
+    #[pyclassmethod]
+    fn __mul__(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
         PyCSimple::repeat(cls, n, vm)
     }
 }

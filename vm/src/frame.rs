@@ -386,7 +386,7 @@ impl ExecutingFrame<'_> {
                         // 3. Unwind block stack till appropriate handler is found.
 
                         let loc = frame.code.locations[idx].clone();
-                        let next = exception.traceback();
+                        let next = exception.__traceback__();
                         let new_traceback =
                             PyTraceback::new(next, frame.object.to_owned(), frame.lasti(), loc.row);
                         vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.row);
@@ -1711,7 +1711,7 @@ impl ExecutingFrame<'_> {
         #[cfg(debug_assertions)]
         debug!("Exception raised: {exception:?} with cause: {cause:?}");
         if let Some(cause) = cause {
-            exception.set_cause(cause);
+            exception.set___cause__(cause);
         }
         Err(exception)
     }

@@ -1,3 +1,4 @@
+// cspell:ignore iparam
 use std::sync::LazyLock;
 
 use super::type_;
@@ -143,28 +144,28 @@ impl PyGenericAlias {
         ))
     }
 
-    #[pygetset(magic)]
-    fn parameters(&self) -> PyObjectRef {
+    #[pygetset]
+    fn __parameters__(&self) -> PyObjectRef {
         self.parameters.clone().into()
     }
 
-    #[pygetset(magic)]
-    fn args(&self) -> PyObjectRef {
+    #[pygetset]
+    fn __args__(&self) -> PyObjectRef {
         self.args.clone().into()
     }
 
-    #[pygetset(magic)]
-    fn origin(&self) -> PyObjectRef {
+    #[pygetset]
+    fn __origin__(&self) -> PyObjectRef {
         self.origin.clone().into()
     }
 
-    #[pygetset(magic)]
-    fn unpacked(&self) -> bool {
+    #[pygetset]
+    fn __unpacked__(&self) -> bool {
         self.starred
     }
 
-    #[pymethod(magic)]
-    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let new_args = subs_parameters(
             |vm| self.repr(vm),
             self.args.clone(),
@@ -179,47 +180,47 @@ impl PyGenericAlias {
         )
     }
 
-    #[pymethod(magic)]
-    fn dir(&self, vm: &VirtualMachine) -> PyResult<PyList> {
-        let dir = vm.dir(Some(self.origin()))?;
+    #[pymethod]
+    fn __dir__(&self, vm: &VirtualMachine) -> PyResult<PyList> {
+        let dir = vm.dir(Some(self.__origin__()))?;
         for exc in &ATTR_EXCEPTIONS {
-            if !dir.contains((*exc).to_pyobject(vm), vm)? {
+            if !dir.__contains__((*exc).to_pyobject(vm), vm)? {
                 dir.append((*exc).to_pyobject(vm));
             }
         }
         Ok(dir)
     }
 
-    #[pymethod(magic)]
-    fn reduce(zelf: &Py<Self>, vm: &VirtualMachine) -> (PyTypeRef, (PyTypeRef, PyTupleRef)) {
+    #[pymethod]
+    fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> (PyTypeRef, (PyTypeRef, PyTupleRef)) {
         (
             vm.ctx.types.generic_alias_type.to_owned(),
             (zelf.origin.clone(), zelf.args.clone()),
         )
     }
 
-    #[pymethod(magic)]
-    fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyTupleRef {
-        PyTuple::new_ref(vec![self.origin()], &vm.ctx)
+    #[pymethod]
+    fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyTupleRef {
+        PyTuple::new_ref(vec![self.__origin__()], &vm.ctx)
     }
 
-    #[pymethod(magic)]
-    fn instancecheck(_zelf: PyRef<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __instancecheck__(_zelf: PyRef<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("isinstance() argument 2 cannot be a parameterized generic"))
     }
 
-    #[pymethod(magic)]
-    fn subclasscheck(_zelf: PyRef<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __subclasscheck__(_zelf: PyRef<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("issubclass() argument 2 cannot be a parameterized generic"))
     }
 
-    #[pymethod(magic)]
-    fn ror(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    #[pymethod]
+    fn __ror__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         type_::or_(other, zelf, vm)
     }
 
-    #[pymethod(magic)]
-    fn or(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    #[pymethod]
+    fn __or__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         type_::or_(zelf, other, vm)
     }
 }
@@ -404,7 +405,7 @@ impl AsMapping for PyGenericAlias {
     fn as_mapping() -> &'static PyMappingMethods {
         static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
             subscript: atomic_func!(|mapping, needle, vm| {
-                PyGenericAlias::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
+                PyGenericAlias::mapping_downcast(mapping).__getitem__(needle.to_owned(), vm)
             }),
             ..PyMappingMethods::NOT_IMPLEMENTED
         });
@@ -415,7 +416,7 @@ impl AsMapping for PyGenericAlias {
 impl AsNumber for PyGenericAlias {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            or: Some(|a, b, vm| Ok(PyGenericAlias::or(a.to_owned(), b.to_owned(), vm))),
+            or: Some(|a, b, vm| Ok(PyGenericAlias::__or__(a.to_owned(), b.to_owned(), vm))),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
@@ -448,14 +449,15 @@ impl Comparable for PyGenericAlias {
         op.eq_only(|| {
             let other = class_or_notimplemented!(Self, other);
             Ok(PyComparisonValue::Implemented(
-                if !zelf
-                    .origin()
-                    .rich_compare_bool(&other.origin(), PyComparisonOp::Eq, vm)?
-                {
+                if !zelf.__origin__().rich_compare_bool(
+                    &other.__origin__(),
+                    PyComparisonOp::Eq,
+                    vm,
+                )? {
                     false
                 } else {
-                    zelf.args()
-                        .rich_compare_bool(&other.args(), PyComparisonOp::Eq, vm)?
+                    zelf.__args__()
+                        .rich_compare_bool(&other.__args__(), PyComparisonOp::Eq, vm)?
                 },
             ))
         })
@@ -476,7 +478,7 @@ impl GetAttr for PyGenericAlias {
                 return zelf.as_object().generic_getattr(attr, vm);
             }
         }
-        zelf.origin().get_attr(attr, vm)
+        zelf.__origin__().get_attr(attr, vm)
     }
 }
 

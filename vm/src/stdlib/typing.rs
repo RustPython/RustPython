@@ -1,3 +1,4 @@
+// cspell:ignore typevarobject funcobj
 use crate::{PyRef, VirtualMachine, stdlib::PyModule};
 
 pub(crate) use decl::*;
@@ -69,18 +70,18 @@ pub(crate) mod decl {
     }
     #[pyclass(flags(HAS_DICT), with(AsNumber, Constructor, Representable))]
     impl TypeVar {
-        #[pymethod(magic)]
-        fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        #[pymethod]
+        fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of TypeVar"))
         }
 
-        #[pygetset(magic)]
-        fn name(&self) -> PyObjectRef {
+        #[pygetset]
+        fn __name__(&self) -> PyObjectRef {
             self.name.clone()
         }
 
-        #[pygetset(magic)]
-        fn constraints(&self, vm: &VirtualMachine) -> PyResult {
+        #[pygetset]
+        fn __constraints__(&self, vm: &VirtualMachine) -> PyResult {
             let mut constraints = self.constraints.lock();
             if !vm.is_none(&constraints) {
                 return Ok(constraints.clone());
@@ -94,8 +95,8 @@ pub(crate) mod decl {
             Ok(r)
         }
 
-        #[pygetset(magic)]
-        fn bound(&self, vm: &VirtualMachine) -> PyResult {
+        #[pygetset]
+        fn __bound__(&self, vm: &VirtualMachine) -> PyResult {
             let mut bound = self.bound.lock();
             if !vm.is_none(&bound) {
                 return Ok(bound.clone());
@@ -109,23 +110,23 @@ pub(crate) mod decl {
             Ok(r)
         }
 
-        #[pygetset(magic)]
-        fn covariant(&self) -> bool {
+        #[pygetset]
+        fn __covariant__(&self) -> bool {
             self.covariant
         }
 
-        #[pygetset(magic)]
-        fn contravariant(&self) -> bool {
+        #[pygetset]
+        fn __contravariant__(&self) -> bool {
             self.contravariant
         }
 
-        #[pygetset(magic)]
-        fn infer_variance(&self) -> bool {
+        #[pygetset]
+        fn __infer_variance__(&self) -> bool {
             self.infer_variance
         }
 
-        #[pygetset(magic)]
-        fn default(&self, vm: &VirtualMachine) -> PyResult {
+        #[pygetset]
+        fn __default__(&self, vm: &VirtualMachine) -> PyResult {
             let mut default_value = self.default_value.lock();
             // Check if default_value is NoDefault (not just None)
             if !default_value.is(&vm.ctx.typing_no_default) {
@@ -140,8 +141,8 @@ pub(crate) mod decl {
             }
         }
 
-        #[pymethod(magic)]
-        fn typing_subst(
+        #[pymethod]
+        fn __typing_subst__(
             zelf: crate::PyRef<Self>,
             arg: PyObjectRef,
             vm: &VirtualMachine,
@@ -150,8 +151,8 @@ pub(crate) mod decl {
             _call_typing_func_object(vm, "_typevar_subst", (self_obj, arg))
         }
 
-        #[pymethod(magic)]
-        fn reduce(&self) -> PyObjectRef {
+        #[pymethod]
+        fn __reduce__(&self) -> PyObjectRef {
             self.name.clone()
         }
 
@@ -344,13 +345,13 @@ pub(crate) mod decl {
 
     #[pyclass(flags(HAS_DICT), with(AsNumber, Constructor))]
     impl ParamSpec {
-        #[pymethod(magic)]
-        fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        #[pymethod]
+        fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of ParamSpec"))
         }
 
-        #[pygetset(magic)]
-        fn name(&self) -> PyObjectRef {
+        #[pygetset]
+        fn __name__(&self) -> PyObjectRef {
             self.name.clone()
         }
 
@@ -372,31 +373,31 @@ pub(crate) mod decl {
             Ok(psk.into_ref(&vm.ctx).into())
         }
 
-        #[pygetset(magic)]
-        fn bound(&self, vm: &VirtualMachine) -> PyObjectRef {
+        #[pygetset]
+        fn __bound__(&self, vm: &VirtualMachine) -> PyObjectRef {
             if let Some(bound) = self.bound.clone() {
                 return bound;
             }
             vm.ctx.none()
         }
 
-        #[pygetset(magic)]
-        fn covariant(&self) -> bool {
+        #[pygetset]
+        fn __covariant__(&self) -> bool {
             self.covariant
         }
 
-        #[pygetset(magic)]
-        fn contravariant(&self) -> bool {
+        #[pygetset]
+        fn __contravariant__(&self) -> bool {
             self.contravariant
         }
 
-        #[pygetset(magic)]
-        fn infer_variance(&self) -> bool {
+        #[pygetset]
+        fn __infer_variance__(&self) -> bool {
             self.infer_variance
         }
 
-        #[pygetset(magic)]
-        fn default(&self, vm: &VirtualMachine) -> PyResult {
+        #[pygetset]
+        fn __default__(&self, vm: &VirtualMachine) -> PyResult {
             if let Some(ref default_value) = self.default_value {
                 // Check if default_value is NoDefault (not just None)
                 if !default_value.is(&vm.ctx.typing_no_default) {
@@ -420,8 +421,8 @@ pub(crate) mod decl {
             vm.ctx.none()
         }
 
-        #[pymethod(magic)]
-        fn reduce(&self) -> PyResult {
+        #[pymethod]
+        fn __reduce__(&self) -> PyResult {
             Ok(self.name.clone())
         }
 
@@ -438,8 +439,8 @@ pub(crate) mod decl {
             }
         }
 
-        #[pymethod(magic)]
-        fn typing_subst(
+        #[pymethod]
+        fn __typing_subst__(
             zelf: crate::PyRef<Self>,
             arg: PyObjectRef,
             vm: &VirtualMachine,
@@ -448,8 +449,8 @@ pub(crate) mod decl {
             _call_typing_func_object(vm, "_paramspec_subst", (self_obj, arg))
         }
 
-        #[pymethod(magic)]
-        fn typing_prepare_subst(
+        #[pymethod]
+        fn __typing_prepare_subst__(
             zelf: crate::PyRef<Self>,
             alias: PyObjectRef,
             args: PyTupleRef,
@@ -572,8 +573,8 @@ pub(crate) mod decl {
 
     #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
     impl NoDefault {
-        #[pymethod(magic)]
-        fn reduce(&self, _vm: &VirtualMachine) -> String {
+        #[pymethod]
+        fn __reduce__(&self, _vm: &VirtualMachine) -> String {
             "NoDefault".to_owned()
         }
     }
@@ -609,13 +610,13 @@ pub(crate) mod decl {
     }
     #[pyclass(flags(HAS_DICT), with(Constructor, Representable, Iterable))]
     impl TypeVarTuple {
-        #[pygetset(magic)]
-        fn name(&self) -> PyObjectRef {
+        #[pygetset]
+        fn __name__(&self) -> PyObjectRef {
             self.name.clone()
         }
 
-        #[pygetset(magic)]
-        fn default(&self, vm: &VirtualMachine) -> PyResult {
+        #[pygetset]
+        fn __default__(&self, vm: &VirtualMachine) -> PyResult {
             let mut default_value = self.default_value.lock();
             // Check if default_value is NoDefault (not just None)
             if !default_value.is(&vm.ctx.typing_no_default) {
@@ -640,23 +641,23 @@ pub(crate) mod decl {
             !default_value.is(&vm.ctx.typing_no_default)
         }
 
-        #[pymethod(magic)]
-        fn reduce(&self) -> PyObjectRef {
+        #[pymethod]
+        fn __reduce__(&self) -> PyObjectRef {
             self.name.clone()
         }
 
-        #[pymethod(magic)]
-        fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        #[pymethod]
+        fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of TypeVarTuple"))
         }
 
-        #[pymethod(magic)]
-        fn typing_subst(&self, _arg: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        #[pymethod]
+        fn __typing_subst__(&self, _arg: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Substitution of bare TypeVarTuple is not supported"))
         }
 
-        #[pymethod(magic)]
-        fn typing_prepare_subst(
+        #[pymethod]
+        fn __typing_prepare_subst__(
             zelf: crate::PyRef<Self>,
             alias: PyObjectRef,
             args: PyObjectRef,
@@ -759,13 +760,13 @@ pub(crate) mod decl {
     }
     #[pyclass(with(Constructor, Representable, Comparable))]
     impl ParamSpecArgs {
-        #[pymethod(magic)]
-        fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        #[pymethod]
+        fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of ParamSpecArgs"))
         }
 
-        #[pygetset(magic)]
-        fn origin(&self) -> PyObjectRef {
+        #[pygetset]
+        fn __origin__(&self) -> PyObjectRef {
             self.__origin__.clone()
         }
     }
@@ -838,13 +839,13 @@ pub(crate) mod decl {
     }
     #[pyclass(with(Constructor, Representable, Comparable))]
     impl ParamSpecKwargs {
-        #[pymethod(magic)]
-        fn mro_entries(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        #[pymethod]
+        fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of ParamSpecKwargs"))
         }
 
-        #[pygetset(magic)]
-        fn origin(&self) -> PyObjectRef {
+        #[pygetset]
+        fn __origin__(&self) -> PyObjectRef {
             self.__origin__.clone()
         }
     }
@@ -967,8 +968,8 @@ pub(crate) mod decl {
     // #[pyclass(with(AsMapping), flags(BASETYPE))]
     #[pyclass(flags(BASETYPE))]
     impl Generic {
-        #[pyclassmethod(magic)]
-        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        #[pyclassmethod]
+        fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             // Convert single arg to FuncArgs
             let func_args = FuncArgs {
                 args: vec![args],
@@ -977,8 +978,8 @@ pub(crate) mod decl {
             call_typing_args_kwargs("_generic_class_getitem", cls, func_args, vm)
         }
 
-        #[pyclassmethod(magic)]
-        fn init_subclass(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        #[pyclassmethod]
+        fn __init_subclass__(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             call_typing_args_kwargs("_generic_init_subclass", cls, args, vm)
         }
     }

@@ -135,13 +135,13 @@ impl Initializer for PySuper {
 
 #[pyclass(with(GetAttr, GetDescriptor, Constructor, Initializer, Representable))]
 impl PySuper {
-    #[pygetset(magic)]
-    fn thisclass(&self) -> PyTypeRef {
+    #[pygetset]
+    fn __thisclass__(&self) -> PyTypeRef {
         self.inner.read().typ.clone()
     }
 
-    #[pygetset(magic)]
-    fn self_class(&self) -> Option<PyTypeRef> {
+    #[pygetset]
+    fn __self_class__(&self) -> Option<PyTypeRef> {
         Some(self.inner.read().obj.as_ref()?.1.clone())
     }
 

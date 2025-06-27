@@ -149,8 +149,8 @@ impl PyProperty {
         *self.doc.write() = value;
     }
 
-    #[pymethod(magic)]
-    fn set_name(&self, args: PosArgs, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod]
+    fn __set_name__(&self, args: PosArgs, vm: &VirtualMachine) -> PyResult<()> {
         let func_args = args.into_args(vm);
         let func_args_len = func_args.args.len();
         let (_owner, name): (PyObjectRef, PyObjectRef) = func_args.bind(vm).map_err(|_e| {
@@ -237,8 +237,8 @@ impl PyProperty {
         Self::clone_property_with(zelf, None, None, deleter, vm)
     }
 
-    #[pygetset(magic)]
-    fn isabstractmethod(&self, vm: &VirtualMachine) -> PyResult {
+    #[pygetset]
+    fn __isabstractmethod__(&self, vm: &VirtualMachine) -> PyResult {
         // Helper to check if a method is abstract
         let is_abstract = |method: &PyObjectRef| -> PyResult<bool> {
             match method.get_attr("__isabstractmethod__", vm) {
@@ -271,8 +271,8 @@ impl PyProperty {
         Ok(vm.ctx.new_bool(false).into())
     }
 
-    #[pygetset(magic, setter)]
-    fn set_isabstractmethod(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pygetset(setter)]
+    fn set___isabstractmethod__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(getter) = self.getter.read().to_owned() {
             getter.set_attr("__isabstractmethod__", value, vm)?;
         }
@@ -289,7 +289,7 @@ impl PyProperty {
     ) -> PyResult<String> {
         let prop_name = self.get_property_name(vm);
         let obj_type = obj.class();
-        let qualname = obj_type.qualname(vm);
+        let qualname = obj_type.__qualname__(vm);
 
         match prop_name {
             Some(name) => Ok(format!(

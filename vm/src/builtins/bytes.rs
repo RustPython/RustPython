@@ -145,9 +145,9 @@ impl PyRef<PyBytes> {
     )
 )]
 impl PyBytes {
-    #[pymethod(magic)]
     #[inline]
-    pub fn len(&self) -> usize {
+    #[pymethod]
+    pub fn __len__(&self) -> usize {
         self.inner.len()
     }
 
@@ -161,18 +161,18 @@ impl PyBytes {
         self.inner.as_bytes()
     }
 
-    #[pymethod(magic)]
-    fn sizeof(&self) -> usize {
+    #[pymethod]
+    fn __sizeof__(&self) -> usize {
         size_of::<Self>() + self.len() * size_of::<u8>()
     }
 
-    #[pymethod(magic)]
-    fn add(&self, other: ArgBytesLike) -> Vec<u8> {
+    #[pymethod]
+    fn __add__(&self, other: ArgBytesLike) -> Vec<u8> {
         self.inner.add(&other.borrow_buf())
     }
 
-    #[pymethod(magic)]
-    fn contains(
+    #[pymethod]
+    fn __contains__(
         &self,
         needle: Either<PyBytesInner, PyIntRef>,
         vm: &VirtualMachine,
@@ -185,8 +185,8 @@ impl PyBytes {
         PyBytesInner::maketrans(from, to, vm)
     }
 
-    #[pymethod(magic)]
-    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self._getitem(&needle, vm)
     }
 
@@ -459,8 +459,8 @@ impl PyBytes {
     }
 
     #[pymethod(name = "__rmul__")]
-    #[pymethod(magic)]
-    fn mul(zelf: PyRef<Self>, value: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    #[pymethod]
+    fn __mul__(zelf: PyRef<Self>, value: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.repeat(value.try_to_primitive(vm)?, vm)
     }
 
@@ -470,13 +470,13 @@ impl PyBytes {
         Ok(formatted.into())
     }
 
-    #[pymethod(magic)]
-    fn rmod(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    #[pymethod]
+    fn __rmod__(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.not_implemented()
     }
 
-    #[pymethod(magic)]
-    fn getnewargs(&self, vm: &VirtualMachine) -> PyTupleRef {
+    #[pymethod]
+    fn __getnewargs__(&self, vm: &VirtualMachine) -> PyTupleRef {
         let param: Vec<PyObjectRef> = self.elements().map(|x| x.to_pyobject(vm)).collect();
         PyTuple::new_ref(param, &vm.ctx)
     }
@@ -484,17 +484,17 @@ impl PyBytes {
 
 #[pyclass]
 impl Py<PyBytes> {
-    #[pymethod(magic)]
-    fn reduce_ex(
+    #[pymethod]
+    fn __reduce_ex__(
         &self,
         _proto: usize,
         vm: &VirtualMachine,
     ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
-        Self::reduce(self, vm)
+        self.__reduce__(vm)
     }
 
-    #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
         let bytes = PyBytes::from(self.to_vec()).to_pyobject(vm);
         (
             self.class().to_owned(),
@@ -506,8 +506,8 @@ impl Py<PyBytes> {
 
 #[pyclass]
 impl PyRef<PyBytes> {
-    #[pymethod(magic)]
-    fn bytes(self, vm: &VirtualMachine) -> PyRef<PyBytes> {
+    #[pymethod]
+    fn __bytes__(self, vm: &VirtualMachine) -> PyRef<PyBytes> {
         if self.is(vm.ctx.types.bytes_type) {
             self
         } else {
@@ -604,7 +604,7 @@ impl AsSequence for PyBytes {
             contains: atomic_func!(|seq, other, vm| {
                 let other =
                     <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
-                PyBytes::sequence_downcast(seq).contains(other, vm)
+                PyBytes::sequence_downcast(seq).__contains__(other, vm)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
@@ -690,20 +690,20 @@ impl PyPayload for PyBytesIterator {
 
 #[pyclass(with(Unconstructible, IterNext, Iterable))]
 impl PyBytesIterator {
-    #[pymethod(magic)]
-    fn length_hint(&self) -> usize {
+    #[pymethod]
+    fn __length_hint__(&self) -> usize {
         self.internal.lock().length_hint(|obj| obj.len())
     }
 
-    #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
         self.internal
             .lock()
             .builtins_iter_reduce(|x| x.clone().into(), vm)
     }
 
-    #[pymethod(magic)]
-    fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod]
+    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
             .lock()
             .set_state(state, |obj, pos| pos.min(obj.len()), vm)

@@ -1317,13 +1317,13 @@ mod _sqlite {
             self.db_lock(vm)?.limit(category, limit, vm)
         }
 
-        #[pymethod(magic)]
-        fn enter(zelf: PyRef<Self>) -> PyRef<Self> {
+        #[pymethod]
+        fn __enter__(zelf: PyRef<Self>) -> PyRef<Self> {
             zelf
         }
 
-        #[pymethod(magic)]
-        fn exit(
+        #[pymethod]
+        fn __exit__(
             &self,
             cls: PyObjectRef,
             exc: PyObjectRef,
@@ -2090,13 +2090,13 @@ mod _sqlite {
             }
         }
 
-        #[pymethod(magic)]
-        fn enter(zelf: PyRef<Self>) -> PyRef<Self> {
+        #[pymethod]
+        fn __enter__(zelf: PyRef<Self>) -> PyRef<Self> {
             zelf
         }
 
-        #[pymethod(magic)]
-        fn exit(&self, _args: FuncArgs) {
+        #[pymethod]
+        fn __exit__(&self, _args: FuncArgs) {
             self.close()
         }
 

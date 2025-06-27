@@ -581,13 +581,17 @@ pub(super) mod _os {
             Ok(junction::exists(self.pathval.clone()).unwrap_or(false))
         }
 
-        #[pymethod(magic)]
-        fn fspath(&self, vm: &VirtualMachine) -> PyResult {
+        #[pymethod]
+        fn __fspath__(&self, vm: &VirtualMachine) -> PyResult {
             self.path(vm)
         }
 
-        #[pyclassmethod(magic)]
-        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        #[pyclassmethod]
+        fn __class_getitem__(
+            cls: PyTypeRef,
+            args: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyGenericAlias {
             PyGenericAlias::new(cls, args, vm)
         }
     }
@@ -637,13 +641,13 @@ pub(super) mod _os {
             let _dropped = entryref.take();
         }
 
-        #[pymethod(magic)]
-        fn enter(zelf: PyRef<Self>) -> PyRef<Self> {
+        #[pymethod]
+        fn __enter__(zelf: PyRef<Self>) -> PyRef<Self> {
             zelf
         }
 
-        #[pymethod(magic)]
-        fn exit(zelf: PyRef<Self>, _args: FuncArgs) {
+        #[pymethod]
+        fn __exit__(zelf: PyRef<Self>, _args: FuncArgs) {
             zelf.close()
         }
     }

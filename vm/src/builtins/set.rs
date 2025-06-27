@@ -542,13 +542,13 @@ fn reduce_set(
     flags(BASETYPE)
 )]
 impl PySet {
-    #[pymethod(magic)]
-    fn len(&self) -> usize {
+    #[pymethod]
+    fn __len__(&self) -> usize {
         self.inner.len()
     }
 
-    #[pymethod(magic)]
-    fn sizeof(&self) -> usize {
+    #[pymethod]
+    fn __sizeof__(&self) -> usize {
         std::mem::size_of::<Self>() + self.inner.sizeof()
     }
 
@@ -559,8 +559,8 @@ impl PySet {
         }
     }
 
-    #[pymethod(magic)]
-    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    #[pymethod]
+    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.contains(&needle, vm)
     }
 
@@ -604,8 +604,8 @@ impl PySet {
     }
 
     #[pymethod(name = "__ror__")]
-    #[pymethod(magic)]
-    fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
+    #[pymethod]
+    fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(other) = AnySet::try_from_object(vm, other) {
             Ok(PyArithmeticValue::Implemented(self.op(
                 other,
@@ -618,8 +618,12 @@ impl PySet {
     }
 
     #[pymethod(name = "__rand__")]
-    #[pymethod(magic)]
-    fn and(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
+    #[pymethod]
+    fn __and__(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(other) = AnySet::try_from_object(vm, other) {
             Ok(PyArithmeticValue::Implemented(self.op(
                 other,
@@ -631,8 +635,12 @@ impl PySet {
         }
     }
 
-    #[pymethod(magic)]
-    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
+    #[pymethod]
+    fn __sub__(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(other) = AnySet::try_from_object(vm, other) {
             Ok(PyArithmeticValue::Implemented(self.op(
                 other,
@@ -644,8 +652,8 @@ impl PySet {
         }
     }
 
-    #[pymethod(magic)]
-    fn rsub(
+    #[pymethod]
+    fn __rsub__(
         zelf: PyRef<Self>,
         other: PyObjectRef,
         vm: &VirtualMachine,
@@ -662,8 +670,12 @@ impl PySet {
     }
 
     #[pymethod(name = "__rxor__")]
-    #[pymethod(magic)]
-    fn xor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
+    #[pymethod]
+    fn __xor__(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(other) = AnySet::try_from_object(vm, other) {
             Ok(PyArithmeticValue::Implemented(self.op(
                 other,
@@ -702,8 +714,8 @@ impl PySet {
         self.inner.pop(vm)
     }
 
-    #[pymethod(magic)]
-    fn ior(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    #[pymethod]
+    fn __ior__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.inner.update(set.into_iterable_iter(vm)?, vm)?;
         Ok(zelf)
     }
@@ -726,8 +738,8 @@ impl PySet {
         Ok(())
     }
 
-    #[pymethod(magic)]
-    fn iand(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    #[pymethod]
+    fn __iand__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.inner
             .intersection_update(std::iter::once(set.into_iterable(vm)?), vm)?;
         Ok(zelf)
@@ -739,8 +751,8 @@ impl PySet {
         Ok(())
     }
 
-    #[pymethod(magic)]
-    fn isub(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    #[pymethod]
+    fn __isub__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.inner
             .difference_update(set.into_iterable_iter(vm)?, vm)?;
         Ok(zelf)
@@ -757,23 +769,23 @@ impl PySet {
         Ok(())
     }
 
-    #[pymethod(magic)]
-    fn ixor(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    #[pymethod]
+    fn __ixor__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.inner
             .symmetric_difference_update(set.into_iterable_iter(vm)?, vm)?;
         Ok(zelf)
     }
 
-    #[pymethod(magic)]
-    fn reduce(
+    #[pymethod]
+    fn __reduce__(
         zelf: PyRef<Self>,
         vm: &VirtualMachine,
     ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
         reduce_set(zelf.as_ref(), vm)
     }
 
-    #[pyclassmethod(magic)]
-    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
     }
 }
@@ -795,7 +807,7 @@ impl Initializer for PySet {
 impl AsSequence for PySet {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PySet::sequence_downcast(seq).len())),
+            length: atomic_func!(|seq, _vm| Ok(PySet::sequence_downcast(seq).__len__())),
             contains: atomic_func!(|seq, needle, vm| PySet::sequence_downcast(seq)
                 .inner
                 .contains(needle, vm)),
@@ -829,35 +841,35 @@ impl AsNumber for PySet {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             subtract: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PySet>() {
-                    a.sub(b.to_owned(), vm).to_pyresult(vm)
+                    a.__sub__(b.to_owned(), vm).to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
             }),
             and: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PySet>() {
-                    a.and(b.to_owned(), vm).to_pyresult(vm)
+                    a.__and__(b.to_owned(), vm).to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
             }),
             xor: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PySet>() {
-                    a.xor(b.to_owned(), vm).to_pyresult(vm)
+                    a.__xor__(b.to_owned(), vm).to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
             }),
             or: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PySet>() {
-                    a.or(b.to_owned(), vm).to_pyresult(vm)
+                    a.__or__(b.to_owned(), vm).to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
             }),
             inplace_subtract: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PySet>() {
-                    PySet::isub(a.to_owned(), AnySet::try_from_object(vm, b.to_owned())?, vm)
+                    PySet::__isub__(a.to_owned(), AnySet::try_from_object(vm, b.to_owned())?, vm)
                         .to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
@@ -865,7 +877,7 @@ impl AsNumber for PySet {
             }),
             inplace_and: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PySet>() {
-                    PySet::iand(a.to_owned(), AnySet::try_from_object(vm, b.to_owned())?, vm)
+                    PySet::__iand__(a.to_owned(), AnySet::try_from_object(vm, b.to_owned())?, vm)
                         .to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
@@ -873,7 +885,7 @@ impl AsNumber for PySet {
             }),
             inplace_xor: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PySet>() {
-                    PySet::ixor(a.to_owned(), AnySet::try_from_object(vm, b.to_owned())?, vm)
+                    PySet::__ixor__(a.to_owned(), AnySet::try_from_object(vm, b.to_owned())?, vm)
                         .to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
@@ -881,7 +893,7 @@ impl AsNumber for PySet {
             }),
             inplace_or: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PySet>() {
-                    PySet::ior(a.to_owned(), AnySet::try_from_object(vm, b.to_owned())?, vm)
+                    PySet::__ior__(a.to_owned(), AnySet::try_from_object(vm, b.to_owned())?, vm)
                         .to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
@@ -956,13 +968,13 @@ impl Constructor for PyFrozenSet {
     )
 )]
 impl PyFrozenSet {
-    #[pymethod(magic)]
-    fn len(&self) -> usize {
+    #[pymethod]
+    fn __len__(&self) -> usize {
         self.inner.len()
     }
 
-    #[pymethod(magic)]
-    fn sizeof(&self) -> usize {
+    #[pymethod]
+    fn __sizeof__(&self) -> usize {
         std::mem::size_of::<Self>() + self.inner.sizeof()
     }
 
@@ -979,8 +991,8 @@ impl PyFrozenSet {
         }
     }
 
-    #[pymethod(magic)]
-    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    #[pymethod]
+    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.contains(&needle, vm)
     }
 
@@ -1024,8 +1036,8 @@ impl PyFrozenSet {
     }
 
     #[pymethod(name = "__ror__")]
-    #[pymethod(magic)]
-    fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
+    #[pymethod]
+    fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(set) = AnySet::try_from_object(vm, other) {
             Ok(PyArithmeticValue::Implemented(self.op(
                 set,
@@ -1038,8 +1050,12 @@ impl PyFrozenSet {
     }
 
     #[pymethod(name = "__rand__")]
-    #[pymethod(magic)]
-    fn and(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
+    #[pymethod]
+    fn __and__(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(other) = AnySet::try_from_object(vm, other) {
             Ok(PyArithmeticValue::Implemented(self.op(
                 other,
@@ -1051,8 +1067,12 @@ impl PyFrozenSet {
         }
     }
 
-    #[pymethod(magic)]
-    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
+    #[pymethod]
+    fn __sub__(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(other) = AnySet::try_from_object(vm, other) {
             Ok(PyArithmeticValue::Implemented(self.op(
                 other,
@@ -1064,8 +1084,8 @@ impl PyFrozenSet {
         }
     }
 
-    #[pymethod(magic)]
-    fn rsub(
+    #[pymethod]
+    fn __rsub__(
         zelf: PyRef<Self>,
         other: PyObjectRef,
         vm: &VirtualMachine,
@@ -1083,8 +1103,12 @@ impl PyFrozenSet {
     }
 
     #[pymethod(name = "__rxor__")]
-    #[pymethod(magic)]
-    fn xor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
+    #[pymethod]
+    fn __xor__(
+        &self,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(other) = AnySet::try_from_object(vm, other) {
             Ok(PyArithmeticValue::Implemented(self.op(
                 other,
@@ -1096,16 +1120,16 @@ impl PyFrozenSet {
         }
     }
 
-    #[pymethod(magic)]
-    fn reduce(
+    #[pymethod]
+    fn __reduce__(
         zelf: PyRef<Self>,
         vm: &VirtualMachine,
     ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
         reduce_set(zelf.as_ref(), vm)
     }
 
-    #[pyclassmethod(magic)]
-    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
     }
 }
@@ -1113,7 +1137,7 @@ impl PyFrozenSet {
 impl AsSequence for PyFrozenSet {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PyFrozenSet::sequence_downcast(seq).len())),
+            length: atomic_func!(|seq, _vm| Ok(PyFrozenSet::sequence_downcast(seq).__len__())),
             contains: atomic_func!(|seq, needle, vm| PyFrozenSet::sequence_downcast(seq)
                 .inner
                 .contains(needle, vm)),
@@ -1170,28 +1194,28 @@ impl AsNumber for PyFrozenSet {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             subtract: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
-                    a.sub(b.to_owned(), vm).to_pyresult(vm)
+                    a.__sub__(b.to_owned(), vm).to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
             }),
             and: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
-                    a.and(b.to_owned(), vm).to_pyresult(vm)
+                    a.__and__(b.to_owned(), vm).to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
             }),
             xor: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
-                    a.xor(b.to_owned(), vm).to_pyresult(vm)
+                    a.__xor__(b.to_owned(), vm).to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
             }),
             or: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
-                    a.or(b.to_owned(), vm).to_pyresult(vm)
+                    a.__or__(b.to_owned(), vm).to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
@@ -1278,13 +1302,16 @@ impl PyPayload for PySetIterator {
 
 #[pyclass(with(Unconstructible, IterNext, Iterable))]
 impl PySetIterator {
-    #[pymethod(magic)]
-    fn length_hint(&self) -> usize {
+    #[pymethod]
+    fn __length_hint__(&self) -> usize {
         self.internal.lock().length_hint(|_| self.size.entries_size)
     }
 
-    #[pymethod(magic)]
-    fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyObjectRef, (PyObjectRef,))> {
+    #[pymethod]
+    fn __reduce__(
+        zelf: PyRef<Self>,
+        vm: &VirtualMachine,
+    ) -> PyResult<(PyObjectRef, (PyObjectRef,))> {
         let internal = zelf.internal.lock();
         Ok((
             builtins_iter(vm).to_owned(),

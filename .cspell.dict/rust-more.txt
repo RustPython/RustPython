@@ -3,8 +3,10 @@ arrayvec
 bidi
 biguint
 bindgen
+bitand
 bitflags
 bitor
+bitxor
 bstr
 byteorder
 byteset
@@ -15,6 +17,7 @@ cranelift
 cstring
 datelike
 deserializer
+deserializers
 fdiv
 flamescope
 flate2
@@ -31,6 +34,7 @@ keccak
 lalrpop
 lexopt
 libc
+libcall
 libloading
 libz
 longlong

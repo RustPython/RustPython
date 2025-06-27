@@ -200,28 +200,28 @@ impl PyByteArray {
         self.inner.write()
     }
 
-    #[pymethod(magic)]
-    fn alloc(&self) -> usize {
+    #[pymethod]
+    fn __alloc__(&self) -> usize {
         self.inner().capacity()
     }
 
-    #[pymethod(magic)]
-    fn len(&self) -> usize {
+    #[pymethod]
+    fn __len__(&self) -> usize {
         self.borrow_buf().len()
     }
 
-    #[pymethod(magic)]
-    fn sizeof(&self) -> usize {
+    #[pymethod]
+    fn __sizeof__(&self) -> usize {
         size_of::<Self>() + self.borrow_buf().len() * size_of::<u8>()
     }
 
-    #[pymethod(magic)]
-    fn add(&self, other: ArgBytesLike) -> Self {
+    #[pymethod]
+    fn __add__(&self, other: ArgBytesLike) -> Self {
         self.inner().add(&other.borrow_buf()).into()
     }
 
-    #[pymethod(magic)]
-    fn contains(
+    #[pymethod]
+    fn __contains__(
         &self,
         needle: Either<PyBytesInner, PyIntRef>,
         vm: &VirtualMachine,
@@ -229,21 +229,25 @@ impl PyByteArray {
         self.inner().contains(needle, vm)
     }
 
-    #[pymethod(magic)]
-    fn iadd(zelf: PyRef<Self>, other: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    #[pymethod]
+    fn __iadd__(
+        zelf: PyRef<Self>,
+        other: ArgBytesLike,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
         zelf.try_resizable(vm)?
             .elements
             .extend(&*other.borrow_buf());
         Ok(zelf)
     }
 
-    #[pymethod(magic)]
-    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self._getitem(&needle, vm)
     }
 
-    #[pymethod(magic)]
-    pub fn delitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod]
+    pub fn __delitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self._delitem(&needle, vm)
     }
 
@@ -541,13 +545,13 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "__rmul__")]
-    #[pymethod(magic)]
-    fn mul(&self, value: ArgSize, vm: &VirtualMachine) -> PyResult<Self> {
+    #[pymethod]
+    fn __mul__(&self, value: ArgSize, vm: &VirtualMachine) -> PyResult<Self> {
         self.repeat(value.into(), vm)
     }
 
-    #[pymethod(magic)]
-    fn imul(zelf: PyRef<Self>, value: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    #[pymethod]
+    fn __imul__(zelf: PyRef<Self>, value: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         Self::irepeat(&zelf, value.into(), vm)?;
         Ok(zelf)
     }
@@ -558,8 +562,8 @@ impl PyByteArray {
         Ok(formatted.into())
     }
 
-    #[pymethod(magic)]
-    fn rmod(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    #[pymethod]
+    fn __rmod__(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.not_implemented()
     }
 
@@ -571,8 +575,8 @@ impl PyByteArray {
 
 #[pyclass]
 impl Py<PyByteArray> {
-    #[pymethod(magic)]
-    fn setitem(
+    #[pymethod]
+    fn __setitem__(
         &self,
         needle: PyObjectRef,
         value: PyObjectRef,
@@ -634,17 +638,17 @@ impl Py<PyByteArray> {
         Ok(())
     }
 
-    #[pymethod(magic)]
-    fn reduce_ex(
+    #[pymethod]
+    fn __reduce_ex__(
         &self,
         _proto: usize,
         vm: &VirtualMachine,
     ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
-        Self::reduce(self, vm)
+        self.__reduce__(vm)
     }
 
-    #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
         let bytes = PyBytes::from(self.borrow_buf().to_vec()).to_pyobject(vm);
         (
             self.class().to_owned(),
@@ -749,7 +753,7 @@ impl AsBuffer for PyByteArray {
     fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         Ok(PyBuffer::new(
             zelf.to_owned().into(),
-            BufferDescriptor::simple(zelf.len(), false),
+            BufferDescriptor::simple(zelf.__len__(), false),
             &BUFFER_METHODS,
         ))
     }
@@ -767,16 +771,18 @@ impl BufferResizeGuard for PyByteArray {
 impl AsMapping for PyByteArray {
     fn as_mapping() -> &'static PyMappingMethods {
         static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-            length: atomic_func!(|mapping, _vm| Ok(PyByteArray::mapping_downcast(mapping).len())),
+            length: atomic_func!(|mapping, _vm| Ok(
+                PyByteArray::mapping_downcast(mapping).__len__()
+            )),
             subscript: atomic_func!(|mapping, needle, vm| {
-                PyByteArray::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
+                PyByteArray::mapping_downcast(mapping).__getitem__(needle.to_owned(), vm)
             }),
             ass_subscript: atomic_func!(|mapping, needle, value, vm| {
                 let zelf = PyByteArray::mapping_downcast(mapping);
                 if let Some(value) = value {
-                    Py::setitem(zelf, needle.to_owned(), value, vm)
+                    zelf.__setitem__(needle.to_owned(), value, vm)
                 } else {
-                    zelf.delitem(needle.to_owned(), vm)
+                    zelf.__delitem__(needle.to_owned(), vm)
                 }
             }),
         };
@@ -787,7 +793,7 @@ impl AsMapping for PyByteArray {
 impl AsSequence for PyByteArray {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PyByteArray::sequence_downcast(seq).len())),
+            length: atomic_func!(|seq, _vm| Ok(PyByteArray::sequence_downcast(seq).__len__())),
             concat: atomic_func!(|seq, other, vm| {
                 PyByteArray::sequence_downcast(seq)
                     .inner()
@@ -816,12 +822,12 @@ impl AsSequence for PyByteArray {
             contains: atomic_func!(|seq, other, vm| {
                 let other =
                     <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
-                PyByteArray::sequence_downcast(seq).contains(other, vm)
+                PyByteArray::sequence_downcast(seq).__contains__(other, vm)
             }),
             inplace_concat: atomic_func!(|seq, other, vm| {
                 let other = ArgBytesLike::try_from_object(vm, other.to_owned())?;
                 let zelf = PyByteArray::sequence_downcast(seq).to_owned();
-                PyByteArray::iadd(zelf, other, vm).map(|x| x.into())
+                PyByteArray::__iadd__(zelf, other, vm).map(|x| x.into())
             }),
             inplace_repeat: atomic_func!(|seq, n, vm| {
                 let zelf = PyByteArray::sequence_downcast(seq).to_owned();
@@ -885,22 +891,22 @@ impl PyPayload for PyByteArrayIterator {
 
 #[pyclass(with(Unconstructible, IterNext, Iterable))]
 impl PyByteArrayIterator {
-    #[pymethod(magic)]
-    fn length_hint(&self) -> usize {
-        self.internal.lock().length_hint(|obj| obj.len())
+    #[pymethod]
+    fn __length_hint__(&self) -> usize {
+        self.internal.lock().length_hint(|obj| obj.__len__())
     }
-    #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
         self.internal
             .lock()
             .builtins_iter_reduce(|x| x.clone().into(), vm)
     }
 
-    #[pymethod(magic)]
-    fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod]
+    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
             .lock()
-            .set_state(state, |obj, pos| pos.min(obj.len()), vm)
+            .set_state(state, |obj, pos| pos.min(obj.__len__()), vm)
     }
 }
 

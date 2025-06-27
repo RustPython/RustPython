@@ -722,14 +722,14 @@ mod decl {
                 Ok(vm.ctx.new_list(ret))
             }
 
-            #[pymethod(magic)]
-            fn enter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+            #[pymethod]
+            fn __enter__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
                 zelf.get_epoll(vm)?;
                 Ok(zelf)
             }
 
-            #[pymethod(magic)]
-            fn exit(
+            #[pymethod]
+            fn __exit__(
                 &self,
                 _exc_type: OptionalArg,
                 _exc_value: OptionalArg,

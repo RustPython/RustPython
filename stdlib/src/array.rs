@@ -907,7 +907,7 @@ mod array {
             range: OptionalRangeArgs,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
-            let (start, stop) = range.saturate(self.len(), vm)?;
+            let (start, stop) = range.saturate(self.__len__(), vm)?;
             self.read().index(x, start, stop, vm)
         }
 
@@ -976,29 +976,29 @@ mod array {
             self.write().reverse()
         }
 
-        #[pymethod(magic)]
-        fn copy(&self) -> PyArray {
+        #[pymethod]
+        fn __copy__(&self) -> PyArray {
             self.array.read().clone().into()
         }
 
-        #[pymethod(magic)]
-        fn deepcopy(&self, _memo: PyObjectRef) -> PyArray {
-            self.copy()
+        #[pymethod]
+        fn __deepcopy__(&self, _memo: PyObjectRef) -> PyArray {
+            self.__copy__()
         }
 
-        fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        fn getitem_inner(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
             match SequenceIndex::try_from_borrowed_object(vm, needle, "array")? {
                 SequenceIndex::Int(i) => self.read().getitem_by_index(i, vm),
                 SequenceIndex::Slice(slice) => self.read().getitem_by_slice(slice, vm),
             }
         }
 
-        #[pymethod(magic)]
-        fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            self._getitem(&needle, vm)
+        #[pymethod]
+        fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            self.getitem_inner(&needle, vm)
         }
 
-        fn _setitem(
+        fn setitem_inner(
             zelf: &Py<Self>,
             needle: &PyObject,
             value: PyObjectRef,
@@ -1035,30 +1035,30 @@ mod array {
             }
         }
 
-        #[pymethod(magic)]
-        fn setitem(
+        #[pymethod]
+        fn __setitem__(
             zelf: &Py<Self>,
             needle: PyObjectRef,
             value: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            Self::_setitem(zelf, &needle, value, vm)
+            Self::setitem_inner(zelf, &needle, value, vm)
         }
 
-        fn _delitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        fn delitem_inner(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
             match SequenceIndex::try_from_borrowed_object(vm, needle, "array")? {
                 SequenceIndex::Int(i) => self.try_resizable(vm)?.delitem_by_index(i, vm),
                 SequenceIndex::Slice(slice) => self.try_resizable(vm)?.delitem_by_slice(slice, vm),
             }
         }
 
-        #[pymethod(magic)]
-        fn delitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            self._delitem(&needle, vm)
+        #[pymethod]
+        fn __delitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            self.delitem_inner(&needle, vm)
         }
 
-        #[pymethod(magic)]
-        fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        #[pymethod]
+        fn __add__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             if let Some(other) = other.payload::<PyArray>() {
                 self.read()
                     .add(&other.read(), vm)
@@ -1071,8 +1071,8 @@ mod array {
             }
         }
 
-        #[pymethod(magic)]
-        fn iadd(
+        #[pymethod]
+        fn __iadd__(
             zelf: PyRef<Self>,
             other: PyObjectRef,
             vm: &VirtualMachine,
@@ -1091,28 +1091,28 @@ mod array {
         }
 
         #[pymethod(name = "__rmul__")]
-        #[pymethod(magic)]
-        fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        #[pymethod]
+        fn __mul__(&self, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             self.read()
                 .mul(value, vm)
                 .map(|x| Self::from(x).into_ref(&vm.ctx))
         }
 
-        #[pymethod(magic)]
-        fn imul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        #[pymethod]
+        fn __imul__(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             zelf.try_resizable(vm)?.imul(value, vm)?;
             Ok(zelf)
         }
 
-        #[pymethod(magic)]
-        pub(crate) fn len(&self) -> usize {
+        #[pymethod]
+        pub(crate) fn __len__(&self) -> usize {
             self.read().len()
         }
 
         fn array_eq(&self, other: &Self, vm: &VirtualMachine) -> PyResult<bool> {
             // we cannot use zelf.is(other) for shortcut because if we contenting a
             // float value NaN we always return False even they are the same object.
-            if self.len() != other.len() {
+            if self.__len__() != other.__len__() {
                 return Ok(false);
             }
             let array_a = self.read();
@@ -1133,14 +1133,14 @@ mod array {
             Ok(true)
         }
 
-        #[pymethod(magic)]
-        fn reduce_ex(
+        #[pymethod]
+        fn __reduce_ex__(
             zelf: &Py<Self>,
             proto: usize,
             vm: &VirtualMachine,
         ) -> PyResult<(PyObjectRef, PyTupleRef, Option<PyDictRef>)> {
             if proto < 3 {
-                return Self::reduce(zelf, vm);
+                return Self::__reduce__(zelf, vm);
             }
             let array = zelf.read();
             let cls = zelf.class().to_owned();
@@ -1157,8 +1157,8 @@ mod array {
             ))
         }
 
-        #[pymethod(magic)]
-        fn reduce(
+        #[pymethod]
+        fn __reduce__(
             zelf: &Py<Self>,
             vm: &VirtualMachine,
         ) -> PyResult<(PyObjectRef, PyTupleRef, Option<PyDictRef>)> {
@@ -1179,8 +1179,8 @@ mod array {
             ))
         }
 
-        #[pymethod(magic)]
-        fn contains(&self, value: PyObjectRef, vm: &VirtualMachine) -> bool {
+        #[pymethod]
+        fn __contains__(&self, value: PyObjectRef, vm: &VirtualMachine) -> bool {
             let array = self.array.read();
             for element in array
                 .iter(vm)
@@ -1272,7 +1272,7 @@ mod array {
             let class = zelf.class();
             let class_name = class.name();
             if zelf.read().typecode() == 'u' {
-                if zelf.len() == 0 {
+                if zelf.__len__() == 0 {
                     return Ok(format!("{class_name}('u')"));
                 }
                 let to_unicode = zelf.tounicode(vm)?;
@@ -1303,16 +1303,18 @@ mod array {
     impl AsMapping for PyArray {
         fn as_mapping() -> &'static PyMappingMethods {
             static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-                length: atomic_func!(|mapping, _vm| Ok(PyArray::mapping_downcast(mapping).len())),
+                length: atomic_func!(|mapping, _vm| Ok(
+                    PyArray::mapping_downcast(mapping).__len__()
+                )),
                 subscript: atomic_func!(|mapping, needle, vm| {
-                    PyArray::mapping_downcast(mapping)._getitem(needle, vm)
+                    PyArray::mapping_downcast(mapping).getitem_inner(needle, vm)
                 }),
                 ass_subscript: atomic_func!(|mapping, needle, value, vm| {
                     let zelf = PyArray::mapping_downcast(mapping);
                     if let Some(value) = value {
-                        PyArray::_setitem(zelf, needle, value, vm)
+                        PyArray::setitem_inner(zelf, needle, value, vm)
                     } else {
-                        zelf._delitem(needle, vm)
+                        zelf.delitem_inner(needle, vm)
                     }
                 }),
             };
@@ -1323,13 +1325,15 @@ mod array {
     impl AsSequence for PyArray {
         fn as_sequence() -> &'static PySequenceMethods {
             static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-                length: atomic_func!(|seq, _vm| Ok(PyArray::sequence_downcast(seq).len())),
+                length: atomic_func!(|seq, _vm| Ok(PyArray::sequence_downcast(seq).__len__())),
                 concat: atomic_func!(|seq, other, vm| {
                     let zelf = PyArray::sequence_downcast(seq);
-                    PyArray::add(zelf, other.to_owned(), vm).map(|x| x.into())
+                    PyArray::__add__(zelf, other.to_owned(), vm).map(|x| x.into())
                 }),
                 repeat: atomic_func!(|seq, n, vm| {
-                    PyArray::sequence_downcast(seq).mul(n, vm).map(|x| x.into())
+                    PyArray::sequence_downcast(seq)
+                        .__mul__(n, vm)
+                        .map(|x| x.into())
                 }),
                 item: atomic_func!(|seq, i, vm| {
                     PyArray::sequence_downcast(seq)
@@ -1346,15 +1350,15 @@ mod array {
                 }),
                 contains: atomic_func!(|seq, target, vm| {
                     let zelf = PyArray::sequence_downcast(seq);
-                    Ok(zelf.contains(target.to_owned(), vm))
+                    Ok(zelf.__contains__(target.to_owned(), vm))
                 }),
                 inplace_concat: atomic_func!(|seq, other, vm| {
                     let zelf = PyArray::sequence_downcast(seq).to_owned();
-                    PyArray::iadd(zelf, other.to_owned(), vm).map(|x| x.into())
+                    PyArray::__iadd__(zelf, other.to_owned(), vm).map(|x| x.into())
                 }),
                 inplace_repeat: atomic_func!(|seq, n, vm| {
                     let zelf = PyArray::sequence_downcast(seq).to_owned();
-                    PyArray::imul(zelf, n, vm).map(|x| x.into())
+                    PyArray::__imul__(zelf, n, vm).map(|x| x.into())
                 }),
             };
             &AS_SEQUENCE
@@ -1388,15 +1392,15 @@ mod array {
 
     #[pyclass(with(IterNext, Iterable), flags(HAS_DICT))]
     impl PyArrayIter {
-        #[pymethod(magic)]
-        fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        #[pymethod]
+        fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             self.internal
                 .lock()
-                .set_state(state, |obj, pos| pos.min(obj.len()), vm)
+                .set_state(state, |obj, pos| pos.min(obj.__len__()), vm)
         }
 
-        #[pymethod(magic)]
-        fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
+        #[pymethod]
+        fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
             self.internal
                 .lock()
                 .builtins_iter_reduce(|x| x.clone().into(), vm)

@@ -189,7 +189,7 @@ impl PyDict {
         match d.downcast_exact::<PyDict>(vm) {
             Ok(pydict) => {
                 for key in iterable.iter(vm)? {
-                    pydict.setitem(key?, value.clone(), vm)?;
+                    pydict.__setitem__(key?, value.clone(), vm)?;
                 }
                 Ok(pydict.into_pyref().into())
             }
@@ -202,23 +202,23 @@ impl PyDict {
         }
     }
 
-    #[pymethod(magic)]
-    pub fn len(&self) -> usize {
+    #[pymethod]
+    pub fn __len__(&self) -> usize {
         self.entries.len()
     }
 
-    #[pymethod(magic)]
-    fn sizeof(&self) -> usize {
+    #[pymethod]
+    fn __sizeof__(&self) -> usize {
         std::mem::size_of::<Self>() + self.entries.sizeof()
     }
 
-    #[pymethod(magic)]
-    fn contains(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    #[pymethod]
+    fn __contains__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.entries.contains(vm, &*key)
     }
 
-    #[pymethod(magic)]
-    fn delitem(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod]
+    fn __delitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.inner_delitem(&*key, vm)
     }
 
@@ -227,8 +227,13 @@ impl PyDict {
         self.entries.clear()
     }
 
-    #[pymethod(magic)]
-    fn setitem(&self, key: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod]
+    fn __setitem__(
+        &self,
+        key: PyObjectRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         self.inner_setitem(&*key, value, vm)
     }
 
@@ -279,8 +284,8 @@ impl PyDict {
         Ok(())
     }
 
-    #[pymethod(magic)]
-    fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let other_dict: Result<PyDictRef, _> = other.downcast();
         if let Ok(other) = other_dict {
             let self_cp = self.copy();
@@ -315,8 +320,8 @@ impl PyDict {
         Ok((key, value))
     }
 
-    #[pyclassmethod(magic)]
-    fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
     }
 }
@@ -334,10 +339,10 @@ impl Py<PyDict> {
             return Self::inner_cmp(self, other, PyComparisonOp::Eq, item, vm)
                 .map(|x| x.map(|eq| !eq));
         }
-        if !op.eval_ord(self.len().cmp(&other.len())) {
+        if !op.eval_ord(self.__len__().cmp(&other.__len__())) {
             return Ok(Implemented(false));
         }
-        let (superset, subset) = if self.len() < other.len() {
+        let (superset, subset) = if self.__len__() < other.__len__() {
             (other, self)
         } else {
             (self, other)
@@ -360,9 +365,9 @@ impl Py<PyDict> {
         Ok(Implemented(true))
     }
 
-    #[pymethod(magic)]
+    #[pymethod]
     #[cfg_attr(feature = "flame-it", flame("PyDictRef"))]
-    fn getitem(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn __getitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.inner_getitem(&*key, vm)
     }
 }
@@ -384,19 +389,19 @@ impl PyRef<PyDict> {
         PyDictItems::new(self)
     }
 
-    #[pymethod(magic)]
-    fn reversed(self) -> PyDictReverseKeyIterator {
+    #[pymethod]
+    fn __reversed__(self) -> PyDictReverseKeyIterator {
         PyDictReverseKeyIterator::new(self)
     }
 
-    #[pymethod(magic)]
-    fn ior(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+    #[pymethod]
+    fn __ior__(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         self.merge_object(other, vm)?;
         Ok(self)
     }
 
-    #[pymethod(magic)]
-    fn ror(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __ror__(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let other_dict: Result<PyDictRef, _> = other.downcast();
         if let Ok(other) = other_dict {
             let other_cp = other.copy();
@@ -424,7 +429,7 @@ impl Initializer for PyDict {
 impl AsMapping for PyDict {
     fn as_mapping() -> &'static PyMappingMethods {
         static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-            length: atomic_func!(|mapping, _vm| Ok(PyDict::mapping_downcast(mapping).len())),
+            length: atomic_func!(|mapping, _vm| Ok(PyDict::mapping_downcast(mapping).__len__())),
             subscript: atomic_func!(|mapping, needle, vm| {
                 PyDict::mapping_downcast(mapping).inner_getitem(needle, vm)
             }),
@@ -458,14 +463,16 @@ impl AsNumber for PyDict {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             or: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PyDict>() {
-                    PyDict::or(a, b.to_pyobject(vm), vm)
+                    PyDict::__or__(a, b.to_pyobject(vm), vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
             }),
             inplace_or: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PyDict>() {
-                    a.to_owned().ior(b.to_pyobject(vm), vm).map(|d| d.into())
+                    a.to_owned()
+                        .__ior__(b.to_pyobject(vm), vm)
+                        .map(|d| d.into())
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
@@ -500,7 +507,7 @@ impl Representable for PyDict {
     #[inline]
     fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            let mut str_parts = Vec::with_capacity(zelf.len());
+            let mut str_parts = Vec::with_capacity(zelf.__len__());
             for (key, value) in zelf {
                 let key_repr = &key.repr(vm)?;
                 let value_repr = value.repr(vm)?;
@@ -733,13 +740,13 @@ trait DictView: PyPayload + PyClassDef + Iterable + Representable {
     fn dict(&self) -> &PyDictRef;
     fn item(vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef) -> PyObjectRef;
 
-    #[pymethod(magic)]
-    fn len(&self) -> usize {
-        self.dict().len()
+    #[pymethod]
+    fn __len__(&self) -> usize {
+        self.dict().__len__()
     }
 
-    #[pymethod(magic)]
-    fn reversed(&self) -> Self::ReverseIter;
+    #[pymethod]
+    fn __reversed__(&self) -> Self::ReverseIter;
 }
 
 macro_rules! dict_view {
@@ -768,7 +775,7 @@ macro_rules! dict_view {
                 #[allow(clippy::redundant_closure_call)]
                 $result_fn(vm, key, value)
             }
-            fn reversed(&self) -> Self::ReverseIter {
+            fn __reversed__(&self) -> Self::ReverseIter {
                 $reverse_iter_name::new(self.dict.clone())
             }
         }
@@ -789,7 +796,7 @@ macro_rules! dict_view {
             #[inline]
             fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
                 let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                    let mut str_parts = Vec::with_capacity(zelf.len());
+                    let mut str_parts = Vec::with_capacity(zelf.__len__());
                     for (key, value) in zelf.dict().clone() {
                         let s = &Self::item(vm, key, value).repr(vm)?;
                         str_parts.push(s.as_str().to_owned());
@@ -830,14 +837,14 @@ macro_rules! dict_view {
                 }
             }
 
-            #[pymethod(magic)]
-            fn length_hint(&self) -> usize {
+            #[pymethod]
+            fn __length_hint__(&self) -> usize {
                 self.internal.lock().length_hint(|_| self.size.entries_size)
             }
 
             #[allow(clippy::redundant_closure_call)]
-            #[pymethod(magic)]
-            fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
+            #[pymethod]
+            fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
                 let iter = builtins_iter(vm).to_owned();
                 let internal = self.internal.lock();
                 let entries = match &internal.status {
@@ -906,8 +913,8 @@ macro_rules! dict_view {
             }
 
             #[allow(clippy::redundant_closure_call)]
-            #[pymethod(magic)]
-            fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
+            #[pymethod]
+            fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
                 let iter = builtins_reversed(vm).to_owned();
                 let internal = self.internal.lock();
                 // TODO: entries must be reversed too
@@ -921,8 +928,8 @@ macro_rules! dict_view {
                 vm.new_tuple((iter, (vm.ctx.new_list(entries),)))
             }
 
-            #[pymethod(magic)]
-            fn length_hint(&self) -> usize {
+            #[pymethod]
+            fn __length_hint__(&self) -> usize {
                 self.internal
                     .lock()
                     .rev_length_hint(|_| self.size.entries_size)
@@ -1009,45 +1016,45 @@ dict_view! {
 #[pyclass]
 trait ViewSetOps: DictView {
     fn to_set(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PySetInner> {
-        let len = zelf.dict().len();
+        let len = zelf.dict().__len__();
         let zelf: PyObjectRef = Self::iter(zelf, vm)?;
         let iter = PyIterIter::new(vm, zelf, Some(len));
         PySetInner::from_iter(iter, vm)
     }
 
     #[pymethod(name = "__rxor__")]
-    #[pymethod(magic)]
-    fn xor(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
+    #[pymethod]
+    fn __xor__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
         let zelf = Self::to_set(zelf, vm)?;
         let inner = zelf.symmetric_difference(other, vm)?;
         Ok(PySet { inner })
     }
 
     #[pymethod(name = "__rand__")]
-    #[pymethod(magic)]
-    fn and(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
+    #[pymethod]
+    fn __and__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
         let zelf = Self::to_set(zelf, vm)?;
         let inner = zelf.intersection(other, vm)?;
         Ok(PySet { inner })
     }
 
     #[pymethod(name = "__ror__")]
-    #[pymethod(magic)]
-    fn or(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
+    #[pymethod]
+    fn __or__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
         let zelf = Self::to_set(zelf, vm)?;
         let inner = zelf.union(other, vm)?;
         Ok(PySet { inner })
     }
 
-    #[pymethod(magic)]
-    fn sub(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
+    #[pymethod]
+    fn __sub__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
         let zelf = Self::to_set(zelf, vm)?;
         let inner = zelf.difference(other, vm)?;
         Ok(PySet { inner })
     }
 
-    #[pymethod(magic)]
-    fn rsub(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
+    #[pymethod]
+    fn __rsub__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
         let left = PySetInner::from_iter(other.iter(vm)?, vm)?;
         let right = ArgIterable::try_from_object(vm, Self::iter(zelf, vm)?)?;
         let inner = left.difference(right, vm)?;
@@ -1108,8 +1115,8 @@ impl ViewSetOps for PyDictKeys {}
     Representable
 ))]
 impl PyDictKeys {
-    #[pymethod(magic)]
-    fn contains(zelf: PyObjectRef, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    #[pymethod]
+    fn __contains__(zelf: PyObjectRef, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         zelf.to_sequence().contains(&key, vm)
     }
 
@@ -1134,7 +1141,7 @@ impl Comparable for PyDictKeys {
 impl AsSequence for PyDictKeys {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PyDictKeys::sequence_downcast(seq).len())),
+            length: atomic_func!(|seq, _vm| Ok(PyDictKeys::sequence_downcast(seq).__len__())),
             contains: atomic_func!(|seq, target, vm| {
                 PyDictKeys::sequence_downcast(seq)
                     .dict
@@ -1172,8 +1179,8 @@ impl ViewSetOps for PyDictItems {}
     Representable
 ))]
 impl PyDictItems {
-    #[pymethod(magic)]
-    fn contains(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    #[pymethod]
+    fn __contains__(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         zelf.to_sequence().contains(&needle, vm)
     }
     #[pygetset]
@@ -1197,7 +1204,7 @@ impl Comparable for PyDictItems {
 impl AsSequence for PyDictItems {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PyDictItems::sequence_downcast(seq).len())),
+            length: atomic_func!(|seq, _vm| Ok(PyDictItems::sequence_downcast(seq).__len__())),
             contains: atomic_func!(|seq, target, vm| {
                 let needle: &Py<PyTuple> = match target.downcast_ref() {
                     Some(needle) => needle,
@@ -1209,11 +1216,11 @@ impl AsSequence for PyDictItems {
 
                 let zelf = PyDictItems::sequence_downcast(seq);
                 let key = needle.fast_getitem(0);
-                if !zelf.dict.contains(key.clone(), vm)? {
+                if !zelf.dict.__contains__(key.clone(), vm)? {
                     return Ok(false);
                 }
                 let value = needle.fast_getitem(1);
-                let found = zelf.dict().getitem(key, vm)?;
+                let found = zelf.dict().__getitem__(key, vm)?;
                 vm.identical_or_equal(&found, &value)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
@@ -1247,7 +1254,7 @@ impl Unconstructible for PyDictValues {}
 impl AsSequence for PyDictValues {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PyDictValues::sequence_downcast(seq).len())),
+            length: atomic_func!(|seq, _vm| Ok(PyDictValues::sequence_downcast(seq).__len__())),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
         &AS_SEQUENCE

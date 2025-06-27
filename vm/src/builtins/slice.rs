@@ -182,8 +182,8 @@ impl PySlice {
     }
 
     #[allow(clippy::type_complexity)]
-    #[pymethod(magic)]
-    fn reduce(
+    #[pymethod]
+    fn __reduce__(
         zelf: PyRef<Self>,
     ) -> PyResult<(
         PyTypeRef,
@@ -317,8 +317,8 @@ impl Constructor for PyEllipsis {
 
 #[pyclass(with(Constructor, Representable))]
 impl PyEllipsis {
-    #[pymethod(magic)]
-    fn reduce(&self, vm: &VirtualMachine) -> PyStrRef {
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyStrRef {
         vm.ctx.names.Ellipsis.to_owned()
     }
 }

@@ -126,16 +126,16 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
 
     if required {
         let mut basicsize = obj.class().slots.basicsize;
-        // if obj.class().slots.dictoffset > 0
+        // if obj.class().slots.dict_offset > 0
         //     && !obj.class().slots.flags.has_feature(PyTypeFlags::MANAGED_DICT)
         // {
         //     basicsize += std::mem::size_of::<PyObjectRef>();
         // }
-        // if obj.class().slots.weaklistoffset > 0 {
+        // if obj.class().slots.weaklist_offset > 0 {
         //     basicsize += std::mem::size_of::<PyObjectRef>();
         // }
         if let Some(ref slot_names) = slot_names {
-            basicsize += std::mem::size_of::<PyObjectRef>() * slot_names.len();
+            basicsize += std::mem::size_of::<PyObjectRef>() * slot_names.__len__();
         }
         if obj.class().slots.basicsize > basicsize {
             return Err(
@@ -145,7 +145,7 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
     }
 
     if let Some(slot_names) = slot_names {
-        let slot_names_len = slot_names.len();
+        let slot_names_len = slot_names.__len__();
         if slot_names_len > 0 {
             let slots = vm.ctx.new_dict();
             for i in 0..slot_names_len {
@@ -247,8 +247,8 @@ impl PyBaseObject {
     }
 
     /// Return self==value.
-    #[pymethod(magic)]
-    fn eq(
+    #[pymethod]
+    fn __eq__(
         zelf: PyObjectRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
@@ -257,8 +257,8 @@ impl PyBaseObject {
     }
 
     /// Return self!=value.
-    #[pymethod(magic)]
-    fn ne(
+    #[pymethod]
+    fn __ne__(
         zelf: PyObjectRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
@@ -267,8 +267,8 @@ impl PyBaseObject {
     }
 
     /// Return self<value.
-    #[pymethod(magic)]
-    fn lt(
+    #[pymethod]
+    fn __lt__(
         zelf: PyObjectRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
@@ -277,8 +277,8 @@ impl PyBaseObject {
     }
 
     /// Return self<=value.
-    #[pymethod(magic)]
-    fn le(
+    #[pymethod]
+    fn __le__(
         zelf: PyObjectRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
@@ -287,8 +287,8 @@ impl PyBaseObject {
     }
 
     /// Return self>=value.
-    #[pymethod(magic)]
-    fn ge(
+    #[pymethod]
+    fn __ge__(
         zelf: PyObjectRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
@@ -297,8 +297,8 @@ impl PyBaseObject {
     }
 
     /// Return self>value.
-    #[pymethod(magic)]
-    fn gt(
+    #[pymethod]
+    fn __gt__(
         zelf: PyObjectRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
@@ -334,8 +334,8 @@ impl PyBaseObject {
     }
 
     /// Return str(self).
-    #[pymethod(magic)]
-    fn str(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    #[pymethod]
+    fn __str__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         // FIXME: try tp_repr first and fallback to object.__repr__
         zelf.repr(vm)
     }
@@ -345,10 +345,13 @@ impl PyBaseObject {
         let class = zelf.class();
         match (
             class
-                .qualname(vm)
+                .__qualname__(vm)
                 .downcast_ref::<PyStr>()
                 .map(|n| n.as_str()),
-            class.module(vm).downcast_ref::<PyStr>().map(|m| m.as_str()),
+            class
+                .__module__(vm)
+                .downcast_ref::<PyStr>()
+                .map(|m| m.as_str()),
         ) {
             (None, _) => Err(vm.new_type_error("Unknown qualified name")),
             (Some(qualname), Some(module)) if module != "builtins" => Ok(PyStr::from(format!(
@@ -368,26 +371,30 @@ impl PyBaseObject {
     }
 
     /// Return repr(self).
-    #[pymethod(magic)]
-    fn repr(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    #[pymethod]
+    fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         Self::slot_repr(&zelf, vm)
     }
 
-    #[pyclassmethod(magic)]
-    fn subclasshook(_args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
+    #[pyclassmethod]
+    fn __subclasshook__(_args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.not_implemented()
     }
 
-    #[pyclassmethod(magic)]
-    fn init_subclass(_cls: PyTypeRef) {}
+    #[pyclassmethod]
+    fn __init_subclass__(_cls: PyTypeRef) {}
 
-    #[pymethod(magic)]
-    pub fn dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
+    #[pymethod]
+    pub fn __dir__(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
         obj.dir(vm)
     }
 
-    #[pymethod(magic)]
-    fn format(obj: PyObjectRef, format_spec: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    #[pymethod]
+    fn __format__(
+        obj: PyObjectRef,
+        format_spec: PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyStrRef> {
         if !format_spec.is_empty() {
             return Err(vm.new_type_error(format!(
                 "unsupported format string passed to {}.__format__",
@@ -398,8 +405,8 @@ impl PyBaseObject {
     }
 
     #[pyslot]
-    #[pymethod(magic)]
-    fn init(_zelf: PyObjectRef, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod]
+    fn __init__(_zelf: PyObjectRef, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<()> {
         Ok(())
     }
 
@@ -447,18 +454,18 @@ impl PyBaseObject {
         obj.as_object().generic_getattr(name, vm)
     }
 
-    #[pymethod(magic)]
-    fn getattribute(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __getattribute__(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         Self::getattro(&obj, &name, vm)
     }
 
-    #[pymethod(magic)]
-    fn reduce(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __reduce__(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         common_reduce(obj, 0, vm)
     }
 
-    #[pymethod(magic)]
-    fn reduce_ex(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn __reduce_ex__(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
         let __reduce__ = identifier!(vm, __reduce__);
         if let Some(reduce) = vm.get_attribute_opt(obj.clone(), __reduce__)? {
             let object_reduce = vm.ctx.types.object_type.get_attr(__reduce__).unwrap();
@@ -477,13 +484,13 @@ impl PyBaseObject {
     }
 
     /// Return hash(self).
-    #[pymethod(magic)]
-    fn hash(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
+    #[pymethod]
+    fn __hash__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
         Self::slot_hash(&zelf, vm)
     }
 
-    #[pymethod(magic)]
-    fn sizeof(zelf: PyObjectRef) -> usize {
+    #[pymethod]
+    fn __sizeof__(zelf: PyObjectRef) -> usize {
         zelf.class().slots.basicsize
     }
 }
