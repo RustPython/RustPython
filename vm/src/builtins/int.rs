@@ -259,7 +259,7 @@ impl PyInt {
         }
     }
 
-    pub fn as_bigint(&self) -> &BigInt {
+    pub const fn as_bigint(&self) -> &BigInt {
         &self.value
     }
 
@@ -671,7 +671,7 @@ impl PyInt {
     }
 
     #[pygetset]
-    fn imag(&self) -> usize {
+    const fn imag(&self) -> usize {
         0
     }
 
@@ -681,7 +681,7 @@ impl PyInt {
     }
 
     #[pygetset]
-    fn denominator(&self) -> usize {
+    const fn denominator(&self) -> usize {
         1
     }
 
@@ -852,9 +852,7 @@ fn try_int_radix(obj: &PyObject, base: u32, vm: &VirtualMachine) -> PyResult<Big
             bytes_to_int(&inner, base)
         }
         _ => {
-            return Err(
-                vm.new_type_error("int() can't convert non-string with explicit base".to_owned())
-            );
+            return Err(vm.new_type_error("int() can't convert non-string with explicit base"));
         }
     });
     match opt {

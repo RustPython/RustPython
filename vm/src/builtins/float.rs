@@ -27,7 +27,7 @@ pub struct PyFloat {
 }
 
 impl PyFloat {
-    pub fn to_f64(&self) -> f64 {
+    pub const fn to_f64(&self) -> f64 {
         self.value
     }
 }
@@ -285,7 +285,7 @@ impl PyFloat {
     }
 
     #[pymethod]
-    fn __bool__(&self) -> bool {
+    const fn __bool__(&self) -> bool {
         self.value != 0.0
     }
 
@@ -340,12 +340,12 @@ impl PyFloat {
     }
 
     #[pymethod]
-    fn __pos__(&self) -> f64 {
+    const fn __pos__(&self) -> f64 {
         self.value
     }
 
     #[pymethod]
-    fn __neg__(&self) -> f64 {
+    const fn __neg__(&self) -> f64 {
         -self.value
     }
 
@@ -457,22 +457,22 @@ impl PyFloat {
     }
 
     #[pymethod]
-    fn __float__(zelf: PyRef<Self>) -> PyRef<Self> {
+    const fn __float__(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
     #[pygetset]
-    fn real(zelf: PyRef<Self>) -> PyRef<Self> {
+    const fn real(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
     #[pygetset]
-    fn imag(&self) -> f64 {
+    const fn imag(&self) -> f64 {
         0.0f64
     }
 
     #[pymethod]
-    fn conjugate(zelf: PyRef<Self>) -> PyRef<Self> {
+    const fn conjugate(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
@@ -576,9 +576,9 @@ impl AsNumber for PyFloat {
                 if vm.is_none(c) {
                     PyFloat::number_op(a, b, float_pow, vm)
                 } else {
-                    Err(vm.new_type_error(String::from(
+                    Err(vm.new_type_error(
                         "pow() 3rd argument not allowed unless all arguments are integers",
-                    )))
+                    ))
                 }
             }),
             negative: Some(|num, vm| {
