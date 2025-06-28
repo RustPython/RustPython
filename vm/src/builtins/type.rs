@@ -439,6 +439,12 @@ impl PyType {
 }
 
 impl Py<PyType> {
+    /// Equivalent to CPython's PyType_CheckExact macro
+    /// Checks if obj is exactly a type (not a subclass)
+    pub fn check_exact<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> Option<&'a Py<PyType>> {
+        obj.downcast_ref_if_exact::<PyType>(vm)
+    }
+
     /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
     /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
     /// method.
