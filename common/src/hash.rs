@@ -32,6 +32,7 @@ pub struct HashSecret {
 
 impl BuildHasher for HashSecret {
     type Hasher = SipHasher24;
+
     fn build_hasher(&self) -> Self::Hasher {
         SipHasher24::new_with_keys(self.k0, self.k1)
     }
@@ -80,7 +81,7 @@ impl HashSecret {
 }
 
 #[inline]
-pub fn hash_pointer(value: usize) -> PyHash {
+pub const fn hash_pointer(value: usize) -> PyHash {
     // TODO: 32bit?
     let hash = (value >> 4) | value;
     hash as _
@@ -140,17 +141,17 @@ pub fn hash_bigint(value: &BigInt) -> PyHash {
 }
 
 #[inline]
-pub fn hash_usize(data: usize) -> PyHash {
+pub const fn hash_usize(data: usize) -> PyHash {
     fix_sentinel(mod_int(data as i64))
 }
 
 #[inline(always)]
-pub fn fix_sentinel(x: PyHash) -> PyHash {
+pub const fn fix_sentinel(x: PyHash) -> PyHash {
     if x == SENTINEL { -2 } else { x }
 }
 
 #[inline]
-pub fn mod_int(value: i64) -> PyHash {
+pub const fn mod_int(value: i64) -> PyHash {
     value % MODULUS as i64
 }
 

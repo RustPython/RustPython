@@ -392,7 +392,7 @@ impl FormatSpec {
         }
     }
 
-    fn get_separator_interval(&self) -> usize {
+    const fn get_separator_interval(&self) -> usize {
         match self.format_type {
             Some(FormatType::Binary | FormatType::Octal | FormatType::Hex(_)) => 4,
             Some(FormatType::Decimal | FormatType::Number(_) | FormatType::FixedPoint(_)) => 3,
@@ -677,7 +677,7 @@ struct AsciiStr<'a> {
 }
 
 impl<'a> AsciiStr<'a> {
-    fn new(inner: &'a str) -> Self {
+    const fn new(inner: &'a str) -> Self {
         Self { inner }
     }
 }
@@ -690,6 +690,7 @@ impl CharLen for AsciiStr<'_> {
 
 impl Deref for AsciiStr<'_> {
     type Target = str;
+
     fn deref(&self) -> &Self::Target {
         self.inner
     }

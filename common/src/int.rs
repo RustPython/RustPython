@@ -128,7 +128,7 @@ pub fn bytes_to_int(lit: &[u8], mut base: u32) -> Option<BigInt> {
 }
 
 #[inline]
-pub fn detect_base(c: &u8) -> Option<u32> {
+pub const fn detect_base(c: &u8) -> Option<u32> {
     let base = match c {
         b'x' | b'X' => 16,
         b'b' | b'B' => 2,

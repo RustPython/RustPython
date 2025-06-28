@@ -76,8 +76,9 @@ pub enum CFloatType {
 }
 
 impl CFloatType {
-    fn case(self) -> Case {
+    const fn case(self) -> Case {
         use CFloatType::*;
+
         match self {
             ExponentLower | PointDecimalLower | GeneralLower => Case::Lower,
             ExponentUpper | PointDecimalUpper | GeneralUpper => Case::Upper,
@@ -100,7 +101,7 @@ pub enum CFormatType {
 }
 
 impl CFormatType {
-    pub fn to_char(self) -> char {
+    pub const fn to_char(self) -> char {
         match self {
             CFormatType::Number(x) => x as u8 as char,
             CFormatType::Float(x) => x as u8 as char,
