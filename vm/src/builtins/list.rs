@@ -58,15 +58,11 @@ impl PyPayload for PyList {
 
 impl ToPyObject for Vec<PyObjectRef> {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        PyList::new_ref(self, &vm.ctx).into()
+        PyList::from(self).into_ref(&vm.ctx).into()
     }
 }
 
 impl PyList {
-    pub fn new_ref(elements: Vec<PyObjectRef>, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(Self::from(elements), ctx.types.list_type.to_owned(), None)
-    }
-
     pub fn borrow_vec(&self) -> PyMappedRwLockReadGuard<'_, [PyObjectRef]> {
         PyRwLockReadGuard::map(self.elements.read(), |v| &**v)
     }
@@ -78,7 +74,7 @@ impl PyList {
     fn repeat(&self, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let elements = &*self.borrow_vec();
         let v = elements.mul(vm, n)?;
-        Ok(Self::new_ref(v, &vm.ctx))
+        Ok(Self::from(v).into_ref(&vm.ctx))
     }
 
     fn irepeat(zelf: PyRef<Self>, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
@@ -140,7 +136,7 @@ impl PyList {
         })?;
         let mut elements = self.borrow_vec().to_vec();
         elements.extend(other.borrow_vec().iter().cloned());
-        Ok(Self::new_ref(elements, &vm.ctx))
+        Ok(Self::from(elements).into_ref(&vm.ctx))
     }
 
     #[pymethod]
@@ -176,7 +172,7 @@ impl PyList {
 
     #[pymethod]
     fn copy(&self, vm: &VirtualMachine) -> PyRef<Self> {
-        Self::new_ref(self.borrow_vec().to_vec(), &vm.ctx)
+        Self::from(self.borrow_vec().to_vec()).into_ref(&vm.ctx)
     }
 
     #[allow(clippy::len_without_is_empty)]

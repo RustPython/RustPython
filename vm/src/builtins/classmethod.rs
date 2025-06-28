@@ -58,7 +58,9 @@ impl GetDescriptor for PyClassMethod {
         let cls = cls.unwrap_or_else(|| _obj.class().to_owned().into());
         let call_descr_get: PyResult<PyObjectRef> = zelf.callable.lock().get_attr("__get__", vm);
         match call_descr_get {
-            Err(_) => Ok(PyBoundMethod::new_ref(cls, zelf.callable.lock().clone(), &vm.ctx).into()),
+            Err(_) => Ok(PyBoundMethod::new(cls, zelf.callable.lock().clone())
+                .into_ref(&vm.ctx)
+                .into()),
             Ok(call_descr_get) => call_descr_get.call((cls.clone(), cls), vm),
         }
     }
@@ -105,18 +107,6 @@ impl Initializer for PyClassMethod {
     fn init(zelf: PyRef<Self>, callable: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
         *zelf.callable.lock() = callable;
         Ok(())
-    }
-}
-
-impl PyClassMethod {
-    pub fn new_ref(callable: PyObjectRef, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(
-            Self {
-                callable: PyMutex::new(callable),
-            },
-            ctx.types.classmethod_type.to_owned(),
-            None,
-        )
     }
 }
 

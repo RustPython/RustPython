@@ -98,10 +98,6 @@ impl Constructor for PyBytes {
 }
 
 impl PyBytes {
-    pub fn new_ref(data: Vec<u8>, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(Self::from(data), ctx.types.bytes_type.to_owned(), None)
-    }
-
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
         match SequenceIndex::try_from_borrowed_object(vm, needle, "byte")? {
             SequenceIndex::Int(i) => self
