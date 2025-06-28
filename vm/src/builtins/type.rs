@@ -3,8 +3,8 @@ use super::{
     mappingproxy::PyMappingProxy, object, union_,
 };
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
-    VirtualMachine,
+    AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+    TryFromObject, VirtualMachine,
     builtins::{
         PyBaseExceptionRef,
         descriptor::{
@@ -155,6 +155,15 @@ fn downcast_qualname(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<
     }
 }
 
+fn is_subtype_with_mro(a_mro: &[PyTypeRef], _a: &Py<PyType>, b: &Py<PyType>) -> bool {
+    for item in a_mro {
+        if item.is(b) {
+            return true;
+        }
+    }
+    false
+}
+
 impl PyType {
     pub fn new_simple_heap(
         name: &str,
@@ -192,6 +201,12 @@ impl PyType {
         let base = bases[0].clone();
 
         Self::new_heap_inner(base, bases, attrs, slots, heaptype_ext, metaclass, ctx)
+    }
+
+    /// Equivalent to CPython's PyType_Check macro
+    /// Checks if obj is an instance of type (or its subclass)
+    pub(crate) fn check<'a>(obj: &'a PyObject) -> Option<&'a Py<Self>> {
+        obj.downcast_ref::<Self>()
     }
 
     fn resolve_mro(bases: &[PyRef<Self>]) -> Result<Vec<PyTypeRef>, String> {
@@ -436,10 +451,20 @@ impl PyType {
 }
 
 impl Py<PyType> {
+    pub(crate) fn is_subtype(&self, other: &Py<PyType>) -> bool {
+        is_subtype_with_mro(&*self.mro.read(), self, other)
+    }
+
+    /// Equivalent to CPython's PyType_CheckExact macro
+    /// Checks if obj is exactly a type (not a subclass)
+    pub fn check_exact<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> Option<&'a Py<PyType>> {
+        obj.downcast_ref_if_exact::<PyType>(vm)
+    }
+
     /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
     /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
     /// method.
-    pub fn fast_issubclass(&self, cls: &impl Borrow<crate::PyObject>) -> bool {
+    pub fn fast_issubclass(&self, cls: &impl Borrow<PyObject>) -> bool {
         self.as_object().is(cls.borrow()) || self.mro.read().iter().any(|c| c.is(cls.borrow()))
     }
 
