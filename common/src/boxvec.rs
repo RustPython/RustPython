@@ -46,25 +46,25 @@ impl<T> BoxVec<T> {
     }
 
     #[inline]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.len
     }
 
     #[inline]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     #[inline]
-    pub fn capacity(&self) -> usize {
+    pub const fn capacity(&self) -> usize {
         self.xs.len()
     }
 
-    pub fn is_full(&self) -> bool {
+    pub const fn is_full(&self) -> bool {
         self.len() == self.capacity()
     }
 
-    pub fn remaining_capacity(&self) -> usize {
+    pub const fn remaining_capacity(&self) -> usize {
         self.capacity() - self.len()
     }
 
@@ -336,6 +336,7 @@ impl<T> BoxVec<T> {
 
 impl<T> Deref for BoxVec<T> {
     type Target = [T];
+
     #[inline]
     fn deref(&self) -> &[T] {
         unsafe { slice::from_raw_parts(self.as_ptr(), self.len()) }
@@ -354,6 +355,7 @@ impl<T> DerefMut for BoxVec<T> {
 impl<'a, T> IntoIterator for &'a BoxVec<T> {
     type Item = &'a T;
     type IntoIter = slice::Iter<'a, T>;
+
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
@@ -363,6 +365,7 @@ impl<'a, T> IntoIterator for &'a BoxVec<T> {
 impl<'a, T> IntoIterator for &'a mut BoxVec<T> {
     type Item = &'a mut T;
     type IntoIter = slice::IterMut<'a, T>;
+
     fn into_iter(self) -> Self::IntoIter {
         self.iter_mut()
     }
@@ -374,6 +377,7 @@ impl<'a, T> IntoIterator for &'a mut BoxVec<T> {
 impl<T> IntoIterator for BoxVec<T> {
     type Item = T;
     type IntoIter = IntoIter<T>;
+
     fn into_iter(self) -> IntoIter<T> {
         IntoIter { index: 0, v: self }
     }
@@ -672,7 +676,7 @@ pub struct CapacityError<T = ()> {
 
 impl<T> CapacityError<T> {
     /// Create a new `CapacityError` from `element`.
-    pub fn new(element: T) -> CapacityError<T> {
+    pub const fn new(element: T) -> CapacityError<T> {
         CapacityError { element }
     }
 

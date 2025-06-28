@@ -233,11 +233,12 @@ impl PySetInner {
         if !op.eval_ord(self.len().cmp(&other.len())) {
             return Ok(false);
         }
-        let (superset, subset) = if matches!(op, PyComparisonOp::Lt | PyComparisonOp::Le) {
-            (other, self)
-        } else {
-            (self, other)
+
+        let (superset, subset) = match op {
+            PyComparisonOp::Lt | PyComparisonOp::Le => (other, self),
+            _ => (self, other),
         };
+
         for key in subset.elements() {
             if !superset.contains(&key, vm)? {
                 return Ok(false);

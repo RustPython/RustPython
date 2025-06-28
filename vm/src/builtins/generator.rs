@@ -28,7 +28,7 @@ impl PyPayload for PyGenerator {
 
 #[pyclass(with(Py, Unconstructible, IterNext, Iterable))]
 impl PyGenerator {
-    pub fn as_coro(&self) -> &Coro {
+    pub const fn as_coro(&self) -> &Coro {
         &self.inner
     }
 
@@ -52,14 +52,17 @@ impl PyGenerator {
     fn gi_frame(&self, _vm: &VirtualMachine) -> FrameRef {
         self.inner.frame()
     }
+
     #[pygetset]
     fn gi_running(&self, _vm: &VirtualMachine) -> bool {
         self.inner.running()
     }
+
     #[pygetset]
     fn gi_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
         self.inner.frame().code.clone()
     }
+
     #[pygetset]
     fn gi_yieldfrom(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
         self.inner.frame().yield_from_target()

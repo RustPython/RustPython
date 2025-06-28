@@ -259,7 +259,7 @@ pub(crate) mod _struct {
 
         #[pygetset]
         #[inline]
-        fn size(&self) -> usize {
+        const fn size(&self) -> usize {
             self.spec.size
         }
 

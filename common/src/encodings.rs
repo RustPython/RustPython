@@ -121,6 +121,7 @@ impl ops::Add for StrSize {
         }
     }
 }
+
 impl ops::AddAssign for StrSize {
     fn add_assign(&mut self, rhs: Self) {
         self.bytes += rhs.bytes;
@@ -133,6 +134,7 @@ struct DecodeError<'a> {
     rest: &'a [u8],
     err_len: Option<usize>,
 }
+
 /// # Safety
 /// `v[..valid_up_to]` must be valid utf8
 unsafe fn make_decode_err(v: &[u8], valid_up_to: usize, err_len: Option<usize>) -> DecodeError<'_> {
@@ -152,6 +154,7 @@ enum HandleResult<'a> {
         reason: &'a str,
     },
 }
+
 fn decode_utf8_compatible<Ctx, E, DecodeF, ErrF>(
     mut ctx: Ctx,
     errors: &E,

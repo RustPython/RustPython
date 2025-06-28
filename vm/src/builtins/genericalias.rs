@@ -161,7 +161,7 @@ impl PyGenericAlias {
     }
 
     #[pygetset]
-    fn __unpacked__(&self) -> bool {
+    const fn __unpacked__(&self) -> bool {
         self.starred
     }
 

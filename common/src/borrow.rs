@@ -56,6 +56,7 @@ impl<'a, T: ?Sized> BorrowedValue<'a, T> {
 
 impl<T: ?Sized> Deref for BorrowedValue<'_, T> {
     type Target = T;
+
     fn deref(&self) -> &T {
         match self {
             Self::Ref(r) => r,
@@ -81,6 +82,7 @@ pub enum BorrowedValueMut<'a, T: ?Sized> {
     WriteLock(PyRwLockWriteGuard<'a, T>),
     MappedWriteLock(PyMappedRwLockWriteGuard<'a, T>),
 }
+
 impl_from!('a, T, BorrowedValueMut<'a, T>,
     RefMut(&'a mut T),
     MuLock(PyMutexGuard<'a, T>),
@@ -108,6 +110,7 @@ impl<'a, T: ?Sized> BorrowedValueMut<'a, T> {
 
 impl<T: ?Sized> Deref for BorrowedValueMut<'_, T> {
     type Target = T;
+
     fn deref(&self) -> &T {
         match self {
             Self::RefMut(r) => r,

@@ -31,6 +31,7 @@ impl std::fmt::Display for AttrName {
 
 impl FromStr for AttrName {
     type Err = String;
+
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         Ok(match s {
             "pyfunction" => Self::Function,
@@ -404,6 +405,7 @@ struct AttributeItem {
 
 impl ContentItem for FunctionItem {
     type AttrName = AttrName;
+
     fn inner(&self) -> &ContentItemInner<AttrName> {
         &self.inner
     }
@@ -411,6 +413,7 @@ impl ContentItem for FunctionItem {
 
 impl ContentItem for ClassItem {
     type AttrName = AttrName;
+
     fn inner(&self) -> &ContentItemInner<AttrName> {
         &self.inner
     }
@@ -418,6 +421,7 @@ impl ContentItem for ClassItem {
 
 impl ContentItem for AttributeItem {
     type AttrName = AttrName;
+
     fn inner(&self) -> &ContentItemInner<AttrName> {
         &self.inner
     }

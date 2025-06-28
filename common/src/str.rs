@@ -24,6 +24,7 @@ pub enum StrKind {
 
 impl std::ops::BitOr for StrKind {
     type Output = Self;
+
     fn bitor(self, other: Self) -> Self {
         use StrKind::*;
         match (self, other) {
@@ -35,11 +36,11 @@ impl std::ops::BitOr for StrKind {
 }
 
 impl StrKind {
-    pub fn is_ascii(&self) -> bool {
+    pub const fn is_ascii(&self) -> bool {
         matches!(self, Self::Ascii)
     }
 
-    pub fn is_utf8(&self) -> bool {
+    pub const fn is_utf8(&self) -> bool {
         matches!(self, Self::Ascii | Self::Utf8)
     }
 
@@ -142,6 +143,7 @@ impl StrLen {
     fn zero() -> Self {
         0usize.into()
     }
+
     #[inline(always)]
     fn uncomputed() -> Self {
         usize::MAX.into()
@@ -252,7 +254,7 @@ impl StrData {
     }
 
     #[inline]
-    pub fn as_wtf8(&self) -> &Wtf8 {
+    pub const fn as_wtf8(&self) -> &Wtf8 {
         &self.data
     }
 
@@ -269,7 +271,7 @@ impl StrData {
             .then(|| unsafe { AsciiStr::from_ascii_unchecked(self.data.as_bytes()) })
     }
 
-    pub fn kind(&self) -> StrKind {
+    pub const fn kind(&self) -> StrKind {
         self.kind
     }
 
@@ -469,7 +471,7 @@ pub mod levenshtein {
     const CASE_COST: usize = 1;
     const MAX_STRING_SIZE: usize = 40;
 
-    fn substitution_cost(mut a: u8, mut b: u8) -> usize {
+    const fn substitution_cost(mut a: u8, mut b: u8) -> usize {
         if (a & 31) != (b & 31) {
             return MOVE_COST;
         }

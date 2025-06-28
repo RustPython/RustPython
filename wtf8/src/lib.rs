@@ -91,7 +91,7 @@ impl CodePoint {
     ///
     /// `value` must be less than or equal to 0x10FFFF.
     #[inline]
-    pub unsafe fn from_u32_unchecked(value: u32) -> CodePoint {
+    pub const unsafe fn from_u32_unchecked(value: u32) -> CodePoint {
         CodePoint { value }
     }
 
@@ -99,7 +99,7 @@ impl CodePoint {
     ///
     /// Returns `None` if `value` is above 0x10FFFF.
     #[inline]
-    pub fn from_u32(value: u32) -> Option<CodePoint> {
+    pub const fn from_u32(value: u32) -> Option<CodePoint> {
         match value {
             0..=0x10FFFF => Some(CodePoint { value }),
             _ => None,
@@ -110,7 +110,7 @@ impl CodePoint {
     ///
     /// Since all Unicode scalar values are code points, this always succeeds.
     #[inline]
-    pub fn from_char(value: char) -> CodePoint {
+    pub const fn from_char(value: char) -> CodePoint {
         CodePoint {
             value: value as u32,
         }
@@ -118,13 +118,13 @@ impl CodePoint {
 
     /// Returns the numeric value of the code point.
     #[inline]
-    pub fn to_u32(self) -> u32 {
+    pub const fn to_u32(self) -> u32 {
         self.value
     }
 
     /// Returns the numeric value of the code point if it is a leading surrogate.
     #[inline]
-    pub fn to_lead_surrogate(self) -> Option<LeadSurrogate> {
+    pub const fn to_lead_surrogate(self) -> Option<LeadSurrogate> {
         match self.value {
             lead @ 0xD800..=0xDBFF => Some(LeadSurrogate(lead as u16)),
             _ => None,
@@ -133,7 +133,7 @@ impl CodePoint {
 
     /// Returns the numeric value of the code point if it is a trailing surrogate.
     #[inline]
-    pub fn to_trail_surrogate(self) -> Option<TrailSurrogate> {
+    pub const fn to_trail_surrogate(self) -> Option<TrailSurrogate> {
         match self.value {
             trail @ 0xDC00..=0xDFFF => Some(TrailSurrogate(trail as u16)),
             _ => None,
@@ -144,7 +144,7 @@ impl CodePoint {
     ///
     /// Returns `None` if the code point is a surrogate (from U+D800 to U+DFFF).
     #[inline]
-    pub fn to_char(self) -> Option<char> {
+    pub const fn to_char(self) -> Option<char> {
         match self.value {
             0xD800..=0xDFFF => None,
             _ => Some(unsafe { char::from_u32_unchecked(self.value) }),
@@ -168,7 +168,7 @@ impl CodePoint {
         unsafe { Wtf8::from_mut_bytes_unchecked(encode_utf8_raw(self.value, dst)) }
     }
 
-    pub fn len_wtf8(&self) -> usize {
+    pub const fn len_wtf8(&self) -> usize {
         len_utf8(self.value)
     }
 
@@ -225,7 +225,7 @@ pub struct LeadSurrogate(u16);
 pub struct TrailSurrogate(u16);
 
 impl LeadSurrogate {
-    pub fn merge(self, trail: TrailSurrogate) -> char {
+    pub const fn merge(self, trail: TrailSurrogate) -> char {
         decode_surrogate_pair(self.0, trail.0)
     }
 }
@@ -301,7 +301,7 @@ impl Wtf8Buf {
     ///
     /// `value` must contain valid WTF-8.
     #[inline]
-    pub unsafe fn from_bytes_unchecked(value: Vec<u8>) -> Wtf8Buf {
+    pub const unsafe fn from_bytes_unchecked(value: Vec<u8>) -> Wtf8Buf {
         Wtf8Buf { bytes: value }
     }
 
@@ -435,7 +435,7 @@ impl Wtf8Buf {
 
     /// Returns the number of bytes that this string buffer can hold without reallocating.
     #[inline]
-    pub fn capacity(&self) -> usize {
+    pub const fn capacity(&self) -> usize {
         self.bytes.capacity()
     }
 
@@ -643,9 +643,11 @@ impl AsRef<Wtf8> for Wtf8 {
 
 impl ToOwned for Wtf8 {
     type Owned = Wtf8Buf;
+
     fn to_owned(&self) -> Self::Owned {
         self.to_wtf8_buf()
     }
+
     fn clone_into(&self, buf: &mut Self::Owned) {
         self.bytes.clone_into(&mut buf.bytes);
     }
@@ -742,7 +744,7 @@ impl Wtf8 {
     ///
     /// `value` must contain valid WTF-8.
     #[inline]
-    pub unsafe fn from_bytes_unchecked(value: &[u8]) -> &Wtf8 {
+    pub const unsafe fn from_bytes_unchecked(value: &[u8]) -> &Wtf8 {
         // SAFETY: start with &[u8], end with fancy &[u8]
         unsafe { &*(value as *const [u8] as *const Wtf8) }
     }
@@ -752,7 +754,7 @@ impl Wtf8 {
     /// Since the byte slice is not checked for valid WTF-8, this functions is
     /// marked unsafe.
     #[inline]
-    unsafe fn from_mut_bytes_unchecked(value: &mut [u8]) -> &mut Wtf8 {
+    const unsafe fn from_mut_bytes_unchecked(value: &mut [u8]) -> &mut Wtf8 {
         // SAFETY: start with &mut [u8], end with fancy &mut [u8]
         unsafe { &mut *(value as *mut [u8] as *mut Wtf8) }
     }
@@ -780,12 +782,12 @@ impl Wtf8 {
 
     /// Returns the length, in WTF-8 bytes.
     #[inline]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.bytes.len()
     }
 
     #[inline]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.bytes.is_empty()
     }
 
@@ -796,7 +798,7 @@ impl Wtf8 {
     ///
     /// Panics if `position` is beyond the end of the string.
     #[inline]
-    pub fn ascii_byte_at(&self, position: usize) -> u8 {
+    pub const fn ascii_byte_at(&self, position: usize) -> u8 {
         match self.bytes[position] {
             ascii_byte @ 0x00..=0x7F => ascii_byte,
             _ => 0xFF,
@@ -822,7 +824,7 @@ impl Wtf8 {
 
     /// Access raw bytes of WTF-8 data
     #[inline]
-    pub fn as_bytes(&self) -> &[u8] {
+    pub const fn as_bytes(&self) -> &[u8] {
         &self.bytes
     }
 
@@ -832,7 +834,7 @@ impl Wtf8 {
     ///
     /// This does not copy the data.
     #[inline]
-    pub fn as_str(&self) -> Result<&str, str::Utf8Error> {
+    pub const fn as_str(&self) -> Result<&str, str::Utf8Error> {
         str::from_utf8(&self.bytes)
     }
 
@@ -887,7 +889,7 @@ impl Wtf8 {
         }
     }
 
-    pub fn chunks(&self) -> Wtf8Chunks<'_> {
+    pub const fn chunks(&self) -> Wtf8Chunks<'_> {
         Wtf8Chunks { wtf8: self }
     }
 
@@ -973,7 +975,7 @@ impl Wtf8 {
     }
 
     #[inline]
-    pub fn is_ascii(&self) -> bool {
+    pub const fn is_ascii(&self) -> bool {
         self.bytes.is_ascii()
     }
 
@@ -1226,13 +1228,13 @@ impl ops::Index<ops::RangeFull> for Wtf8 {
 }
 
 #[inline]
-fn decode_surrogate(second_byte: u8, third_byte: u8) -> u16 {
+const fn decode_surrogate(second_byte: u8, third_byte: u8) -> u16 {
     // The first byte is assumed to be 0xED
     0xD800 | (second_byte as u16 & 0x3F) << 6 | third_byte as u16 & 0x3F
 }
 
 #[inline]
-fn decode_surrogate_pair(lead: u16, trail: u16) -> char {
+const fn decode_surrogate_pair(lead: u16, trail: u16) -> char {
     let code_point = 0x10000 + ((((lead - 0xD800) as u32) << 10) | (trail - 0xDC00) as u32);
     unsafe { char::from_u32_unchecked(code_point) }
 }
@@ -1283,7 +1285,7 @@ pub fn check_utf8_boundary(slice: &Wtf8, index: usize) {
 ///
 /// `begin` and `end` must be within bounds and on codepoint boundaries.
 #[inline]
-pub unsafe fn slice_unchecked(s: &Wtf8, begin: usize, end: usize) -> &Wtf8 {
+pub const unsafe fn slice_unchecked(s: &Wtf8, begin: usize, end: usize) -> &Wtf8 {
     // SAFETY: memory layout of a &[u8] and &Wtf8 are the same
     unsafe {
         let len = end - begin;

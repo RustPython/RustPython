@@ -305,9 +305,11 @@ impl PyStrIterator {
             .builtins_iter_reduce(|x| x.clone().into(), vm)
     }
 }
+
 impl Unconstructible for PyStrIterator {}
 
 impl SelfIter for PyStrIterator {}
+
 impl IterNext for PyStrIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut internal = zelf.internal.lock();

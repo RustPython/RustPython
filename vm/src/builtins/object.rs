@@ -94,10 +94,7 @@ fn type_slot_names(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<Option<sup
     let result = match_class!(match slot_names {
         l @ super::PyList => Some(l),
         _n @ super::PyNone => None,
-        _ =>
-            return Err(
-                vm.new_type_error("copyreg._slotnames didn't return a list or None".to_owned())
-            ),
+        _ => return Err(vm.new_type_error("copyreg._slotnames didn't return a list or None")),
     });
     Ok(result)
 }

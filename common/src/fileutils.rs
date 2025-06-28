@@ -256,7 +256,7 @@ pub mod windows {
         }
     }
 
-    fn attributes_to_mode(attr: u32) -> u16 {
+    const fn attributes_to_mode(attr: u32) -> u16 {
         let mut m = 0;
         if attr & FILE_ATTRIBUTE_DIRECTORY != 0 {
             m |= libc::S_IFDIR | 0o111; // IFEXEC for user,group,other
@@ -362,6 +362,7 @@ pub mod windows {
             }
         }
     }
+
     pub fn stat_basic_info_to_stat(info: &FILE_STAT_BASIC_INFORMATION) -> StatStruct {
         use windows_sys::Win32::Storage::FileSystem;
         use windows_sys::Win32::System::Ioctl;

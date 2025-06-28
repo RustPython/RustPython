@@ -154,6 +154,7 @@ impl AsRef<[PyObjectRef]> for PyTuple {
 
 impl std::ops::Deref for PyTuple {
     type Target = [PyObjectRef];
+
     fn deref(&self) -> &[PyObjectRef] {
         self.as_slice()
     }
@@ -190,11 +191,11 @@ impl PyTuple {
     /// Creating a new tuple with given boxed slice.
     /// NOTE: for usual case, you probably want to use PyTuple::new_ref.
     /// Calling this function implies trying micro optimization for non-zero-sized tuple.
-    pub fn new_unchecked(elements: Box<[PyObjectRef]>) -> Self {
+    pub const fn new_unchecked(elements: Box<[PyObjectRef]>) -> Self {
         Self { elements }
     }
 
-    pub fn as_slice(&self) -> &[PyObjectRef] {
+    pub const fn as_slice(&self) -> &[PyObjectRef] {
         &self.elements
     }
 
@@ -256,7 +257,7 @@ impl PyTuple {
     }
 
     #[pymethod]
-    fn __bool__(&self) -> bool {
+    const fn __bool__(&self) -> bool {
         !self.elements.is_empty()
     }
 
@@ -273,12 +274,12 @@ impl PyTuple {
 
     #[inline]
     #[pymethod]
-    pub fn __len__(&self) -> usize {
+    pub const fn __len__(&self) -> usize {
         self.elements.len()
     }
 
     #[inline]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.elements.is_empty()
     }
 
@@ -553,10 +554,12 @@ impl<T: TransmuteFromObject> PyTupleTyped<T> {
     pub fn as_slice(&self) -> &[T] {
         unsafe { &*(self.tuple.as_slice() as *const [PyObjectRef] as *const [T]) }
     }
+
     #[inline]
     pub fn len(&self) -> usize {
         self.tuple.len()
     }
+
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.tuple.is_empty()

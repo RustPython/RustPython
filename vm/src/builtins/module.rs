@@ -69,18 +69,20 @@ pub struct ModuleInitArgs {
 
 impl PyModule {
     #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             def: None,
             name: None,
         }
     }
-    pub fn from_def(def: &'static PyModuleDef) -> Self {
+
+    pub const fn from_def(def: &'static PyModuleDef) -> Self {
         Self {
             def: Some(def),
             name: Some(def.name),
         }
     }
+
     pub fn __init_dict_from_def(vm: &VirtualMachine, module: &Py<PyModule>) {
         let doc = module.def.unwrap().doc.map(|doc| doc.to_owned());
         module.init_dict(module.name.unwrap(), doc, vm);
@@ -127,6 +129,7 @@ impl Py<PyModule> {
     pub fn dict(&self) -> PyDictRef {
         self.as_object().dict().unwrap()
     }
+
     // TODO: should be on PyModule, not Py<PyModule>
     pub(crate) fn init_dict(
         &self,
