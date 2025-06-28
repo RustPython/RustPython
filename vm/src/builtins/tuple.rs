@@ -108,12 +108,6 @@ impl_from_into_pytuple!(A, B, C, D, E);
 impl_from_into_pytuple!(A, B, C, D, E, F);
 impl_from_into_pytuple!(A, B, C, D, E, F, G);
 
-impl PyTuple {
-    pub(crate) fn fast_getitem(&self, idx: usize) -> PyObjectRef {
-        self.elements[idx].clone()
-    }
-}
-
 pub type PyTupleRef = PyRef<PyTuple>;
 
 impl Constructor for PyTuple {
