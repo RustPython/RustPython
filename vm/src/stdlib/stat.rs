@@ -132,10 +132,10 @@ mod stat {
     #[pyattr]
     pub const S_IWUSR: Mode = 0o0200;
 
-    #[cfg(all(unix, not(target_os = "android")))]
+    #[cfg(all(unix, not(target_os = "android"), not(target_os = "redox")))]
     #[pyattr]
     pub const S_IWRITE: Mode = libc::S_IWRITE;
-    #[cfg(any(not(unix), target_os = "android"))]
+    #[cfg(any(not(unix), target_os = "android", target_os = "redox"))]
     #[pyattr]
     pub const S_IWRITE: Mode = 0o0200;
 
@@ -146,10 +146,10 @@ mod stat {
     #[pyattr]
     pub const S_IXUSR: Mode = 0o0100;
 
-    #[cfg(all(unix, not(target_os = "android")))]
+    #[cfg(all(unix, not(target_os = "android"), not(target_os = "redox")))]
     #[pyattr]
     pub const S_IEXEC: Mode = libc::S_IEXEC;
-    #[cfg(any(not(unix), target_os = "android"))]
+    #[cfg(any(not(unix), target_os = "android", target_os = "redox"))]
     #[pyattr]
     pub const S_IEXEC: Mode = 0o0100;
 
