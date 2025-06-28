@@ -3296,8 +3296,6 @@ class ProtocolTests(BaseTestCase):
 
         self.assertNotIsInstance([], collections.abc.Mapping)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_issubclass_and_isinstance_on_Protocol_itself(self):
         class C:
             def x(self): pass

@@ -447,6 +447,12 @@ impl PyObject {
         }
     }
 
+    /// Real issubclass check without going through __subclasscheck__
+    /// This is equivalent to CPython's _PyObject_RealIsSubclass which just calls recursive_issubclass
+    pub fn real_is_subclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        self.recursive_issubclass(cls, vm)
+    }
+
     /// Determines if `self` is a subclass of `cls`, either directly, indirectly or virtually
     /// via the __subclasscheck__ magic method.
     /// PyObject_IsSubclass/object_issubclass

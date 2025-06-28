@@ -442,7 +442,7 @@ impl Py<PyType> {
     /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
     /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
     /// method.
-    pub fn fast_issubclass(&self, cls: &impl Borrow<crate::PyObject>) -> bool {
+    pub fn fast_issubclass(&self, cls: &impl Borrow<PyObject>) -> bool {
         self.as_object().is(cls.borrow()) || self.mro.read().iter().any(|c| c.is(cls.borrow()))
     }
 
@@ -1216,8 +1216,10 @@ impl Py<PyType> {
     }
 
     #[pymethod]
-    fn __subclasscheck__(&self, subclass: PyTypeRef) -> bool {
-        subclass.fast_issubclass(self)
+    fn __subclasscheck__(&self, subclass: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        // Use real_is_subclass to avoid going through __subclasscheck__ recursion
+        // This matches CPython's type___subclasscheck___impl which calls _PyObject_RealIsSubclass
+        subclass.real_is_subclass(self.as_object(), vm)
     }
 
     #[pyclassmethod]
