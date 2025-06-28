@@ -428,22 +428,30 @@ impl PyObject {
         if let (Ok(obj), Ok(cls)) = (self.try_to_ref::<PyType>(vm), cls.try_to_ref::<PyType>(vm)) {
             Ok(obj.fast_issubclass(cls))
         } else {
+            // Check if derived is a class
             self.check_cls(self, vm, || {
                 format!("issubclass() arg 1 must be a class, not {}", self.class())
-            })
-            .and(self.check_cls(cls, vm, || {
-                format!(
-                    "issubclass() arg 2 must be a class, a tuple of classes, or a union, not {}",
-                    cls.class()
-                )
-            }))
-            .and(self.abstract_issubclass(cls, vm))
+            })?;
+
+            // Check if cls is a class, tuple, or union
+            if !cls.class().is(vm.ctx.types.union_type) {
+                self.check_cls(cls, vm, || {
+                    format!(
+                        "issubclass() arg 2 must be a class, a tuple of classes, or a union, not {}",
+                        cls.class()
+                    )
+                })?;
+            }
+
+            self.abstract_issubclass(cls, vm)
         }
     }
 
     /// Determines if `self` is a subclass of `cls`, either directly, indirectly or virtually
     /// via the __subclasscheck__ magic method.
+    /// PyObject_IsSubclass/object_issubclass
     pub fn is_subclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        // PyType_CheckExact(cls)
         if cls.class().is(vm.ctx.types.type_type) {
             if self.is(cls) {
                 return Ok(true);
@@ -451,7 +459,20 @@ impl PyObject {
             return self.recursive_issubclass(cls, vm);
         }
 
-        if let Ok(tuple) = cls.try_to_value::<&Py<PyTuple>>(vm) {
+        // Check for Union type - CPython handles this before tuple
+        let cls_to_check = if cls.class().is(vm.ctx.types.union_type) {
+            // Get the __args__ attribute which contains the union members
+            if let Ok(args) = cls.get_attr(identifier!(vm, __args__), vm) {
+                args
+            } else {
+                cls.to_owned()
+            }
+        } else {
+            cls.to_owned()
+        };
+
+        // Check if cls_to_check is a tuple
+        if let Ok(tuple) = cls_to_check.try_to_value::<&Py<PyTuple>>(vm) {
             for typ in tuple {
                 if vm.with_recursion("in __subclasscheck__", || self.is_subclass(typ, vm))? {
                     return Ok(true);
@@ -460,6 +481,7 @@ impl PyObject {
             return Ok(false);
         }
 
+        // Check for __subclasscheck__ method
         if let Some(meth) = vm.get_special_method(cls, identifier!(vm, __subclasscheck__))? {
             let ret = vm.with_recursion("in __subclasscheck__", || {
                 meth.invoke((self.to_owned(),), vm)
@@ -514,38 +536,6 @@ impl PyObject {
         }
     }
 
-    fn abstract_isinstance(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        let r = if let Ok(typ) = cls.try_to_ref::<PyType>(vm) {
-            if self.class().fast_issubclass(typ) {
-                true
-            } else if let Ok(i_cls) =
-                PyTypeRef::try_from_object(vm, self.get_attr(identifier!(vm, __class__), vm)?)
-            {
-                if i_cls.is(self.class()) {
-                    false
-                } else {
-                    i_cls.fast_issubclass(typ)
-                }
-            } else {
-                false
-            }
-        } else {
-            self.check_cls(cls, vm, || {
-                format!(
-                    "isinstance() arg 2 must be a type or tuple of types, not {}",
-                    cls.class()
-                )
-            })?;
-            let i_cls: PyObjectRef = self.get_attr(identifier!(vm, __class__), vm)?;
-            if vm.is_none(&i_cls) {
-                false
-            } else {
-                i_cls.abstract_issubclass(cls, vm)?
-            }
-        };
-        Ok(r)
-    }
-
     /// Determines if `self` is an instance of `cls`, either directly, indirectly or virtually via
     /// the __instancecheck__ magic method.
     // This is object_recursive_isinstance from CPython's Objects/abstract.c
@@ -563,7 +553,7 @@ impl PyObject {
             return self.real_is_instance(cls, vm);
         }
 
-        // Check for Union type (e.g., int | str)
+        // Check for Union type (e.g., int | str) - CPython checks this before tuple
         if cls.class().is(vm.ctx.types.union_type) {
             if let Ok(args) = cls.get_attr(identifier!(vm, __args__), vm) {
                 if let Ok(tuple) = args.try_to_ref::<PyTuple>(vm) {
