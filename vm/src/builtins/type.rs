@@ -158,6 +158,18 @@ fn downcast_qualname(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<
     }
 }
 
+fn is_subtype_with_mro(a_mro: &[PyTypeRef], a: &Py<PyType>, b: &Py<PyType>) -> bool {
+    if a.is(b) {
+        return true;
+    }
+    for item in a_mro {
+        if item.is(b) {
+            return true;
+        }
+    }
+    false
+}
+
 impl PyType {
     pub fn new_simple_heap(
         name: &str,
@@ -195,6 +207,12 @@ impl PyType {
         let base = bases[0].clone();
 
         Self::new_heap_inner(base, bases, attrs, slots, heaptype_ext, metaclass, ctx)
+    }
+
+    /// Equivalent to CPython's PyType_Check macro
+    /// Checks if obj is an instance of type (or its subclass)
+    pub(crate) fn check(obj: &PyObject) -> Option<&Py<Self>> {
+        obj.downcast_ref::<Self>()
     }
 
     fn resolve_mro(bases: &[PyRef<Self>]) -> Result<Vec<PyTypeRef>, String> {
@@ -439,6 +457,10 @@ impl PyType {
 }
 
 impl Py<PyType> {
+    pub(crate) fn is_subtype(&self, other: &Py<PyType>) -> bool {
+        is_subtype_with_mro(&self.mro.read(), self, other)
+    }
+
     /// Equivalent to CPython's PyType_CheckExact macro
     /// Checks if obj is exactly a type (not a subclass)
     pub fn check_exact<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> Option<&'a Py<PyType>> {
