@@ -1213,8 +1213,10 @@ impl Py<PyType> {
     }
 
     #[pymethod]
-    fn __subclasscheck__(&self, subclass: PyTypeRef) -> bool {
-        subclass.fast_issubclass(self)
+    fn __subclasscheck__(&self, subclass: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        // Use real_is_subclass to avoid going through __subclasscheck__ recursion
+        // This matches CPython's type___subclasscheck___impl which calls _PyObject_RealIsSubclass
+        subclass.real_is_subclass(self.as_object(), vm)
     }
 
     #[pyclassmethod]

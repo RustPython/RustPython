@@ -387,41 +387,79 @@ impl PyObject {
         })
     }
 
+    /// abstract_get_bases() has logically 4 return states:
+    /// 1. getattr(cls, '__bases__') could raise an AttributeError
+    /// 2. getattr(cls, '__bases__') could raise some other exception
+    /// 3. getattr(cls, '__bases__') could return a tuple
+    /// 4. getattr(cls, '__bases__') could return something other than a tuple
+    ///
+    /// Only state #3 returns Some(tuple). AttributeErrors are masked by returning None.
+    /// If an object other than a tuple comes out of __bases__, then again, None is returned.
+    /// Other exceptions are propagated.
+    fn abstract_get_bases(&self, vm: &VirtualMachine) -> PyResult<Option<PyTupleRef>> {
+        match vm.get_attribute_opt(self.to_owned(), identifier!(vm, __bases__))? {
+            Some(bases) => {
+                // Check if it's a tuple
+                match PyTupleRef::try_from_object(vm, bases) {
+                    Ok(tuple) => Ok(Some(tuple)),
+                    Err(_) => Ok(None), // Not a tuple, return None
+                }
+            }
+            None => Ok(None), // AttributeError was masked
+        }
+    }
+
     fn abstract_issubclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         let mut derived = self;
         let mut first_item: PyObjectRef;
+        let tuple;
+
+        // First loop: handle single inheritance without recursion
         loop {
             if derived.is(cls) {
                 return Ok(true);
             }
 
-            let bases = derived.get_attr(identifier!(vm, __bases__), vm)?;
-            let tuple = PyTupleRef::try_from_object(vm, bases)?;
-
-            let n = tuple.len();
-            match n {
-                0 => {
-                    return Ok(false);
-                }
-                1 => {
-                    first_item = tuple.fast_getitem(0).clone();
-                    derived = &first_item;
-                    continue;
-                }
-                _ => {
-                    if let Some(i) = (0..n).next() {
-                        let check = vm.with_recursion("in abstract_issubclass", || {
-                            tuple.fast_getitem(i).abstract_issubclass(cls, vm)
-                        })?;
-                        if check {
-                            return Ok(true);
+            match derived.abstract_get_bases(vm)? {
+                Some(bases) => {
+                    let n = bases.len();
+                    match n {
+                        0 => return Ok(false),
+                        1 => {
+                            // Avoid recursion in the single inheritance case
+                            first_item = bases.fast_getitem(0).clone();
+                            derived = &first_item;
+                            continue;
+                        }
+                        _ => {
+                            // Multiple inheritance - break out to handle recursively
+                            tuple = bases;
+                            break;
                         }
                     }
                 }
+                None => {
+                    // abstract_get_bases returned None (no valid __bases__ or not a tuple)
+                    return Ok(false);
+                }
             }
-
-            return Ok(false);
         }
+
+        // Second loop: handle multiple inheritance with recursion
+        // At this point we know n >= 2
+        let n = tuple.len();
+        assert!(n >= 2);
+
+        for i in 0..n {
+            let result = vm.with_recursion("in __issubclass__", || {
+                tuple.fast_getitem(i).abstract_issubclass(cls, vm)
+            })?;
+            if result {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
     }
 
     fn recursive_issubclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
@@ -445,6 +483,39 @@ impl PyObject {
 
             self.abstract_issubclass(cls, vm)
         }
+    }
+
+    /// Real issubclass check without going through __subclasscheck__
+    /// This is equivalent to CPython's _PyObject_RealIsSubclass/recursive_issubclass
+    pub fn real_is_subclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        // CPython recursive_issubclass: fast path for both being types
+        if let (Ok(self_type), Ok(cls_type)) =
+            (self.try_to_ref::<PyType>(vm), cls.try_to_ref::<PyType>(vm))
+        {
+            // Both are types, use fast issubclass (PyType_IsSubtype equivalent)
+            // This bypasses any metaclass __subclasscheck__ methods
+            return Ok(self_type.fast_issubclass(cls_type));
+        }
+
+        // Check if self is a valid class
+        self.check_cls(self, vm, || {
+            format!("issubclass() arg 1 must be a class, not {}", self.class())
+        })?;
+
+        // Check if cls is a valid class (handles Union as well)
+        // This mirrors CPython's check_class behavior
+        if !cls.class().is(vm.ctx.types.union_type) {
+            self.check_cls(cls, vm, || {
+                format!(
+                    "issubclass() arg 2 must be a class, a tuple of classes, or a union, not {}",
+                    cls.class()
+                )
+            })?;
+        }
+
+        // Use abstract_issubclass for non-type classes
+        // abstract_issubclass handles Union, tuple, and other special cases
+        self.abstract_issubclass(cls, vm)
     }
 
     /// Determines if `self` is a subclass of `cls`, either directly, indirectly or virtually
