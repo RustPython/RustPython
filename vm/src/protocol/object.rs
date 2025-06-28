@@ -470,6 +470,50 @@ impl PyObject {
         self.recursive_issubclass(cls, vm)
     }
 
+    /// Real isinstance check without going through __instancecheck__
+    /// This is equivalent to CPython's _PyObject_RealIsInstance/object_isinstance
+    pub fn real_is_instance(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        if let Ok(typ) = cls.try_to_ref::<PyType>(vm) {
+            // PyType_Check(cls) - cls is a type object
+            let mut retval = self.fast_isinstance(typ);
+
+            if !retval {
+                // Check __class__ attribute, only masking AttributeError
+                if let Some(i_cls) =
+                    vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class__))?
+                {
+                    if let Ok(i_cls_type) = PyTypeRef::try_from_object(vm, i_cls) {
+                        if !i_cls_type.is(self.class()) {
+                            retval = i_cls_type.fast_issubclass(typ);
+                        }
+                    }
+                }
+            }
+            Ok(retval)
+        } else {
+            // Not a type object, check if it's a valid class
+            self.check_cls(cls, vm, || {
+                format!(
+                    "isinstance() arg 2 must be a type, a tuple of types, or a union, not {}",
+                    cls.class()
+                )
+            })?;
+
+            // Get __class__ attribute and check, only masking AttributeError
+            if let Some(i_cls) =
+                vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class__))?
+            {
+                if vm.is_none(&i_cls) {
+                    Ok(false)
+                } else {
+                    i_cls.abstract_issubclass(cls, vm)
+                }
+            } else {
+                Ok(false)
+            }
+        }
+    }
+
     fn abstract_isinstance(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         let r = if let Ok(typ) = cls.try_to_ref::<PyType>(vm) {
             if self.class().fast_issubclass(typ) {
@@ -504,17 +548,38 @@ impl PyObject {
 
     /// Determines if `self` is an instance of `cls`, either directly, indirectly or virtually via
     /// the __instancecheck__ magic method.
+    // This is object_recursive_isinstance from CPython's Objects/abstract.c
     pub fn is_instance(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        // cpython first does an exact check on the type, although documentation doesn't state that
-        // https://github.com/python/cpython/blob/a24107b04c1277e3c1105f98aff5bfa3a98b33a0/Objects/abstract.c#L2408
+        // PyObject_TypeCheck(inst, (PyTypeObject *)cls)
+        // This is an exact check of the type
         if self.class().is(cls) {
             return Ok(true);
         }
 
+        // PyType_CheckExact(cls) optimization
         if cls.class().is(vm.ctx.types.type_type) {
-            return self.abstract_isinstance(cls, vm);
+            // When cls is exactly a type (not a subclass), use real_is_instance
+            // to avoid going through __instancecheck__ (matches CPython behavior)
+            return self.real_is_instance(cls, vm);
         }
 
+        // Check for Union type (e.g., int | str)
+        if cls.class().is(vm.ctx.types.union_type) {
+            if let Ok(args) = cls.get_attr(identifier!(vm, __args__), vm) {
+                if let Ok(tuple) = args.try_to_ref::<PyTuple>(vm) {
+                    for typ in tuple {
+                        if vm
+                            .with_recursion("in __instancecheck__", || self.is_instance(typ, vm))?
+                        {
+                            return Ok(true);
+                        }
+                    }
+                    return Ok(false);
+                }
+            }
+        }
+
+        // Check if cls is a tuple
         if let Ok(tuple) = cls.try_to_ref::<PyTuple>(vm) {
             for typ in tuple {
                 if vm.with_recursion("in __instancecheck__", || self.is_instance(typ, vm))? {
@@ -524,14 +589,16 @@ impl PyObject {
             return Ok(false);
         }
 
-        if let Some(meth) = vm.get_special_method(cls, identifier!(vm, __instancecheck__))? {
-            let ret = vm.with_recursion("in __instancecheck__", || {
-                meth.invoke((self.to_owned(),), vm)
+        // Check for __instancecheck__ method
+        if let Some(checker) = vm.get_special_method(cls, identifier!(vm, __instancecheck__))? {
+            let res = vm.with_recursion("in __instancecheck__", || {
+                checker.invoke((self.to_owned(),), vm)
             })?;
-            return ret.try_to_bool(vm);
+            return res.try_to_bool(vm);
         }
 
-        self.abstract_isinstance(cls, vm)
+        // Fall back to object_isinstance (without going through __instancecheck__ again)
+        self.real_is_instance(cls, vm)
     }
 
     pub fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
