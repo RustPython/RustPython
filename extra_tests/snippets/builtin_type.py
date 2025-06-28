@@ -595,3 +595,15 @@ assert repr(my_repr_func).startswith("<function my_repr_func at 0x")
 
 # https://github.com/RustPython/RustPython/issues/3100
 assert issubclass(types.BuiltinMethodType, types.BuiltinFunctionType)
+
+assert type.__dict__["__dict__"].__objclass__ is type
+assert (
+    type(type(type.__dict__["__dict__"]).__objclass__).__name__ == "member_descriptor"
+)
+
+
+class A(type):
+    pass
+
+
+assert "__dict__" not in A.__dict__
