@@ -259,5 +259,5 @@ mod _browser {
 
 pub fn setup_browser_module(vm: &mut VirtualMachine) {
     vm.add_native_module("_browser".to_owned(), Box::new(make_module));
-    vm.add_frozen(py_freeze!(dir = "Lib"));
+    vm.add_frozen(py_freeze!(lib_path = "Lib"));
 }
