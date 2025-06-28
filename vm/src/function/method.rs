@@ -107,12 +107,15 @@ impl PyMethodDef {
         class: &'static Py<PyType>,
         ctx: &Context,
     ) -> PyObjectRef {
-        bitflags::bitflags_match!(self.flags, {
-            PyMethodFlags::METHOD => self.build_method(ctx, class).into(),
-            PyMethodFlags::CLASS => self.build_classmethod(ctx, class).into(),
-            PyMethodFlags::STATIC => self.build_staticmethod(ctx, class).into(),
-            _ => unreachable!(),
-        })
+        if self.flags.contains(PyMethodFlags::METHOD) {
+            self.build_method(ctx, class).into()
+        } else if self.flags.contains(PyMethodFlags::CLASS) {
+            self.build_classmethod(ctx, class).into()
+        } else if self.flags.contains(PyMethodFlags::STATIC) {
+            self.build_staticmethod(ctx, class).into()
+        } else {
+            unreachable!()
+        }
     }
 
     pub const fn to_function(&'static self) -> PyNativeFunction {

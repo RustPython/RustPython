@@ -1,6 +1,6 @@
 //! Implementation of Printf-Style string formatting
 //! as per the [Python Docs](https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting).
-use bitflags::{bitflags, bitflags_match};
+use bitflags::bitflags;
 use itertools::Itertools;
 use malachite_bigint::{BigInt, Sign};
 use num_traits::Signed;
@@ -137,12 +137,13 @@ bitflags! {
 impl CConversionFlags {
     #[inline]
     pub fn sign_string(&self) -> &'static str {
-        bitflags_match!(*self, {
-            Self::SIGN_CHAR => "+",
-            Self::BLANK_SIGN => " ",
-            _ => "",
+        if self.contains(Self::SIGN_CHAR) {
+            "+"
+        } else if self.contains(Self::BLANK_SIGN) {
+            " "
+        } else {
+            ""
         }
-        )
     }
 }
 
