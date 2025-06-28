@@ -371,20 +371,42 @@ impl PyObject {
         })
     }
 
-    // Equivalent to check_class. Masks Attribute errors (into TypeErrors) and lets everything
-    // else go through.
-    fn check_cls<F>(&self, cls: &PyObject, vm: &VirtualMachine, msg: F) -> PyResult
+    // Equivalent to CPython's check_class. Returns Ok(()) if cls is a valid class,
+    // Err with TypeError if not. Uses abstract_get_bases internally.
+    fn check_class<F>(&self, vm: &VirtualMachine, msg: F) -> PyResult<()>
     where
         F: Fn() -> String,
     {
-        cls.get_attr(identifier!(vm, __bases__), vm).map_err(|e| {
-            // Only mask AttributeErrors.
-            if e.class().is(vm.ctx.exceptions.attribute_error) {
-                vm.new_type_error(msg())
-            } else {
-                e
+        let cls = self;
+        match cls.abstract_get_bases(vm)? {
+            Some(_bases) => Ok(()), // Has __bases__, it's a valid class
+            None => {
+                // No __bases__ or __bases__ is not a tuple
+                Err(vm.new_type_error(msg()))
             }
-        })
+        }
+    }
+
+    /// abstract_get_bases() has logically 4 return states:
+    /// 1. getattr(cls, '__bases__') could raise an AttributeError
+    /// 2. getattr(cls, '__bases__') could raise some other exception
+    /// 3. getattr(cls, '__bases__') could return a tuple
+    /// 4. getattr(cls, '__bases__') could return something other than a tuple
+    ///
+    /// Only state #3 returns Some(tuple). AttributeErrors are masked by returning None.
+    /// If an object other than a tuple comes out of __bases__, then again, None is returned.
+    /// Other exceptions are propagated.
+    fn abstract_get_bases(&self, vm: &VirtualMachine) -> PyResult<Option<PyTupleRef>> {
+        match vm.get_attribute_opt(self.to_owned(), identifier!(vm, __bases__))? {
+            Some(bases) => {
+                // Check if it's a tuple
+                match PyTupleRef::try_from_object(vm, bases) {
+                    Ok(tuple) => Ok(Some(tuple)),
+                    Err(_) => Ok(None), // Not a tuple, return None
+                }
+            }
+            None => Ok(None), // AttributeError was masked
+        }
     }
 
     fn abstract_issubclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
@@ -429,13 +451,13 @@ impl PyObject {
             Ok(obj.fast_issubclass(cls))
         } else {
             // Check if derived is a class
-            self.check_cls(self, vm, || {
+            self.check_class(vm, || {
                 format!("issubclass() arg 1 must be a class, not {}", self.class())
             })?;
 
             // Check if cls is a class, tuple, or union
             if !cls.class().is(vm.ctx.types.union_type) {
-                self.check_cls(cls, vm, || {
+                cls.check_class(vm, || {
                     format!(
                         "issubclass() arg 2 must be a class, a tuple of classes, or a union, not {}",
                         cls.class()
@@ -520,7 +542,7 @@ impl PyObject {
             Ok(retval)
         } else {
             // Not a type object, check if it's a valid class
-            self.check_cls(cls, vm, || {
+            cls.check_class(vm, || {
                 format!(
                     "isinstance() arg 2 must be a type, a tuple of types, or a union, not {}",
                     cls.class()
