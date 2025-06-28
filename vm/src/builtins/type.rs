@@ -31,7 +31,7 @@ use crate::{
 };
 use indexmap::{IndexMap, map::Entry};
 use itertools::Itertools;
-use std::{borrow::Borrow, collections::HashSet, fmt, ops::Deref, pin::Pin, ptr::NonNull};
+use std::{borrow::Borrow, collections::HashSet, ops::Deref, pin::Pin, ptr::NonNull};
 
 #[pyclass(module = false, name = "type", traverse = "manual")]
 pub struct PyType {
@@ -68,6 +68,9 @@ pub struct HeapTypeExt {
 }
 
 pub struct PointerSlot<T>(NonNull<T>);
+
+unsafe impl<T> Sync for PointerSlot<T> {}
+unsafe impl<T> Send for PointerSlot<T> {}
 
 impl<T> PointerSlot<T> {
     pub unsafe fn borrow_static(&self) -> &'static T {
@@ -126,14 +129,14 @@ unsafe impl Traverse for PyAttributes {
     }
 }
 
-impl fmt::Display for PyType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.name(), f)
+impl std::fmt::Display for PyType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.name(), f)
     }
 }
 
-impl fmt::Debug for PyType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::fmt::Debug for PyType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[PyType {}]", &self.name())
     }
 }
@@ -908,7 +911,7 @@ impl Constructor for PyType {
         let __dict__ = identifier!(vm, __dict__);
         attributes.entry(__dict__).or_insert_with(|| {
             vm.ctx
-                .new_getset(
+                .new_static_getset(
                     "__dict__",
                     vm.ctx.types.type_type,
                     subtype_get_dict,
