@@ -194,7 +194,7 @@ fn dedup_and_flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef
 pub fn make_union(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyObjectRef {
     let args = dedup_and_flatten_args(args, vm);
     match args.len() {
-        1 => args.fast_getitem(0),
+        1 => args[0].to_owned(),
         _ => PyUnion::new(args, vm).to_pyobject(vm),
     }
 }
@@ -212,7 +212,7 @@ impl PyUnion {
         if new_args.is_empty() {
             res = make_union(&new_args, vm);
         } else {
-            res = new_args.fast_getitem(0);
+            res = new_args[0].to_owned();
             for arg in new_args.iter().skip(1) {
                 res = vm._or(&res, arg)?;
             }

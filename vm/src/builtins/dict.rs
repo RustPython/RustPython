@@ -1235,13 +1235,13 @@ impl AsSequence for PyDictItems {
                 }
 
                 let zelf = PyDictItems::sequence_downcast(seq);
-                let key = needle.fast_getitem(0);
-                if !zelf.dict.__contains__(key.clone(), vm)? {
+                let key = &needle[0];
+                if !zelf.dict.__contains__(key.to_owned(), vm)? {
                     return Ok(false);
                 }
-                let value = needle.fast_getitem(1);
-                let found = zelf.dict().__getitem__(key, vm)?;
-                vm.identical_or_equal(&found, &value)
+                let value = &needle[1];
+                let found = zelf.dict().__getitem__(key.to_owned(), vm)?;
+                vm.identical_or_equal(&found, value)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });

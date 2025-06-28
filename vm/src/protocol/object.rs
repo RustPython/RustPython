@@ -404,14 +404,14 @@ impl PyObject {
                     return Ok(false);
                 }
                 1 => {
-                    first_item = tuple.fast_getitem(0).clone();
+                    first_item = tuple[0].clone();
                     derived = &first_item;
                     continue;
                 }
                 _ => {
-                    if let Some(i) = (0..n).next() {
+                    for i in 0..n {
                         let check = vm.with_recursion("in abstract_issubclass", || {
-                            tuple.fast_getitem(i).abstract_issubclass(cls, vm)
+                            tuple[i].abstract_issubclass(cls, vm)
                         })?;
                         if check {
                             return Ok(true);
