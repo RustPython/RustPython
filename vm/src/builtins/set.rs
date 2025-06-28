@@ -426,8 +426,9 @@ impl PySetInner {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         for iterable in others {
-            for item in iterable.iter(vm)? {
-                self.content.delete_if_exists(vm, &*item?)?;
+            let items = iterable.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
+            for item in items {
+                self.content.delete_if_exists(vm, &*item)?;
             }
         }
         Ok(())
