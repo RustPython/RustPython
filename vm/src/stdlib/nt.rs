@@ -15,13 +15,14 @@ pub(crate) mod module {
     use crate::{
         PyResult, TryFromObject, VirtualMachine,
         builtins::{PyDictRef, PyListRef, PyStrRef, PyTupleRef},
-        common::{crt_fd::Fd, os::last_os_error, suppress_iph},
+        common::{crt_fd, os::last_os_error, suppress_iph},
         convert::ToPyException,
         function::{Either, OptionalArg},
         ospath::OsPath,
         stdlib::os::{_os, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, errno_err},
     };
     use libc::intptr_t;
+    use std::os::windows::io::AsRawHandle;
     use std::{
         env, fs, io,
         mem::MaybeUninit,
@@ -61,17 +62,17 @@ pub(crate) mod module {
     }
 
     #[derive(FromArgs)]
-    pub(super) struct SymlinkArgs {
+    pub(super) struct SymlinkArgs<'fd> {
         src: OsPath,
         dst: OsPath,
         #[pyarg(flatten)]
         target_is_directory: TargetIsDirectory,
         #[pyarg(flatten)]
-        _dir_fd: DirFd<{ _os::SYMLINK_DIR_FD as usize }>,
+        _dir_fd: DirFd<'fd, { _os::SYMLINK_DIR_FD as usize }>,
     }
 
     #[pyfunction]
-    pub(super) fn symlink(args: SymlinkArgs, vm: &VirtualMachine) -> PyResult<()> {
+    pub(super) fn symlink(args: SymlinkArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
         use std::os::windows::fs as win_fs;
         let dir = args.target_is_directory.target_is_directory
             || args
@@ -89,9 +90,13 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    fn set_inheritable(fd: i32, inheritable: bool, vm: &VirtualMachine) -> PyResult<()> {
-        let handle = Fd(fd).to_raw_handle().map_err(|e| e.to_pyexception(vm))?;
-        set_handle_inheritable(handle as _, inheritable, vm)
+    fn set_inheritable(
+        fd: crt_fd::Borrowed<'_>,
+        inheritable: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let handle = crt_fd::as_handle(fd).map_err(|e| e.to_pyexception(vm))?;
+        set_handle_inheritable(handle.as_raw_handle() as _, inheritable, vm)
     }
 
     #[pyattr]
@@ -107,7 +112,7 @@ pub(crate) mod module {
     #[pyfunction]
     fn chmod(
         path: OsPath,
-        dir_fd: DirFd<0>,
+        dir_fd: DirFd<'_, 0>,
         mode: u32,
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
@@ -456,7 +461,7 @@ pub(crate) mod module {
     fn mkdir(
         path: OsPath,
         mode: OptionalArg<i32>,
-        dir_fd: DirFd<{ _os::MKDIR_DIR_FD as usize }>,
+        dir_fd: DirFd<'_, { _os::MKDIR_DIR_FD as usize }>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let mode = mode.unwrap_or(0o777);
