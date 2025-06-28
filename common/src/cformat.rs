@@ -1,6 +1,6 @@
 //! Implementation of Printf-Style string formatting
 //! as per the [Python Docs](https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting).
-use bitflags::bitflags;
+use bitflags::{bitflags, bitflags_match};
 use itertools::Itertools;
 use malachite_bigint::{BigInt, Sign};
 use num_traits::Signed;
@@ -137,13 +137,12 @@ bitflags! {
 impl CConversionFlags {
     #[inline]
     pub fn sign_string(&self) -> &'static str {
-        if self.contains(CConversionFlags::SIGN_CHAR) {
-            "+"
-        } else if self.contains(CConversionFlags::BLANK_SIGN) {
-            " "
-        } else {
-            ""
+        bitflags_match!(*self, {
+            Self::SIGN_CHAR => "+",
+            Self::BLANK_SIGN => " ",
+            _ => "",
         }
+        )
     }
 }
 
@@ -172,12 +171,15 @@ pub trait FormatChar: Copy + Into<CodePoint> + From<u8> {
 
 impl FormatBuf for String {
     type Char = char;
+
     fn chars(&self) -> impl Iterator<Item = Self::Char> {
         (**self).chars()
     }
+
     fn len(&self) -> usize {
         self.len()
     }
+
     fn concat(mut self, other: Self) -> Self {
         self.extend([other]);
         self
@@ -188,6 +190,7 @@ impl FormatChar for char {
     fn to_char_lossy(self) -> char {
         self
     }
+
     fn eq_char(self, c: char) -> bool {
         self == c
     }
@@ -195,12 +198,15 @@ impl FormatChar for char {
 
 impl FormatBuf for Wtf8Buf {
     type Char = CodePoint;
+
     fn chars(&self) -> impl Iterator<Item = Self::Char> {
         self.code_points()
     }
+
     fn len(&self) -> usize {
         (**self).len()
     }
+
     fn concat(mut self, other: Self) -> Self {
         self.extend([other]);
         self
@@ -211,6 +217,7 @@ impl FormatChar for CodePoint {
     fn to_char_lossy(self) -> char {
         self.to_char_lossy()
     }
+
     fn eq_char(self, c: char) -> bool {
         self == c
     }
@@ -218,12 +225,15 @@ impl FormatChar for CodePoint {
 
 impl FormatBuf for Vec<u8> {
     type Char = u8;
+
     fn chars(&self) -> impl Iterator<Item = Self::Char> {
         self.iter().copied()
     }
+
     fn len(&self) -> usize {
         self.len()
     }
+
     fn concat(mut self, other: Self) -> Self {
         self.extend(other);
         self
@@ -234,6 +244,7 @@ impl FormatChar for u8 {
     fn to_char_lossy(self) -> char {
         self.into()
     }
+
     fn eq_char(self, c: char) -> bool {
         char::from(self) == c
     }
@@ -394,6 +405,7 @@ impl CFormatSpec {
             Some(&(CFormatQuantity::Amount(1).into())),
         )
     }
+
     pub fn format_bytes(&self, bytes: &[u8]) -> Vec<u8> {
         let bytes = if let Some(CFormatPrecision::Quantity(CFormatQuantity::Amount(precision))) =
             self.precision
@@ -707,12 +719,12 @@ pub enum CFormatPart<T> {
 
 impl<T> CFormatPart<T> {
     #[inline]
-    pub fn is_specifier(&self) -> bool {
+    pub const fn is_specifier(&self) -> bool {
         matches!(self, CFormatPart::Spec { .. })
     }
 
     #[inline]
-    pub fn has_key(&self) -> bool {
+    pub const fn has_key(&self) -> bool {
         match self {
             CFormatPart::Spec(s) => s.mapping_key.is_some(),
             _ => false,
@@ -804,6 +816,7 @@ impl<S> CFormatStrOrBytes<S> {
 impl<S> IntoIterator for CFormatStrOrBytes<S> {
     type Item = (usize, CFormatPart<S>);
     type IntoIter = std::vec::IntoIter<Self::Item>;
+
     fn into_iter(self) -> Self::IntoIter {
         self.parts.into_iter()
     }

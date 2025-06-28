@@ -277,6 +277,7 @@ impl ItemMeta for SimpleItemMeta {
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
     }
+
     fn inner(&self) -> &ItemMetaInner {
         &self.0
     }
@@ -290,6 +291,7 @@ impl ItemMeta for ModuleItemMeta {
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
     }
+
     fn inner(&self) -> &ItemMetaInner {
         &self.0
     }
@@ -299,6 +301,7 @@ impl ModuleItemMeta {
     pub fn sub(&self) -> Result<bool> {
         self.inner()._bool("sub")
     }
+
     pub fn with(&self) -> Result<Vec<&syn::Path>> {
         let mut withs = Vec::new();
         let Some(nested) = self.inner()._optional_list("with")? else {
@@ -322,6 +325,7 @@ impl ItemMeta for AttrItemMeta {
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
     }
+
     fn inner(&self) -> &ItemMetaInner {
         &self.0
     }
@@ -344,6 +348,7 @@ impl ItemMeta for ClassItemMeta {
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
     }
+
     fn inner(&self) -> &ItemMetaInner {
         &self.0
     }
@@ -446,6 +451,7 @@ impl ItemMeta for ExceptionItemMeta {
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(ClassItemMeta(inner))
     }
+
     fn inner(&self) -> &ItemMetaInner {
         &self.0.0
     }
@@ -515,8 +521,8 @@ impl AttributeExt for Attribute {
             let name = self.get_ident().unwrap().to_string();
             e.combine(err_span!(
                 self,
-                "#[{name} = \"...\"] cannot be a name/value, you probably meant \
-                 #[{name}(name = \"...\")]",
+                r##"#[{name} = "..."] cannot be a name/value, you probably meant \
+                 #[{name}(name = "...")]"##,
             ));
             e
         })?;
@@ -620,6 +626,7 @@ pub(crate) fn pyexception_ident_and_attrs(item: &syn::Item) -> Result<(&Ident, &
 
 pub(crate) trait ErrorVec: Sized {
     fn into_error(self) -> Option<syn::Error>;
+
     fn into_result(self) -> Result<()> {
         if let Some(error) = self.into_error() {
             Err(error)
@@ -627,6 +634,7 @@ pub(crate) trait ErrorVec: Sized {
             Ok(())
         }
     }
+
     fn ok_or_push<T>(&mut self, r: Result<T>) -> Option<T>;
 }
 
@@ -642,6 +650,7 @@ impl ErrorVec for Vec<syn::Error> {
             None
         }
     }
+
     fn ok_or_push<T>(&mut self, r: Result<T>) -> Option<T> {
         match r {
             Ok(v) => Some(v),
@@ -732,7 +741,7 @@ fn func_sig(sig: &Signature) -> String {
                 return Some("$self".to_owned());
             }
             if ident == "vm" {
-                unreachable!("type &VirtualMachine(`{}`) must be filtered already", ty);
+                unreachable!("type &VirtualMachine(`{ty}`) must be filtered already");
             }
             Some(ident)
         })

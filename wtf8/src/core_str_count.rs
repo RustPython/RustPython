@@ -157,6 +157,6 @@ unsafe fn slice_as_chunks_unchecked<T, const N: usize>(slice: &[T]) -> &[[T; N]]
     unsafe { std::slice::from_raw_parts(slice.as_ptr().cast(), new_len) }
 }
 
-fn unlikely(x: bool) -> bool {
+const fn unlikely(x: bool) -> bool {
     x
 }
