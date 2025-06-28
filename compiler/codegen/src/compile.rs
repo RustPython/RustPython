@@ -1042,14 +1042,32 @@ impl Compiler<'_> {
                     )));
                 };
                 let name_string = name.id.to_string();
-                if type_params.is_some() {
-                    self.push_symbol_table();
-                }
-                self.compile_expression(value)?;
+
+                // For PEP 695 syntax, we need to compile type_params first
+                // so that they're available when compiling the value expression
                 if let Some(type_params) = type_params {
+                    self.push_symbol_table();
+
+                    // Compile type params first to define T1, T2, etc.
                     self.compile_type_params(type_params)?;
+                    // Stack now has type_params tuple at top
+
+                    // Compile value expression (can now see T1, T2)
+                    self.compile_expression(value)?;
+                    // Stack: [type_params_tuple, value]
+
+                    // We need [value, type_params_tuple] for TypeAlias instruction
+                    emit!(self, Instruction::Rotate2);
+
                     self.pop_symbol_table();
+                } else {
+                    // No type params - push value first, then None (not empty tuple)
+                    self.compile_expression(value)?;
+                    // Push None for type_params (matching CPython)
+                    self.emit_load_const(ConstantData::None);
                 }
+
+                // Push name last
                 self.emit_load_const(ConstantData::Str {
                     value: name_string.clone().into(),
                 });
