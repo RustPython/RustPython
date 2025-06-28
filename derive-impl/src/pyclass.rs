@@ -653,72 +653,29 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
     })
 }
 
-/// #[pymethod] and #[pyclassmethod]
-struct MethodItem {
-    inner: ContentItemInner<AttrName>,
+macro_rules! define_content_item {
+    (struct $name:ident, $doc:expr) => {
+        #[doc = $doc]
+        struct $name {
+            inner: ContentItemInner<AttrName>,
+        }
+
+        impl ContentItem for $name {
+            type AttrName = AttrName;
+
+            fn inner(&self) -> &ContentItemInner<AttrName> {
+                &self.inner
+            }
+        }
+    };
 }
 
-/// #[pygetset]
-struct GetSetItem {
-    inner: ContentItemInner<AttrName>,
-}
-
-/// #[pyslot]
-struct SlotItem {
-    inner: ContentItemInner<AttrName>,
-}
-
-/// #[pyattr]
-struct AttributeItem {
-    inner: ContentItemInner<AttrName>,
-}
-
-/// #[extend_class]
-struct ExtendClassItem {
-    inner: ContentItemInner<AttrName>,
-}
-
-/// #[pymember]
-struct MemberItem {
-    inner: ContentItemInner<AttrName>,
-}
-
-impl ContentItem for MethodItem {
-    type AttrName = AttrName;
-    fn inner(&self) -> &ContentItemInner<AttrName> {
-        &self.inner
-    }
-}
-impl ContentItem for GetSetItem {
-    type AttrName = AttrName;
-    fn inner(&self) -> &ContentItemInner<AttrName> {
-        &self.inner
-    }
-}
-impl ContentItem for SlotItem {
-    type AttrName = AttrName;
-    fn inner(&self) -> &ContentItemInner<AttrName> {
-        &self.inner
-    }
-}
-impl ContentItem for AttributeItem {
-    type AttrName = AttrName;
-    fn inner(&self) -> &ContentItemInner<AttrName> {
-        &self.inner
-    }
-}
-impl ContentItem for ExtendClassItem {
-    type AttrName = AttrName;
-    fn inner(&self) -> &ContentItemInner<AttrName> {
-        &self.inner
-    }
-}
-impl ContentItem for MemberItem {
-    type AttrName = AttrName;
-    fn inner(&self) -> &ContentItemInner<AttrName> {
-        &self.inner
-    }
-}
+define_content_item!(struct MethodItem, "#[pymethod] and #[pyclassmethod]");
+define_content_item!(struct GetSetItem, "#[pygetset]");
+define_content_item!(struct SlotItem, "#[pyslot]");
+define_content_item!(struct AttributeItem, "#[pyattr]");
+define_content_item!(struct ExtendClassItem, "#[extend_class]");
+define_content_item!(struct MemberItem, "#[pymember]");
 
 struct ImplItemArgs<'a, Item: ItemLike> {
     item: &'a Item,
