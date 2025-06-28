@@ -275,8 +275,8 @@ impl Py<Frame> {
     pub fn is_internal_frame(&self) -> bool {
         let code = self.f_code();
         let filename = code.co_filename();
-
-        filename.as_str().contains("importlib") && filename.as_str().contains("_bootstrap")
+        let filename_s = filename.as_str();
+        filename_s.contains("importlib") && filename_s.contains("_bootstrap")
     }
 
     pub fn next_external_frame(&self, vm: &VirtualMachine) -> Option<FrameRef> {
@@ -2266,7 +2266,7 @@ impl ExecutingFrame<'_> {
     #[track_caller]
     fn fatal(&self, msg: &'static str) -> ! {
         dbg!(self);
-        panic!("{}", msg)
+        panic!("{msg}")
     }
 }
 
