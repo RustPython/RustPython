@@ -371,20 +371,19 @@ impl PyObject {
         })
     }
 
-    // Equivalent to check_class. Masks Attribute errors (into TypeErrors) and lets everything
-    // else go through.
-    fn check_cls<F>(&self, cls: &PyObject, vm: &VirtualMachine, msg: F) -> PyResult
+    // Equivalent to CPython's check_class. Returns Ok(()) if cls is a valid class,
+    // Err with TypeError if not. Uses abstract_get_bases internally.
+    fn check_class<F>(&self, cls: &PyObject, vm: &VirtualMachine, msg: F) -> PyResult<()>
     where
         F: Fn() -> String,
     {
-        cls.get_attr(identifier!(vm, __bases__), vm).map_err(|e| {
-            // Only mask AttributeErrors.
-            if e.class().is(vm.ctx.exceptions.attribute_error) {
-                vm.new_type_error(msg())
-            } else {
-                e
+        match cls.abstract_get_bases(vm)? {
+            Some(_bases) => Ok(()), // Has __bases__, it's a valid class
+            None => {
+                // No __bases__ or __bases__ is not a tuple
+                Err(vm.new_type_error(msg()))
             }
-        })
+        }
     }
 
     /// abstract_get_bases() has logically 4 return states:
@@ -463,21 +462,20 @@ impl PyObject {
     }
 
     fn recursive_issubclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        // Fast path for both being types (matches CPython's PyType_Check)
         if let (Ok(obj), Ok(cls)) = (self.try_to_ref::<PyType>(vm), cls.try_to_ref::<PyType>(vm)) {
+            // PyType_IsSubtype equivalent
             Ok(obj.fast_issubclass(cls))
         } else {
             // Check if derived is a class
-            self.check_cls(self, vm, || {
-                format!("issubclass() arg 1 must be a class, not {}", self.class())
+            self.check_class(self, vm, || {
+                "issubclass() arg 1 must be a class".to_string()
             })?;
 
-            // Check if cls is a class, tuple, or union
+            // Check if cls is a class, tuple, or union (matches CPython's order and message)
             if !cls.class().is(vm.ctx.types.union_type) {
-                self.check_cls(cls, vm, || {
-                    format!(
-                        "issubclass() arg 2 must be a class, a tuple of classes, or a union, not {}",
-                        cls.class()
-                    )
+                self.check_class(cls, vm, || {
+                    "issubclass() arg 2 must be a class, a tuple of classes, or a union".to_string()
                 })?;
             }
 
@@ -486,36 +484,9 @@ impl PyObject {
     }
 
     /// Real issubclass check without going through __subclasscheck__
-    /// This is equivalent to CPython's _PyObject_RealIsSubclass/recursive_issubclass
+    /// This is equivalent to CPython's _PyObject_RealIsSubclass which just calls recursive_issubclass
     pub fn real_is_subclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        // CPython recursive_issubclass: fast path for both being types
-        if let (Ok(self_type), Ok(cls_type)) =
-            (self.try_to_ref::<PyType>(vm), cls.try_to_ref::<PyType>(vm))
-        {
-            // Both are types, use fast issubclass (PyType_IsSubtype equivalent)
-            // This bypasses any metaclass __subclasscheck__ methods
-            return Ok(self_type.fast_issubclass(cls_type));
-        }
-
-        // Check if self is a valid class
-        self.check_cls(self, vm, || {
-            format!("issubclass() arg 1 must be a class, not {}", self.class())
-        })?;
-
-        // Check if cls is a valid class (handles Union as well)
-        // This mirrors CPython's check_class behavior
-        if !cls.class().is(vm.ctx.types.union_type) {
-            self.check_cls(cls, vm, || {
-                format!(
-                    "issubclass() arg 2 must be a class, a tuple of classes, or a union, not {}",
-                    cls.class()
-                )
-            })?;
-        }
-
-        // Use abstract_issubclass for non-type classes
-        // abstract_issubclass handles Union, tuple, and other special cases
-        self.abstract_issubclass(cls, vm)
+        self.recursive_issubclass(cls, vm)
     }
 
     /// Determines if `self` is a subclass of `cls`, either directly, indirectly or virtually
