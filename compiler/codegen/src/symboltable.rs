@@ -118,12 +118,12 @@ pub enum SymbolScope {
 bitflags! {
     #[derive(Copy, Clone, Debug, PartialEq)]
     pub struct SymbolFlags: u16 {
-        const REFERENCED = 0x001;
-        const ASSIGNED = 0x002;
-        const PARAMETER = 0x004;
-        const ANNOTATED = 0x008;
-        const IMPORTED = 0x010;
-        const NONLOCAL = 0x020;
+        const REFERENCED = 0x001;  // USE in CPython
+        const ASSIGNED = 0x002;    // DEF_LOCAL in CPython
+        const PARAMETER = 0x004;   // DEF_PARAM in CPython
+        const ANNOTATED = 0x008;   // DEF_ANNOT in CPython
+        const IMPORTED = 0x010;    // DEF_IMPORT in CPython
+        const NONLOCAL = 0x020;    // DEF_NONLOCAL in CPython
         // indicates if the symbol gets a value assigned by a named expression in a comprehension
         // this is required to correct the scope in the analysis.
         const ASSIGNED_IN_COMPREHENSION = 0x040;
@@ -138,8 +138,13 @@ bitflags! {
         ///         def method(self):
         ///             return x // is_free_class
         /// ```
-        const FREE_CLASS = 0x100;
-        const BOUND = Self::ASSIGNED.bits() | Self::PARAMETER.bits() | Self::IMPORTED.bits() | Self::ITER.bits();
+        const FREE_CLASS = 0x100;   // DEF_FREE_CLASS in CPython
+        const GLOBAL = 0x200;       // DEF_GLOBAL in CPython
+        const COMP_ITER = 0x400;    // DEF_COMP_ITER in CPython
+        const COMP_CELL = 0x800;    // DEF_COMP_CELL in CPython
+        const TYPE_PARAM = 0x1000;  // DEF_TYPE_PARAM in CPython
+
+        const BOUND = Self::ASSIGNED.bits() | Self::PARAMETER.bits() | Self::IMPORTED.bits() | Self::ITER.bits() | Self::TYPE_PARAM.bits();
     }
 }
 
@@ -557,6 +562,7 @@ enum SymbolUsage {
     AnnotationParameter,
     AssignedNamedExprInComprehension,
     Iter,
+    TypeParam,
 }
 
 struct SymbolTableBuilder<'src> {
@@ -572,6 +578,7 @@ struct SymbolTableBuilder<'src> {
 /// In cpython this is stored in the AST, but I think this
 /// is not logical, since it is not context free.
 #[derive(Copy, Clone, PartialEq)]
+#[allow(dead_code)] // IterDefinitionExp may be used in future
 enum ExpressionContext {
     Load,
     Store,
@@ -641,6 +648,22 @@ impl SymbolTableBuilder<'_> {
         } else {
             SymbolUsage::Parameter
         };
+
+        // Check for duplicate parameter names
+        let table = self.tables.last().unwrap();
+        if table.symbols.contains_key(parameter.name.as_str()) {
+            return Err(SymbolTableError {
+                error: format!(
+                    "duplicate parameter '{}' in function definition",
+                    parameter.name
+                ),
+                location: Some(
+                    self.source_code
+                        .source_location(parameter.name.range.start()),
+                ),
+            });
+        }
+
         self.register_ident(&parameter.name, usage)
     }
 
@@ -796,6 +819,17 @@ impl SymbolTableBuilder<'_> {
                     if let Some(alias) = &name.asname {
                         // `import my_module as my_alias`
                         self.register_ident(alias, SymbolUsage::Imported)?;
+                    } else if name.name.id == "*" {
+                        // Star imports are only allowed at module level
+                        if self.tables.last().unwrap().typ != SymbolTableType::Module {
+                            return Err(SymbolTableError {
+                                error: "'import *' only allowed at module level".to_string(),
+                                location: Some(
+                                    self.source_code.source_location(name.name.range.start()),
+                                ),
+                            });
+                        }
+                        // Don't register star imports as symbols
                     } else {
                         // `import module`
                         self.register_name(
@@ -1248,8 +1282,9 @@ impl SymbolTableBuilder<'_> {
             self.scan_expression(&generator.target, ExpressionContext::Iter)?;
             if is_first_generator {
                 is_first_generator = false;
+                // Don't scan the first iter here, it's handled outside the comprehension scope
             } else {
-                self.scan_expression(&generator.iter, ExpressionContext::IterDefinitionExp)?;
+                self.scan_expression(&generator.iter, ExpressionContext::Load)?;
             }
 
             for if_expr in &generator.ifs {
@@ -1261,7 +1296,7 @@ impl SymbolTableBuilder<'_> {
 
         // The first iterable is passed as an argument into the created function:
         assert!(!generators.is_empty());
-        self.scan_expression(&generators[0].iter, ExpressionContext::IterDefinitionExp)?;
+        self.scan_expression(&generators[0].iter, ExpressionContext::Load)?;
 
         Ok(())
     }
@@ -1275,7 +1310,7 @@ impl SymbolTableBuilder<'_> {
                     range: type_var_range,
                     ..
                 }) => {
-                    self.register_name(name.as_str(), SymbolUsage::Assigned, *type_var_range)?;
+                    self.register_name(name.as_str(), SymbolUsage::TypeParam, *type_var_range)?;
                     if let Some(binding) = bound {
                         self.scan_expression(binding, ExpressionContext::Load)?;
                     }
@@ -1285,14 +1320,14 @@ impl SymbolTableBuilder<'_> {
                     range: param_spec_range,
                     ..
                 }) => {
-                    self.register_name(name, SymbolUsage::Assigned, *param_spec_range)?;
+                    self.register_name(name, SymbolUsage::TypeParam, *param_spec_range)?;
                 }
                 TypeParam::TypeVarTuple(TypeParamTypeVarTuple {
                     name,
                     range: type_var_tuple_range,
                     ..
                 }) => {
-                    self.register_name(name, SymbolUsage::Assigned, *type_var_tuple_range)?;
+                    self.register_name(name, SymbolUsage::TypeParam, *type_var_tuple_range)?;
                 }
             }
         }
@@ -1496,7 +1531,7 @@ impl SymbolTableBuilder<'_> {
             match role {
                 SymbolUsage::Nonlocal if scope_depth < 2 => {
                     return Err(SymbolTableError {
-                        error: format!("cannot define nonlocal '{name}' at top level."),
+                        error: "nonlocal declaration not allowed at module level".to_string(),
                         location,
                     });
                 }
@@ -1536,6 +1571,7 @@ impl SymbolTableBuilder<'_> {
             }
             SymbolUsage::Global => {
                 symbol.scope = SymbolScope::GlobalExplicit;
+                flags.insert(SymbolFlags::GLOBAL);
             }
             SymbolUsage::Used => {
                 flags.insert(SymbolFlags::REFERENCED);
@@ -1543,17 +1579,21 @@ impl SymbolTableBuilder<'_> {
             SymbolUsage::Iter => {
                 flags.insert(SymbolFlags::ITER);
             }
+            SymbolUsage::TypeParam => {
+                flags.insert(SymbolFlags::ASSIGNED | SymbolFlags::TYPE_PARAM);
+            }
         }
 
         // and even more checking
         // it is not allowed to assign to iterator variables (by named expressions)
-        if flags.contains(SymbolFlags::ITER | SymbolFlags::ASSIGNED)
-        /*&& symbol.is_assign_named_expr_in_comprehension*/
+        if flags.contains(SymbolFlags::ITER)
+            && flags.contains(SymbolFlags::ASSIGNED_IN_COMPREHENSION)
         {
             return Err(SymbolTableError {
-                error:
-                    "assignment expression cannot be used in a comprehension iterable expression"
-                        .to_string(),
+                error: format!(
+                    "assignment expression cannot rebind comprehension iteration variable '{}'",
+                    symbol.name
+                ),
                 location,
             });
         }
