@@ -528,10 +528,10 @@ impl PyObject {
             return Ok(false);
         }
 
-        // Check for __subclasscheck__ method
-        if let Some(checker) = vm.get_special_method(cls, identifier!(vm, __subclasscheck__))? {
+        // Check for __subclasscheck__ method using lookup_special (matches CPython)
+        if let Some(checker) = cls.lookup_special(identifier!(vm, __subclasscheck__), vm) {
             let res = vm.with_recursion("in __subclasscheck__", || {
-                checker.invoke((derived.to_owned(),), vm)
+                checker.call((derived.to_owned(),), vm)
             })?;
             return res.try_to_bool(vm);
         }
@@ -624,10 +624,10 @@ impl PyObject {
             return Ok(false);
         }
 
-        // Check for __instancecheck__ method
-        if let Some(checker) = vm.get_special_method(cls, identifier!(vm, __instancecheck__))? {
+        // Check for __instancecheck__ method using lookup_special (matches CPython)
+        if let Some(checker) = cls.lookup_special(identifier!(vm, __instancecheck__), vm) {
             let res = vm.with_recursion("in __instancecheck__", || {
-                checker.invoke((self.to_owned(),), vm)
+                checker.call((self.to_owned(),), vm)
             })?;
             return res.try_to_bool(vm);
         }
@@ -753,5 +753,25 @@ impl PyObject {
         }
 
         Err(vm.new_type_error(format!("'{}' does not support item deletion", self.class())))
+    }
+
+    /// Equivalent to CPython's _PyObject_LookupSpecial
+    /// Looks up a special method in the type's MRO without checking instance dict.
+    /// Returns None if not found (masking AttributeError like CPython).
+    pub fn lookup_special(&self, attr: &Py<PyStr>, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        let obj_cls = self.class();
+
+        // Use PyType::lookup_ref (equivalent to CPython's _PyType_LookupRef)
+        let res = obj_cls.lookup_ref(attr, vm)?;
+
+        // If it's a descriptor, call its __get__ method
+        let descr_get = res.class().mro_find_map(|cls| cls.slots.descr_get.load());
+        if let Some(descr_get) = descr_get {
+            let obj_cls = obj_cls.to_owned().into();
+            // CPython ignores exceptions in _PyObject_LookupSpecial and returns NULL
+            descr_get(res, Some(self.to_owned()), Some(obj_cls), vm).ok()
+        } else {
+            Some(res)
+        }
     }
 }
