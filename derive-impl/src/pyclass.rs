@@ -653,72 +653,55 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
     })
 }
 
-/// #[pymethod] and #[pyclassmethod]
-struct MethodItem {
-    inner: ContentItemInner<AttrName>,
+macro_rules! define_content_item {
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident
+    ) => {
+        $(#[$meta])*
+        $vis struct $name {
+            inner: ContentItemInner<AttrName>,
+        }
+
+        impl ContentItem for $name {
+            type AttrName = AttrName;
+
+            fn inner(&self) -> &ContentItemInner<AttrName> {
+                &self.inner
+            }
+        }
+    };
 }
 
-/// #[pygetset]
-struct GetSetItem {
-    inner: ContentItemInner<AttrName>,
-}
+define_content_item!(
+    /// #[pymethod] and #[pyclassmethod]
+    struct MethodItem
+);
 
-/// #[pyslot]
-struct SlotItem {
-    inner: ContentItemInner<AttrName>,
-}
+define_content_item!(
+    /// #[pygetset]
+    struct GetSetItem
+);
 
-/// #[pyattr]
-struct AttributeItem {
-    inner: ContentItemInner<AttrName>,
-}
+define_content_item!(
+    /// #[pyslot]
+    struct SlotItem
+);
 
-/// #[extend_class]
-struct ExtendClassItem {
-    inner: ContentItemInner<AttrName>,
-}
+define_content_item!(
+    /// #[pyattr]
+    struct AttributeItem
+);
 
-/// #[pymember]
-struct MemberItem {
-    inner: ContentItemInner<AttrName>,
-}
+define_content_item!(
+    /// #[extend_class]
+    struct ExtendClassItem
+);
 
-impl ContentItem for MethodItem {
-    type AttrName = AttrName;
-    fn inner(&self) -> &ContentItemInner<AttrName> {
-        &self.inner
-    }
-}
-impl ContentItem for GetSetItem {
-    type AttrName = AttrName;
-    fn inner(&self) -> &ContentItemInner<AttrName> {
-        &self.inner
-    }
-}
-impl ContentItem for SlotItem {
-    type AttrName = AttrName;
-    fn inner(&self) -> &ContentItemInner<AttrName> {
-        &self.inner
-    }
-}
-impl ContentItem for AttributeItem {
-    type AttrName = AttrName;
-    fn inner(&self) -> &ContentItemInner<AttrName> {
-        &self.inner
-    }
-}
-impl ContentItem for ExtendClassItem {
-    type AttrName = AttrName;
-    fn inner(&self) -> &ContentItemInner<AttrName> {
-        &self.inner
-    }
-}
-impl ContentItem for MemberItem {
-    type AttrName = AttrName;
-    fn inner(&self) -> &ContentItemInner<AttrName> {
-        &self.inner
-    }
-}
+define_content_item!(
+    /// #[pymember]
+    struct MemberItem
+);
 
 struct ImplItemArgs<'a, Item: ItemLike> {
     item: &'a Item,
