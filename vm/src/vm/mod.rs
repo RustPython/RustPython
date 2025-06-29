@@ -580,7 +580,7 @@ impl VirtualMachine {
     #[inline]
     pub fn import<'a>(&self, module_name: impl AsPyStr<'a>, level: usize) -> PyResult {
         let module_name = module_name.as_pystr(&self.ctx);
-        let from_list = PyTupleTyped::empty(self);
+        let from_list = PyTupleTyped::empty(&self.ctx);
         self.import_inner(module_name, from_list, level)
     }
 

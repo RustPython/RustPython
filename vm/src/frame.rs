@@ -1384,7 +1384,7 @@ impl ExecutingFrame<'_> {
     fn import(&mut self, vm: &VirtualMachine, module_name: Option<&Py<PyStr>>) -> PyResult<()> {
         let module_name = module_name.unwrap_or(vm.ctx.empty_str);
         let from_list = <Option<PyTupleTyped<PyStrRef>>>::try_from_object(vm, self.pop_value())?
-            .unwrap_or_else(|| PyTupleTyped::empty(vm));
+            .unwrap_or_else(|| PyTupleTyped::empty(&vm.ctx));
         let level = usize::try_from_object(vm, self.pop_value())?;
 
         let module = vm.import_from(module_name, from_list, level)?;

@@ -537,9 +537,9 @@ impl<T: TransmuteFromObject> AsRef<[T]> for PyTupleTyped<T> {
 }
 
 impl<T: TransmuteFromObject> PyTupleTyped<T> {
-    pub fn empty(vm: &VirtualMachine) -> Self {
+    pub fn empty(ctx: &Context) -> Self {
         Self {
-            tuple: vm.ctx.empty_tuple.clone(),
+            tuple: ctx.empty_tuple.clone(),
             _marker: PhantomData,
         }
     }
