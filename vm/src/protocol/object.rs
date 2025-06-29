@@ -513,7 +513,7 @@ impl PyObject {
             let union = cls
                 .downcast_ref::<crate::builtins::PyUnion>()
                 .expect("union is already checked");
-            union.get_args().as_object()
+            union.args().as_object()
         } else {
             cls
         };
@@ -602,16 +602,14 @@ impl PyObject {
 
         // Check for Union type (e.g., int | str) - CPython checks this before tuple
         if cls.class().is(vm.ctx.types.union_type) {
-            if let Ok(args) = cls.get_attr(identifier!(vm, __args__), vm) {
-                if let Ok(tuple) = args.try_to_ref::<PyTuple>(vm) {
-                    for typ in tuple {
-                        if vm
-                            .with_recursion("in __instancecheck__", || self.is_instance(typ, vm))?
-                        {
-                            return Ok(true);
-                        }
-                    }
-                    return Ok(false);
+            // Match CPython's _Py_union_args which directly accesses the args field
+            let union = cls
+                .try_to_ref::<crate::builtins::PyUnion>(vm)
+                .expect("checked by is");
+            let tuple = union.args();
+            for typ in tuple.iter() {
+                if vm.with_recursion("in __instancecheck__", || self.is_instance(typ, vm))? {
+                    return Ok(true);
                 }
             }
         }

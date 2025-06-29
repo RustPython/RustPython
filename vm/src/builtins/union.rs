@@ -41,7 +41,8 @@ impl PyUnion {
     }
 
     /// Direct access to args field, matching CPython's _Py_union_args
-    pub(crate) fn get_args(&self) -> &PyTupleRef {
+    #[inline]
+    pub fn args(&self) -> &PyTupleRef {
         &self.args
     }
 
