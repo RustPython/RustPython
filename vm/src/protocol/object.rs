@@ -462,26 +462,29 @@ impl PyObject {
     }
 
     fn recursive_issubclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        if let (Ok(obj), Ok(cls)) = (self.try_to_ref::<PyType>(vm), cls.try_to_ref::<PyType>(vm)) {
-            Ok(obj.fast_issubclass(cls))
-        } else {
-            // Check if derived is a class
-            self.check_class(vm, || {
-                format!("issubclass() arg 1 must be a class, not {}", self.class())
-            })?;
-
-            // Check if cls is a class, tuple, or union
-            if !cls.class().is(vm.ctx.types.union_type) {
-                cls.check_class(vm, || {
-                    format!(
-                        "issubclass() arg 2 must be a class, a tuple of classes, or a union, not {}",
-                        cls.class()
-                    )
-                })?;
-            }
-
-            self.abstract_issubclass(cls, vm)
+        // Fast path for both being types (matches CPython's PyType_Check)
+        if let Some(cls) = PyType::check(cls)
+            && let Some(derived) = PyType::check(self)
+        {
+            // PyType_IsSubtype equivalent
+            return Ok(derived.is_subtype(cls));
         }
+        // Check if derived is a class
+        self.check_class(vm, || {
+            format!("issubclass() arg 1 must be a class, not {}", self.class())
+        })?;
+
+        // Check if cls is a class, tuple, or union (matches CPython's order and message)
+        if !cls.class().is(vm.ctx.types.union_type) {
+            cls.check_class(vm, || {
+                format!(
+                    "issubclass() arg 2 must be a class, a tuple of classes, or a union, not {}",
+                    cls.class()
+                )
+            })?;
+        }
+
+        self.abstract_issubclass(cls, vm)
     }
 
     /// Real issubclass check without going through __subclasscheck__
