@@ -654,9 +654,12 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
 }
 
 macro_rules! define_content_item {
-    (struct $name:ident, $doc:expr) => {
-        #[doc = $doc]
-        struct $name {
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident
+    ) => {
+        $(#[$meta])*
+        $vis struct $name {
             inner: ContentItemInner<AttrName>,
         }
 
@@ -670,12 +673,35 @@ macro_rules! define_content_item {
     };
 }
 
-define_content_item!(struct MethodItem, "#[pymethod] and #[pyclassmethod]");
-define_content_item!(struct GetSetItem, "#[pygetset]");
-define_content_item!(struct SlotItem, "#[pyslot]");
-define_content_item!(struct AttributeItem, "#[pyattr]");
-define_content_item!(struct ExtendClassItem, "#[extend_class]");
-define_content_item!(struct MemberItem, "#[pymember]");
+define_content_item!(
+    /// #[pymethod] and #[pyclassmethod]
+    struct MethodItem
+);
+
+define_content_item!(
+    /// #[pygetset]
+    struct GetSetItem
+);
+
+define_content_item!(
+    /// #[pyslot]
+    struct SlotItem
+);
+
+define_content_item!(
+    /// #[pyattr]
+    struct AttributeItem
+);
+
+define_content_item!(
+    /// #[extend_class]
+    struct ExtendClassItem
+);
+
+define_content_item!(
+    /// #[pymember]
+    struct MemberItem
+);
 
 struct ImplItemArgs<'a, Item: ItemLike> {
     item: &'a Item,
