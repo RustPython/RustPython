@@ -538,10 +538,9 @@ impl PyObject {
     /// Real isinstance check without going through __instancecheck__
     /// This is equivalent to CPython's _PyObject_RealIsInstance/object_isinstance
     pub fn real_is_instance(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        if let Ok(typ) = cls.try_to_ref::<PyType>(vm) {
+        if let Ok(cls) = cls.try_to_ref::<PyType>(vm) {
             // PyType_Check(cls) - cls is a type object
-            let mut retval = self.fast_isinstance(typ);
-
+            let mut retval = self.class().is_subtype(cls);
             if !retval {
                 // Check __class__ attribute, only masking AttributeError
                 if let Some(i_cls) =
@@ -549,7 +548,7 @@ impl PyObject {
                 {
                     if let Ok(i_cls_type) = PyTypeRef::try_from_object(vm, i_cls) {
                         if !i_cls_type.is(self.class()) {
-                            retval = i_cls_type.fast_issubclass(typ);
+                            retval = i_cls_type.is_subtype(cls);
                         }
                     }
                 }
@@ -568,11 +567,7 @@ impl PyObject {
             if let Some(i_cls) =
                 vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class__))?
             {
-                if vm.is_none(&i_cls) {
-                    Ok(false)
-                } else {
-                    i_cls.abstract_issubclass(cls, vm)
-                }
+                i_cls.abstract_issubclass(cls, vm)
             } else {
                 Ok(false)
             }
