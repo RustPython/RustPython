@@ -410,40 +410,55 @@ impl PyObject {
     }
 
     fn abstract_issubclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        let mut derived = self;
-        let mut first_item: PyObjectRef;
-        loop {
-            if derived.is(cls) {
-                return Ok(true);
-            }
+        // # Safety: The lifetime of `derived` is forced to be ignored
+        let bases = unsafe {
+            let mut derived = self;
+            // First loop: handle single inheritance without recursion
+            loop {
+                if derived.is(cls) {
+                    return Ok(true);
+                }
 
-            let bases = derived.get_attr(identifier!(vm, __bases__), vm)?;
-            let tuple = PyTupleRef::try_from_object(vm, bases)?;
-
-            let n = tuple.len();
-            match n {
-                0 => {
+                let Some(bases) = derived.abstract_get_bases(vm)? else {
                     return Ok(false);
-                }
-                1 => {
-                    first_item = tuple[0].clone();
-                    derived = &first_item;
-                    continue;
-                }
-                _ => {
-                    for i in 0..n {
-                        let check = vm.with_recursion("in abstract_issubclass", || {
-                            tuple[i].abstract_issubclass(cls, vm)
-                        })?;
-                        if check {
-                            return Ok(true);
-                        }
+                };
+                let n = bases.len();
+                match n {
+                    0 => return Ok(false),
+                    1 => {
+                        // Avoid recursion in the single inheritance case
+                        // # safety
+                        // Intention:
+                        // ```
+                        // derived = bases.as_slice()[0].as_object();
+                        // ```
+                        // Though type-system cannot guarantee, derived does live long enough in the loop.
+                        derived = &*(bases.as_slice()[0].as_object() as *const _);
+                        continue;
+                    }
+                    _ => {
+                        // Multiple inheritance - break out to handle recursively
+                        break bases;
                     }
                 }
             }
+        };
 
-            return Ok(false);
+        // Second loop: handle multiple inheritance with recursion
+        // At this point we know n >= 2
+        let n = bases.len();
+        debug_assert!(n >= 2);
+
+        for i in 0..n {
+            let result = vm.with_recursion("in __issubclass__", || {
+                bases.as_slice()[i].abstract_issubclass(cls, vm)
+            })?;
+            if result {
+                return Ok(true);
+            }
         }
+
+        Ok(false)
     }
 
     fn recursive_issubclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
