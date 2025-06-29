@@ -40,6 +40,12 @@ impl PyUnion {
         Self { args, parameters }
     }
 
+    /// Direct access to args field, matching CPython's _Py_union_args
+    #[inline]
+    pub fn args(&self) -> &PyTupleRef {
+        &self.args
+    }
+
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         fn repr_item(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
             if obj.is(vm.ctx.types.none_type) {
