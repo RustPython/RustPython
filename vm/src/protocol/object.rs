@@ -497,30 +497,31 @@ impl PyObject {
     /// via the __subclasscheck__ magic method.
     /// PyObject_IsSubclass/object_issubclass
     pub fn is_subclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        let derived = self;
         // PyType_CheckExact(cls)
         if cls.class().is(vm.ctx.types.type_type) {
-            if self.is(cls) {
+            if derived.is(cls) {
                 return Ok(true);
             }
-            return self.recursive_issubclass(cls, vm);
+            return derived.recursive_issubclass(cls, vm);
         }
 
         // Check for Union type - CPython handles this before tuple
-        let cls_to_check = if cls.class().is(vm.ctx.types.union_type) {
+        let cls = if cls.class().is(vm.ctx.types.union_type) {
             // Get the __args__ attribute which contains the union members
-            if let Ok(args) = cls.get_attr(identifier!(vm, __args__), vm) {
-                args
-            } else {
-                cls.to_owned()
-            }
+            // Match CPython's _Py_union_args which directly accesses the args field
+            let union = cls
+                .downcast_ref::<crate::builtins::PyUnion>()
+                .expect("union is already checked");
+            union.get_args().as_object()
         } else {
-            cls.to_owned()
+            cls
         };
 
-        // Check if cls_to_check is a tuple
-        if let Ok(tuple) = cls_to_check.try_to_value::<&Py<PyTuple>>(vm) {
-            for typ in tuple {
-                if vm.with_recursion("in __subclasscheck__", || self.is_subclass(typ, vm))? {
+        // Check if cls is a tuple
+        if let Some(tuple) = cls.downcast_ref::<PyTuple>() {
+            for item in tuple {
+                if vm.with_recursion("in __subclasscheck__", || derived.is_subclass(item, vm))? {
                     return Ok(true);
                 }
             }
@@ -528,14 +529,14 @@ impl PyObject {
         }
 
         // Check for __subclasscheck__ method
-        if let Some(meth) = vm.get_special_method(cls, identifier!(vm, __subclasscheck__))? {
-            let ret = vm.with_recursion("in __subclasscheck__", || {
-                meth.invoke((self.to_owned(),), vm)
+        if let Some(checker) = vm.get_special_method(cls, identifier!(vm, __subclasscheck__))? {
+            let res = vm.with_recursion("in __subclasscheck__", || {
+                checker.invoke((derived.to_owned(),), vm)
             })?;
-            return ret.try_to_bool(vm);
+            return res.try_to_bool(vm);
         }
 
-        self.recursive_issubclass(cls, vm)
+        derived.recursive_issubclass(cls, vm)
     }
 
     /// Real isinstance check without going through __instancecheck__
