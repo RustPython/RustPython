@@ -1266,10 +1266,18 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::TypeAlias => {
                 let name = self.pop_value();
-                let type_params: PyTupleRef = self
-                    .pop_value()
-                    .downcast()
-                    .map_err(|_| vm.new_type_error("Type params must be a tuple."))?;
+                let type_params_obj = self.pop_value();
+
+                // CPython allows None or tuple for type_params
+                let type_params: PyTupleRef = if vm.is_none(&type_params_obj) {
+                    // If None, use empty tuple (matching CPython's behavior)
+                    vm.ctx.empty_tuple.clone()
+                } else {
+                    type_params_obj
+                        .downcast()
+                        .map_err(|_| vm.new_type_error("Type params must be a tuple."))?
+                };
+
                 let value = self.pop_value();
                 let type_alias = typing::TypeAliasType::new(name, type_params, value);
                 self.push_value(type_alias.into_ref(&vm.ctx).into());
