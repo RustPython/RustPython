@@ -233,11 +233,12 @@ impl PySetInner {
         if !op.eval_ord(self.len().cmp(&other.len())) {
             return Ok(false);
         }
-        let (superset, subset) = if matches!(op, PyComparisonOp::Lt | PyComparisonOp::Le) {
-            (other, self)
-        } else {
-            (self, other)
+
+        let (superset, subset) = match op {
+            PyComparisonOp::Lt | PyComparisonOp::Le => (other, self),
+            _ => (self, other),
         };
+
         for key in subset.elements() {
             if !superset.contains(&key, vm)? {
                 return Ok(false);
@@ -425,8 +426,9 @@ impl PySetInner {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         for iterable in others {
-            for item in iterable.iter(vm)? {
-                self.content.delete_if_exists(vm, &*item?)?;
+            let items = iterable.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
+            for item in items {
+                self.content.delete_if_exists(vm, &*item)?;
             }
         }
         Ok(())

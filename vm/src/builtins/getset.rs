@@ -4,6 +4,7 @@
 use super::PyType;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    builtins::type_::PointerSlot,
     class::PyClassImpl,
     function::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc, PySetterValue},
     types::{GetDescriptor, Unconstructible},
@@ -12,7 +13,7 @@ use crate::{
 #[pyclass(module = false, name = "getset_descriptor")]
 pub struct PyGetSet {
     name: String,
-    class: &'static Py<PyType>,
+    class: PointerSlot<Py<PyType>>, // A class type freed before getset is non-sense.
     getter: Option<PyGetterFunc>,
     setter: Option<PySetterFunc>,
     // doc: Option<String>,
@@ -72,7 +73,7 @@ impl PyGetSet {
     pub fn new(name: String, class: &'static Py<PyType>) -> Self {
         Self {
             name,
-            class,
+            class: PointerSlot::from(class),
             getter: None,
             setter: None,
         }
@@ -138,13 +139,17 @@ impl PyGetSet {
 
     #[pygetset]
     fn __qualname__(&self) -> String {
-        format!("{}.{}", self.class.slot_name(), self.name.clone())
+        format!(
+            "{}.{}",
+            unsafe { self.class.borrow_static() }.slot_name(),
+            self.name.clone()
+        )
     }
 
     #[pymember]
     fn __objclass__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf: &Py<Self> = zelf.try_to_value(vm)?;
-        Ok(zelf.class.to_owned().into())
+        Ok(unsafe { zelf.class.borrow_static() }.to_owned().into())
     }
 }
 impl Unconstructible for PyGetSet {}

@@ -212,7 +212,7 @@ impl PyMemoryView {
             .unpack(&bytes[pos..pos + self.desc.itemsize], vm)
             .map(|x| {
                 if x.len() == 1 {
-                    x.fast_getitem(0)
+                    x[0].to_owned()
                 } else {
                     x.into()
                 }
@@ -1067,7 +1067,7 @@ fn format_unpack(
 ) -> PyResult<PyObjectRef> {
     format_spec.unpack(bytes, vm).map(|x| {
         if x.len() == 1 {
-            x.fast_getitem(0)
+            x[0].to_owned()
         } else {
             x.into()
         }

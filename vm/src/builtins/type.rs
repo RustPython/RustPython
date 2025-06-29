@@ -31,7 +31,7 @@ use crate::{
 };
 use indexmap::{IndexMap, map::Entry};
 use itertools::Itertools;
-use std::{borrow::Borrow, collections::HashSet, fmt, ops::Deref, pin::Pin, ptr::NonNull};
+use std::{borrow::Borrow, collections::HashSet, ops::Deref, pin::Pin, ptr::NonNull};
 
 #[pyclass(module = false, name = "type", traverse = "manual")]
 pub struct PyType {
@@ -68,6 +68,9 @@ pub struct HeapTypeExt {
 }
 
 pub struct PointerSlot<T>(NonNull<T>);
+
+unsafe impl<T> Sync for PointerSlot<T> {}
+unsafe impl<T> Send for PointerSlot<T> {}
 
 impl<T> PointerSlot<T> {
     pub unsafe fn borrow_static(&self) -> &'static T {
@@ -126,14 +129,14 @@ unsafe impl Traverse for PyAttributes {
     }
 }
 
-impl fmt::Display for PyType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.name(), f)
+impl std::fmt::Display for PyType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.name(), f)
     }
 }
 
-impl fmt::Debug for PyType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::fmt::Debug for PyType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[PyType {}]", &self.name())
     }
 }
@@ -153,6 +156,18 @@ fn downcast_qualname(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<
             value.class().name()
         ))),
     }
+}
+
+fn is_subtype_with_mro(a_mro: &[PyTypeRef], a: &Py<PyType>, b: &Py<PyType>) -> bool {
+    if a.is(b) {
+        return true;
+    }
+    for item in a_mro {
+        if item.is(b) {
+            return true;
+        }
+    }
+    false
 }
 
 impl PyType {
@@ -192,6 +207,12 @@ impl PyType {
         let base = bases[0].clone();
 
         Self::new_heap_inner(base, bases, attrs, slots, heaptype_ext, metaclass, ctx)
+    }
+
+    /// Equivalent to CPython's PyType_Check macro
+    /// Checks if obj is an instance of type (or its subclass)
+    pub(crate) fn check(obj: &PyObject) -> Option<&Py<Self>> {
+        obj.downcast_ref::<Self>()
     }
 
     fn resolve_mro(bases: &[PyRef<Self>]) -> Result<Vec<PyTypeRef>, String> {
@@ -436,10 +457,20 @@ impl PyType {
 }
 
 impl Py<PyType> {
+    pub(crate) fn is_subtype(&self, other: &Py<PyType>) -> bool {
+        is_subtype_with_mro(&self.mro.read(), self, other)
+    }
+
+    /// Equivalent to CPython's PyType_CheckExact macro
+    /// Checks if obj is exactly a type (not a subclass)
+    pub fn check_exact<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> Option<&'a Py<PyType>> {
+        obj.downcast_ref_if_exact::<PyType>(vm)
+    }
+
     /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
     /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
     /// method.
-    pub fn fast_issubclass(&self, cls: &impl Borrow<crate::PyObject>) -> bool {
+    pub fn fast_issubclass(&self, cls: &impl Borrow<PyObject>) -> bool {
         self.as_object().is(cls.borrow()) || self.mro.read().iter().any(|c| c.is(cls.borrow()))
     }
 
@@ -908,7 +939,7 @@ impl Constructor for PyType {
         let __dict__ = identifier!(vm, __dict__);
         attributes.entry(__dict__).or_insert_with(|| {
             vm.ctx
-                .new_getset(
+                .new_static_getset(
                     "__dict__",
                     vm.ctx.types.type_type,
                     subtype_get_dict,
@@ -1213,8 +1244,10 @@ impl Py<PyType> {
     }
 
     #[pymethod]
-    fn __subclasscheck__(&self, subclass: PyTypeRef) -> bool {
-        subclass.fast_issubclass(self)
+    fn __subclasscheck__(&self, subclass: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        // Use real_is_subclass to avoid going through __subclasscheck__ recursion
+        // This matches CPython's type___subclasscheck___impl which calls _PyObject_RealIsSubclass
+        subclass.real_is_subclass(self.as_object(), vm)
     }
 
     #[pyclassmethod]

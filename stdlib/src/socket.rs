@@ -726,19 +726,22 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn htonl(x: u32) -> u32 {
+    const fn htonl(x: u32) -> u32 {
         u32::to_be(x)
     }
+
     #[pyfunction]
-    fn htons(x: u16) -> u16 {
+    const fn htons(x: u16) -> u16 {
         u16::to_be(x)
     }
+
     #[pyfunction]
-    fn ntohl(x: u32) -> u32 {
+    const fn ntohl(x: u32) -> u32 {
         u32::from_be(x)
     }
+
     #[pyfunction]
-    fn ntohs(x: u16) -> u16 {
+    const fn ntohs(x: u16) -> u16 {
         u16::from_be(x)
     }
 
@@ -816,6 +819,7 @@ mod _socket {
             (&mut &*self.sock()?).read(buf)
         }
     }
+
     impl Write for &PySocket {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
             (&mut &*self.sock()?).write(buf)
@@ -1450,6 +1454,7 @@ mod _socket {
             }
             Ok(())
         }
+
         #[pymethod]
         #[inline]
         fn detach(&self) -> RawSocket {
@@ -1471,6 +1476,7 @@ mod _socket {
 
             Ok(get_addr_tuple(&addr, vm))
         }
+
         #[pymethod]
         fn getpeername(&self, vm: &VirtualMachine) -> std::io::Result<PyObjectRef> {
             let addr = self.sock()?.peer_addr()?;
@@ -1615,10 +1621,12 @@ mod _socket {
         fn kind(&self) -> i32 {
             self.kind.load()
         }
+
         #[pygetset]
         fn family(&self) -> i32 {
             self.family.load()
         }
+
         #[pygetset]
         fn proto(&self) -> i32 {
             self.proto.load()
@@ -1657,6 +1665,7 @@ mod _socket {
                 .ok_or_else(|| vm.new_overflow_error("port must be 0-65535."))?;
             Ok(Address { host, port })
         }
+
         fn from_tuple_ipv6(
             tuple: &[PyObjectRef],
             vm: &VirtualMachine,

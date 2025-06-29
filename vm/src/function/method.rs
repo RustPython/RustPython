@@ -114,16 +114,18 @@ impl PyMethodDef {
         } else if self.flags.contains(PyMethodFlags::STATIC) {
             self.build_staticmethod(ctx, class).into()
         } else {
-            unreachable!();
+            unreachable!()
         }
     }
-    pub fn to_function(&'static self) -> PyNativeFunction {
+
+    pub const fn to_function(&'static self) -> PyNativeFunction {
         PyNativeFunction {
             zelf: None,
             value: self,
             module: None,
         }
     }
+
     pub fn to_method(
         &'static self,
         class: &'static Py<PyType>,
@@ -131,7 +133,8 @@ impl PyMethodDef {
     ) -> PyMethodDescriptor {
         PyMethodDescriptor::new(self, class, ctx)
     }
-    pub fn to_bound_method(
+
+    pub const fn to_bound_method(
         &'static self,
         obj: PyObjectRef,
         class: &'static Py<PyType>,
@@ -145,9 +148,11 @@ impl PyMethodDef {
             class,
         }
     }
+
     pub fn build_function(&'static self, ctx: &Context) -> PyRef<PyNativeFunction> {
         self.to_function().into_ref(ctx)
     }
+
     pub fn build_bound_function(
         &'static self,
         ctx: &Context,
@@ -164,6 +169,7 @@ impl PyMethodDef {
             None,
         )
     }
+
     pub fn build_method(
         &'static self,
         ctx: &Context,
@@ -173,6 +179,7 @@ impl PyMethodDef {
         let method = self.to_method(class, ctx);
         PyRef::new_ref(method, ctx.types.method_descriptor_type.to_owned(), None)
     }
+
     pub fn build_bound_method(
         &'static self,
         ctx: &Context,
@@ -185,6 +192,7 @@ impl PyMethodDef {
             None,
         )
     }
+
     pub fn build_classmethod(
         &'static self,
         ctx: &Context,
@@ -196,6 +204,7 @@ impl PyMethodDef {
             None,
         )
     }
+
     pub fn build_staticmethod(
         &'static self,
         ctx: &Context,
@@ -267,7 +276,7 @@ pub struct HeapMethodDef {
 }
 
 impl HeapMethodDef {
-    pub fn new(method: PyMethodDef) -> Self {
+    pub const fn new(method: PyMethodDef) -> Self {
         Self { method }
     }
 }

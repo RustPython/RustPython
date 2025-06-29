@@ -691,7 +691,7 @@ pub struct DictIntoIter {
 }
 
 impl DictIntoIter {
-    pub fn new(dict: PyDictRef) -> DictIntoIter {
+    pub const fn new(dict: PyDictRef) -> DictIntoIter {
         DictIntoIter { dict, position: 0 }
     }
 }
@@ -722,7 +722,7 @@ pub struct DictIter<'a> {
 }
 
 impl<'a> DictIter<'a> {
-    pub fn new(dict: &'a PyDict) -> Self {
+    pub const fn new(dict: &'a PyDict) -> Self {
         DictIter { dict, position: 0 }
     }
 }
@@ -775,20 +775,23 @@ macro_rules! dict_view {
         }
 
         impl $name {
-            pub fn new(dict: PyDictRef) -> Self {
+            pub const fn new(dict: PyDictRef) -> Self {
                 $name { dict }
             }
         }
 
         impl DictView for $name {
             type ReverseIter = $reverse_iter_name;
+
             fn dict(&self) -> &PyDictRef {
                 &self.dict
             }
+
             fn item(vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef) -> PyObjectRef {
                 #[allow(clippy::redundant_closure_call)]
                 $result_fn(vm, key, value)
             }
+
             fn __reversed__(&self) -> Self::ReverseIter {
                 $reverse_iter_name::new(self.dict.clone())
             }
@@ -872,6 +875,7 @@ macro_rules! dict_view {
                 vm.new_tuple((iter, (vm.ctx.new_list(entries),)))
             }
         }
+
         impl Unconstructible for $iter_name {}
 
         impl SelfIter for $iter_name {}
@@ -882,9 +886,9 @@ macro_rules! dict_view {
                 let next = if let IterStatus::Active(dict) = &internal.status {
                     if dict.entries.has_changed_size(&zelf.size) {
                         internal.status = IterStatus::Exhausted;
-                        return Err(vm.new_runtime_error(
-                            "dictionary changed size during iteration".to_owned(),
-                        ));
+                        return Err(
+                            vm.new_runtime_error("dictionary changed size during iteration")
+                        );
                     }
                     match dict.entries.next_entry(internal.position) {
                         Some((position, key, value)) => {
@@ -961,9 +965,9 @@ macro_rules! dict_view {
                 let next = if let IterStatus::Active(dict) = &internal.status {
                     if dict.entries.has_changed_size(&zelf.size) {
                         internal.status = IterStatus::Exhausted;
-                        return Err(vm.new_runtime_error(
-                            "dictionary changed size during iteration".to_owned(),
-                        ));
+                        return Err(
+                            vm.new_runtime_error("dictionary changed size during iteration")
+                        );
                     }
                     match dict.entries.prev_entry(internal.position) {
                         Some((position, key, value)) => {
@@ -1231,13 +1235,13 @@ impl AsSequence for PyDictItems {
                 }
 
                 let zelf = PyDictItems::sequence_downcast(seq);
-                let key = needle.fast_getitem(0);
-                if !zelf.dict.__contains__(key.clone(), vm)? {
+                let key = &needle[0];
+                if !zelf.dict.__contains__(key.to_owned(), vm)? {
                     return Ok(false);
                 }
-                let value = needle.fast_getitem(1);
-                let found = zelf.dict().__getitem__(key, vm)?;
-                vm.identical_or_equal(&found, &value)
+                let value = &needle[1];
+                let found = zelf.dict().__getitem__(key.to_owned(), vm)?;
+                vm.identical_or_equal(&found, value)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });

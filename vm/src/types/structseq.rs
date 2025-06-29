@@ -97,7 +97,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             class.set_attr(
                 ctx.intern_str(name),
                 ctx.new_readonly_getset(name, class, move |zelf: &PyTuple| {
-                    zelf.fast_getitem(i.into())
+                    zelf[i as usize].to_owned()
                 })
                 .into(),
             );

@@ -40,6 +40,12 @@ impl PyUnion {
         Self { args, parameters }
     }
 
+    /// Direct access to args field, matching CPython's _Py_union_args
+    #[inline]
+    pub fn args(&self) -> &PyTupleRef {
+        &self.args
+    }
+
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         fn repr_item(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
             if obj.is(vm.ctx.types.none_type) {
@@ -194,7 +200,7 @@ fn dedup_and_flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef
 pub fn make_union(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyObjectRef {
     let args = dedup_and_flatten_args(args, vm);
     match args.len() {
-        1 => args.fast_getitem(0),
+        1 => args[0].to_owned(),
         _ => PyUnion::new(args, vm).to_pyobject(vm),
     }
 }
@@ -212,7 +218,7 @@ impl PyUnion {
         if new_args.is_empty() {
             res = make_union(&new_args, vm);
         } else {
-            res = new_args.fast_getitem(0);
+            res = new_args[0].to_owned();
             for arg in new_args.iter().skip(1) {
                 res = vm._or(&res, arg)?;
             }

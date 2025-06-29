@@ -2,7 +2,7 @@ use malachite_bigint::{BigInt, ToBigInt};
 use num_traits::{Float, Signed, ToPrimitive, Zero};
 use std::f64;
 
-pub fn decompose_float(value: f64) -> (f64, i32) {
+pub const fn decompose_float(value: f64) -> (f64, i32) {
     if 0.0 == value {
         (0.0, 0i32)
     } else {
@@ -63,7 +63,7 @@ pub fn gt_int(value: f64, other_int: &BigInt) -> bool {
     }
 }
 
-pub fn div(v1: f64, v2: f64) -> Option<f64> {
+pub const fn div(v1: f64, v2: f64) -> Option<f64> {
     if v2 != 0.0 { Some(v1 / v2) } else { None }
 }
 

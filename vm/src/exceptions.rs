@@ -1667,7 +1667,7 @@ pub(super) mod types {
                     .enumerate()
                     {
                         if location_tup_len > i {
-                            zelf.set_attr(attr, location_tuple.fast_getitem(i).clone(), vm)?;
+                            zelf.set_attr(attr, location_tuple[i].to_owned(), vm)?;
                         } else {
                             break;
                         }

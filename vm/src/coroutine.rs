@@ -129,6 +129,7 @@ impl Coro {
             }
         }
     }
+
     pub fn throw(
         &self,
         jen: &PyObject,
@@ -170,18 +171,23 @@ impl Coro {
     pub fn running(&self) -> bool {
         self.running.load()
     }
+
     pub fn closed(&self) -> bool {
         self.closed.load()
     }
+
     pub fn frame(&self) -> FrameRef {
         self.frame.clone()
     }
+
     pub fn name(&self) -> PyStrRef {
         self.name.lock().clone()
     }
+
     pub fn set_name(&self, name: PyStrRef) {
         *self.name.lock() = name;
     }
+
     pub fn repr(&self, jen: &PyObject, id: usize, vm: &VirtualMachine) -> String {
         format!(
             "<{} object {} at {:#x}>",

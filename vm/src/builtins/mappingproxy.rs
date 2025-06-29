@@ -151,16 +151,19 @@ impl PyMappingProxy {
         let obj = self.to_object(vm)?;
         vm.call_method(&obj, identifier!(vm, items).as_str(), ())
     }
+
     #[pymethod]
     pub fn keys(&self, vm: &VirtualMachine) -> PyResult {
         let obj = self.to_object(vm)?;
         vm.call_method(&obj, identifier!(vm, keys).as_str(), ())
     }
+
     #[pymethod]
     pub fn values(&self, vm: &VirtualMachine) -> PyResult {
         let obj = self.to_object(vm)?;
         vm.call_method(&obj, identifier!(vm, values).as_str(), ())
     }
+
     #[pymethod]
     pub fn copy(&self, vm: &VirtualMachine) -> PyResult {
         match &self.mapping {
@@ -194,7 +197,7 @@ impl PyMappingProxy {
     #[pymethod]
     fn __ior__(&self, _args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error(format!(
-            "\"'|=' is not supported by {}; use '|' instead\"",
+            r#""'|=' is not supported by {}; use '|' instead""#,
             Self::class(&vm.ctx)
         )))
     }

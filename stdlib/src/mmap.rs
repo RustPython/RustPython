@@ -213,25 +213,22 @@ mod mmap {
 
     impl FlushOptions {
         fn values(self, len: usize) -> Option<(usize, usize)> {
-            let offset = if let Some(offset) = self.offset {
-                if offset < 0 {
-                    return None;
-                }
-                offset as usize
-            } else {
-                0
+            let offset = match self.offset {
+                Some(o) if o < 0 => return None,
+                Some(o) => o as usize,
+                None => 0,
             };
-            let size = if let Some(size) = self.size {
-                if size < 0 {
-                    return None;
-                }
-                size as usize
-            } else {
-                len
+
+            let size = match self.size {
+                Some(s) if s < 0 => return None,
+                Some(s) => s as usize,
+                None => len,
             };
+
             if len.checked_sub(offset)? < size {
                 return None;
             }
+
             Some((offset, size))
         }
     }
@@ -565,6 +562,7 @@ mod mmap {
             if self.exports.load() > 0 {
                 return Err(vm.new_buffer_error("cannot close exported pointers exist."));
             }
+
             let mut mmap = self.mmap.lock();
             self.closed.store(true);
             *mmap = None;

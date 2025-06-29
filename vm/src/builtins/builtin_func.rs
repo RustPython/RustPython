@@ -57,7 +57,7 @@ impl PyNativeFunction {
         self.zelf.as_ref()
     }
 
-    pub fn as_func(&self) -> &'static dyn PyNativeFn {
+    pub const fn as_func(&self) -> &'static dyn PyNativeFn {
         self.value.func
     }
 }
@@ -79,10 +79,12 @@ impl PyNativeFunction {
     fn __module__(zelf: NativeFunctionOrMethod) -> Option<&'static PyStrInterned> {
         zelf.0.module
     }
+
     #[pygetset]
     fn __name__(zelf: NativeFunctionOrMethod) -> &'static str {
         zelf.0.value.name
     }
+
     #[pygetset]
     fn __qualname__(zelf: NativeFunctionOrMethod, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let zelf = zelf.0;
@@ -105,23 +107,28 @@ impl PyNativeFunction {
         };
         Ok(qualname)
     }
+
     #[pygetset]
     fn __doc__(zelf: NativeFunctionOrMethod) -> Option<&'static str> {
         zelf.0.value.doc
     }
+
     #[pygetset(name = "__self__")]
     fn __self__(_zelf: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.none()
     }
+
     #[pymethod]
     fn __reduce__(&self) -> &'static str {
         // TODO: return (getattr, (self.object, self.name)) if this is a method
         self.value.name
     }
+
     #[pymethod]
     fn __reduce_ex__(zelf: PyObjectRef, _ver: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm.call_special_method(&zelf, identifier!(vm, __reduce__), ())
     }
+
     #[pygetset]
     fn __text_signature__(zelf: NativeFunctionOrMethod) -> Option<&'static str> {
         let doc = zelf.0.value.doc?;
@@ -223,6 +230,7 @@ impl Comparable for PyNativeMethod {
 
 impl Callable for PyNativeMethod {
     type Args = FuncArgs;
+
     #[inline]
     fn call(zelf: &Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if let Some(zelf) = &zelf.func.zelf {

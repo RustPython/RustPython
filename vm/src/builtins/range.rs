@@ -407,7 +407,7 @@ impl AsSequence for PyRange {
                 PyRange::sequence_downcast(seq)
                     .get(&i.into())
                     .map(|x| PyInt::from(x).into_ref(&vm.ctx).into())
-                    .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))
+                    .ok_or_else(|| vm.new_index_error("index out of range"))
             }),
             contains: atomic_func!(|seq, needle, vm| {
                 Ok(PyRange::sequence_downcast(seq).contains_inner(needle, vm))
