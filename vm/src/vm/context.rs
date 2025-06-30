@@ -226,6 +226,7 @@ declare_const_name! {
     __typing_subst__,
     __typing_is_unpacked_typevartuple__,
     __typing_prepare_subst__,
+    __typing_unpacked_tuple_args__,
     __xor__,
 
     // common names

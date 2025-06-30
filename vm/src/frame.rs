@@ -1241,7 +1241,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::TypeVar => {
                 let type_name = self.pop_value();
                 let type_var: PyObjectRef =
-                    typing::make_typevar(vm, type_name.clone(), vm.ctx.none(), vm.ctx.none())
+                    typing::TypeVar::new(vm, type_name.clone(), vm.ctx.none(), vm.ctx.none())
                         .into_ref(&vm.ctx)
                         .into();
                 self.push_value(type_var);
@@ -1251,7 +1251,7 @@ impl ExecutingFrame<'_> {
                 let type_name = self.pop_value();
                 let bound = self.pop_value();
                 let type_var: PyObjectRef =
-                    typing::make_typevar(vm, type_name.clone(), bound, vm.ctx.none())
+                    typing::TypeVar::new(vm, type_name.clone(), bound, vm.ctx.none())
                         .into_ref(&vm.ctx)
                         .into();
                 self.push_value(type_var);
@@ -1261,7 +1261,7 @@ impl ExecutingFrame<'_> {
                 let type_name = self.pop_value();
                 let constraint = self.pop_value();
                 let type_var: PyObjectRef =
-                    typing::make_typevar(vm, type_name.clone(), vm.ctx.none(), constraint)
+                    typing::TypeVar::new(vm, type_name.clone(), vm.ctx.none(), constraint)
                         .into_ref(&vm.ctx)
                         .into();
                 self.push_value(type_var);
@@ -1288,7 +1288,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::ParamSpec => {
                 let param_spec_name = self.pop_value();
-                let param_spec: PyObjectRef = typing::make_paramspec(param_spec_name.clone())
+                let param_spec: PyObjectRef = typing::ParamSpec::new(param_spec_name.clone())
                     .into_ref(&vm.ctx)
                     .into();
                 self.push_value(param_spec);
@@ -1297,7 +1297,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::TypeVarTuple => {
                 let type_var_tuple_name = self.pop_value();
                 let type_var_tuple: PyObjectRef =
-                    typing::make_typevartuple(type_var_tuple_name.clone(), vm)
+                    typing::TypeVarTuple::new(type_var_tuple_name.clone(), vm)
                         .into_ref(&vm.ctx)
                         .into();
                 self.push_value(type_var_tuple);
