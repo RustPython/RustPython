@@ -3351,8 +3351,6 @@ class ProtocolTests(BaseTestCase):
         self.assertNotIsSubclass(C, Protocol)
         self.assertNotIsInstance(C(), Protocol)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_protocols_issubclass_non_callable(self):
         class C:
             x = 1
@@ -3412,8 +3410,6 @@ class ProtocolTests(BaseTestCase):
         ):
             issubclass(Eggs, Spam)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_weird_caching_with_issubclass_after_isinstance_2(self):
         @runtime_checkable
         class Spam(Protocol):
@@ -3434,8 +3430,6 @@ class ProtocolTests(BaseTestCase):
         ):
             issubclass(Eggs, Spam)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_weird_caching_with_issubclass_after_isinstance_3(self):
         @runtime_checkable
         class Spam(Protocol):
@@ -4091,8 +4085,6 @@ class GenericTests(BaseTestCase):
         self.assertIs(MyChain[int]().__class__, MyChain)
         self.assertEqual(MyChain[int]().__orig_class__, MyChain[int])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_all_repr_eq_any(self):
         objs = (getattr(typing, el) for el in typing.__all__)
         for obj in objs:
@@ -9591,8 +9583,6 @@ class AllTests(BaseTestCase):
         self.assertIn('SupportsBytes', a)
         self.assertIn('SupportsComplex', a)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_all_exported_names(self):
         # ensure all dynamically created objects are actualised
         for name in typing.__all__:
