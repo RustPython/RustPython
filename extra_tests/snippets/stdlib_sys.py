@@ -147,3 +147,14 @@ env["PYTHONSAFEPATH"] = "1"
 proc = subprocess.run(args, stdout=subprocess.PIPE, universal_newlines=True, env=env)
 assert proc.stdout.rstrip() == "True"
 assert proc.returncode == 0, proc
+
+assert sys._getframemodulename() == "__main__", sys._getframemodulename()
+
+
+def test_getframemodulename():
+    return sys._getframemodulename()
+
+
+test_getframemodulename.__module__ = "awesome_module"
+
+assert test_getframemodulename() == "awesome_module"

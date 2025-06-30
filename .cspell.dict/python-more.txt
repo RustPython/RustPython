@@ -78,6 +78,7 @@ getfilesystemencodeerrors
 getfilesystemencoding
 getformat
 getframe
+getframemodulename
 getnewargs
 getpip
 getrandom

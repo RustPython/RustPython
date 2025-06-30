@@ -315,7 +315,9 @@ impl PyFunction {
 
         Ok(())
     }
+}
 
+impl Py<PyFunction> {
     pub fn invoke_with_locals(
         &self,
         func_args: FuncArgs,
@@ -352,6 +354,7 @@ impl PyFunction {
             Scope::new(Some(locals), self.globals.clone()),
             vm.builtins.dict(),
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
+            Some(self.to_owned().into()),
             vm,
         )
         .into_ref(&vm.ctx);
