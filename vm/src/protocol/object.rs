@@ -410,43 +410,39 @@ impl PyObject {
     }
 
     fn abstract_issubclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        // # Safety: The lifetime of `derived` is forced to be ignored
-        let bases = unsafe {
-            let mut derived = self;
-            // First loop: handle single inheritance without recursion
-            loop {
-                if derived.is(cls) {
-                    return Ok(true);
-                }
+        // Store the current derived class to check
+        let mut bases: PyTupleRef;
+        let mut derived = self;
 
-                let Some(bases) = derived.abstract_get_bases(vm)? else {
-                    return Ok(false);
-                };
-                let n = bases.len();
-                match n {
-                    0 => return Ok(false),
-                    1 => {
-                        // Avoid recursion in the single inheritance case
-                        // # safety
-                        // Intention:
-                        // ```
-                        // derived = bases.as_slice()[0].as_object();
-                        // ```
-                        // Though type-system cannot guarantee, derived does live long enough in the loop.
-                        derived = &*(bases.as_slice()[0].as_object() as *const _);
-                        continue;
-                    }
-                    _ => {
-                        // Multiple inheritance - break out to handle recursively
-                        break bases;
-                    }
+        // First loop: handle single inheritance without recursion
+        let bases = loop {
+            if derived.is(cls) {
+                return Ok(true);
+            }
+
+            let Some(derived_bases) = derived.abstract_get_bases(vm)? else {
+                return Ok(false);
+            };
+
+            let n = derived_bases.len();
+            match n {
+                0 => return Ok(false),
+                1 => {
+                    // Avoid recursion in the single inheritance case
+                    // Get the next derived class and continue the loop
+                    bases = derived_bases;
+                    derived = &bases.as_slice()[0];
+                    continue;
+                }
+                _ => {
+                    // Multiple inheritance - handle recursively
+                    break derived_bases;
                 }
             }
         };
 
-        // Second loop: handle multiple inheritance with recursion
-        // At this point we know n >= 2
         let n = bases.len();
+        // At this point we know n >= 2
         debug_assert!(n >= 2);
 
         for i in 0..n {
@@ -528,10 +524,10 @@ impl PyObject {
             return Ok(false);
         }
 
-        // Check for __subclasscheck__ method
-        if let Some(checker) = vm.get_special_method(cls, identifier!(vm, __subclasscheck__))? {
+        // Check for __subclasscheck__ method using lookup_special (matches CPython)
+        if let Some(checker) = cls.lookup_special(identifier!(vm, __subclasscheck__), vm) {
             let res = vm.with_recursion("in __subclasscheck__", || {
-                checker.invoke((derived.to_owned(),), vm)
+                checker.call((derived.to_owned(),), vm)
             })?;
             return res.try_to_bool(vm);
         }
@@ -542,10 +538,9 @@ impl PyObject {
     /// Real isinstance check without going through __instancecheck__
     /// This is equivalent to CPython's _PyObject_RealIsInstance/object_isinstance
     pub fn real_is_instance(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        if let Ok(typ) = cls.try_to_ref::<PyType>(vm) {
+        if let Ok(cls) = cls.try_to_ref::<PyType>(vm) {
             // PyType_Check(cls) - cls is a type object
-            let mut retval = self.fast_isinstance(typ);
-
+            let mut retval = self.class().is_subtype(cls);
             if !retval {
                 // Check __class__ attribute, only masking AttributeError
                 if let Some(i_cls) =
@@ -553,7 +548,7 @@ impl PyObject {
                 {
                     if let Ok(i_cls_type) = PyTypeRef::try_from_object(vm, i_cls) {
                         if !i_cls_type.is(self.class()) {
-                            retval = i_cls_type.fast_issubclass(typ);
+                            retval = i_cls_type.is_subtype(cls);
                         }
                     }
                 }
@@ -572,11 +567,7 @@ impl PyObject {
             if let Some(i_cls) =
                 vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class__))?
             {
-                if vm.is_none(&i_cls) {
-                    Ok(false)
-                } else {
-                    i_cls.abstract_issubclass(cls, vm)
-                }
+                i_cls.abstract_issubclass(cls, vm)
             } else {
                 Ok(false)
             }
@@ -624,10 +615,10 @@ impl PyObject {
             return Ok(false);
         }
 
-        // Check for __instancecheck__ method
-        if let Some(checker) = vm.get_special_method(cls, identifier!(vm, __instancecheck__))? {
+        // Check for __instancecheck__ method using lookup_special (matches CPython)
+        if let Some(checker) = cls.lookup_special(identifier!(vm, __instancecheck__), vm) {
             let res = vm.with_recursion("in __instancecheck__", || {
-                checker.invoke((self.to_owned(),), vm)
+                checker.call((self.to_owned(),), vm)
             })?;
             return res.try_to_bool(vm);
         }
@@ -753,5 +744,25 @@ impl PyObject {
         }
 
         Err(vm.new_type_error(format!("'{}' does not support item deletion", self.class())))
+    }
+
+    /// Equivalent to CPython's _PyObject_LookupSpecial
+    /// Looks up a special method in the type's MRO without checking instance dict.
+    /// Returns None if not found (masking AttributeError like CPython).
+    pub fn lookup_special(&self, attr: &Py<PyStr>, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        let obj_cls = self.class();
+
+        // Use PyType::lookup_ref (equivalent to CPython's _PyType_LookupRef)
+        let res = obj_cls.lookup_ref(attr, vm)?;
+
+        // If it's a descriptor, call its __get__ method
+        let descr_get = res.class().mro_find_map(|cls| cls.slots.descr_get.load());
+        if let Some(descr_get) = descr_get {
+            let obj_cls = obj_cls.to_owned().into();
+            // CPython ignores exceptions in _PyObject_LookupSpecial and returns NULL
+            descr_get(res, Some(self.to_owned()), Some(obj_cls), vm).ok()
+        } else {
+            Some(res)
+        }
     }
 }

@@ -383,6 +383,35 @@ impl PyType {
         self.attributes.read().get(attr_name).cloned()
     }
 
+    /// Equivalent to CPython's find_name_in_mro
+    /// Look in tp_dict of types in MRO - bypasses descriptors and other attribute access machinery
+    fn find_name_in_mro(&self, name: &'static PyStrInterned) -> Option<PyObjectRef> {
+        // First check in our own dict
+        if let Some(value) = self.attributes.read().get(name) {
+            return Some(value.clone());
+        }
+
+        // Then check in MRO
+        for base in self.mro.read().iter() {
+            if let Some(value) = base.attributes.read().get(name) {
+                return Some(value.clone());
+            }
+        }
+
+        None
+    }
+
+    /// Equivalent to CPython's _PyType_LookupRef
+    /// Looks up a name through the MRO without setting an exception
+    pub fn lookup_ref(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        // Get interned name for efficient lookup
+        let interned_name = vm.ctx.interned_str(name)?;
+
+        // Use find_name_in_mro which matches CPython's behavior
+        // This bypasses descriptors and other attribute access machinery
+        self.find_name_in_mro(interned_name)
+    }
+
     pub fn get_super_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
         self.mro
             .read()
