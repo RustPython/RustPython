@@ -22,6 +22,7 @@ mod sysconfigdata;
 #[cfg(feature = "threading")]
 pub mod thread;
 pub mod time;
+mod typevar;
 pub mod typing;
 pub mod warnings;
 mod weakref;

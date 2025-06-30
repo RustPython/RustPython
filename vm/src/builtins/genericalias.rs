@@ -12,8 +12,8 @@ use crate::{
     function::{FuncArgs, PyComparisonValue},
     protocol::{PyMappingMethods, PyNumberMethods},
     types::{
-        AsMapping, AsNumber, Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp,
-        Representable,
+        AsMapping, AsNumber, Callable, Comparable, Constructor, GetAttr, Hashable, Iterable,
+        PyComparisonOp, Representable,
     },
 };
 use std::fmt;
@@ -78,6 +78,7 @@ impl Constructor for PyGenericAlias {
         Constructor,
         GetAttr,
         Hashable,
+        Iterable,
         Representable
     ),
     flags(BASETYPE)
@@ -166,17 +167,17 @@ impl PyGenericAlias {
     }
 
     #[pymethod]
-    fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn __getitem__(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let new_args = subs_parameters(
-            |vm| self.repr(vm),
-            self.args.clone(),
-            self.parameters.clone(),
+            zelf.to_owned().into(),
+            zelf.args.clone(),
+            zelf.parameters.clone(),
             needle,
             vm,
         )?;
 
         Ok(
-            PyGenericAlias::new(self.origin.clone(), new_args.to_pyobject(vm), vm)
+            PyGenericAlias::new(zelf.origin.clone(), new_args.to_pyobject(vm), vm)
                 .into_pyobject(vm),
         )
     }
@@ -277,6 +278,18 @@ fn tuple_index(vec: &[PyObjectRef], item: &PyObjectRef) -> Option<usize> {
     vec.iter().position(|element| element.is(item))
 }
 
+fn is_unpacked_typevartuple(arg: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    if arg.class().is(vm.ctx.types.type_type) {
+        return Ok(false);
+    }
+
+    if let Ok(attr) = arg.get_attr(identifier!(vm, __typing_is_unpacked_typevartuple__), vm) {
+        attr.try_to_bool(vm)
+    } else {
+        Ok(false)
+    }
+}
+
 fn subs_tvars(
     obj: PyObjectRef,
     params: &PyTupleRef,
@@ -324,8 +337,8 @@ fn subs_tvars(
 }
 
 // _Py_subs_parameters
-pub fn subs_parameters<F: Fn(&VirtualMachine) -> PyResult<String>>(
-    repr: F,
+pub fn subs_parameters(
+    alias: PyObjectRef, // The GenericAlias object itself
     args: PyTupleRef,
     parameters: PyTupleRef,
     needle: PyObjectRef,
@@ -333,13 +346,31 @@ pub fn subs_parameters<F: Fn(&VirtualMachine) -> PyResult<String>>(
 ) -> PyResult<PyTupleRef> {
     let num_params = parameters.len();
     if num_params == 0 {
-        return Err(vm.new_type_error(format!("There are no type variables left in {}", repr(vm)?)));
+        return Err(vm.new_type_error(format!("{} is not a generic class", alias.repr(vm)?)));
     }
 
-    let items = needle.try_to_ref::<PyTuple>(vm);
+    // Handle __typing_prepare_subst__ for each parameter
+    // Following CPython: each prepare function transforms the args
+    let mut prepared_args = needle.clone();
+
+    // Ensure args is a tuple
+    if prepared_args.try_to_ref::<PyTuple>(vm).is_err() {
+        prepared_args = PyTuple::new_ref(vec![prepared_args], &vm.ctx).into();
+    }
+
+    for param in parameters.iter() {
+        if let Ok(prepare) = param.get_attr(identifier!(vm, __typing_prepare_subst__), vm) {
+            if !prepare.is(&vm.ctx.none) {
+                // Call prepare(cls, args) where cls is the GenericAlias
+                prepared_args = prepare.call((alias.clone(), prepared_args), vm)?;
+            }
+        }
+    }
+
+    let items = prepared_args.try_to_ref::<PyTuple>(vm);
     let arg_items = match items {
         Ok(tuple) => tuple.as_slice(),
-        Err(_) => std::slice::from_ref(&needle),
+        Err(_) => std::slice::from_ref(&prepared_args),
     };
 
     let num_items = arg_items.len();
@@ -362,40 +393,82 @@ pub fn subs_parameters<F: Fn(&VirtualMachine) -> PyResult<String>>(
 
         let min_required = num_params - params_with_defaults;
         if num_items < min_required {
+            let repr_str = alias.repr(vm)?;
             return Err(vm.new_type_error(format!(
-                "Too few arguments for {}; actual {}, expected at least {}",
-                repr(vm)?,
-                num_items,
-                min_required
+                "Too few arguments for {repr_str}; actual {num_items}, expected at least {min_required}"
             )));
         }
     } else if num_items > num_params {
+        let repr_str = alias.repr(vm)?;
         return Err(vm.new_type_error(format!(
-            "Too many arguments for {}; actual {}, expected {}",
-            repr(vm)?,
-            num_items,
-            num_params
+            "Too many arguments for {repr_str}; actual {num_items}, expected {num_params}"
         )));
     }
 
-    let mut new_args = Vec::new();
+    let mut new_args = Vec::with_capacity(args.len());
 
     for arg in args.iter() {
+        // Skip bare Python classes
+        if arg.class().is(vm.ctx.types.type_type) {
+            new_args.push(arg.clone());
+            continue;
+        }
+
+        // Check if this is an unpacked TypeVarTuple
+        let unpack = is_unpacked_typevartuple(arg, vm)?;
+
         // Check for __typing_subst__ attribute directly (like CPython)
         if let Ok(subst) = arg.get_attr(identifier!(vm, __typing_subst__), vm) {
-            let idx = tuple_index(parameters.as_slice(), arg).unwrap();
-            if idx < num_items {
-                // Call __typing_subst__ with the argument
-                let substituted = subst.call((arg_items[idx].clone(),), vm)?;
-                new_args.push(substituted);
+            if let Some(idx) = tuple_index(parameters.as_slice(), arg) {
+                if idx < num_items {
+                    // Call __typing_subst__ with the argument
+                    let substituted = subst.call((arg_items[idx].clone(),), vm)?;
+
+                    if unpack {
+                        // Unpack the tuple if it's a TypeVarTuple
+                        if let Ok(tuple) = substituted.try_to_ref::<PyTuple>(vm) {
+                            for elem in tuple.iter() {
+                                new_args.push(elem.clone());
+                            }
+                        } else {
+                            new_args.push(substituted);
+                        }
+                    } else {
+                        new_args.push(substituted);
+                    }
+                } else {
+                    // Use default value if available
+                    if let Ok(default_val) = vm.call_method(arg, "__default__", ()) {
+                        if !default_val.is(&vm.ctx.typing_no_default) {
+                            new_args.push(default_val);
+                        } else {
+                            return Err(vm.new_type_error(format!(
+                                "No argument provided for parameter at index {idx}"
+                            )));
+                        }
+                    } else {
+                        return Err(vm.new_type_error(format!(
+                            "No argument provided for parameter at index {idx}"
+                        )));
+                    }
+                }
             } else {
-                // CPython doesn't support default values in this context
-                return Err(
-                    vm.new_type_error(format!("No argument provided for parameter at index {idx}"))
-                );
+                new_args.push(arg.clone());
             }
         } else {
-            new_args.push(subs_tvars(arg.clone(), &parameters, arg_items, vm)?);
+            let subst_arg = subs_tvars(arg.clone(), &parameters, arg_items, vm)?;
+            if unpack {
+                // Unpack the tuple if it's a TypeVarTuple
+                if let Ok(tuple) = subst_arg.try_to_ref::<PyTuple>(vm) {
+                    for elem in tuple.iter() {
+                        new_args.push(elem.clone());
+                    }
+                } else {
+                    new_args.push(subst_arg);
+                }
+            } else {
+                new_args.push(subst_arg);
+            }
         }
     }
 
@@ -406,7 +479,8 @@ impl AsMapping for PyGenericAlias {
     fn as_mapping() -> &'static PyMappingMethods {
         static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
             subscript: atomic_func!(|mapping, needle, vm| {
-                PyGenericAlias::mapping_downcast(mapping).__getitem__(needle.to_owned(), vm)
+                let zelf = PyGenericAlias::mapping_downcast(mapping);
+                PyGenericAlias::__getitem__(zelf.to_owned(), needle.to_owned(), vm)
             }),
             ..PyMappingMethods::NOT_IMPLEMENTED
         });
@@ -487,6 +561,13 @@ impl Representable for PyGenericAlias {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         zelf.repr(vm)
+    }
+}
+
+impl Iterable for PyGenericAlias {
+    fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        // Return an iterator over the args tuple
+        Ok(zelf.args.clone().to_pyobject(vm).get_iter(vm)?.into())
     }
 }
 
