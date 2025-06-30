@@ -410,43 +410,39 @@ impl PyObject {
     }
 
     fn abstract_issubclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        // # Safety: The lifetime of `derived` is forced to be ignored
-        let bases = unsafe {
-            let mut derived = self;
-            // First loop: handle single inheritance without recursion
-            loop {
-                if derived.is(cls) {
-                    return Ok(true);
-                }
+        // Store the current derived class to check
+        let mut bases: PyTupleRef;
+        let mut derived = self;
 
-                let Some(bases) = derived.abstract_get_bases(vm)? else {
-                    return Ok(false);
-                };
-                let n = bases.len();
-                match n {
-                    0 => return Ok(false),
-                    1 => {
-                        // Avoid recursion in the single inheritance case
-                        // # safety
-                        // Intention:
-                        // ```
-                        // derived = bases.as_slice()[0].as_object();
-                        // ```
-                        // Though type-system cannot guarantee, derived does live long enough in the loop.
-                        derived = &*(bases.as_slice()[0].as_object() as *const _);
-                        continue;
-                    }
-                    _ => {
-                        // Multiple inheritance - break out to handle recursively
-                        break bases;
-                    }
+        // First loop: handle single inheritance without recursion
+        let bases = loop {
+            if derived.is(cls) {
+                return Ok(true);
+            }
+
+            let Some(derived_bases) = derived.abstract_get_bases(vm)? else {
+                return Ok(false);
+            };
+
+            let n = derived_bases.len();
+            match n {
+                0 => return Ok(false),
+                1 => {
+                    // Avoid recursion in the single inheritance case
+                    // Get the next derived class and continue the loop
+                    bases = derived_bases;
+                    derived = &bases.as_slice()[0];
+                    continue;
+                }
+                _ => {
+                    // Multiple inheritance - handle recursively
+                    break derived_bases;
                 }
             }
         };
 
-        // Second loop: handle multiple inheritance with recursion
-        // At this point we know n >= 2
         let n = bases.len();
+        // At this point we know n >= 2
         debug_assert!(n >= 2);
 
         for i in 0..n {
