@@ -689,8 +689,6 @@ class TypeParameterDefaultsTests(BaseTestCase):
         self.assertEqual(A[float, range].__args__, (float, range))
         self.assertEqual(A[float, *tuple[int, ...]].__args__, (float, *tuple[int, ...]))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_typevar_and_typevartuple_specialization(self):
         T = TypeVar("T")
         U = TypeVar("U", default=float)
@@ -738,8 +736,6 @@ class TypeParameterDefaultsTests(BaseTestCase):
         self.assertEqual(A[float].__args__, (float, (str, int)))
         self.assertEqual(A[float, [range]].__args__, (float, (range,)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_typevar_and_paramspec_specialization(self):
         T = TypeVar("T")
         U = TypeVar("U", default=float)
@@ -750,8 +746,6 @@ class TypeParameterDefaultsTests(BaseTestCase):
         self.assertEqual(A[float, int].__args__, (float, int, (str, int)))
         self.assertEqual(A[float, int, [range]].__args__, (float, int, (range,)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_paramspec_and_typevar_specialization(self):
         T = TypeVar("T")
         P = ParamSpec('P', default=[str, int])
@@ -2539,8 +2533,6 @@ class BaseCallableTests:
         self.assertIs(a().__class__, C1)
         self.assertEqual(a().__orig_class__, C1[[int], T])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_paramspec(self):
         Callable = self.Callable
         fullname = f"{Callable.__module__}.Callable"
@@ -2575,8 +2567,6 @@ class BaseCallableTests:
         self.assertEqual(repr(C2), f"{fullname}[~P, int]")
         self.assertEqual(repr(C2[int, str]), f"{fullname}[[int, str], int]")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_concatenate(self):
         Callable = self.Callable
         fullname = f"{Callable.__module__}.Callable"
@@ -2604,8 +2594,6 @@ class BaseCallableTests:
                          Callable[Concatenate[int, str, P2], int])
         self.assertEqual(C[...], Callable[Concatenate[int, ...], int])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nested_paramspec(self):
         # Since Callable has some special treatment, we want to be sure
         # that substituion works correctly, see gh-103054
@@ -2648,8 +2636,6 @@ class BaseCallableTests:
         self.assertEqual(C4[bool, bytes, float],
                          My[[Callable[[int, bool, bytes, str], float], float], float])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_errors(self):
         Callable = self.Callable
         alias = Callable[[int, str], float]
@@ -2677,6 +2663,11 @@ class TypingCallableTests(BaseCallableTests, BaseTestCase):
 
 class CollectionsCallableTests(BaseCallableTests, BaseTestCase):
     Callable = collections.abc.Callable
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_errors(self):
+        super().test_errors()
 
 
 class LiteralTests(BaseTestCase):
@@ -4627,8 +4618,6 @@ class GenericTests(BaseTestCase):
         class Sub(Base, Generic[T]):
             ...
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_parameter_detection(self):
         self.assertEqual(List[T].__parameters__, (T,))
         self.assertEqual(List[List[T]].__parameters__, (T,))
@@ -4646,8 +4635,6 @@ class GenericTests(BaseTestCase):
         # C version of GenericAlias
         self.assertEqual(list[A()].__parameters__, (T,))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_non_generic_subscript(self):
         T = TypeVar('T')
         class G(Generic[T]):
@@ -8854,8 +8841,6 @@ class ParamSpecTests(BaseTestCase):
                 with self.assertRaises(TypeError):
                     collections.abc.Callable[P, T][arg, str]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_type_var_subst_for_other_type_vars(self):
         T = TypeVar('T')
         T2 = TypeVar('T2')
@@ -8977,8 +8962,6 @@ class ParamSpecTests(BaseTestCase):
         self.assertEqual(C3.__args__, ((int, *Ts), T))
         self.assertEqual(C3[str, bool, bytes], PandT[[int, str, bool], bytes])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_paramspec_in_nested_generics(self):
         # Although ParamSpec should not be found in __parameters__ of most
         # generics, they probably should be found when nested in
@@ -8997,8 +8980,6 @@ class ParamSpecTests(BaseTestCase):
         self.assertEqual(G2[[int, str], float], list[C])
         self.assertEqual(G3[[int, str], float], list[C] | int)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_paramspec_gets_copied(self):
         # bpo-46581
         P = ParamSpec('P')
@@ -9086,8 +9067,6 @@ class ConcatenateTests(BaseTestCase):
         ):
             Concatenate[int]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_var_substitution(self):
         T = TypeVar('T')
         P = ParamSpec('P')

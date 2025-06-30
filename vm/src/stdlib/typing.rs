@@ -168,6 +168,55 @@ pub(crate) mod decl {
             // Check if default_value is not NoDefault
             !default_value.is(&vm.ctx.typing_no_default)
         }
+
+        #[pymethod]
+        fn __typing_prepare_subst__(
+            zelf: crate::PyRef<Self>,
+            alias: PyObjectRef,
+            args: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            // Convert args to tuple if needed
+            let args_tuple =
+                if let Ok(tuple) = args.try_to_ref::<rustpython_vm::builtins::PyTuple>(vm) {
+                    tuple
+                } else {
+                    return Ok(args);
+                };
+
+            // Get alias.__parameters__
+            let parameters = alias.get_attr(identifier!(vm, __parameters__), vm)?;
+            let params_tuple: PyTupleRef = parameters.try_into_value(vm)?;
+
+            // Find our index in parameters
+            let self_obj: PyObjectRef = zelf.to_owned().into();
+            let param_index = params_tuple.iter().position(|p| p.is(&self_obj));
+
+            if let Some(index) = param_index {
+                // Check if we have enough arguments
+                if args_tuple.len() <= index && zelf.has_default(vm) {
+                    // Need to add default value
+                    let mut new_args: Vec<PyObjectRef> = args_tuple.iter().cloned().collect();
+
+                    // Add default value at the correct position
+                    while new_args.len() <= index {
+                        // For the current parameter, add its default
+                        if new_args.len() == index {
+                            let default_val = zelf.__default__(vm)?;
+                            new_args.push(default_val);
+                        } else {
+                            // This shouldn't happen in well-formed code
+                            break;
+                        }
+                    }
+
+                    return Ok(rustpython_vm::builtins::PyTuple::new_ref(new_args, &vm.ctx).into());
+                }
+            }
+
+            // No changes needed
+            Ok(args)
+        }
     }
 
     impl Representable for TypeVar {
@@ -456,7 +505,7 @@ pub(crate) mod decl {
         fn __typing_prepare_subst__(
             zelf: crate::PyRef<Self>,
             alias: PyObjectRef,
-            args: PyTupleRef,
+            args: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult {
             let self_obj: PyObjectRef = zelf.into();

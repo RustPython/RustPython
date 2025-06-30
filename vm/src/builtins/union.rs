@@ -206,11 +206,11 @@ pub fn make_union(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyObjectRef {
 }
 
 impl PyUnion {
-    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let new_args = genericalias::subs_parameters(
-            |vm| self.repr(vm),
-            self.args.clone(),
-            self.parameters.clone(),
+            zelf.to_owned().into(),
+            zelf.args.clone(),
+            zelf.parameters.clone(),
             needle,
             vm,
         )?;
@@ -232,7 +232,8 @@ impl AsMapping for PyUnion {
     fn as_mapping() -> &'static PyMappingMethods {
         static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
             subscript: atomic_func!(|mapping, needle, vm| {
-                PyUnion::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
+                let zelf = PyUnion::mapping_downcast(mapping);
+                PyUnion::getitem(zelf.to_owned(), needle.to_owned(), vm)
             }),
             ..PyMappingMethods::NOT_IMPLEMENTED
         });

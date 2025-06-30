@@ -224,6 +224,8 @@ declare_const_name! {
     __truediv__,
     __trunc__,
     __typing_subst__,
+    __typing_is_unpacked_typevartuple__,
+    __typing_prepare_subst__,
     __xor__,
 
     // common names
