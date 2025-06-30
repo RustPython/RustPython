@@ -12,8 +12,8 @@ use crate::{
     function::{FuncArgs, PyComparisonValue},
     protocol::{PyMappingMethods, PyNumberMethods},
     types::{
-        AsMapping, AsNumber, Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp,
-        Representable,
+        AsMapping, AsNumber, Callable, Comparable, Constructor, GetAttr, Hashable, Iterable,
+        PyComparisonOp, Representable,
     },
 };
 use std::fmt;
@@ -78,6 +78,7 @@ impl Constructor for PyGenericAlias {
         Constructor,
         GetAttr,
         Hashable,
+        Iterable,
         Representable
     ),
     flags(BASETYPE)
@@ -487,6 +488,13 @@ impl Representable for PyGenericAlias {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         zelf.repr(vm)
+    }
+}
+
+impl Iterable for PyGenericAlias {
+    fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        // Return an iterator over the args tuple
+        Ok(zelf.args.clone().to_pyobject(vm).get_iter(vm)?.into())
     }
 }
 

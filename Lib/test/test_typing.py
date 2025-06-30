@@ -680,8 +680,6 @@ class TypeParameterDefaultsTests(BaseTestCase):
         class A(Generic[Unpack[Ts]]): ...
         Alias = Optional[Unpack[Ts]]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_typevartuple_specialization(self):
         T = TypeVar("T")
         Ts = TypeVarTuple('Ts', default=Unpack[Tuple[str, int]])
@@ -1049,8 +1047,6 @@ class GenericAliasSubstitutionTests(BaseTestCase):
                             eval(expected_str)
                         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_three_parameters(self):
         T1 = TypeVar('T1')
         T2 = TypeVar('T2')
