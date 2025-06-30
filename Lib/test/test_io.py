@@ -5098,13 +5098,15 @@ class SignalsTest(unittest.TestCase):
                 if e.errno != errno.EBADF:
                     raise
 
-    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'already borrowed: BorrowMutError'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @requires_alarm
     @support.requires_resource('walltime')
     def test_interrupted_write_retry_buffered(self):
         self.check_interrupted_write_retry(b"x", mode="wb")
 
-    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'already borrowed: BorrowMutError'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @requires_alarm
     @support.requires_resource('walltime')
     def test_interrupted_write_retry_text(self):

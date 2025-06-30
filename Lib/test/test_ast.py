@@ -340,7 +340,8 @@ class AST_Tests(unittest.TestCase):
         support.gc_collect()
         self.assertIsNone(ref())
 
-    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'not implemented: async for comprehensions'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_snippets(self):
         for input, output, kind in ((exec_tests, exec_results, "exec"),
                                     (single_tests, single_results, "single"),
@@ -353,7 +354,8 @@ class AST_Tests(unittest.TestCase):
                 with self.subTest(action="compiling", input=i, kind=kind):
                     compile(ast_tree, "?", kind)
 
-    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'not implemented: async for comprehensions'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ast_validation(self):
         # compile() is the only function that calls PyAST_Validate
         snippets_to_validate = exec_tests + single_tests + eval_tests
@@ -361,7 +363,8 @@ class AST_Tests(unittest.TestCase):
             tree = ast.parse(snippet)
             compile(tree, '<string>', 'exec')
 
-    @unittest.skip("TODO: RUSTPYTHON, OverflowError: Python int too large to convert to Rust u32")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalid_position_information(self):
         invalid_linenos = [
             (10, 1), (-10, -11), (10, -11), (-5, -2), (-5, 1)
