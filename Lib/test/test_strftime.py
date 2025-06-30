@@ -63,7 +63,6 @@ class StrftimeTest(unittest.TestCase):
             setlocale(LC_TIME, 'C')
             self.addCleanup(setlocale, LC_TIME, saved_locale)
 
-    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'a Display implementation returned an error unexpectedly: Error'")
     def test_strftime(self):
         now = time.time()
         self._update_variables(now)

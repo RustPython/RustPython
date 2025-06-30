@@ -236,7 +236,6 @@ class TimeTestCase(unittest.TestCase):
     def test_strftime_bounding_check(self):
         self._bounds_checking(lambda tup: time.strftime('', tup))
 
-    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'a Display implementation returned an error unexpectedly: Error'")
     def test_strftime_format_check(self):
         # Test that strftime does not crash on invalid format strings
         # that may trigger a buffer overread. When not triggered,
@@ -459,7 +458,6 @@ class TimeTestCase(unittest.TestCase):
 
     # Issue #13309: passing extreme values to mktime() or localtime()
     # borks the glibc's internal timezone data.
-    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'a Display implementation returned an error unexpectedly: Error'")
     @unittest.skipUnless(platform.libc_ver()[0] != 'glibc',
                          "disabled because of a bug in glibc. Issue #13309")
     def test_mktime_error(self):
