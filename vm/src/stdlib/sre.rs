@@ -30,22 +30,26 @@ mod _sre {
     pub use rustpython_sre_engine::{CODESIZE, MAXGROUPS, MAXREPEAT, SRE_MAGIC as MAGIC};
 
     #[pyfunction]
-    fn getcodesize() -> usize {
+    const fn getcodesize() -> usize {
         CODESIZE
     }
+
     #[pyfunction]
     fn ascii_iscased(ch: i32) -> bool {
-        (ch >= b'a' as i32 && ch <= b'z' as i32) || (ch >= b'A' as i32 && ch <= b'Z' as i32)
+        (b'a' as i32..=b'z' as i32).contains(&ch) || (b'A' as i32..=b'Z' as i32).contains(&ch)
     }
+
     #[pyfunction]
     fn unicode_iscased(ch: i32) -> bool {
         let ch = ch as u32;
         ch != lower_unicode(ch) || ch != upper_unicode(ch)
     }
+
     #[pyfunction]
     fn ascii_tolower(ch: i32) -> i32 {
         lower_ascii(ch as u32) as i32
     }
+
     #[pyfunction]
     fn unicode_tolower(ch: i32) -> i32 {
         lower_unicode(ch as u32) as i32
@@ -348,6 +352,7 @@ mod _sre {
         fn sub(zelf: PyRef<Pattern>, sub_args: SubArgs, vm: &VirtualMachine) -> PyResult {
             Self::sub_impl(zelf, sub_args, false, vm)
         }
+
         #[pymethod]
         fn subn(zelf: PyRef<Pattern>, sub_args: SubArgs, vm: &VirtualMachine) -> PyResult {
             Self::sub_impl(zelf, sub_args, true, vm)
@@ -394,14 +399,17 @@ mod _sre {
         fn flags(&self) -> u16 {
             self.flags.bits()
         }
+
         #[pygetset]
         fn groupindex(&self) -> PyDictRef {
             self.groupindex.clone()
         }
+
         #[pygetset]
-        fn groups(&self) -> usize {
+        const fn groups(&self) -> usize {
             self.groups
         }
+
         #[pygetset]
         fn pattern(&self) -> PyObjectRef {
             self.pattern.clone()
@@ -630,34 +638,40 @@ mod _sre {
         }
 
         #[pygetset]
-        fn pos(&self) -> usize {
+        const fn pos(&self) -> usize {
             self.pos
         }
+
         #[pygetset]
-        fn endpos(&self) -> usize {
+        const fn endpos(&self) -> usize {
             self.endpos
         }
+
         #[pygetset]
-        fn lastindex(&self) -> Option<isize> {
+        const fn lastindex(&self) -> Option<isize> {
             if self.lastindex >= 0 {
                 Some(self.lastindex)
             } else {
                 None
             }
         }
+
         #[pygetset]
         fn lastgroup(&self) -> Option<PyStrRef> {
             let i = self.lastindex.to_usize()?;
             self.pattern.indexgroup.get(i)?.clone()
         }
+
         #[pygetset]
         fn re(&self) -> PyRef<Pattern> {
             self.pattern.clone()
         }
+
         #[pygetset]
         fn string(&self) -> PyObjectRef {
             self.string.clone()
         }
+
         #[pygetset]
         fn regs(&self, vm: &VirtualMachine) -> PyTupleRef {
             PyTuple::new_ref(
@@ -670,10 +684,12 @@ mod _sre {
         fn start(&self, group: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<isize> {
             self.span(group, vm).map(|x| x.0)
         }
+
         #[pymethod]
         fn end(&self, group: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<isize> {
             self.span(group, vm).map(|x| x.1)
         }
+
         #[pymethod]
         fn span(
             &self,
@@ -705,7 +721,7 @@ mod _sre {
                     .into_iter()
                     .map(|x| {
                         self.get_index(x, vm)
-                            .ok_or_else(|| vm.new_index_error("no such group".to_owned()))
+                            .ok_or_else(|| vm.new_index_error("no such group"))
                             .map(|index| {
                                 self.get_slice(index, str_drive, vm)
                                     .map(|x| x.to_pyobject(vm))
@@ -730,7 +746,7 @@ mod _sre {
             with_sre_str!(self.pattern, &self.string, vm, |str_drive| {
                 let i = self
                     .get_index(group, vm)
-                    .ok_or_else(|| vm.new_index_error("no such group".to_owned()))?;
+                    .ok_or_else(|| vm.new_index_error("no such group"))?;
                 Ok(self.get_slice(i, str_drive, vm))
             })
         }
