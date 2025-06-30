@@ -97,6 +97,7 @@ type Lasti = std::cell::Cell<u32>;
 #[pyclass(module = false, name = "frame")]
 pub struct Frame {
     pub code: PyRef<PyCode>,
+    pub func_obj: Option<PyObjectRef>,
 
     pub fastlocals: PyMutex<Box<[Option<PyObjectRef>]>>,
     pub(crate) cells_frees: Box<[PyCellRef]>,
@@ -139,6 +140,7 @@ impl Frame {
         scope: Scope,
         builtins: PyDictRef,
         closure: &[PyCellRef],
+        func_obj: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> Frame {
         let cells_frees = std::iter::repeat_with(|| PyCell::default().into_ref(&vm.ctx))
@@ -160,6 +162,7 @@ impl Frame {
             globals: scope.globals,
             builtins,
             code,
+            func_obj,
             lasti: Lasti::new(0),
             state: PyMutex::new(state),
             trace: PyMutex::new(vm.ctx.none()),

@@ -514,6 +514,32 @@ mod sys {
     }
 
     #[pyfunction]
+    fn _getframemodulename(depth: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult {
+        let depth = depth.into_option().unwrap_or(0);
+
+        // Get the frame at the specified depth
+        if depth > vm.frames.borrow().len() - 1 {
+            return Ok(vm.ctx.none());
+        }
+
+        let idx = vm.frames.borrow().len() - depth - 1;
+        let frame = &vm.frames.borrow()[idx];
+
+        // If the frame has a function object, return its __module__ attribute
+        if let Some(func_obj) = &frame.func_obj {
+            match func_obj.get_attr(identifier!(vm, __module__), vm) {
+                Ok(module) => Ok(module),
+                Err(_) => {
+                    // CPython clears the error and returns None
+                    Ok(vm.ctx.none())
+                }
+            }
+        } else {
+            Ok(vm.ctx.none())
+        }
+    }
+
+    #[pyfunction]
     fn gettrace(vm: &VirtualMachine) -> PyObjectRef {
         vm.trace_func.borrow().clone()
     }

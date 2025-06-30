@@ -449,7 +449,26 @@ impl VirtualMachine {
     }
 
     pub fn run_code_obj(&self, code: PyRef<PyCode>, scope: Scope) -> PyResult {
-        let frame = Frame::new(code, scope, self.builtins.dict(), &[], self).into_ref(&self.ctx);
+        use crate::builtins::PyFunction;
+
+        // Create a function object for module code, similar to CPython's PyEval_EvalCode
+        let qualname = self.ctx.new_str(code.obj_name.as_str());
+        let func = PyFunction::new(
+            code.clone(),
+            scope.globals.clone(),
+            None, // closure
+            None, // defaults
+            None, // kwdefaults
+            qualname,
+            self.ctx.new_tuple(vec![]), // type_params
+            self.ctx.new_dict(),        // annotations
+            self.ctx.none(),            // doc
+            self,
+        )?;
+        let func_obj = func.into_ref(&self.ctx).into();
+
+        let frame = Frame::new(code, scope, self.builtins.dict(), &[], Some(func_obj), self)
+            .into_ref(&self.ctx);
         self.run_frame(frame)
     }
 
