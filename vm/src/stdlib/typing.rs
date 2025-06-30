@@ -343,7 +343,7 @@ pub(crate) mod decl {
         infer_variance: bool,
     }
 
-    #[pyclass(flags(HAS_DICT), with(AsNumber, Constructor))]
+    #[pyclass(flags(HAS_DICT), with(AsNumber, Constructor, Representable))]
     impl ParamSpec {
         #[pymethod]
         fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -555,6 +555,14 @@ pub(crate) mod decl {
         }
     }
 
+    impl Representable for ParamSpec {
+        #[inline(always)]
+        fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let name = zelf.__name__().str(vm)?;
+            Ok(format!("~{name}"))
+        }
+    }
+
     pub(crate) fn make_paramspec(name: PyObjectRef) -> ParamSpec {
         ParamSpec {
             name,
@@ -739,7 +747,7 @@ pub(crate) mod decl {
         #[inline(always)]
         fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
             let name = zelf.name.str(vm)?;
-            Ok(format!("*{name}"))
+            Ok(name.to_string())
         }
     }
 
@@ -960,7 +968,7 @@ pub(crate) mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name)]
+    #[pyclass(name = "Generic", module = "typing")]
     #[derive(Debug, PyPayload)]
     #[allow(dead_code)]
     pub(crate) struct Generic {}
