@@ -29,7 +29,7 @@ mod basic_readline {
 
     impl<H: Helper> Readline<H> {
         pub fn new(helper: H) -> Self {
-            Readline { helper }
+            Self { helper }
         }
 
         pub fn load_history(&mut self, _path: &Path) -> OtherResult<()> {
@@ -86,7 +86,7 @@ mod rustyline_readline {
             )
             .expect("failed to initialize line editor");
             repl.set_helper(Some(helper));
-            Readline { repl }
+            Self { repl }
         }
 
         pub fn load_history(&mut self, path: &Path) -> OtherResult<()> {
@@ -136,7 +136,7 @@ pub struct Readline<H: Helper>(readline_inner::Readline<H>);
 
 impl<H: Helper> Readline<H> {
     pub fn new(helper: H) -> Self {
-        Readline(readline_inner::Readline::new(helper))
+        Self(readline_inner::Readline::new(helper))
     }
 
     pub fn load_history(&mut self, path: &Path) -> OtherResult<()> {
