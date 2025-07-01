@@ -1959,7 +1959,11 @@ mod decl {
 
     impl IterNext for PyItertoolsPairwise {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let old = match zelf.old.read().clone() {
+            let old_guard = {
+                let guard = zelf.old.read();
+                guard.clone()
+            };
+            let old = match old_guard {
                 None => match zelf.iterator.next(vm)? {
                     PyIterReturn::Return(obj) => obj,
                     PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
@@ -1972,9 +1976,7 @@ mod decl {
                 PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
             };
 
-            {
-                *zelf.old.write() = Some(new.clone());
-            }
+            *zelf.old.write() = Some(new.clone());
 
             Ok(PyIterReturn::Return(vm.new_tuple((old, new)).into()))
         }
