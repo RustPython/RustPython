@@ -849,6 +849,48 @@ impl PyType {
             .and_then(|doc| get_text_signature_from_internal_doc(&self.name(), doc))
             .map(|signature| signature.to_string())
     }
+
+    #[pygetset]
+    fn __type_params__(&self, vm: &VirtualMachine) -> PyTupleRef {
+        let attrs = self.attributes.read();
+        let key = identifier!(vm, __type_params__);
+        if let Some(params) = attrs.get(&key) {
+            if let Ok(tuple) = params.clone().downcast::<PyTuple>() {
+                return tuple;
+            }
+        }
+        // Return empty tuple if not found or not a tuple
+        vm.ctx.empty_tuple.clone()
+    }
+
+    #[pygetset(setter)]
+    fn set___type_params__(
+        &self,
+        value: PySetterValue<PyTupleRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        match value {
+            PySetterValue::Assign(ref val) => {
+                let key = identifier!(vm, __type_params__);
+                self.check_set_special_type_attr(val.as_ref(), key, vm)?;
+                let mut attrs = self.attributes.write();
+                attrs.insert(key, val.clone().into());
+            }
+            PySetterValue::Delete => {
+                // For delete, we still need to check if the type is immutable
+                if self.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+                    return Err(vm.new_type_error(format!(
+                        "cannot delete '__type_params__' attribute of immutable type '{}'",
+                        self.slot_name()
+                    )));
+                }
+                let mut attrs = self.attributes.write();
+                let key = identifier!(vm, __type_params__);
+                attrs.shift_remove(&key);
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Constructor for PyType {

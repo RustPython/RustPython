@@ -2901,7 +2901,20 @@ impl Compiler<'_> {
         } else {
             let was_in_annotation = self.in_annotation;
             self.in_annotation = true;
-            let result = self.compile_expression(annotation);
+
+            // Special handling for starred annotations (*Ts -> Unpack[Ts])
+            let result = match annotation {
+                Expr::Starred(ExprStarred { value, .. }) => {
+                    // Following CPython's approach:
+                    // *args: *Ts (where Ts is a TypeVarTuple).
+                    // Do [annotation_value] = [*Ts].
+                    self.compile_expression(value)?;
+                    emit!(self, Instruction::UnpackSequence { size: 1 });
+                    Ok(())
+                }
+                _ => self.compile_expression(annotation),
+            };
+
             self.in_annotation = was_in_annotation;
             result?;
         }

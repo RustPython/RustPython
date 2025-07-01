@@ -223,6 +223,7 @@ declare_const_name! {
     __sizeof__,
     __truediv__,
     __trunc__,
+    __type_params__,
     __typing_subst__,
     __typing_is_unpacked_typevartuple__,
     __typing_prepare_subst__,
