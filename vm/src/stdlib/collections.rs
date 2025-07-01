@@ -415,7 +415,7 @@ mod _collections {
             args: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyGenericAlias {
-            PyGenericAlias::new(cls, args, vm)
+            PyGenericAlias::from_args(cls, args, vm)
         }
     }
 
