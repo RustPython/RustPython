@@ -1952,7 +1952,7 @@ mod decl {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE, IMMUTABLETYPE))]
+    #[pyclass(with(IterNext, Iterable, Constructor))]
     impl PyItertoolsPairwise {}
 
     impl SelfIter for PyItertoolsPairwise {}
