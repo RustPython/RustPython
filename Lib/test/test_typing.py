@@ -922,8 +922,6 @@ class GenericAliasSubstitutionTests(BaseTestCase):
     https://github.com/python/cpython/issues/91162.
     """
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_one_parameter(self):
         T = TypeVar('T')
         Ts = TypeVarTuple('Ts')
@@ -1634,8 +1632,6 @@ class TypeVarTupleTests(BaseTestCase):
         # def func3(*args: *CustomVariadic[int, str]): pass
         # self.assertEqual(gth(func3), {'args': Unpack[CustomVariadic[int, str]]})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_type_hints_on_unpack_args_string(self):
         Ts = TypeVarTuple('Ts')
 
