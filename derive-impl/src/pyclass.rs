@@ -4,9 +4,10 @@ use crate::util::{
     ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, format_doc, pyclass_ident_and_attrs,
     pyexception_ident_and_attrs, text_signature,
 };
+use indexmap::IndexMap;
 use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
 use quote::{ToTokens, quote, quote_spanned};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::str::FromStr;
 use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
 use syn_ext::ext::*;
@@ -1031,7 +1032,7 @@ impl ToTokens for MethodNursery {
 #[derive(Default)]
 #[allow(clippy::type_complexity)]
 struct GetSetNursery {
-    map: HashMap<(String, Vec<Attribute>), (Option<Ident>, Option<Ident>, Option<Ident>)>,
+    map: IndexMap<(String, Vec<Attribute>), (Option<Ident>, Option<Ident>, Option<Ident>)>,
     validated: bool,
 }
 
@@ -1124,7 +1125,7 @@ impl ToTokens for GetSetNursery {
 #[derive(Default)]
 #[allow(clippy::type_complexity)]
 struct MemberNursery {
-    map: HashMap<(String, MemberKind), (Option<Ident>, Option<Ident>)>,
+    map: BTreeMap<(String, MemberKind), (Option<Ident>, Option<Ident>)>,
     validated: bool,
 }
 
@@ -1133,7 +1134,7 @@ enum MemberItemKind {
     Set,
 }
 
-#[derive(Eq, PartialEq, Hash)]
+#[derive(Eq, PartialEq, Ord, PartialOrd)]
 enum MemberKind {
     Bool,
     ObjectEx,
