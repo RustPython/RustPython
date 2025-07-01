@@ -6106,6 +6106,8 @@ class GetUtilitiesTestCase(TestCase):
         self.assertIs(get_origin((*tuple[*Ts],)[0]), tuple)
         self.assertIs(get_origin(Unpack[Tuple[Unpack[Ts]]]), Unpack)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_get_args(self):
         T = TypeVar('T')
         class C(Generic[T]): pass

@@ -1267,6 +1267,7 @@ impl SymbolTableBuilder<'_> {
     }
 
     fn scan_type_params(&mut self, type_params: &TypeParams) -> SymbolTableResult {
+        // First register all type parameters
         for type_param in &type_params.type_params {
             match type_param {
                 TypeParam::TypeVar(TypeParamTypeVar {

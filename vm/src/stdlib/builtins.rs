@@ -932,6 +932,23 @@ mod builtins {
             ))
         })?;
 
+        // For PEP 695 classes, set .type_params in namespace before calling the function
+        if let Ok(type_params) = function
+            .as_object()
+            .get_attr(identifier!(vm, __type_params__), vm)
+        {
+            if let Some(type_params_tuple) = type_params.downcast_ref::<PyTuple>() {
+                if !type_params_tuple.is_empty() {
+                    // Set .type_params in namespace so the compiler-generated code can use it
+                    namespace.as_object().set_item(
+                        vm.ctx.intern_str(".type_params"),
+                        type_params,
+                        vm,
+                    )?;
+                }
+            }
+        }
+
         let classcell = function.invoke_with_locals(().into(), Some(namespace.clone()), vm)?;
         let classcell = <Option<PyCellRef>>::try_from_object(vm, classcell)?;
 
@@ -943,48 +960,23 @@ mod builtins {
             )?;
         }
 
-        // Check if we need to set __parameters__ for PEP 695 classes
-        let function_obj: PyObjectRef = function.clone().into();
-        let has_type_params =
-            if let Ok(type_params) = function_obj.get_attr(identifier!(vm, __type_params__), vm) {
-                if let Ok(type_params_tuple) = type_params.downcast::<PyTuple>() {
-                    !type_params_tuple.is_empty()
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-
-        let needs_parameters = if has_type_params {
-            if let Ok(bases_tuple) = bases.clone().downcast::<PyTuple>() {
-                bases_tuple.iter().any(|base| {
-                    if let Ok(base_name) = base.get_attr(identifier!(vm, __name__), vm) {
-                        if let Ok(name_str) = base_name.downcast::<PyStr>() {
-                            let name = name_str.as_str();
-                            return name == "Protocol" || name == "Generic";
-                        }
-                    }
-                    false
-                })
-            } else {
-                false
-            }
-        } else {
-            false
-        };
+        // Remove .type_params from namespace before creating the class
+        namespace
+            .as_object()
+            .del_item(vm.ctx.intern_str(".type_params"), vm)
+            .ok();
 
         let args = FuncArgs::new(vec![name_obj.into(), bases, namespace.into()], kwargs);
         let class = metaclass.call(args, vm)?;
 
-        // Set __type_params__ on the class if the function has type params
-        if has_type_params {
-            if let Ok(type_params) = function_obj.get_attr(identifier!(vm, __type_params__), vm) {
-                class.set_attr(identifier!(vm, __type_params__), type_params.clone(), vm)?;
-
-                if needs_parameters {
-                    // Set __parameters__ to the same value as __type_params__
-                    class.set_attr(identifier!(vm, __parameters__), type_params, vm)?;
+        // For PEP 695 classes, set __type_params__ on the class from the function
+        if let Ok(type_params) = function
+            .as_object()
+            .get_attr(identifier!(vm, __type_params__), vm)
+        {
+            if let Some(type_params_tuple) = type_params.downcast_ref::<PyTuple>() {
+                if !type_params_tuple.is_empty() {
+                    class.set_attr(identifier!(vm, __type_params__), type_params, vm)?;
                 }
             }
         }
