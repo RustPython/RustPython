@@ -1183,7 +1183,7 @@ class TestBasicOps(unittest.TestCase):
             pairwise(None)                                  # non-iterable argument
 
     # TODO: RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON, hangs")
+    @unittest.expectedFailure
     def test_pairwise_reenter(self):
         def check(reenter_at, expected):
             class I:
@@ -1234,8 +1234,6 @@ class TestBasicOps(unittest.TestCase):
             ([5], [6]),
         ])
 
-    # TODO: RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON, hangs")
     def test_pairwise_reenter2(self):
         def check(maxcount, expected):
             class I:
