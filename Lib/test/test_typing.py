@@ -1605,8 +1605,6 @@ class TypeVarTupleTests(BaseTestCase):
         self.assertIs(D[T].__origin__, D)
         self.assertIs(D[Unpack[Ts]].__origin__, D)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_type_hints_on_unpack_args(self):
         Ts = TypeVarTuple('Ts')
 
@@ -1809,8 +1807,6 @@ class TypeVarTupleTests(BaseTestCase):
         F[int, str, float]
         F[int, str, float, bool]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_variadic_args_annotations_are_correct(self):
         Ts = TypeVarTuple('Ts')
 
@@ -2494,7 +2490,6 @@ class BaseCallableTests:
         self.assertEqual(C5[int, str, float],
                          Callable[[typing.List[int], tuple[str, int], float], int])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_type_subst_error(self):
         Callable = self.Callable
         P = ParamSpec('P')
@@ -3859,8 +3854,6 @@ class GenericTests(BaseTestCase):
         def barfoo2(x: CT): ...
         self.assertIs(get_type_hints(barfoo2, globals(), locals())['x'], CT)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generic_pep585_forward_ref(self):
         # See https://bugs.python.org/issue41370
 
@@ -5189,8 +5182,6 @@ class ForwardRefTests(BaseTestCase):
             self.assertIsNot(r1, r2)
             self.assertRaises(RecursionError, cmp, r1, r2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_union_forward_recursion(self):
         ValueList = List['Value']
         Value = Union[str, ValueList]
@@ -5239,8 +5230,6 @@ class ForwardRefTests(BaseTestCase):
         self.assertEqual(get_type_hints(foo, globals(), locals()),
                          {'a': Callable[..., T]})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_special_forms_forward(self):
 
         class C:
@@ -5323,8 +5312,6 @@ class ForwardRefTests(BaseTestCase):
 
         self.assertEqual(get_type_hints(Child.foo), {'x': int})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_type_check_nested_types(self):
         # See https://bugs.python.org/issue46571
         class Other:
@@ -5409,8 +5396,6 @@ class ForwardRefTests(BaseTestCase):
         # `TypeError: can't set attributes of built-in/extension type 'dict'`
         no_type_check(dict)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_type_check_forward_ref_as_string(self):
         class C:
             foo: typing.ClassVar[int] = 7
@@ -5465,8 +5450,6 @@ class ForwardRefTests(BaseTestCase):
         hints = get_type_hints(ns['C'].foo)
         self.assertEqual(hints, {'a': ns['C'], 'return': ns['D']})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_final_forward_ref(self):
         self.assertEqual(gth(Loop, globals())['attr'], Final[Loop])
         self.assertNotEqual(gth(Loop, globals())['attr'], Final[int])
@@ -5832,8 +5815,6 @@ class GetTypeHintTests(BaseTestCase):
                           'my_inner_a2': mod_generics_cache.B.A,
                           'my_outer_a': mod_generics_cache.A})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_type_hints_classes_no_implicit_optional(self):
         class WithNoneDefault:
             field: int = None  # most type-checkers won't be happy with it
@@ -5878,8 +5859,6 @@ class GetTypeHintTests(BaseTestCase):
         b.__annotations__ = {'x': 'A'}
         self.assertEqual(gth(b, locals()), {'x': A})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_type_hints_ClassVar(self):
         self.assertEqual(gth(ann_module2.CV, ann_module2.__dict__),
                          {'var': typing.ClassVar[ann_module2.CV]})
@@ -6006,8 +5985,6 @@ class GetTypeHintTests(BaseTestCase):
             {'x': Annotated[int, 'data']},
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_type_hints_classes_str_annotations(self):
         class Foo:
             y = str
@@ -6023,8 +6000,6 @@ class GetTypeHintTests(BaseTestCase):
         self.assertNotIn('bad', sys.modules)
         self.assertEqual(get_type_hints(BadModule), {})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_type_hints_annotated_bad_module(self):
         # See https://bugs.python.org/issue44468
         class BadBase:
@@ -6035,8 +6010,6 @@ class GetTypeHintTests(BaseTestCase):
         self.assertNotIn('bad', sys.modules)
         self.assertEqual(get_type_hints(BadType), {'foo': tuple, 'bar': list})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_forward_ref_and_final(self):
         # https://bugs.python.org/issue45166
         hints = get_type_hints(ann_module5)
@@ -8274,8 +8247,6 @@ class AnnotatedTests(BaseTestCase):
         A.x = 5
         self.assertEqual(C.x, 5)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_special_form_containment(self):
         class C:
             classvar: Annotated[ClassVar[int], "a decoration"] = 4
@@ -8284,8 +8255,6 @@ class AnnotatedTests(BaseTestCase):
         self.assertEqual(get_type_hints(C, globals())['classvar'], ClassVar[int])
         self.assertEqual(get_type_hints(C, globals())['const'], Final[int])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_special_forms_nesting(self):
         # These are uncommon types and are to ensure runtime
         # is lax on validation. See gh-89547 for more context.
@@ -8563,8 +8532,6 @@ class TypeAliasTests(BaseTestCase):
         with self.assertRaises(TypeError):
             isinstance(42, TypeAlias)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_stringized_usage(self):
         class A:
             a: "TypeAlias"
@@ -8652,8 +8619,6 @@ class ParamSpecTests(BaseTestCase):
         self.assertEqual(repr(P.kwargs), "P.kwargs")
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_stringized(self):
         P = ParamSpec('P')
         class C(Generic[P]):

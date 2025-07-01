@@ -3246,8 +3246,6 @@ class TestStringAnnotations(unittest.TestCase):
                     # won't exist on the instance.
                     self.assertNotIn('not_iv4', c.__dict__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_text_annotations(self):
         from test import dataclass_textanno
 
