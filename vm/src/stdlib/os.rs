@@ -592,7 +592,7 @@ pub(super) mod _os {
             args: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyGenericAlias {
-            PyGenericAlias::new(cls, args, vm)
+            PyGenericAlias::from_args(cls, args, vm)
         }
     }
 

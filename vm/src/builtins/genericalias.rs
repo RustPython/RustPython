@@ -63,7 +63,12 @@ impl Constructor for PyGenericAlias {
             return Err(vm.new_type_error("GenericAlias() takes no keyword arguments"));
         }
         let (origin, arguments): (_, PyObjectRef) = args.bind(vm)?;
-        PyGenericAlias::new(origin, arguments, vm)
+        let args = if let Ok(tuple) = arguments.try_to_ref::<PyTuple>(vm) {
+            tuple.to_owned()
+        } else {
+            PyTuple::new_ref(vec![arguments], &vm.ctx)
+        };
+        PyGenericAlias::new(origin, args, false, vm)
             .into_ref_with_type(vm, cls)
             .map(Into::into)
     }
@@ -84,28 +89,7 @@ impl Constructor for PyGenericAlias {
     flags(BASETYPE)
 )]
 impl PyGenericAlias {
-    pub fn new(origin: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> Self {
-        let args = if let Ok(tuple) = args.try_to_ref::<PyTuple>(vm) {
-            tuple.to_owned()
-        } else {
-            PyTuple::new_ref(vec![args], &vm.ctx)
-        };
-
-        let parameters = make_parameters(&args, vm);
-        Self {
-            origin,
-            args,
-            parameters,
-            starred: false, // default to false
-        }
-    }
-
-    fn with_tuple_args(
-        origin: PyTypeRef,
-        args: PyTupleRef,
-        starred: bool,
-        vm: &VirtualMachine,
-    ) -> Self {
+    pub fn new(origin: PyTypeRef, args: PyTupleRef, starred: bool, vm: &VirtualMachine) -> Self {
         let parameters = make_parameters(&args, vm);
         Self {
             origin,
@@ -113,6 +97,16 @@ impl PyGenericAlias {
             parameters,
             starred,
         }
+    }
+
+    /// Create a GenericAlias from an origin and PyObjectRef arguments (helper for compatibility)
+    pub fn from_args(origin: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> Self {
+        let args = if let Ok(tuple) = args.try_to_ref::<PyTuple>(vm) {
+            tuple.to_owned()
+        } else {
+            PyTuple::new_ref(vec![args], &vm.ctx)
+        };
+        Self::new(origin, args, false, vm)
     }
 
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
@@ -146,7 +140,7 @@ impl PyGenericAlias {
             }
         }
 
-        Ok(format!(
+        let repr_str = format!(
             "{}[{}]",
             repr_item(self.origin.clone().into(), vm)?,
             if self.args.is_empty() {
@@ -158,7 +152,14 @@ impl PyGenericAlias {
                     .collect::<PyResult<Vec<_>>>()?
                     .join(", ")
             }
-        ))
+        );
+
+        // Add * prefix if this is a starred GenericAlias
+        Ok(if self.starred {
+            format!("*{repr_str}")
+        } else {
+            repr_str
+        })
     }
 
     #[pygetset]
@@ -200,10 +201,7 @@ impl PyGenericAlias {
             vm,
         )?;
 
-        Ok(
-            PyGenericAlias::new(zelf.origin.clone(), new_args.to_pyobject(vm), vm)
-                .into_pyobject(vm),
-        )
+        Ok(PyGenericAlias::new(zelf.origin.clone(), new_args, false, vm).into_pyobject(vm))
     }
 
     #[pymethod]
@@ -598,7 +596,7 @@ impl Iterable for PyGenericAlias {
         // CPython's ga_iter creates an iterator that yields one starred GenericAlias
         // we don't have gaiterobject yet
 
-        let starred_alias = PyGenericAlias::with_tuple_args(
+        let starred_alias = PyGenericAlias::new(
             zelf.origin.clone(),
             zelf.args.clone(),
             true, // starred
