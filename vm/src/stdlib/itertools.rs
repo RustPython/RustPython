@@ -1943,7 +1943,7 @@ mod decl {
         type Args = PyIter;
 
         fn py_new(cls: PyTypeRef, iterator: Self::Args, vm: &VirtualMachine) -> PyResult {
-            PyItertoolsPairwise {
+            Self {
                 iterator,
                 old: PyRwLock::new(None),
             }
@@ -1952,7 +1952,7 @@ mod decl {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor))]
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE, IMMUTABLETYPE))]
     impl PyItertoolsPairwise {}
 
     impl SelfIter for PyItertoolsPairwise {}
@@ -1966,11 +1966,16 @@ mod decl {
                 },
                 Some(obj) => obj,
             };
+
             let new = match zelf.iterator.next(vm)? {
                 PyIterReturn::Return(obj) => obj,
                 PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
             };
-            *zelf.old.write() = Some(new.clone());
+
+            {
+                *zelf.old.write() = Some(new.clone());
+            }
+
             Ok(PyIterReturn::Return(vm.new_tuple((old, new)).into()))
         }
     }
