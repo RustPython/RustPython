@@ -42,6 +42,7 @@
   ],
   "ignorePaths": [
     "**/__pycache__/**",
+    "target/**",
     "Lib/**"
   ],
   // words - list of words to be always considered correct
