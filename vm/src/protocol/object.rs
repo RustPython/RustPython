@@ -693,7 +693,7 @@ impl PyObject {
         } else {
             if self.class().fast_issubclass(vm.ctx.types.type_type) {
                 if self.is(vm.ctx.types.type_type) {
-                    return PyGenericAlias::new(self.class().to_owned(), needle, vm)
+                    return PyGenericAlias::from_args(self.class().to_owned(), needle, vm)
                         .to_pyresult(vm);
                 }
 

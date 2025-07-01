@@ -790,7 +790,7 @@ impl PySet {
 
     #[pyclassmethod]
     fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
-        PyGenericAlias::new(cls, args, vm)
+        PyGenericAlias::from_args(cls, args, vm)
     }
 }
 
@@ -1134,7 +1134,7 @@ impl PyFrozenSet {
 
     #[pyclassmethod]
     fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
-        PyGenericAlias::new(cls, args, vm)
+        PyGenericAlias::from_args(cls, args, vm)
     }
 }
 

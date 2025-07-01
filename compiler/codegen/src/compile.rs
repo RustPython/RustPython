@@ -80,6 +80,7 @@ struct Compiler<'src> {
     ctx: CompileContext,
     class_name: Option<String>,
     opts: CompileOpts,
+    in_annotation: bool,
 }
 
 enum DoneWithFuture {
@@ -335,6 +336,7 @@ impl<'src> Compiler<'src> {
             },
             class_name: None,
             opts,
+            in_annotation: false,
         }
     }
 }
@@ -2897,7 +2899,11 @@ impl Compiler<'_> {
                     .into(),
             });
         } else {
-            self.compile_expression(annotation)?;
+            let was_in_annotation = self.in_annotation;
+            self.in_annotation = true;
+            let result = self.compile_expression(annotation);
+            self.in_annotation = was_in_annotation;
+            result?;
         }
         Ok(())
     }
@@ -3504,8 +3510,15 @@ impl Compiler<'_> {
                     Self::contains_await(elt),
                 )?;
             }
-            Expr::Starred(_) => {
-                return Err(self.error(CodegenErrorType::InvalidStarExpr));
+            Expr::Starred(ExprStarred { value, .. }) => {
+                if self.in_annotation {
+                    // In annotation context, starred expressions are allowed (PEP 646)
+                    // For now, just compile the inner value without wrapping with Unpack
+                    // This is a temporary solution until we figure out how to properly import typing
+                    self.compile_expression(value)?;
+                } else {
+                    return Err(self.error(CodegenErrorType::InvalidStarExpr));
+                }
             }
             Expr::If(ExprIf {
                 test, body, orelse, ..
