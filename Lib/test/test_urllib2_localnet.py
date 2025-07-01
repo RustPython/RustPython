@@ -8,20 +8,23 @@ import threading
 import unittest
 import hashlib
 
+from test import support
 from test.support import hashlib_helper
 from test.support import threading_helper
-from test.support import warnings_helper
+from test.support.testcase import ExtraAssertions
 
 try:
     import ssl
 except ImportError:
     ssl = None
 
+support.requires_working_socket(module=True)
+
 here = os.path.dirname(__file__)
 # Self-signed cert file for 'localhost'
-CERT_localhost = os.path.join(here, 'keycert.pem')
+CERT_localhost = os.path.join(here, 'certdata', 'keycert.pem')
 # Self-signed cert file for 'fakehostname'
-CERT_fakehostname = os.path.join(here, 'keycert2.pem')
+CERT_fakehostname = os.path.join(here, 'certdata', 'keycert2.pem')
 
 
 # Loopback http server infrastructure
@@ -314,7 +317,9 @@ class BasicAuthTests(unittest.TestCase):
         ah = urllib.request.HTTPBasicAuthHandler()
         ah.add_password(self.REALM, self.server_url, self.USER, self.INCORRECT_PASSWD)
         urllib.request.install_opener(urllib.request.build_opener(ah))
-        self.assertRaises(urllib.error.HTTPError, urllib.request.urlopen, self.server_url)
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            urllib.request.urlopen(self.server_url)
+        cm.exception.close()
 
 
 @hashlib_helper.requires_hashdigest("md5", openssl=True)
@@ -356,23 +361,20 @@ class ProxyAuthTests(unittest.TestCase):
         self.server.stop()
         self.server = None
 
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_proxy_with_bad_password_raises_httperror(self):
         self.proxy_digest_handler.add_password(self.REALM, self.URL,
                                                self.USER, self.PASSWD+"bad")
         self.digest_auth_handler.set_qop("auth")
-        self.assertRaises(urllib.error.HTTPError,
-                          self.opener.open,
-                          self.URL)
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            self.opener.open(self.URL)
+        cm.exception.close()
 
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_proxy_with_no_password_raises_httperror(self):
         self.digest_auth_handler.set_qop("auth")
-        self.assertRaises(urllib.error.HTTPError,
-                          self.opener.open,
-                          self.URL)
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            self.opener.open(self.URL)
+        cm.exception.close()
 
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_proxy_qop_auth_works(self):
         self.proxy_digest_handler.add_password(self.REALM, self.URL,
                                                self.USER, self.PASSWD)
@@ -381,7 +383,6 @@ class ProxyAuthTests(unittest.TestCase):
             while result.read():
                 pass
 
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_proxy_qop_auth_int_works_or_throws_urlerror(self):
         self.proxy_digest_handler.add_password(self.REALM, self.URL,
                                                self.USER, self.PASSWD)
@@ -442,7 +443,7 @@ def GetRequestHandler(responses):
     return FakeHTTPRequestHandler
 
 
-class TestUrlopen(unittest.TestCase):
+class TestUrlopen(unittest.TestCase, ExtraAssertions):
     """Tests urllib.request.urlopen using the network.
 
     These tests are not exhaustive.  Assuming that testing using files does a
@@ -506,7 +507,6 @@ class TestUrlopen(unittest.TestCase):
         handler.port = server.port
         return handler
 
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_redirection(self):
         expected_response = b"We got here..."
         responses = [
@@ -520,7 +520,6 @@ class TestUrlopen(unittest.TestCase):
         self.assertEqual(data, expected_response)
         self.assertEqual(handler.requests, ["/", "/somewhere_else"])
 
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_chunked(self):
         expected_response = b"hello world"
         chunked_start = (
@@ -535,7 +534,6 @@ class TestUrlopen(unittest.TestCase):
         data = self.urlopen("http://localhost:%s/" % handler.port)
         self.assertEqual(data, expected_response)
 
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_404(self):
         expected_response = b"Bad bad bad..."
         handler = self.start_server([(404, [], expected_response)])
@@ -551,7 +549,6 @@ class TestUrlopen(unittest.TestCase):
         self.assertEqual(data, expected_response)
         self.assertEqual(handler.requests, ["/weeble"])
 
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_200(self):
         expected_response = b"pycon 2008..."
         handler = self.start_server([(200, [], expected_response)])
@@ -559,7 +556,6 @@ class TestUrlopen(unittest.TestCase):
         self.assertEqual(data, expected_response)
         self.assertEqual(handler.requests, ["/bizarre"])
 
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_200_with_parameters(self):
         expected_response = b"pycon 2008..."
         handler = self.start_server([(200, [], expected_response)])
@@ -568,47 +564,12 @@ class TestUrlopen(unittest.TestCase):
         self.assertEqual(data, expected_response)
         self.assertEqual(handler.requests, ["/bizarre", b"get=with_feeling"])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_https(self):
         handler = self.start_https_server()
         context = ssl.create_default_context(cafile=CERT_localhost)
         data = self.urlopen("https://localhost:%s/bizarre" % handler.port, context=context)
         self.assertEqual(data, b"we care a bit")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
-    def test_https_with_cafile(self):
-        handler = self.start_https_server(certfile=CERT_localhost)
-        with warnings_helper.check_warnings(('', DeprecationWarning)):
-            # Good cert
-            data = self.urlopen("https://localhost:%s/bizarre" % handler.port,
-                                cafile=CERT_localhost)
-            self.assertEqual(data, b"we care a bit")
-            # Bad cert
-            with self.assertRaises(urllib.error.URLError) as cm:
-                self.urlopen("https://localhost:%s/bizarre" % handler.port,
-                             cafile=CERT_fakehostname)
-            # Good cert, but mismatching hostname
-            handler = self.start_https_server(certfile=CERT_fakehostname)
-            with self.assertRaises(urllib.error.URLError) as cm:
-                self.urlopen("https://localhost:%s/bizarre" % handler.port,
-                             cafile=CERT_fakehostname)
-
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
-    def test_https_with_cadefault(self):
-        handler = self.start_https_server(certfile=CERT_localhost)
-        # Self-signed cert should fail verification with system certificate store
-        with warnings_helper.check_warnings(('', DeprecationWarning)):
-            with self.assertRaises(urllib.error.URLError) as cm:
-                self.urlopen("https://localhost:%s/bizarre" % handler.port,
-                             cadefault=True)
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_https_sni(self):
         if ssl is None:
             self.skipTest("ssl module required")
@@ -625,7 +586,6 @@ class TestUrlopen(unittest.TestCase):
         self.urlopen("https://localhost:%s" % handler.port, context=context)
         self.assertEqual(sni_name, "localhost")
 
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_sending_headers(self):
         handler = self.start_server()
         req = urllib.request.Request("http://localhost:%s/" % handler.port,
@@ -634,7 +594,6 @@ class TestUrlopen(unittest.TestCase):
             pass
         self.assertEqual(handler.headers_received["Range"], "bytes=20-39")
 
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_sending_headers_camel(self):
         handler = self.start_server()
         req = urllib.request.Request("http://localhost:%s/" % handler.port,
@@ -644,16 +603,13 @@ class TestUrlopen(unittest.TestCase):
         self.assertIn("X-Some-Header", handler.headers_received.keys())
         self.assertNotIn("X-SoMe-hEader", handler.headers_received.keys())
 
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_basic(self):
         handler = self.start_server()
         with urllib.request.urlopen("http://localhost:%s" % handler.port) as open_url:
             for attr in ("read", "close", "info", "geturl"):
-                self.assertTrue(hasattr(open_url, attr), "object returned from "
-                             "urlopen lacks the %s attribute" % attr)
+                self.assertHasAttr(open_url, attr)
             self.assertTrue(open_url.read(), "calling 'read' failed")
 
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_info(self):
         handler = self.start_server()
         open_url = urllib.request.urlopen(
@@ -665,7 +621,6 @@ class TestUrlopen(unittest.TestCase):
                               "instance of email.message.Message")
         self.assertEqual(info_obj.get_content_subtype(), "plain")
 
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_geturl(self):
         # Make sure same URL as opened is returned by geturl.
         handler = self.start_server()
@@ -674,7 +629,6 @@ class TestUrlopen(unittest.TestCase):
             url = open_url.geturl()
         self.assertEqual(url, "http://localhost:%s" % handler.port)
 
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_iteration(self):
         expected_response = b"pycon 2008..."
         handler = self.start_server([(200, [], expected_response)])
@@ -682,7 +636,6 @@ class TestUrlopen(unittest.TestCase):
         for line in data:
             self.assertEqual(line, expected_response)
 
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_line_iteration(self):
         lines = [b"We\n", b"got\n", b"here\n", b"verylong " * 8192 + b"\n"]
         expected_response = b"".join(lines)
@@ -695,7 +648,6 @@ class TestUrlopen(unittest.TestCase):
                              (index, len(lines[index]), len(line)))
         self.assertEqual(index + 1, len(lines))
 
-    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_issue16464(self):
         # See https://bugs.python.org/issue16464
         # and https://bugs.python.org/issue46648
