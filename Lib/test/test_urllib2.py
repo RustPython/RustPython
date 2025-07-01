@@ -1,9 +1,11 @@
 import unittest
 from test import support
 from test.support import os_helper
-from test.support import socket_helper
+from test.support import requires_subprocess
 from test.support import warnings_helper
+from test.support.testcase import ExtraAssertions
 from test import test_urllib
+from unittest import mock
 
 import os
 import io
@@ -14,15 +16,18 @@ import tempfile
 import subprocess
 
 import urllib.request
-# The proxy bypass method imported below has logic specific to the OSX
-# proxy config data structure but is testable on all platforms.
+# The proxy bypass method imported below has logic specific to the
+# corresponding system but is testable on all platforms.
 from urllib.request import (Request, OpenerDirector, HTTPBasicAuthHandler,
                             HTTPPasswordMgrWithPriorAuth, _parse_proxy,
+                            _proxy_bypass_winreg_override,
                             _proxy_bypass_macosx_sysconf,
                             AbstractDigestAuthHandler)
 from urllib.parse import urlparse
 import urllib.error
 import http.client
+
+support.requires_working_socket(module=True)
 
 # XXX
 # Request
@@ -483,7 +488,18 @@ def build_test_opener(*handler_instances):
     return opener
 
 
-class MockHTTPHandler(urllib.request.BaseHandler):
+class MockHTTPHandler(urllib.request.HTTPHandler):
+    # Very simple mock HTTP handler with no special behavior other than using a mock HTTP connection
+
+    def __init__(self, debuglevel=None):
+        super(MockHTTPHandler, self).__init__(debuglevel=debuglevel)
+        self.httpconn = MockHTTPClass()
+
+    def http_open(self, req):
+        return self.do_open(self.httpconn, req)
+
+
+class MockHTTPHandlerRedirect(urllib.request.BaseHandler):
     # useful for testing redirections and auth
     # sends supplied headers and code as first response
     # sends 200 OK as second response
@@ -511,16 +527,17 @@ class MockHTTPHandler(urllib.request.BaseHandler):
             return MockResponse(200, "OK", msg, "", req.get_full_url())
 
 
-class MockHTTPSHandler(urllib.request.AbstractHTTPHandler):
-    # Useful for testing the Proxy-Authorization request by verifying the
-    # properties of httpcon
+if hasattr(http.client, 'HTTPSConnection'):
+    class MockHTTPSHandler(urllib.request.HTTPSHandler):
+        # Useful for testing the Proxy-Authorization request by verifying the
+        # properties of httpcon
 
-    def __init__(self, debuglevel=0):
-        urllib.request.AbstractHTTPHandler.__init__(self, debuglevel=debuglevel)
-        self.httpconn = MockHTTPClass()
+        def __init__(self, debuglevel=None, context=None, check_hostname=None):
+            super(MockHTTPSHandler, self).__init__(debuglevel, context, check_hostname)
+            self.httpconn = MockHTTPClass()
 
-    def https_open(self, req):
-        return self.do_open(self.httpconn, req)
+        def https_open(self, req):
+            return self.do_open(self.httpconn, req)
 
 
 class MockHTTPHandlerCheckAuth(urllib.request.BaseHandler):
@@ -641,8 +658,6 @@ class OpenerDirectorTests(unittest.TestCase):
         self.assertRaises(urllib.error.URLError, o.open, req)
         self.assertEqual(o.calls, [(handlers[0], "http_open", (req,), {})])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_http_error(self):
         # XXX http_error_default
         # http errors are a special case
@@ -666,8 +681,6 @@ class OpenerDirectorTests(unittest.TestCase):
             self.assertEqual((handler, method_name), got[:2])
             self.assertEqual(args, got[2])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_processors(self):
         # *_request / *_response methods get called appropriately
         o = OpenerDirector()
@@ -705,10 +718,6 @@ class OpenerDirectorTests(unittest.TestCase):
 
 
 def sanepathname2url(path):
-    try:
-        path.encode("utf-8")
-    except UnicodeEncodeError:
-        raise unittest.SkipTest("path is not encodable to utf8")
     urlpath = urllib.request.pathname2url(path)
     if os.name == "nt" and urlpath.startswith("///"):
         urlpath = urlpath[2:]
@@ -716,7 +725,7 @@ def sanepathname2url(path):
     return urlpath
 
 
-class HandlerTests(unittest.TestCase):
+class HandlerTests(unittest.TestCase, ExtraAssertions):
 
     def test_ftp(self):
         class MockFTPWrapper:
@@ -765,7 +774,7 @@ class HandlerTests(unittest.TestCase):
              ["foo", "bar"], "", None),
             ("ftp://localhost/baz.gif;type=a",
              "localhost", ftplib.FTP_PORT, "", "", "A",
-             [], "baz.gif", None),  # XXX really this should guess image/gif
+             [], "baz.gif", "image/gif"),
             ]:
             req = Request(url)
             req.timeout = None
@@ -781,6 +790,7 @@ class HandlerTests(unittest.TestCase):
             headers = r.info()
             self.assertEqual(headers.get("Content-type"), mimetype)
             self.assertEqual(int(headers["Content-length"]), len(data))
+            r.close()
 
     def test_file(self):
         import email.utils
@@ -874,8 +884,6 @@ class HandlerTests(unittest.TestCase):
                 self.assertEqual(req.type, "ftp")
             self.assertEqual(req.type == "ftp", ftp)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_http(self):
 
         h = urllib.request.AbstractHTTPHandler()
@@ -990,6 +998,7 @@ class HandlerTests(unittest.TestCase):
 
         file_obj.close()
 
+    @requires_subprocess()
     def test_http_body_pipe(self):
         # A file reading from a pipe.
         # A pipe cannot be seek'ed.  There is no way to determine the
@@ -1053,12 +1062,37 @@ class HandlerTests(unittest.TestCase):
             newreq = h.do_request_(req)
             self.assertEqual(int(newreq.get_header('Content-length')),16)
 
-    def test_http_handler_debuglevel(self):
+    def test_http_handler_global_debuglevel(self):
+        with mock.patch.object(http.client.HTTPConnection, 'debuglevel', 6):
+            o = OpenerDirector()
+            h = MockHTTPHandler()
+            o.add_handler(h)
+            o.open("http://www.example.com")
+            self.assertEqual(h._debuglevel, 6)
+
+    def test_http_handler_local_debuglevel(self):
         o = OpenerDirector()
-        h = MockHTTPSHandler(debuglevel=1)
+        h = MockHTTPHandler(debuglevel=5)
+        o.add_handler(h)
+        o.open("http://www.example.com")
+        self.assertEqual(h._debuglevel, 5)
+
+    @unittest.skipUnless(hasattr(http.client, 'HTTPSConnection'), 'HTTPSConnection required for HTTPS tests.')
+    def test_https_handler_global_debuglevel(self):
+        with mock.patch.object(http.client.HTTPSConnection, 'debuglevel', 7):
+            o = OpenerDirector()
+            h = MockHTTPSHandler()
+            o.add_handler(h)
+            o.open("https://www.example.com")
+            self.assertEqual(h._debuglevel, 7)
+
+    @unittest.skipUnless(hasattr(http.client, 'HTTPSConnection'), 'HTTPSConnection required for HTTPS tests.')
+    def test_https_handler_local_debuglevel(self):
+        o = OpenerDirector()
+        h = MockHTTPSHandler(debuglevel=4)
         o.add_handler(h)
         o.open("https://www.example.com")
-        self.assertEqual(h._debuglevel, 1)
+        self.assertEqual(h._debuglevel, 4)
 
     def test_http_doubleslash(self):
         # Checks the presence of any unnecessary double slash in url does not
@@ -1136,8 +1170,6 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(newreq.host, 'www.python.org')
         self.assertEqual(newreq.selector, '')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_errors(self):
         h = urllib.request.HTTPErrorProcessor()
         o = h.parent = MockOpener()
@@ -1148,23 +1180,21 @@ class HandlerTests(unittest.TestCase):
         r = MockResponse(200, "OK", {}, "", url)
         newr = h.http_response(req, r)
         self.assertIs(r, newr)
-        self.assertFalse(hasattr(o, "proto"))  # o.error not called
+        self.assertNotHasAttr(o, "proto")  # o.error not called
         r = MockResponse(202, "Accepted", {}, "", url)
         newr = h.http_response(req, r)
         self.assertIs(r, newr)
-        self.assertFalse(hasattr(o, "proto"))  # o.error not called
+        self.assertNotHasAttr(o, "proto")  # o.error not called
         r = MockResponse(206, "Partial content", {}, "", url)
         newr = h.http_response(req, r)
         self.assertIs(r, newr)
-        self.assertFalse(hasattr(o, "proto"))  # o.error not called
+        self.assertNotHasAttr(o, "proto")  # o.error not called
         # anything else calls o.error (and MockOpener returns None, here)
         r = MockResponse(502, "Bad gateway", {}, "", url)
         self.assertIsNone(h.http_response(req, r))
         self.assertEqual(o.proto, "http")  # o.error called
         self.assertEqual(o.args, (req, r, 502, "Bad gateway", {}))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_cookies(self):
         cj = MockCookieJar()
         h = urllib.request.HTTPCookieProcessor(cj)
@@ -1189,7 +1219,7 @@ class HandlerTests(unittest.TestCase):
         o = h.parent = MockOpener()
 
         # ordinary redirect behaviour
-        for code in 301, 302, 303, 307:
+        for code in 301, 302, 303, 307, 308:
             for data in None, "blah\nblah\n":
                 method = getattr(h, "http_error_%s" % code)
                 req = Request(from_url, data)
@@ -1201,10 +1231,11 @@ class HandlerTests(unittest.TestCase):
                 try:
                     method(req, MockFile(), code, "Blah",
                            MockHeaders({"location": to_url}))
-                except urllib.error.HTTPError:
-                    # 307 in response to POST requires user OK
-                    self.assertEqual(code, 307)
+                except urllib.error.HTTPError as err:
+                    # 307 and 308 in response to POST require user OK
+                    self.assertIn(code, (307, 308))
                     self.assertIsNotNone(data)
+                    err.close()
                 self.assertEqual(o.req.get_full_url(), to_url)
                 try:
                     self.assertEqual(o.req.get_method(), "GET")
@@ -1240,9 +1271,10 @@ class HandlerTests(unittest.TestCase):
             while 1:
                 redirect(h, req, "http://example.com/")
                 count = count + 1
-        except urllib.error.HTTPError:
+        except urllib.error.HTTPError as err:
             # don't stop until max_repeats, because cookies may introduce state
             self.assertEqual(count, urllib.request.HTTPRedirectHandler.max_repeats)
+            err.close()
 
         # detect endless non-repeating chain of redirects
         req = Request(from_url, origin_req_host="example.com")
@@ -1252,9 +1284,10 @@ class HandlerTests(unittest.TestCase):
             while 1:
                 redirect(h, req, "http://example.com/%d" % count)
                 count = count + 1
-        except urllib.error.HTTPError:
+        except urllib.error.HTTPError as err:
             self.assertEqual(count,
                              urllib.request.HTTPRedirectHandler.max_redirections)
+            err.close()
 
     def test_invalid_redirect(self):
         from_url = "http://example.com/a.html"
@@ -1268,9 +1301,11 @@ class HandlerTests(unittest.TestCase):
 
         for scheme in invalid_schemes:
             invalid_url = scheme + '://' + schemeless_url
-            self.assertRaises(urllib.error.HTTPError, h.http_error_302,
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                h.http_error_302(
                     req, MockFile(), 302, "Security Loophole",
                     MockHeaders({"location": invalid_url}))
+            cm.exception.close()
 
         for scheme in valid_schemes:
             valid_url = scheme + '://' + schemeless_url
@@ -1291,8 +1326,6 @@ class HandlerTests(unittest.TestCase):
             MockHeaders({"location": valid_url}))
         self.assertEqual(o.req.get_full_url(), valid_url)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_cookie_redirect(self):
         # cookies shouldn't leak into redirected requests
         from http.cookiejar import CookieJar
@@ -1300,7 +1333,7 @@ class HandlerTests(unittest.TestCase):
 
         cj = CookieJar()
         interact_netscape(cj, "http://www.example.com/", "spam=eggs")
-        hh = MockHTTPHandler(302, "Location: http://www.cracker.com/\r\n\r\n")
+        hh = MockHTTPHandlerRedirect(302, "Location: http://www.cracker.com/\r\n\r\n")
         hdeh = urllib.request.HTTPDefaultErrorHandler()
         hrh = urllib.request.HTTPRedirectHandler()
         cp = urllib.request.HTTPCookieProcessor(cj)
@@ -1308,11 +1341,9 @@ class HandlerTests(unittest.TestCase):
         o.open("http://www.example.com/")
         self.assertFalse(hh.req.has_header("Cookie"))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_redirect_fragment(self):
         redirected_url = 'http://www.example.com/index.html#OK\r\n\r\n'
-        hh = MockHTTPHandler(302, 'Location: ' + redirected_url)
+        hh = MockHTTPHandlerRedirect(302, 'Location: ' + redirected_url)
         hdeh = urllib.request.HTTPDefaultErrorHandler()
         hrh = urllib.request.HTTPRedirectHandler()
         o = build_test_opener(hh, hdeh, hrh)
@@ -1372,10 +1403,17 @@ class HandlerTests(unittest.TestCase):
                 response = opener.open('http://example.com/')
                 expected = b'GET ' + result + b' '
                 request = handler.last_buf
-                self.assertTrue(request.startswith(expected), repr(request))
+                self.assertStartsWith(request, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    def test_redirect_head_request(self):
+        from_url = "http://example.com/a.html"
+        to_url = "http://example.com/b.html"
+        h = urllib.request.HTTPRedirectHandler()
+        req = Request(from_url, method="HEAD")
+        fp = MockFile()
+        new_req = h.redirect_request(req, fp, 302, "Found", {}, to_url)
+        self.assertEqual(new_req.get_method(), "HEAD")
+
     def test_proxy(self):
         u = "proxy.example.com:3128"
         for d in dict(http=u), dict(HTTP=u):
@@ -1395,7 +1433,8 @@ class HandlerTests(unittest.TestCase):
                              [tup[0:2] for tup in o.calls])
 
     def test_proxy_no_proxy(self):
-        os.environ['no_proxy'] = 'python.org'
+        env = self.enterContext(os_helper.EnvironmentVarGuard())
+        env['no_proxy'] = 'python.org'
         o = OpenerDirector()
         ph = urllib.request.ProxyHandler(dict(http="proxy.example.com"))
         o.add_handler(ph)
@@ -1407,10 +1446,10 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(req.host, "www.python.org")
         o.open(req)
         self.assertEqual(req.host, "www.python.org")
-        del os.environ['no_proxy']
 
     def test_proxy_no_proxy_all(self):
-        os.environ['no_proxy'] = '*'
+        env = self.enterContext(os_helper.EnvironmentVarGuard())
+        env['no_proxy'] = '*'
         o = OpenerDirector()
         ph = urllib.request.ProxyHandler(dict(http="proxy.example.com"))
         o.add_handler(ph)
@@ -1418,10 +1457,7 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(req.host, "www.python.org")
         o.open(req)
         self.assertEqual(req.host, "www.python.org")
-        del os.environ['no_proxy']
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_proxy_https(self):
         o = OpenerDirector()
         ph = urllib.request.ProxyHandler(dict(https="proxy.example.com:3128"))
@@ -1438,6 +1474,7 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual([(handlers[0], "https_open")],
                          [tup[0:2] for tup in o.calls])
 
+    @unittest.skipUnless(hasattr(http.client, 'HTTPSConnection'), 'HTTPSConnection required for HTTPS tests.')
     def test_proxy_https_proxy_authorization(self):
         o = OpenerDirector()
         ph = urllib.request.ProxyHandler(dict(https='proxy.example.com:3128'))
@@ -1460,6 +1497,30 @@ class HandlerTests(unittest.TestCase):
         self.assertIsNotNone(req._tunnel_host)
         self.assertEqual(req.host, "proxy.example.com:3128")
         self.assertEqual(req.get_header("Proxy-authorization"), "FooBar")
+
+    @unittest.skipUnless(os.name == "nt", "only relevant for Windows")
+    def test_winreg_proxy_bypass(self):
+        proxy_override = "www.example.com;*.example.net; 192.168.0.1"
+        proxy_bypass = _proxy_bypass_winreg_override
+        for host in ("www.example.com", "www.example.net", "192.168.0.1"):
+            self.assertTrue(proxy_bypass(host, proxy_override),
+                            "expected bypass of %s to be true" % host)
+
+        for host in ("example.com", "www.example.org", "example.net",
+                     "192.168.0.2"):
+            self.assertFalse(proxy_bypass(host, proxy_override),
+                             "expected bypass of %s to be False" % host)
+
+        # check intranet address bypass
+        proxy_override = "example.com; <local>"
+        self.assertTrue(proxy_bypass("example.com", proxy_override),
+                        "expected bypass of %s to be true" % host)
+        self.assertFalse(proxy_bypass("example.net", proxy_override),
+                         "expected bypass of %s to be False" % host)
+        for host in ("test", "localhost"):
+            self.assertTrue(proxy_bypass(host, proxy_override),
+                            "expect <local> to bypass intranet address '%s'"
+                            % host)
 
     @unittest.skipUnless(sys.platform == 'darwin', "only relevant for OSX")
     def test_osx_proxy_bypass(self):
@@ -1501,7 +1562,7 @@ class HandlerTests(unittest.TestCase):
             password_manager = MockPasswordManager()
             auth_handler = urllib.request.HTTPBasicAuthHandler(password_manager)
             body = '\r\n'.join(headers) + '\r\n\r\n'
-            http_handler = MockHTTPHandler(401, body)
+            http_handler = MockHTTPHandlerRedirect(401, body)
             opener.add_handler(auth_handler)
             opener.add_handler(http_handler)
             self._test_basic_auth(opener, auth_handler, "Authorization",
@@ -1509,8 +1570,6 @@ class HandlerTests(unittest.TestCase):
                                   "http://acme.example.com/protected",
                                   "http://acme.example.com/protected")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basic_auth(self):
         realm = "realm2@example.com"
         realm2 = "realm2@example.com"
@@ -1556,8 +1615,6 @@ class HandlerTests(unittest.TestCase):
                        for challenge in challenges]
             self.check_basic_auth(headers, realm)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_proxy_basic_auth(self):
         opener = OpenerDirector()
         ph = urllib.request.ProxyHandler(dict(http="proxy.example.com:3128"))
@@ -1565,7 +1622,7 @@ class HandlerTests(unittest.TestCase):
         password_manager = MockPasswordManager()
         auth_handler = urllib.request.ProxyBasicAuthHandler(password_manager)
         realm = "ACME Networks"
-        http_handler = MockHTTPHandler(
+        http_handler = MockHTTPHandlerRedirect(
             407, 'Proxy-Authenticate: Basic realm="%s"\r\n\r\n' % realm)
         opener.add_handler(auth_handler)
         opener.add_handler(http_handler)
@@ -1575,15 +1632,13 @@ class HandlerTests(unittest.TestCase):
                               "proxy.example.com:3128",
                               )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basic_and_digest_auth_handlers(self):
         # HTTPDigestAuthHandler raised an exception if it couldn't handle a 40*
-        # response (http://python.org/sf/1479302), where it should instead
+        # response (https://bugs.python.org/issue1479302), where it should instead
         # return None to allow another handler (especially
         # HTTPBasicAuthHandler) to handle the response.
 
-        # Also (http://python.org/sf/14797027, RFC 2617 section 1.2), we must
+        # Also (https://bugs.python.org/issue14797027, RFC 2617 section 1.2), we must
         # try digest first (since it's the strongest auth scheme), so we record
         # order of calls here to check digest comes first:
         class RecordingOpenerDirector(OpenerDirector):
@@ -1611,7 +1666,7 @@ class HandlerTests(unittest.TestCase):
         digest_handler = TestDigestAuthHandler(password_manager)
         basic_handler = TestBasicAuthHandler(password_manager)
         realm = "ACME Networks"
-        http_handler = MockHTTPHandler(
+        http_handler = MockHTTPHandlerRedirect(
             401, 'WWW-Authenticate: Basic realm="%s"\r\n\r\n' % realm)
         opener.add_handler(basic_handler)
         opener.add_handler(digest_handler)
@@ -1631,7 +1686,7 @@ class HandlerTests(unittest.TestCase):
         opener = OpenerDirector()
         # While using DigestAuthHandler
         digest_auth_handler = urllib.request.HTTPDigestAuthHandler(None)
-        http_handler = MockHTTPHandler(
+        http_handler = MockHTTPHandlerRedirect(
             401, 'WWW-Authenticate: Kerberos\r\n\r\n')
         opener.add_handler(digest_auth_handler)
         opener.add_handler(http_handler)
@@ -1641,7 +1696,7 @@ class HandlerTests(unittest.TestCase):
         # While using BasicAuthHandler
         opener = OpenerDirector()
         basic_auth_handler = urllib.request.HTTPBasicAuthHandler(None)
-        http_handler = MockHTTPHandler(
+        http_handler = MockHTTPHandlerRedirect(
             401, 'WWW-Authenticate: NTLM\r\n\r\n')
         opener.add_handler(basic_auth_handler)
         opener.add_handler(http_handler)
@@ -1684,8 +1739,6 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(len(http_handler.requests), 1)
         self.assertFalse(http_handler.requests[0].has_header(auth_header))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basic_prior_auth_auto_send(self):
         # Assume already authenticated if is_authenticated=True
         # for APIs like Github that don't return 401
@@ -1713,8 +1766,6 @@ class HandlerTests(unittest.TestCase):
         # expect request to be sent with auth header
         self.assertTrue(http_handler.has_auth_header)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basic_prior_auth_send_after_first_success(self):
         # Auto send auth header after authentication is successful once
 
@@ -1732,7 +1783,7 @@ class HandlerTests(unittest.TestCase):
         opener = OpenerDirector()
         opener.add_handler(auth_prior_handler)
 
-        http_handler = MockHTTPHandler(
+        http_handler = MockHTTPHandlerRedirect(
             401, 'WWW-Authenticate: Basic realm="%s"\r\n\r\n' % None)
         opener.add_handler(http_handler)
 
@@ -1783,7 +1834,7 @@ class HandlerTests(unittest.TestCase):
         self.assertTrue(conn.fakesock.closed, "Connection not closed")
 
 
-class MiscTests(unittest.TestCase):
+class MiscTests(unittest.TestCase, ExtraAssertions):
 
     def opener_has_handler(self, opener, handler_class):
         self.assertTrue(any(h.__class__ == handler_class
@@ -1842,14 +1893,21 @@ class MiscTests(unittest.TestCase):
         url = code = fp = None
         hdrs = 'Content-Length: 42'
         err = urllib.error.HTTPError(url, code, msg, hdrs, fp)
-        self.assertTrue(hasattr(err, 'reason'))
+        self.assertHasAttr(err, 'reason')
         self.assertEqual(err.reason, 'something bad happened')
-        self.assertTrue(hasattr(err, 'headers'))
+        self.assertHasAttr(err, 'headers')
         self.assertEqual(err.headers, 'Content-Length: 42')
         expected_errmsg = 'HTTP Error %s: %s' % (err.code, err.msg)
         self.assertEqual(str(err), expected_errmsg)
         expected_errmsg = '<HTTPError %s: %r>' % (err.code, err.msg)
         self.assertEqual(repr(err), expected_errmsg)
+        err.close()
+
+    def test_gh_98778(self):
+        x = urllib.error.HTTPError("url", 405, "METHOD NOT ALLOWED", None, None)
+        self.assertEqual(getattr(x, "__notes__", ()), ())
+        self.assertIsInstance(x.fp.read(), bytes)
+        x.close()
 
     def test_parse_proxy(self):
         parse_proxy_test_cases = [
