@@ -47,6 +47,7 @@ impl Node for ruff::Expr {
             }
         }
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -137,6 +138,7 @@ impl Node for ruff::Expr {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprBoolOp {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -152,6 +154,7 @@ impl Node for ruff::ExprBoolOp {
         node_add_location(&dict, range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -172,6 +175,7 @@ impl Node for ruff::ExprBoolOp {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprNamed {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -191,6 +195,7 @@ impl Node for ruff::ExprNamed {
         node_add_location(&dict, range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -211,6 +216,7 @@ impl Node for ruff::ExprNamed {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprBinOp {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -233,6 +239,7 @@ impl Node for ruff::ExprBinOp {
         node_add_location(&dict, range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -258,6 +265,7 @@ impl Node for ruff::ExprBinOp {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprUnaryOp {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -293,6 +301,7 @@ impl Node for ruff::ExprUnaryOp {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprLambda {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -312,6 +321,7 @@ impl Node for ruff::ExprLambda {
         node_add_location(&dict, _range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -332,6 +342,7 @@ impl Node for ruff::ExprLambda {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprIf {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -354,6 +365,7 @@ impl Node for ruff::ExprIf {
         node_add_location(&dict, range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -379,6 +391,7 @@ impl Node for ruff::ExprIf {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprDict {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -402,6 +415,7 @@ impl Node for ruff::ExprDict {
         node_add_location(&dict, range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -428,6 +442,7 @@ impl Node for ruff::ExprDict {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprSet {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -456,6 +471,7 @@ impl Node for ruff::ExprSet {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprListComp {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -475,6 +491,7 @@ impl Node for ruff::ExprListComp {
         node_add_location(&dict, range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -495,6 +512,7 @@ impl Node for ruff::ExprListComp {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprSetComp {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -514,6 +532,7 @@ impl Node for ruff::ExprSetComp {
         node_add_location(&dict, range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -534,6 +553,7 @@ impl Node for ruff::ExprSetComp {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprDictComp {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -556,6 +576,7 @@ impl Node for ruff::ExprDictComp {
         node_add_location(&dict, range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -581,6 +602,7 @@ impl Node for ruff::ExprDictComp {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprGenerator {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -601,6 +623,7 @@ impl Node for ruff::ExprGenerator {
         node_add_location(&dict, range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -623,6 +646,7 @@ impl Node for ruff::ExprGenerator {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprAwait {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -651,6 +675,7 @@ impl Node for ruff::ExprAwait {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprYield {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -664,6 +689,7 @@ impl Node for ruff::ExprYield {
         node_add_location(&dict, range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -677,6 +703,7 @@ impl Node for ruff::ExprYield {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprYieldFrom {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -690,6 +717,7 @@ impl Node for ruff::ExprYieldFrom {
         node_add_location(&dict, range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -705,6 +733,7 @@ impl Node for ruff::ExprYieldFrom {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprCompare {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -731,6 +760,7 @@ impl Node for ruff::ExprCompare {
         node_add_location(&dict, range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -762,6 +792,7 @@ impl Node for ruff::ExprCompare {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprCall {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -792,6 +823,7 @@ impl Node for ruff::ExprCall {
         node_add_location(&dict, range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -842,6 +874,7 @@ impl Node for ruff::ExprAttribute {
         node_add_location(&dict, range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -867,6 +900,7 @@ impl Node for ruff::ExprAttribute {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprSubscript {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -914,6 +948,7 @@ impl Node for ruff::ExprSubscript {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprStarred {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -949,6 +984,7 @@ impl Node for ruff::ExprStarred {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprName {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -963,6 +999,7 @@ impl Node for ruff::ExprName {
         node_add_location(&dict, range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -979,6 +1016,7 @@ impl Node for ruff::ExprName {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprList {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -994,6 +1032,7 @@ impl Node for ruff::ExprList {
         node_add_location(&dict, range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -1014,6 +1053,7 @@ impl Node for ruff::ExprList {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprTuple {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -1034,6 +1074,7 @@ impl Node for ruff::ExprTuple {
         node_add_location(&dict, _range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -1055,6 +1096,7 @@ impl Node for ruff::ExprTuple {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ExprSlice {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -1077,6 +1119,7 @@ impl Node for ruff::ExprSlice {
         node_add_location(&dict, _range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -1096,14 +1139,15 @@ impl Node for ruff::ExprSlice {
         })
     }
 }
+
 // sum
 impl Node for ruff::ExprContext {
     fn ast_to_object(self, vm: &VirtualMachine, _source_code: &SourceCodeOwned) -> PyObjectRef {
         let node_type = match self {
-            ruff::ExprContext::Load => pyast::NodeExprContextLoad::static_type(),
-            ruff::ExprContext::Store => pyast::NodeExprContextStore::static_type(),
-            ruff::ExprContext::Del => pyast::NodeExprContextDel::static_type(),
-            ruff::ExprContext::Invalid => {
+            Self::Load => pyast::NodeExprContextLoad::static_type(),
+            Self::Store => pyast::NodeExprContextStore::static_type(),
+            Self::Del => pyast::NodeExprContextDel::static_type(),
+            Self::Invalid => {
                 unimplemented!("Invalid expression context is not allowed in Python AST")
             }
         };
@@ -1112,6 +1156,7 @@ impl Node for ruff::ExprContext {
             .unwrap()
             .into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         _source_code: &SourceCodeOwned,
@@ -1119,11 +1164,11 @@ impl Node for ruff::ExprContext {
     ) -> PyResult<Self> {
         let _cls = object.class();
         Ok(if _cls.is(pyast::NodeExprContextLoad::static_type()) {
-            ruff::ExprContext::Load
+            Self::Load
         } else if _cls.is(pyast::NodeExprContextStore::static_type()) {
-            ruff::ExprContext::Store
+            Self::Store
         } else if _cls.is(pyast::NodeExprContextDel::static_type()) {
-            ruff::ExprContext::Del
+            Self::Del
         } else {
             return Err(vm.new_type_error(format!(
                 "expected some sort of expr_context, but got {}",
@@ -1157,6 +1202,7 @@ impl Node for ruff::Comprehension {
             .unwrap();
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
