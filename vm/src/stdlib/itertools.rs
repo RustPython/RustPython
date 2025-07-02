@@ -1,5 +1,14 @@
 pub(crate) use decl::make_module;
 
+macro_rules! handle_pyiter_return {
+    ($input:expr) => {
+        match $input {
+            PyIterReturn::Return(obj) => obj,
+            PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
+        }
+    };
+}
+
 #[pymodule(name = "itertools")]
 mod decl {
     use crate::stdlib::itertools::decl::int::get_value;
