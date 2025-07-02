@@ -282,14 +282,6 @@ where
 /// Extracts the object from `PyIterReturn::Return(obj)` or performs early return
 /// for `PyIterReturn::StopIteration(v)`. This macro should only be used within
 /// functions that return `PyResult<PyIterReturn>`.
-///
-/// # Example
-/// ```rust
-/// fn iterator_next(&self, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-///     let value = raise_stop!(some_pyiter_return_value);
-///     // Process the extracted value...
-/// }
-/// ```
 #[macro_export]
 macro_rules! raise_stop {
     ($input:expr) => {
