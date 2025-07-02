@@ -24,7 +24,7 @@ thread_local! {
 mod _contextvars {
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
-        builtins::{PyStrRef, PyTypeRef},
+        builtins::{PyGenericAlias, PyStrRef, PyTypeRef},
         class::StaticType,
         common::hash::PyHash,
         function::{ArgCallable, FuncArgs, OptionalArg},
@@ -478,11 +478,11 @@ mod _contextvars {
 
         #[pyclassmethod]
         fn __class_getitem__(
-            _cls: PyTypeRef,
-            _key: PyStrRef,
-            _vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            unimplemented!("ContextVar.__class_getitem__() is currently under construction")
+            cls: PyTypeRef,
+            args: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyGenericAlias {
+            PyGenericAlias::from_args(cls, args, vm)
         }
     }
 
@@ -570,6 +570,15 @@ mod _contextvars {
                 Some(value) => value.clone(),
                 None => ContextTokenMissing::static_type().to_owned().into(),
             }
+        }
+
+        #[pyclassmethod]
+        fn __class_getitem__(
+            cls: PyTypeRef,
+            args: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyGenericAlias {
+            PyGenericAlias::from_args(cls, args, vm)
         }
     }
 

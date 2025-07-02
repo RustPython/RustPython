@@ -1,4 +1,4 @@
-use super::{PyCode, PyStrRef, PyType};
+use super::{PyCode, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -71,6 +71,11 @@ impl PyCoroutine {
     #[pygetset]
     fn cr_origin(&self, _vm: &VirtualMachine) -> Option<(PyStrRef, usize, PyStrRef)> {
         None
+    }
+
+    #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::from_args(cls, args, vm)
     }
 }
 

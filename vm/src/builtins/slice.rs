@@ -1,6 +1,6 @@
 // sliceobject.{h,c} in CPython
 // spell-checker:ignore sliceobject
-use super::{PyStrRef, PyTupleRef, PyType, PyTypeRef};
+use super::{PyGenericAlias, PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -30,6 +30,11 @@ impl PyPayload for PySlice {
 
 #[pyclass(with(Comparable, Representable, Hashable))]
 impl PySlice {
+    #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::from_args(cls, args, vm)
+    }
+
     #[pygetset]
     fn start(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.start.clone().to_pyobject(vm)

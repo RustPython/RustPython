@@ -44,8 +44,8 @@ mod array {
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
             atomic_func,
             builtins::{
-                PositionIterInternal, PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat, PyInt,
-                PyList, PyListRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
+                PositionIterInternal, PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat,
+                PyGenericAlias, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
             },
             class_or_notimplemented,
             convert::{ToPyObject, ToPyResult, TryFromBorrowedObject, TryFromObject},
@@ -1194,6 +1194,15 @@ mod array {
             }
 
             false
+        }
+
+        #[pyclassmethod]
+        fn __class_getitem__(
+            cls: PyTypeRef,
+            args: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyGenericAlias {
+            PyGenericAlias::from_args(cls, args, vm)
         }
     }
 
