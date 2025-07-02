@@ -59,12 +59,12 @@ mod symtable {
         }
 
         #[pymethod]
-        fn get_lineno(&self) -> u32 {
+        const fn get_lineno(&self) -> u32 {
             self.symtable.line_number
         }
 
         #[pymethod]
-        fn is_nested(&self) -> bool {
+        const fn is_nested(&self) -> bool {
             self.symtable.is_nested
         }
 
@@ -131,7 +131,7 @@ mod symtable {
         }
 
         #[pymethod]
-        fn has_children(&self) -> bool {
+        const fn has_children(&self) -> bool {
             !self.symtable.sub_tables.is_empty()
         }
 
@@ -175,7 +175,7 @@ mod symtable {
         }
 
         #[pymethod]
-        fn is_declared_global(&self) -> bool {
+        const fn is_declared_global(&self) -> bool {
             matches!(self.symbol.scope, SymbolScope::GlobalExplicit)
         }
 
@@ -185,7 +185,7 @@ mod symtable {
         }
 
         #[pymethod]
-        fn is_imported(&self) -> bool {
+        const fn is_imported(&self) -> bool {
             self.symbol.flags.contains(SymbolFlags::IMPORTED)
         }
 
@@ -196,37 +196,37 @@ mod symtable {
         }
 
         #[pymethod]
-        fn is_nonlocal(&self) -> bool {
+        const fn is_nonlocal(&self) -> bool {
             self.symbol.flags.contains(SymbolFlags::NONLOCAL)
         }
 
         #[pymethod]
-        fn is_referenced(&self) -> bool {
+        const fn is_referenced(&self) -> bool {
             self.symbol.flags.contains(SymbolFlags::REFERENCED)
         }
 
         #[pymethod]
-        fn is_assigned(&self) -> bool {
+        const fn is_assigned(&self) -> bool {
             self.symbol.flags.contains(SymbolFlags::ASSIGNED)
         }
 
         #[pymethod]
-        fn is_parameter(&self) -> bool {
+        const fn is_parameter(&self) -> bool {
             self.symbol.flags.contains(SymbolFlags::PARAMETER)
         }
 
         #[pymethod]
-        fn is_free(&self) -> bool {
+        const fn is_free(&self) -> bool {
             matches!(self.symbol.scope, SymbolScope::Free)
         }
 
         #[pymethod]
-        fn is_namespace(&self) -> bool {
+        const fn is_namespace(&self) -> bool {
             !self.namespaces.is_empty()
         }
 
         #[pymethod]
-        fn is_annotated(&self) -> bool {
+        const fn is_annotated(&self) -> bool {
             self.symbol.flags.contains(SymbolFlags::ANNOTATED)
         }
 

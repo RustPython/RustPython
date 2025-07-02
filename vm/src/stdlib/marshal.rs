@@ -30,6 +30,7 @@ mod decl {
     impl marshal::Dumpable for PyObjectRef {
         type Error = DumpError;
         type Constant = Literal;
+
         fn with_dump<R>(
             &self,
             f: impl FnOnce(marshal::DumpableValue<'_, Self>) -> R,
@@ -126,46 +127,60 @@ mod decl {
 
     impl<'a> marshal::MarshalBag for PyMarshalBag<'a> {
         type Value = PyObjectRef;
+        type ConstantBag = PyObjBag<'a>;
+
         fn make_bool(&self, value: bool) -> Self::Value {
             self.0.ctx.new_bool(value).into()
         }
+
         fn make_none(&self) -> Self::Value {
             self.0.ctx.none()
         }
+
         fn make_ellipsis(&self) -> Self::Value {
             self.0.ctx.ellipsis()
         }
+
         fn make_float(&self, value: f64) -> Self::Value {
             self.0.ctx.new_float(value).into()
         }
+
         fn make_complex(&self, value: Complex64) -> Self::Value {
             self.0.ctx.new_complex(value).into()
         }
+
         fn make_str(&self, value: &Wtf8) -> Self::Value {
             self.0.ctx.new_str(value).into()
         }
+
         fn make_bytes(&self, value: &[u8]) -> Self::Value {
             self.0.ctx.new_bytes(value.to_vec()).into()
         }
+
         fn make_int(&self, value: BigInt) -> Self::Value {
             self.0.ctx.new_int(value).into()
         }
+
         fn make_tuple(&self, elements: impl Iterator<Item = Self::Value>) -> Self::Value {
             let elements = elements.collect();
             self.0.ctx.new_tuple(elements).into()
         }
+
         fn make_code(&self, code: CodeObject) -> Self::Value {
             self.0.ctx.new_code(code).into()
         }
+
         fn make_stop_iter(&self) -> Result<Self::Value, marshal::MarshalError> {
             Ok(self.0.ctx.exceptions.stop_iteration.to_owned().into())
         }
+
         fn make_list(
             &self,
             it: impl Iterator<Item = Self::Value>,
         ) -> Result<Self::Value, marshal::MarshalError> {
             Ok(self.0.ctx.new_list(it.collect()).into())
         }
+
         fn make_set(
             &self,
             it: impl Iterator<Item = Self::Value>,
@@ -177,6 +192,7 @@ mod decl {
             }
             Ok(set.into())
         }
+
         fn make_frozenset(
             &self,
             it: impl Iterator<Item = Self::Value>,
@@ -184,6 +200,7 @@ mod decl {
             let vm = self.0;
             Ok(PyFrozenSet::from_iter(vm, it).unwrap().to_pyobject(vm))
         }
+
         fn make_dict(
             &self,
             it: impl Iterator<Item = (Self::Value, Self::Value)>,
@@ -195,7 +212,7 @@ mod decl {
             }
             Ok(dict.into())
         }
-        type ConstantBag = PyObjBag<'a>;
+
         fn constant_bag(self) -> Self::ConstantBag {
             PyObjBag(&self.0.ctx)
         }

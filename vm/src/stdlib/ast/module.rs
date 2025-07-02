@@ -33,6 +33,7 @@ impl Node for Mod {
             Self::FunctionType(cons) => cons.ast_to_object(vm, source_code),
         }
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -59,10 +60,11 @@ impl Node for Mod {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ModModule {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let ruff::ModModule {
+        let Self {
             body,
             // type_ignores,
             range,
@@ -85,12 +87,13 @@ impl Node for ruff::ModModule {
         node_add_location(&dict, range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        Ok(ruff::ModModule {
+        Ok(Self {
             body: Node::ast_from_object(
                 vm,
                 source_code,
@@ -123,6 +126,7 @@ impl Node for ModInteractive {
         node_add_location(&dict, range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -138,6 +142,7 @@ impl Node for ModInteractive {
         })
     }
 }
+
 // constructor
 impl Node for ruff::ModExpression {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -151,6 +156,7 @@ impl Node for ruff::ModExpression {
         node_add_location(&dict, range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -176,7 +182,7 @@ pub(super) struct ModFunctionType {
 // constructor
 impl Node for ModFunctionType {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let ModFunctionType {
+        let Self {
             argtypes,
             returns,
             range,
@@ -196,12 +202,13 @@ impl Node for ModFunctionType {
         node_add_location(&dict, range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        Ok(ModFunctionType {
+        Ok(Self {
             argtypes: {
                 let argtypes: BoxedSlice<_> = Node::ast_from_object(
                     vm,

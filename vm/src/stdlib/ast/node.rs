@@ -8,6 +8,7 @@ pub(crate) trait Node: Sized {
         source_code: &SourceCodeOwned,
         object: PyObjectRef,
     ) -> PyResult<Self>;
+
     /// Used in `Option::ast_from_object`; if `true`, that impl will return None.
     fn is_none(&self) -> bool {
         false
@@ -44,7 +45,7 @@ impl<T: Node> Node for Box<T> {
         source_code: &SourceCodeOwned,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        T::ast_from_object(vm, source_code, object).map(Box::new)
+        T::ast_from_object(vm, source_code, object).map(Self::new)
     }
 
     fn is_none(&self) -> bool {
