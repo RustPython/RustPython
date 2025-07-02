@@ -283,7 +283,7 @@ where
 /// for `PyIterReturn::StopIteration(v)`. This macro should only be used within
 /// functions that return `PyResult<PyIterReturn>`.
 #[macro_export]
-macro_rules! raise_stop {
+macro_rules! raise_if_stop {
     ($input:expr) => {
         match $input {
             $crate::protocol::PyIterReturn::Return(obj) => obj,
