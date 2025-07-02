@@ -225,10 +225,7 @@ mod decl {
     impl IterNext for PyItertoolsCompress {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             loop {
-                let sel_obj = match zelf.selectors.next(vm)? {
-                    PyIterReturn::Return(obj) => obj,
-                    PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
-                };
+                let sel_obj = handle_pyiter_return!(zelf.selectors.next(vm)?);
                 let verdict = sel_obj.clone().try_to_bool(vm)?;
                 let data_obj = zelf.data.next(vm)?;
 
@@ -579,10 +576,7 @@ mod decl {
             }
 
             // might be StopIteration or anything else, which is propagated upwards
-            let obj = match zelf.iterable.next(vm)? {
-                PyIterReturn::Return(obj) => obj,
-                PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
-            };
+            let obj = handle_pyiter_return!(zelf.iterable.next(vm)?);
             let predicate = &zelf.predicate;
 
             let verdict = predicate.call((obj.clone(),), vm)?;
@@ -667,12 +661,7 @@ mod decl {
 
             if !zelf.start_flag.load() {
                 loop {
-                    let obj = match iterable.next(vm)? {
-                        PyIterReturn::Return(obj) => obj,
-                        PyIterReturn::StopIteration(v) => {
-                            return Ok(PyIterReturn::StopIteration(v));
-                        }
-                    };
+                    let obj = handle_pyiter_return!(iterable.next(vm)?);
                     let pred = predicate.clone();
                     let pred_value = pred.invoke((obj.clone(),), vm)?;
                     if !pred_value.try_to_bool(vm)? {
@@ -766,10 +755,7 @@ mod decl {
             &self,
             vm: &VirtualMachine,
         ) -> PyResult<PyIterReturn<(PyObjectRef, PyObjectRef)>> {
-            let new_value = match self.iterable.next(vm)? {
-                PyIterReturn::Return(obj) => obj,
-                PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
-            };
+            let new_value = handle_pyiter_return!(self.iterable.next(vm)?);
             let new_key = if let Some(ref kf) = self.key_func {
                 kf.call((new_value.clone(),), vm)?
             } else {
@@ -793,23 +779,13 @@ mod decl {
 
                 let (value, key) = if let Some(old_key) = current_key {
                     loop {
-                        let (value, new_key) = match zelf.advance(vm)? {
-                            PyIterReturn::Return(obj) => obj,
-                            PyIterReturn::StopIteration(v) => {
-                                return Ok(PyIterReturn::StopIteration(v));
-                            }
-                        };
+                        let (value, new_key) = handle_pyiter_return!(zelf.advance(vm)?);
                         if !vm.bool_eq(&new_key, &old_key)? {
                             break (value, new_key);
                         }
                     }
                 } else {
-                    match zelf.advance(vm)? {
-                        PyIterReturn::Return(obj) => obj,
-                        PyIterReturn::StopIteration(v) => {
-                            return Ok(PyIterReturn::StopIteration(v));
-                        }
-                    }
+                    handle_pyiter_return!(zelf.advance(vm)?)
                 };
 
                 state = zelf.state.lock();
@@ -859,10 +835,7 @@ mod decl {
 
                 state.current_key.as_ref().unwrap().clone()
             };
-            let (value, key) = match zelf.groupby.advance(vm)? {
-                PyIterReturn::Return(obj) => obj,
-                PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
-            };
+            let (value, key) = handle_pyiter_return!(zelf.groupby.advance(vm)?);
             if vm.bool_eq(&key, &old_key)? {
                 Ok(PyIterReturn::Return(value))
             } else {
@@ -1021,10 +994,7 @@ mod decl {
                 }
             }
 
-            let obj = match zelf.iterable.next(vm)? {
-                PyIterReturn::Return(obj) => obj,
-                PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
-            };
+            let obj = handle_pyiter_return!(zelf.iterable.next(vm)?);
             zelf.cur.fetch_add(1);
 
             // TODO is this overflow check required? attempts to copy CPython.
@@ -1090,10 +1060,7 @@ mod decl {
             let iterable = &zelf.iterable;
 
             loop {
-                let obj = match iterable.next(vm)? {
-                    PyIterReturn::Return(obj) => obj,
-                    PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
-                };
+                let obj = handle_pyiter_return!(iterable.next(vm)?);
                 let pred_value = if vm.is_none(predicate) {
                     obj.clone()
                 } else {
@@ -1205,21 +1172,11 @@ mod decl {
 
             let next_acc_value = match acc_value {
                 None => match &zelf.initial {
-                    None => match iterable.next(vm)? {
-                        PyIterReturn::Return(obj) => obj,
-                        PyIterReturn::StopIteration(v) => {
-                            return Ok(PyIterReturn::StopIteration(v));
-                        }
-                    },
+                    None => handle_pyiter_return!(iterable.next(vm)?),
                     Some(obj) => obj.clone(),
                 },
                 Some(value) => {
-                    let obj = match iterable.next(vm)? {
-                        PyIterReturn::Return(obj) => obj,
-                        PyIterReturn::StopIteration(v) => {
-                            return Ok(PyIterReturn::StopIteration(v));
-                        }
-                    };
+                    let obj = handle_pyiter_return!(iterable.next(vm)?);
                     match &zelf.bin_op {
                         None => vm._add(&value, &obj)?,
                         Some(op) => op.call((value, obj), vm)?,
@@ -1248,10 +1205,7 @@ mod decl {
 
         fn get_item(&self, vm: &VirtualMachine, index: usize) -> PyResult<PyIterReturn> {
             if self.values.read().len() == index {
-                let result = match self.iterable.next(vm)? {
-                    PyIterReturn::Return(obj) => obj,
-                    PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
-                };
+                let result = handle_pyiter_return!(self.iterable.next(vm)?);
                 self.values.write().push(result);
             }
             Ok(PyIterReturn::Return(self.values.read()[index].clone()))
@@ -1327,10 +1281,7 @@ mod decl {
     impl SelfIter for PyItertoolsTee {}
     impl IterNext for PyItertoolsTee {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let value = match zelf.tee_data.get_item(vm, zelf.index.load())? {
-                PyIterReturn::Return(obj) => obj,
-                PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
-            };
+            let value = handle_pyiter_return!(zelf.tee_data.get_item(vm, zelf.index.load())?);
             zelf.index.fetch_add(1);
             Ok(PyIterReturn::Return(value))
         }
@@ -1972,16 +1923,10 @@ mod decl {
     impl IterNext for PyItertoolsPairwise {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let old = match zelf.old.read().clone() {
-                None => match zelf.iterator.next(vm)? {
-                    PyIterReturn::Return(obj) => obj,
-                    PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
-                },
+                None => handle_pyiter_return!(zelf.iterator.next(vm)?),
                 Some(obj) => obj,
             };
-            let new = match zelf.iterator.next(vm)? {
-                PyIterReturn::Return(obj) => obj,
-                PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
-            };
+            let new = handle_pyiter_return!(zelf.iterator.next(vm)?);
             *zelf.old.write() = Some(new.clone());
             Ok(PyIterReturn::Return(vm.new_tuple((old, new)).into()))
         }
