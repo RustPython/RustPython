@@ -1922,12 +1922,25 @@ mod decl {
 
     impl IterNext for PyItertoolsPairwise {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let old = match zelf.old.read().clone() {
-                None => handle_pyiter_return!(zelf.iterator.next(vm)?),
+            let old_clone = {
+                let guard = zelf.old.read();
+                guard.clone()
+            };
+            let old = match old_clone {
+                None => match zelf.iterator.next(vm)? {
+                    PyIterReturn::Return(obj) => {
+                        // Needed for when we reenter
+                        *zelf.old.write() = Some(obj.clone());
+                        obj
+                    }
+                    PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
+                },
                 Some(obj) => obj,
             };
+
             let new = handle_pyiter_return!(zelf.iterator.next(vm)?);
             *zelf.old.write() = Some(new.clone());
+
             Ok(PyIterReturn::Return(vm.new_tuple((old, new)).into()))
         }
     }
