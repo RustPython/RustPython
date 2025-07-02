@@ -278,7 +278,7 @@ where
 }
 
 #[macro_export]
-macro_rules! handle_pyiter_return {
+macro_rules! raise_stop {
     ($input:expr) => {
         match $input {
             $crate::protocol::PyIterReturn::Return(obj) => obj,
