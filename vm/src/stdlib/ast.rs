@@ -55,7 +55,7 @@ mod type_parameters;
 
 fn get_node_field(vm: &VirtualMachine, obj: &PyObject, field: &'static str, typ: &str) -> PyResult {
     vm.get_attribute_opt(obj.to_owned(), field)?
-        .ok_or_else(|| vm.new_type_error(format!("required field \"{field}\" missing from {typ}")))
+        .ok_or_else(|| vm.new_type_error(format!(r#"required field "{field}" missing from {typ}"#)))
 }
 
 fn get_node_field_opt(
@@ -76,7 +76,7 @@ fn get_int_field(
 ) -> PyResult<PyRefExact<PyInt>> {
     get_node_field(vm, obj, field, typ)?
         .downcast_exact(vm)
-        .map_err(|_| vm.new_type_error(format!("field \"{field}\" must have integer type")))
+        .map_err(|_| vm.new_type_error(format!(r#"field "{field}" must have integer type"#)))
 }
 
 struct PySourceRange {
@@ -107,7 +107,7 @@ impl Row {
         self.0.get()
     }
 
-    fn get_one_indexed(self) -> OneIndexed {
+    const fn get_one_indexed(self) -> OneIndexed {
         self.0
     }
 }

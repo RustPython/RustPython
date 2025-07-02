@@ -21,48 +21,49 @@ impl Constant {
         }
     }
 
-    pub(super) fn new_int(value: ruff::Int, range: TextRange) -> Self {
+    pub(super) const fn new_int(value: ruff::Int, range: TextRange) -> Self {
         Self {
             range,
             value: ConstantLiteral::Int(value),
         }
     }
 
-    pub(super) fn new_float(value: f64, range: TextRange) -> Self {
+    pub(super) const fn new_float(value: f64, range: TextRange) -> Self {
         Self {
             range,
             value: ConstantLiteral::Float(value),
         }
     }
-    pub(super) fn new_complex(real: f64, imag: f64, range: TextRange) -> Self {
+
+    pub(super) const fn new_complex(real: f64, imag: f64, range: TextRange) -> Self {
         Self {
             range,
             value: ConstantLiteral::Complex { real, imag },
         }
     }
 
-    pub(super) fn new_bytes(value: Box<[u8]>, range: TextRange) -> Self {
+    pub(super) const fn new_bytes(value: Box<[u8]>, range: TextRange) -> Self {
         Self {
             range,
             value: ConstantLiteral::Bytes(value),
         }
     }
 
-    pub(super) fn new_bool(value: bool, range: TextRange) -> Self {
+    pub(super) const fn new_bool(value: bool, range: TextRange) -> Self {
         Self {
             range,
             value: ConstantLiteral::Bool(value),
         }
     }
 
-    pub(super) fn new_none(range: TextRange) -> Self {
+    pub(super) const fn new_none(range: TextRange) -> Self {
         Self {
             range,
             value: ConstantLiteral::None,
         }
     }
 
-    pub(super) fn new_ellipsis(range: TextRange) -> Self {
+    pub(super) const fn new_ellipsis(range: TextRange) -> Self {
         Self {
             range,
             value: ConstantLiteral::Ellipsis,
@@ -137,30 +138,30 @@ impl Node for Constant {
 impl Node for ConstantLiteral {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         match self {
-            ConstantLiteral::None => vm.ctx.none(),
-            ConstantLiteral::Bool(value) => vm.ctx.new_bool(value).to_pyobject(vm),
+            Self::None => vm.ctx.none(),
+            Self::Bool(value) => vm.ctx.new_bool(value).to_pyobject(vm),
             ConstantLiteral::Str { value, .. } => vm.ctx.new_str(value).to_pyobject(vm),
-            ConstantLiteral::Bytes(value) => vm.ctx.new_bytes(value.into()).to_pyobject(vm),
-            ConstantLiteral::Int(value) => value.ast_to_object(vm, source_code),
-            ConstantLiteral::Tuple(value) => {
+            Self::Bytes(value) => vm.ctx.new_bytes(value.into()).to_pyobject(vm),
+            Self::Int(value) => value.ast_to_object(vm, source_code),
+            Self::Tuple(value) => {
                 let value = value
                     .into_iter()
                     .map(|c| c.ast_to_object(vm, source_code))
                     .collect();
                 vm.ctx.new_tuple(value).to_pyobject(vm)
             }
-            ConstantLiteral::FrozenSet(value) => PyFrozenSet::from_iter(
+            Self::FrozenSet(value) => PyFrozenSet::from_iter(
                 vm,
                 value.into_iter().map(|c| c.ast_to_object(vm, source_code)),
             )
             .unwrap()
             .into_pyobject(vm),
-            ConstantLiteral::Float(value) => vm.ctx.new_float(value).into_pyobject(vm),
-            ConstantLiteral::Complex { real, imag } => vm
+            Self::Float(value) => vm.ctx.new_float(value).into_pyobject(vm),
+            Self::Complex { real, imag } => vm
                 .ctx
                 .new_complex(num_complex::Complex::new(real, imag))
                 .into_pyobject(vm),
-            ConstantLiteral::Ellipsis => vm.ctx.ellipsis(),
+            Self::Ellipsis => vm.ctx.ellipsis(),
         }
     }
 
@@ -171,9 +172,9 @@ impl Node for ConstantLiteral {
     ) -> PyResult<Self> {
         let cls = value_object.class();
         let value = if cls.is(vm.ctx.types.none_type) {
-            ConstantLiteral::None
+            Self::None
         } else if cls.is(vm.ctx.types.bool_type) {
-            ConstantLiteral::Bool(if value_object.is(&vm.ctx.true_value) {
+            Self::Bool(if value_object.is(&vm.ctx.true_value) {
                 true
             } else if value_object.is(&vm.ctx.false_value) {
                 false
@@ -181,14 +182,14 @@ impl Node for ConstantLiteral {
                 value_object.try_to_value(vm)?
             })
         } else if cls.is(vm.ctx.types.str_type) {
-            ConstantLiteral::Str {
+            Self::Str {
                 value: value_object.try_to_value::<String>(vm)?.into(),
                 prefix: StringLiteralPrefix::Empty,
             }
         } else if cls.is(vm.ctx.types.bytes_type) {
-            ConstantLiteral::Bytes(value_object.try_to_value::<Vec<u8>>(vm)?.into())
+            Self::Bytes(value_object.try_to_value::<Vec<u8>>(vm)?.into())
         } else if cls.is(vm.ctx.types.int_type) {
-            ConstantLiteral::Int(Node::ast_from_object(vm, source_code, value_object)?)
+            Self::Int(Node::ast_from_object(vm, source_code, value_object)?)
         } else if cls.is(vm.ctx.types.tuple_type) {
             let tuple = value_object.downcast::<PyTuple>().map_err(|obj| {
                 vm.new_type_error(format!(
@@ -202,7 +203,7 @@ impl Node for ConstantLiteral {
                 .cloned()
                 .map(|object| Node::ast_from_object(vm, source_code, object))
                 .collect::<PyResult<_>>()?;
-            ConstantLiteral::Tuple(tuple)
+            Self::Tuple(tuple)
         } else if cls.is(vm.ctx.types.frozenset_type) {
             let set = value_object.downcast::<PyFrozenSet>().unwrap();
             let elements = set
@@ -210,10 +211,10 @@ impl Node for ConstantLiteral {
                 .into_iter()
                 .map(|object| Node::ast_from_object(vm, source_code, object))
                 .collect::<PyResult<_>>()?;
-            ConstantLiteral::FrozenSet(elements)
+            Self::FrozenSet(elements)
         } else if cls.is(vm.ctx.types.float_type) {
             let float = value_object.try_into_value(vm)?;
-            ConstantLiteral::Float(float)
+            Self::Float(float)
         } else if cls.is(vm.ctx.types.complex_type) {
             let complex = value_object.try_complex(vm)?;
             let complex = match complex {
@@ -226,12 +227,12 @@ impl Node for ConstantLiteral {
                 }
                 Some((value, _was_coerced)) => value,
             };
-            ConstantLiteral::Complex {
+            Self::Complex {
                 real: complex.re,
                 imag: complex.im,
             }
         } else if cls.is(vm.ctx.types.ellipsis_type) {
-            ConstantLiteral::Ellipsis
+            Self::Ellipsis
         } else {
             return Err(vm.new_type_error(format!(
                 "invalid type in Constant: {}",
