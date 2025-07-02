@@ -21,6 +21,7 @@ impl Node for ruff::MatchCase {
             .unwrap();
         node.into()
     }
+
     fn ast_from_object(
         _vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -44,18 +45,19 @@ impl Node for ruff::MatchCase {
         })
     }
 }
+
 // sum
 impl Node for ruff::Pattern {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         match self {
-            ruff::Pattern::MatchValue(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Pattern::MatchSingleton(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Pattern::MatchSequence(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Pattern::MatchMapping(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Pattern::MatchClass(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Pattern::MatchStar(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Pattern::MatchAs(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Pattern::MatchOr(cons) => cons.ast_to_object(vm, source_code),
+            Self::MatchValue(cons) => cons.ast_to_object(vm, source_code),
+            Self::MatchSingleton(cons) => cons.ast_to_object(vm, source_code),
+            Self::MatchSequence(cons) => cons.ast_to_object(vm, source_code),
+            Self::MatchMapping(cons) => cons.ast_to_object(vm, source_code),
+            Self::MatchClass(cons) => cons.ast_to_object(vm, source_code),
+            Self::MatchStar(cons) => cons.ast_to_object(vm, source_code),
+            Self::MatchAs(cons) => cons.ast_to_object(vm, source_code),
+            Self::MatchOr(cons) => cons.ast_to_object(vm, source_code),
         }
     }
     fn ast_from_object(
@@ -65,49 +67,49 @@ impl Node for ruff::Pattern {
     ) -> PyResult<Self> {
         let _cls = _object.class();
         Ok(if _cls.is(pyast::NodePatternMatchValue::static_type()) {
-            ruff::Pattern::MatchValue(ruff::PatternMatchValue::ast_from_object(
+            Self::MatchValue(ruff::PatternMatchValue::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodePatternMatchSingleton::static_type()) {
-            ruff::Pattern::MatchSingleton(ruff::PatternMatchSingleton::ast_from_object(
+            Self::MatchSingleton(ruff::PatternMatchSingleton::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodePatternMatchSequence::static_type()) {
-            ruff::Pattern::MatchSequence(ruff::PatternMatchSequence::ast_from_object(
+            Self::MatchSequence(ruff::PatternMatchSequence::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodePatternMatchMapping::static_type()) {
-            ruff::Pattern::MatchMapping(ruff::PatternMatchMapping::ast_from_object(
+            Self::MatchMapping(ruff::PatternMatchMapping::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodePatternMatchClass::static_type()) {
-            ruff::Pattern::MatchClass(ruff::PatternMatchClass::ast_from_object(
+            Self::MatchClass(ruff::PatternMatchClass::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodePatternMatchStar::static_type()) {
-            ruff::Pattern::MatchStar(ruff::PatternMatchStar::ast_from_object(
+            Self::MatchStar(ruff::PatternMatchStar::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodePatternMatchAs::static_type()) {
-            ruff::Pattern::MatchAs(ruff::PatternMatchAs::ast_from_object(
+            Self::MatchAs(ruff::PatternMatchAs::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodePatternMatchOr::static_type()) {
-            ruff::Pattern::MatchOr(ruff::PatternMatchOr::ast_from_object(
+            Self::MatchOr(ruff::PatternMatchOr::ast_from_object(
                 _vm,
                 source_code,
                 _object,
@@ -136,6 +138,7 @@ impl Node for ruff::PatternMatchValue {
         node_add_location(&dict, _range, _vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         _vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -151,6 +154,7 @@ impl Node for ruff::PatternMatchValue {
         })
     }
 }
+
 // constructor
 impl Node for ruff::PatternMatchSingleton {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -170,6 +174,7 @@ impl Node for ruff::PatternMatchSingleton {
         node_add_location(&dict, _range, _vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         _vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -185,6 +190,7 @@ impl Node for ruff::PatternMatchSingleton {
         })
     }
 }
+
 impl Node for ruff::Singleton {
     fn ast_to_object(self, _vm: &VirtualMachine, _source_code: &SourceCodeOwned) -> PyObjectRef {
         todo!()
@@ -198,6 +204,7 @@ impl Node for ruff::Singleton {
         todo!()
     }
 }
+
 // constructor
 impl Node for ruff::PatternMatchSequence {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -217,6 +224,7 @@ impl Node for ruff::PatternMatchSequence {
         node_add_location(&dict, _range, _vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         _vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -232,6 +240,7 @@ impl Node for ruff::PatternMatchSequence {
         })
     }
 }
+
 // constructor
 impl Node for ruff::PatternMatchMapping {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -257,6 +266,7 @@ impl Node for ruff::PatternMatchMapping {
         node_add_location(&dict, _range, _vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         _vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -280,6 +290,7 @@ impl Node for ruff::PatternMatchMapping {
         })
     }
 }
+
 // constructor
 impl Node for ruff::PatternMatchClass {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -308,6 +319,7 @@ impl Node for ruff::PatternMatchClass {
         node_add_location(&dict, _range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -415,6 +427,7 @@ impl Node for ruff::PatternMatchStar {
         node_add_location(&dict, _range, _vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         _vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -428,6 +441,7 @@ impl Node for ruff::PatternMatchStar {
         })
     }
 }
+
 // constructor
 impl Node for ruff::PatternMatchAs {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -447,6 +461,7 @@ impl Node for ruff::PatternMatchAs {
         node_add_location(&dict, _range, _vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         _vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -463,6 +478,7 @@ impl Node for ruff::PatternMatchAs {
         })
     }
 }
+
 // constructor
 impl Node for ruff::PatternMatchOr {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {

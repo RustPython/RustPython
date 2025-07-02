@@ -42,6 +42,7 @@ impl std::fmt::Display for AttrName {
 
 impl FromStr for AttrName {
     type Err = String;
+
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         Ok(match s {
             "pymethod" => Self::Method,
@@ -1216,6 +1217,7 @@ impl ItemMeta for MethodItemMeta {
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
     }
+
     fn inner(&self) -> &ItemMetaInner {
         &self.0
     }
@@ -1225,6 +1227,7 @@ impl MethodItemMeta {
     fn raw(&self) -> Result<bool> {
         self.inner()._bool("raw")
     }
+
     fn method_name(&self) -> Result<String> {
         let inner = self.inner();
         let name = inner._optional_str("name")?;
@@ -1244,6 +1247,7 @@ impl ItemMeta for GetSetItemMeta {
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
     }
+
     fn inner(&self) -> &ItemMetaInner {
         &self.0
     }
@@ -1274,8 +1278,8 @@ impl GetSetItemMeta {
                     if name.is_empty() {
                         Err(err_span!(
                             inner.meta_ident,
-                            "A #[{}({typ})] fn with a {prefix}* name must \
-                             have something after \"{prefix}\"",
+                            r#"A #[{}({typ})] fn with a {prefix}* name must \
+                             have something after "{prefix}""#,
                             inner.meta_name(),
                             typ = item_typ,
                             prefix = prefix
@@ -1286,8 +1290,8 @@ impl GetSetItemMeta {
                 } else {
                     Err(err_span!(
                         inner.meta_ident,
-                        "A #[{}(setter)] fn must either have a `name` \
-                         parameter or a fn name along the lines of \"set_*\"",
+                        r#"A #[{}(setter)] fn must either have a `name` \
+                         parameter or a fn name along the lines of "set_*""#,
                         inner.meta_name()
                     ))
                 }
@@ -1337,6 +1341,7 @@ impl ItemMeta for SlotItemMeta {
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
     }
+
     fn inner(&self) -> &ItemMetaInner {
         &self.0
     }
@@ -1389,6 +1394,7 @@ impl ItemMeta for MemberItemMeta {
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
     }
+
     fn inner(&self) -> &ItemMetaInner {
         &self.0
     }
@@ -1403,8 +1409,8 @@ impl MemberItemMeta {
                 if name.is_empty() {
                     Err(err_span!(
                         inner.meta_ident,
-                        "A #[{}({typ})] fn with a {prefix}* name must \
-                         have something after \"{prefix}\"",
+                        r#"A #[{}({typ})] fn with a {prefix}* name must \
+                         have something after "{prefix}""#,
                         inner.meta_name(),
                         typ = item_typ,
                         prefix = prefix
@@ -1415,8 +1421,8 @@ impl MemberItemMeta {
             } else {
                 Err(err_span!(
                     inner.meta_ident,
-                    "A #[{}(setter)] fn must either have a `name` \
-                     parameter or a fn name along the lines of \"set_*\"",
+                    r#"A #[{}(setter)] fn must either have a `name` \
+                     parameter or a fn name along the lines of "set_*""#,
                     inner.meta_name()
                 ))
             }

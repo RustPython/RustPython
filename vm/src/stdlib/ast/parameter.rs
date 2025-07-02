@@ -43,6 +43,7 @@ impl Node for ruff::Parameters {
         node_add_location(&dict, range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -95,6 +96,7 @@ impl Node for ruff::Parameters {
         self.is_empty()
     }
 }
+
 // product
 impl Node for ruff::Parameter {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -125,6 +127,7 @@ impl Node for ruff::Parameter {
         node_add_location(&dict, range, _vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         _vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
