@@ -140,7 +140,7 @@ impl Node for ConstantLiteral {
         match self {
             Self::None => vm.ctx.none(),
             Self::Bool(value) => vm.ctx.new_bool(value).to_pyobject(vm),
-            ConstantLiteral::Str { value, .. } => vm.ctx.new_str(value).to_pyobject(vm),
+            Self::Str { value, .. } => vm.ctx.new_str(value).to_pyobject(vm),
             Self::Bytes(value) => vm.ctx.new_bytes(value.into()).to_pyobject(vm),
             Self::Int(value) => value.ast_to_object(vm, source_code),
             Self::Tuple(value) => {
