@@ -391,7 +391,7 @@ pub mod module {
         } else if uid == -1 {
             None
         } else {
-            return Err(vm.new_os_error(String::from("Specified uid is not valid.")));
+            return Err(vm.new_os_error("Specified uid is not valid."));
         };
 
         let gid = if gid >= 0 {
@@ -399,7 +399,7 @@ pub mod module {
         } else if gid == -1 {
             None
         } else {
-            return Err(vm.new_os_error(String::from("Specified gid is not valid.")));
+            return Err(vm.new_os_error("Specified gid is not valid."));
         };
 
         let flag = if follow_symlinks.0 {
@@ -588,6 +588,7 @@ pub mod module {
                 )
             })
         }
+
         #[cfg(not(target_vendor = "apple"))]
         fn mknod(self, vm: &VirtualMachine) -> PyResult<()> {
             let ret = match self.dir_fd.get_opt() {
@@ -603,6 +604,7 @@ pub mod module {
             };
             if ret != 0 { Err(errno_err(vm)) } else { Ok(()) }
         }
+
         #[cfg(target_vendor = "apple")]
         fn mknod(self, vm: &VirtualMachine) -> PyResult<()> {
             let [] = self.dir_fd.0;
@@ -666,7 +668,7 @@ pub mod module {
 
     impl TryFromObject for SchedParam {
         fn try_from_object(_vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            Ok(SchedParam {
+            Ok(Self {
                 sched_priority: obj,
             })
         }
@@ -703,10 +705,12 @@ pub mod module {
     pub struct SchedParamArg {
         sched_priority: PyObjectRef,
     }
+
     impl Constructor for SchedParam {
         type Args = SchedParamArg;
+
         fn py_new(cls: PyTypeRef, arg: Self::Args, vm: &VirtualMachine) -> PyResult {
-            SchedParam {
+            Self {
                 sched_priority: arg.sched_priority,
             }
             .into_ref_with_type(vm, cls)
@@ -1591,6 +1595,7 @@ pub mod module {
     fn posix_spawn(args: PosixSpawnArgs, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
         args.spawn(false, vm)
     }
+
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     #[pyfunction]
     fn posix_spawnp(args: PosixSpawnArgs, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
@@ -1601,22 +1606,27 @@ pub mod module {
     fn wifsignaled(status: i32) -> bool {
         libc::WIFSIGNALED(status)
     }
+
     #[pyfunction(name = "WIFSTOPPED")]
     fn wifstopped(status: i32) -> bool {
         libc::WIFSTOPPED(status)
     }
+
     #[pyfunction(name = "WIFEXITED")]
     fn wifexited(status: i32) -> bool {
         libc::WIFEXITED(status)
     }
+
     #[pyfunction(name = "WTERMSIG")]
     fn wtermsig(status: i32) -> i32 {
         libc::WTERMSIG(status)
     }
+
     #[pyfunction(name = "WSTOPSIG")]
     fn wstopsig(status: i32) -> i32 {
         libc::WSTOPSIG(status)
     }
+
     #[pyfunction(name = "WEXITSTATUS")]
     fn wexitstatus(status: i32) -> i32 {
         libc::WEXITSTATUS(status)
@@ -1629,6 +1639,7 @@ pub mod module {
         let pid = nix::Error::result(pid).map_err(|err| err.into_pyexception(vm))?;
         Ok((pid, status))
     }
+
     #[pyfunction]
     fn wait(vm: &VirtualMachine) -> PyResult<(libc::pid_t, i32)> {
         waitpid(-1, 0, vm)
@@ -1753,7 +1764,7 @@ pub mod module {
         // function or to `cuserid()`. See man getlogin(3) for more information.
         let ptr = unsafe { libc::getlogin() };
         if ptr.is_null() {
-            return Err(vm.new_os_error("unable to determine login name".to_owned()));
+            return Err(vm.new_os_error("unable to determine login name"));
         }
         let slice = unsafe { CStr::from_ptr(ptr) };
         slice

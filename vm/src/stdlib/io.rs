@@ -252,8 +252,8 @@ mod _io {
     }
 
     impl BufferedIO {
-        fn new(cursor: Cursor<Vec<u8>>) -> BufferedIO {
-            BufferedIO { cursor }
+        const fn new(cursor: Cursor<Vec<u8>>) -> Self {
+            Self { cursor }
         }
 
         fn write(&mut self, data: &[u8]) -> Option<u64> {
