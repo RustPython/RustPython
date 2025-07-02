@@ -2,138 +2,93 @@
 
 use super::*;
 use crate::common::ascii;
+
+macro_rules! impl_node {
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident,
+        [$($field:expr),* $(,)?],
+        [$($attr:expr),* $(,)?]
+    ) => {
+        $(#[$meta])*
+        $vis struct $name;
+
+        #[pyclass(flags(HAS_DICT, BASETYPE))]
+        impl $name {
+            #[extend_class]
+            fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
+                class.set_attr(
+                    identifier!(ctx, _fields),
+                    ctx.new_tuple(vec![
+                        $(
+                            ctx.new_str(ascii!($field)).into()
+                        ),*
+                    ]).into(),
+                );
+
+                class.set_attr(
+                    identifier!(ctx, _attributes),
+                    ctx.new_list(vec![
+                        $(
+                            ctx.new_str(ascii!($attr)).into()
+                        ),*
+                    ]).into(),
+                );
+            }
+        }
+    };
+}
+
 #[pyclass(module = "_ast", name = "mod", base = "NodeAst")]
 pub(crate) struct NodeMod;
+
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeMod {}
-#[pyclass(module = "_ast", name = "Module", base = "NodeMod")]
-pub(crate) struct NodeModModule;
-#[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeModModule {
-    #[extend_class]
-    fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("body")).into(),
-                ctx.new_str(ascii!("type_ignores")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
-    }
-}
-#[pyclass(module = "_ast", name = "Interactive", base = "NodeMod")]
-pub(crate) struct NodeModInteractive;
-#[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeModInteractive {
-    #[extend_class]
-    fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![ctx.new_str(ascii!("body")).into()])
-                .into(),
-        );
-        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
-    }
-}
-#[pyclass(module = "_ast", name = "Expression", base = "NodeMod")]
-pub(crate) struct NodeModExpression;
-#[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeModExpression {
-    #[extend_class]
-    fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![ctx.new_str(ascii!("body")).into()])
-                .into(),
-        );
-        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
-    }
-}
-#[pyclass(module = "_ast", name = "FunctionType", base = "NodeMod")]
-pub(crate) struct NodeModFunctionType;
-#[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeModFunctionType {
-    #[extend_class]
-    fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("argtypes")).into(),
-                ctx.new_str(ascii!("returns")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
-    }
-}
+
+impl_node!(
+    #[pyclass(module = "_ast", name = "Module", base = "NodeMod")]
+    pub(crate) struct NodeModModule,
+    ["body", "type_ignores"], []
+);
+
+impl_node!(
+    #[pyclass(module = "_ast", name = "Interactive", base = "NodeMod")]
+    pub(crate) struct NodeModInteractive,
+    ["body"], []
+);
+
+impl_node!(
+    #[pyclass(module = "_ast", name = "Expression", base = "NodeMod")]
+    pub(crate) struct NodeModExpression,
+    ["body"], []
+);
+
+impl_node!(
+    #[pyclass(module = "_ast", name = "FunctionType", base = "NodeMod")]
+    pub(crate) struct NodeModFunctionType,
+    ["argtypes", "returns"], []
+);
+
 #[pyclass(module = "_ast", name = "stmt", base = "NodeAst")]
 pub(crate) struct NodeStmt;
+
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmt {}
-#[pyclass(module = "_ast", name = "FunctionDef", base = "NodeStmt")]
-pub(crate) struct NodeStmtFunctionDef;
-#[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeStmtFunctionDef {
-    #[extend_class]
-    fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("name")).into(),
-                ctx.new_str(ascii!("args")).into(),
-                ctx.new_str(ascii!("body")).into(),
-                ctx.new_str(ascii!("decorator_list")).into(),
-                ctx.new_str(ascii!("returns")).into(),
-                ctx.new_str(ascii!("type_comment")).into(),
-                ctx.new_str(ascii!("type_params")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
-    }
-}
-#[pyclass(module = "_ast", name = "AsyncFunctionDef", base = "NodeStmt")]
-pub(crate) struct NodeStmtAsyncFunctionDef;
-#[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeStmtAsyncFunctionDef {
-    #[extend_class]
-    fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("name")).into(),
-                ctx.new_str(ascii!("args")).into(),
-                ctx.new_str(ascii!("body")).into(),
-                ctx.new_str(ascii!("decorator_list")).into(),
-                ctx.new_str(ascii!("returns")).into(),
-                ctx.new_str(ascii!("type_comment")).into(),
-                ctx.new_str(ascii!("type_params")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
-    }
-}
+
+impl_node!(
+    #[pyclass(module = "_ast", name = "FunctionDef", base = "NodeStmt")]
+    pub(crate) struct NodeStmtFunctionDef,
+    ["name", "args", "body", "decorator_list", "returns", "type_comment", "type_params"],
+    ["lineo", "col_offset", "end_lineno", "end_col_offset"]
+);
+
+impl_node!(
+    #[pyclass(module = "_ast", name = "AsyncFunctionDef", base = "NodeStmt")]
+    pub(crate) struct NodeStmtAsyncFunctionDef,
+    ["name", "args", "body", "decorator_list", "returns", "type_comment", "type_params"],
+    ["lineo", "col_offset", "end_lineno", "end_col_offset"]
+);
+
 #[pyclass(module = "_ast", name = "ClassDef", base = "NodeStmt")]
 pub(crate) struct NodeStmtClassDef;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
