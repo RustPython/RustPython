@@ -55,7 +55,7 @@ impl Node for ruff::Decorator {
     ) -> PyResult<Self> {
         let expression = ruff::Expr::ast_from_object(vm, source_code, object)?;
         let range = expression.range();
-        Ok(ruff::Decorator { expression, range })
+        Ok(Self { expression, range })
     }
 }
 
@@ -78,6 +78,7 @@ impl Node for ruff::Alias {
         node_add_location(&dict, _range, vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
@@ -96,6 +97,7 @@ impl Node for ruff::Alias {
         })
     }
 }
+
 // product
 impl Node for ruff::WithItem {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
@@ -122,6 +124,7 @@ impl Node for ruff::WithItem {
         .unwrap();
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
