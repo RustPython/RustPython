@@ -276,3 +276,15 @@ where
         (self.length_hint.unwrap_or(0), self.length_hint)
     }
 }
+
+#[macro_export]
+macro_rules! handle_pyiter_return {
+    ($input:expr) => {
+        match $input {
+            $crate::protocol::PyIterReturn::Return(obj) => obj,
+            $crate::protocol::PyIterReturn::StopIteration(v) => {
+                return Ok($crate::protocol::PyIterReturn::StopIteration(v))
+            }
+        }
+    };
+}
