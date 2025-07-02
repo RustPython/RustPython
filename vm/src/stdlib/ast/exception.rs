@@ -52,12 +52,13 @@ impl Node for ruff::ExceptHandlerExceptHandler {
         node_add_location(&dict, _range, _vm, source_code);
         node.into()
     }
+
     fn ast_from_object(
         _vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
-        Ok(ruff::ExceptHandlerExceptHandler {
+        Ok(Self {
             type_: get_node_field_opt(_vm, &_object, "type")?
                 .map(|obj| Node::ast_from_object(_vm, source_code, obj))
                 .transpose()?,
