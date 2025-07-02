@@ -79,14 +79,14 @@ impl_node!(
     #[pyclass(module = "_ast", name = "FunctionDef", base = "NodeStmt")]
     pub(crate) struct NodeStmtFunctionDef,
     ["name", "args", "body", "decorator_list", "returns", "type_comment", "type_params"],
-    ["lineo", "col_offset", "end_lineno", "end_col_offset"]
+    ["lineno", "col_offset", "end_lineno", "end_col_offset"]
 );
 
 impl_node!(
     #[pyclass(module = "_ast", name = "AsyncFunctionDef", base = "NodeStmt")]
     pub(crate) struct NodeStmtAsyncFunctionDef,
     ["name", "args", "body", "decorator_list", "returns", "type_comment", "type_params"],
-    ["lineo", "col_offset", "end_lineno", "end_col_offset"]
+    ["lineno", "col_offset", "end_lineno", "end_col_offset"]
 );
 
 #[pyclass(module = "_ast", name = "ClassDef", base = "NodeStmt")]
