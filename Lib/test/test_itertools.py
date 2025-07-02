@@ -1182,8 +1182,6 @@ class TestBasicOps(unittest.TestCase):
         with self.assertRaises(TypeError):
             pairwise(None)                                  # non-iterable argument
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pairwise_reenter(self):
         def check(reenter_at, expected):
             class I:

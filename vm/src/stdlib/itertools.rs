@@ -1965,7 +1965,11 @@ mod decl {
             };
             let old = match old_clone {
                 None => match zelf.iterator.next(vm)? {
-                    PyIterReturn::Return(obj) => obj,
+                    PyIterReturn::Return(obj) => {
+                        // Needed for when we reenter
+                        *zelf.old.write() = Some(obj.clone());
+                        obj
+                    }
                     PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
                 },
                 Some(obj) => obj,
