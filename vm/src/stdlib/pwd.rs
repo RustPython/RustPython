@@ -1,4 +1,4 @@
-// cspell:disable
+// spell-checker:disable
 
 pub(crate) use pwd::make_module;
 

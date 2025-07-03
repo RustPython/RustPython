@@ -1,4 +1,4 @@
-// cspell:ignore typevarobject funcobj
+// spell-checker:ignore typevarobject funcobj
 use crate::{PyPayload, PyRef, VirtualMachine, class::PyClassImpl, stdlib::PyModule};
 
 pub use crate::stdlib::typevar::{

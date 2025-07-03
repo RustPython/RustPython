@@ -1,4 +1,4 @@
-// cspell:disable
+// spell-checker:disable
 
 use crate::vm::{
     builtins::PyListRef,

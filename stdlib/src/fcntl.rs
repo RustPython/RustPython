@@ -1,4 +1,4 @@
-// cspell:disable
+// spell-checker:disable
 
 pub(crate) use fcntl::make_module;
 

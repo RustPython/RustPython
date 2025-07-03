@@ -1,4 +1,4 @@
-// cspell:disable
+// spell-checker:disable
 
 use crate::{PyRef, VirtualMachine, builtins::PyModule};
 

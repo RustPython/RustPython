@@ -1,4 +1,4 @@
-// cspell:disable
+// spell-checker:disable
 // TODO: we can move more os-specific bindings/interfaces from stdlib::{os, posix, nt} to here
 
 use std::{io, str::Utf8Error};

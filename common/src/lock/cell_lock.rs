@@ -1,4 +1,4 @@
-// cspell:ignore upgradably sharedly
+// spell-checker:ignore upgradably sharedly
 use lock_api::{
     GetThreadId, RawMutex, RawRwLock, RawRwLockDowngrade, RawRwLockRecursive, RawRwLockUpgrade,
     RawRwLockUpgradeDowngrade,

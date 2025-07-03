@@ -1,4 +1,4 @@
-// cspell: disable
+// spell-checker: disable
 use super::{JitCompileError, JitSig, JitType};
 use cranelift::codegen::ir::FuncRef;
 use cranelift::prelude::*;

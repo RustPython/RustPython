@@ -1,4 +1,4 @@
-// cspell:ignore pyfrozen pycomplex
+// spell-checker:ignore pyfrozen pycomplex
 pub(crate) use decl::make_module;
 
 #[pymodule(name = "marshal")]

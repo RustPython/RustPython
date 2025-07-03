@@ -1,4 +1,4 @@
-// cspell:disable
+// spell-checker:disable
 
 //! `posix` compatible module for `not(any(unix, windows))`
 use crate::{PyRef, VirtualMachine, builtins::PyModule};
