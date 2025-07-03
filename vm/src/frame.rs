@@ -756,7 +756,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::BuildSet { size } => {
-                let set = PySet::new_ref(&vm.ctx);
+                let set = PySet::default().into_ref(&vm.ctx);
                 for element in self.pop_multiple(size.get(arg) as usize) {
                     set.add(element, vm)?;
                 }
@@ -764,7 +764,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::BuildSetFromTuples { size } => {
-                let set = PySet::new_ref(&vm.ctx);
+                let set = PySet::default().into_ref(&vm.ctx);
                 for element in self.pop_multiple(size.get(arg) as usize) {
                     // SAFETY: trust compiler
                     let tup = unsafe { element.downcast_unchecked::<PyTuple>() };

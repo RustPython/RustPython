@@ -39,10 +39,9 @@ pub struct PySet {
 }
 
 impl PySet {
+    #[deprecated(note = "Use `PySet::default().into_ref(ctx)` instead")]
     pub fn new_ref(ctx: &Context) -> PyRef<Self> {
-        // Initialized empty, as calling __hash__ is required for adding each object to the set
-        // which requires a VM context - this is done in the set code itself.
-        PyRef::new_ref(Self::default(), ctx.types.set_type.to_owned(), None)
+        Self::default().into_ref(ctx)
     }
 
     pub fn elements(&self) -> Vec<PyObjectRef> {

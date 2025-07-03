@@ -29,12 +29,6 @@ pub struct PyComplex {
     value: Complex64,
 }
 
-impl PyComplex {
-    pub const fn to_complex64(self) -> Complex64 {
-        self.value
-    }
-}
-
 impl PyPayload for PyComplex {
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
@@ -234,12 +228,29 @@ impl Constructor for PyComplex {
 }
 
 impl PyComplex {
+    #[deprecated(note = "use PyComplex::from(...).into_ref() instead")]
     pub fn new_ref(value: Complex64, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(Self::from(value), ctx.types.complex_type.to_owned(), None)
+        Self::from(value).into_ref(ctx)
+    }
+
+    pub const fn to_complex64(self) -> Complex64 {
+        self.value
     }
 
     pub const fn to_complex(&self) -> Complex64 {
         self.value
+    }
+
+    fn number_op<F, R>(a: &PyObject, b: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
+    where
+        F: FnOnce(Complex64, Complex64, &VirtualMachine) -> R,
+        R: ToPyResult,
+    {
+        if let (Some(a), Some(b)) = (to_op_complex(a, vm)?, to_op_complex(b, vm)?) {
+            op(a, b, vm).to_pyresult(vm)
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
     }
 }
 
@@ -500,20 +511,6 @@ impl Representable for PyComplex {
         //       ast/src/unparse.rs + impl Display for Constant in ast/src/constant.rs
         let Complex64 { re, im } = zelf.value;
         Ok(rustpython_literal::complex::to_string(re, im))
-    }
-}
-
-impl PyComplex {
-    fn number_op<F, R>(a: &PyObject, b: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
-    where
-        F: FnOnce(Complex64, Complex64, &VirtualMachine) -> R,
-        R: ToPyResult,
-    {
-        if let (Some(a), Some(b)) = (to_op_complex(a, vm)?, to_op_complex(b, vm)?) {
-            op(a, b, vm).to_pyresult(vm)
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
     }
 }
 

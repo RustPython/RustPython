@@ -73,8 +73,9 @@ pub(crate) fn init(context: &Context) {
 }
 
 impl PyByteArray {
+    #[deprecated(note = "use PyByteArray::from(...).into_ref() instead")]
     pub fn new_ref(data: Vec<u8>, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(Self::from(data), ctx.types.bytearray_type.to_owned(), None)
+        Self::from(data).into_ref(ctx)
     }
 
     const fn from_inner(inner: PyBytesInner) -> Self {
