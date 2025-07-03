@@ -306,7 +306,7 @@ impl SequenceIndexOp for isize {
         let mut p = *self;
         if p < 0 {
             // casting to isize is ok because it is used by wrapping_add
-            p = p.wrapping_add(len as isize);
+            p = p.wrapping_add(len as Self);
         }
         if p < 0 || (p as usize) >= len {
             None

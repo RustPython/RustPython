@@ -69,7 +69,7 @@ impl Constructor for PyBaseObject {
             }
         }
 
-        Ok(crate::PyRef::new_ref(PyBaseObject, cls, dict).into())
+        Ok(crate::PyRef::new_ref(Self, cls, dict).into())
     }
 }
 

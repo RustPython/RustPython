@@ -1032,7 +1032,7 @@ mod sys {
 
     #[pyclass(with(PyStructSequence))]
     impl PyFloatInfo {
-        const INFO: Self = PyFloatInfo {
+        const INFO: Self = Self {
             max: f64::MAX,
             max_exp: f64::MAX_EXP,
             max_10_exp: f64::MAX_10_EXP,
@@ -1065,7 +1065,7 @@ mod sys {
     impl PyHashInfo {
         const INFO: Self = {
             use rustpython_common::hash::*;
-            PyHashInfo {
+            Self {
                 width: std::mem::size_of::<PyHash>() * 8,
                 modulus: MODULUS,
                 inf: INF,
@@ -1090,7 +1090,7 @@ mod sys {
 
     #[pyclass(with(PyStructSequence))]
     impl PyIntInfo {
-        const INFO: Self = PyIntInfo {
+        const INFO: Self = Self {
             bits_per_digit: 30, //?
             sizeof_digit: std::mem::size_of::<u32>(),
             default_max_str_digits: 4300,
@@ -1110,7 +1110,7 @@ mod sys {
 
     #[pyclass(with(PyStructSequence))]
     impl VersionInfo {
-        pub const VERSION: VersionInfo = VersionInfo {
+        pub const VERSION: Self = Self {
             major: version::MAJOR,
             minor: version::MINOR,
             micro: version::MICRO,

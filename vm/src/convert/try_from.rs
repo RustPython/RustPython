@@ -125,13 +125,13 @@ impl TryFromObject for std::time::Duration {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         use std::time::Duration;
         if let Some(float) = obj.payload::<PyFloat>() {
-            Ok(Duration::from_secs_f64(float.to_f64()))
+            Ok(Self::from_secs_f64(float.to_f64()))
         } else if let Some(int) = obj.try_index_opt(vm) {
             let sec = int?
                 .as_bigint()
                 .to_u64()
                 .ok_or_else(|| vm.new_value_error("value out of range"))?;
-            Ok(Duration::from_secs(sec))
+            Ok(Self::from_secs(sec))
         } else {
             Err(vm.new_type_error(format!(
                 "expected an int or float for duration, got {}",

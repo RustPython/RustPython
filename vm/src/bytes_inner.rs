@@ -30,7 +30,7 @@ pub struct PyBytesInner {
 }
 
 impl From<Vec<u8>> for PyBytesInner {
-    fn from(elements: Vec<u8>) -> PyBytesInner {
+    fn from(elements: Vec<u8>) -> Self {
         Self { elements }
     }
 }
@@ -344,7 +344,7 @@ impl PyBytesInner {
 
     pub fn contains(
         &self,
-        needle: Either<PyBytesInner, PyIntRef>,
+        needle: Either<Self, PyIntRef>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
         Ok(match needle {
@@ -554,7 +554,7 @@ impl PyBytesInner {
 
     pub fn join(
         &self,
-        iterable: ArgIterable<PyBytesInner>,
+        iterable: ArgIterable<Self>,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         let iter = iterable.iter(vm)?;
@@ -576,8 +576,8 @@ impl PyBytesInner {
     }
 
     pub fn maketrans(
-        from: PyBytesInner,
-        to: PyBytesInner,
+        from: Self,
+        to: Self,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         if from.len() != to.len() {
@@ -618,7 +618,7 @@ impl PyBytesInner {
         Ok(res)
     }
 
-    pub fn strip(&self, chars: OptionalOption<PyBytesInner>) -> Vec<u8> {
+    pub fn strip(&self, chars: OptionalOption<Self>) -> Vec<u8> {
         self.elements
             .py_strip(
                 chars,
@@ -628,7 +628,7 @@ impl PyBytesInner {
             .to_vec()
     }
 
-    pub fn lstrip(&self, chars: OptionalOption<PyBytesInner>) -> &[u8] {
+    pub fn lstrip(&self, chars: OptionalOption<Self>) -> &[u8] {
         self.elements.py_strip(
             chars,
             |s, chars| s.trim_start_with(|c| chars.contains(&(c as u8))),
@@ -636,7 +636,7 @@ impl PyBytesInner {
         )
     }
 
-    pub fn rstrip(&self, chars: OptionalOption<PyBytesInner>) -> &[u8] {
+    pub fn rstrip(&self, chars: OptionalOption<Self>) -> &[u8] {
         self.elements.py_strip(
             chars,
             |s, chars| s.trim_end_with(|c| chars.contains(&(c as u8))),
@@ -645,7 +645,7 @@ impl PyBytesInner {
     }
 
     // new in Python 3.9
-    pub fn removeprefix(&self, prefix: PyBytesInner) -> Vec<u8> {
+    pub fn removeprefix(&self, prefix: Self) -> Vec<u8> {
         self.elements
             .py_removeprefix(&prefix.elements, prefix.elements.len(), |s, p| {
                 s.starts_with(p)
@@ -654,7 +654,7 @@ impl PyBytesInner {
     }
 
     // new in Python 3.9
-    pub fn removesuffix(&self, suffix: PyBytesInner) -> Vec<u8> {
+    pub fn removesuffix(&self, suffix: Self) -> Vec<u8> {
         self.elements
             .py_removesuffix(&suffix.elements, suffix.elements.len(), |s, p| {
                 s.ends_with(p)
@@ -705,7 +705,7 @@ impl PyBytesInner {
 
     pub fn partition(
         &self,
-        sub: &PyBytesInner,
+        sub: &Self,
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, bool, Vec<u8>)> {
         self.elements.py_partition(
@@ -717,7 +717,7 @@ impl PyBytesInner {
 
     pub fn rpartition(
         &self,
-        sub: &PyBytesInner,
+        sub: &Self,
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, bool, Vec<u8>)> {
         self.elements.py_partition(
@@ -771,7 +771,7 @@ impl PyBytesInner {
     }
 
     // len(self)>=1, from="", len(to)>=1, max_count>=1
-    fn replace_interleave(&self, to: PyBytesInner, max_count: Option<usize>) -> Vec<u8> {
+    fn replace_interleave(&self, to: Self, max_count: Option<usize>) -> Vec<u8> {
         let place_count = self.elements.len() + 1;
         let count = max_count.map_or(place_count, |v| std::cmp::min(v, place_count)) - 1;
         let capacity = self.elements.len() + count * to.len();
@@ -786,7 +786,7 @@ impl PyBytesInner {
         result
     }
 
-    fn replace_delete(&self, from: PyBytesInner, max_count: Option<usize>) -> Vec<u8> {
+    fn replace_delete(&self, from: Self, max_count: Option<usize>) -> Vec<u8> {
         let count = count_substring(
             self.elements.as_slice(),
             from.elements.as_slice(),
@@ -817,8 +817,8 @@ impl PyBytesInner {
 
     pub fn replace_in_place(
         &self,
-        from: PyBytesInner,
-        to: PyBytesInner,
+        from: Self,
+        to: Self,
         max_count: Option<usize>,
     ) -> Vec<u8> {
         let len = from.len();
@@ -849,8 +849,8 @@ impl PyBytesInner {
 
     fn replace_general(
         &self,
-        from: PyBytesInner,
-        to: PyBytesInner,
+        from: Self,
+        to: Self,
         max_count: Option<usize>,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
@@ -894,8 +894,8 @@ impl PyBytesInner {
 
     pub fn replace(
         &self,
-        from: PyBytesInner,
-        to: PyBytesInner,
+        from: Self,
+        to: Self,
         max_count: OptionalArg<isize>,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
@@ -1040,11 +1040,11 @@ impl AnyStrWrapper<[u8]> for PyBytesInner {
 
 impl AnyStrContainer<[u8]> for Vec<u8> {
     fn new() -> Self {
-        Vec::new()
+        Self::new()
     }
 
     fn with_capacity(capacity: usize) -> Self {
-        Vec::with_capacity(capacity)
+        Self::with_capacity(capacity)
     }
 
     fn push_str(&mut self, other: &[u8]) {

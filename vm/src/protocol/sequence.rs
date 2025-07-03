@@ -50,7 +50,7 @@ impl Debug for PySequenceMethods {
 
 impl PySequenceMethods {
     #[allow(clippy::declare_interior_mutable_const)]
-    pub const NOT_IMPLEMENTED: PySequenceMethods = PySequenceMethods {
+    pub const NOT_IMPLEMENTED: Self = Self {
         length: AtomicCell::new(None),
         concat: AtomicCell::new(None),
         repeat: AtomicCell::new(None),

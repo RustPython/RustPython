@@ -83,7 +83,7 @@ impl PyModule {
         }
     }
 
-    pub fn __init_dict_from_def(vm: &VirtualMachine, module: &Py<PyModule>) {
+    pub fn __init_dict_from_def(vm: &VirtualMachine, module: &Py<Self>) {
         let doc = module.def.unwrap().doc.map(|doc| doc.to_owned());
         module.init_dict(module.name.unwrap(), doc, vm);
     }
@@ -169,7 +169,7 @@ impl Py<PyModule> {
 impl PyModule {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyModule::new().into_ref_with_type(vm, cls).map(Into::into)
+        Self::new().into_ref_with_type(vm, cls).map(Into::into)
     }
 
     #[pymethod]

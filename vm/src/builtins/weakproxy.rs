@@ -53,7 +53,7 @@ impl Constructor for PyWeakProxy {
             )
         });
         // TODO: PyWeakProxy should use the same payload as PyWeak
-        PyWeakProxy {
+        Self {
             weak: referent.downgrade_with_typ(callback.into_option(), weak_cls.clone(), vm)?,
         }
         .into_ref_with_type(vm, cls)

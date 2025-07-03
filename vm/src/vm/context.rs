@@ -325,7 +325,7 @@ impl Context {
 
         let empty_str = unsafe { string_pool.intern("", types.str_type.to_owned()) };
         let empty_bytes = create_object(PyBytes::from(Vec::new()), types.bytes_type);
-        Context {
+        Self {
             true_value,
             false_value,
             none,
@@ -629,7 +629,7 @@ impl Context {
     }
 }
 
-impl AsRef<Context> for Context {
+impl AsRef<Self> for Context {
     fn as_ref(&self) -> &Self {
         self
     }

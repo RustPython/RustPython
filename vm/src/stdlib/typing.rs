@@ -109,8 +109,8 @@ pub(crate) mod decl {
             name: PyObjectRef,
             type_params: PyTupleRef,
             value: PyObjectRef,
-        ) -> TypeAliasType {
-            TypeAliasType {
+        ) -> Self {
+            Self {
                 name,
                 type_params,
                 value,

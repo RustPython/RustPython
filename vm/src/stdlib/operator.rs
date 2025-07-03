@@ -403,7 +403,7 @@ mod _operator {
                     return Err(vm.new_type_error("attribute name must be a string"));
                 }
             }
-            PyAttrGetter { attrs }
+            Self { attrs }
                 .into_ref_with_type(vm, cls)
                 .map(Into::into)
         }
@@ -472,7 +472,7 @@ mod _operator {
             if args.args.is_empty() {
                 return Err(vm.new_type_error("itemgetter expected 1 argument, got 0."));
             }
-            PyItemGetter { items: args.args }
+            Self { items: args.args }
                 .into_ref_with_type(vm, cls)
                 .map(Into::into)
         }
@@ -552,7 +552,7 @@ mod _operator {
 
         fn py_new(cls: PyTypeRef, (name, args): Self::Args, vm: &VirtualMachine) -> PyResult {
             if let Ok(name) = name.try_into_value(vm) {
-                PyMethodCaller { name, args }
+                Self { name, args }
                     .into_ref_with_type(vm, cls)
                     .map(Into::into)
             } else {

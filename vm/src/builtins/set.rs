@@ -82,7 +82,7 @@ pub struct PyFrozenSet {
 
 impl Default for PyFrozenSet {
     fn default() -> Self {
-        PyFrozenSet {
+        Self {
             inner: PySetInner::default(),
             hash: hash::SENTINEL.into(),
         }
@@ -183,7 +183,7 @@ impl PySetInner {
     where
         T: IntoIterator<Item = PyResult<PyObjectRef>>,
     {
-        let set = PySetInner::default();
+        let set = Self::default();
         for item in iter {
             set.add(item?, vm)?;
         }
@@ -211,8 +211,8 @@ impl PySetInner {
         self.content.sizeof()
     }
 
-    fn copy(&self) -> PySetInner {
-        PySetInner {
+    fn copy(&self) -> Self {
+        Self {
             content: PyRc::new((*self.content).clone()),
         }
     }
@@ -223,7 +223,7 @@ impl PySetInner {
 
     fn compare(
         &self,
-        other: &PySetInner,
+        other: &Self,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
@@ -247,7 +247,7 @@ impl PySetInner {
         Ok(true)
     }
 
-    pub(super) fn union(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
+    pub(super) fn union(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
         let set = self.clone();
         for item in other.iter(vm)? {
             set.add(item?, vm)?;
@@ -260,8 +260,8 @@ impl PySetInner {
         &self,
         other: ArgIterable,
         vm: &VirtualMachine,
-    ) -> PyResult<PySetInner> {
-        let set = PySetInner::default();
+    ) -> PyResult<Self> {
+        let set = Self::default();
         for item in other.iter(vm)? {
             let obj = item?;
             if self.contains(&obj, vm)? {
@@ -275,7 +275,7 @@ impl PySetInner {
         &self,
         other: ArgIterable,
         vm: &VirtualMachine,
-    ) -> PyResult<PySetInner> {
+    ) -> PyResult<Self> {
         let set = self.copy();
         for item in other.iter(vm)? {
             set.content.delete_if_exists(vm, &*item?)?;
@@ -287,7 +287,7 @@ impl PySetInner {
         &self,
         other: ArgIterable,
         vm: &VirtualMachine,
-    ) -> PyResult<PySetInner> {
+    ) -> PyResult<Self> {
         let new_inner = self.clone();
 
         // We want to remove duplicates in other
@@ -310,7 +310,7 @@ impl PySetInner {
     }
 
     fn issubset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        let other_set = PySetInner::from_iter(other.iter(vm)?, vm)?;
+        let other_set = Self::from_iter(other.iter(vm)?, vm)?;
         self.compare(&other_set, PyComparisonOp::Le, vm)
     }
 
@@ -412,7 +412,7 @@ impl PySetInner {
         others: impl std::iter::Iterator<Item = ArgIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let temp_inner = self.fold_op(others, PySetInner::intersection, vm)?;
+        let temp_inner = self.fold_op(others, Self::intersection, vm)?;
         self.clear();
         for obj in temp_inner.elements() {
             self.add(obj, vm)?;
@@ -1278,7 +1278,7 @@ impl TryFromObject for AnySet {
         if class.fast_issubclass(vm.ctx.types.set_type)
             || class.fast_issubclass(vm.ctx.types.frozenset_type)
         {
-            Ok(AnySet { object: obj })
+            Ok(Self { object: obj })
         } else {
             Err(vm.new_type_error(format!("{class} is not a subtype of set or frozenset")))
         }

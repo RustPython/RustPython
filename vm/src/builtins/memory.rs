@@ -79,7 +79,7 @@ impl PyMemoryView {
             Ok(other.new_view())
         } else {
             let buffer = PyBuffer::try_from_borrowed_object(vm, obj)?;
-            PyMemoryView::from_buffer(buffer, vm)
+            Self::from_buffer(buffer, vm)
         }
     }
 
@@ -93,7 +93,7 @@ impl PyMemoryView {
         let format_spec = Self::parse_format(&buffer.desc.format, vm)?;
         let desc = buffer.desc.clone();
 
-        Ok(PyMemoryView {
+        Ok(Self {
             buffer: ManuallyDrop::new(buffer),
             released: AtomicCell::new(false),
             start: 0,
@@ -120,7 +120,7 @@ impl PyMemoryView {
 
     /// this should be the only way to create a memoryview from another memoryview
     pub fn new_view(&self) -> Self {
-        let zelf = PyMemoryView {
+        let zelf = Self {
             buffer: self.buffer.clone(),
             released: AtomicCell::new(false),
             start: self.start,

@@ -46,7 +46,7 @@ impl Constructor for PyStaticMethod {
     fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
         let doc = callable.get_attr("__doc__", vm);
 
-        let result = PyStaticMethod {
+        let result = Self {
             callable: PyMutex::new(callable),
         }
         .into_ref_with_type(vm, cls)?;

@@ -493,7 +493,7 @@ impl<T> AsObject for T where T: Borrow<PyObject> {}
 impl PyObject {
     #[inline(always)]
     fn unique_id(&self) -> usize {
-        self as *const PyObject as usize
+        self as *const Self as usize
     }
 }
 

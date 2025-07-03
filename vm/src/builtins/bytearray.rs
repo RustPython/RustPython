@@ -78,7 +78,7 @@ impl PyByteArray {
     }
 
     fn from_inner(inner: PyBytesInner) -> Self {
-        PyByteArray {
+        Self {
             inner: PyRwLock::new(inner),
             exports: AtomicUsize::new(0),
         }
@@ -339,7 +339,7 @@ impl PyByteArray {
         &self,
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
-    ) -> PyResult<PyByteArray> {
+    ) -> PyResult<Self> {
         Ok(self.inner().center(options, vm)?.into())
     }
 
@@ -348,7 +348,7 @@ impl PyByteArray {
         &self,
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
-    ) -> PyResult<PyByteArray> {
+    ) -> PyResult<Self> {
         Ok(self.inner().ljust(options, vm)?.into())
     }
 
@@ -357,7 +357,7 @@ impl PyByteArray {
         &self,
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
-    ) -> PyResult<PyByteArray> {
+    ) -> PyResult<Self> {
         Ok(self.inner().rjust(options, vm)?.into())
     }
 
@@ -367,7 +367,7 @@ impl PyByteArray {
     }
 
     #[pymethod]
-    fn join(&self, iter: ArgIterable<PyBytesInner>, vm: &VirtualMachine) -> PyResult<PyByteArray> {
+    fn join(&self, iter: ArgIterable<PyBytesInner>, vm: &VirtualMachine) -> PyResult<Self> {
         Ok(self.inner().join(iter, vm)?.into())
     }
 
@@ -438,7 +438,7 @@ impl PyByteArray {
         &self,
         options: ByteInnerTranslateOptions,
         vm: &VirtualMachine,
-    ) -> PyResult<PyByteArray> {
+    ) -> PyResult<Self> {
         Ok(self.inner().translate(options, vm)?.into())
     }
 
@@ -526,7 +526,7 @@ impl PyByteArray {
         new: PyBytesInner,
         count: OptionalArg<isize>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyByteArray> {
+    ) -> PyResult<Self> {
         Ok(self.inner().replace(old, new, count, vm)?.into())
     }
 
@@ -553,7 +553,7 @@ impl PyByteArray {
     }
 
     #[pymethod(name = "__mod__")]
-    fn mod_(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyByteArray> {
+    fn mod_(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         let formatted = self.inner().cformat(values, vm)?;
         Ok(formatted.into())
     }
@@ -667,7 +667,7 @@ impl PyRef<PyByteArray> {
         self,
         chars: OptionalOption<PyBytesInner>,
         vm: &VirtualMachine,
-    ) -> PyRef<PyByteArray> {
+    ) -> Self {
         let inner = self.inner();
         let stripped = inner.lstrip(chars);
         let elements = &inner.elements;
@@ -684,7 +684,7 @@ impl PyRef<PyByteArray> {
         self,
         chars: OptionalOption<PyBytesInner>,
         vm: &VirtualMachine,
-    ) -> PyRef<PyByteArray> {
+    ) -> Self {
         let inner = self.inner();
         let stripped = inner.rstrip(chars);
         let elements = &inner.elements;

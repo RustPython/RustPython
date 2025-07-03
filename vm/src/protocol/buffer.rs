@@ -65,7 +65,7 @@ impl PyBuffer {
 
     pub fn from_byte_vector(bytes: Vec<u8>, vm: &VirtualMachine) -> Self {
         let bytes_len = bytes.len();
-        PyBuffer::new(
+        Self::new(
             PyPayload::into_pyobject(VecBuffer::from(bytes), vm),
             BufferDescriptor::simple(bytes_len, true),
             &VEC_BUFFER_METHODS,

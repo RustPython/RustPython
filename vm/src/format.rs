@@ -12,35 +12,35 @@ use crate::common::wtf8::{Wtf8, Wtf8Buf};
 impl IntoPyException for FormatSpecError {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {
-            FormatSpecError::DecimalDigitsTooMany => {
+            Self::DecimalDigitsTooMany => {
                 vm.new_value_error("Too many decimal digits in format string")
             }
-            FormatSpecError::PrecisionTooBig => vm.new_value_error("Precision too big"),
-            FormatSpecError::InvalidFormatSpecifier => {
+            Self::PrecisionTooBig => vm.new_value_error("Precision too big"),
+            Self::InvalidFormatSpecifier => {
                 vm.new_value_error("Invalid format specifier")
             }
-            FormatSpecError::UnspecifiedFormat(c1, c2) => {
+            Self::UnspecifiedFormat(c1, c2) => {
                 let msg = format!("Cannot specify '{c1}' with '{c2}'.");
                 vm.new_value_error(msg)
             }
-            FormatSpecError::UnknownFormatCode(c, s) => {
+            Self::UnknownFormatCode(c, s) => {
                 let msg = format!("Unknown format code '{c}' for object of type '{s}'");
                 vm.new_value_error(msg)
             }
-            FormatSpecError::PrecisionNotAllowed => {
+            Self::PrecisionNotAllowed => {
                 vm.new_value_error("Precision not allowed in integer format specifier")
             }
-            FormatSpecError::NotAllowed(s) => {
+            Self::NotAllowed(s) => {
                 let msg = format!("{s} not allowed with integer format specifier 'c'");
                 vm.new_value_error(msg)
             }
-            FormatSpecError::UnableToConvert => {
+            Self::UnableToConvert => {
                 vm.new_value_error("Unable to convert int to float")
             }
-            FormatSpecError::CodeNotInRange => {
+            Self::CodeNotInRange => {
                 vm.new_overflow_error("%c arg not in range(0x110000)")
             }
-            FormatSpecError::NotImplemented(c, s) => {
+            Self::NotImplemented(c, s) => {
                 let msg = format!("Format code '{c}' for object of type '{s}' not implemented yet");
                 vm.new_value_error(msg)
             }
@@ -51,7 +51,7 @@ impl IntoPyException for FormatSpecError {
 impl ToPyException for FormatParseError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {
-            FormatParseError::UnmatchedBracket => {
+            Self::UnmatchedBracket => {
                 vm.new_value_error("expected '}' before end of string")
             }
             _ => vm.new_value_error("Unexpected error parsing format string"),

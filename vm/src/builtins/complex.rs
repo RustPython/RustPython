@@ -48,7 +48,7 @@ impl ToPyObject for Complex64 {
 
 impl From<Complex64> for PyComplex {
     fn from(value: Complex64) -> Self {
-        PyComplex { value }
+        Self { value }
     }
 }
 
@@ -161,7 +161,7 @@ impl Constructor for PyComplex {
             OptionalArg::Missing => (Complex64::new(0.0, 0.0), false),
             OptionalArg::Present(val) => {
                 let val = if cls.is(vm.ctx.types.complex_type) && imag_missing {
-                    match val.downcast_exact::<PyComplex>(vm) {
+                    match val.downcast_exact::<Self>(vm) {
                         Ok(c) => {
                             return Ok(c.into_pyref().into());
                         }
@@ -393,7 +393,7 @@ impl PyComplex {
 #[pyclass]
 impl PyRef<PyComplex> {
     #[pymethod]
-    fn __complex__(self, vm: &VirtualMachine) -> PyRef<PyComplex> {
+    fn __complex__(self, vm: &VirtualMachine) -> Self {
         if self.is(vm.ctx.types.complex_type) {
             self
         } else {
@@ -410,7 +410,7 @@ impl Comparable for PyComplex {
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
         op.eq_only(|| {
-            let result = if let Some(other) = other.payload_if_subclass::<PyComplex>(vm) {
+            let result = if let Some(other) = other.payload_if_subclass::<Self>(vm) {
                 if zelf.value.re.is_nan()
                     && zelf.value.im.is_nan()
                     && other.value.re.is_nan()

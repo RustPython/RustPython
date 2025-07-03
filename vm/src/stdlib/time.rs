@@ -255,15 +255,15 @@ mod decl {
         /// Construct a localtime from the optional seconds, or get the current local time.
         fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
             Ok(match self {
-                OptionalArg::Present(secs) => pyobj_to_date_time(secs, vm)?.naive_utc(),
-                OptionalArg::Missing => chrono::offset::Local::now().naive_local(),
+                Self::Present(secs) => pyobj_to_date_time(secs, vm)?.naive_utc(),
+                Self::Missing => chrono::offset::Local::now().naive_local(),
             })
         }
 
         fn naive_or_utc(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
             Ok(match self {
-                OptionalArg::Present(secs) => pyobj_to_date_time(secs, vm)?.naive_utc(),
-                OptionalArg::Missing => chrono::offset::Utc::now().naive_utc(),
+                Self::Present(secs) => pyobj_to_date_time(secs, vm)?.naive_utc(),
+                Self::Missing => chrono::offset::Utc::now().naive_utc(),
             })
         }
     }
@@ -271,8 +271,8 @@ mod decl {
     impl OptionalArg<PyStructTime> {
         fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
             Ok(match self {
-                OptionalArg::Present(t) => t.to_date_time(vm)?,
-                OptionalArg::Missing => chrono::offset::Local::now().naive_local(),
+                Self::Present(t) => t.to_date_time(vm)?,
+                Self::Missing => chrono::offset::Local::now().naive_local(),
             })
         }
     }
@@ -473,7 +473,7 @@ mod decl {
                 local_time.offset().local_minus_utc() + if isdst == 1 { 3600 } else { 0 };
             let tz_abbr = local_time.format("%Z").to_string();
 
-            PyStructTime {
+            Self {
                 tm_year: vm.ctx.new_int(tm.year()).into(),
                 tm_mon: vm.ctx.new_int(tm.month()).into(),
                 tm_mday: vm.ctx.new_int(tm.day()).into(),
@@ -563,7 +563,7 @@ mod platform {
 
     impl<'a> TryFromBorrowedObject<'a> for ClockId {
         fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
-            obj.try_to_value(vm).map(ClockId::from_raw)
+            obj.try_to_value(vm).map(Self::from_raw)
         }
     }
 

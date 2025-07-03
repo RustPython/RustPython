@@ -547,8 +547,8 @@ macro_rules! extend_exception {
 }
 
 impl PyBaseException {
-    pub(crate) fn new(args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyBaseException {
-        PyBaseException {
+    pub(crate) fn new(args: Vec<PyObjectRef>, vm: &VirtualMachine) -> Self {
+        Self {
             traceback: PyRwLock::new(None),
             cause: PyRwLock::new(None),
             context: PyRwLock::new(None),
@@ -688,10 +688,10 @@ impl Constructor for PyBaseException {
     type Args = FuncArgs;
 
     fn py_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        if cls.is(PyBaseException::class(&vm.ctx)) && !args.kwargs.is_empty() {
+        if cls.is(Self::class(&vm.ctx)) && !args.kwargs.is_empty() {
             return Err(vm.new_type_error("BaseException() takes no keyword arguments"));
         }
-        PyBaseException::new(args.args, vm)
+        Self::new(args.args, vm)
             .into_ref_with_type(vm, cls)
             .map(Into::into)
     }

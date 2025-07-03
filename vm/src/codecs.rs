@@ -42,7 +42,7 @@ impl PyCodec {
     #[inline]
     pub fn from_tuple(tuple: PyTupleRef) -> Result<Self, PyTupleRef> {
         if tuple.len() == 4 {
-            Ok(PyCodec(tuple))
+            Ok(Self(tuple))
         } else {
             Err(tuple)
         }
@@ -139,7 +139,7 @@ impl TryFromObject for PyCodec {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         obj.downcast::<PyTuple>()
             .ok()
-            .and_then(|tuple| PyCodec::from_tuple(tuple).ok())
+            .and_then(|tuple| Self::from_tuple(tuple).ok())
             .ok_or_else(|| vm.new_type_error("codec search functions must return 4-tuples"))
     }
 }
@@ -190,7 +190,7 @@ impl CodecsRegistry {
             search_cache: HashMap::new(),
             errors,
         };
-        CodecsRegistry {
+        Self {
             inner: PyRwLock::new(inner),
         }
     }

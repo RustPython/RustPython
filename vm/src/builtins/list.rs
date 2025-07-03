@@ -37,7 +37,7 @@ impl fmt::Debug for PyList {
 
 impl From<Vec<PyObjectRef>> for PyList {
     fn from(elements: Vec<PyObjectRef>) -> Self {
-        PyList {
+        Self {
             elements: PyRwLock::new(elements),
         }
     }
@@ -131,7 +131,7 @@ impl PyList {
     }
 
     fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        let other = other.payload_if_subclass::<PyList>(vm).ok_or_else(|| {
+        let other = other.payload_if_subclass::<Self>(vm).ok_or_else(|| {
             vm.new_type_error(format!(
                 "Cannot add {} and {}",
                 Self::class(&vm.ctx).name(),
@@ -379,7 +379,7 @@ impl Constructor for PyList {
     type Args = FuncArgs;
 
     fn py_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyList::default()
+        Self::default()
             .into_ref_with_type(vm, cls)
             .map(Into::into)
     }

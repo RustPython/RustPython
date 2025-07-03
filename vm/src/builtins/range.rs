@@ -185,7 +185,7 @@ pub fn init(context: &Context) {
 ))]
 impl PyRange {
     fn new(cls: PyTypeRef, stop: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        PyRange {
+        Self {
             start: vm.ctx.new_pyref(0),
             stop: stop.into(),
             step: vm.ctx.new_pyref(1),
@@ -204,7 +204,7 @@ impl PyRange {
         if step.as_bigint().is_zero() {
             return Err(vm.new_value_error("range() arg 3 must not be zero"));
         }
-        PyRange {
+        Self {
             start: start.try_index(vm)?,
             stop: stop.try_index(vm)?,
             step,
@@ -296,7 +296,7 @@ impl PyRange {
                 sub_start = (sub_start * range_step.as_bigint()) + range_start.as_bigint();
                 sub_stop = (sub_stop * range_step.as_bigint()) + range_start.as_bigint();
 
-                Ok(PyRange {
+                Ok(Self {
                     start: vm.ctx.new_pyref(sub_start),
                     stop: vm.ctx.new_pyref(sub_stop),
                     step: vm.ctx.new_pyref(sub_step),
@@ -315,10 +315,10 @@ impl PyRange {
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let range = if args.args.len() <= 1 {
             let stop = args.bind(vm)?;
-            PyRange::new(cls, stop, vm)
+            Self::new(cls, stop, vm)
         } else {
             let (start, stop, step) = args.bind(vm)?;
-            PyRange::new_from(cls, start, stop, step, vm)
+            Self::new_from(cls, start, stop, step, vm)
         }?;
 
         Ok(range.into())
@@ -697,14 +697,14 @@ pub enum RangeIndex {
 impl TryFromObject for RangeIndex {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         match_class!(match obj {
-            i @ PyInt => Ok(RangeIndex::Int(i)),
-            s @ PySlice => Ok(RangeIndex::Slice(s)),
+            i @ PyInt => Ok(Self::Int(i)),
+            s @ PySlice => Ok(Self::Slice(s)),
             obj => {
                 let val = obj.try_index(vm).map_err(|_| vm.new_type_error(format!(
                     "sequence indices be integers or slices or classes that override __index__ operator, not '{}'",
                     obj.class().name()
                 )))?;
-                Ok(RangeIndex::Int(val))
+                Ok(Self::Int(val))
             }
         })
     }

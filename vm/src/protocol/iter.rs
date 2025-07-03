@@ -76,8 +76,8 @@ impl PyIter<PyObjectRef> {
     }
 }
 
-impl From<PyIter<PyObjectRef>> for PyObjectRef {
-    fn from(value: PyIter<PyObjectRef>) -> PyObjectRef {
+impl From<PyIter<Self>> for PyObjectRef {
+    fn from(value: PyIter<Self>) -> Self {
         value.0
     }
 }
@@ -132,7 +132,7 @@ impl TryFromObject for PyIter<PyObjectRef> {
         };
         if let Some(get_iter) = get_iter {
             let iter = get_iter(iter_target, vm)?;
-            if PyIter::check(&iter) {
+            if Self::check(&iter) {
                 Ok(Self(iter))
             } else {
                 Err(vm.new_type_error(format!(
@@ -160,8 +160,8 @@ pub enum PyIterReturn<T = PyObjectRef> {
 unsafe impl<T: Traverse> Traverse for PyIterReturn<T> {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         match self {
-            PyIterReturn::Return(r) => r.traverse(tracer_fn),
-            PyIterReturn::StopIteration(Some(obj)) => obj.traverse(tracer_fn),
+            Self::Return(r) => r.traverse(tracer_fn),
+            Self::StopIteration(Some(obj)) => obj.traverse(tracer_fn),
             _ => (),
         }
     }

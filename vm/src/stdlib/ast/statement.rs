@@ -4,31 +4,31 @@ use crate::stdlib::ast::argument::{merge_class_def_args, split_class_def_args};
 impl Node for ruff::Stmt {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         match self {
-            ruff::Stmt::FunctionDef(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::ClassDef(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::Return(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::Delete(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::Assign(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::TypeAlias(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::AugAssign(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::AnnAssign(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::For(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::While(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::If(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::With(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::Match(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::Raise(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::Try(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::Assert(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::Import(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::ImportFrom(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::Global(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::Nonlocal(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::Expr(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::Pass(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::Break(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::Continue(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::IpyEscapeCommand(_) => {
+            Self::FunctionDef(cons) => cons.ast_to_object(vm, source_code),
+            Self::ClassDef(cons) => cons.ast_to_object(vm, source_code),
+            Self::Return(cons) => cons.ast_to_object(vm, source_code),
+            Self::Delete(cons) => cons.ast_to_object(vm, source_code),
+            Self::Assign(cons) => cons.ast_to_object(vm, source_code),
+            Self::TypeAlias(cons) => cons.ast_to_object(vm, source_code),
+            Self::AugAssign(cons) => cons.ast_to_object(vm, source_code),
+            Self::AnnAssign(cons) => cons.ast_to_object(vm, source_code),
+            Self::For(cons) => cons.ast_to_object(vm, source_code),
+            Self::While(cons) => cons.ast_to_object(vm, source_code),
+            Self::If(cons) => cons.ast_to_object(vm, source_code),
+            Self::With(cons) => cons.ast_to_object(vm, source_code),
+            Self::Match(cons) => cons.ast_to_object(vm, source_code),
+            Self::Raise(cons) => cons.ast_to_object(vm, source_code),
+            Self::Try(cons) => cons.ast_to_object(vm, source_code),
+            Self::Assert(cons) => cons.ast_to_object(vm, source_code),
+            Self::Import(cons) => cons.ast_to_object(vm, source_code),
+            Self::ImportFrom(cons) => cons.ast_to_object(vm, source_code),
+            Self::Global(cons) => cons.ast_to_object(vm, source_code),
+            Self::Nonlocal(cons) => cons.ast_to_object(vm, source_code),
+            Self::Expr(cons) => cons.ast_to_object(vm, source_code),
+            Self::Pass(cons) => cons.ast_to_object(vm, source_code),
+            Self::Break(cons) => cons.ast_to_object(vm, source_code),
+            Self::Continue(cons) => cons.ast_to_object(vm, source_code),
+            Self::IpyEscapeCommand(_) => {
                 unimplemented!("IPython escape command is not allowed in Python AST")
             }
         }
@@ -42,117 +42,117 @@ impl Node for ruff::Stmt {
     ) -> PyResult<Self> {
         let _cls = _object.class();
         Ok(if _cls.is(pyast::NodeStmtFunctionDef::static_type()) {
-            ruff::Stmt::FunctionDef(ruff::StmtFunctionDef::ast_from_object(
+            Self::FunctionDef(ruff::StmtFunctionDef::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtAsyncFunctionDef::static_type()) {
-            ruff::Stmt::FunctionDef(ruff::StmtFunctionDef::ast_from_object(
+            Self::FunctionDef(ruff::StmtFunctionDef::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtClassDef::static_type()) {
-            ruff::Stmt::ClassDef(ruff::StmtClassDef::ast_from_object(
+            Self::ClassDef(ruff::StmtClassDef::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtReturn::static_type()) {
-            ruff::Stmt::Return(ruff::StmtReturn::ast_from_object(
+            Self::Return(ruff::StmtReturn::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtDelete::static_type()) {
-            ruff::Stmt::Delete(ruff::StmtDelete::ast_from_object(
+            Self::Delete(ruff::StmtDelete::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtAssign::static_type()) {
-            ruff::Stmt::Assign(ruff::StmtAssign::ast_from_object(
+            Self::Assign(ruff::StmtAssign::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtTypeAlias::static_type()) {
-            ruff::Stmt::TypeAlias(ruff::StmtTypeAlias::ast_from_object(
+            Self::TypeAlias(ruff::StmtTypeAlias::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtAugAssign::static_type()) {
-            ruff::Stmt::AugAssign(ruff::StmtAugAssign::ast_from_object(
+            Self::AugAssign(ruff::StmtAugAssign::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtAnnAssign::static_type()) {
-            ruff::Stmt::AnnAssign(ruff::StmtAnnAssign::ast_from_object(
+            Self::AnnAssign(ruff::StmtAnnAssign::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtFor::static_type()) {
-            ruff::Stmt::For(ruff::StmtFor::ast_from_object(_vm, source_code, _object)?)
+            Self::For(ruff::StmtFor::ast_from_object(_vm, source_code, _object)?)
         } else if _cls.is(pyast::NodeStmtAsyncFor::static_type()) {
-            ruff::Stmt::For(ruff::StmtFor::ast_from_object(_vm, source_code, _object)?)
+            Self::For(ruff::StmtFor::ast_from_object(_vm, source_code, _object)?)
         } else if _cls.is(pyast::NodeStmtWhile::static_type()) {
-            ruff::Stmt::While(ruff::StmtWhile::ast_from_object(_vm, source_code, _object)?)
+            Self::While(ruff::StmtWhile::ast_from_object(_vm, source_code, _object)?)
         } else if _cls.is(pyast::NodeStmtIf::static_type()) {
-            ruff::Stmt::If(ruff::StmtIf::ast_from_object(_vm, source_code, _object)?)
+            Self::If(ruff::StmtIf::ast_from_object(_vm, source_code, _object)?)
         } else if _cls.is(pyast::NodeStmtWith::static_type()) {
-            ruff::Stmt::With(ruff::StmtWith::ast_from_object(_vm, source_code, _object)?)
+            Self::With(ruff::StmtWith::ast_from_object(_vm, source_code, _object)?)
         } else if _cls.is(pyast::NodeStmtAsyncWith::static_type()) {
-            ruff::Stmt::With(ruff::StmtWith::ast_from_object(_vm, source_code, _object)?)
+            Self::With(ruff::StmtWith::ast_from_object(_vm, source_code, _object)?)
         } else if _cls.is(pyast::NodeStmtMatch::static_type()) {
-            ruff::Stmt::Match(ruff::StmtMatch::ast_from_object(_vm, source_code, _object)?)
+            Self::Match(ruff::StmtMatch::ast_from_object(_vm, source_code, _object)?)
         } else if _cls.is(pyast::NodeStmtRaise::static_type()) {
-            ruff::Stmt::Raise(ruff::StmtRaise::ast_from_object(_vm, source_code, _object)?)
+            Self::Raise(ruff::StmtRaise::ast_from_object(_vm, source_code, _object)?)
         } else if _cls.is(pyast::NodeStmtTry::static_type()) {
-            ruff::Stmt::Try(ruff::StmtTry::ast_from_object(_vm, source_code, _object)?)
+            Self::Try(ruff::StmtTry::ast_from_object(_vm, source_code, _object)?)
         } else if _cls.is(pyast::NodeStmtTryStar::static_type()) {
-            ruff::Stmt::Try(ruff::StmtTry::ast_from_object(_vm, source_code, _object)?)
+            Self::Try(ruff::StmtTry::ast_from_object(_vm, source_code, _object)?)
         } else if _cls.is(pyast::NodeStmtAssert::static_type()) {
-            ruff::Stmt::Assert(ruff::StmtAssert::ast_from_object(
+            Self::Assert(ruff::StmtAssert::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtImport::static_type()) {
-            ruff::Stmt::Import(ruff::StmtImport::ast_from_object(
+            Self::Import(ruff::StmtImport::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtImportFrom::static_type()) {
-            ruff::Stmt::ImportFrom(ruff::StmtImportFrom::ast_from_object(
+            Self::ImportFrom(ruff::StmtImportFrom::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtGlobal::static_type()) {
-            ruff::Stmt::Global(ruff::StmtGlobal::ast_from_object(
+            Self::Global(ruff::StmtGlobal::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtNonlocal::static_type()) {
-            ruff::Stmt::Nonlocal(ruff::StmtNonlocal::ast_from_object(
+            Self::Nonlocal(ruff::StmtNonlocal::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeStmtExpr::static_type()) {
-            ruff::Stmt::Expr(ruff::StmtExpr::ast_from_object(_vm, source_code, _object)?)
+            Self::Expr(ruff::StmtExpr::ast_from_object(_vm, source_code, _object)?)
         } else if _cls.is(pyast::NodeStmtPass::static_type()) {
-            ruff::Stmt::Pass(ruff::StmtPass::ast_from_object(_vm, source_code, _object)?)
+            Self::Pass(ruff::StmtPass::ast_from_object(_vm, source_code, _object)?)
         } else if _cls.is(pyast::NodeStmtBreak::static_type()) {
-            ruff::Stmt::Break(ruff::StmtBreak::ast_from_object(_vm, source_code, _object)?)
+            Self::Break(ruff::StmtBreak::ast_from_object(_vm, source_code, _object)?)
         } else if _cls.is(pyast::NodeStmtContinue::static_type()) {
-            ruff::Stmt::Continue(ruff::StmtContinue::ast_from_object(
+            Self::Continue(ruff::StmtContinue::ast_from_object(
                 _vm,
                 source_code,
                 _object,
@@ -342,7 +342,7 @@ impl Node for ruff::StmtClassDef {
 // constructor
 impl Node for ruff::StmtReturn {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let ruff::StmtReturn {
+        let Self {
             value,
             range: _range,
         } = self;
@@ -360,7 +360,7 @@ impl Node for ruff::StmtReturn {
         source_code: &SourceCodeOwned,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
-        Ok(ruff::StmtReturn {
+        Ok(Self {
             value: get_node_field_opt(_vm, &_object, "value")?
                 .map(|obj| Node::ast_from_object(_vm, source_code, obj))
                 .transpose()?,
@@ -371,7 +371,7 @@ impl Node for ruff::StmtReturn {
 // constructor
 impl Node for ruff::StmtDelete {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let ruff::StmtDelete {
+        let Self {
             targets,
             range: _range,
         } = self;
@@ -389,7 +389,7 @@ impl Node for ruff::StmtDelete {
         source_code: &SourceCodeOwned,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
-        Ok(ruff::StmtDelete {
+        Ok(Self {
             targets: Node::ast_from_object(
                 _vm,
                 source_code,
@@ -447,7 +447,7 @@ impl Node for ruff::StmtAssign {
 // constructor
 impl Node for ruff::StmtTypeAlias {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let ruff::StmtTypeAlias {
+        let Self {
             name,
             type_params,
             value,
@@ -475,7 +475,7 @@ impl Node for ruff::StmtTypeAlias {
         source_code: &SourceCodeOwned,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
-        Ok(ruff::StmtTypeAlias {
+        Ok(Self {
             name: Node::ast_from_object(
                 _vm,
                 source_code,
@@ -955,7 +955,7 @@ impl Node for ruff::StmtTry {
 // constructor
 impl Node for ruff::StmtAssert {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let ruff::StmtAssert {
+        let Self {
             test,
             msg,
             range: _range,
@@ -976,7 +976,7 @@ impl Node for ruff::StmtAssert {
         source_code: &SourceCodeOwned,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
-        Ok(ruff::StmtAssert {
+        Ok(Self {
             test: Node::ast_from_object(
                 _vm,
                 source_code,
@@ -992,7 +992,7 @@ impl Node for ruff::StmtAssert {
 // constructor
 impl Node for ruff::StmtImport {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let ruff::StmtImport {
+        let Self {
             names,
             range: _range,
         } = self;
@@ -1010,7 +1010,7 @@ impl Node for ruff::StmtImport {
         source_code: &SourceCodeOwned,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
-        Ok(ruff::StmtImport {
+        Ok(Self {
             names: Node::ast_from_object(
                 _vm,
                 source_code,
@@ -1067,7 +1067,7 @@ impl Node for ruff::StmtImportFrom {
 // constructor
 impl Node for ruff::StmtGlobal {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let ruff::StmtGlobal {
+        let Self {
             names,
             range: _range,
         } = self;
@@ -1085,7 +1085,7 @@ impl Node for ruff::StmtGlobal {
         source_code: &SourceCodeOwned,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
-        Ok(ruff::StmtGlobal {
+        Ok(Self {
             names: Node::ast_from_object(
                 _vm,
                 source_code,
@@ -1098,7 +1098,7 @@ impl Node for ruff::StmtGlobal {
 // constructor
 impl Node for ruff::StmtNonlocal {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let ruff::StmtNonlocal {
+        let Self {
             names,
             range: _range,
         } = self;
@@ -1116,7 +1116,7 @@ impl Node for ruff::StmtNonlocal {
         source_code: &SourceCodeOwned,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
-        Ok(ruff::StmtNonlocal {
+        Ok(Self {
             names: Node::ast_from_object(
                 _vm,
                 source_code,
@@ -1129,7 +1129,7 @@ impl Node for ruff::StmtNonlocal {
 // constructor
 impl Node for ruff::StmtExpr {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let ruff::StmtExpr {
+        let Self {
             value,
             range: _range,
         } = self;
@@ -1147,7 +1147,7 @@ impl Node for ruff::StmtExpr {
         source_code: &SourceCodeOwned,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
-        Ok(ruff::StmtExpr {
+        Ok(Self {
             value: Node::ast_from_object(
                 _vm,
                 source_code,
@@ -1160,7 +1160,7 @@ impl Node for ruff::StmtExpr {
 // constructor
 impl Node for ruff::StmtPass {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let ruff::StmtPass { range: _range } = self;
+        let Self { range: _range } = self;
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodeStmtPass::static_type().to_owned())
             .unwrap();
@@ -1173,7 +1173,7 @@ impl Node for ruff::StmtPass {
         source_code: &SourceCodeOwned,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
-        Ok(ruff::StmtPass {
+        Ok(Self {
             range: range_from_object(_vm, source_code, _object, "Pass")?,
         })
     }
@@ -1181,7 +1181,7 @@ impl Node for ruff::StmtPass {
 // constructor
 impl Node for ruff::StmtBreak {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let ruff::StmtBreak { range: _range } = self;
+        let Self { range: _range } = self;
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodeStmtBreak::static_type().to_owned())
             .unwrap();
@@ -1194,7 +1194,7 @@ impl Node for ruff::StmtBreak {
         source_code: &SourceCodeOwned,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
-        Ok(ruff::StmtBreak {
+        Ok(Self {
             range: range_from_object(_vm, source_code, _object, "Break")?,
         })
     }
@@ -1202,7 +1202,7 @@ impl Node for ruff::StmtBreak {
 // constructor
 impl Node for ruff::StmtContinue {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let ruff::StmtContinue { range: _range } = self;
+        let Self { range: _range } = self;
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodeStmtContinue::static_type().to_owned())
             .unwrap();
@@ -1215,7 +1215,7 @@ impl Node for ruff::StmtContinue {
         source_code: &SourceCodeOwned,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
-        Ok(ruff::StmtContinue {
+        Ok(Self {
             range: range_from_object(_vm, source_code, _object, "Continue")?,
         })
     }

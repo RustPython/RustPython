@@ -44,13 +44,13 @@ impl OsPath {
         }
     }
 
-    pub(crate) fn from_fspath(fspath: FsPath, vm: &VirtualMachine) -> PyResult<OsPath> {
+    pub(crate) fn from_fspath(fspath: FsPath, vm: &VirtualMachine) -> PyResult<Self> {
         let path = fspath.as_os_str(vm)?.into_owned();
         let mode = match fspath {
             FsPath::Str(_) => OutputMode::String,
             FsPath::Bytes(_) => OutputMode::Bytes,
         };
-        Ok(OsPath { path, mode })
+        Ok(Self { path, mode })
     }
 
     pub fn as_path(&self) -> &Path {
@@ -119,8 +119,8 @@ impl From<OsPath> for OsPathOrFd {
 impl OsPathOrFd {
     pub fn filename(&self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            OsPathOrFd::Path(path) => path.filename(vm),
-            OsPathOrFd::Fd(fd) => vm.ctx.new_int(*fd).into(),
+            Self::Path(path) => path.filename(vm),
+            Self::Fd(fd) => vm.ctx.new_int(*fd).into(),
         }
     }
 }

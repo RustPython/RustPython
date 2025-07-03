@@ -264,7 +264,7 @@ impl TryFromObject for NativeFunctionOrMethod {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let class = vm.ctx.types.builtin_function_or_method_type;
         if obj.fast_isinstance(class) {
-            Ok(NativeFunctionOrMethod(unsafe { obj.downcast_unchecked() }))
+            Ok(Self(unsafe { obj.downcast_unchecked() }))
         } else {
             Err(vm.new_downcast_type_error(class, &obj))
         }
