@@ -162,18 +162,18 @@ impl Symbol {
         }
     }
 
-    pub fn is_global(&self) -> bool {
+    pub const fn is_global(&self) -> bool {
         matches!(
             self.scope,
             SymbolScope::GlobalExplicit | SymbolScope::GlobalImplicit
         )
     }
 
-    pub fn is_local(&self) -> bool {
+    pub const fn is_local(&self) -> bool {
         matches!(self.scope, SymbolScope::Local | SymbolScope::Cell)
     }
 
-    pub fn is_bound(&self) -> bool {
+    pub const fn is_bound(&self) -> bool {
         self.flags.intersects(SymbolFlags::BOUND)
     }
 }
