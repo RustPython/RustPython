@@ -1,4 +1,4 @@
-// cspell:ignore uncomputed
+// spell-checker:ignore uncomputed
 use crate::atomic::{PyAtomic, Radium};
 use crate::format::CharLen;
 use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};

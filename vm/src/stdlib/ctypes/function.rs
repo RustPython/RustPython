@@ -1,4 +1,4 @@
-// cspell:disable
+// spell-checker:disable
 
 use crate::builtins::{PyStr, PyTupleRef, PyTypeRef};
 use crate::convert::ToPyObject;

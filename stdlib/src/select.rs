@@ -1,4 +1,4 @@
-// cspell:disable
+// spell-checker:disable
 
 use crate::vm::{
     PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine, builtins::PyListRef,

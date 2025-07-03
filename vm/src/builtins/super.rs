@@ -1,4 +1,4 @@
-// cspell:ignore cmeth
+// spell-checker:ignore cmeth
 /*! Python `super` class.
 
 See also [CPython source code.](https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/Objects/typeobject.c#L7663)

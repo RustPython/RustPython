@@ -36,11 +36,11 @@ pub struct Settings {
     /// sys.argv
     pub argv: Vec<String>,
 
-    // cspell:ignore Xfoo
+    // spell-checker:ignore Xfoo
     /// -Xfoo[=bar]
     pub xoptions: Vec<(String, Option<String>)>,
 
-    // cspell:ignore Wfoo
+    // spell-checker:ignore Wfoo
     /// -Wfoo
     pub warnoptions: Vec<String>,
 

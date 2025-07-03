@@ -1,4 +1,4 @@
-// cspell:ignore typevarobject funcobj
+// spell-checker:ignore typevarobject funcobj
 use crate::{
     AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyTupleRef, PyTypeRef, pystr::AsPyStr},

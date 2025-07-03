@@ -1,4 +1,4 @@
-// cspell:disable
+// spell-checker:disable
 //! mmap module
 pub(crate) use mmap::make_module;
 

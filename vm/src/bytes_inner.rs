@@ -1,4 +1,4 @@
-// cspell:ignore unchunked
+// spell-checker:ignore unchunked
 use crate::{
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},

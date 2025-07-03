@@ -1,4 +1,4 @@
-// cspell:disable
+// spell-checker:disable
 //! Unstable functions from [`core::char`]
 
 use core::slice;
