@@ -1005,7 +1005,7 @@ mod sys {
     #[cfg(feature = "threading")]
     #[pyclass(with(PyStructSequence))]
     impl PyThreadInfo {
-        const INFO: Self = PyThreadInfo {
+        const INFO: Self = Self {
             name: crate::stdlib::thread::_thread::PYTHREAD_NAME,
             // As I know, there's only way to use lock as "Mutex" in Rust
             // with satisfying python document spec.
