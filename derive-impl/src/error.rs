@@ -75,8 +75,8 @@ enum Repr {
 }
 
 impl Diagnostic {
-    pub fn error<T: Into<String>>(text: T) -> Diagnostic {
-        Diagnostic {
+    pub fn error<T: Into<String>>(text: T) -> Self {
+        Self {
             inner: Repr::Single {
                 text: text.into(),
                 span: None,
@@ -84,8 +84,8 @@ impl Diagnostic {
         }
     }
 
-    pub(crate) fn spans_error<T: Into<String>>(spans: (Span, Span), text: T) -> Diagnostic {
-        Diagnostic {
+    pub(crate) fn spans_error<T: Into<String>>(spans: (Span, Span), text: T) -> Self {
+        Self {
             inner: Repr::Single {
                 text: text.into(),
                 span: Some(spans),
@@ -93,11 +93,11 @@ impl Diagnostic {
         }
     }
 
-    pub fn from_vec(diagnostics: Vec<Diagnostic>) -> Result<(), Diagnostic> {
+    pub fn from_vec(diagnostics: Vec<Self>) -> Result<(), Self> {
         if diagnostics.is_empty() {
             Ok(())
         } else {
-            Err(Diagnostic {
+            Err(Self {
                 inner: Repr::Multi { diagnostics },
             })
         }
@@ -113,8 +113,8 @@ impl Diagnostic {
 }
 
 impl From<Error> for Diagnostic {
-    fn from(err: Error) -> Diagnostic {
-        Diagnostic {
+    fn from(err: Error) -> Self {
+        Self {
             inner: Repr::SynError(err),
         }
     }
