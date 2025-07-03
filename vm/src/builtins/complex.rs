@@ -1,8 +1,10 @@
 use super::{PyStr, PyType, PyTypeRef, float};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    builtins::PyStrRef,
     class::PyClassImpl,
-    convert::{ToPyObject, ToPyResult},
+    common::format::FormatSpec,
+    convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
         OptionalArg, OptionalOption,
         PyArithmeticValue::{self, *},
@@ -387,6 +389,13 @@ impl PyComplex {
     fn __getnewargs__(&self) -> (f64, f64) {
         let Complex64 { re, im } = self.value;
         (re, im)
+    }
+
+    #[pymethod]
+    fn __format__(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+        FormatSpec::parse(spec.as_str())
+            .and_then(|format_spec| format_spec.format_complex(&self.value))
+            .map_err(|err| err.into_pyexception(vm))
     }
 }
 
