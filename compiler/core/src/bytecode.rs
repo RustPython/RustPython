@@ -174,7 +174,7 @@ impl OpArg {
 
     /// Returns how many CodeUnits a instruction with this op_arg will be encoded as
     #[inline]
-    pub fn instr_size(self) -> usize {
+    pub const fn instr_size(self) -> usize {
         (self.0 > 0xff) as usize + (self.0 > 0xff_ff) as usize + (self.0 > 0xff_ff_ff) as usize + 1
     }
 
@@ -214,7 +214,7 @@ impl OpArgState {
         OpArg(self.state)
     }
     #[inline(always)]
-    pub fn reset(&mut self) {
+    pub const fn reset(&mut self) {
         self.state = 0
     }
 }
@@ -280,7 +280,7 @@ pub struct Arg<T: OpArgType>(PhantomData<T>);
 
 impl<T: OpArgType> Arg<T> {
     #[inline]
-    pub fn marker() -> Self {
+    pub const fn marker() -> Self {
         Arg(PhantomData)
     }
     #[inline]
@@ -660,7 +660,7 @@ pub struct CodeUnit {
 const _: () = assert!(mem::size_of::<CodeUnit>() == 2);
 
 impl CodeUnit {
-    pub fn new(op: Instruction, arg: OpArgByte) -> Self {
+    pub const fn new(op: Instruction, arg: OpArgByte) -> Self {
         Self { op, arg }
     }
 }
@@ -1150,7 +1150,7 @@ impl<C: Constant> fmt::Display for CodeObject<C> {
 impl Instruction {
     /// Gets the label stored inside this instruction, if it exists
     #[inline]
-    pub fn label_arg(&self) -> Option<Arg<Label>> {
+    pub const fn label_arg(&self) -> Option<Arg<Label>> {
         match self {
             Jump { target: l }
             | JumpIfTrue { target: l }
@@ -1177,7 +1177,7 @@ impl Instruction {
     /// let jump_inst = Instruction::Jump { target: Arg::marker() };
     /// assert!(jump_inst.unconditional_branch())
     /// ```
-    pub fn unconditional_branch(&self) -> bool {
+    pub const fn unconditional_branch(&self) -> bool {
         matches!(
             self,
             Jump { .. }
