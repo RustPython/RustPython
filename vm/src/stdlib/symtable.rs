@@ -170,7 +170,7 @@ mod symtable {
         }
 
         #[pymethod]
-        fn is_global(&self) -> bool {
+        const fn is_global(&self) -> bool {
             self.symbol.is_global() || (self.is_top_scope && self.symbol.is_bound())
         }
 
@@ -180,7 +180,7 @@ mod symtable {
         }
 
         #[pymethod]
-        fn is_local(&self) -> bool {
+        const fn is_local(&self) -> bool {
             self.symbol.is_local() || (self.is_top_scope && self.symbol.is_bound())
         }
 
