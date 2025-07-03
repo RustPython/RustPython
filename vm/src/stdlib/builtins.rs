@@ -1009,7 +1009,9 @@ mod builtins {
         {
             if let Some(type_params_tuple) = type_params.downcast_ref::<PyTuple>() {
                 if !type_params_tuple.is_empty() {
-                    class.set_attr(identifier!(vm, __type_params__), type_params, vm)?;
+                    class.set_attr(identifier!(vm, __type_params__), type_params.clone(), vm)?;
+                    // Also set __parameters__ for compatibility with typing module
+                    class.set_attr(identifier!(vm, __parameters__), type_params, vm)?;
                 }
             }
         }
