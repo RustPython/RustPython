@@ -7,8 +7,8 @@ macro_rules! impl_node {
     (
         $(#[$meta:meta])*
         $vis:vis struct $name:ident,
-        [$($field:expr),* $(,)?],
-        [$($attr:expr),* $(,)?]
+        fields: [$($field:expr),* $(,)?],
+        attributes: [$($attr:expr),* $(,)?]
     ) => {
         $(#[$meta])*
         $vis struct $name;
