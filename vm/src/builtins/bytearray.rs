@@ -335,29 +335,17 @@ impl PyByteArray {
     }
 
     #[pymethod]
-    fn center(
-        &self,
-        options: ByteInnerPaddingOptions,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
+    fn center(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<Self> {
         Ok(self.inner().center(options, vm)?.into())
     }
 
     #[pymethod]
-    fn ljust(
-        &self,
-        options: ByteInnerPaddingOptions,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
+    fn ljust(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<Self> {
         Ok(self.inner().ljust(options, vm)?.into())
     }
 
     #[pymethod]
-    fn rjust(
-        &self,
-        options: ByteInnerPaddingOptions,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
+    fn rjust(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<Self> {
         Ok(self.inner().rjust(options, vm)?.into())
     }
 
@@ -434,11 +422,7 @@ impl PyByteArray {
     }
 
     #[pymethod]
-    fn translate(
-        &self,
-        options: ByteInnerTranslateOptions,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
+    fn translate(&self, options: ByteInnerTranslateOptions, vm: &VirtualMachine) -> PyResult<Self> {
         Ok(self.inner().translate(options, vm)?.into())
     }
 
@@ -663,11 +647,7 @@ impl Py<PyByteArray> {
 #[pyclass]
 impl PyRef<PyByteArray> {
     #[pymethod]
-    fn lstrip(
-        self,
-        chars: OptionalOption<PyBytesInner>,
-        vm: &VirtualMachine,
-    ) -> Self {
+    fn lstrip(self, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> Self {
         let inner = self.inner();
         let stripped = inner.lstrip(chars);
         let elements = &inner.elements;
@@ -680,11 +660,7 @@ impl PyRef<PyByteArray> {
     }
 
     #[pymethod]
-    fn rstrip(
-        self,
-        chars: OptionalOption<PyBytesInner>,
-        vm: &VirtualMachine,
-    ) -> Self {
+    fn rstrip(self, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> Self {
         let inner = self.inner();
         let stripped = inner.rstrip(chars);
         let elements = &inner.elements;

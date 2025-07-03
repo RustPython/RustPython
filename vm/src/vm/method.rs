@@ -131,9 +131,7 @@ impl PyMethod {
     #[allow(dead_code)]
     pub fn invoke_ref(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
         let (func, args) = match self {
-            Self::Function { target, func } => {
-                (func, args.into_method_args(target.clone(), vm))
-            }
+            Self::Function { target, func } => (func, args.into_method_args(target.clone(), vm)),
             Self::Attribute(func) => (func, args.into_args(vm)),
         };
         func.call(args, vm)

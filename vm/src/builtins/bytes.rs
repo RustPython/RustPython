@@ -355,11 +355,7 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn translate(
-        &self,
-        options: ByteInnerTranslateOptions,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
+    fn translate(&self, options: ByteInnerTranslateOptions, vm: &VirtualMachine) -> PyResult<Self> {
         Ok(self.inner.translate(options, vm)?.into())
     }
 

@@ -221,12 +221,7 @@ impl PySetInner {
         self.retry_op_with_frozenset(needle, vm, |needle, vm| self.content.contains(vm, needle))
     }
 
-    fn compare(
-        &self,
-        other: &Self,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
+    fn compare(&self, other: &Self, op: PyComparisonOp, vm: &VirtualMachine) -> PyResult<bool> {
         if op == PyComparisonOp::Ne {
             return self.compare(other, PyComparisonOp::Eq, vm).map(|eq| !eq);
         }
@@ -256,11 +251,7 @@ impl PySetInner {
         Ok(set)
     }
 
-    pub(super) fn intersection(
-        &self,
-        other: ArgIterable,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
+    pub(super) fn intersection(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
         let set = Self::default();
         for item in other.iter(vm)? {
             let obj = item?;
@@ -271,11 +262,7 @@ impl PySetInner {
         Ok(set)
     }
 
-    pub(super) fn difference(
-        &self,
-        other: ArgIterable,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
+    pub(super) fn difference(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
         let set = self.copy();
         for item in other.iter(vm)? {
             set.content.delete_if_exists(vm, &*item?)?;

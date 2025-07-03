@@ -342,11 +342,7 @@ impl PyBytesInner {
         self.elements.py_add(other)
     }
 
-    pub fn contains(
-        &self,
-        needle: Either<Self, PyIntRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
+    pub fn contains(&self, needle: Either<Self, PyIntRef>, vm: &VirtualMachine) -> PyResult<bool> {
         Ok(match needle {
             Either::A(byte) => self.elements.contains_str(byte.elements.as_slice()),
             Either::B(int) => self.elements.contains(&int.as_bigint().byte_or(vm)?),
@@ -552,11 +548,7 @@ impl PyBytesInner {
             .py_count(needle.as_slice(), range, |h, n| h.find_iter(n).count()))
     }
 
-    pub fn join(
-        &self,
-        iterable: ArgIterable<Self>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<u8>> {
+    pub fn join(&self, iterable: ArgIterable<Self>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let iter = iterable.iter(vm)?;
         self.elements.py_join(iter)
     }
@@ -575,11 +567,7 @@ impl PyBytesInner {
         Ok(self.elements.py_find(&needle, range, find))
     }
 
-    pub fn maketrans(
-        from: Self,
-        to: Self,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<u8>> {
+    pub fn maketrans(from: Self, to: Self, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         if from.len() != to.len() {
             return Err(vm.new_value_error("the two maketrans arguments must have equal length"));
         }
@@ -703,11 +691,7 @@ impl PyBytesInner {
         Ok(elements)
     }
 
-    pub fn partition(
-        &self,
-        sub: &Self,
-        vm: &VirtualMachine,
-    ) -> PyResult<(Vec<u8>, bool, Vec<u8>)> {
+    pub fn partition(&self, sub: &Self, vm: &VirtualMachine) -> PyResult<(Vec<u8>, bool, Vec<u8>)> {
         self.elements.py_partition(
             &sub.elements,
             || self.elements.splitn_str(2, &sub.elements),
@@ -815,12 +799,7 @@ impl PyBytesInner {
         result
     }
 
-    pub fn replace_in_place(
-        &self,
-        from: Self,
-        to: Self,
-        max_count: Option<usize>,
-    ) -> Vec<u8> {
+    pub fn replace_in_place(&self, from: Self, to: Self, max_count: Option<usize>) -> Vec<u8> {
         let len = from.len();
         let mut iter = self.elements.find_iter(&from.elements);
 

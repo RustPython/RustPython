@@ -412,12 +412,7 @@ impl FormatSpec {
                 let magnitude_len = magnitude_str.len();
                 let width = self.width.unwrap_or(magnitude_len) as i32 - prefix.len() as i32;
                 let disp_digit_cnt = cmp::max(width, magnitude_len as i32);
-                Self::add_magnitude_separators_for_char(
-                    magnitude_str,
-                    inter,
-                    sep,
-                    disp_digit_cnt,
-                )
+                Self::add_magnitude_separators_for_char(magnitude_str, inter, sep, disp_digit_cnt)
             }
             None => magnitude_str,
         }
@@ -657,8 +652,7 @@ impl FormatSpec {
             FormatAlign::Center => {
                 let left_fill_chars_needed = fill_chars_needed / 2;
                 let right_fill_chars_needed = fill_chars_needed - left_fill_chars_needed;
-                let left_fill_string =
-                    Self::compute_fill_string(fill_char, left_fill_chars_needed);
+                let left_fill_string = Self::compute_fill_string(fill_char, left_fill_chars_needed);
                 let right_fill_string =
                     Self::compute_fill_string(fill_char, right_fill_chars_needed);
                 format!("{left_fill_string}{sign_str}{magnitude_str}{right_fill_string}")

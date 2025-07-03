@@ -1967,9 +1967,7 @@ mod _io {
         fn find_newline(&self, s: &Wtf8) -> Result<usize, usize> {
             let len = s.len();
             match self {
-                Self::Universal | Self::Lf => {
-                    s.find("\n".as_ref()).map(|p| p + 1).ok_or(len)
-                }
+                Self::Universal | Self::Lf => s.find("\n".as_ref()).map(|p| p + 1).ok_or(len),
                 Self::Passthrough => {
                     let bytes = s.as_bytes();
                     memchr::memchr2(b'\n', b'\r', bytes)

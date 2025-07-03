@@ -15,9 +15,11 @@ impl Node for ruff::ExceptHandler {
         let _cls = _object.class();
         Ok(
             if _cls.is(pyast::NodeExceptHandlerExceptHandler::static_type()) {
-                Self::ExceptHandler(
-                    ruff::ExceptHandlerExceptHandler::ast_from_object(_vm, source_code, _object)?,
-                )
+                Self::ExceptHandler(ruff::ExceptHandlerExceptHandler::ast_from_object(
+                    _vm,
+                    source_code,
+                    _object,
+                )?)
             } else {
                 return Err(_vm.new_type_error(format!(
                     "expected some sort of excepthandler, but got {}",

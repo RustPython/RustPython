@@ -403,9 +403,7 @@ mod _operator {
                     return Err(vm.new_type_error("attribute name must be a string"));
                 }
             }
-            Self { attrs }
-                .into_ref_with_type(vm, cls)
-                .map(Into::into)
+            Self { attrs }.into_ref_with_type(vm, cls).map(Into::into)
         }
     }
 
