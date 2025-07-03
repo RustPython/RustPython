@@ -38,8 +38,8 @@ macro_rules! panic_oob {
 }
 
 impl<T> BoxVec<T> {
-    pub fn new(n: usize) -> BoxVec<T> {
-        BoxVec {
+    pub fn new(n: usize) -> Self {
+        Self {
             xs: Box::new_uninit_slice(n),
             len: 0,
         }
@@ -593,7 +593,7 @@ where
     T: Clone,
 {
     fn clone(&self) -> Self {
-        let mut new = BoxVec::new(self.capacity());
+        let mut new = Self::new(self.capacity());
         new.extend(self.iter().cloned());
         new
     }
@@ -676,8 +676,8 @@ pub struct CapacityError<T = ()> {
 
 impl<T> CapacityError<T> {
     /// Create a new `CapacityError` from `element`.
-    pub const fn new(element: T) -> CapacityError<T> {
-        CapacityError { element }
+    pub const fn new(element: T) -> Self {
+        Self { element }
     }
 
     /// Extract the overflowing element
