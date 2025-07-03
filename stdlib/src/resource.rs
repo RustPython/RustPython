@@ -90,7 +90,7 @@ mod resource {
     impl From<libc::rusage> for Rusage {
         fn from(rusage: libc::rusage) -> Self {
             let tv = |tv: libc::timeval| tv.tv_sec as f64 + (tv.tv_usec as f64 / 1_000_000.0);
-            Rusage {
+            Self {
                 ru_utime: tv(rusage.ru_utime),
                 ru_stime: tv(rusage.ru_utime),
                 ru_maxrss: rusage.ru_maxrss,

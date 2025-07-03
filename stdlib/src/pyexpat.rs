@@ -65,7 +65,7 @@ mod _pyexpat {
     #[pyclass]
     impl PyExpatLikeXmlParser {
         fn new(vm: &VirtualMachine) -> PyResult<PyExpatLikeXmlParserRef> {
-            Ok(PyExpatLikeXmlParser {
+            Ok(Self {
                 start_element: MutableObject::new(vm.ctx.none()),
                 end_element: MutableObject::new(vm.ctx.none()),
                 character_data: MutableObject::new(vm.ctx.none()),

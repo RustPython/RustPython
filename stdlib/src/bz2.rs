@@ -48,7 +48,7 @@ mod _bz2 {
 
     impl DecompressStatus for Status {
         fn is_stream_end(&self) -> bool {
-            *self == Status::StreamEnd
+            *self == Self::StreamEnd
         }
     }
 
