@@ -4,7 +4,7 @@ pub(crate) use _functools::make_module;
 mod _functools {
     use crate::{
         Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyDict, PyTuple, PyTypeRef},
+        builtins::{PyDict, PyGenericAlias, PyTuple, PyTypeRef},
         common::lock::PyRwLock,
         function::{FuncArgs, KwArgs, OptionalArg},
         object::AsObject,
@@ -189,6 +189,15 @@ mod _functools {
             }
 
             Ok(())
+        }
+
+        #[pyclassmethod]
+        fn __class_getitem__(
+            cls: PyTypeRef,
+            args: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyGenericAlias {
+            PyGenericAlias::from_args(cls, args, vm)
         }
     }
 

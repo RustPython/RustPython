@@ -1,4 +1,4 @@
-use super::{PyBoundMethod, PyStr, PyType, PyTypeRef};
+use super::{PyBoundMethod, PyGenericAlias, PyStr, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -169,6 +169,11 @@ impl PyClassMethod {
             .lock()
             .set_attr("__isabstractmethod__", value, vm)?;
         Ok(())
+    }
+
+    #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::from_args(cls, args, vm)
     }
 }
 

@@ -1,5 +1,6 @@
 use super::{
-    PositionIterInternal, PyDictRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
+    PositionIterInternal, PyDictRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef,
+    PyType, PyTypeRef,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
@@ -480,6 +481,11 @@ impl PyBytes {
     fn __getnewargs__(&self, vm: &VirtualMachine) -> PyTupleRef {
         let param: Vec<PyObjectRef> = self.elements().map(|x| x.to_pyobject(vm)).collect();
         PyTuple::new_ref(param, &vm.ctx)
+    }
+
+    #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::from_args(cls, args, vm)
     }
 }
 

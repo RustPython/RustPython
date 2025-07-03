@@ -1,7 +1,7 @@
 //! Implementation of the python bytearray object.
 use super::{
-    PositionIterInternal, PyBytes, PyBytesRef, PyDictRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef,
-    PyType, PyTypeRef,
+    PositionIterInternal, PyBytes, PyBytesRef, PyDictRef, PyGenericAlias, PyIntRef, PyStrRef,
+    PyTuple, PyTupleRef, PyType, PyTypeRef,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -570,6 +570,11 @@ impl PyByteArray {
     #[pymethod]
     fn reverse(&self) {
         self.borrow_buf_mut().reverse();
+    }
+
+    #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::from_args(cls, args, vm)
     }
 }
 

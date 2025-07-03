@@ -1203,7 +1203,8 @@ pub(super) mod types {
     use crate::{
         AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
         builtins::{
-            PyInt, PyStrRef, PyTupleRef, PyTypeRef, traceback::PyTracebackRef, tuple::IntoPyTuple,
+            PyGenericAlias, PyInt, PyStrRef, PyTupleRef, PyTypeRef, traceback::PyTracebackRef,
+            tuple::IntoPyTuple,
         },
         convert::ToPyResult,
         function::{ArgBytesLike, FuncArgs},
@@ -1234,9 +1235,21 @@ pub(super) mod types {
     #[derive(Debug)]
     pub struct PySystemExit {}
 
-    #[pyexception(name, base = "PyBaseException", ctx = "base_exception_group", impl)]
+    #[pyexception(name, base = "PyBaseException", ctx = "base_exception_group")]
     #[derive(Debug)]
     pub struct PyBaseExceptionGroup {}
+
+    #[pyexception]
+    impl PyBaseExceptionGroup {
+        #[pyclassmethod]
+        fn __class_getitem__(
+            cls: PyTypeRef,
+            args: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyGenericAlias {
+            PyGenericAlias::from_args(cls, args, vm)
+        }
+    }
 
     #[pyexception(name, base = "PyBaseExceptionGroup", ctx = "exception_group", impl)]
     #[derive(Debug)]

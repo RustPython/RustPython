@@ -1,5 +1,6 @@
 use super::{
-    PyInt, PyIntRef, PySlice, PyTupleRef, PyType, PyTypeRef, builtins_iter, tuple::tuple_hash,
+    PyGenericAlias, PyInt, PyIntRef, PySlice, PyTupleRef, PyType, PyTypeRef, builtins_iter,
+    tuple::tuple_hash,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -183,6 +184,11 @@ pub fn init(context: &Context) {
     Representable
 ))]
 impl PyRange {
+    #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::from_args(cls, args, vm)
+    }
+
     fn new(cls: PyTypeRef, stop: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyRange {
             start: vm.ctx.new_pyref(0),
