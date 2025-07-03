@@ -8,7 +8,7 @@ macro_rules! impl_node {
         $(#[$meta:meta])*
         $vis:vis struct $name:ident,
         fields: [$($field:expr),* $(,)?],
-        attributes: [$($attr:expr),* $(,)?]
+        attributes: [$($attr:expr),* $(,)?] $(,)?
     ) => {
         $(#[$meta])*
         $vis struct $name;
@@ -37,6 +37,33 @@ macro_rules! impl_node {
             }
         }
     };
+    // Without attributes
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident,
+        fields: [$($field:expr),* $(,)?] $(,)?
+    ) => {
+        impl_node!(
+            $(#[$meta])*
+            $vis struct $name,
+            fields: [$($field),*],
+            attributes: [],
+        );
+    };
+
+    // Without fields
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident,
+        attributes: [$($attr:expr),* $(,)?] $(,)?
+    ) => {
+        impl_node!(
+            $(#[$meta])*
+            $vis struct $name,
+            fields: [],
+            attributes: [$($attr),*],
+        );
+    };
 }
 
 #[pyclass(module = "_ast", name = "mod", base = "NodeAst")]
@@ -48,25 +75,25 @@ impl NodeMod {}
 impl_node!(
     #[pyclass(module = "_ast", name = "Module", base = "NodeMod")]
     pub(crate) struct NodeModModule,
-    ["body", "type_ignores"], []
+    fields: ["body", "type_ignores"]
 );
 
 impl_node!(
     #[pyclass(module = "_ast", name = "Interactive", base = "NodeMod")]
     pub(crate) struct NodeModInteractive,
-    ["body"], []
+    fields: ["body"],
 );
 
 impl_node!(
     #[pyclass(module = "_ast", name = "Expression", base = "NodeMod")]
     pub(crate) struct NodeModExpression,
-    ["body"], []
+    fields: ["body"],
 );
 
 impl_node!(
     #[pyclass(module = "_ast", name = "FunctionType", base = "NodeMod")]
     pub(crate) struct NodeModFunctionType,
-    ["argtypes", "returns"], []
+    fields: ["argtypes", "returns"],
 );
 
 #[pyclass(module = "_ast", name = "stmt", base = "NodeAst")]
@@ -78,15 +105,15 @@ impl NodeStmt {}
 impl_node!(
     #[pyclass(module = "_ast", name = "FunctionDef", base = "NodeStmt")]
     pub(crate) struct NodeStmtFunctionDef,
-    ["name", "args", "body", "decorator_list", "returns", "type_comment", "type_params"],
-    ["lineno", "col_offset", "end_lineno", "end_col_offset"]
+    fields: ["name", "args", "body", "decorator_list", "returns", "type_comment", "type_params"],
+    attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"]
 );
 
 impl_node!(
     #[pyclass(module = "_ast", name = "AsyncFunctionDef", base = "NodeStmt")]
     pub(crate) struct NodeStmtAsyncFunctionDef,
-    ["name", "args", "body", "decorator_list", "returns", "type_comment", "type_params"],
-    ["lineno", "col_offset", "end_lineno", "end_col_offset"]
+    fields: ["name", "args", "body", "decorator_list", "returns", "type_comment", "type_params"],
+    attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"]
 );
 
 #[pyclass(module = "_ast", name = "ClassDef", base = "NodeStmt")]
@@ -712,25 +739,13 @@ impl NodeStmtPass {
         );
     }
 }
-#[pyclass(module = "_ast", name = "Break", base = "NodeStmt")]
-pub(crate) struct NodeStmtBreak;
-#[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeStmtBreak {
-    #[extend_class]
-    fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
-    }
-}
+
+impl_node!(
+    #[pyclass(module = "_ast", name = "Break", base = "NodeStmt")]
+    pub(crate) struct NodeStmtBreak,
+    attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
+);
+
 #[pyclass(module = "_ast", name = "Continue", base = "NodeStmt")]
 pub(crate) struct NodeStmtContinue;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
