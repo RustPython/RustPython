@@ -11,7 +11,7 @@ use rustpython_compiler_core::bytecode::{
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct BlockIdx(pub u32);
 impl BlockIdx {
-    pub const NULL: BlockIdx = BlockIdx(u32::MAX);
+    pub const NULL: Self = Self(u32::MAX);
     const fn idx(self) -> usize {
         self.0 as usize
     }
@@ -58,7 +58,7 @@ pub struct Block {
 }
 impl Default for Block {
     fn default() -> Self {
-        Block {
+        Self {
             instructions: Vec::new(),
             next: BlockIdx::NULL,
         }
@@ -91,7 +91,7 @@ impl CodeInfo {
         let max_stackdepth = self.max_stackdepth()?;
         let cell2arg = self.cell2arg();
 
-        let CodeInfo {
+        let Self {
             flags,
             posonlyarg_count,
             arg_count,
