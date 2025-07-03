@@ -57,7 +57,7 @@ impl PyDict {
 
     /// escape hatch to access the underlying data structure directly. prefer adding a method on
     /// PyDict instead of using this
-    pub(crate) fn _as_dict_inner(&self) -> &DictContentType {
+    pub(crate) const fn _as_dict_inner(&self) -> &DictContentType {
         &self.entries
     }
 
@@ -376,17 +376,17 @@ impl Py<PyDict> {
 #[pyclass]
 impl PyRef<PyDict> {
     #[pymethod]
-    fn keys(self) -> PyDictKeys {
+    const fn keys(self) -> PyDictKeys {
         PyDictKeys::new(self)
     }
 
     #[pymethod]
-    fn values(self) -> PyDictValues {
+    const fn values(self) -> PyDictValues {
         PyDictValues::new(self)
     }
 
     #[pymethod]
-    fn items(self) -> PyDictItems {
+    const fn items(self) -> PyDictItems {
         PyDictItems::new(self)
     }
 

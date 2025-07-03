@@ -130,7 +130,7 @@ pub struct ArgMapping {
 
 impl ArgMapping {
     #[inline]
-    pub fn with_methods(obj: PyObjectRef, methods: &'static PyMappingMethods) -> Self {
+    pub const fn with_methods(obj: PyObjectRef, methods: &'static PyMappingMethods) -> Self {
         Self { obj, methods }
     }
 

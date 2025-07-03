@@ -85,7 +85,7 @@ impl DirFd<1> {
     }
 
     #[inline(always)]
-    pub(crate) fn fd(&self) -> Fd {
+    pub(crate) const fn fd(&self) -> Fd {
         self.0[0]
     }
 }
@@ -571,7 +571,7 @@ pub(super) mod _os {
 
         #[cfg(not(windows))]
         #[pymethod]
-        fn is_junction(&self, _vm: &VirtualMachine) -> PyResult<bool> {
+        const fn is_junction(&self, _vm: &VirtualMachine) -> PyResult<bool> {
             Ok(false)
         }
 
@@ -642,7 +642,7 @@ pub(super) mod _os {
         }
 
         #[pymethod]
-        fn __enter__(zelf: PyRef<Self>) -> PyRef<Self> {
+        const fn __enter__(zelf: PyRef<Self>) -> PyRef<Self> {
             zelf
         }
 
@@ -1495,7 +1495,7 @@ pub(crate) struct SupportFunc {
 }
 
 impl SupportFunc {
-    pub(crate) fn new(
+    pub(crate) const fn new(
         name: &'static str,
         fd: Option<bool>,
         dir_fd: Option<bool>,

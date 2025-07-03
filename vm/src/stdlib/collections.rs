@@ -273,7 +273,7 @@ mod _collections {
         }
 
         #[pygetset]
-        fn maxlen(&self) -> Option<usize> {
+        const fn maxlen(&self) -> Option<usize> {
             self.maxlen
         }
 

@@ -77,7 +77,7 @@ impl PyByteArray {
         PyRef::new_ref(Self::from(data), ctx.types.bytearray_type.to_owned(), None)
     }
 
-    fn from_inner(inner: PyBytesInner) -> Self {
+    const fn from_inner(inner: PyBytesInner) -> Self {
         PyByteArray {
             inner: PyRwLock::new(inner),
             exports: AtomicUsize::new(0),

@@ -118,7 +118,7 @@ impl CachedPyStrRef {
     /// # Safety
     /// the given cache must be alive while returned reference is alive
     #[inline]
-    unsafe fn as_interned_str(&self) -> &'static PyStrInterned {
+    const unsafe fn as_interned_str(&self) -> &'static PyStrInterned {
         unsafe { std::mem::transmute_copy(self) }
     }
 
@@ -142,7 +142,7 @@ impl<T: PyPayload> PyInterned<T> {
     }
 
     #[inline]
-    fn as_ptr(&self) -> *const Py<T> {
+    const fn as_ptr(&self) -> *const Py<T> {
         self as *const _ as *const _
     }
 

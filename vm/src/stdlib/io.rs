@@ -289,7 +289,7 @@ mod _io {
             Some(b)
         }
 
-        fn tell(&self) -> u64 {
+        const fn tell(&self) -> u64 {
             self.cursor.position()
         }
 
@@ -783,27 +783,27 @@ mod _io {
         }
 
         #[inline]
-        fn writable(&self) -> bool {
+        const fn writable(&self) -> bool {
             self.flags.contains(BufferedFlags::WRITABLE)
         }
 
         #[inline]
-        fn readable(&self) -> bool {
+        const fn readable(&self) -> bool {
             self.flags.contains(BufferedFlags::READABLE)
         }
 
         #[inline]
-        fn valid_read(&self) -> bool {
+        const fn valid_read(&self) -> bool {
             self.readable() && self.read_end != -1
         }
 
         #[inline]
-        fn valid_write(&self) -> bool {
+        const fn valid_write(&self) -> bool {
             self.writable() && self.write_end != -1
         }
 
         #[inline]
-        fn raw_offset(&self) -> Offset {
+        const fn raw_offset(&self) -> Offset {
             if (self.valid_read() || self.valid_write()) && self.raw_pos >= 0 {
                 self.raw_pos - self.pos
             } else {
@@ -812,7 +812,7 @@ mod _io {
         }
 
         #[inline]
-        fn readahead(&self) -> Offset {
+        const fn readahead(&self) -> Offset {
             if self.valid_read() {
                 self.read_end - self.pos
             } else {
@@ -820,11 +820,11 @@ mod _io {
             }
         }
 
-        fn reset_read(&mut self) {
+        const fn reset_read(&mut self) {
             self.read_end = -1;
         }
 
-        fn reset_write(&mut self) {
+        const fn reset_write(&mut self) {
             self.write_pos = 0;
             self.write_end = -1;
         }
@@ -1278,7 +1278,7 @@ mod _io {
             }
         }
 
-        fn adjust_position(&mut self, new_pos: Offset) {
+        const fn adjust_position(&mut self, new_pos: Offset) {
             self.pos = new_pos;
             if self.valid_read() && self.read_end < self.pos {
                 self.read_end = self.pos
@@ -2096,7 +2096,7 @@ mod _io {
 
     // TODO: implement legit fast-paths for other encodings
     type EncodeFunc = fn(PyStrRef) -> PendingWrite;
-    fn textio_encode_utf8(s: PyStrRef) -> PendingWrite {
+    const fn textio_encode_utf8(s: PyStrRef) -> PendingWrite {
         PendingWrite::Utf8(s)
     }
 
@@ -2264,7 +2264,7 @@ mod _io {
             }
         }
 
-        fn set_num_to_skip(&mut self, num: Utf8size) {
+        const fn set_num_to_skip(&mut self, num: Utf8size) {
             self.bytes_to_skip = num.bytes as i32;
             self.chars_to_skip = num.chars as i32;
         }

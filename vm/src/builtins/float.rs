@@ -231,7 +231,7 @@ impl PyFloat {
     }
 
     #[pymethod]
-    fn __abs__(&self) -> f64 {
+    const fn __abs__(&self) -> f64 {
         self.value.abs()
     }
 

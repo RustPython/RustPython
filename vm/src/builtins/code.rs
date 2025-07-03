@@ -202,7 +202,7 @@ impl Deref for PyCode {
 }
 
 impl PyCode {
-    pub fn new(code: CodeObject) -> PyCode {
+    pub const fn new(code: CodeObject) -> PyCode {
         PyCode { code }
     }
 }
@@ -242,17 +242,17 @@ impl PyCode {
     }
 
     #[pygetset]
-    fn co_posonlyargcount(&self) -> usize {
+    const fn co_posonlyargcount(&self) -> usize {
         self.code.posonlyarg_count as usize
     }
 
     #[pygetset]
-    fn co_argcount(&self) -> usize {
+    const fn co_argcount(&self) -> usize {
         self.code.arg_count as usize
     }
 
     #[pygetset]
-    fn co_stacksize(&self) -> u32 {
+    const fn co_stacksize(&self) -> u32 {
         self.code.max_stackdepth
     }
 
@@ -284,7 +284,7 @@ impl PyCode {
     }
 
     #[pygetset]
-    fn co_kwonlyargcount(&self) -> usize {
+    const fn co_kwonlyargcount(&self) -> usize {
         self.code.kwonlyarg_count as usize
     }
 
@@ -312,7 +312,7 @@ impl PyCode {
     }
 
     #[pygetset]
-    fn co_flags(&self) -> u16 {
+    const fn co_flags(&self) -> u16 {
         self.code.flags.bits()
     }
 

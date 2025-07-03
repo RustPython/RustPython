@@ -246,82 +246,82 @@ mod stat {
 
     #[pyfunction]
     #[allow(non_snake_case)]
-    fn S_ISDIR(mode: Mode) -> bool {
+    const fn S_ISDIR(mode: Mode) -> bool {
         (mode & S_IFMT) == S_IFDIR
     }
 
     #[pyfunction]
     #[allow(non_snake_case)]
-    fn S_ISCHR(mode: Mode) -> bool {
+    const fn S_ISCHR(mode: Mode) -> bool {
         (mode & S_IFMT) == S_IFCHR
     }
 
     #[pyfunction]
     #[allow(non_snake_case)]
-    fn S_ISREG(mode: Mode) -> bool {
+    const fn S_ISREG(mode: Mode) -> bool {
         (mode & S_IFMT) == S_IFREG
     }
 
     #[pyfunction]
     #[allow(non_snake_case)]
-    fn S_ISBLK(mode: Mode) -> bool {
+    const fn S_ISBLK(mode: Mode) -> bool {
         (mode & S_IFMT) == S_IFBLK
     }
 
     #[pyfunction]
     #[allow(non_snake_case)]
-    fn S_ISFIFO(mode: Mode) -> bool {
+    const fn S_ISFIFO(mode: Mode) -> bool {
         (mode & S_IFMT) == S_IFIFO
     }
 
     #[pyfunction]
     #[allow(non_snake_case)]
-    fn S_ISLNK(mode: Mode) -> bool {
+    const fn S_ISLNK(mode: Mode) -> bool {
         (mode & S_IFMT) == S_IFLNK
     }
 
     #[pyfunction]
     #[allow(non_snake_case)]
-    fn S_ISSOCK(mode: Mode) -> bool {
+    const fn S_ISSOCK(mode: Mode) -> bool {
         (mode & S_IFMT) == S_IFSOCK
     }
 
     // TODO: RUSTPYTHON Support Solaris
     #[pyfunction]
     #[allow(non_snake_case)]
-    fn S_ISDOOR(_mode: Mode) -> bool {
+    const fn S_ISDOOR(_mode: Mode) -> bool {
         false
     }
 
     // TODO: RUSTPYTHON Support Solaris
     #[pyfunction]
     #[allow(non_snake_case)]
-    fn S_ISPORT(_mode: Mode) -> bool {
+    const fn S_ISPORT(_mode: Mode) -> bool {
         false
     }
 
     // TODO: RUSTPYTHON Support BSD
     #[pyfunction]
     #[allow(non_snake_case)]
-    fn S_ISWHT(_mode: Mode) -> bool {
+    const fn S_ISWHT(_mode: Mode) -> bool {
         false
     }
 
     #[pyfunction(name = "S_IMODE")]
     #[allow(non_snake_case)]
-    fn S_IMODE_method(mode: Mode) -> Mode {
+    const fn S_IMODE_method(mode: Mode) -> Mode {
         mode & S_IMODE
     }
 
     #[pyfunction(name = "S_IFMT")]
     #[allow(non_snake_case)]
-    fn S_IFMT_method(mode: Mode) -> Mode {
+    const fn S_IFMT_method(mode: Mode) -> Mode {
         // 0o170000 is from the S_IFMT definition in CPython include/fileutils.h
         mode & S_IFMT
     }
 
     #[pyfunction]
-    fn filetype(mode: Mode) -> char {
+    const fn filetype(mode: Mode) -> char {
         if S_ISREG(mode) {
             '-'
         } else if S_ISDIR(mode) {

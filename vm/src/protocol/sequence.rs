@@ -76,7 +76,7 @@ unsafe impl Traverse for PySequence<'_> {
 
 impl<'a> PySequence<'a> {
     #[inline]
-    pub fn with_methods(obj: &'a PyObject, methods: &'static PySequenceMethods) -> Self {
+    pub const fn with_methods(obj: &'a PyObject, methods: &'static PySequenceMethods) -> Self {
         Self { obj, methods }
     }
 

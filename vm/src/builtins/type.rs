@@ -73,7 +73,7 @@ unsafe impl<T> Sync for PointerSlot<T> {}
 unsafe impl<T> Send for PointerSlot<T> {}
 
 impl<T> PointerSlot<T> {
-    pub unsafe fn borrow_static(&self) -> &'static T {
+    pub const unsafe fn borrow_static(&self) -> &'static T {
         unsafe { self.0.as_ref() }
     }
 }
@@ -621,12 +621,12 @@ impl PyType {
     }
 
     #[pygetset]
-    fn __flags__(&self) -> u64 {
+    const fn __flags__(&self) -> u64 {
         self.slots.flags.bits()
     }
 
     #[pygetset]
-    fn __basicsize__(&self) -> usize {
+    const fn __basicsize__(&self) -> usize {
         self.slots.basicsize
     }
 

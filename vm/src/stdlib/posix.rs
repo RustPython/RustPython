@@ -211,7 +211,7 @@ pub mod module {
         is_executable: bool,
     }
 
-    fn get_permissions(mode: u32) -> Permissions {
+    const fn get_permissions(mode: u32) -> Permissions {
         Permissions {
             is_readable: mode & 4 != 0,
             is_writable: mode & 2 != 0,
@@ -1228,7 +1228,7 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn sync() {
+    const fn sync() {
         #[cfg(not(any(target_os = "redox", target_os = "android")))]
         unsafe {
             libc::sync();
@@ -1603,32 +1603,32 @@ pub mod module {
     }
 
     #[pyfunction(name = "WIFSIGNALED")]
-    fn wifsignaled(status: i32) -> bool {
+    const fn wifsignaled(status: i32) -> bool {
         libc::WIFSIGNALED(status)
     }
 
     #[pyfunction(name = "WIFSTOPPED")]
-    fn wifstopped(status: i32) -> bool {
+    const fn wifstopped(status: i32) -> bool {
         libc::WIFSTOPPED(status)
     }
 
     #[pyfunction(name = "WIFEXITED")]
-    fn wifexited(status: i32) -> bool {
+    const fn wifexited(status: i32) -> bool {
         libc::WIFEXITED(status)
     }
 
     #[pyfunction(name = "WTERMSIG")]
-    fn wtermsig(status: i32) -> i32 {
+    const fn wtermsig(status: i32) -> i32 {
         libc::WTERMSIG(status)
     }
 
     #[pyfunction(name = "WSTOPSIG")]
-    fn wstopsig(status: i32) -> i32 {
+    const fn wstopsig(status: i32) -> i32 {
         libc::WSTOPSIG(status)
     }
 
     #[pyfunction(name = "WEXITSTATUS")]
-    fn wexitstatus(status: i32) -> i32 {
+    const fn wexitstatus(status: i32) -> i32 {
         libc::WEXITSTATUS(status)
     }
 

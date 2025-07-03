@@ -33,7 +33,7 @@ impl<O> PyIter<O>
 where
     O: Borrow<PyObject>,
 {
-    pub fn new(obj: O) -> Self {
+    pub const fn new(obj: O) -> Self {
         Self(obj)
     }
     pub fn next(&self, vm: &VirtualMachine) -> PyResult<PyIterReturn> {

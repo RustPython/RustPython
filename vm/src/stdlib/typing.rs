@@ -105,7 +105,7 @@ pub(crate) mod decl {
     }
     #[pyclass(flags(BASETYPE))]
     impl TypeAliasType {
-        pub fn new(
+        pub const fn new(
             name: PyObjectRef,
             type_params: PyTupleRef,
             value: PyObjectRef,

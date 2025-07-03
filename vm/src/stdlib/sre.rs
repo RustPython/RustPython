@@ -396,7 +396,7 @@ mod _sre {
         }
 
         #[pygetset]
-        fn flags(&self) -> u16 {
+        const fn flags(&self) -> u16 {
             self.flags.bits()
         }
 
