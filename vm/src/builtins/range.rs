@@ -184,11 +184,6 @@ pub fn init(context: &Context) {
     Representable
 ))]
 impl PyRange {
-    #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
-        PyGenericAlias::from_args(cls, args, vm)
-    }
-
     fn new(cls: PyTypeRef, stop: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyRange {
             start: vm.ctx.new_pyref(0),
@@ -327,6 +322,12 @@ impl PyRange {
         }?;
 
         Ok(range.into())
+    }
+
+    // TODO: Uncomment when Python adds __class_getitem__ to range
+    // #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::from_args(cls, args, vm)
     }
 }
 

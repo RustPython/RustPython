@@ -30,11 +30,6 @@ impl PyPayload for PySlice {
 
 #[pyclass(with(Comparable, Representable, Hashable))]
 impl PySlice {
-    #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
-        PyGenericAlias::from_args(cls, args, vm)
-    }
-
     #[pygetset]
     fn start(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.start.clone().to_pyobject(vm)
@@ -199,6 +194,12 @@ impl PySlice {
             zelf.class().to_owned(),
             (zelf.start.clone(), zelf.stop.clone(), zelf.step.clone()),
         ))
+    }
+
+    // TODO: Uncomment when Python adds __class_getitem__ to slice
+    // #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::from_args(cls, args, vm)
     }
 }
 

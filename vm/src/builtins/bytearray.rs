@@ -568,7 +568,8 @@ impl PyByteArray {
         self.borrow_buf_mut().reverse();
     }
 
-    #[pyclassmethod]
+    // TODO: Uncomment when Python adds __class_getitem__ to bytearray
+    // #[pyclassmethod]
     fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::from_args(cls, args, vm)
     }

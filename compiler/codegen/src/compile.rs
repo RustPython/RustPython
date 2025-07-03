@@ -1212,6 +1212,7 @@ impl Compiler<'_> {
     /// Store each type parameter so it is accessible to the current scope, and leave a tuple of
     /// all the type parameters on the stack.
     fn compile_type_params(&mut self, type_params: &TypeParams) -> CompileResult<()> {
+        // First, compile each type parameter and store it
         for type_param in &type_params.type_params {
             match type_param {
                 TypeParam::TypeVar(TypeParamTypeVar { name, bound, .. }) => {
@@ -1664,8 +1665,12 @@ impl Compiler<'_> {
         let qualified_name = self.qualified_path.join(".");
 
         // If there are type params, we need to push a special symbol table just for them
-        if type_params.is_some() {
+        if let Some(type_params) = type_params {
             self.push_symbol_table();
+            // Compile type parameters and store as .type_params
+            self.compile_type_params(type_params)?;
+            let dot_type_params = self.name(".type_params");
+            emit!(self, Instruction::StoreLocal(dot_type_params));
         }
 
         self.push_output(bytecode::CodeFlags::empty(), 0, 0, 0, name.to_owned());
@@ -1688,6 +1693,18 @@ impl Compiler<'_> {
         if Self::find_ann(body) {
             emit!(self, Instruction::SetupAnnotation);
         }
+
+        // Set __type_params__ from .type_params if we have type parameters (PEP 695)
+        if type_params.is_some() {
+            // Load .type_params from enclosing scope
+            let dot_type_params = self.name(".type_params");
+            emit!(self, Instruction::LoadNameAny(dot_type_params));
+
+            // Store as __type_params__
+            let dunder_type_params = self.name("__type_params__");
+            emit!(self, Instruction::StoreLocal(dunder_type_params));
+        }
+
         self.compile_statements(body)?;
 
         let classcell_idx = self
@@ -1721,8 +1738,10 @@ impl Compiler<'_> {
         let mut func_flags = bytecode::MakeFunctionFlags::empty();
 
         // Prepare generic type parameters:
-        if let Some(type_params) = type_params {
-            self.compile_type_params(type_params)?;
+        if type_params.is_some() {
+            // Load .type_params from the type params scope
+            let dot_type_params = self.name(".type_params");
+            emit!(self, Instruction::LoadNameAny(dot_type_params));
             func_flags |= bytecode::MakeFunctionFlags::TYPE_PARAMS;
         }
 
