@@ -78,7 +78,7 @@ pub struct ThreadMutex<R: RawMutex, G: GetThreadId, T: ?Sized> {
 }
 
 impl<R: RawMutex, G: GetThreadId, T> ThreadMutex<R, G, T> {
-    pub fn new(val: T) -> Self {
+    pub const fn new(val: T) -> Self {
         ThreadMutex {
             raw: RawThreadMutex::INIT,
             data: UnsafeCell::new(val),

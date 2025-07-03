@@ -193,7 +193,7 @@ impl<L: Link> LinkedList<L, L::Target> {
     // }
 
     /// Returns whether the linked list does not contain any node
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.head.is_none()
         // if self.head.is_some() {
         //     return false;
@@ -284,7 +284,7 @@ pub struct DrainFilter<'a, T: Link, F> {
 }
 
 impl<T: Link> LinkedList<T, T::Target> {
-    pub fn drain_filter<F>(&mut self, filter: F) -> DrainFilter<'_, T, F>
+    pub const fn drain_filter<F>(&mut self, filter: F) -> DrainFilter<'_, T, F>
     where
         F: FnMut(&mut T::Target) -> bool,
     {
@@ -323,7 +323,7 @@ where
 
 impl<T> Pointers<T> {
     /// Create a new set of empty pointers
-    pub fn new() -> Pointers<T> {
+    pub const fn new() -> Pointers<T> {
         Pointers {
             inner: UnsafeCell::new(PointersInner {
                 prev: None,
@@ -333,7 +333,7 @@ impl<T> Pointers<T> {
         }
     }
 
-    fn get_prev(&self) -> Option<NonNull<T>> {
+    const fn get_prev(&self) -> Option<NonNull<T>> {
         // SAFETY: prev is the first field in PointersInner, which is #[repr(C)].
         unsafe {
             let inner = self.inner.get();
@@ -341,7 +341,7 @@ impl<T> Pointers<T> {
             ptr::read(prev)
         }
     }
-    fn get_next(&self) -> Option<NonNull<T>> {
+    const fn get_next(&self) -> Option<NonNull<T>> {
         // SAFETY: next is the second field in PointersInner, which is #[repr(C)].
         unsafe {
             let inner = self.inner.get();
@@ -351,7 +351,7 @@ impl<T> Pointers<T> {
         }
     }
 
-    fn set_prev(&mut self, value: Option<NonNull<T>>) {
+    const fn set_prev(&mut self, value: Option<NonNull<T>>) {
         // SAFETY: prev is the first field in PointersInner, which is #[repr(C)].
         unsafe {
             let inner = self.inner.get();
@@ -359,7 +359,7 @@ impl<T> Pointers<T> {
             ptr::write(prev, value);
         }
     }
-    fn set_next(&mut self, value: Option<NonNull<T>>) {
+    const fn set_next(&mut self, value: Option<NonNull<T>>) {
         // SAFETY: next is the second field in PointersInner, which is #[repr(C)].
         unsafe {
             let inner = self.inner.get();
