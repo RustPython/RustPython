@@ -554,7 +554,7 @@ impl GetDescriptor for PyFunction {
         let obj = if vm.is_none(&obj) && !Self::_cls_is(&cls, obj.class()) {
             zelf
         } else {
-            PyBoundMethod::new_ref(obj, zelf, &vm.ctx).into()
+            PyBoundMethod::new(obj, zelf).into_ref(&vm.ctx).into()
         };
         Ok(obj)
     }
@@ -722,7 +722,7 @@ impl Constructor for PyBoundMethod {
 }
 
 impl PyBoundMethod {
-    fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
+    pub fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
         PyBoundMethod { object, function }
     }
 

@@ -42,7 +42,7 @@ impl PyPayload for PyComplex {
 
 impl ToPyObject for Complex64 {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        PyComplex::new_ref(self, &vm.ctx).into()
+        PyComplex::from(self).to_pyobject(vm)
     }
 }
 
