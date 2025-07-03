@@ -123,7 +123,7 @@ impl<'a, T: PyPayload> TryFromBorrowedObject<'a> for &'a Py<T> {
 
 impl TryFromObject for std::time::Duration {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        use std::time::Duration;
+        
         if let Some(float) = obj.payload::<PyFloat>() {
             Ok(Self::from_secs_f64(float.to_f64()))
         } else if let Some(int) = obj.try_index_opt(vm) {
