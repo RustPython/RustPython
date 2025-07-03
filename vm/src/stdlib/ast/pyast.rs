@@ -50,7 +50,6 @@ macro_rules! impl_node {
             attributes: [],
         );
     };
-
     // Without fields
     (
         $(#[$meta:meta])*
@@ -62,6 +61,18 @@ macro_rules! impl_node {
             $vis struct $name,
             fields: [],
             attributes: [$($attr),*],
+        );
+    };
+    // Without fields and attributes
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident $(,)?
+    ) => {
+        impl_node!(
+            $(#[$meta])*
+            $vis struct $name,
+            fields: [],
+            attributes: [],
         );
     };
 }
