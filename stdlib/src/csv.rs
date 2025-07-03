@@ -84,11 +84,11 @@ mod _csv {
             Some(vm.ctx.new_str(format!("{}", self.quotechar? as char)))
         }
         #[pygetset]
-        fn doublequote(&self) -> bool {
+        const fn doublequote(&self) -> bool {
             self.doublequote
         }
         #[pygetset]
-        fn skipinitialspace(&self) -> bool {
+        const fn skipinitialspace(&self) -> bool {
             self.skipinitialspace
         }
         #[pygetset]
@@ -108,7 +108,7 @@ mod _csv {
             Some(vm.ctx.new_str(format!("{}", self.escapechar? as char)))
         }
         #[pygetset(name = "strict")]
-        fn get_strict(&self) -> bool {
+        const fn get_strict(&self) -> bool {
             self.strict
         }
     }
@@ -659,7 +659,7 @@ mod _csv {
     }
 
     impl FormatOptions {
-        fn update_py_dialect(&self, mut res: PyDialect) -> PyDialect {
+        const fn update_py_dialect(&self, mut res: PyDialect) -> PyDialect {
             macro_rules! check_and_fill {
                 ($res:ident, $e:ident) => {{
                     if let Some(t) = self.$e {
@@ -916,7 +916,7 @@ mod _csv {
             self.state.lock().line_num
         }
         #[pygetset]
-        fn dialect(&self, _vm: &VirtualMachine) -> PyDialect {
+        const fn dialect(&self, _vm: &VirtualMachine) -> PyDialect {
             self.dialect
         }
     }
@@ -1066,7 +1066,7 @@ mod _csv {
     #[pyclass]
     impl Writer {
         #[pygetset(name = "dialect")]
-        fn get_dialect(&self, _vm: &VirtualMachine) -> PyDialect {
+        const fn get_dialect(&self, _vm: &VirtualMachine) -> PyDialect {
             self.dialect
         }
         #[pymethod]

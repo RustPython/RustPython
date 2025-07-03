@@ -190,7 +190,7 @@ pub mod _hashlib {
         }
 
         #[pygetset]
-        fn digest_size(&self) -> usize {
+        const fn digest_size(&self) -> usize {
             0
         }
 
@@ -317,7 +317,7 @@ pub mod _hashlib {
         b: ArgStrOrBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        fn is_str(arg: &ArgStrOrBytesLike) -> bool {
+        const fn is_str(arg: &ArgStrOrBytesLike) -> bool {
             matches!(arg, ArgStrOrBytesLike::Str(_))
         }
 
@@ -381,7 +381,7 @@ pub mod _hashlib {
             self.inner.update(data);
         }
 
-        fn block_size(&self) -> usize {
+        const fn block_size(&self) -> usize {
             self.block_size
         }
 
