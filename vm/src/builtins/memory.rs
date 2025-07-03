@@ -1,6 +1,6 @@
 use super::{
-    PositionIterInternal, PyBytes, PyBytesRef, PyInt, PyListRef, PySlice, PyStr, PyStrRef, PyTuple,
-    PyTupleRef, PyType, PyTypeRef,
+    PositionIterInternal, PyBytes, PyBytesRef, PyGenericAlias, PyInt, PyListRef, PySlice, PyStr,
+    PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
@@ -550,6 +550,12 @@ impl Py<PyMemoryView> {
     Representable
 ))]
 impl PyMemoryView {
+    // TODO: Uncomment when Python adds __class_getitem__ to memoryview
+    // #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::from_args(cls, args, vm)
+    }
+
     #[pymethod]
     pub fn release(&self) {
         if self.released.compare_exchange(false, true).is_ok() {

@@ -1,7 +1,7 @@
 //! Implementation of the python bytearray object.
 use super::{
-    PositionIterInternal, PyBytes, PyBytesRef, PyDictRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef,
-    PyType, PyTypeRef,
+    PositionIterInternal, PyBytes, PyBytesRef, PyDictRef, PyGenericAlias, PyIntRef, PyStrRef,
+    PyTuple, PyTupleRef, PyType, PyTypeRef,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -134,7 +134,7 @@ impl PyByteArray {
             SequenceIndex::Slice(slice) => self
                 .borrow_buf()
                 .getitem_by_slice(vm, slice)
-                .map(|x| Self::new_ref(x, &vm.ctx).into()),
+                .map(|x| vm.ctx.new_bytearray(x).into()),
         }
     }
 
@@ -463,11 +463,8 @@ impl PyByteArray {
         options: ByteInnerSplitOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<PyObjectRef>> {
-        self.inner().split(
-            options,
-            |s, vm| Self::new_ref(s.to_vec(), &vm.ctx).into(),
-            vm,
-        )
+        self.inner()
+            .split(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()).into(), vm)
     }
 
     #[pymethod]
@@ -476,11 +473,8 @@ impl PyByteArray {
         options: ByteInnerSplitOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<PyObjectRef>> {
-        self.inner().rsplit(
-            options,
-            |s, vm| Self::new_ref(s.to_vec(), &vm.ctx).into(),
-            vm,
-        )
+        self.inner()
+            .rsplit(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()).into(), vm)
     }
 
     #[pymethod]
@@ -490,9 +484,10 @@ impl PyByteArray {
         let value = self.inner();
         let (front, has_mid, back) = value.partition(&sep, vm)?;
         Ok(vm.new_tuple((
-            Self::new_ref(front.to_vec(), &vm.ctx),
-            Self::new_ref(if has_mid { sep.elements } else { Vec::new() }, &vm.ctx),
-            Self::new_ref(back.to_vec(), &vm.ctx),
+            vm.ctx.new_bytearray(front.to_vec()),
+            vm.ctx
+                .new_bytearray(if has_mid { sep.elements } else { Vec::new() }),
+            vm.ctx.new_bytearray(back.to_vec()),
         )))
     }
 
@@ -501,9 +496,10 @@ impl PyByteArray {
         let value = self.inner();
         let (back, has_mid, front) = value.rpartition(&sep, vm)?;
         Ok(vm.new_tuple((
-            Self::new_ref(front.to_vec(), &vm.ctx),
-            Self::new_ref(if has_mid { sep.elements } else { Vec::new() }, &vm.ctx),
-            Self::new_ref(back.to_vec(), &vm.ctx),
+            vm.ctx.new_bytearray(front.to_vec()),
+            vm.ctx
+                .new_bytearray(if has_mid { sep.elements } else { Vec::new() }),
+            vm.ctx.new_bytearray(back.to_vec()),
         )))
     }
 
@@ -515,7 +511,7 @@ impl PyByteArray {
     #[pymethod]
     fn splitlines(&self, options: anystr::SplitLinesArgs, vm: &VirtualMachine) -> Vec<PyObjectRef> {
         self.inner()
-            .splitlines(options, |x| Self::new_ref(x.to_vec(), &vm.ctx).into())
+            .splitlines(options, |x| vm.ctx.new_bytearray(x.to_vec()).into())
     }
 
     #[pymethod]
@@ -570,6 +566,12 @@ impl PyByteArray {
     #[pymethod]
     fn reverse(&self) {
         self.borrow_buf_mut().reverse();
+    }
+
+    // TODO: Uncomment when Python adds __class_getitem__ to bytearray
+    // #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::from_args(cls, args, vm)
     }
 }
 
@@ -872,10 +874,6 @@ impl Representable for PyByteArray {
         zelf.inner().repr_with_name(&class_name, vm)
     }
 }
-
-// fn set_value(obj: &PyObject, value: Vec<u8>) {
-//     obj.borrow_mut().kind = PyObjectPayload::Bytes { value };
-// }
 
 #[pyclass(module = false, name = "bytearray_iterator")]
 #[derive(Debug)]

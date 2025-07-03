@@ -656,8 +656,6 @@ class TypeParameterDefaultsTests(BaseTestCase):
         P_default = ParamSpec('P_default', default=...)
         self.assertIs(P_default.__default__, ...)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_paramspec_none(self):
         U = ParamSpec('U')
         U_None = ParamSpec('U_None', default=None)
@@ -756,8 +754,6 @@ class TypeParameterDefaultsTests(BaseTestCase):
         self.assertEqual(A[float, [range]].__args__, (float, (range,), float))
         self.assertEqual(A[float, [range], int].__args__, (float, (range,), int))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_typevartuple_none(self):
         U = TypeVarTuple('U')
         U_None = TypeVarTuple('U_None', default=None)
@@ -3893,8 +3889,6 @@ class GenericTests(BaseTestCase):
             {'x': list[list[ForwardRef('X')]]}
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pep695_generic_class_with_future_annotations(self):
         original_globals = dict(ann_module695.__dict__)
 
@@ -3913,8 +3907,6 @@ class GenericTests(BaseTestCase):
         hints_for_B = get_type_hints(ann_module695.B)
         self.assertEqual(hints_for_B, {"x": int, "y": str, "z": bytes})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pep695_generic_class_with_future_annotations_name_clash_with_global_vars(self):
         hints_for_C = get_type_hints(ann_module695.C)
         self.assertEqual(

@@ -1,4 +1,4 @@
-use super::{PyStr, PyType, PyTypeRef};
+use super::{PyGenericAlias, PyStr, PyType, PyTypeRef};
 use crate::{
     Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -130,6 +130,11 @@ impl PyStaticMethod {
             .lock()
             .set_attr("__isabstractmethod__", value, vm)?;
         Ok(())
+    }
+
+    #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::from_args(cls, args, vm)
     }
 }
 

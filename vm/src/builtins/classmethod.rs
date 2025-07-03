@@ -1,4 +1,4 @@
-use super::{PyBoundMethod, PyStr, PyType, PyTypeRef};
+use super::{PyBoundMethod, PyGenericAlias, PyStr, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -58,7 +58,9 @@ impl GetDescriptor for PyClassMethod {
         let cls = cls.unwrap_or_else(|| _obj.class().to_owned().into());
         let call_descr_get: PyResult<PyObjectRef> = zelf.callable.lock().get_attr("__get__", vm);
         match call_descr_get {
-            Err(_) => Ok(PyBoundMethod::new_ref(cls, zelf.callable.lock().clone(), &vm.ctx).into()),
+            Err(_) => Ok(PyBoundMethod::new(cls, zelf.callable.lock().clone())
+                .into_ref(&vm.ctx)
+                .into()),
             Ok(call_descr_get) => call_descr_get.call((cls.clone(), cls), vm),
         }
     }
@@ -169,6 +171,11 @@ impl PyClassMethod {
             .lock()
             .set_attr("__isabstractmethod__", value, vm)?;
         Ok(())
+    }
+
+    #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::from_args(cls, args, vm)
     }
 }
 

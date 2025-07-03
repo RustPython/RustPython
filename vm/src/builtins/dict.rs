@@ -44,6 +44,7 @@ impl fmt::Debug for PyDict {
 }
 
 impl PyPayload for PyDict {
+    #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.dict_type
     }

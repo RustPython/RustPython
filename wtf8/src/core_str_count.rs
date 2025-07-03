@@ -1,4 +1,4 @@
-// cspell:disable
+// spell-checker:disable
 //! Modified from core::str::count
 
 use super::Wtf8;

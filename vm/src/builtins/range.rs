@@ -1,5 +1,6 @@
 use super::{
-    PyInt, PyIntRef, PySlice, PyTupleRef, PyType, PyTypeRef, builtins_iter, tuple::tuple_hash,
+    PyGenericAlias, PyInt, PyIntRef, PySlice, PyTupleRef, PyType, PyTypeRef, builtins_iter,
+    tuple::tuple_hash,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -321,6 +322,12 @@ impl PyRange {
         }?;
 
         Ok(range.into())
+    }
+
+    // TODO: Uncomment when Python adds __class_getitem__ to range
+    // #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::from_args(cls, args, vm)
     }
 }
 

@@ -1,4 +1,4 @@
-// cspell:ignore aheui
+// spell-checker:ignore aheui
 /// Setting up a project with a frozen stdlib can be done *either* by using `rustpython::InterpreterConfig` or `rustpython_vm::Interpreter::with_init`.
 /// See each function for example.
 /// 

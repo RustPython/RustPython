@@ -1,4 +1,4 @@
-// cspell:ignore ossl osslconf
+// spell-checker:ignore ossl osslconf
 
 fn main() {
     println!(r#"cargo::rustc-check-cfg=cfg(osslconf, values("OPENSSL_NO_COMP"))"#);

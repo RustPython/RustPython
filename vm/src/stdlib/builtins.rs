@@ -932,6 +932,23 @@ mod builtins {
             ))
         })?;
 
+        // For PEP 695 classes, set .type_params in namespace before calling the function
+        if let Ok(type_params) = function
+            .as_object()
+            .get_attr(identifier!(vm, __type_params__), vm)
+        {
+            if let Some(type_params_tuple) = type_params.downcast_ref::<PyTuple>() {
+                if !type_params_tuple.is_empty() {
+                    // Set .type_params in namespace so the compiler-generated code can use it
+                    namespace.as_object().set_item(
+                        vm.ctx.intern_str(".type_params"),
+                        type_params,
+                        vm,
+                    )?;
+                }
+            }
+        }
+
         let classcell = function.invoke_with_locals(().into(), Some(namespace.clone()), vm)?;
         let classcell = <Option<PyCellRef>>::try_from_object(vm, classcell)?;
 
@@ -943,8 +960,26 @@ mod builtins {
             )?;
         }
 
+        // Remove .type_params from namespace before creating the class
+        namespace
+            .as_object()
+            .del_item(vm.ctx.intern_str(".type_params"), vm)
+            .ok();
+
         let args = FuncArgs::new(vec![name_obj.into(), bases, namespace.into()], kwargs);
         let class = metaclass.call(args, vm)?;
+
+        // For PEP 695 classes, set __type_params__ on the class from the function
+        if let Ok(type_params) = function
+            .as_object()
+            .get_attr(identifier!(vm, __type_params__), vm)
+        {
+            if let Some(type_params_tuple) = type_params.downcast_ref::<PyTuple>() {
+                if !type_params_tuple.is_empty() {
+                    class.set_attr(identifier!(vm, __type_params__), type_params, vm)?;
+                }
+            }
+        }
 
         if let Some(ref classcell) = classcell {
             let classcell = classcell.get().ok_or_else(|| {

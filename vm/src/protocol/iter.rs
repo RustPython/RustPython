@@ -276,3 +276,20 @@ where
         (self.length_hint.unwrap_or(0), self.length_hint)
     }
 }
+
+/// Macro to handle `PyIterReturn` values in iterator implementations.
+///
+/// Extracts the object from `PyIterReturn::Return(obj)` or performs early return
+/// for `PyIterReturn::StopIteration(v)`. This macro should only be used within
+/// functions that return `PyResult<PyIterReturn>`.
+#[macro_export]
+macro_rules! raise_if_stop {
+    ($input:expr) => {
+        match $input {
+            $crate::protocol::PyIterReturn::Return(obj) => obj,
+            $crate::protocol::PyIterReturn::StopIteration(v) => {
+                return Ok($crate::protocol::PyIterReturn::StopIteration(v))
+            }
+        }
+    };
+}

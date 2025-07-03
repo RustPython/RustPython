@@ -2,7 +2,7 @@ use super::{genericalias, type_};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     atomic_func,
-    builtins::{PyFrozenSet, PyStr, PyTuple, PyTupleRef, PyType},
+    builtins::{PyFrozenSet, PyGenericAlias, PyStr, PyTuple, PyTupleRef, PyType},
     class::PyClassImpl,
     common::hash,
     convert::{ToPyObject, ToPyResult},
@@ -139,6 +139,15 @@ impl PyUnion {
     #[pymethod]
     fn __or__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         type_::or_(zelf, other, vm)
+    }
+
+    #[pyclassmethod]
+    fn __class_getitem__(
+        cls: crate::builtins::PyTypeRef,
+        args: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyGenericAlias {
+        PyGenericAlias::from_args(cls, args, vm)
     }
 }
 

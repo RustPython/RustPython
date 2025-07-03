@@ -1,4 +1,4 @@
-// cspell:ignore chunker
+// spell-checker:ignore chunker
 
 //! internal shared module for compression libraries
 

@@ -1,4 +1,4 @@
-// cspell:disable
+// spell-checker:disable
 
 use crate::vm::{PyRef, VirtualMachine, builtins::PyModule};
 use openssl_probe::ProbeResult;

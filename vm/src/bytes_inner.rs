@@ -1,4 +1,4 @@
-// cspell:ignore unchunked
+// spell-checker:ignore unchunked
 use crate::{
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
@@ -96,7 +96,7 @@ impl ByteInnerNewOptions {
             (OptionalArg::Present(obj), OptionalArg::Missing, OptionalArg::Missing) => {
                 let obj = obj.clone();
                 // construct an exact bytes from an exact bytes do not clone
-                let obj = if cls.is(PyBytes::class(&vm.ctx)) {
+                let obj = if cls.is(vm.ctx.types.bytes_type) {
                     match obj.downcast_exact::<PyBytes>(vm) {
                         Ok(b) => return Ok(b.into_pyref()),
                         Err(obj) => obj,
@@ -109,7 +109,7 @@ impl ByteInnerNewOptions {
                     // construct an exact bytes from __bytes__ slot.
                     // if __bytes__ return a bytes, use the bytes object except we are the subclass of the bytes
                     let bytes = bytes_method?.call((), vm)?;
-                    let bytes = if cls.is(PyBytes::class(&vm.ctx)) {
+                    let bytes = if cls.is(vm.ctx.types.bytes_type) {
                         match bytes.downcast::<PyBytes>() {
                             Ok(b) => return Ok(b),
                             Err(bytes) => bytes,

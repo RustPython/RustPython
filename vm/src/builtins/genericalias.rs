@@ -1,4 +1,4 @@
-// cspell:ignore iparam
+// spell-checker:ignore iparam
 use std::sync::LazyLock;
 
 use super::type_;
@@ -590,7 +590,7 @@ impl Representable for PyGenericAlias {
 
 impl Iterable for PyGenericAlias {
     // ga_iter
-    // cspell:ignore gaiterobject
+    // spell-checker:ignore gaiterobject
     // TODO: gaiterobject
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         // CPython's ga_iter creates an iterator that yields one starred GenericAlias

@@ -1,4 +1,4 @@
-// cspell:disable
+// spell-checker:disable
 use rustpython_sre_engine::{Request, State, StrDrive};
 
 struct Pattern {

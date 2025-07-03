@@ -1,4 +1,4 @@
-// cspell:ignore typevarobject funcobj
+// spell-checker:ignore typevarobject funcobj
 use crate::{
     AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyTupleRef, PyTypeRef, pystr::AsPyStr},
@@ -946,5 +946,52 @@ impl Comparable for ParamSpecKwargs {
             }
             _ => Ok(PyComparisonValue::NotImplemented),
         }
+    }
+}
+
+/// Helper function to call typing module functions with cls as first argument
+/// Similar to CPython's call_typing_args_kwargs
+fn call_typing_args_kwargs(
+    name: &'static str,
+    cls: PyTypeRef,
+    args: FuncArgs,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let typing = vm.import("typing", 0)?;
+    let func = typing.get_attr(name, vm)?;
+
+    // Prepare arguments: (cls, *args)
+    let mut call_args = vec![cls.into()];
+    call_args.extend(args.args);
+
+    // Call with prepared args and original kwargs
+    let func_args = FuncArgs {
+        args: call_args,
+        kwargs: args.kwargs,
+    };
+
+    func.call(func_args, vm)
+}
+
+#[pyclass(name = "Generic", module = "typing")]
+#[derive(Debug, PyPayload)]
+#[allow(dead_code)]
+pub struct Generic {}
+
+#[pyclass(flags(BASETYPE))]
+impl Generic {
+    #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        // Convert single arg to FuncArgs
+        let func_args = FuncArgs {
+            args: vec![args],
+            kwargs: Default::default(),
+        };
+        call_typing_args_kwargs("_generic_class_getitem", cls, func_args, vm)
+    }
+
+    #[pyclassmethod]
+    fn __init_subclass__(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        call_typing_args_kwargs("_generic_init_subclass", cls, args, vm)
     }
 }

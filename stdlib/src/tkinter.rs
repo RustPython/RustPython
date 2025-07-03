@@ -1,4 +1,4 @@
-// cspell:ignore createcommand
+// spell-checker:ignore createcommand
 
 pub(crate) use self::_tkinter::make_module;
 
