@@ -2,7 +2,8 @@ import contextlib
 import sys
 import unittest
 from test import support
-from test.support import os_helper, import_helper
+from test.support import import_helper
+from test.support import os_helper
 import time
 
 resource = import_helper.import_module('resource')
@@ -99,6 +100,7 @@ class ResourceTest(unittest.TestCase):
             except (OverflowError, ValueError):
                 pass
 
+    @unittest.skipUnless(hasattr(resource, "getrusage"), "needs getrusage")
     def test_getrusage(self):
         self.assertRaises(TypeError, resource.getrusage)
         self.assertRaises(TypeError, resource.getrusage, 42, 42)
@@ -133,6 +135,7 @@ class ResourceTest(unittest.TestCase):
 
             resource.setrlimit(resource.RLIMIT_CPU, BadSequence())
 
+
     # TODO: RUSTPYTHON: module 'resource' has no attribute 'getpagesize'
     @unittest.expectedFailure
     def test_pagesize(self):
@@ -140,7 +143,7 @@ class ResourceTest(unittest.TestCase):
         self.assertIsInstance(pagesize, int)
         self.assertGreaterEqual(pagesize, 0)
 
-    @unittest.skipUnless(sys.platform == 'linux', 'test requires Linux')
+    @unittest.skipUnless(sys.platform in ('linux', 'android'), 'Linux only')
     def test_linux_constants(self):
         for attr in ['MSGQUEUE', 'NICE', 'RTPRIO', 'RTTIME', 'SIGPENDING']:
             with contextlib.suppress(AttributeError):
@@ -177,8 +180,5 @@ class ResourceTest(unittest.TestCase):
                          limits)
 
 
-def test_main(verbose=None):
-    support.run_unittest(ResourceTest)
-
 if __name__ == "__main__":
-    test_main()
+    unittest.main()

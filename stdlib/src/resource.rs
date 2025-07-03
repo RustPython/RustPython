@@ -92,7 +92,7 @@ mod resource {
             let tv = |tv: libc::timeval| tv.tv_sec as f64 + (tv.tv_usec as f64 / 1_000_000.0);
             Rusage {
                 ru_utime: tv(rusage.ru_utime),
-                ru_stime: tv(rusage.ru_utime),
+                ru_stime: tv(rusage.ru_stime),
                 ru_maxrss: rusage.ru_maxrss,
                 ru_ixrss: rusage.ru_ixrss,
                 ru_idrss: rusage.ru_idrss,
