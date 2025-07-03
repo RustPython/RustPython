@@ -31,7 +31,7 @@ pub fn main() {
 #[pymodule]
 mod rust_py_module {
     use super::*;
-    use rustpython::vm::{PyObjectRef, builtins::PyList, convert::ToPyObject};
+    use rustpython::vm::{PyObjectRef, convert::ToPyObject};
 
     #[pyfunction]
     fn rust_function(
@@ -58,7 +58,7 @@ python_person.name: {}",
     impl ToPyObject for NumVec {
         fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
             let list = self.0.into_iter().map(|e| vm.new_pyobj(e)).collect();
-            PyList::new_ref(list, vm.as_ref()).to_pyobject(vm)
+            vm.ctx.new_list(list).to_pyobject(vm)
         }
     }
 

@@ -13,16 +13,23 @@ use rustpython_common::static_cell;
 pub trait StaticType {
     // Ideally, saving PyType is better than PyTypeRef
     fn static_cell() -> &'static static_cell::StaticCell<PyTypeRef>;
+    #[inline]
     fn static_metaclass() -> &'static Py<PyType> {
         PyType::static_type()
     }
+    #[inline]
     fn static_baseclass() -> &'static Py<PyType> {
         PyBaseObject::static_type()
     }
+    #[inline]
     fn static_type() -> &'static Py<PyType> {
-        Self::static_cell()
-            .get()
-            .expect("static type has not been initialized. e.g. the native types defined in different module may be used before importing library.")
+        #[cold]
+        fn fail() -> ! {
+            panic!(
+                "static type has not been initialized. e.g. the native types defined in different module may be used before importing library."
+            );
+        }
+        Self::static_cell().get().unwrap_or_else(|| fail())
     }
     fn init_manually(typ: PyTypeRef) -> &'static Py<PyType> {
         let cell = Self::static_cell();

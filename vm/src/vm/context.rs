@@ -1,9 +1,9 @@
 use crate::{
     PyResult, VirtualMachine,
     builtins::{
-        PyBaseException, PyBytes, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat, PyFrozenSet,
-        PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyStrInterned,
-        PyTuple, PyTupleRef, PyType, PyTypeRef, bytes,
+        PyBaseException, PyByteArray, PyBytes, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat,
+        PyFrozenSet, PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr,
+        PyStrInterned, PyTuple, PyTupleRef, PyType, PyTypeRef,
         code::{self, PyCode},
         descriptor::{
             MemberGetter, MemberKind, MemberSetter, MemberSetterFunc, PyDescriptorOwned,
@@ -418,7 +418,7 @@ impl Context {
 
     #[inline]
     pub fn new_str(&self, s: impl Into<pystr::PyStr>) -> PyRef<PyStr> {
-        pystr::PyStr::new_ref(s, self)
+        s.into().into_ref(self)
     }
 
     pub fn interned_or_new_str<S, M>(&self, s: S) -> PyRef<PyStr>
@@ -433,8 +433,13 @@ impl Context {
     }
 
     #[inline]
-    pub fn new_bytes(&self, data: Vec<u8>) -> PyRef<bytes::PyBytes> {
-        bytes::PyBytes::new_ref(data, self)
+    pub fn new_bytes(&self, data: Vec<u8>) -> PyRef<PyBytes> {
+        PyBytes::from(data).into_ref(self)
+    }
+
+    #[inline]
+    pub fn new_bytearray(&self, data: Vec<u8>) -> PyRef<PyByteArray> {
+        PyByteArray::from(data).into_ref(self)
     }
 
     #[inline(always)]
@@ -454,12 +459,12 @@ impl Context {
 
     #[inline(always)]
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyListRef {
-        PyList::new_ref(elements, self)
+        PyList::from(elements).into_ref(self)
     }
 
     #[inline(always)]
     pub fn new_dict(&self) -> PyDictRef {
-        PyDict::new_ref(self)
+        PyDict::default().into_ref(self)
     }
 
     pub fn new_class(

@@ -1,8 +1,7 @@
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyResult, VirtualMachine,
     builtins::{
-        PyDict, PyDictRef, PyListRef, PyStr, PyStrInterned, PyStrRef, PyTuple, PyTupleRef,
-        PyTypeRef,
+        PyDictRef, PyListRef, PyStr, PyStrInterned, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
     },
     convert::{IntoObject, TryFromObject},
     types::PyComparisonOp,
@@ -32,7 +31,7 @@ impl WarningsState {
     pub fn init_state(ctx: &Context) -> WarningsState {
         WarningsState {
             filters: Self::create_filter(ctx),
-            _once_registry: PyDict::new_ref(ctx),
+            _once_registry: ctx.new_dict(),
             default_action: ctx.new_str("default"),
             filters_version: 0,
         }
@@ -401,7 +400,7 @@ fn setup_context(
     let registry = if let Ok(registry) = globals.get_item(__warningregistry__, vm) {
         registry
     } else {
-        let registry = PyDict::new_ref(&vm.ctx);
+        let registry = vm.ctx.new_dict();
         globals.set_item(__warningregistry__, registry.clone().into(), vm)?;
         registry.into()
     };
