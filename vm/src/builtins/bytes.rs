@@ -483,7 +483,8 @@ impl PyBytes {
         PyTuple::new_ref(param, &vm.ctx)
     }
 
-    #[pyclassmethod]
+    // TODO: Uncomment when Python adds __class_getitem__ to bytes
+    // #[pyclassmethod]
     fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::from_args(cls, args, vm)
     }
