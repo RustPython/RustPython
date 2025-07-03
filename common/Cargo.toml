@@ -34,6 +34,7 @@ radium = { workspace = true }
 
 lock_api = "0.4"
 siphasher = "1"
+num-complex.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 widestring = { workspace = true }

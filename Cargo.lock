@@ -2300,6 +2300,7 @@ dependencies = [
  "malachite-bigint",
  "malachite-q",
  "memchr",
+ "num-complex",
  "num-traits",
  "once_cell",
  "parking_lot",
