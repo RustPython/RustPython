@@ -43,6 +43,9 @@ impl IntoPyException for FormatSpecError {
             FormatSpecError::ZeroPaddingNotAllowed => {
                 vm.new_value_error("Zero padding is not allowed in complex format specifier")
             }
+            FormatSpecError::AlignmentFlagNotAllowed => {
+                vm.new_value_error("'=' alignment flag is not allowed in complex format specifier")
+            }
             FormatSpecError::NotImplemented(c, s) => {
                 let msg = format!("Format code '{c}' for object of type '{s}' not implemented yet");
                 vm.new_value_error(msg)

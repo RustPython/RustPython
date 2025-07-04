@@ -1,5 +1,6 @@
 // spell-checker:ignore ddfe
 use itertools::{Itertools, PeekingNext};
+use malachite_base::num::basic::floats::PrimitiveFloat;
 use malachite_bigint::{BigInt, Sign};
 use num_complex::Complex64;
 use num_traits::FromPrimitive;
@@ -619,33 +620,48 @@ impl FormatSpec {
     }
 
     pub fn format_complex(&self, num: &Complex64) -> Result<String, FormatSpecError> {
-        let sign_re = if num.re.is_sign_negative() && !num.is_nan() {
-            "-"
+        let (formatted_re, formatted_im) = self.format_complex_re_im(num)?;
+        // Enclose in parentheses if there is no format type and formatted_re is not empty
+        let magnitude_str = if self.format_type.is_none() && !formatted_re.is_empty() {
+            format!("({formatted_re}{formatted_im})")
         } else {
-            match self.sign.unwrap_or(FormatSign::Minus) {
-                FormatSign::Plus => "+",
-                FormatSign::Minus => "",
-                FormatSign::MinusOrSpace => " ",
-            }
+            format!("{formatted_re}{formatted_im}")
         };
+        if let Some(FormatAlign::AfterSign) = &self.align {
+            return Err(FormatSpecError::AlignmentFlagNotAllowed);
+        }
+        match &self.fill.unwrap_or(' '.into()).to_char() {
+            Some('0') => Err(FormatSpecError::ZeroPaddingNotAllowed),
+            _ => self.format_sign_and_align(&AsciiStr::new(&magnitude_str), "", FormatAlign::Right),
+        }
+    }
+
+    fn format_complex_re_im(&self, num: &Complex64) -> Result<(String, String), FormatSpecError> {
+        // Format real part
+        let mut formatted_re = String::new();
+        if num.re != 0.0 || num.re.is_negative_zero() || self.format_type.is_some() {
+            let sign_re = if num.re.is_sign_negative() && !num.is_nan() {
+                "-"
+            } else {
+                match self.sign.unwrap_or(FormatSign::Minus) {
+                    FormatSign::Plus => "+",
+                    FormatSign::Minus => "",
+                    FormatSign::MinusOrSpace => " ",
+                }
+            };
+            let re = self.format_complex_float(num.re)?;
+            formatted_re = format!("{sign_re}{re}");
+        }
+        // Format imaginary part
         let sign_im = if num.im.is_sign_negative() && !num.im.is_nan() {
             "-"
+        } else if formatted_re.is_empty() {
+            ""
         } else {
             "+"
         };
-        let re = self.format_complex_float(num.re)?;
         let im = self.format_complex_float(num.im)?;
-        // Enclose in parentheses if there is no format type
-        let magnitude_str = if self.format_type.is_none() {
-            format!("({sign_re}{re}{sign_im}{im}j)")
-        } else {
-            format!("{sign_re}{re}{sign_im}{im}j")
-        };
-        if let Some('0') = &self.fill.unwrap_or(' '.into()).to_char() {
-            Err(FormatSpecError::ZeroPaddingNotAllowed)
-        } else {
-            self.format_sign_and_align(&AsciiStr::new(&magnitude_str), "", FormatAlign::Right)
-        }
+        Ok((formatted_re, format!("{sign_im}{im}j")))
     }
 
     fn format_complex_float(&self, num: f64) -> Result<String, FormatSpecError> {
@@ -697,7 +713,13 @@ impl FormatSpec {
                         self.alternate_form,
                         true,
                     )),
-                    None => Ok(float::to_string(magnitude)),
+                    None => {
+                        if magnitude.fract() == 0.0 {
+                            Ok(magnitude.trunc().to_string())
+                        } else {
+                            Ok(magnitude.to_string())
+                        }
+                    }
                 },
             },
         }?;
@@ -808,6 +830,7 @@ pub enum FormatSpecError {
     UnableToConvert,
     CodeNotInRange,
     ZeroPaddingNotAllowed,
+    AlignmentFlagNotAllowed,
     NotImplemented(char, &'static str),
 }
 
