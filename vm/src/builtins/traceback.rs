@@ -27,7 +27,12 @@ impl PyPayload for PyTraceback {
 
 #[pyclass]
 impl PyTraceback {
-    pub const fn new(next: Option<PyRef<Self>>, frame: FrameRef, lasti: u32, lineno: LineNumber) -> Self {
+    pub const fn new(
+        next: Option<PyRef<Self>>,
+        frame: FrameRef,
+        lasti: u32,
+        lineno: LineNumber,
+    ) -> Self {
         Self {
             next: PyMutex::new(next),
             frame,
