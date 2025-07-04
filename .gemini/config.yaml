@@ -1,3 +1,2 @@
 ignore_patterns:
   - "Lib/**"
-  - "pylib/**"
