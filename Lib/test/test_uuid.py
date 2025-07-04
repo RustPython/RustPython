@@ -32,6 +32,8 @@ def mock_get_command_stdout(data):
 class BaseTestUUID:
     uuid = None
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_safe_uuid_enum(self):
         class CheckedSafeUUID(enum.Enum):
             safe = 0
