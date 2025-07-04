@@ -1,6 +1,6 @@
 import unittest
 
-from test.test_tomllib import load_tests
+from . import load_tests
 
 
 unittest.main()
