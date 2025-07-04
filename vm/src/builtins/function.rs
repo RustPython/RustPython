@@ -78,7 +78,7 @@ impl PyFunction {
             }
         });
 
-        let func = PyFunction {
+        let func = Self {
             code,
             globals,
             builtins,
@@ -449,7 +449,7 @@ impl PyFunction {
     #[pymember]
     fn __doc__(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult {
         // When accessed from instance, obj is the PyFunction instance
-        if let Ok(func) = obj.downcast::<PyFunction>() {
+        if let Ok(func) = obj.downcast::<Self>() {
             let doc = func.doc.lock();
             Ok(doc.clone())
         } else {
@@ -460,7 +460,7 @@ impl PyFunction {
 
     #[pymember(setter)]
     fn set___doc__(vm: &VirtualMachine, zelf: PyObjectRef, value: PySetterValue) -> PyResult<()> {
-        let zelf: PyRef<PyFunction> = zelf.downcast().unwrap_or_else(|_| unreachable!());
+        let zelf: PyRef<Self> = zelf.downcast().unwrap_or_else(|_| unreachable!());
         let value = value.unwrap_or_none(vm);
         *zelf.doc.lock() = value;
         Ok(())
@@ -637,7 +637,7 @@ impl Constructor for PyFunction {
         // Get doc from code object - for now just use None
         let doc = vm.ctx.none();
 
-        let func = PyFunction::new(
+        let func = Self::new(
             args.code,
             args.globals,
             closure,
@@ -715,15 +715,15 @@ impl Constructor for PyBoundMethod {
         Self::Args { function, object }: Self::Args,
         vm: &VirtualMachine,
     ) -> PyResult {
-        PyBoundMethod::new(object, function)
+        Self::new(object, function)
             .into_ref_with_type(vm, cls)
             .map(Into::into)
     }
 }
 
 impl PyBoundMethod {
-    pub const fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
-        PyBoundMethod { object, function }
+    pub fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
+        Self { object, function }
     }
 
     pub fn new_ref(object: PyObjectRef, function: PyObjectRef, ctx: &Context) -> PyRef<Self> {
@@ -846,7 +846,7 @@ impl Constructor for PyCell {
 
 #[pyclass(with(Constructor))]
 impl PyCell {
-    pub const fn new(contents: Option<PyObjectRef>) -> Self {
+    pub fn new(contents: Option<PyObjectRef>) -> Self {
         Self {
             contents: PyMutex::new(contents),
         }

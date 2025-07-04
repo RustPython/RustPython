@@ -57,21 +57,21 @@ impl CompileError {
 
     pub fn location(&self) -> Option<SourceLocation> {
         match self {
-            CompileError::Codegen(codegen_error) => codegen_error.location.clone(),
-            CompileError::Parse(parse_error) => Some(parse_error.location.clone()),
+            Self::Codegen(codegen_error) => codegen_error.location.clone(),
+            Self::Parse(parse_error) => Some(parse_error.location.clone()),
         }
     }
 
     pub fn python_location(&self) -> (usize, usize) {
         match self {
-            CompileError::Codegen(codegen_error) => {
+            Self::Codegen(codegen_error) => {
                 if let Some(location) = &codegen_error.location {
                     (location.row.get(), location.column.get())
                 } else {
                     (0, 0)
                 }
             }
-            CompileError::Parse(parse_error) => (
+            Self::Parse(parse_error) => (
                 parse_error.location.row.get(),
                 parse_error.location.column.get(),
             ),
@@ -80,8 +80,8 @@ impl CompileError {
 
     pub fn source_path(&self) -> &str {
         match self {
-            CompileError::Codegen(codegen_error) => &codegen_error.source_path,
-            CompileError::Parse(parse_error) => &parse_error.source_path,
+            Self::Codegen(codegen_error) => &codegen_error.source_path,
+            Self::Parse(parse_error) => &parse_error.source_path,
         }
     }
 }

@@ -52,7 +52,7 @@ impl ToPyObject for f32 {
 
 impl From<f64> for PyFloat {
     fn from(value: f64) -> Self {
-        PyFloat { value }
+        Self { value }
     }
 }
 
@@ -146,7 +146,7 @@ impl Constructor for PyFloat {
                 }
             }
         };
-        PyFloat::from(float_val)
+        Self::from(float_val)
             .into_ref_with_type(vm, cls)
             .map(Into::into)
     }
@@ -231,7 +231,7 @@ impl PyFloat {
     }
 
     #[pymethod]
-    const fn __abs__(&self) -> f64 {
+    fn __abs__(&self) -> f64 {
         self.value.abs()
     }
 
@@ -523,7 +523,7 @@ impl Comparable for PyFloat {
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        let ret = if let Some(other) = other.payload_if_subclass::<PyFloat>(vm) {
+        let ret = if let Some(other) = other.payload_if_subclass::<Self>(vm) {
             zelf.value
                 .partial_cmp(&other.value)
                 .map_or_else(|| op == PyComparisonOp::Ne, |ord| op.eval_ord(ord))

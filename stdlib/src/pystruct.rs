@@ -39,7 +39,7 @@ pub(crate) mod _struct {
                     ))),
             })
             .ok_or_else(|| vm.new_unicode_decode_error("Struct format must be a ascii string"))?;
-            Ok(IntoStructFormatBytes(fmt))
+            Ok(Self(fmt))
         }
     }
 
@@ -165,7 +165,7 @@ pub(crate) mod _struct {
             vm: &VirtualMachine,
             format_spec: FormatSpec,
             buffer: ArgBytesLike,
-        ) -> PyResult<UnpackIterator> {
+        ) -> PyResult<Self> {
             if format_spec.size == 0 {
                 Err(new_struct_error(
                     vm,
@@ -180,7 +180,7 @@ pub(crate) mod _struct {
                     ),
                 ))
             } else {
-                Ok(UnpackIterator {
+                Ok(Self {
                     format_spec,
                     buffer,
                     offset: AtomicCell::new(0),
@@ -244,7 +244,7 @@ pub(crate) mod _struct {
         fn py_new(cls: PyTypeRef, fmt: Self::Args, vm: &VirtualMachine) -> PyResult {
             let spec = fmt.format_spec(vm)?;
             let format = fmt.0;
-            PyStruct { spec, format }
+            Self { spec, format }
                 .into_ref_with_type(vm, cls)
                 .map(Into::into)
         }

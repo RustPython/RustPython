@@ -164,7 +164,7 @@ cfg_if::cfg_if! {
 
 impl WeakRefList {
     pub fn new() -> Self {
-        WeakRefList {
+        Self {
             inner: OncePtr::new(),
         }
     }
@@ -268,7 +268,7 @@ impl WeakRefList {
             (inner.ref_count == 0).then_some(ptr)
         };
         if let Some(ptr) = to_dealloc {
-            unsafe { WeakRefList::dealloc(ptr) }
+            unsafe { Self::dealloc(ptr) }
         }
     }
 
@@ -369,7 +369,7 @@ impl PyWeak {
     fn drop_inner(&self) {
         let dealloc = {
             let mut guard = unsafe { self.parent.as_ref().lock() };
-            let offset = std::mem::offset_of!(PyInner<PyWeak>, payload);
+            let offset = std::mem::offset_of!(PyInner<Self>, payload);
             let py_inner = (self as *const Self)
                 .cast::<u8>()
                 .wrapping_sub(offset)
@@ -421,7 +421,7 @@ impl From<PyDictRef> for InstanceDict {
 
 impl InstanceDict {
     #[inline]
-    pub const fn new(d: PyDictRef) -> Self {
+    pub fn new(d: PyDictRef) -> Self {
         Self {
             d: PyRwLock::new(d),
         }
@@ -446,7 +446,7 @@ impl InstanceDict {
 impl<T: PyObjectPayload> PyInner<T> {
     fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> Box<Self> {
         let member_count = typ.slots.member_count;
-        Box::new(PyInner {
+        Box::new(Self {
             ref_count: RefCount::new(),
             typeid: TypeId::of::<T>(),
             vtable: PyObjVTable::of::<T>(),
@@ -512,7 +512,7 @@ impl ToOwned for PyObject {
 
 impl PyObjectRef {
     #[inline(always)]
-    pub const fn into_raw(self) -> NonNull<PyObject> {
+    pub fn into_raw(self) -> NonNull<PyObject> {
         let ptr = self.ptr;
         std::mem::forget(self);
         ptr
@@ -524,7 +524,7 @@ impl PyObjectRef {
     /// dropped more than once due to mishandling the reference count by calling this function
     /// too many times.
     #[inline(always)]
-    pub const unsafe fn from_raw(ptr: NonNull<PyObject>) -> Self {
+    pub unsafe fn from_raw(ptr: NonNull<PyObject>) -> Self {
         Self { ptr }
     }
 
@@ -546,7 +546,7 @@ impl PyObjectRef {
         if self.payload_is::<T>() {
             // SAFETY: just checked that the payload is T, and PyRef is repr(transparent) over
             // PyObjectRef
-            Some(unsafe { &*(self as *const PyObjectRef as *const PyRef<T>) })
+            Some(unsafe { &*(self as *const Self as *const PyRef<T>) })
         } else {
             None
         }
@@ -572,7 +572,7 @@ impl PyObjectRef {
     pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &Py<T> {
         debug_assert!(self.payload_is::<T>());
         // SAFETY: requirements forwarded from caller
-        unsafe { &*(self as *const PyObjectRef as *const PyRef<T>) }
+        unsafe { &*(self as *const Self as *const PyRef<T>) }
     }
 
     // ideally we'd be able to define these in pyobject.rs, but method visibility rules are weird
@@ -663,7 +663,7 @@ impl PyObject {
     /// # Safety
     /// The actual payload type must be T.
     #[inline(always)]
-    pub const unsafe fn payload_unchecked<T: PyObjectPayload>(&self) -> &T {
+    pub unsafe fn payload_unchecked<T: PyObjectPayload>(&self) -> &T {
         // we cast to a PyInner<T> first because we don't know T's exact offset because of
         // varying alignment, but once we get a PyInner<T> the compiler can get it for us
         let inner = unsafe { &*(&self.0 as *const PyInner<Erased> as *const PyInner<T>) };
@@ -758,7 +758,7 @@ impl PyObject {
     pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &Py<T> {
         debug_assert!(self.payload_is::<T>());
         // SAFETY: requirements forwarded from caller
-        unsafe { &*(self as *const PyObject as *const Py<T>) }
+        unsafe { &*(self as *const Self as *const Py<T>) }
     }
 
     #[inline(always)]
@@ -772,7 +772,7 @@ impl PyObject {
     }
 
     #[inline(always)]
-    pub const fn as_raw(&self) -> *const PyObject {
+    pub const fn as_raw(&self) -> *const Self {
         self
     }
 
@@ -819,7 +819,7 @@ impl PyObject {
 
     /// Can only be called when ref_count has dropped to zero. `ptr` must be valid
     #[inline(never)]
-    unsafe fn drop_slow(ptr: NonNull<PyObject>) {
+    unsafe fn drop_slow(ptr: NonNull<Self>) {
         if let Err(()) = unsafe { ptr.as_ref().drop_slow_inner() } {
             // abort drop for whatever reason
             return;
@@ -856,13 +856,6 @@ impl Borrow<PyObject> for PyObjectRef {
 }
 
 impl AsRef<PyObject> for PyObjectRef {
-    #[inline(always)]
-    fn as_ref(&self) -> &PyObject {
-        self
-    }
-}
-
-impl AsRef<PyObject> for PyObject {
     #[inline(always)]
     fn as_ref(&self) -> &PyObject {
         self
@@ -1026,7 +1019,7 @@ impl<T: PyObjectPayload> Clone for PyRef<T> {
 
 impl<T: PyObjectPayload> PyRef<T> {
     #[inline(always)]
-    pub(crate) const unsafe fn from_raw(raw: *const Py<T>) -> Self {
+    pub(crate) unsafe fn from_raw(raw: *const Py<T>) -> Self {
         Self {
             ptr: unsafe { NonNull::new_unchecked(raw as *mut _) },
         }
@@ -1050,7 +1043,7 @@ impl<T: PyObjectPayload> PyRef<T> {
         }
     }
 
-    pub const fn leak(pyref: Self) -> &'static Py<T> {
+    pub fn leak(pyref: Self) -> &'static Py<T> {
         let ptr = pyref.ptr;
         std::mem::forget(pyref);
         unsafe { ptr.as_ref() }
@@ -1084,7 +1077,7 @@ where
     #[inline]
     fn from(value: PyRef<T>) -> Self {
         let me = ManuallyDrop::new(value);
-        PyObjectRef { ptr: me.ptr.cast() }
+        Self { ptr: me.ptr.cast() }
     }
 }
 

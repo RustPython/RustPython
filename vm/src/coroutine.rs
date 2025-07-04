@@ -11,8 +11,8 @@ impl ExecutionResult {
     /// Turn an ExecutionResult into a PyResult that would be returned from a generator or coroutine
     fn into_iter_return(self, vm: &VirtualMachine) -> PyIterReturn {
         match self {
-            ExecutionResult::Yield(value) => PyIterReturn::Return(value),
-            ExecutionResult::Return(value) => {
+            Self::Yield(value) => PyIterReturn::Return(value),
+            Self::Return(value) => {
                 let arg = if vm.is_none(&value) {
                     None
                 } else {
@@ -49,7 +49,7 @@ fn gen_name(jen: &PyObject, vm: &VirtualMachine) -> &'static str {
 
 impl Coro {
     pub fn new(frame: FrameRef, name: PyStrRef) -> Self {
-        Coro {
+        Self {
             frame,
             closed: AtomicCell::new(false),
             running: AtomicCell::new(false),

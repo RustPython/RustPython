@@ -41,7 +41,7 @@ impl PyMappingMethods {
     }
 
     #[allow(clippy::declare_interior_mutable_const)]
-    pub const NOT_IMPLEMENTED: PyMappingMethods = PyMappingMethods {
+    pub const NOT_IMPLEMENTED: Self = Self {
         length: AtomicCell::new(None),
         subscript: AtomicCell::new(None),
         ass_subscript: AtomicCell::new(None),

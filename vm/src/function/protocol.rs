@@ -50,7 +50,7 @@ impl AsRef<PyObject> for ArgCallable {
 
 impl From<ArgCallable> for PyObjectRef {
     #[inline(always)]
-    fn from(value: ArgCallable) -> PyObjectRef {
+    fn from(value: ArgCallable) -> Self {
         value.obj
     }
 }
@@ -63,7 +63,7 @@ impl TryFromObject for ArgCallable {
             );
         };
         let call = callable.call;
-        Ok(ArgCallable { obj, call })
+        Ok(Self { obj, call })
     }
 }
 
@@ -130,7 +130,7 @@ pub struct ArgMapping {
 
 impl ArgMapping {
     #[inline]
-    pub const fn with_methods(obj: PyObjectRef, methods: &'static PyMappingMethods) -> Self {
+    pub fn with_methods(obj: PyObjectRef, methods: &'static PyMappingMethods) -> Self {
         Self { obj, methods }
     }
 
@@ -175,7 +175,7 @@ impl Deref for ArgMapping {
 
 impl From<ArgMapping> for PyObjectRef {
     #[inline(always)]
-    fn from(value: ArgMapping) -> PyObjectRef {
+    fn from(value: ArgMapping) -> Self {
         value.obj
     }
 }

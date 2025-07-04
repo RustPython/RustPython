@@ -46,7 +46,7 @@ impl Constructor for PyNone {
 #[pyclass(with(Constructor, AsNumber, Representable))]
 impl PyNone {
     #[pymethod]
-    const fn __bool__(&self) -> bool {
+    fn __bool__(&self) -> bool {
         false
     }
 }
@@ -98,7 +98,7 @@ impl PyNotImplemented {
     // in boolean contexts will need to raise a DeprecationWarning in 3.9
     // and, eventually, a TypeError.
     #[pymethod]
-    const fn __bool__(&self) -> bool {
+    fn __bool__(&self) -> bool {
         true
     }
 

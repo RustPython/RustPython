@@ -14,12 +14,12 @@ enum ParameterKind {
 }
 
 impl ParameterKind {
-    fn from_ident(ident: &Ident) -> Option<ParameterKind> {
+    fn from_ident(ident: &Ident) -> Option<Self> {
         match ident.to_string().as_str() {
-            "positional" => Some(ParameterKind::PositionalOnly),
-            "any" => Some(ParameterKind::PositionalOrKeyword),
-            "named" => Some(ParameterKind::KeywordOnly),
-            "flatten" => Some(ParameterKind::Flatten),
+            "positional" => Some(Self::PositionalOnly),
+            "any" => Some(Self::PositionalOrKeyword),
+            "named" => Some(Self::KeywordOnly),
+            "flatten" => Some(Self::Flatten),
             _ => None,
         }
     }
@@ -34,7 +34,7 @@ struct ArgAttribute {
 type DefaultValue = Option<Expr>;
 
 impl ArgAttribute {
-    fn from_attribute(attr: &Attribute) -> Option<Result<ArgAttribute>> {
+    fn from_attribute(attr: &Attribute) -> Option<Result<Self>> {
         if !attr.path().is_ident("pyarg") {
             return None;
         }
@@ -52,7 +52,7 @@ impl ArgAttribute {
                                  either 'positional', 'any', 'named', or 'flatten'.",
                             )
                         })?;
-                    arg_attr = Some(ArgAttribute {
+                    arg_attr = Some(Self {
                         name: None,
                         kind,
                         default: None,

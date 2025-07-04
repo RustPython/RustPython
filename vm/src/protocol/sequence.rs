@@ -50,7 +50,7 @@ impl Debug for PySequenceMethods {
 
 impl PySequenceMethods {
     #[allow(clippy::declare_interior_mutable_const)]
-    pub const NOT_IMPLEMENTED: PySequenceMethods = PySequenceMethods {
+    pub const NOT_IMPLEMENTED: Self = Self {
         length: AtomicCell::new(None),
         concat: AtomicCell::new(None),
         repeat: AtomicCell::new(None),
@@ -76,7 +76,7 @@ unsafe impl Traverse for PySequence<'_> {
 
 impl<'a> PySequence<'a> {
     #[inline]
-    pub const fn with_methods(obj: &'a PyObject, methods: &'static PySequenceMethods) -> Self {
+    pub fn with_methods(obj: &'a PyObject, methods: &'static PySequenceMethods) -> Self {
         Self { obj, methods }
     }
 

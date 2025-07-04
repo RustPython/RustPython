@@ -124,17 +124,17 @@ impl TypeVar {
     }
 
     #[pygetset]
-    const fn __covariant__(&self) -> bool {
+    fn __covariant__(&self) -> bool {
         self.covariant
     }
 
     #[pygetset]
-    const fn __contravariant__(&self) -> bool {
+    fn __contravariant__(&self) -> bool {
         self.contravariant
     }
 
     #[pygetset]
-    const fn __infer_variance__(&self) -> bool {
+    fn __infer_variance__(&self) -> bool {
         self.infer_variance
     }
 
@@ -351,7 +351,7 @@ impl Constructor for TypeVar {
             (vm.ctx.typing_no_default.clone().into(), vm.ctx.none())
         };
 
-        let typevar = TypeVar {
+        let typevar = Self {
             name,
             bound: parking_lot::Mutex::new(bound_obj),
             evaluate_bound,
@@ -445,17 +445,17 @@ impl ParamSpec {
     }
 
     #[pygetset]
-    const fn __covariant__(&self) -> bool {
+    fn __covariant__(&self) -> bool {
         self.covariant
     }
 
     #[pygetset]
-    const fn __contravariant__(&self) -> bool {
+    fn __contravariant__(&self) -> bool {
         self.contravariant
     }
 
     #[pygetset]
-    const fn __infer_variance__(&self) -> bool {
+    fn __infer_variance__(&self) -> bool {
         self.infer_variance
     }
 
@@ -601,7 +601,7 @@ impl Constructor for ParamSpec {
             Some(vm.ctx.typing_no_default.clone().into())
         };
 
-        let paramspec = ParamSpec {
+        let paramspec = Self {
             name,
             bound,
             default_value,
@@ -627,7 +627,7 @@ impl Representable for ParamSpec {
 }
 
 impl ParamSpec {
-    pub const fn new(name: PyObjectRef) -> Self {
+    pub fn new(name: PyObjectRef) -> Self {
         Self {
             name,
             bound: None,
@@ -762,7 +762,7 @@ impl Constructor for TypeVarTuple {
             (vm.ctx.typing_no_default.clone().into(), vm.ctx.none())
         };
 
-        let typevartuple = TypeVarTuple {
+        let typevartuple = Self {
             name,
             default_value: parking_lot::Mutex::new(default_value),
             evaluate_default,
@@ -817,7 +817,7 @@ impl Constructor for ParamSpecArgs {
 
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
         let origin = args.0;
-        let psa = ParamSpecArgs { __origin__: origin };
+        let psa = Self { __origin__: origin };
         psa.into_ref_with_type(vm, cls).map(Into::into)
     }
 }
@@ -895,7 +895,7 @@ impl Constructor for ParamSpecKwargs {
 
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
         let origin = args.0;
-        let psa = ParamSpecKwargs { __origin__: origin };
+        let psa = Self { __origin__: origin };
         psa.into_ref_with_type(vm, cls).map(Into::into)
     }
 }

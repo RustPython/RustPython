@@ -35,11 +35,11 @@ mod lock {
 mod lock {
     use crate::vm::VirtualMachine;
     #[pyfunction]
-    pub(super) const fn acquire_lock(_vm: &VirtualMachine) {}
+    pub(super) fn acquire_lock(_vm: &VirtualMachine) {}
     #[pyfunction]
-    pub(super) const fn release_lock(_vm: &VirtualMachine) {}
+    pub(super) fn release_lock(_vm: &VirtualMachine) {}
     #[pyfunction]
-    pub(super) const fn lock_held(_vm: &VirtualMachine) -> bool {
+    pub(super) fn lock_held(_vm: &VirtualMachine) -> bool {
         false
     }
 }
@@ -95,7 +95,7 @@ mod _imp {
     }
 
     #[pyfunction]
-    const fn extension_suffixes() -> PyResult<Vec<PyObjectRef>> {
+    fn extension_suffixes() -> PyResult<Vec<PyObjectRef>> {
         Ok(Vec::new())
     }
 

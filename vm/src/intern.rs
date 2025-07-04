@@ -118,7 +118,7 @@ impl CachedPyStrRef {
     /// # Safety
     /// the given cache must be alive while returned reference is alive
     #[inline]
-    const unsafe fn as_interned_str(&self) -> &'static PyStrInterned {
+    unsafe fn as_interned_str(&self) -> &'static PyStrInterned {
         unsafe { std::mem::transmute_copy(self) }
     }
 
@@ -142,7 +142,7 @@ impl<T: PyPayload> PyInterned<T> {
     }
 
     #[inline]
-    const fn as_ptr(&self) -> *const Py<T> {
+    fn as_ptr(&self) -> *const Py<T> {
         self as *const _ as *const _
     }
 
@@ -311,7 +311,7 @@ impl MaybeInternedString for Py<PyStr> {
     #[inline(always)]
     fn as_interned(&self) -> Option<&'static PyStrInterned> {
         if self.as_object().is_interned() {
-            Some(unsafe { std::mem::transmute::<&Py<PyStr>, &PyInterned<PyStr>>(self) })
+            Some(unsafe { std::mem::transmute::<&Self, &PyInterned<PyStr>>(self) })
         } else {
             None
         }

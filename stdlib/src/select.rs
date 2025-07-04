@@ -146,7 +146,7 @@ impl TryFromObject for Selectable {
             )?;
             meth.call((), vm)?.try_into_value(vm)
         })?;
-        Ok(Selectable { obj, fno })
+        Ok(Self { obj, fno })
     }
 }
 
@@ -155,12 +155,12 @@ impl TryFromObject for Selectable {
 pub struct FdSet(mem::MaybeUninit<platform::fd_set>);
 
 impl FdSet {
-    pub fn new() -> FdSet {
+    pub fn new() -> Self {
         // it's just ints, and all the code that's actually
         // interacting with it is in C, so it's safe to zero
         let mut fdset = std::mem::MaybeUninit::zeroed();
         unsafe { platform::FD_ZERO(fdset.as_mut_ptr()) };
-        FdSet(fdset)
+        Self(fdset)
     }
 
     pub fn insert(&mut self, fd: RawFd) {
@@ -440,7 +440,7 @@ mod decl {
                 let mask = i16::try_from(val)
                     .map_err(|_| vm.new_overflow_error("event mask value out of range"))?;
 
-                Ok(EventMask(mask))
+                Ok(Self(mask))
             }
         }
 
@@ -602,7 +602,7 @@ mod decl {
             fn new() -> std::io::Result<Self> {
                 let epoll_fd = epoll::create(epoll::CreateFlags::CLOEXEC)?;
                 let epoll_fd = Some(epoll_fd).into();
-                Ok(PyEpoll { epoll_fd })
+                Ok(Self { epoll_fd })
             }
 
             #[pymethod]

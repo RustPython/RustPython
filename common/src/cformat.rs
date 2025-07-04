@@ -103,10 +103,10 @@ pub enum CFormatType {
 impl CFormatType {
     pub const fn to_char(self) -> char {
         match self {
-            CFormatType::Number(x) => x as u8 as char,
-            CFormatType::Float(x) => x as u8 as char,
-            CFormatType::Character(x) => x as u8 as char,
-            CFormatType::String(x) => x as u8 as char,
+            Self::Number(x) => x as u8 as char,
+            Self::Float(x) => x as u8 as char,
+            Self::Character(x) => x as u8 as char,
+            Self::String(x) => x as u8 as char,
         }
     }
 }
@@ -119,7 +119,7 @@ pub enum CFormatPrecision {
 
 impl From<CFormatQuantity> for CFormatPrecision {
     fn from(quantity: CFormatQuantity) -> Self {
-        CFormatPrecision::Quantity(quantity)
+        Self::Quantity(quantity)
     }
 }
 
@@ -136,7 +136,7 @@ bitflags! {
 
 impl CConversionFlags {
     #[inline]
-    pub const fn sign_string(&self) -> &'static str {
+    pub fn sign_string(&self) -> &'static str {
         if self.contains(Self::SIGN_CHAR) {
             "+"
         } else if self.contains(Self::BLANK_SIGN) {
@@ -338,7 +338,7 @@ impl CFormatSpec {
             _ => &num_chars,
         };
         let fill_chars_needed = width.saturating_sub(num_chars);
-        let fill_string: T = CFormatSpec::compute_fill_string(fill_char, fill_chars_needed);
+        let fill_string: T = Self::compute_fill_string(fill_char, fill_chars_needed);
 
         if !fill_string.is_empty() {
             if self.flags.contains(CConversionFlags::LEFT_ADJUST) {
@@ -361,7 +361,7 @@ impl CFormatSpec {
             _ => &num_chars,
         };
         let fill_chars_needed = width.saturating_sub(num_chars);
-        let fill_string: T = CFormatSpec::compute_fill_string(fill_char, fill_chars_needed);
+        let fill_string: T = Self::compute_fill_string(fill_char, fill_chars_needed);
 
         if !fill_string.is_empty() {
             // Don't left-adjust if precision-filling: that will always be prepending 0s to %d
@@ -721,13 +721,13 @@ pub enum CFormatPart<T> {
 impl<T> CFormatPart<T> {
     #[inline]
     pub const fn is_specifier(&self) -> bool {
-        matches!(self, CFormatPart::Spec { .. })
+        matches!(self, Self::Spec { .. })
     }
 
     #[inline]
     pub const fn has_key(&self) -> bool {
         match self {
-            CFormatPart::Spec(s) => s.mapping_key.is_some(),
+            Self::Spec(s) => s.mapping_key.is_some(),
             _ => false,
         }
     }

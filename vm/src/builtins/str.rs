@@ -181,7 +181,7 @@ impl From<CodePoint> for PyStr {
 
 impl From<StrData> for PyStr {
     fn from(data: StrData) -> Self {
-        PyStr {
+        Self {
             data,
             hash: Radium::new(hash::SENTINEL),
         }
@@ -364,13 +364,13 @@ impl Constructor for PyStr {
                 }
             }
             OptionalArg::Missing => {
-                PyStr::from(String::new()).into_ref_with_type(vm, cls.clone())?
+                Self::from(String::new()).into_ref_with_type(vm, cls.clone())?
             }
         };
         if string.class().is(&cls) {
             Ok(string.into())
         } else {
-            PyStr::from(string.as_wtf8())
+            Self::from(string.as_wtf8())
                 .into_ref_with_type(vm, cls)
                 .map(Into::into)
         }
@@ -414,11 +414,11 @@ impl PyStr {
     }
 
     #[inline]
-    pub const fn as_wtf8(&self) -> &Wtf8 {
+    pub fn as_wtf8(&self) -> &Wtf8 {
         self.data.as_wtf8()
     }
 
-    pub const fn as_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &[u8] {
         self.data.as_wtf8().as_bytes()
     }
 
@@ -456,7 +456,7 @@ impl PyStr {
             .unwrap_or_else(|| self.as_wtf8().to_string_lossy())
     }
 
-    pub const fn kind(&self) -> StrKind {
+    pub fn kind(&self) -> StrKind {
         self.data.kind()
     }
 
@@ -465,7 +465,7 @@ impl PyStr {
         self.data.as_str_kind()
     }
 
-    pub const fn is_utf8(&self) -> bool {
+    pub fn is_utf8(&self) -> bool {
         self.kind().is_utf8()
     }
 
@@ -517,7 +517,7 @@ impl PyStr {
 impl PyStr {
     #[pymethod]
     fn __add__(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(other) = other.payload::<PyStr>() {
+        if let Some(other) = other.payload::<Self>() {
             let bytes = zelf.as_wtf8().py_add(other.as_wtf8());
             Ok(unsafe {
                 // SAFETY: `kind` is safely decided
@@ -601,7 +601,7 @@ impl PyStr {
 
     #[pymethod(name = "isascii")]
     #[inline(always)]
-    pub const fn is_ascii(&self) -> bool {
+    pub fn is_ascii(&self) -> bool {
         matches!(self.kind(), StrKind::Ascii)
     }
 
@@ -626,7 +626,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn lower(&self) -> PyStr {
+    fn lower(&self) -> Self {
         match self.as_str_kind() {
             PyKindStr::Ascii(s) => s.to_ascii_lowercase().into(),
             PyKindStr::Utf8(s) => s.to_lowercase().into(),
@@ -648,7 +648,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn upper(&self) -> PyStr {
+    fn upper(&self) -> Self {
         match self.as_str_kind() {
             PyKindStr::Ascii(s) => s.to_ascii_uppercase().into(),
             PyKindStr::Utf8(s) => s.to_uppercase().into(),
@@ -765,7 +765,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn strip(&self, chars: OptionalOption<PyStrRef>) -> PyStr {
+    fn strip(&self, chars: OptionalOption<PyStrRef>) -> Self {
         match self.as_str_kind() {
             PyKindStr::Ascii(s) => s
                 .py_strip(
@@ -845,7 +845,7 @@ impl PyStr {
             &affix,
             "endswith",
             "str",
-            |s, x: &Py<PyStr>| s.ends_with(x.as_wtf8()),
+            |s, x: &Py<Self>| s.ends_with(x.as_wtf8()),
             vm,
         )
     }
@@ -865,7 +865,7 @@ impl PyStr {
             &affix,
             "startswith",
             "str",
-            |s, x: &Py<PyStr>| s.starts_with(x.as_wtf8()),
+            |s, x: &Py<Self>| s.starts_with(x.as_wtf8()),
             vm,
         )
     }
@@ -1335,7 +1335,7 @@ impl PyStr {
         for c in self.as_str().chars() {
             match table.get_item(&*(c as u32).to_pyobject(vm), vm) {
                 Ok(value) => {
-                    if let Some(text) = value.payload::<PyStr>() {
+                    if let Some(text) = value.payload::<Self>() {
                         translated.push_str(text.as_str());
                     } else if let Some(bigint) = value.payload::<PyInt>() {
                         let ch = bigint
@@ -1367,7 +1367,7 @@ impl PyStr {
     ) -> PyResult {
         let new_dict = vm.ctx.new_dict();
         if let OptionalArg::Present(to_str) = to_str {
-            match dict_or_str.downcast::<PyStr>() {
+            match dict_or_str.downcast::<Self>() {
                 Ok(from_str) => {
                     if to_str.len() == from_str.len() {
                         for (c1, c2) in from_str.as_str().chars().zip(to_str.as_str().chars()) {
@@ -1405,7 +1405,7 @@ impl PyStr {
                                 val,
                                 vm,
                             )?;
-                        } else if let Some(string) = key.payload::<PyStr>() {
+                        } else if let Some(string) = key.payload::<Self>() {
                             if string.len() == 1 {
                                 let num_value = string.as_str().chars().next().unwrap() as u32;
                                 new_dict.set_item(&*num_value.to_pyobject(vm), val, vm)?;
@@ -1693,7 +1693,7 @@ pub fn init(ctx: &Context) {
 
 impl SliceableSequenceOp for PyStr {
     type Item = CodePoint;
-    type Sliced = PyStr;
+    type Sliced = Self;
 
     fn do_get(&self, index: usize) -> Self::Item {
         self.data.nth_char(index)
@@ -1706,13 +1706,13 @@ impl SliceableSequenceOp for PyStr {
                 let char_len = range.len();
                 let out = rustpython_common::str::get_chars(s, range);
                 // SAFETY: char_len is accurate
-                unsafe { PyStr::new_with_char_len(out, char_len) }
+                unsafe { Self::new_with_char_len(out, char_len) }
             }
             PyKindStr::Wtf8(w) => {
                 let char_len = range.len();
                 let out = rustpython_common::str::get_codepoints(w, range);
                 // SAFETY: char_len is accurate
-                unsafe { PyStr::new_with_char_len(out, char_len) }
+                unsafe { Self::new_with_char_len(out, char_len) }
             }
         }
     }
@@ -1734,7 +1734,7 @@ impl SliceableSequenceOp for PyStr {
                         .take(range.len()),
                 );
                 // SAFETY: char_len is accurate
-                unsafe { PyStr::new_with_char_len(out, range.len()) }
+                unsafe { Self::new_with_char_len(out, range.len()) }
             }
             PyKindStr::Wtf8(w) => {
                 let char_len = range.len();
@@ -1746,7 +1746,7 @@ impl SliceableSequenceOp for PyStr {
                         .take(range.len()),
                 );
                 // SAFETY: char_len is accurate
-                unsafe { PyStr::new_with_char_len(out, char_len) }
+                unsafe { Self::new_with_char_len(out, char_len) }
             }
         }
     }
@@ -1765,7 +1765,7 @@ impl SliceableSequenceOp for PyStr {
                 let mut out = String::with_capacity(2 * char_len);
                 out.extend(s.chars().skip(range.start).take(range.len()).step_by(step));
                 // SAFETY: char_len is accurate
-                unsafe { PyStr::new_with_char_len(out, char_len) }
+                unsafe { Self::new_with_char_len(out, char_len) }
             }
             PyKindStr::Wtf8(w) => {
                 let char_len = (range.len() / step) + 1;
@@ -1777,7 +1777,7 @@ impl SliceableSequenceOp for PyStr {
                         .step_by(step),
                 );
                 // SAFETY: char_len is accurate
-                unsafe { PyStr::new_with_char_len(out, char_len) }
+                unsafe { Self::new_with_char_len(out, char_len) }
             }
         }
     }
@@ -1802,7 +1802,7 @@ impl SliceableSequenceOp for PyStr {
                         .step_by(step),
                 );
                 // SAFETY: char_len is accurate
-                unsafe { PyStr::new_with_char_len(out, char_len) }
+                unsafe { Self::new_with_char_len(out, char_len) }
             }
             PyKindStr::Wtf8(w) => {
                 let char_len = (range.len() / step) + 1;
@@ -1816,13 +1816,13 @@ impl SliceableSequenceOp for PyStr {
                         .step_by(step),
                 );
                 // SAFETY: char_len is accurate
-                unsafe { PyStr::new_with_char_len(out, char_len) }
+                unsafe { Self::new_with_char_len(out, char_len) }
             }
         }
     }
 
     fn empty() -> Self::Sliced {
-        PyStr::default()
+        Self::default()
     }
 
     fn len(&self) -> usize {
@@ -1886,15 +1886,15 @@ impl AnyStrWrapper<AsciiStr> for PyStrRef {
 
 impl AnyStrContainer<str> for String {
     fn new() -> Self {
-        String::new()
+        Self::new()
     }
 
     fn with_capacity(capacity: usize) -> Self {
-        String::with_capacity(capacity)
+        Self::with_capacity(capacity)
     }
 
     fn push_str(&mut self, other: &str) {
-        String::push_str(self, other)
+        Self::push_str(self, other)
     }
 }
 
@@ -1925,7 +1925,7 @@ impl AnyStr for str {
     }
 
     fn elements(&self) -> impl Iterator<Item = char> {
-        str::chars(self)
+        Self::chars(self)
     }
 
     fn get_bytes(&self, range: std::ops::Range<usize>) -> &Self {
@@ -1999,11 +1999,11 @@ impl AnyStr for str {
 
 impl AnyStrContainer<Wtf8> for Wtf8Buf {
     fn new() -> Self {
-        Wtf8Buf::new()
+        Self::new()
     }
 
     fn with_capacity(capacity: usize) -> Self {
-        Wtf8Buf::with_capacity(capacity)
+        Self::with_capacity(capacity)
     }
 
     fn push_str(&mut self, other: &Wtf8) {
@@ -2117,15 +2117,15 @@ impl AnyStr for Wtf8 {
 
 impl AnyStrContainer<AsciiStr> for AsciiString {
     fn new() -> Self {
-        AsciiString::new()
+        Self::new()
     }
 
     fn with_capacity(capacity: usize) -> Self {
-        AsciiString::with_capacity(capacity)
+        Self::with_capacity(capacity)
     }
 
     fn push_str(&mut self, other: &AsciiStr) {
-        AsciiString::push_str(self, other)
+        Self::push_str(self, other)
     }
 }
 

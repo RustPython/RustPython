@@ -34,7 +34,7 @@ impl Representable for Frame {
 #[pyclass(with(Unconstructible, Py))]
 impl Frame {
     #[pymethod]
-    const fn clear(&self) {
+    fn clear(&self) {
         // TODO
     }
 

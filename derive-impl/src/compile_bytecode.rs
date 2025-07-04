@@ -234,7 +234,7 @@ impl CompilationSource {
 }
 
 impl PyCompileArgs {
-    fn parse(input: TokenStream, allow_dir: bool) -> Result<PyCompileArgs, Diagnostic> {
+    fn parse(input: TokenStream, allow_dir: bool) -> Result<Self, Diagnostic> {
         let mut module_name = None;
         let mut mode = None;
         let mut source: Option<CompilationSource> = None;
@@ -307,7 +307,7 @@ impl PyCompileArgs {
             )
         })?;
 
-        Ok(PyCompileArgs {
+        Ok(Self {
             source,
             mode: mode.unwrap_or(Mode::Exec),
             module_name: module_name.unwrap_or_else(|| "frozen".to_owned()),

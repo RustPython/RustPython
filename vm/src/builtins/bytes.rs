@@ -116,7 +116,7 @@ impl PyBytes {
 }
 
 impl PyRef<PyBytes> {
-    fn repeat(self, count: isize, vm: &VirtualMachine) -> PyResult<PyRef<PyBytes>> {
+    fn repeat(self, count: isize, vm: &VirtualMachine) -> PyResult<Self> {
         if count == 1 && self.class().is(vm.ctx.types.bytes_type) {
             // Special case: when some `bytes` is multiplied by `1`,
             // nothing really happens, we need to return an object itself
@@ -149,12 +149,12 @@ impl PyRef<PyBytes> {
 impl PyBytes {
     #[inline]
     #[pymethod]
-    pub const fn __len__(&self) -> usize {
+    pub fn __len__(&self) -> usize {
         self.inner.len()
     }
 
     #[inline]
-    pub const fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
 
@@ -270,17 +270,17 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn center(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<PyBytes> {
+    fn center(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<Self> {
         Ok(self.inner.center(options, vm)?.into())
     }
 
     #[pymethod]
-    fn ljust(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<PyBytes> {
+    fn ljust(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<Self> {
         Ok(self.inner.ljust(options, vm)?.into())
     }
 
     #[pymethod]
-    fn rjust(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<PyBytes> {
+    fn rjust(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<Self> {
         Ok(self.inner.rjust(options, vm)?.into())
     }
 
@@ -290,7 +290,7 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn join(&self, iter: ArgIterable<PyBytesInner>, vm: &VirtualMachine) -> PyResult<PyBytes> {
+    fn join(&self, iter: ArgIterable<PyBytesInner>, vm: &VirtualMachine) -> PyResult<Self> {
         Ok(self.inner.join(iter, vm)?.into())
     }
 
@@ -355,11 +355,7 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn translate(
-        &self,
-        options: ByteInnerTranslateOptions,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyBytes> {
+    fn translate(&self, options: ByteInnerTranslateOptions, vm: &VirtualMachine) -> PyResult<Self> {
         Ok(self.inner.translate(options, vm)?.into())
     }
 
@@ -451,7 +447,7 @@ impl PyBytes {
         new: PyBytesInner,
         count: OptionalArg<isize>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyBytes> {
+    ) -> PyResult<Self> {
         Ok(self.inner.replace(old, new, count, vm)?.into())
     }
 
@@ -467,7 +463,7 @@ impl PyBytes {
     }
 
     #[pymethod(name = "__mod__")]
-    fn mod_(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytes> {
+    fn mod_(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         let formatted = self.inner.cformat(values, vm)?;
         Ok(formatted.into())
     }
@@ -515,7 +511,7 @@ impl Py<PyBytes> {
 #[pyclass]
 impl PyRef<PyBytes> {
     #[pymethod]
-    fn __bytes__(self, vm: &VirtualMachine) -> PyRef<PyBytes> {
+    fn __bytes__(self, vm: &VirtualMachine) -> Self {
         if self.is(vm.ctx.types.bytes_type) {
             self
         } else {
@@ -524,7 +520,7 @@ impl PyRef<PyBytes> {
     }
 
     #[pymethod]
-    fn lstrip(self, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> PyRef<PyBytes> {
+    fn lstrip(self, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> Self {
         let stripped = self.inner.lstrip(chars);
         if stripped == self.as_bytes() {
             self
@@ -534,7 +530,7 @@ impl PyRef<PyBytes> {
     }
 
     #[pymethod]
-    fn rstrip(self, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> PyRef<PyBytes> {
+    fn rstrip(self, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> Self {
         let stripped = self.inner.rstrip(chars);
         if stripped == self.as_bytes() {
             self

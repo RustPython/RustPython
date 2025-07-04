@@ -139,7 +139,7 @@ where
 }
 
 impl<T: Clone> SequenceMutExt<T> for Vec<T> {
-    fn as_vec_mut(&mut self) -> &mut Vec<T> {
+    fn as_vec_mut(&mut self) -> &mut Self {
         self
     }
 }

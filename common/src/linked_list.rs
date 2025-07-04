@@ -140,8 +140,8 @@ unsafe impl<T: Sync> Sync for Pointers<T> {}
 
 impl<L, T> LinkedList<L, T> {
     /// Creates an empty linked list.
-    pub const fn new() -> LinkedList<L, T> {
-        LinkedList {
+    pub const fn new() -> Self {
+        Self {
             head: None,
             // tail: None,
             _marker: PhantomData,
@@ -193,7 +193,7 @@ impl<L: Link> LinkedList<L, L::Target> {
     // }
 
     /// Returns whether the linked list does not contain any node
-    pub const fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.head.is_none()
         // if self.head.is_some() {
         //     return false;
@@ -284,7 +284,7 @@ pub struct DrainFilter<'a, T: Link, F> {
 }
 
 impl<T: Link> LinkedList<T, T::Target> {
-    pub const fn drain_filter<F>(&mut self, filter: F) -> DrainFilter<'_, T, F>
+    pub fn drain_filter<F>(&mut self, filter: F) -> DrainFilter<'_, T, F>
     where
         F: FnMut(&mut T::Target) -> bool,
     {
@@ -323,8 +323,8 @@ where
 
 impl<T> Pointers<T> {
     /// Create a new set of empty pointers
-    pub const fn new() -> Pointers<T> {
-        Pointers {
+    pub fn new() -> Self {
+        Self {
             inner: UnsafeCell::new(PointersInner {
                 prev: None,
                 next: None,
@@ -333,7 +333,7 @@ impl<T> Pointers<T> {
         }
     }
 
-    const fn get_prev(&self) -> Option<NonNull<T>> {
+    fn get_prev(&self) -> Option<NonNull<T>> {
         // SAFETY: prev is the first field in PointersInner, which is #[repr(C)].
         unsafe {
             let inner = self.inner.get();
@@ -341,7 +341,7 @@ impl<T> Pointers<T> {
             ptr::read(prev)
         }
     }
-    const fn get_next(&self) -> Option<NonNull<T>> {
+    fn get_next(&self) -> Option<NonNull<T>> {
         // SAFETY: next is the second field in PointersInner, which is #[repr(C)].
         unsafe {
             let inner = self.inner.get();
@@ -351,7 +351,7 @@ impl<T> Pointers<T> {
         }
     }
 
-    const fn set_prev(&mut self, value: Option<NonNull<T>>) {
+    fn set_prev(&mut self, value: Option<NonNull<T>>) {
         // SAFETY: prev is the first field in PointersInner, which is #[repr(C)].
         unsafe {
             let inner = self.inner.get();
@@ -359,7 +359,7 @@ impl<T> Pointers<T> {
             ptr::write(prev, value);
         }
     }
-    const fn set_next(&mut self, value: Option<NonNull<T>>) {
+    fn set_next(&mut self, value: Option<NonNull<T>>) {
         // SAFETY: next is the second field in PointersInner, which is #[repr(C)].
         unsafe {
             let inner = self.inner.get();

@@ -66,7 +66,7 @@ impl<T: PyPayload> PyExact<T> {
     /// # Safety
     /// Given reference must be exact type of payload T
     #[inline(always)]
-    pub const unsafe fn ref_unchecked(r: &Py<T>) -> &Self {
+    pub unsafe fn ref_unchecked(r: &Py<T>) -> &Self {
         unsafe { &*(r as *const _ as *const Self) }
     }
 }
@@ -141,7 +141,7 @@ pub struct PyRefExact<T: PyObjectPayload> {
 impl<T: PyObjectPayload> PyRefExact<T> {
     /// # Safety
     /// obj must have exact type for the payload
-    pub const unsafe fn new_unchecked(obj: PyRef<T>) -> Self {
+    pub unsafe fn new_unchecked(obj: PyRef<T>) -> Self {
         Self { inner: obj }
     }
 
@@ -493,7 +493,7 @@ impl<T> AsObject for T where T: Borrow<PyObject> {}
 impl PyObject {
     #[inline(always)]
     fn unique_id(&self) -> usize {
-        self as *const PyObject as usize
+        self as *const Self as usize
     }
 }
 

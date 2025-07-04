@@ -93,7 +93,7 @@ impl TryFromObject for Fildes {
                 "file descriptor cannot be a negative integer ({fd})"
             )));
         }
-        Ok(Fildes(fd))
+        Ok(Self(fd))
     }
 }
 
@@ -289,7 +289,7 @@ mod _io {
             Some(b)
         }
 
-        const fn tell(&self) -> u64 {
+        fn tell(&self) -> u64 {
             self.cursor.position()
         }
 
@@ -783,27 +783,27 @@ mod _io {
         }
 
         #[inline]
-        const fn writable(&self) -> bool {
+        fn writable(&self) -> bool {
             self.flags.contains(BufferedFlags::WRITABLE)
         }
 
         #[inline]
-        const fn readable(&self) -> bool {
+        fn readable(&self) -> bool {
             self.flags.contains(BufferedFlags::READABLE)
         }
 
         #[inline]
-        const fn valid_read(&self) -> bool {
+        fn valid_read(&self) -> bool {
             self.readable() && self.read_end != -1
         }
 
         #[inline]
-        const fn valid_write(&self) -> bool {
+        fn valid_write(&self) -> bool {
             self.writable() && self.write_end != -1
         }
 
         #[inline]
-        const fn raw_offset(&self) -> Offset {
+        fn raw_offset(&self) -> Offset {
             if (self.valid_read() || self.valid_write()) && self.raw_pos >= 0 {
                 self.raw_pos - self.pos
             } else {
@@ -812,7 +812,7 @@ mod _io {
         }
 
         #[inline]
-        const fn readahead(&self) -> Offset {
+        fn readahead(&self) -> Offset {
             if self.valid_read() {
                 self.read_end - self.pos
             } else {
@@ -820,11 +820,11 @@ mod _io {
             }
         }
 
-        const fn reset_read(&mut self) {
+        fn reset_read(&mut self) {
             self.read_end = -1;
         }
 
-        const fn reset_write(&mut self) {
+        fn reset_write(&mut self) {
             self.write_pos = 0;
             self.write_end = -1;
         }
@@ -1278,7 +1278,7 @@ mod _io {
             }
         }
 
-        const fn adjust_position(&mut self, new_pos: Offset) {
+        fn adjust_position(&mut self, new_pos: Offset) {
             self.pos = new_pos;
             if self.valid_read() && self.read_end < self.pos {
                 self.read_end = self.pos
@@ -1967,10 +1967,8 @@ mod _io {
         fn find_newline(&self, s: &Wtf8) -> Result<usize, usize> {
             let len = s.len();
             match self {
-                Newlines::Universal | Newlines::Lf => {
-                    s.find("\n".as_ref()).map(|p| p + 1).ok_or(len)
-                }
-                Newlines::Passthrough => {
+                Self::Universal | Self::Lf => s.find("\n".as_ref()).map(|p| p + 1).ok_or(len),
+                Self::Passthrough => {
                     let bytes = s.as_bytes();
                     memchr::memchr2(b'\n', b'\r', bytes)
                         .map(|p| {
@@ -1984,8 +1982,8 @@ mod _io {
                         })
                         .ok_or(len)
                 }
-                Newlines::Cr => s.find("\n".as_ref()).map(|p| p + 1).ok_or(len),
-                Newlines::Crlf => {
+                Self::Cr => s.find("\n".as_ref()).map(|p| p + 1).ok_or(len),
+                Self::Crlf => {
                     // s[searched..] == remaining
                     let mut searched = 0;
                     let mut remaining = s.as_bytes();
@@ -2096,7 +2094,7 @@ mod _io {
 
     // TODO: implement legit fast-paths for other encodings
     type EncodeFunc = fn(PyStrRef) -> PendingWrite;
-    const fn textio_encode_utf8(s: PyStrRef) -> PendingWrite {
+    fn textio_encode_utf8(s: PyStrRef) -> PendingWrite {
         PendingWrite::Utf8(s)
     }
 
@@ -2165,7 +2163,7 @@ mod _io {
             }
         }
         fn take(&mut self, vm: &VirtualMachine) -> PyBytesRef {
-            let PendingWrites { num_bytes, data } = std::mem::take(self);
+            let Self { num_bytes, data } = std::mem::take(self);
             if let PendingWritesData::One(PendingWrite::Bytes(b)) = data {
                 return b;
             }
@@ -2264,7 +2262,7 @@ mod _io {
             }
         }
 
-        const fn set_num_to_skip(&mut self, num: Utf8size) {
+        fn set_num_to_skip(&mut self, num: Utf8size) {
             self.bytes_to_skip = num.bytes as i32;
             self.chars_to_skip = num.chars as i32;
         }
@@ -3923,7 +3921,7 @@ mod _io {
 
     impl Default for OpenArgs {
         fn default() -> Self {
-            OpenArgs {
+            Self {
                 buffering: -1,
                 encoding: None,
                 errors: None,

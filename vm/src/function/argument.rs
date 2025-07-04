@@ -78,7 +78,7 @@ where
     A: Into<PosArgs>,
 {
     fn from(args: A) -> Self {
-        FuncArgs {
+        Self {
             args: args.into().into_vec(),
             kwargs: IndexMap::new(),
         }
@@ -87,7 +87,7 @@ where
 
 impl From<KwArgs> for FuncArgs {
     fn from(kwargs: KwArgs) -> Self {
-        FuncArgs {
+        Self {
             args: Vec::new(),
             kwargs: kwargs.0,
         }
@@ -125,7 +125,7 @@ impl FuncArgs {
 
         let kwargs = kwarg_names.zip_eq(args).collect::<IndexMap<_, _>>();
 
-        FuncArgs {
+        Self {
             args: pos_args,
             kwargs,
         }
@@ -250,7 +250,7 @@ pub enum ArgumentError {
 
 impl From<PyBaseExceptionRef> for ArgumentError {
     fn from(ex: PyBaseExceptionRef) -> Self {
-        ArgumentError::Exception(ex)
+        Self::Exception(ex)
     }
 }
 
@@ -262,23 +262,23 @@ impl ArgumentError {
         vm: &VirtualMachine,
     ) -> PyBaseExceptionRef {
         match self {
-            ArgumentError::TooFewArgs => vm.new_type_error(format!(
+            Self::TooFewArgs => vm.new_type_error(format!(
                 "Expected at least {} arguments ({} given)",
                 arity.start(),
                 num_given
             )),
-            ArgumentError::TooManyArgs => vm.new_type_error(format!(
+            Self::TooManyArgs => vm.new_type_error(format!(
                 "Expected at most {} arguments ({} given)",
                 arity.end(),
                 num_given
             )),
-            ArgumentError::InvalidKeywordArgument(name) => {
+            Self::InvalidKeywordArgument(name) => {
                 vm.new_type_error(format!("{name} is an invalid keyword argument"))
             }
-            ArgumentError::RequiredKeywordArgument(name) => {
+            Self::RequiredKeywordArgument(name) => {
                 vm.new_type_error(format!("Required keyword only argument {name}"))
             }
-            ArgumentError::Exception(ex) => ex,
+            Self::Exception(ex) => ex,
         }
     }
 }
@@ -345,7 +345,7 @@ where
 
 impl<T> KwArgs<T> {
     pub const fn new(map: IndexMap<String, T>) -> Self {
-        KwArgs(map)
+        Self(map)
     }
 
     pub fn pop_kwarg(&mut self, name: &str) -> Option<T> {
@@ -359,13 +359,13 @@ impl<T> KwArgs<T> {
 
 impl<T> FromIterator<(String, T)> for KwArgs<T> {
     fn from_iter<I: IntoIterator<Item = (String, T)>>(iter: I) -> Self {
-        KwArgs(iter.into_iter().collect())
+        Self(iter.into_iter().collect())
     }
 }
 
 impl<T> Default for KwArgs<T> {
     fn default() -> Self {
-        KwArgs(IndexMap::new())
+        Self(IndexMap::new())
     }
 }
 
@@ -378,7 +378,7 @@ where
         for (name, value) in args.remaining_keywords() {
             kwargs.insert(name, value.try_into_value(vm)?);
         }
-        Ok(KwArgs(kwargs))
+        Ok(Self(kwargs))
     }
 }
 
@@ -459,7 +459,7 @@ where
         while let Some(value) = args.take_positional() {
             varargs.push(value.try_into_value(vm)?);
         }
-        Ok(PosArgs(varargs))
+        Ok(Self(varargs))
     }
 }
 
@@ -501,8 +501,8 @@ where
 {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         match self {
-            OptionalArg::Present(o) => o.traverse(tracer_fn),
-            OptionalArg::Missing => (),
+            Self::Present(o) => o.traverse(tracer_fn),
+            Self::Missing => (),
         }
     }
 }
@@ -532,9 +532,9 @@ where
 
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let r = if let Some(value) = args.take_positional() {
-            OptionalArg::Present(value.try_into_value(vm)?)
+            Self::Present(value.try_into_value(vm)?)
         } else {
-            OptionalArg::Missing
+            Self::Missing
         };
         Ok(r)
     }

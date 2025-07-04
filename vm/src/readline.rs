@@ -28,7 +28,7 @@ mod basic_readline {
     }
 
     impl<H: Helper> Readline<H> {
-        pub const fn new(helper: H) -> Self {
+        pub fn new(helper: H) -> Self {
             Self { helper }
         }
 

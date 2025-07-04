@@ -82,7 +82,7 @@ pub struct PyFrozenSet {
 
 impl Default for PyFrozenSet {
     fn default() -> Self {
-        PyFrozenSet {
+        Self {
             inner: PySetInner::default(),
             hash: hash::SENTINEL.into(),
         }
@@ -183,7 +183,7 @@ impl PySetInner {
     where
         T: IntoIterator<Item = PyResult<PyObjectRef>>,
     {
-        let set = PySetInner::default();
+        let set = Self::default();
         for item in iter {
             set.add(item?, vm)?;
         }
@@ -211,8 +211,8 @@ impl PySetInner {
         self.content.sizeof()
     }
 
-    fn copy(&self) -> PySetInner {
-        PySetInner {
+    fn copy(&self) -> Self {
+        Self {
             content: PyRc::new((*self.content).clone()),
         }
     }
@@ -221,12 +221,7 @@ impl PySetInner {
         self.retry_op_with_frozenset(needle, vm, |needle, vm| self.content.contains(vm, needle))
     }
 
-    fn compare(
-        &self,
-        other: &PySetInner,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
+    fn compare(&self, other: &Self, op: PyComparisonOp, vm: &VirtualMachine) -> PyResult<bool> {
         if op == PyComparisonOp::Ne {
             return self.compare(other, PyComparisonOp::Eq, vm).map(|eq| !eq);
         }
@@ -247,7 +242,7 @@ impl PySetInner {
         Ok(true)
     }
 
-    pub(super) fn union(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
+    pub(super) fn union(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
         let set = self.clone();
         for item in other.iter(vm)? {
             set.add(item?, vm)?;
@@ -256,12 +251,8 @@ impl PySetInner {
         Ok(set)
     }
 
-    pub(super) fn intersection(
-        &self,
-        other: ArgIterable,
-        vm: &VirtualMachine,
-    ) -> PyResult<PySetInner> {
-        let set = PySetInner::default();
+    pub(super) fn intersection(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        let set = Self::default();
         for item in other.iter(vm)? {
             let obj = item?;
             if self.contains(&obj, vm)? {
@@ -271,11 +262,7 @@ impl PySetInner {
         Ok(set)
     }
 
-    pub(super) fn difference(
-        &self,
-        other: ArgIterable,
-        vm: &VirtualMachine,
-    ) -> PyResult<PySetInner> {
+    pub(super) fn difference(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
         let set = self.copy();
         for item in other.iter(vm)? {
             set.content.delete_if_exists(vm, &*item?)?;
@@ -287,7 +274,7 @@ impl PySetInner {
         &self,
         other: ArgIterable,
         vm: &VirtualMachine,
-    ) -> PyResult<PySetInner> {
+    ) -> PyResult<Self> {
         let new_inner = self.clone();
 
         // We want to remove duplicates in other
@@ -310,7 +297,7 @@ impl PySetInner {
     }
 
     fn issubset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        let other_set = PySetInner::from_iter(other.iter(vm)?, vm)?;
+        let other_set = Self::from_iter(other.iter(vm)?, vm)?;
         self.compare(&other_set, PyComparisonOp::Le, vm)
     }
 
@@ -412,7 +399,7 @@ impl PySetInner {
         others: impl std::iter::Iterator<Item = ArgIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let temp_inner = self.fold_op(others, PySetInner::intersection, vm)?;
+        let temp_inner = self.fold_op(others, Self::intersection, vm)?;
         self.clear();
         for obj in temp_inner.elements() {
             self.add(obj, vm)?;
@@ -454,7 +441,7 @@ impl PySetInner {
         // This is important because some use cases have many combinations of a
         // small number of elements with nearby hashes so that many distinct
         // combinations collapse to only a handful of distinct hash values.
-        const fn _shuffle_bits(h: u64) -> u64 {
+        fn _shuffle_bits(h: u64) -> u64 {
             ((h ^ 89869747) ^ (h.wrapping_shl(16))).wrapping_mul(3644798167)
         }
         // Factor in the number of active entries
@@ -1278,7 +1265,7 @@ impl TryFromObject for AnySet {
         if class.fast_issubclass(vm.ctx.types.set_type)
             || class.fast_issubclass(vm.ctx.types.frozenset_type)
         {
-            Ok(AnySet { object: obj })
+            Ok(Self { object: obj })
         } else {
             Err(vm.new_type_error(format!("{class} is not a subtype of set or frozenset")))
         }

@@ -38,19 +38,19 @@ impl Node for ruff::TypeParam {
     ) -> PyResult<Self> {
         let _cls = _object.class();
         Ok(if _cls.is(pyast::NodeTypeParamTypeVar::static_type()) {
-            ruff::TypeParam::TypeVar(ruff::TypeParamTypeVar::ast_from_object(
+            Self::TypeVar(ruff::TypeParamTypeVar::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeTypeParamParamSpec::static_type()) {
-            ruff::TypeParam::ParamSpec(ruff::TypeParamParamSpec::ast_from_object(
+            Self::ParamSpec(ruff::TypeParamParamSpec::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
         } else if _cls.is(pyast::NodeTypeParamTypeVarTuple::static_type()) {
-            ruff::TypeParam::TypeVarTuple(ruff::TypeParamTypeVarTuple::ast_from_object(
+            Self::TypeVarTuple(ruff::TypeParamTypeVarTuple::ast_from_object(
                 _vm,
                 source_code,
                 _object,

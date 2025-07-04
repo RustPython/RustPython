@@ -57,13 +57,13 @@ impl PyDict {
 
     /// escape hatch to access the underlying data structure directly. prefer adding a method on
     /// PyDict instead of using this
-    pub(crate) const fn _as_dict_inner(&self) -> &DictContentType {
+    pub(crate) fn _as_dict_inner(&self) -> &DictContentType {
         &self.entries
     }
 
     // Used in update and ior.
     pub(crate) fn merge_object(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let casted: Result<PyRefExact<PyDict>, _> = other.downcast_exact(vm);
+        let casted: Result<PyRefExact<Self>, _> = other.downcast_exact(vm);
         let other = match casted {
             Ok(dict_other) => return self.merge_dict(dict_other.into_pyref(), vm),
             Err(other) => other,
@@ -187,7 +187,7 @@ impl PyDict {
     ) -> PyResult {
         let value = value.unwrap_or_none(vm);
         let d = PyType::call(&class, ().into(), vm)?;
-        match d.downcast_exact::<PyDict>(vm) {
+        match d.downcast_exact::<Self>(vm) {
             Ok(pydict) => {
                 for key in iterable.iter(vm)? {
                     pydict.__setitem__(key?, value.clone(), vm)?;
@@ -263,8 +263,8 @@ impl PyDict {
     }
 
     #[pymethod]
-    pub fn copy(&self) -> PyDict {
-        PyDict {
+    pub fn copy(&self) -> Self {
+        Self {
             entries: self.entries.clone(),
         }
     }
@@ -331,7 +331,7 @@ impl PyDict {
 impl Py<PyDict> {
     fn inner_cmp(
         &self,
-        other: &Py<PyDict>,
+        other: &Self,
         op: PyComparisonOp,
         item: bool,
         vm: &VirtualMachine,
@@ -376,17 +376,17 @@ impl Py<PyDict> {
 #[pyclass]
 impl PyRef<PyDict> {
     #[pymethod]
-    const fn keys(self) -> PyDictKeys {
+    fn keys(self) -> PyDictKeys {
         PyDictKeys::new(self)
     }
 
     #[pymethod]
-    const fn values(self) -> PyDictValues {
+    fn values(self) -> PyDictValues {
         PyDictValues::new(self)
     }
 
     #[pymethod]
-    const fn items(self) -> PyDictItems {
+    fn items(self) -> PyDictItems {
         PyDictItems::new(self)
     }
 
@@ -403,7 +403,7 @@ impl PyRef<PyDict> {
 
     #[pymethod]
     fn __ror__(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let other_dict: Result<PyDictRef, _> = other.downcast();
+        let other_dict: Result<Self, _> = other.downcast();
         if let Ok(other) = other_dict {
             let other_cp = other.copy();
             other_cp.merge_dict(self, vm)?;
@@ -692,8 +692,8 @@ pub struct DictIntoIter {
 }
 
 impl DictIntoIter {
-    pub const fn new(dict: PyDictRef) -> DictIntoIter {
-        DictIntoIter { dict, position: 0 }
+    pub const fn new(dict: PyDictRef) -> Self {
+        Self { dict, position: 0 }
     }
 }
 

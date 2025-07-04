@@ -41,7 +41,7 @@ impl TryFromObject for ArgIntoComplex {
         let (value, _) = obj.try_complex(vm)?.ok_or_else(|| {
             vm.new_type_error(format!("must be real number, not {}", obj.class().name()))
         })?;
-        Ok(ArgIntoComplex { value })
+        Ok(Self { value })
     }
 }
 
@@ -86,7 +86,7 @@ impl TryFromObject for ArgIntoFloat {
     // Equivalent to PyFloat_AsDouble.
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let value = obj.try_float(vm)?.to_f64();
-        Ok(ArgIntoFloat { value })
+        Ok(Self { value })
     }
 }
 

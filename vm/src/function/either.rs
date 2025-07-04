@@ -28,7 +28,7 @@ impl<A: AsRef<PyObject>, B: AsRef<PyObject>> AsRef<PyObject> for Either<A, B> {
     }
 }
 
-impl<A: Into<PyObjectRef>, B: Into<PyObjectRef>> From<Either<A, B>> for PyObjectRef {
+impl<A: Into<Self>, B: Into<Self>> From<Either<A, B>> for PyObjectRef {
     #[inline(always)]
     fn from(value: Either<A, B>) -> Self {
         match value {

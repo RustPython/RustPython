@@ -17,7 +17,7 @@ pub(in crate::object) struct PyObjVTable {
 
 impl PyObjVTable {
     pub const fn of<T: PyObjectPayload>() -> &'static Self {
-        &PyObjVTable {
+        &Self {
             drop_dealloc: drop_dealloc_obj::<T>,
             debug: debug_obj::<T>,
             trace: const {
@@ -49,7 +49,7 @@ unsafe impl Traverse for PyInner<Erased> {
 
         if let Some(f) = self.vtable.trace {
             unsafe {
-                let zelf = &*(self as *const PyInner<Erased> as *const PyObject);
+                let zelf = &*(self as *const Self as *const PyObject);
                 f(zelf, tracer_fn)
             }
         };

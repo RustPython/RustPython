@@ -306,7 +306,7 @@ impl SequenceIndexOp for isize {
         let mut p = *self;
         if p < 0 {
             // casting to isize is ok because it is used by wrapping_add
-            p = p.wrapping_add(len as isize);
+            p = p.wrapping_add(len as Self);
         }
         if p < 0 || (p as usize) >= len {
             None
@@ -415,7 +415,7 @@ impl SaturatedSliceIter {
         Self::from_adjust_indices(range, step, len)
     }
 
-    pub const fn from_adjust_indices(range: Range<usize>, step: isize, len: usize) -> Self {
+    pub fn from_adjust_indices(range: Range<usize>, step: isize, len: usize) -> Self {
         let index = if step.is_negative() {
             range.end as isize - 1
         } else {
@@ -424,7 +424,7 @@ impl SaturatedSliceIter {
         Self { index, step, len }
     }
 
-    pub const fn positive_order(mut self) -> Self {
+    pub fn positive_order(mut self) -> Self {
         if self.step.is_negative() {
             self.index += self.step * self.len.saturating_sub(1) as isize;
             self.step = self.step.saturating_abs()

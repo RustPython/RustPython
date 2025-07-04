@@ -28,7 +28,7 @@ pub struct PyComplex {
 }
 
 impl PyComplex {
-    pub const fn to_complex64(self) -> Complex64 {
+    pub fn to_complex64(self) -> Complex64 {
         self.value
     }
 }
@@ -48,7 +48,7 @@ impl ToPyObject for Complex64 {
 
 impl From<Complex64> for PyComplex {
     fn from(value: Complex64) -> Self {
-        PyComplex { value }
+        Self { value }
     }
 }
 
@@ -161,7 +161,7 @@ impl Constructor for PyComplex {
             OptionalArg::Missing => (Complex64::new(0.0, 0.0), false),
             OptionalArg::Present(val) => {
                 let val = if cls.is(vm.ctx.types.complex_type) && imag_missing {
-                    match val.downcast_exact::<PyComplex>(vm) {
+                    match val.downcast_exact::<Self>(vm) {
                         Ok(c) => {
                             return Ok(c.into_pyref().into());
                         }
@@ -236,7 +236,7 @@ impl PyComplex {
         PyRef::new_ref(Self::from(value), ctx.types.complex_type.to_owned(), None)
     }
 
-    pub const fn to_complex(&self) -> Complex64 {
+    pub fn to_complex(&self) -> Complex64 {
         self.value
     }
 }
@@ -247,12 +247,12 @@ impl PyComplex {
 )]
 impl PyComplex {
     #[pygetset]
-    const fn real(&self) -> f64 {
+    fn real(&self) -> f64 {
         self.value.re
     }
 
     #[pygetset]
-    const fn imag(&self) -> f64 {
+    fn imag(&self) -> f64 {
         self.value.im
     }
 
@@ -346,7 +346,7 @@ impl PyComplex {
     }
 
     #[pymethod]
-    const fn __pos__(&self) -> Complex64 {
+    fn __pos__(&self) -> Complex64 {
         self.value
     }
 
@@ -384,7 +384,7 @@ impl PyComplex {
     }
 
     #[pymethod]
-    const fn __getnewargs__(&self) -> (f64, f64) {
+    fn __getnewargs__(&self) -> (f64, f64) {
         let Complex64 { re, im } = self.value;
         (re, im)
     }
@@ -393,7 +393,7 @@ impl PyComplex {
 #[pyclass]
 impl PyRef<PyComplex> {
     #[pymethod]
-    fn __complex__(self, vm: &VirtualMachine) -> PyRef<PyComplex> {
+    fn __complex__(self, vm: &VirtualMachine) -> Self {
         if self.is(vm.ctx.types.complex_type) {
             self
         } else {
@@ -410,7 +410,7 @@ impl Comparable for PyComplex {
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
         op.eq_only(|| {
-            let result = if let Some(other) = other.payload_if_subclass::<PyComplex>(vm) {
+            let result = if let Some(other) = other.payload_if_subclass::<Self>(vm) {
                 if zelf.value.re.is_nan()
                     && zelf.value.im.is_nan()
                     && other.value.re.is_nan()

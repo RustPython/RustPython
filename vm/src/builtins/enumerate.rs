@@ -44,7 +44,7 @@ impl Constructor for PyEnumerate {
         vm: &VirtualMachine,
     ) -> PyResult {
         let counter = start.map_or_else(BigInt::zero, |start| start.as_bigint().clone());
-        PyEnumerate {
+        Self {
             counter: PyRwLock::new(counter),
             iterator,
         }
@@ -101,7 +101,7 @@ impl PyPayload for PyReverseSequenceIterator {
 
 #[pyclass(with(IterNext, Iterable))]
 impl PyReverseSequenceIterator {
-    pub const fn new(obj: PyObjectRef, len: usize) -> Self {
+    pub fn new(obj: PyObjectRef, len: usize) -> Self {
         let position = len.saturating_sub(1);
         Self {
             internal: PyMutex::new(PositionIterInternal::new(obj, position)),

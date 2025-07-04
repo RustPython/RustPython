@@ -202,8 +202,8 @@ impl Deref for PyCode {
 }
 
 impl PyCode {
-    pub const fn new(code: CodeObject) -> PyCode {
-        PyCode { code }
+    pub fn new(code: CodeObject) -> Self {
+        Self { code }
     }
 }
 
@@ -242,17 +242,17 @@ impl PyCode {
     }
 
     #[pygetset]
-    const fn co_posonlyargcount(&self) -> usize {
+    fn co_posonlyargcount(&self) -> usize {
         self.code.posonlyarg_count as usize
     }
 
     #[pygetset]
-    const fn co_argcount(&self) -> usize {
+    fn co_argcount(&self) -> usize {
         self.code.arg_count as usize
     }
 
     #[pygetset]
-    const fn co_stacksize(&self) -> u32 {
+    fn co_stacksize(&self) -> u32 {
         self.code.max_stackdepth
     }
 
@@ -284,7 +284,7 @@ impl PyCode {
     }
 
     #[pygetset]
-    const fn co_kwonlyargcount(&self) -> usize {
+    fn co_kwonlyargcount(&self) -> usize {
         self.code.kwonlyarg_count as usize
     }
 
@@ -312,7 +312,7 @@ impl PyCode {
     }
 
     #[pygetset]
-    const fn co_flags(&self) -> u16 {
+    fn co_flags(&self) -> u16 {
         self.code.flags.bits()
     }
 
@@ -335,7 +335,7 @@ impl PyCode {
     }
 
     #[pymethod]
-    pub fn replace(&self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<PyCode> {
+    pub fn replace(&self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<Self> {
         let posonlyarg_count = match args.co_posonlyargcount {
             OptionalArg::Present(posonlyarg_count) => posonlyarg_count,
             OptionalArg::Missing => self.code.posonlyarg_count,
@@ -392,7 +392,7 @@ impl PyCode {
             OptionalArg::Missing => self.code.varnames.iter().map(|s| s.to_object()).collect(),
         };
 
-        Ok(PyCode {
+        Ok(Self {
             code: CodeObject {
                 flags: CodeFlags::from_bits_truncate(flags),
                 posonlyarg_count,

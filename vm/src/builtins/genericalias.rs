@@ -68,7 +68,7 @@ impl Constructor for PyGenericAlias {
         } else {
             PyTuple::new_ref(vec![arguments], &vm.ctx)
         };
-        PyGenericAlias::new(origin, args, false, vm)
+        Self::new(origin, args, false, vm)
             .into_ref_with_type(vm, cls)
             .map(Into::into)
     }
@@ -201,7 +201,7 @@ impl PyGenericAlias {
             vm,
         )?;
 
-        Ok(PyGenericAlias::new(zelf.origin.clone(), new_args, false, vm).into_pyobject(vm))
+        Ok(Self::new(zelf.origin.clone(), new_args, false, vm).into_pyobject(vm))
     }
 
     #[pymethod]
@@ -596,7 +596,7 @@ impl Iterable for PyGenericAlias {
         // CPython's ga_iter creates an iterator that yields one starred GenericAlias
         // we don't have gaiterobject yet
 
-        let starred_alias = PyGenericAlias::new(
+        let starred_alias = Self::new(
             zelf.origin.clone(),
             zelf.args.clone(),
             true, // starred

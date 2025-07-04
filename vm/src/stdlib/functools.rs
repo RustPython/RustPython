@@ -216,7 +216,7 @@ mod _functools {
 
             // Handle nested partial objects
             let (final_func, final_args, final_keywords) =
-                if let Some(partial) = func.downcast_ref::<PyPartial>() {
+                if let Some(partial) = func.downcast_ref::<Self>() {
                     let inner = partial.inner.read();
                     let mut combined_args = inner.args.as_slice().to_vec();
                     combined_args.extend_from_slice(args_slice);
@@ -230,7 +230,7 @@ mod _functools {
                 final_keywords.set_item(vm.ctx.intern_str(key.as_str()), value, vm)?;
             }
 
-            let partial = PyPartial {
+            let partial = Self {
                 inner: PyRwLock::new(PyPartialInner {
                     func: final_func,
                     args: vm.ctx.new_tuple(final_args),
@@ -304,7 +304,7 @@ mod _functools {
                 let class_name = zelf.class().name();
                 let module = zelf.class().__module__(vm);
 
-                let qualified_name = if zelf.class().is(PyPartial::class(&vm.ctx)) {
+                let qualified_name = if zelf.class().is(Self::class(&vm.ctx)) {
                     // For the base partial class, always use functools.partial
                     "functools.partial".to_owned()
                 } else {

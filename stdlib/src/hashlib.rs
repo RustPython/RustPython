@@ -100,7 +100,7 @@ pub mod _hashlib {
     #[pyclass(with(Representable))]
     impl PyHasher {
         fn new(name: &str, d: HashWrapper) -> Self {
-            PyHasher {
+            Self {
                 name: name.to_owned(),
                 ctx: PyRwLock::new(d),
             }
@@ -143,7 +143,7 @@ pub mod _hashlib {
 
         #[pymethod]
         fn copy(&self) -> Self {
-            PyHasher::new(&self.name, self.ctx.read().clone())
+            Self::new(&self.name, self.ctx.read().clone())
         }
     }
 
@@ -173,7 +173,7 @@ pub mod _hashlib {
     #[pyclass]
     impl PyHasherXof {
         fn new(name: &str, d: HashXofWrapper) -> Self {
-            PyHasherXof {
+            Self {
                 name: name.to_owned(),
                 ctx: PyRwLock::new(d),
             }
@@ -216,7 +216,7 @@ pub mod _hashlib {
 
         #[pymethod]
         fn copy(&self) -> Self {
-            PyHasherXof::new(&self.name, self.ctx.read().clone())
+            Self::new(&self.name, self.ctx.read().clone())
         }
     }
 
@@ -367,7 +367,7 @@ pub mod _hashlib {
         where
             D: ThreadSafeDynDigest + BlockSizeUser + Default + 'static,
         {
-            let mut h = HashWrapper {
+            let mut h = Self {
                 block_size: D::block_size(),
                 inner: Box::<D>::default(),
             };
@@ -403,7 +403,7 @@ pub mod _hashlib {
 
     impl HashXofWrapper {
         pub fn new_shake_128(data: OptionalArg<ArgBytesLike>) -> Self {
-            let mut h = HashXofWrapper::Shake128(Shake128::default());
+            let mut h = Self::Shake128(Shake128::default());
             if let OptionalArg::Present(d) = data {
                 d.with_ref(|bytes| h.update(bytes));
             }
@@ -411,7 +411,7 @@ pub mod _hashlib {
         }
 
         pub fn new_shake_256(data: OptionalArg<ArgBytesLike>) -> Self {
-            let mut h = HashXofWrapper::Shake256(Shake256::default());
+            let mut h = Self::Shake256(Shake256::default());
             if let OptionalArg::Present(d) = data {
                 d.with_ref(|bytes| h.update(bytes));
             }
@@ -420,22 +420,22 @@ pub mod _hashlib {
 
         fn update(&mut self, data: &[u8]) {
             match self {
-                HashXofWrapper::Shake128(h) => h.update(data),
-                HashXofWrapper::Shake256(h) => h.update(data),
+                Self::Shake128(h) => h.update(data),
+                Self::Shake256(h) => h.update(data),
             }
         }
 
         fn block_size(&self) -> usize {
             match self {
-                HashXofWrapper::Shake128(_) => Shake128::block_size(),
-                HashXofWrapper::Shake256(_) => Shake256::block_size(),
+                Self::Shake128(_) => Shake128::block_size(),
+                Self::Shake256(_) => Shake256::block_size(),
             }
         }
 
         fn finalize_xof(&self, length: usize) -> Vec<u8> {
             match self {
-                HashXofWrapper::Shake128(h) => h.clone().finalize_boxed(length).into_vec(),
-                HashXofWrapper::Shake256(h) => h.clone().finalize_boxed(length).into_vec(),
+                Self::Shake128(h) => h.clone().finalize_boxed(length).into_vec(),
+                Self::Shake256(h) => h.clone().finalize_boxed(length).into_vec(),
             }
         }
     }

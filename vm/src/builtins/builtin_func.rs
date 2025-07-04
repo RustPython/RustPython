@@ -36,7 +36,7 @@ impl fmt::Debug for PyNativeFunction {
 }
 
 impl PyNativeFunction {
-    pub const fn with_module(mut self, module: &'static PyStrInterned) -> Self {
+    pub fn with_module(mut self, module: &'static PyStrInterned) -> Self {
         self.module = Some(module);
         self
     }
@@ -50,7 +50,7 @@ impl PyNativeFunction {
     }
 
     // PyCFunction_GET_SELF
-    pub const fn get_self(&self) -> Option<&PyObjectRef> {
+    pub fn get_self(&self) -> Option<&PyObjectRef> {
         if self.value.flags.contains(PyMethodFlags::STATIC) {
             return None;
         }
@@ -119,7 +119,7 @@ impl PyNativeFunction {
     }
 
     #[pymethod]
-    const fn __reduce__(&self) -> &'static str {
+    fn __reduce__(&self) -> &'static str {
         // TODO: return (getattr, (self.object, self.name)) if this is a method
         self.value.name
     }
@@ -264,7 +264,7 @@ impl TryFromObject for NativeFunctionOrMethod {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let class = vm.ctx.types.builtin_function_or_method_type;
         if obj.fast_isinstance(class) {
-            Ok(NativeFunctionOrMethod(unsafe { obj.downcast_unchecked() }))
+            Ok(Self(unsafe { obj.downcast_unchecked() }))
         } else {
             Err(vm.new_downcast_type_error(class, &obj))
         }

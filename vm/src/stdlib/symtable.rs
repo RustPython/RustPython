@@ -29,7 +29,7 @@ mod symtable {
         Ok(py_symbol_table.into_ref(&vm.ctx))
     }
 
-    const fn to_py_symbol_table(symtable: SymbolTable) -> PySymbolTable {
+    fn to_py_symbol_table(symtable: SymbolTable) -> PySymbolTable {
         PySymbolTable { symtable }
     }
 
@@ -170,7 +170,7 @@ mod symtable {
         }
 
         #[pymethod]
-        const fn is_global(&self) -> bool {
+        fn is_global(&self) -> bool {
             self.symbol.is_global() || (self.is_top_scope && self.symbol.is_bound())
         }
 
@@ -180,7 +180,7 @@ mod symtable {
         }
 
         #[pymethod]
-        const fn is_local(&self) -> bool {
+        fn is_local(&self) -> bool {
             self.symbol.is_local() || (self.is_top_scope && self.symbol.is_bound())
         }
 
@@ -190,7 +190,7 @@ mod symtable {
         }
 
         #[pymethod]
-        const fn is_nested(&self) -> bool {
+        fn is_nested(&self) -> bool {
             // TODO
             false
         }

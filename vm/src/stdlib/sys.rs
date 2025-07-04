@@ -95,7 +95,7 @@ mod sys {
     const DLLHANDLE: usize = 0;
 
     #[pyattr]
-    const fn default_prefix(_vm: &VirtualMachine) -> &'static str {
+    fn default_prefix(_vm: &VirtualMachine) -> &'static str {
         // TODO: the windows one doesn't really make sense
         if cfg!(windows) { "C:" } else { "/usr/local" }
     }
@@ -238,7 +238,7 @@ mod sys {
     }
 
     #[pyattr]
-    const fn meta_path(_vm: &VirtualMachine) -> Vec<PyObjectRef> {
+    fn meta_path(_vm: &VirtualMachine) -> Vec<PyObjectRef> {
         Vec::new()
     }
 
@@ -258,7 +258,7 @@ mod sys {
     }
 
     #[pyattr]
-    const fn path_hooks(_vm: &VirtualMachine) -> Vec<PyObjectRef> {
+    fn path_hooks(_vm: &VirtualMachine) -> Vec<PyObjectRef> {
         Vec::new()
     }
 
@@ -454,7 +454,7 @@ mod sys {
     }
 
     #[pyfunction]
-    const fn getdefaultencoding() -> &'static str {
+    fn getdefaultencoding() -> &'static str {
         crate::codecs::DEFAULT_ENCODING
     }
 
@@ -964,7 +964,7 @@ mod sys {
 
     #[pyclass(with(PyStructSequence))]
     impl Flags {
-        const fn from_settings(settings: &Settings) -> Self {
+        fn from_settings(settings: &Settings) -> Self {
             Self {
                 debug: settings.debug,
                 inspect: settings.inspect as u8,
@@ -1005,7 +1005,7 @@ mod sys {
     #[cfg(feature = "threading")]
     #[pyclass(with(PyStructSequence))]
     impl PyThreadInfo {
-        const INFO: Self = PyThreadInfo {
+        const INFO: Self = Self {
             name: crate::stdlib::thread::_thread::PYTHREAD_NAME,
             // As I know, there's only way to use lock as "Mutex" in Rust
             // with satisfying python document spec.
@@ -1032,7 +1032,7 @@ mod sys {
 
     #[pyclass(with(PyStructSequence))]
     impl PyFloatInfo {
-        const INFO: Self = PyFloatInfo {
+        const INFO: Self = Self {
             max: f64::MAX,
             max_exp: f64::MAX_EXP,
             max_10_exp: f64::MAX_10_EXP,
@@ -1065,7 +1065,7 @@ mod sys {
     impl PyHashInfo {
         const INFO: Self = {
             use rustpython_common::hash::*;
-            PyHashInfo {
+            Self {
                 width: std::mem::size_of::<PyHash>() * 8,
                 modulus: MODULUS,
                 inf: INF,
@@ -1090,7 +1090,7 @@ mod sys {
 
     #[pyclass(with(PyStructSequence))]
     impl PyIntInfo {
-        const INFO: Self = PyIntInfo {
+        const INFO: Self = Self {
             bits_per_digit: 30, //?
             sizeof_digit: std::mem::size_of::<u32>(),
             default_max_str_digits: 4300,
@@ -1110,7 +1110,7 @@ mod sys {
 
     #[pyclass(with(PyStructSequence))]
     impl VersionInfo {
-        pub const VERSION: VersionInfo = VersionInfo {
+        pub const VERSION: Self = Self {
             major: version::MAJOR,
             minor: version::MINOR,
             micro: version::MICRO,

@@ -36,16 +36,16 @@ impl Constant for ConstantData {
     fn borrow_constant(&self) -> BorrowedConstant<'_, Self> {
         use BorrowedConstant::*;
         match self {
-            ConstantData::Integer { value } => Integer { value },
-            ConstantData::Float { value } => Float { value: *value },
-            ConstantData::Complex { value } => Complex { value: *value },
-            ConstantData::Boolean { value } => Boolean { value: *value },
-            ConstantData::Str { value } => Str { value },
-            ConstantData::Bytes { value } => Bytes { value },
-            ConstantData::Code { code } => Code { code },
-            ConstantData::Tuple { elements } => Tuple { elements },
-            ConstantData::None => None,
-            ConstantData::Ellipsis => Ellipsis,
+            Self::Integer { value } => Integer { value },
+            Self::Float { value } => Float { value: *value },
+            Self::Complex { value } => Complex { value: *value },
+            Self::Boolean { value } => Boolean { value: *value },
+            Self::Str { value } => Str { value },
+            Self::Bytes { value } => Bytes { value },
+            Self::Code { code } => Code { code },
+            Self::Tuple { elements } => Tuple { elements },
+            Self::None => None,
+            Self::Ellipsis => Ellipsis,
         }
     }
 }
@@ -136,15 +136,15 @@ bitflags! {
 }
 
 impl CodeFlags {
-    pub const NAME_MAPPING: &'static [(&'static str, CodeFlags)] = &[
-        ("GENERATOR", CodeFlags::IS_GENERATOR),
-        ("COROUTINE", CodeFlags::IS_COROUTINE),
+    pub const NAME_MAPPING: &'static [(&'static str, Self)] = &[
+        ("GENERATOR", Self::IS_GENERATOR),
+        ("COROUTINE", Self::IS_COROUTINE),
         (
             "ASYNC_GENERATOR",
             Self::from_bits_truncate(Self::IS_GENERATOR.bits() | Self::IS_COROUTINE.bits()),
         ),
-        ("VARARGS", CodeFlags::HAS_VARARGS),
-        ("VARKEYWORDS", CodeFlags::HAS_VARKEYWORDS),
+        ("VARARGS", Self::HAS_VARARGS),
+        ("VARKEYWORDS", Self::HAS_VARKEYWORDS),
     ];
 }
 
@@ -154,7 +154,7 @@ impl CodeFlags {
 pub struct OpArgByte(pub u8);
 impl OpArgByte {
     pub const fn null() -> Self {
-        OpArgByte(0)
+        Self(0)
     }
 }
 impl fmt::Debug for OpArgByte {
@@ -169,12 +169,12 @@ impl fmt::Debug for OpArgByte {
 pub struct OpArg(pub u32);
 impl OpArg {
     pub const fn null() -> Self {
-        OpArg(0)
+        Self(0)
     }
 
     /// Returns how many CodeUnits a instruction with this op_arg will be encoded as
     #[inline]
-    pub const fn instr_size(self) -> usize {
+    pub fn instr_size(self) -> usize {
         (self.0 > 0xff) as usize + (self.0 > 0xff_ff) as usize + (self.0 > 0xff_ff_ff) as usize + 1
     }
 
@@ -214,7 +214,7 @@ impl OpArgState {
         OpArg(self.state)
     }
     #[inline(always)]
-    pub const fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.state = 0
     }
 }
@@ -280,8 +280,8 @@ pub struct Arg<T: OpArgType>(PhantomData<T>);
 
 impl<T: OpArgType> Arg<T> {
     #[inline]
-    pub const fn marker() -> Self {
-        Arg(PhantomData)
+    pub fn marker() -> Self {
+        Self(PhantomData)
     }
     #[inline]
     pub fn new(arg: T) -> (Self, OpArg) {
@@ -333,7 +333,7 @@ pub struct Label(pub u32);
 impl OpArgType for Label {
     #[inline(always)]
     fn from_op_arg(x: u32) -> Option<Self> {
-        Some(Label(x))
+        Some(Self(x))
     }
     #[inline(always)]
     fn to_op_arg(self) -> u32 {
@@ -351,10 +351,10 @@ impl OpArgType for ConversionFlag {
     #[inline]
     fn from_op_arg(x: u32) -> Option<Self> {
         match x as u8 {
-            b's' => Some(ConversionFlag::Str),
-            b'a' => Some(ConversionFlag::Ascii),
-            b'r' => Some(ConversionFlag::Repr),
-            std::u8::MAX => Some(ConversionFlag::None),
+            b's' => Some(Self::Str),
+            b'a' => Some(Self::Ascii),
+            b'r' => Some(Self::Repr),
+            std::u8::MAX => Some(Self::None),
             _ => None,
         }
     }
@@ -631,9 +631,9 @@ const _: () = assert!(mem::size_of::<Instruction>() == 1);
 
 impl From<Instruction> for u8 {
     #[inline]
-    fn from(ins: Instruction) -> u8 {
+    fn from(ins: Instruction) -> Self {
         // SAFETY: there's no padding bits
-        unsafe { std::mem::transmute::<Instruction, u8>(ins) }
+        unsafe { std::mem::transmute::<Instruction, Self>(ins) }
     }
 }
 
@@ -643,7 +643,7 @@ impl TryFrom<u8> for Instruction {
     #[inline]
     fn try_from(value: u8) -> Result<Self, crate::marshal::MarshalError> {
         if value <= u8::from(LAST_INSTRUCTION) {
-            Ok(unsafe { std::mem::transmute::<u8, Instruction>(value) })
+            Ok(unsafe { std::mem::transmute::<u8, Self>(value) })
         } else {
             Err(crate::marshal::MarshalError::InvalidBytecode)
         }
@@ -660,7 +660,7 @@ pub struct CodeUnit {
 const _: () = assert!(mem::size_of::<CodeUnit>() == 2);
 
 impl CodeUnit {
-    pub const fn new(op: Instruction, arg: OpArgByte) -> Self {
+    pub fn new(op: Instruction, arg: OpArgByte) -> Self {
         Self { op, arg }
     }
 }
@@ -680,7 +680,7 @@ bitflags! {
 impl OpArgType for MakeFunctionFlags {
     #[inline(always)]
     fn from_op_arg(x: u32) -> Option<Self> {
-        MakeFunctionFlags::from_bits(x as u8)
+        Self::from_bits(x as u8)
     }
     #[inline(always)]
     fn to_op_arg(self) -> u32 {
@@ -1150,7 +1150,7 @@ impl<C: Constant> fmt::Display for CodeObject<C> {
 impl Instruction {
     /// Gets the label stored inside this instruction, if it exists
     #[inline]
-    pub const fn label_arg(&self) -> Option<Arg<Label>> {
+    pub fn label_arg(&self) -> Option<Arg<Label>> {
         match self {
             Jump { target: l }
             | JumpIfTrue { target: l }
@@ -1177,7 +1177,7 @@ impl Instruction {
     /// let jump_inst = Instruction::Jump { target: Arg::marker() };
     /// assert!(jump_inst.unconditional_branch())
     /// ```
-    pub const fn unconditional_branch(&self) -> bool {
+    pub fn unconditional_branch(&self) -> bool {
         matches!(
             self,
             Jump { .. }

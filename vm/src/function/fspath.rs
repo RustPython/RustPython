@@ -27,11 +27,11 @@ impl FsPath {
             let pathlike = match_class!(match obj {
                 s @ PyStr => {
                     check_nul(s.as_bytes())?;
-                    FsPath::Str(s)
+                    Self::Str(s)
                 }
                 b @ PyBytes => {
                     check_nul(&b)?;
-                    FsPath::Bytes(b)
+                    Self::Bytes(b)
                 }
                 obj => return Ok(Err(obj)),
             });
@@ -61,30 +61,30 @@ impl FsPath {
     pub fn as_os_str(&self, vm: &VirtualMachine) -> PyResult<Cow<'_, OsStr>> {
         // TODO: FS encodings
         match self {
-            FsPath::Str(s) => vm.fsencode(s),
-            FsPath::Bytes(b) => Self::bytes_as_os_str(b.as_bytes(), vm).map(Cow::Borrowed),
+            Self::Str(s) => vm.fsencode(s),
+            Self::Bytes(b) => Self::bytes_as_os_str(b.as_bytes(), vm).map(Cow::Borrowed),
         }
     }
 
     pub fn as_bytes(&self) -> &[u8] {
         // TODO: FS encodings
         match self {
-            FsPath::Str(s) => s.as_bytes(),
-            FsPath::Bytes(b) => b.as_bytes(),
+            Self::Str(s) => s.as_bytes(),
+            Self::Bytes(b) => b.as_bytes(),
         }
     }
 
     pub fn to_string_lossy(&self) -> Cow<'_, str> {
         match self {
-            FsPath::Str(s) => s.to_string_lossy(),
-            FsPath::Bytes(s) => String::from_utf8_lossy(s),
+            Self::Str(s) => s.to_string_lossy(),
+            Self::Bytes(s) => String::from_utf8_lossy(s),
         }
     }
 
     pub fn to_path_buf(&self, vm: &VirtualMachine) -> PyResult<PathBuf> {
         let path = match self {
-            FsPath::Str(s) => PathBuf::from(s.as_str()),
-            FsPath::Bytes(b) => PathBuf::from(Self::bytes_as_os_str(b, vm)?),
+            Self::Str(s) => PathBuf::from(s.as_str()),
+            Self::Bytes(b) => PathBuf::from(Self::bytes_as_os_str(b, vm)?),
         };
         Ok(path)
     }
