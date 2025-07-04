@@ -1,6 +1,8 @@
 // spell-checker:ignore ddfe
 use itertools::{Itertools, PeekingNext};
+use malachite_base::num::basic::floats::PrimitiveFloat;
 use malachite_bigint::{BigInt, Sign};
+use num_complex::Complex64;
 use num_traits::FromPrimitive;
 use num_traits::{Signed, cast::ToPrimitive};
 use rustpython_literal::float;
@@ -612,6 +614,126 @@ impl FormatSpec {
         }
     }
 
+    pub fn format_complex(&self, num: &Complex64) -> Result<String, FormatSpecError> {
+        let (formatted_re, formatted_im) = self.format_complex_re_im(num)?;
+        // Enclose in parentheses if there is no format type and formatted_re is not empty
+        let magnitude_str = if self.format_type.is_none() && !formatted_re.is_empty() {
+            format!("({formatted_re}{formatted_im})")
+        } else {
+            format!("{formatted_re}{formatted_im}")
+        };
+        if let Some(FormatAlign::AfterSign) = &self.align {
+            return Err(FormatSpecError::AlignmentFlag);
+        }
+        match &self.fill.unwrap_or(' '.into()).to_char() {
+            Some('0') => Err(FormatSpecError::ZeroPadding),
+            _ => self.format_sign_and_align(&AsciiStr::new(&magnitude_str), "", FormatAlign::Right),
+        }
+    }
+
+    fn format_complex_re_im(&self, num: &Complex64) -> Result<(String, String), FormatSpecError> {
+        // Format real part
+        let mut formatted_re = String::new();
+        if num.re != 0.0 || num.re.is_negative_zero() || self.format_type.is_some() {
+            let sign_re = if num.re.is_sign_negative() && !num.is_nan() {
+                "-"
+            } else {
+                match self.sign.unwrap_or(FormatSign::Minus) {
+                    FormatSign::Plus => "+",
+                    FormatSign::Minus => "",
+                    FormatSign::MinusOrSpace => " ",
+                }
+            };
+            let re = self.format_complex_float(num.re)?;
+            formatted_re = format!("{sign_re}{re}");
+        }
+        // Format imaginary part
+        let sign_im = if num.im.is_sign_negative() && !num.im.is_nan() {
+            "-"
+        } else if formatted_re.is_empty() {
+            ""
+        } else {
+            "+"
+        };
+        let im = self.format_complex_float(num.im)?;
+        Ok((formatted_re, format!("{sign_im}{im}j")))
+    }
+
+    fn format_complex_float(&self, num: f64) -> Result<String, FormatSpecError> {
+        self.validate_format(FormatType::FixedPoint(Case::Lower))?;
+        let precision = self.precision.unwrap_or(6);
+        let magnitude = num.abs();
+        let magnitude_str = match &self.format_type {
+            Some(FormatType::Decimal)
+            | Some(FormatType::Binary)
+            | Some(FormatType::Octal)
+            | Some(FormatType::Hex(_))
+            | Some(FormatType::String)
+            | Some(FormatType::Character)
+            | Some(FormatType::Number(Case::Upper))
+            | Some(FormatType::Percentage) => {
+                let ch = char::from(self.format_type.as_ref().unwrap());
+                Err(FormatSpecError::UnknownFormatCode(ch, "complex"))
+            }
+            Some(FormatType::FixedPoint(case)) => Ok(float::format_fixed(
+                precision,
+                magnitude,
+                *case,
+                self.alternate_form,
+            )),
+            Some(FormatType::GeneralFormat(case)) | Some(FormatType::Number(case)) => {
+                let precision = if precision == 0 { 1 } else { precision };
+                Ok(float::format_general(
+                    precision,
+                    magnitude,
+                    *case,
+                    self.alternate_form,
+                    false,
+                ))
+            }
+            Some(FormatType::Exponent(case)) => Ok(float::format_exponent(
+                precision,
+                magnitude,
+                *case,
+                self.alternate_form,
+            )),
+            None => match magnitude {
+                magnitude if magnitude.is_nan() => Ok("nan".to_owned()),
+                magnitude if magnitude.is_infinite() => Ok("inf".to_owned()),
+                _ => match self.precision {
+                    Some(precision) => Ok(float::format_general(
+                        precision,
+                        magnitude,
+                        Case::Lower,
+                        self.alternate_form,
+                        true,
+                    )),
+                    None => {
+                        if magnitude.fract() == 0.0 {
+                            Ok(magnitude.trunc().to_string())
+                        } else {
+                            Ok(magnitude.to_string())
+                        }
+                    }
+                },
+            },
+        }?;
+        match &self.grouping_option {
+            Some(fg) => {
+                let sep = match fg {
+                    FormatGrouping::Comma => ',',
+                    FormatGrouping::Underscore => '_',
+                };
+                let inter = self.get_separator_interval().try_into().unwrap();
+                let len = magnitude_str.len() as i32;
+                let separated_magnitude =
+                    FormatSpec::add_magnitude_separators_for_char(magnitude_str, inter, sep, len);
+                Ok(separated_magnitude)
+            }
+            None => Ok(magnitude_str),
+        }
+    }
+
     fn format_sign_and_align<T>(
         &self,
         magnitude_str: &T,
@@ -701,6 +823,8 @@ pub enum FormatSpecError {
     NotAllowed(&'static str),
     UnableToConvert,
     CodeNotInRange,
+    ZeroPadding,
+    AlignmentFlag,
     NotImplemented(char, &'static str),
 }
 

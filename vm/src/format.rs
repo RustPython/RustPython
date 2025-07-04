@@ -34,6 +34,12 @@ impl IntoPyException for FormatSpecError {
             }
             Self::UnableToConvert => vm.new_value_error("Unable to convert int to float"),
             Self::CodeNotInRange => vm.new_overflow_error("%c arg not in range(0x110000)"),
+            Self::ZeroPadding => {
+                vm.new_value_error("Zero padding is not allowed in complex format specifier")
+            }
+            Self::AlignmentFlag => {
+                vm.new_value_error("'=' alignment flag is not allowed in complex format specifier")
+            }
             Self::NotImplemented(c, s) => {
                 let msg = format!("Format code '{c}' for object of type '{s}' not implemented yet");
                 vm.new_value_error(msg)
