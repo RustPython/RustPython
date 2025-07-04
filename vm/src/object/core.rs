@@ -862,12 +862,6 @@ impl AsRef<PyObject> for PyObjectRef {
     }
 }
 
-impl AsRef<Self> for PyObject {
-    #[inline(always)]
-    fn as_ref(&self) -> &Self {
-        self
-    }
-}
 
 impl<'a, T: PyObjectPayload> From<&'a Py<T>> for &'a PyObject {
     #[inline(always)]
