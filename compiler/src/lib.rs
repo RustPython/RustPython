@@ -62,7 +62,7 @@ impl CompileError {
         }
     }
 
-    pub fn python_location(&self) -> (usize, usize) {
+    pub const fn python_location(&self) -> (usize, usize) {
         match self {
             Self::Codegen(codegen_error) => {
                 if let Some(location) = &codegen_error.location {
