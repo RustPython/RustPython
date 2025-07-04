@@ -719,8 +719,6 @@ class ComplexTest(unittest.TestCase):
                 self.assertFloatsAreIdentical(0.0 + z.imag,
                                               0.0 + roundtrip.imag)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_format(self):
         # empty format string is same as str()
         self.assertEqual(format(1+3j, ''), str(1+3j))
