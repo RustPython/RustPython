@@ -136,7 +136,7 @@ bitflags! {
 
 impl CConversionFlags {
     #[inline]
-    pub fn sign_string(&self) -> &'static str {
+    pub const fn sign_string(&self) -> &'static str {
         if self.contains(Self::SIGN_CHAR) {
             "+"
         } else if self.contains(Self::BLANK_SIGN) {

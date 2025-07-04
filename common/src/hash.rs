@@ -164,7 +164,7 @@ pub fn lcg_urandom(mut x: u32, buf: &mut [u8]) {
 }
 
 #[inline]
-pub fn hash_object_id_raw(p: usize) -> PyHash {
+pub const fn hash_object_id_raw(p: usize) -> PyHash {
     // TODO: Use commented logic when below issue resolved.
     // Ref: https://github.com/RustPython/RustPython/pull/3951#issuecomment-1193108966
 
@@ -175,7 +175,7 @@ pub fn hash_object_id_raw(p: usize) -> PyHash {
 }
 
 #[inline]
-pub fn hash_object_id(p: usize) -> PyHash {
+pub const fn hash_object_id(p: usize) -> PyHash {
     fix_sentinel(hash_object_id_raw(p))
 }
 
