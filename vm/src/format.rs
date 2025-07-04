@@ -34,10 +34,10 @@ impl IntoPyException for FormatSpecError {
             }
             Self::UnableToConvert => vm.new_value_error("Unable to convert int to float"),
             Self::CodeNotInRange => vm.new_overflow_error("%c arg not in range(0x110000)"),
-            Self::ZeroPaddingNotAllowed => {
+            Self::ZeroPadding => {
                 vm.new_value_error("Zero padding is not allowed in complex format specifier")
             }
-            Self::AlignmentFlagNotAllowed => {
+            Self::AlignmentFlag => {
                 vm.new_value_error("'=' alignment flag is not allowed in complex format specifier")
             }
             Self::NotImplemented(c, s) => {

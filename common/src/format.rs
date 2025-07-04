@@ -623,10 +623,10 @@ impl FormatSpec {
             format!("{formatted_re}{formatted_im}")
         };
         if let Some(FormatAlign::AfterSign) = &self.align {
-            return Err(FormatSpecError::AlignmentFlagNotAllowed);
+            return Err(FormatSpecError::AlignmentFlag);
         }
         match &self.fill.unwrap_or(' '.into()).to_char() {
-            Some('0') => Err(FormatSpecError::ZeroPaddingNotAllowed),
+            Some('0') => Err(FormatSpecError::ZeroPadding),
             _ => self.format_sign_and_align(&AsciiStr::new(&magnitude_str), "", FormatAlign::Right),
         }
     }
@@ -823,8 +823,8 @@ pub enum FormatSpecError {
     NotAllowed(&'static str),
     UnableToConvert,
     CodeNotInRange,
-    ZeroPaddingNotAllowed,
-    AlignmentFlagNotAllowed,
+    ZeroPadding,
+    AlignmentFlag,
     NotImplemented(char, &'static str),
 }
 
