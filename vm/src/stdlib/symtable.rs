@@ -29,7 +29,7 @@ mod symtable {
         Ok(py_symbol_table.into_ref(&vm.ctx))
     }
 
-    fn to_py_symbol_table(symtable: SymbolTable) -> PySymbolTable {
+    const fn to_py_symbol_table(symtable: SymbolTable) -> PySymbolTable {
         PySymbolTable { symtable }
     }
 
@@ -190,7 +190,7 @@ mod symtable {
         }
 
         #[pymethod]
-        fn is_nested(&self) -> bool {
+        const fn is_nested(&self) -> bool {
             // TODO
             false
         }

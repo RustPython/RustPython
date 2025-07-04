@@ -149,12 +149,12 @@ impl PyTypeFlags {
         }
     }
 
-    pub fn has_feature(self, flag: Self) -> bool {
+    pub const fn has_feature(self, flag: Self) -> bool {
         self.contains(flag)
     }
 
     #[cfg(debug_assertions)]
-    pub fn is_created_with_flags(self) -> bool {
+    pub const fn is_created_with_flags(self) -> bool {
         self.contains(Self::_CREATED_WITH_FLAGS)
     }
 }
@@ -325,7 +325,7 @@ fn iter_wrapper(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 }
 
 // PyObject_SelfIter in CPython
-fn self_iter(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
+const fn self_iter(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
     Ok(zelf)
 }
 
@@ -1109,7 +1109,7 @@ impl PyComparisonOp {
         }
     }
 
-    pub fn eval_ord(self, ord: Ordering) -> bool {
+    pub const fn eval_ord(self, ord: Ordering) -> bool {
         let bit = match ord {
             Ordering::Less => Self::Lt,
             Ordering::Equal => Self::Eq,
@@ -1118,7 +1118,7 @@ impl PyComparisonOp {
         self.0 as u8 & bit.0 as u8 != 0
     }
 
-    pub fn swapped(self) -> Self {
+    pub const fn swapped(self) -> Self {
         match self {
             Self::Lt => Self::Gt,
             Self::Le => Self::Ge,

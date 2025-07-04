@@ -103,7 +103,7 @@ impl PySourceLocation {
 struct Row(OneIndexed);
 
 impl Row {
-    fn get(self) -> usize {
+    const fn get(self) -> usize {
         self.0.get()
     }
 
@@ -117,11 +117,11 @@ impl Row {
 struct Column(TextSize);
 
 impl Column {
-    fn get(self) -> usize {
+    const fn get(self) -> usize {
         self.0.to_usize()
     }
 
-    fn get_one_indexed(self) -> OneIndexed {
+    const fn get_one_indexed(self) -> OneIndexed {
         OneIndexed::from_zero_indexed(self.get())
     }
 }

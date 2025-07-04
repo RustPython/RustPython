@@ -415,7 +415,7 @@ impl SaturatedSliceIter {
         Self::from_adjust_indices(range, step, len)
     }
 
-    pub fn from_adjust_indices(range: Range<usize>, step: isize, len: usize) -> Self {
+    pub const fn from_adjust_indices(range: Range<usize>, step: isize, len: usize) -> Self {
         let index = if step.is_negative() {
             range.end as isize - 1
         } else {
@@ -424,7 +424,7 @@ impl SaturatedSliceIter {
         Self { index, step, len }
     }
 
-    pub fn positive_order(mut self) -> Self {
+    pub const fn positive_order(mut self) -> Self {
         if self.step.is_negative() {
             self.index += self.step * self.len.saturating_sub(1) as isize;
             self.step = self.step.saturating_abs()

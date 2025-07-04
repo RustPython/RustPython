@@ -47,7 +47,7 @@ unsafe impl<T: Traverse> Traverse for PositionIterInternal<T> {
 }
 
 impl<T> PositionIterInternal<T> {
-    pub fn new(obj: T, position: usize) -> Self {
+    pub const fn new(obj: T, position: usize) -> Self {
         Self {
             status: IterStatus::Active(obj),
             position,
@@ -256,7 +256,7 @@ impl PyPayload for PyCallableIterator {
 
 #[pyclass(with(IterNext, Iterable))]
 impl PyCallableIterator {
-    pub fn new(callable: ArgCallable, sentinel: PyObjectRef) -> Self {
+    pub const fn new(callable: ArgCallable, sentinel: PyObjectRef) -> Self {
         Self {
             sentinel,
             status: PyRwLock::new(IterStatus::Active(callable)),

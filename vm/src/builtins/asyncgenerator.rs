@@ -29,7 +29,7 @@ impl PyPayload for PyAsyncGen {
 
 #[pyclass(with(PyRef, Unconstructible, Representable))]
 impl PyAsyncGen {
-    pub fn as_coro(&self) -> &Coro {
+    pub const fn as_coro(&self) -> &Coro {
         &self.inner
     }
 
@@ -76,7 +76,7 @@ impl PyAsyncGen {
 #[pyclass]
 impl PyRef<PyAsyncGen> {
     #[pymethod]
-    fn __aiter__(self, _vm: &VirtualMachine) -> Self {
+    const fn __aiter__(self, _vm: &VirtualMachine) -> Self {
         self
     }
 
@@ -86,7 +86,7 @@ impl PyRef<PyAsyncGen> {
     }
 
     #[pymethod]
-    fn asend(self, value: PyObjectRef, _vm: &VirtualMachine) -> PyAsyncGenASend {
+    const fn asend(self, value: PyObjectRef, _vm: &VirtualMachine) -> PyAsyncGenASend {
         PyAsyncGenASend {
             ag: self,
             state: AtomicCell::new(AwaitableState::Init),
@@ -201,7 +201,7 @@ impl PyPayload for PyAsyncGenASend {
 #[pyclass(with(IterNext, Iterable))]
 impl PyAsyncGenASend {
     #[pymethod(name = "__await__")]
-    fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    const fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
         zelf
     }
 
@@ -295,7 +295,7 @@ impl PyPayload for PyAsyncGenAThrow {
 #[pyclass(with(IterNext, Iterable))]
 impl PyAsyncGenAThrow {
     #[pymethod(name = "__await__")]
-    fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    const fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
         zelf
     }
 

@@ -441,7 +441,7 @@ impl PySetInner {
         // This is important because some use cases have many combinations of a
         // small number of elements with nearby hashes so that many distinct
         // combinations collapse to only a handful of distinct hash values.
-        fn _shuffle_bits(h: u64) -> u64 {
+        const fn _shuffle_bits(h: u64) -> u64 {
             ((h ^ 89869747) ^ (h.wrapping_shl(16))).wrapping_mul(3644798167)
         }
         // Factor in the number of active entries

@@ -36,7 +36,7 @@ impl fmt::Debug for PyNativeFunction {
 }
 
 impl PyNativeFunction {
-    pub fn with_module(mut self, module: &'static PyStrInterned) -> Self {
+    pub const fn with_module(mut self, module: &'static PyStrInterned) -> Self {
         self.module = Some(module);
         self
     }
@@ -50,7 +50,7 @@ impl PyNativeFunction {
     }
 
     // PyCFunction_GET_SELF
-    pub fn get_self(&self) -> Option<&PyObjectRef> {
+    pub const fn get_self(&self) -> Option<&PyObjectRef> {
         if self.value.flags.contains(PyMethodFlags::STATIC) {
             return None;
         }
@@ -119,7 +119,7 @@ impl PyNativeFunction {
     }
 
     #[pymethod]
-    fn __reduce__(&self) -> &'static str {
+    const fn __reduce__(&self) -> &'static str {
         // TODO: return (getattr, (self.object, self.name)) if this is a method
         self.value.name
     }

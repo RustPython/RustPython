@@ -414,11 +414,11 @@ impl PyStr {
     }
 
     #[inline]
-    pub fn as_wtf8(&self) -> &Wtf8 {
+    pub const fn as_wtf8(&self) -> &Wtf8 {
         self.data.as_wtf8()
     }
 
-    pub fn as_bytes(&self) -> &[u8] {
+    pub const fn as_bytes(&self) -> &[u8] {
         self.data.as_wtf8().as_bytes()
     }
 
@@ -456,7 +456,7 @@ impl PyStr {
             .unwrap_or_else(|| self.as_wtf8().to_string_lossy())
     }
 
-    pub fn kind(&self) -> StrKind {
+    pub const fn kind(&self) -> StrKind {
         self.data.kind()
     }
 
@@ -465,7 +465,7 @@ impl PyStr {
         self.data.as_str_kind()
     }
 
-    pub fn is_utf8(&self) -> bool {
+    pub const fn is_utf8(&self) -> bool {
         self.kind().is_utf8()
     }
 
@@ -601,7 +601,7 @@ impl PyStr {
 
     #[pymethod(name = "isascii")]
     #[inline(always)]
-    pub fn is_ascii(&self) -> bool {
+    pub const fn is_ascii(&self) -> bool {
         matches!(self.kind(), StrKind::Ascii)
     }
 

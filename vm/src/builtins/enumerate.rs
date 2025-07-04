@@ -101,7 +101,7 @@ impl PyPayload for PyReverseSequenceIterator {
 
 #[pyclass(with(IterNext, Iterable))]
 impl PyReverseSequenceIterator {
-    pub fn new(obj: PyObjectRef, len: usize) -> Self {
+    pub const fn new(obj: PyObjectRef, len: usize) -> Self {
         let position = len.saturating_sub(1);
         Self {
             internal: PyMutex::new(PositionIterInternal::new(obj, position)),

@@ -421,7 +421,7 @@ impl From<PyDictRef> for InstanceDict {
 
 impl InstanceDict {
     #[inline]
-    pub fn new(d: PyDictRef) -> Self {
+    pub const fn new(d: PyDictRef) -> Self {
         Self {
             d: PyRwLock::new(d),
         }
@@ -512,7 +512,7 @@ impl ToOwned for PyObject {
 
 impl PyObjectRef {
     #[inline(always)]
-    pub fn into_raw(self) -> NonNull<PyObject> {
+    pub const fn into_raw(self) -> NonNull<PyObject> {
         let ptr = self.ptr;
         std::mem::forget(self);
         ptr
@@ -524,7 +524,7 @@ impl PyObjectRef {
     /// dropped more than once due to mishandling the reference count by calling this function
     /// too many times.
     #[inline(always)]
-    pub unsafe fn from_raw(ptr: NonNull<PyObject>) -> Self {
+    pub const unsafe fn from_raw(ptr: NonNull<PyObject>) -> Self {
         Self { ptr }
     }
 
@@ -663,7 +663,7 @@ impl PyObject {
     /// # Safety
     /// The actual payload type must be T.
     #[inline(always)]
-    pub unsafe fn payload_unchecked<T: PyObjectPayload>(&self) -> &T {
+    pub const unsafe fn payload_unchecked<T: PyObjectPayload>(&self) -> &T {
         // we cast to a PyInner<T> first because we don't know T's exact offset because of
         // varying alignment, but once we get a PyInner<T> the compiler can get it for us
         let inner = unsafe { &*(&self.0 as *const PyInner<Erased> as *const PyInner<T>) };
@@ -1019,7 +1019,7 @@ impl<T: PyObjectPayload> Clone for PyRef<T> {
 
 impl<T: PyObjectPayload> PyRef<T> {
     #[inline(always)]
-    pub(crate) unsafe fn from_raw(raw: *const Py<T>) -> Self {
+    pub(crate) const unsafe fn from_raw(raw: *const Py<T>) -> Self {
         Self {
             ptr: unsafe { NonNull::new_unchecked(raw as *mut _) },
         }
@@ -1043,7 +1043,7 @@ impl<T: PyObjectPayload> PyRef<T> {
         }
     }
 
-    pub fn leak(pyref: Self) -> &'static Py<T> {
+    pub const fn leak(pyref: Self) -> &'static Py<T> {
         let ptr = pyref.ptr;
         std::mem::forget(pyref);
         unsafe { ptr.as_ref() }

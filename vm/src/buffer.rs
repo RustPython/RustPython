@@ -201,7 +201,7 @@ pub(crate) struct FormatCode {
 }
 
 impl FormatCode {
-    pub fn arg_count(&self) -> usize {
+    pub const fn arg_count(&self) -> usize {
         match self.code {
             FormatType::Pad => 0,
             FormatType::Str | FormatType::Pascal => 1,
@@ -286,7 +286,7 @@ impl FormatCode {
     }
 }
 
-fn compensate_alignment(offset: usize, align: usize) -> Option<usize> {
+const fn compensate_alignment(offset: usize, align: usize) -> Option<usize> {
     if align != 0 && offset != 0 {
         // a % b == a & (b-1) if b is a power of 2
         (align - 1).checked_sub((offset - 1) & (align - 1))
@@ -444,7 +444,7 @@ impl FormatSpec {
     }
 
     #[inline]
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         self.size
     }
 }

@@ -28,7 +28,7 @@ pub struct PyComplex {
 }
 
 impl PyComplex {
-    pub fn to_complex64(self) -> Complex64 {
+    pub const fn to_complex64(self) -> Complex64 {
         self.value
     }
 }
@@ -236,7 +236,7 @@ impl PyComplex {
         PyRef::new_ref(Self::from(value), ctx.types.complex_type.to_owned(), None)
     }
 
-    pub fn to_complex(&self) -> Complex64 {
+    pub const fn to_complex(&self) -> Complex64 {
         self.value
     }
 }
@@ -247,12 +247,12 @@ impl PyComplex {
 )]
 impl PyComplex {
     #[pygetset]
-    fn real(&self) -> f64 {
+    const fn real(&self) -> f64 {
         self.value.re
     }
 
     #[pygetset]
-    fn imag(&self) -> f64 {
+    const fn imag(&self) -> f64 {
         self.value.im
     }
 
@@ -346,7 +346,7 @@ impl PyComplex {
     }
 
     #[pymethod]
-    fn __pos__(&self) -> Complex64 {
+    const fn __pos__(&self) -> Complex64 {
         self.value
     }
 
@@ -384,7 +384,7 @@ impl PyComplex {
     }
 
     #[pymethod]
-    fn __getnewargs__(&self) -> (f64, f64) {
+    const fn __getnewargs__(&self) -> (f64, f64) {
         let Complex64 { re, im } = self.value;
         (re, im)
     }

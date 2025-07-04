@@ -25,7 +25,7 @@ impl PyPayload for PyCoroutine {
 
 #[pyclass(with(Py, Unconstructible, IterNext, Representable))]
 impl PyCoroutine {
-    pub fn as_coro(&self) -> &Coro {
+    pub const fn as_coro(&self) -> &Coro {
         &self.inner
     }
 
@@ -46,7 +46,7 @@ impl PyCoroutine {
     }
 
     #[pymethod(name = "__await__")]
-    fn r#await(zelf: PyRef<Self>) -> PyCoroutineWrapper {
+    const fn r#await(zelf: PyRef<Self>) -> PyCoroutineWrapper {
         PyCoroutineWrapper { coro: zelf }
     }
 
@@ -69,7 +69,7 @@ impl PyCoroutine {
     // TODO: coroutine origin tracking:
     // https://docs.python.org/3/library/sys.html#sys.set_coroutine_origin_tracking_depth
     #[pygetset]
-    fn cr_origin(&self, _vm: &VirtualMachine) -> Option<(PyStrRef, usize, PyStrRef)> {
+    const fn cr_origin(&self, _vm: &VirtualMachine) -> Option<(PyStrRef, usize, PyStrRef)> {
         None
     }
 
