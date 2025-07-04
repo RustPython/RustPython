@@ -135,7 +135,7 @@ impl Settings {
 /// Sensible default settings.
 impl Default for Settings {
     fn default() -> Self {
-        Settings {
+        Self {
             debug: 0,
             inspect: false,
             interactive: false,

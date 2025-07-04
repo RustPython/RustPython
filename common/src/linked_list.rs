@@ -140,8 +140,8 @@ unsafe impl<T: Sync> Sync for Pointers<T> {}
 
 impl<L, T> LinkedList<L, T> {
     /// Creates an empty linked list.
-    pub const fn new() -> LinkedList<L, T> {
-        LinkedList {
+    pub const fn new() -> Self {
+        Self {
             head: None,
             // tail: None,
             _marker: PhantomData,
@@ -323,8 +323,8 @@ where
 
 impl<T> Pointers<T> {
     /// Create a new set of empty pointers
-    pub fn new() -> Pointers<T> {
-        Pointers {
+    pub fn new() -> Self {
+        Self {
             inner: UnsafeCell::new(PointersInner {
                 prev: None,
                 next: None,

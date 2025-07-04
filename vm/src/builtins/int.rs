@@ -223,7 +223,7 @@ impl Constructor for PyInt {
                 try_int_radix(&val, base, vm)
             } else {
                 let val = if cls.is(vm.ctx.types.int_type) {
-                    match val.downcast_exact::<PyInt>(vm) {
+                    match val.downcast_exact::<Self>(vm) {
                         Ok(i) => {
                             return Ok(i.into_pyref().into());
                         }
@@ -255,7 +255,7 @@ impl PyInt {
         } else if cls.is(vm.ctx.types.bool_type) {
             Ok(vm.ctx.new_bool(!value.into().eq(&BigInt::zero())))
         } else {
-            PyInt::from(value).into_ref_with_type(vm, cls)
+            Self::from(value).into_ref_with_type(vm, cls)
         }
     }
 
@@ -298,7 +298,7 @@ impl PyInt {
         F: Fn(&BigInt, &BigInt) -> BigInt,
     {
         let r = other
-            .payload_if_subclass::<PyInt>(vm)
+            .payload_if_subclass::<Self>(vm)
             .map(|other| op(&self.value, &other.value));
         PyArithmeticValue::from_option(r)
     }
@@ -308,7 +308,7 @@ impl PyInt {
     where
         F: Fn(&BigInt, &BigInt) -> PyResult,
     {
-        if let Some(other) = other.payload_if_subclass::<PyInt>(vm) {
+        if let Some(other) = other.payload_if_subclass::<Self>(vm) {
             op(&self.value, &other.value)
         } else {
             Ok(vm.ctx.not_implemented())
@@ -402,7 +402,7 @@ impl PyInt {
     }
 
     fn modpow(&self, other: PyObjectRef, modulus: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let modulus = match modulus.payload_if_subclass::<PyInt>(vm) {
+        let modulus = match modulus.payload_if_subclass::<Self>(vm) {
             Some(val) => val.as_bigint(),
             None => return Ok(vm.ctx.not_implemented()),
         };
@@ -717,7 +717,7 @@ impl Comparable for PyInt {
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
         let r = other
-            .payload_if_subclass::<PyInt>(vm)
+            .payload_if_subclass::<Self>(vm)
             .map(|other| op.eval_ord(zelf.value.cmp(&other.value)));
         Ok(PyComparisonValue::from_option(r))
     }
@@ -751,11 +751,11 @@ impl AsNumber for PyInt {
 
 impl PyInt {
     pub(super) const AS_NUMBER: PyNumberMethods = PyNumberMethods {
-        add: Some(|a, b, vm| PyInt::number_op(a, b, |a, b, _vm| a + b, vm)),
-        subtract: Some(|a, b, vm| PyInt::number_op(a, b, |a, b, _vm| a - b, vm)),
-        multiply: Some(|a, b, vm| PyInt::number_op(a, b, |a, b, _vm| a * b, vm)),
-        remainder: Some(|a, b, vm| PyInt::number_op(a, b, inner_mod, vm)),
-        divmod: Some(|a, b, vm| PyInt::number_op(a, b, inner_divmod, vm)),
+        add: Some(|a, b, vm| Self::number_op(a, b, |a, b, _vm| a + b, vm)),
+        subtract: Some(|a, b, vm| Self::number_op(a, b, |a, b, _vm| a - b, vm)),
+        multiply: Some(|a, b, vm| Self::number_op(a, b, |a, b, _vm| a * b, vm)),
+        remainder: Some(|a, b, vm| Self::number_op(a, b, inner_mod, vm)),
+        divmod: Some(|a, b, vm| Self::number_op(a, b, inner_divmod, vm)),
         power: Some(|a, b, c, vm| {
             if let (Some(a), Some(b)) = (
                 a.payload::<Self>(),
@@ -774,24 +774,24 @@ impl PyInt {
                 Ok(vm.ctx.not_implemented())
             }
         }),
-        negative: Some(|num, vm| (&PyInt::number_downcast(num).value).neg().to_pyresult(vm)),
-        positive: Some(|num, vm| Ok(PyInt::number_downcast_exact(num, vm).into())),
-        absolute: Some(|num, vm| PyInt::number_downcast(num).value.abs().to_pyresult(vm)),
-        boolean: Some(|num, _vm| Ok(PyInt::number_downcast(num).value.is_zero())),
-        invert: Some(|num, vm| (&PyInt::number_downcast(num).value).not().to_pyresult(vm)),
-        lshift: Some(|a, b, vm| PyInt::number_op(a, b, inner_lshift, vm)),
-        rshift: Some(|a, b, vm| PyInt::number_op(a, b, inner_rshift, vm)),
-        and: Some(|a, b, vm| PyInt::number_op(a, b, |a, b, _vm| a & b, vm)),
-        xor: Some(|a, b, vm| PyInt::number_op(a, b, |a, b, _vm| a ^ b, vm)),
-        or: Some(|a, b, vm| PyInt::number_op(a, b, |a, b, _vm| a | b, vm)),
-        int: Some(|num, vm| Ok(PyInt::number_downcast_exact(num, vm).into())),
+        negative: Some(|num, vm| (&Self::number_downcast(num).value).neg().to_pyresult(vm)),
+        positive: Some(|num, vm| Ok(Self::number_downcast_exact(num, vm).into())),
+        absolute: Some(|num, vm| Self::number_downcast(num).value.abs().to_pyresult(vm)),
+        boolean: Some(|num, _vm| Ok(Self::number_downcast(num).value.is_zero())),
+        invert: Some(|num, vm| (&Self::number_downcast(num).value).not().to_pyresult(vm)),
+        lshift: Some(|a, b, vm| Self::number_op(a, b, inner_lshift, vm)),
+        rshift: Some(|a, b, vm| Self::number_op(a, b, inner_rshift, vm)),
+        and: Some(|a, b, vm| Self::number_op(a, b, |a, b, _vm| a & b, vm)),
+        xor: Some(|a, b, vm| Self::number_op(a, b, |a, b, _vm| a ^ b, vm)),
+        or: Some(|a, b, vm| Self::number_op(a, b, |a, b, _vm| a | b, vm)),
+        int: Some(|num, vm| Ok(Self::number_downcast_exact(num, vm).into())),
         float: Some(|num, vm| {
-            let zelf = PyInt::number_downcast(num);
+            let zelf = Self::number_downcast(num);
             try_to_float(&zelf.value, vm).map(|x| vm.ctx.new_float(x).into())
         }),
-        floor_divide: Some(|a, b, vm| PyInt::number_op(a, b, inner_floordiv, vm)),
-        true_divide: Some(|a, b, vm| PyInt::number_op(a, b, inner_truediv, vm)),
-        index: Some(|num, vm| Ok(PyInt::number_downcast_exact(num, vm).into())),
+        floor_divide: Some(|a, b, vm| Self::number_op(a, b, inner_floordiv, vm)),
+        true_divide: Some(|a, b, vm| Self::number_op(a, b, inner_truediv, vm)),
+        index: Some(|num, vm| Ok(Self::number_downcast_exact(num, vm).into())),
         ..PyNumberMethods::NOT_IMPLEMENTED
     };
 

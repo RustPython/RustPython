@@ -93,7 +93,7 @@ impl TryFromObject for Fildes {
                 "file descriptor cannot be a negative integer ({fd})"
             )));
         }
-        Ok(Fildes(fd))
+        Ok(Self(fd))
     }
 }
 
@@ -1967,10 +1967,8 @@ mod _io {
         fn find_newline(&self, s: &Wtf8) -> Result<usize, usize> {
             let len = s.len();
             match self {
-                Newlines::Universal | Newlines::Lf => {
-                    s.find("\n".as_ref()).map(|p| p + 1).ok_or(len)
-                }
-                Newlines::Passthrough => {
+                Self::Universal | Self::Lf => s.find("\n".as_ref()).map(|p| p + 1).ok_or(len),
+                Self::Passthrough => {
                     let bytes = s.as_bytes();
                     memchr::memchr2(b'\n', b'\r', bytes)
                         .map(|p| {
@@ -1984,8 +1982,8 @@ mod _io {
                         })
                         .ok_or(len)
                 }
-                Newlines::Cr => s.find("\n".as_ref()).map(|p| p + 1).ok_or(len),
-                Newlines::Crlf => {
+                Self::Cr => s.find("\n".as_ref()).map(|p| p + 1).ok_or(len),
+                Self::Crlf => {
                     // s[searched..] == remaining
                     let mut searched = 0;
                     let mut remaining = s.as_bytes();
@@ -2165,7 +2163,7 @@ mod _io {
             }
         }
         fn take(&mut self, vm: &VirtualMachine) -> PyBytesRef {
-            let PendingWrites { num_bytes, data } = std::mem::take(self);
+            let Self { num_bytes, data } = std::mem::take(self);
             if let PendingWritesData::One(PendingWrite::Bytes(b)) = data {
                 return b;
             }
@@ -3923,7 +3921,7 @@ mod _io {
 
     impl Default for OpenArgs {
         fn default() -> Self {
-            OpenArgs {
+            Self {
                 buffering: -1,
                 encoding: None,
                 errors: None,

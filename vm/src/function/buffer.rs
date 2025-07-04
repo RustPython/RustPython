@@ -173,7 +173,7 @@ impl TryFromObject for ArgAsciiBuffer {
         match obj.downcast::<PyStr>() {
             Ok(string) => {
                 if string.as_str().is_ascii() {
-                    Ok(ArgAsciiBuffer::String(string))
+                    Ok(Self::String(string))
                 } else {
                     Err(vm.new_value_error("string argument should contain only ASCII characters"))
                 }

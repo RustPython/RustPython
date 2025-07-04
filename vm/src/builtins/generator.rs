@@ -33,7 +33,7 @@ impl PyGenerator {
     }
 
     pub fn new(frame: FrameRef, name: PyStrRef) -> Self {
-        PyGenerator {
+        Self {
             inner: Coro::new(frame, name),
         }
     }

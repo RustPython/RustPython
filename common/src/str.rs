@@ -47,9 +47,9 @@ impl StrKind {
     #[inline(always)]
     pub fn can_encode(&self, code: CodePoint) -> bool {
         match self {
-            StrKind::Ascii => code.is_ascii(),
-            StrKind::Utf8 => code.to_char().is_some(),
-            StrKind::Wtf8 => true,
+            Self::Ascii => code.is_ascii(),
+            Self::Utf8 => code.to_char().is_some(),
+            Self::Wtf8 => true,
         }
     }
 }

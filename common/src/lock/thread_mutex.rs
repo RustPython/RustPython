@@ -21,7 +21,7 @@ pub struct RawThreadMutex<R: RawMutex, G: GetThreadId> {
 
 impl<R: RawMutex, G: GetThreadId> RawThreadMutex<R, G> {
     #[allow(clippy::declare_interior_mutable_const)]
-    pub const INIT: Self = RawThreadMutex {
+    pub const INIT: Self = Self {
         owner: AtomicUsize::new(0),
         mutex: R::INIT,
         get_thread_id: G::INIT,
@@ -79,7 +79,7 @@ pub struct ThreadMutex<R: RawMutex, G: GetThreadId, T: ?Sized> {
 
 impl<R: RawMutex, G: GetThreadId, T> ThreadMutex<R, G, T> {
     pub fn new(val: T) -> Self {
-        ThreadMutex {
+        Self {
             raw: RawThreadMutex::INIT,
             data: UnsafeCell::new(val),
         }

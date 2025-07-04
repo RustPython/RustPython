@@ -32,7 +32,7 @@ impl FrozenCodeObject<Vec<u8>> {
         let mut data = Vec::new();
         marshal::serialize_code(&mut data, code);
         let bytes = lz4_flex::compress_prepend_size(&data);
-        FrozenCodeObject { bytes }
+        Self { bytes }
     }
 }
 
@@ -42,8 +42,8 @@ pub struct FrozenLib<B: ?Sized = [u8]> {
 }
 
 impl<B: AsRef<[u8]> + ?Sized> FrozenLib<B> {
-    pub const fn from_ref(b: &B) -> &FrozenLib<B> {
-        unsafe { &*(b as *const B as *const FrozenLib<B>) }
+    pub const fn from_ref(b: &B) -> &Self {
+        unsafe { &*(b as *const B as *const Self) }
     }
 
     /// Decode a library to a iterable of frozen modules
@@ -100,7 +100,7 @@ fn read_entry<'a>(
 
 impl FrozenLib<Vec<u8>> {
     /// Encode the given iterator of frozen modules into a compressed vector of bytes
-    pub fn encode<'a, I, B: AsRef<[u8]>>(lib: I) -> FrozenLib<Vec<u8>>
+    pub fn encode<'a, I, B: AsRef<[u8]>>(lib: I) -> Self
     where
         I: IntoIterator<Item = (&'a str, FrozenModule<B>), IntoIter: ExactSizeIterator + Clone>,
     {

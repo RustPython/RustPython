@@ -774,7 +774,7 @@ pub(super) mod _os {
             #[cfg(not(windows))]
             let st_reparse_tag = 0;
 
-            StatResult {
+            Self {
                 st_mode: vm.ctx.new_pyref(stat.st_mode),
                 st_ino: vm.ctx.new_pyref(stat.st_ino),
                 st_dev: vm.ctx.new_pyref(stat.st_dev),
@@ -817,7 +817,7 @@ pub(super) mod _os {
 
             let args: FuncArgs = flatten_args(&args.args).into();
 
-            let stat: StatResult = args.bind(vm)?;
+            let stat: Self = args.bind(vm)?;
             Ok(stat.to_pyobject(vm))
         }
     }

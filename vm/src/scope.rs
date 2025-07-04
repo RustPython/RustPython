@@ -16,22 +16,22 @@ impl fmt::Debug for Scope {
 
 impl Scope {
     #[inline]
-    pub fn new(locals: Option<ArgMapping>, globals: PyDictRef) -> Scope {
+    pub fn new(locals: Option<ArgMapping>, globals: PyDictRef) -> Self {
         let locals = locals.unwrap_or_else(|| ArgMapping::from_dict_exact(globals.clone()));
-        Scope { locals, globals }
+        Self { locals, globals }
     }
 
     pub fn with_builtins(
         locals: Option<ArgMapping>,
         globals: PyDictRef,
         vm: &VirtualMachine,
-    ) -> Scope {
+    ) -> Self {
         if !globals.contains_key("__builtins__", vm) {
             globals
                 .set_item("__builtins__", vm.builtins.clone().into(), vm)
                 .unwrap();
         }
-        Scope::new(locals, globals)
+        Self::new(locals, globals)
     }
 
     // pub fn get_locals(&self) -> &PyDictRef {

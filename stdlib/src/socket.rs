@@ -799,7 +799,7 @@ mod _socket {
 
     impl Default for PySocket {
         fn default() -> Self {
-            PySocket {
+            Self {
                 kind: AtomicCell::default(),
                 family: AtomicCell::default(),
                 proto: AtomicCell::default(),
@@ -1663,14 +1663,14 @@ mod _socket {
             let port = port
                 .to_u16()
                 .ok_or_else(|| vm.new_overflow_error("port must be 0-65535."))?;
-            Ok(Address { host, port })
+            Ok(Self { host, port })
         }
 
         fn from_tuple_ipv6(
             tuple: &[PyObjectRef],
             vm: &VirtualMachine,
         ) -> PyResult<(Self, u32, u32)> {
-            let addr = Address::from_tuple(tuple, vm)?;
+            let addr = Self::from_tuple(tuple, vm)?;
             let flowinfo = tuple
                 .get(2)
                 .map(|obj| u32::try_from_borrowed_object(vm, obj))

@@ -335,7 +335,7 @@ mod _collections {
         #[pymethod(name = "__rmul__")]
         fn __mul__(&self, n: isize, vm: &VirtualMachine) -> PyResult<Self> {
             let deque = self._mul(n, vm)?;
-            Ok(PyDeque {
+            Ok(Self {
                 deque: PyRwLock::new(deque),
                 maxlen: self.maxlen,
                 state: AtomicCell::new(0),
@@ -365,7 +365,7 @@ mod _collections {
         }
 
         fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<Self> {
-            if let Some(o) = other.payload_if_subclass::<PyDeque>(vm) {
+            if let Some(o) = other.payload_if_subclass::<Self>(vm) {
                 let mut deque = self.borrow_deque().clone();
                 let elements = o.borrow_deque().clone();
                 deque.extend(elements);
@@ -376,7 +376,7 @@ mod _collections {
                     .unwrap_or(0);
                 deque.drain(..skipped);
 
-                Ok(PyDeque {
+                Ok(Self {
                     deque: PyRwLock::new(deque),
                     maxlen: self.maxlen,
                     state: AtomicCell::new(0),
@@ -610,7 +610,7 @@ mod _collections {
             (DequeIterArgs { deque, index }, _kwargs): Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let iter = PyDequeIterator::new(deque);
+            let iter = Self::new(deque);
             if let OptionalArg::Present(index) = index {
                 let index = max(index, 0) as usize;
                 iter.internal.lock().position = index;
@@ -622,7 +622,7 @@ mod _collections {
     #[pyclass(with(IterNext, Iterable, Constructor))]
     impl PyDequeIterator {
         pub(crate) fn new(deque: PyDequeRef) -> Self {
-            PyDequeIterator {
+            Self {
                 state: deque.state.load(),
                 internal: PyMutex::new(PositionIterInternal::new(deque, 0)),
             }

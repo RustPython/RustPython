@@ -21,7 +21,7 @@ impl RefCount {
     const MASK: usize = MAX_REFCOUNT;
 
     pub fn new() -> Self {
-        RefCount {
+        Self {
             strong: Radium::new(1),
         }
     }

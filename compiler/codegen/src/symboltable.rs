@@ -49,7 +49,7 @@ pub struct SymbolTable {
 
 impl SymbolTable {
     fn new(name: String, typ: SymbolTableType, line_number: u32, is_nested: bool) -> Self {
-        SymbolTable {
+        Self {
             name,
             typ,
             line_number,
@@ -87,11 +87,11 @@ pub enum SymbolTableType {
 impl fmt::Display for SymbolTableType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SymbolTableType::Module => write!(f, "module"),
-            SymbolTableType::Class => write!(f, "class"),
-            SymbolTableType::Function => write!(f, "function"),
-            SymbolTableType::Comprehension => write!(f, "comprehension"),
-            SymbolTableType::TypeParams => write!(f, "type parameter"),
+            Self::Module => write!(f, "module"),
+            Self::Class => write!(f, "class"),
+            Self::Function => write!(f, "function"),
+            Self::Comprehension => write!(f, "comprehension"),
+            Self::TypeParams => write!(f, "type parameter"),
             // TODO missing types from the C implementation
             // if self._table.type == _symtable.TYPE_ANNOTATION:
             //     return "annotation"
@@ -154,7 +154,7 @@ pub struct Symbol {
 
 impl Symbol {
     fn new(name: &str) -> Self {
-        Symbol {
+        Self {
             name: name.to_owned(),
             // table,
             scope: SymbolScope::Unknown,
@@ -293,7 +293,7 @@ impl SymbolTableAnalyzer {
 
         let mut info = (symbols, symbol_table.typ);
         self.tables.with_append(&mut info, |list| {
-            let inner_scope = unsafe { &mut *(list as *mut _ as *mut SymbolTableAnalyzer) };
+            let inner_scope = unsafe { &mut *(list as *mut _ as *mut Self) };
             // Analyze sub scopes:
             for sub_table in sub_tables.iter_mut() {
                 inner_scope.analyze_symbol_table(sub_table)?;

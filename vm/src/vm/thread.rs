@@ -114,7 +114,7 @@ impl VirtualMachine {
     #[cfg(feature = "threading")]
     pub fn start_thread<F, R>(&self, f: F) -> std::thread::JoinHandle<R>
     where
-        F: FnOnce(&VirtualMachine) -> R,
+        F: FnOnce(&Self) -> R,
         F: Send + 'static,
         R: Send + 'static,
     {
@@ -146,7 +146,7 @@ impl VirtualMachine {
     /// specific guaranteed behavior.
     #[cfg(feature = "threading")]
     pub fn new_thread(&self) -> ThreadedVirtualMachine {
-        let vm = VirtualMachine {
+        let vm = Self {
             builtins: self.builtins.clone(),
             sys_module: self.sys_module.clone(),
             ctx: self.ctx.clone(),

@@ -273,7 +273,7 @@ impl PyObject {
         vm: &VirtualMachine,
     ) -> PyResult<Either<PyObjectRef, bool>> {
         let swapped = op.swapped();
-        let call_cmp = |obj: &PyObject, other: &PyObject, op| {
+        let call_cmp = |obj: &Self, other: &Self, op| {
             let cmp = obj
                 .class()
                 .mro_find_map(|cls| cls.slots.richcompare.load())
@@ -409,7 +409,7 @@ impl PyObject {
         }
     }
 
-    fn abstract_issubclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+    fn abstract_issubclass(&self, cls: &Self, vm: &VirtualMachine) -> PyResult<bool> {
         // Store the current derived class to check
         let mut bases: PyTupleRef;
         let mut derived = self;
@@ -457,7 +457,7 @@ impl PyObject {
         Ok(false)
     }
 
-    fn recursive_issubclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+    fn recursive_issubclass(&self, cls: &Self, vm: &VirtualMachine) -> PyResult<bool> {
         // Fast path for both being types (matches CPython's PyType_Check)
         if let Some(cls) = PyType::check(cls)
             && let Some(derived) = PyType::check(self)
@@ -485,14 +485,14 @@ impl PyObject {
 
     /// Real issubclass check without going through __subclasscheck__
     /// This is equivalent to CPython's _PyObject_RealIsSubclass which just calls recursive_issubclass
-    pub fn real_is_subclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+    pub fn real_is_subclass(&self, cls: &Self, vm: &VirtualMachine) -> PyResult<bool> {
         self.recursive_issubclass(cls, vm)
     }
 
     /// Determines if `self` is a subclass of `cls`, either directly, indirectly or virtually
     /// via the __subclasscheck__ magic method.
     /// PyObject_IsSubclass/object_issubclass
-    pub fn is_subclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+    pub fn is_subclass(&self, cls: &Self, vm: &VirtualMachine) -> PyResult<bool> {
         let derived = self;
         // PyType_CheckExact(cls)
         if cls.class().is(vm.ctx.types.type_type) {
@@ -536,13 +536,13 @@ impl PyObject {
     }
 
     // _PyObject_RealIsInstance
-    pub(crate) fn real_is_instance(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+    pub(crate) fn real_is_instance(&self, cls: &Self, vm: &VirtualMachine) -> PyResult<bool> {
         self.object_isinstance(cls, vm)
     }
 
     /// Real isinstance check without going through __instancecheck__
     /// This is equivalent to CPython's _PyObject_RealIsInstance/object_isinstance
-    fn object_isinstance(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+    fn object_isinstance(&self, cls: &Self, vm: &VirtualMachine) -> PyResult<bool> {
         if let Ok(cls) = cls.try_to_ref::<PyType>(vm) {
             // PyType_Check(cls) - cls is a type object
             let mut retval = self.class().is_subtype(cls);
@@ -581,12 +581,12 @@ impl PyObject {
 
     /// Determines if `self` is an instance of `cls`, either directly, indirectly or virtually via
     /// the __instancecheck__ magic method.
-    pub fn is_instance(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+    pub fn is_instance(&self, cls: &Self, vm: &VirtualMachine) -> PyResult<bool> {
         self.object_recursive_isinstance(cls, vm)
     }
 
     // This is object_recursive_isinstance from CPython's Objects/abstract.c
-    fn object_recursive_isinstance(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+    fn object_recursive_isinstance(&self, cls: &Self, vm: &VirtualMachine) -> PyResult<bool> {
         // PyObject_TypeCheck(inst, (PyTypeObject *)cls)
         // This is an exact check of the type
         if self.class().is(cls) {

@@ -13,9 +13,9 @@ impl std::str::FromStr for Mode {
     // To support `builtins.compile()` `mode` argument
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "exec" => Ok(Mode::Exec),
-            "eval" => Ok(Mode::Eval),
-            "single" => Ok(Mode::Single),
+            "exec" => Ok(Self::Exec),
+            "eval" => Ok(Self::Eval),
+            "single" => Ok(Self::Single),
             _ => Err(ModeParseError),
         }
     }

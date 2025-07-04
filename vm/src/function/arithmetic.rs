@@ -34,8 +34,8 @@ where
 {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            PyArithmeticValue::Implemented(v) => v.to_pyobject(vm),
-            PyArithmeticValue::NotImplemented => vm.ctx.not_implemented(),
+            Self::Implemented(v) => v.to_pyobject(vm),
+            Self::NotImplemented => vm.ctx.not_implemented(),
         }
     }
 }

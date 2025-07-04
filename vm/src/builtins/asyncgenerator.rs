@@ -34,7 +34,7 @@ impl PyAsyncGen {
     }
 
     pub fn new(frame: FrameRef, name: PyStrRef) -> Self {
-        PyAsyncGen {
+        Self {
             inner: Coro::new(frame, name),
             running_async: AtomicCell::new(false),
         }
@@ -76,7 +76,7 @@ impl PyAsyncGen {
 #[pyclass]
 impl PyRef<PyAsyncGen> {
     #[pymethod]
-    fn __aiter__(self, _vm: &VirtualMachine) -> PyRef<PyAsyncGen> {
+    fn __aiter__(self, _vm: &VirtualMachine) -> Self {
         self
     }
 

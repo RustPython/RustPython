@@ -28,8 +28,8 @@ impl WarningsState {
         ])
     }
 
-    pub fn init_state(ctx: &Context) -> WarningsState {
-        WarningsState {
+    pub fn init_state(ctx: &Context) -> Self {
+        Self {
             filters: Self::create_filter(ctx),
             _once_registry: ctx.new_dict(),
             default_action: ctx.new_str("default"),

@@ -795,7 +795,7 @@ impl DictKey for PyStrInterned {
 
     #[inline]
     fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
-        let zelf: &'static PyStrInterned = unsafe { &*(self as *const _) };
+        let zelf: &'static Self = unsafe { &*(self as *const _) };
         zelf.to_exact()
     }
 
@@ -890,7 +890,7 @@ impl DictKey for str {
 }
 
 impl DictKey for String {
-    type Owned = String;
+    type Owned = Self;
 
     #[inline]
     fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
@@ -951,7 +951,7 @@ impl DictKey for Wtf8 {
 }
 
 impl DictKey for Wtf8Buf {
-    type Owned = Wtf8Buf;
+    type Owned = Self;
 
     #[inline]
     fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
@@ -1012,7 +1012,7 @@ impl DictKey for [u8] {
 }
 
 impl DictKey for Vec<u8> {
-    type Owned = Vec<u8>;
+    type Owned = Self;
 
     #[inline]
     fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
@@ -1037,7 +1037,7 @@ impl DictKey for Vec<u8> {
 }
 
 impl DictKey for usize {
-    type Owned = usize;
+    type Owned = Self;
 
     #[inline]
     fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {

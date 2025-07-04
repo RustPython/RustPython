@@ -118,7 +118,7 @@ mod zlib {
     }
 
     impl InitOptions {
-        fn new(wbits: i8, vm: &VirtualMachine) -> PyResult<InitOptions> {
+        fn new(wbits: i8, vm: &VirtualMachine) -> PyResult<Self> {
             let header = wbits > 0;
             let wbits = wbits.unsigned_abs();
             match wbits {
@@ -127,8 +127,8 @@ mod zlib {
                 // > the zlib header of the compressed stream.
                 // but flate2 doesn't expose it
                 // 0 => ...
-                9..=15 => Ok(InitOptions::Standard { header, wbits }),
-                25..=31 => Ok(InitOptions::Gzip { wbits: wbits - 16 }),
+                9..=15 => Ok(Self::Standard { header, wbits }),
+                25..=31 => Ok(Self::Gzip { wbits: wbits - 16 }),
                 _ => Err(vm.new_value_error("Invalid initialization option")),
             }
         }
@@ -422,8 +422,8 @@ mod zlib {
     }
 
     impl CompressStatusKind for Status {
-        const OK: Self = Status::Ok;
-        const EOF: Self = Status::StreamEnd;
+        const OK: Self = Self::Ok;
+        const EOF: Self = Self::StreamEnd;
 
         fn to_usize(self) -> usize {
             self as usize
@@ -431,8 +431,8 @@ mod zlib {
     }
 
     impl CompressFlushKind for FlushCompress {
-        const NONE: Self = FlushCompress::None;
-        const FINISH: Self = FlushCompress::Finish;
+        const NONE: Self = Self::None;
+        const FINISH: Self = Self::Finish;
 
         fn to_usize(self) -> usize {
             self as usize
@@ -514,12 +514,12 @@ mod zlib {
 
     impl DecompressStatus for Status {
         fn is_stream_end(&self) -> bool {
-            *self == Status::StreamEnd
+            *self == Self::StreamEnd
         }
     }
 
     impl DecompressFlushKind for FlushDecompress {
-        const SYNC: Self = FlushDecompress::Sync;
+        const SYNC: Self = Self::Sync;
     }
 
     impl Decompressor for Decompress {

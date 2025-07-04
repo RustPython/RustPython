@@ -199,9 +199,9 @@ impl PyProperty {
         };
 
         // Create new property using py_new and init
-        let new_prop = PyProperty::py_new(zelf.class().to_owned(), FuncArgs::default(), vm)?;
-        let new_prop_ref = new_prop.downcast::<PyProperty>().unwrap();
-        PyProperty::init(new_prop_ref.clone(), args, vm)?;
+        let new_prop = Self::py_new(zelf.class().to_owned(), FuncArgs::default(), vm)?;
+        let new_prop_ref = new_prop.downcast::<Self>().unwrap();
+        Self::init(new_prop_ref.clone(), args, vm)?;
 
         // Copy the name if it exists
         if let Some(name) = zelf.name.read().clone() {
@@ -312,7 +312,7 @@ impl Constructor for PyProperty {
     type Args = FuncArgs;
 
     fn py_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyProperty {
+        Self {
             getter: PyRwLock::new(None),
             setter: PyRwLock::new(None),
             deleter: PyRwLock::new(None),

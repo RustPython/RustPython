@@ -184,7 +184,7 @@ pub mod module {
             }
             // SAFETY: none, really. but, python's os api of passing around file descriptors
             //         everywhere isn't really io-safe anyway, so, this is passed to the user.
-            Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+            Ok(unsafe { Self::from_raw_fd(fd) })
         }
     }
 
@@ -1152,13 +1152,13 @@ pub mod module {
 
     impl TryFromObject for Uid {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            try_from_id(vm, obj, "uid").map(Uid::from_raw)
+            try_from_id(vm, obj, "uid").map(Self::from_raw)
         }
     }
 
     impl TryFromObject for Gid {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            try_from_id(vm, obj, "gid").map(Gid::from_raw)
+            try_from_id(vm, obj, "gid").map(Self::from_raw)
         }
     }
 
@@ -2232,7 +2232,7 @@ pub mod module {
     }
 
     impl SysconfVar {
-        pub const SC_PAGESIZE: SysconfVar = Self::SC_PAGE_SIZE;
+        pub const SC_PAGESIZE: Self = Self::SC_PAGE_SIZE;
     }
 
     struct SysconfName(i32);

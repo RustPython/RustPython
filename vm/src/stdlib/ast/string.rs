@@ -255,8 +255,8 @@ pub(super) enum JoinedStrPart {
 impl Node for JoinedStrPart {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         match self {
-            JoinedStrPart::FormattedValue(value) => value.ast_to_object(vm, source_code),
-            JoinedStrPart::Constant(value) => value.ast_to_object(vm, source_code),
+            Self::FormattedValue(value) => value.ast_to_object(vm, source_code),
+            Self::Constant(value) => value.ast_to_object(vm, source_code),
         }
     }
     fn ast_from_object(

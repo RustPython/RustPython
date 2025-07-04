@@ -27,16 +27,16 @@ pub(crate) enum Endianness {
 impl Endianness {
     /// Parse endianness
     /// See also: https://docs.python.org/3/library/struct.html?highlight=struct#byte-order-size-and-alignment
-    fn parse<I>(chars: &mut Peekable<I>) -> Endianness
+    fn parse<I>(chars: &mut Peekable<I>) -> Self
     where
         I: Sized + Iterator<Item = u8>,
     {
         let e = match chars.peek() {
-            Some(b'@') => Endianness::Native,
-            Some(b'=') => Endianness::Host,
-            Some(b'<') => Endianness::Little,
-            Some(b'>') | Some(b'!') => Endianness::Big,
-            _ => return Endianness::Native,
+            Some(b'@') => Self::Native,
+            Some(b'=') => Self::Host,
+            Some(b'<') => Self::Little,
+            Some(b'>') | Some(b'!') => Self::Big,
+            _ => return Self::Native,
         };
         chars.next().unwrap();
         e
@@ -267,7 +267,7 @@ impl FormatCode {
                 .and_then(|extra| offset.checked_add(extra))
                 .ok_or_else(|| OVERFLOW_MSG.to_owned())?;
 
-            let code = FormatCode {
+            let code = Self {
                 repeat: repeat as usize,
                 code,
                 info,
@@ -321,7 +321,7 @@ pub struct FormatSpec {
 }
 
 impl FormatSpec {
-    pub fn parse(fmt: &[u8], vm: &VirtualMachine) -> PyResult<FormatSpec> {
+    pub fn parse(fmt: &[u8], vm: &VirtualMachine) -> PyResult<Self> {
         let mut chars = fmt.iter().copied().peekable();
 
         // First determine "@", "<", ">","!" or "="
@@ -331,7 +331,7 @@ impl FormatSpec {
         let (codes, size, arg_count) =
             FormatCode::parse(&mut chars, endianness).map_err(|err| new_struct_error(vm, err))?;
 
-        Ok(FormatSpec {
+        Ok(Self {
             endianness,
             codes,
             size,
@@ -544,7 +544,7 @@ impl Packable for f16 {
     fn pack<E: ByteOrder>(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()> {
         let f_64 = *ArgIntoFloat::try_from_object(vm, arg)?;
         // "from_f64 should be preferred in any non-`const` context" except it gives the wrong result :/
-        let f_16 = f16::from_f64_const(f_64);
+        let f_16 = Self::from_f64_const(f_64);
         if f_16.is_infinite() != f_64.is_infinite() {
             return Err(vm.new_overflow_error("float too large to pack with e format"));
         }
@@ -554,7 +554,7 @@ impl Packable for f16 {
 
     fn unpack<E: ByteOrder>(vm: &VirtualMachine, rdr: &[u8]) -> PyObjectRef {
         let i = PackInt::unpack_int::<E>(rdr);
-        f16::from_bits(i).to_f64().to_pyobject(vm)
+        Self::from_bits(i).to_f64().to_pyobject(vm)
     }
 }
 

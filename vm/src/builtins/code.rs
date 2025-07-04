@@ -202,8 +202,8 @@ impl Deref for PyCode {
 }
 
 impl PyCode {
-    pub fn new(code: CodeObject) -> PyCode {
-        PyCode { code }
+    pub fn new(code: CodeObject) -> Self {
+        Self { code }
     }
 }
 
@@ -335,7 +335,7 @@ impl PyCode {
     }
 
     #[pymethod]
-    pub fn replace(&self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<PyCode> {
+    pub fn replace(&self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<Self> {
         let posonlyarg_count = match args.co_posonlyargcount {
             OptionalArg::Present(posonlyarg_count) => posonlyarg_count,
             OptionalArg::Missing => self.code.posonlyarg_count,
@@ -392,7 +392,7 @@ impl PyCode {
             OptionalArg::Missing => self.code.varnames.iter().map(|s| s.to_object()).collect(),
         };
 
-        Ok(PyCode {
+        Ok(Self {
             code: CodeObject {
                 flags: CodeFlags::from_bits_truncate(flags),
                 posonlyarg_count,

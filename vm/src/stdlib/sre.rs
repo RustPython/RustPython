@@ -233,7 +233,7 @@ mod _sre {
 
         #[pymethod(name = "match")]
         fn py_match(
-            zelf: PyRef<Pattern>,
+            zelf: PyRef<Self>,
             string_args: StringArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyRef<Match>>> {
@@ -253,7 +253,7 @@ mod _sre {
 
         #[pymethod]
         fn fullmatch(
-            zelf: PyRef<Pattern>,
+            zelf: PyRef<Self>,
             string_args: StringArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyRef<Match>>> {
@@ -269,7 +269,7 @@ mod _sre {
 
         #[pymethod]
         fn search(
-            zelf: PyRef<Pattern>,
+            zelf: PyRef<Self>,
             string_args: StringArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyRef<Match>>> {
@@ -284,7 +284,7 @@ mod _sre {
 
         #[pymethod]
         fn findall(
-            zelf: PyRef<Pattern>,
+            zelf: PyRef<Self>,
             string_args: StringArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Vec<PyObjectRef>> {
@@ -314,7 +314,7 @@ mod _sre {
 
         #[pymethod]
         fn finditer(
-            zelf: PyRef<Pattern>,
+            zelf: PyRef<Self>,
             string_args: StringArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyCallableIterator> {
@@ -334,7 +334,7 @@ mod _sre {
 
         #[pymethod]
         fn scanner(
-            zelf: PyRef<Pattern>,
+            zelf: PyRef<Self>,
             string_args: StringArgs,
             vm: &VirtualMachine,
         ) -> PyRef<SreScanner> {
@@ -349,18 +349,18 @@ mod _sre {
         }
 
         #[pymethod]
-        fn sub(zelf: PyRef<Pattern>, sub_args: SubArgs, vm: &VirtualMachine) -> PyResult {
+        fn sub(zelf: PyRef<Self>, sub_args: SubArgs, vm: &VirtualMachine) -> PyResult {
             Self::sub_impl(zelf, sub_args, false, vm)
         }
 
         #[pymethod]
-        fn subn(zelf: PyRef<Pattern>, sub_args: SubArgs, vm: &VirtualMachine) -> PyResult {
+        fn subn(zelf: PyRef<Self>, sub_args: SubArgs, vm: &VirtualMachine) -> PyResult {
             Self::sub_impl(zelf, sub_args, true, vm)
         }
 
         #[pymethod]
         fn split(
-            zelf: PyRef<Pattern>,
+            zelf: PyRef<Self>,
             split_args: SplitArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Vec<PyObjectRef>> {
@@ -416,7 +416,7 @@ mod _sre {
         }
 
         fn sub_impl(
-            zelf: PyRef<Pattern>,
+            zelf: PyRef<Self>,
             sub_args: SubArgs,
             subn: bool,
             vm: &VirtualMachine,
@@ -536,7 +536,7 @@ mod _sre {
                 return Ok(res.into());
             }
             op.eq_only(|| {
-                if let Some(other) = other.downcast_ref::<Pattern>() {
+                if let Some(other) = other.downcast_ref::<Self>() {
                     Ok(PyComparisonValue::Implemented(
                         zelf.flags == other.flags
                             && zelf.isbytes == other.isbytes
@@ -704,7 +704,7 @@ mod _sre {
         }
 
         #[pymethod]
-        fn expand(zelf: PyRef<Match>, template: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        fn expand(zelf: PyRef<Self>, template: PyStrRef, vm: &VirtualMachine) -> PyResult {
             let re = vm.import("re", 0)?;
             let func = re.get_attr("_expand", vm)?;
             func.call((zelf.pattern.clone(), zelf, template), vm)

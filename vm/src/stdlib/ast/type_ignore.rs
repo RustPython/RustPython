@@ -8,7 +8,7 @@ pub(super) enum TypeIgnore {
 impl Node for TypeIgnore {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         match self {
-            TypeIgnore::TypeIgnore(cons) => cons.ast_to_object(vm, source_code),
+            Self::TypeIgnore(cons) => cons.ast_to_object(vm, source_code),
         }
     }
     fn ast_from_object(
@@ -18,7 +18,7 @@ impl Node for TypeIgnore {
     ) -> PyResult<Self> {
         let _cls = _object.class();
         Ok(if _cls.is(pyast::NodeTypeIgnoreTypeIgnore::static_type()) {
-            TypeIgnore::TypeIgnore(TypeIgnoreTypeIgnore::ast_from_object(
+            Self::TypeIgnore(TypeIgnoreTypeIgnore::ast_from_object(
                 _vm,
                 source_code,
                 _object,

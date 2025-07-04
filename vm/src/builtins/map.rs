@@ -27,7 +27,7 @@ impl Constructor for PyMap {
 
     fn py_new(cls: PyTypeRef, (mapper, iterators): Self::Args, vm: &VirtualMachine) -> PyResult {
         let iterators = iterators.into_vec();
-        PyMap { mapper, iterators }
+        Self { mapper, iterators }
             .into_ref_with_type(vm, cls)
             .map(Into::into)
     }

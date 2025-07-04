@@ -118,7 +118,7 @@ pub fn process_hash_secret_seed() -> u32 {
 
 impl VirtualMachine {
     /// Create a new `VirtualMachine` structure.
-    fn new(settings: Settings, ctx: PyRc<Context>) -> VirtualMachine {
+    fn new(settings: Settings, ctx: PyRc<Context>) -> Self {
         flame_guard!("new VirtualMachine");
 
         // make a new module without access to the vm; doesn't
@@ -159,7 +159,7 @@ impl VirtualMachine {
             -1 => 4300,
             other => other,
         } as usize);
-        let mut vm = VirtualMachine {
+        let mut vm = Self {
             builtins,
             sys_module,
             ctx,

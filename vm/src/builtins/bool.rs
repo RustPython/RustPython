@@ -21,7 +21,7 @@ impl ToPyObject for bool {
 }
 
 impl<'a> TryFromBorrowedObject<'a> for bool {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<bool> {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         if obj.fast_isinstance(vm.ctx.types.int_type) {
             Ok(get_value(obj))
         } else {

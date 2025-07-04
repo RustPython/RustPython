@@ -14,7 +14,7 @@ impl Node for ruff::Identifier {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let py_str = PyStrRef::try_from_object(vm, object)?;
-        Ok(ruff::Identifier::new(py_str.as_str(), TextRange::default()))
+        Ok(Self::new(py_str.as_str(), TextRange::default()))
     }
 }
 

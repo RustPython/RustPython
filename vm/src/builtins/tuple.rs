@@ -336,7 +336,7 @@ impl PyTuple {
         let tup_arg = if zelf.class().is(vm.ctx.types.tuple_type) {
             zelf
         } else {
-            PyTuple::new_ref(zelf.elements.clone().into_vec(), &vm.ctx)
+            Self::new_ref(zelf.elements.clone().into_vec(), &vm.ctx)
         };
         (tup_arg,)
     }

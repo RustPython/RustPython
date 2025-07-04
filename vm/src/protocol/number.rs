@@ -159,7 +159,7 @@ pub struct PyNumberMethods {
 
 impl PyNumberMethods {
     /// this is NOT a global variable
-    pub const NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods {
+    pub const NOT_IMPLEMENTED: Self = Self {
         add: None,
         subtract: None,
         multiply: None,
@@ -197,7 +197,7 @@ impl PyNumberMethods {
         inplace_matrix_multiply: None,
     };
 
-    pub fn not_implemented() -> &'static PyNumberMethods {
+    pub fn not_implemented() -> &'static Self {
         static GLOBAL_NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods::NOT_IMPLEMENTED;
         &GLOBAL_NOT_IMPLEMENTED
     }
