@@ -862,7 +862,6 @@ impl AsRef<PyObject> for PyObjectRef {
     }
 }
 
-
 impl<'a, T: PyObjectPayload> From<&'a Py<T>> for &'a PyObject {
     #[inline(always)]
     fn from(py_ref: &'a Py<T>) -> Self {
