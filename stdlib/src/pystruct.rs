@@ -315,7 +315,7 @@ pub(crate) mod _struct {
     // seems weird that this is part of the "public" API, but whatever
     // TODO: implement a format code->spec cache like CPython does?
     #[pyfunction]
-    fn _clearcache() {}
+    const fn _clearcache() {}
 
     #[pyattr(name = "error")]
     fn error_type(vm: &VirtualMachine) -> PyTypeRef {

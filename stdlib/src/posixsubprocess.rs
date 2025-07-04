@@ -116,7 +116,7 @@ struct CharPtrSlice<'a> {
 }
 
 impl CharPtrSlice<'_> {
-    fn as_ptr(&self) -> *const *const libc::c_char {
+    const fn as_ptr(&self) -> *const *const libc::c_char {
         self.slice.as_ptr()
     }
 }
@@ -174,7 +174,7 @@ enum ExecErrorContext {
 }
 
 impl ExecErrorContext {
-    fn as_msg(&self) -> &'static str {
+    const fn as_msg(&self) -> &'static str {
         match self {
             Self::NoExec => "noexec",
             Self::ChDir => "noexec:chdir",

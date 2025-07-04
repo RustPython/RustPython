@@ -124,17 +124,17 @@ impl TypeVar {
     }
 
     #[pygetset]
-    fn __covariant__(&self) -> bool {
+    const fn __covariant__(&self) -> bool {
         self.covariant
     }
 
     #[pygetset]
-    fn __contravariant__(&self) -> bool {
+    const fn __contravariant__(&self) -> bool {
         self.contravariant
     }
 
     #[pygetset]
-    fn __infer_variance__(&self) -> bool {
+    const fn __infer_variance__(&self) -> bool {
         self.infer_variance
     }
 
@@ -445,17 +445,17 @@ impl ParamSpec {
     }
 
     #[pygetset]
-    fn __covariant__(&self) -> bool {
+    const fn __covariant__(&self) -> bool {
         self.covariant
     }
 
     #[pygetset]
-    fn __contravariant__(&self) -> bool {
+    const fn __contravariant__(&self) -> bool {
         self.contravariant
     }
 
     #[pygetset]
-    fn __infer_variance__(&self) -> bool {
+    const fn __infer_variance__(&self) -> bool {
         self.infer_variance
     }
 
@@ -627,7 +627,7 @@ impl Representable for ParamSpec {
 }
 
 impl ParamSpec {
-    pub fn new(name: PyObjectRef) -> Self {
+    pub const fn new(name: PyObjectRef) -> Self {
         Self {
             name,
             bound: None,

@@ -119,7 +119,7 @@ enum StrOrChar<'a> {
     Char(CodePoint),
 }
 impl StrOrChar<'_> {
-    fn len(&self) -> usize {
+    const fn len(&self) -> usize {
         match self {
             StrOrChar::Str(s) => s.len(),
             StrOrChar::Char(c) => c.len_wtf8(),

@@ -28,7 +28,7 @@ struct StringParser {
 }
 
 impl StringParser {
-    fn new(source: Box<str>, flags: AnyStringFlags) -> Self {
+    const fn new(source: Box<str>, flags: AnyStringFlags) -> Self {
         Self {
             source,
             cursor: 0,

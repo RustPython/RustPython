@@ -39,7 +39,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn enable(_args: EnableArgs) {
+    const fn enable(_args: EnableArgs) {
         // TODO
     }
 
@@ -57,7 +57,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn register(_args: RegisterArgs) {
+    const fn register(_args: RegisterArgs) {
         // TODO
     }
 }

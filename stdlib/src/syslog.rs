@@ -135,13 +135,13 @@ mod syslog {
 
     #[inline]
     #[pyfunction(name = "LOG_MASK")]
-    fn log_mask(pri: i32) -> i32 {
+    const fn log_mask(pri: i32) -> i32 {
         pri << 1
     }
 
     #[inline]
     #[pyfunction(name = "LOG_UPTO")]
-    fn log_upto(pri: i32) -> i32 {
+    const fn log_upto(pri: i32) -> i32 {
         (1 << (pri + 1)) - 1
     }
 }

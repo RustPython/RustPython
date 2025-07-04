@@ -66,7 +66,7 @@ impl DecompressFlushKind for () {
     const SYNC: Self = ();
 }
 
-pub fn flush_sync<T: DecompressFlushKind>(_final_chunk: bool) -> T {
+pub const fn flush_sync<T: DecompressFlushKind>(_final_chunk: bool) -> T {
     T::SYNC
 }
 
@@ -76,13 +76,13 @@ pub struct Chunker<'a> {
     data2: &'a [u8],
 }
 impl<'a> Chunker<'a> {
-    pub fn new(data: &'a [u8]) -> Self {
+    pub const fn new(data: &'a [u8]) -> Self {
         Self {
             data1: data,
             data2: &[],
         }
     }
-    pub fn chain(data1: &'a [u8], data2: &'a [u8]) -> Self {
+    pub const fn chain(data1: &'a [u8], data2: &'a [u8]) -> Self {
         if data1.is_empty() {
             Self {
                 data1: data2,
@@ -92,10 +92,10 @@ impl<'a> Chunker<'a> {
             Self { data1, data2 }
         }
     }
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.data1.len() + self.data2.len()
     }
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.data1.is_empty()
     }
     pub fn to_vec(&self) -> Vec<u8> {
@@ -216,7 +216,7 @@ pub struct CompressState<C: Compressor> {
 }
 
 impl<C: Compressor> CompressState<C> {
-    pub fn new(compressor: C) -> Self {
+    pub const fn new(compressor: C) -> Self {
         Self {
             compressor: Some(compressor),
         }
@@ -293,7 +293,7 @@ impl<D: Decompressor> DecompressState<D> {
         }
     }
 
-    pub fn eof(&self) -> bool {
+    pub const fn eof(&self) -> bool {
         self.eof
     }
 
@@ -301,7 +301,7 @@ impl<D: Decompressor> DecompressState<D> {
         self.unused_data.clone()
     }
 
-    pub fn needs_input(&self) -> bool {
+    pub const fn needs_input(&self) -> bool {
         self.needs_input
     }
 

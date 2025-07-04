@@ -89,26 +89,26 @@ mod array {
                     }
                 }
 
-                fn typecode(&self) -> char {
+                const fn typecode(&self) -> char {
                     match self {
                         $(ArrayContentType::$n(_) => $c,)*
                     }
                 }
 
-                fn typecode_str(&self) -> &'static str {
+                const fn typecode_str(&self) -> &'static str {
                     match self {
                         $(ArrayContentType::$n(_) => $scode,)*
                     }
                 }
 
-                fn itemsize_of_typecode(c: char) -> Option<usize> {
+                const fn itemsize_of_typecode(c: char) -> Option<usize> {
                     match c {
                         $($c => Some(std::mem::size_of::<$t>()),)*
                         _ => None,
                     }
                 }
 
-                fn itemsize(&self) -> usize {
+                const fn itemsize(&self) -> usize {
                     match self {
                         $(ArrayContentType::$n(_) => std::mem::size_of::<$t>(),)*
                     }
@@ -554,11 +554,11 @@ mod array {
         (f64, f64_try_into_from_object, f64_swap_bytes, PyFloat::from),
     );
 
-    fn f32_swap_bytes(x: f32) -> f32 {
+    const fn f32_swap_bytes(x: f32) -> f32 {
         f32::from_bits(x.to_bits().swap_bytes())
     }
 
-    fn f64_swap_bytes(x: f64) -> f64 {
+    const fn f64_swap_bytes(x: f64) -> f64 {
         f64::from_bits(x.to_bits().swap_bytes())
     }
 
@@ -1557,7 +1557,7 @@ mod array {
                 _ => None,
             }
         }
-        fn item_size(self) -> usize {
+        const fn item_size(self) -> usize {
             match self {
                 Self::Int8 { .. } => 1,
                 Self::Int16 { .. } | Self::Utf16 { .. } => 2,

@@ -160,7 +160,7 @@ mod decl {
         })
     }
 
-    fn unhex_nibble(c: u8) -> Option<u8> {
+    const fn unhex_nibble(c: u8) -> Option<u8> {
         match c {
             b'0'..=b'9' => Some(c - b'0'),
             b'a'..=b'f' => Some(c - b'a' + 10),
@@ -810,7 +810,7 @@ mod decl {
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         #[inline]
-        fn uu_b2a(num: u8, backtick: bool) -> u8 {
+        const fn uu_b2a(num: u8, backtick: bool) -> u8 {
             if backtick && num == 0 {
                 0x60
             } else {

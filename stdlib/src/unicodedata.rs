@@ -83,7 +83,7 @@ mod unicodedata {
     }
 
     impl Ucd {
-        pub fn new(unic_version: UnicodeVersion) -> Self {
+        pub const fn new(unic_version: UnicodeVersion) -> Self {
             Self { unic_version }
         }
 

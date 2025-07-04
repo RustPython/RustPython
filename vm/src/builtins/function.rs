@@ -722,7 +722,7 @@ impl Constructor for PyBoundMethod {
 }
 
 impl PyBoundMethod {
-    pub fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
+    pub const fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
         Self { object, function }
     }
 
@@ -846,7 +846,7 @@ impl Constructor for PyCell {
 
 #[pyclass(with(Constructor))]
 impl PyCell {
-    pub fn new(contents: Option<PyObjectRef>) -> Self {
+    pub const fn new(contents: Option<PyObjectRef>) -> Self {
         Self {
             contents: PyMutex::new(contents),
         }

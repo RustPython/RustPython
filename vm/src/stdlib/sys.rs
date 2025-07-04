@@ -95,7 +95,7 @@ mod sys {
     const DLLHANDLE: usize = 0;
 
     #[pyattr]
-    fn default_prefix(_vm: &VirtualMachine) -> &'static str {
+    const fn default_prefix(_vm: &VirtualMachine) -> &'static str {
         // TODO: the windows one doesn't really make sense
         if cfg!(windows) { "C:" } else { "/usr/local" }
     }
@@ -238,7 +238,7 @@ mod sys {
     }
 
     #[pyattr]
-    fn meta_path(_vm: &VirtualMachine) -> Vec<PyObjectRef> {
+    const fn meta_path(_vm: &VirtualMachine) -> Vec<PyObjectRef> {
         Vec::new()
     }
 
@@ -258,7 +258,7 @@ mod sys {
     }
 
     #[pyattr]
-    fn path_hooks(_vm: &VirtualMachine) -> Vec<PyObjectRef> {
+    const fn path_hooks(_vm: &VirtualMachine) -> Vec<PyObjectRef> {
         Vec::new()
     }
 
@@ -454,7 +454,7 @@ mod sys {
     }
 
     #[pyfunction]
-    fn getdefaultencoding() -> &'static str {
+    const fn getdefaultencoding() -> &'static str {
         crate::codecs::DEFAULT_ENCODING
     }
 
@@ -964,7 +964,7 @@ mod sys {
 
     #[pyclass(with(PyStructSequence))]
     impl Flags {
-        fn from_settings(settings: &Settings) -> Self {
+        const fn from_settings(settings: &Settings) -> Self {
             Self {
                 debug: settings.debug,
                 inspect: settings.inspect as u8,

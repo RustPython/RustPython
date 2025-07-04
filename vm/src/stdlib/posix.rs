@@ -211,7 +211,7 @@ pub mod module {
         is_executable: bool,
     }
 
-    fn get_permissions(mode: u32) -> Permissions {
+    const fn get_permissions(mode: u32) -> Permissions {
         Permissions {
             is_readable: mode & 4 != 0,
             is_writable: mode & 2 != 0,

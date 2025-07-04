@@ -32,7 +32,7 @@ struct Unparser<'a, 'b, 'c> {
     source: &'c SourceCode<'c>,
 }
 impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
-    fn new(f: &'b mut fmt::Formatter<'a>, source: &'c SourceCode<'c>) -> Self {
+    const fn new(f: &'b mut fmt::Formatter<'a>, source: &'c SourceCode<'c>) -> Self {
         Unparser { f, source }
     }
 
@@ -602,7 +602,7 @@ pub struct UnparseExpr<'a> {
     source: &'a SourceCode<'a>,
 }
 
-pub fn unparse_expr<'a>(expr: &'a Expr, source: &'a SourceCode<'a>) -> UnparseExpr<'a> {
+pub const fn unparse_expr<'a>(expr: &'a Expr, source: &'a SourceCode<'a>) -> UnparseExpr<'a> {
     UnparseExpr { expr, source }
 }
 
