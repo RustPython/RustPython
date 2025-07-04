@@ -282,7 +282,7 @@ impl Default for PatternContext {
 }
 
 impl PatternContext {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             stores: Vec::new(),
             allow_irrefutable: false,
@@ -4118,7 +4118,7 @@ impl Compiler<'_> {
         code.current_block = block;
     }
 
-    fn set_source_range(&mut self, range: TextRange) {
+    const fn set_source_range(&mut self, range: TextRange) {
         self.current_source_range = range;
     }
 
