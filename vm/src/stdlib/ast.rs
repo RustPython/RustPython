@@ -90,7 +90,7 @@ pub struct PySourceLocation {
 }
 
 impl PySourceLocation {
-    fn to_source_location(&self) -> SourceLocation {
+    const fn to_source_location(&self) -> SourceLocation {
         SourceLocation {
             row: self.row.get_one_indexed(),
             column: self.column.get_one_indexed(),

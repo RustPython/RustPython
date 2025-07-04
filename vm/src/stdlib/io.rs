@@ -803,7 +803,7 @@ mod _io {
         }
 
         #[inline]
-        fn raw_offset(&self) -> Offset {
+        const fn raw_offset(&self) -> Offset {
             if (self.valid_read() || self.valid_write()) && self.raw_pos >= 0 {
                 self.raw_pos - self.pos
             } else {
@@ -812,7 +812,7 @@ mod _io {
         }
 
         #[inline]
-        fn readahead(&self) -> Offset {
+        const fn readahead(&self) -> Offset {
             if self.valid_read() {
                 self.read_end - self.pos
             } else {
@@ -1278,7 +1278,7 @@ mod _io {
             }
         }
 
-        fn adjust_position(&mut self, new_pos: Offset) {
+        const fn adjust_position(&mut self, new_pos: Offset) {
             self.pos = new_pos;
             if self.valid_read() && self.read_end < self.pos {
                 self.read_end = self.pos
