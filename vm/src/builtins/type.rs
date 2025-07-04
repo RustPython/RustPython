@@ -260,7 +260,7 @@ impl PyType {
         }
 
         let new_type = PyRef::new_ref(
-            PyType {
+            Self {
                 base: Some(base),
                 bases: PyRwLock::new(bases),
                 mro: PyRwLock::new(mro),
@@ -305,7 +305,7 @@ impl PyType {
         let mro = base.mro_map_collect(|x| x.to_owned());
 
         let new_type = PyRef::new_ref(
-            PyType {
+            Self {
                 base: Some(base),
                 bases,
                 mro: PyRwLock::new(mro),
@@ -434,7 +434,7 @@ impl PyType {
         let mut attributes = PyAttributes::default();
 
         for bc in std::iter::once(self)
-            .chain(self.mro.read().iter().map(|cls| -> &PyType { cls }))
+            .chain(self.mro.read().iter().map(|cls| -> &Self { cls }))
             .rev()
         {
             for (name, value) in bc.attributes.read().iter() {
@@ -446,7 +446,7 @@ impl PyType {
     }
 
     // bound method for every type
-    pub(crate) fn __new__(zelf: PyRef<PyType>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    pub(crate) fn __new__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let (subtype, args): (PyRef<Self>, FuncArgs) = args.bind(vm)?;
         if !subtype.fast_issubclass(&zelf) {
             return Err(vm.new_type_error(format!(
@@ -486,13 +486,13 @@ impl PyType {
 }
 
 impl Py<PyType> {
-    pub(crate) fn is_subtype(&self, other: &Py<PyType>) -> bool {
+    pub(crate) fn is_subtype(&self, other: &Self) -> bool {
         is_subtype_with_mro(&self.mro.read(), self, other)
     }
 
     /// Equivalent to CPython's PyType_CheckExact macro
     /// Checks if obj is exactly a type (not a subclass)
-    pub fn check_exact<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> Option<&'a Py<PyType>> {
+    pub fn check_exact<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> Option<&'a Self> {
         obj.downcast_ref_if_exact::<PyType>(vm)
     }
 
@@ -533,7 +533,7 @@ impl Py<PyType> {
         }
     }
 
-    pub fn iter_base_chain(&self) -> impl Iterator<Item = &Py<PyType>> {
+    pub fn iter_base_chain(&self) -> impl Iterator<Item = &Self> {
         std::iter::successors(Some(self), |cls| cls.base.as_deref())
     }
 
@@ -929,7 +929,7 @@ impl Constructor for PyType {
             let bases = bases
                 .iter()
                 .map(|obj| {
-                    obj.clone().downcast::<PyType>().or_else(|obj| {
+                    obj.clone().downcast::<Self>().or_else(|obj| {
                         if vm
                             .get_attribute_opt(obj, identifier!(vm, __mro_entries__))?
                             .is_some()

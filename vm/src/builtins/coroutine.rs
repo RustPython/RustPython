@@ -30,7 +30,7 @@ impl PyCoroutine {
     }
 
     pub fn new(frame: FrameRef, name: PyStrRef) -> Self {
-        PyCoroutine {
+        Self {
             inner: Coro::new(frame, name),
         }
     }

@@ -48,7 +48,7 @@ impl Constructor for PySuper {
     type Args = FuncArgs;
 
     fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        let obj = PySuper {
+        let obj = Self {
             inner: PyRwLock::new(PySuperInner::new(
                 vm.ctx.types.object_type.to_owned(), // is this correct?
                 vm.ctx.none(),
@@ -205,7 +205,7 @@ impl GetDescriptor for PySuper {
         let zelf_class = zelf.as_object().class();
         if zelf_class.is(vm.ctx.types.super_type) {
             let typ = zelf.inner.read().typ.clone();
-            Ok(PySuper {
+            Ok(Self {
                 inner: PyRwLock::new(PySuperInner::new(typ, obj, vm)?),
             }
             .into_ref(&vm.ctx)

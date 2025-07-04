@@ -28,7 +28,7 @@ impl PyPayload for PyTraceback {
 #[pyclass]
 impl PyTraceback {
     pub fn new(next: Option<PyRef<Self>>, frame: FrameRef, lasti: u32, lineno: LineNumber) -> Self {
-        PyTraceback {
+        Self {
             next: PyMutex::new(next),
             frame,
             lasti,
@@ -63,7 +63,7 @@ impl PyTraceback {
 }
 
 impl PyTracebackRef {
-    pub fn iter(&self) -> impl Iterator<Item = PyTracebackRef> {
+    pub fn iter(&self) -> impl Iterator<Item = Self> {
         std::iter::successors(Some(self.clone()), |tb| tb.next.lock().clone())
     }
 }

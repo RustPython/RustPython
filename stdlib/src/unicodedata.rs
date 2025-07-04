@@ -47,10 +47,10 @@ impl<'a> TryFromBorrowedObject<'a> for NormalizeForm {
         obj.try_value_with(
             |form: &PyStr| {
                 Ok(match form.as_str() {
-                    "NFC" => NormalizeForm::Nfc,
-                    "NFKC" => NormalizeForm::Nfkc,
-                    "NFD" => NormalizeForm::Nfd,
-                    "NFKD" => NormalizeForm::Nfkd,
+                    "NFC" => Self::Nfc,
+                    "NFKC" => Self::Nfkc,
+                    "NFD" => Self::Nfd,
+                    "NFKD" => Self::Nfkd,
                     _ => return Err(vm.new_value_error("invalid normalization form")),
                 })
             },
@@ -221,12 +221,12 @@ mod unicodedata {
     impl EastAsianWidthAbbrName for EastAsianWidth {
         fn abbr_name(&self) -> &'static str {
             match self {
-                EastAsianWidth::Narrow => "Na",
-                EastAsianWidth::Wide => "W",
-                EastAsianWidth::Neutral => "N",
-                EastAsianWidth::Ambiguous => "A",
-                EastAsianWidth::FullWidth => "F",
-                EastAsianWidth::HalfWidth => "H",
+                Self::Narrow => "Na",
+                Self::Wide => "W",
+                Self::Neutral => "N",
+                Self::Ambiguous => "A",
+                Self::FullWidth => "F",
+                Self::HalfWidth => "H",
             }
         }
     }

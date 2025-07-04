@@ -36,7 +36,7 @@ impl Constructor for PyZip {
     fn py_new(cls: PyTypeRef, (iterators, args): Self::Args, vm: &VirtualMachine) -> PyResult {
         let iterators = iterators.into_vec();
         let strict = Radium::new(args.strict.unwrap_or(false));
-        PyZip { iterators, strict }
+        Self { iterators, strict }
             .into_ref_with_type(vm, cls)
             .map(Into::into)
     }

@@ -122,8 +122,8 @@ impl PyMethod {
 
     pub fn invoke(self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
         let (func, args) = match self {
-            PyMethod::Function { target, func } => (func, args.into_method_args(target, vm)),
-            PyMethod::Attribute(func) => (func, args.into_args(vm)),
+            Self::Function { target, func } => (func, args.into_method_args(target, vm)),
+            Self::Attribute(func) => (func, args.into_args(vm)),
         };
         func.call(args, vm)
     }
@@ -131,10 +131,8 @@ impl PyMethod {
     #[allow(dead_code)]
     pub fn invoke_ref(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
         let (func, args) = match self {
-            PyMethod::Function { target, func } => {
-                (func, args.into_method_args(target.clone(), vm))
-            }
-            PyMethod::Attribute(func) => (func, args.into_args(vm)),
+            Self::Function { target, func } => (func, args.into_method_args(target.clone(), vm)),
+            Self::Attribute(func) => (func, args.into_args(vm)),
         };
         func.call(args, vm)
     }

@@ -1170,7 +1170,7 @@ impl MatchContext {
     #[must_use]
     fn next_at(&mut self, code_position: usize, jump: Jump) -> Self {
         self.jump = jump;
-        MatchContext {
+        Self {
             code_position,
             jump: Jump::OpCode,
             count: -1,

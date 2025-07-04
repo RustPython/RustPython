@@ -142,7 +142,7 @@ impl Frame {
         closure: &[PyCellRef],
         func_obj: Option<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> Frame {
+    ) -> Self {
         let cells_frees = std::iter::repeat_with(|| PyCell::default().into_ref(&vm.ctx))
             .take(code.cellvars.len())
             .chain(closure.iter().cloned())
@@ -155,7 +155,7 @@ impl Frame {
             lasti: 0,
         };
 
-        Frame {
+        Self {
             fastlocals: PyMutex::new(vec![None; code.varnames.len()].into_boxed_slice()),
             cells_frees,
             locals: scope.locals,
@@ -2285,7 +2285,7 @@ impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let state = self.state.lock();
         let stack_str = state.stack.iter().fold(String::new(), |mut s, elem| {
-            if elem.payload_is::<Frame>() {
+            if elem.payload_is::<Self>() {
                 s.push_str("\n  > {frame}");
             } else {
                 std::fmt::write(&mut s, format_args!("\n  > {elem:?}")).unwrap();

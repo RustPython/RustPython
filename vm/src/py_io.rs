@@ -45,7 +45,7 @@ where
 impl Write for String {
     type Error = fmt::Error;
     fn write_fmt(&mut self, args: fmt::Arguments<'_>) -> fmt::Result {
-        <String as fmt::Write>::write_fmt(self, args)
+        <Self as fmt::Write>::write_fmt(self, args)
     }
 }
 

@@ -144,8 +144,8 @@ unsafe impl<A: Traverse, B: Traverse> Traverse for Either<A, B> {
     #[inline]
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         match self {
-            Either::A(a) => a.traverse(tracer_fn),
-            Either::B(b) => b.traverse(tracer_fn),
+            Self::A(a) => a.traverse(tracer_fn),
+            Self::B(b) => b.traverse(tracer_fn),
         }
     }
 }

@@ -4,7 +4,7 @@ use super::*;
 impl Node for ruff::ExceptHandler {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         match self {
-            ruff::ExceptHandler::ExceptHandler(cons) => cons.ast_to_object(vm, source_code),
+            Self::ExceptHandler(cons) => cons.ast_to_object(vm, source_code),
         }
     }
     fn ast_from_object(
@@ -15,9 +15,11 @@ impl Node for ruff::ExceptHandler {
         let _cls = _object.class();
         Ok(
             if _cls.is(pyast::NodeExceptHandlerExceptHandler::static_type()) {
-                ruff::ExceptHandler::ExceptHandler(
-                    ruff::ExceptHandlerExceptHandler::ast_from_object(_vm, source_code, _object)?,
-                )
+                Self::ExceptHandler(ruff::ExceptHandlerExceptHandler::ast_from_object(
+                    _vm,
+                    source_code,
+                    _object,
+                )?)
             } else {
                 return Err(_vm.new_type_error(format!(
                     "expected some sort of excepthandler, but got {}",
@@ -30,7 +32,7 @@ impl Node for ruff::ExceptHandler {
 // constructor
 impl Node for ruff::ExceptHandlerExceptHandler {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let ruff::ExceptHandlerExceptHandler {
+        let Self {
             type_,
             name,
             body,

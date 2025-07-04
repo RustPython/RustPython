@@ -150,7 +150,7 @@ mod _contextvars {
                 if let Some(ctx) = ctxs.last() {
                     ctx.clone()
                 } else {
-                    let ctx = PyContext::empty(vm);
+                    let ctx = Self::empty(vm);
                     ctx.inner.idx.set(0);
                     ctx.inner.entered.set(true);
                     let ctx = ctx.into_ref(&vm.ctx);
@@ -253,7 +253,7 @@ mod _contextvars {
     impl Constructor for PyContext {
         type Args = ();
         fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            Ok(PyContext::empty(vm).into_pyobject(vm))
+            Ok(Self::empty(vm).into_pyobject(vm))
         }
     }
 
@@ -499,7 +499,7 @@ mod _contextvars {
     impl Constructor for ContextVar {
         type Args = ContextVarOptions;
         fn py_new(_cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            let var = ContextVar {
+            let var = Self {
                 name: args.name.to_string(),
                 default: args.default.into_option(),
                 cached_id: 0.into(),

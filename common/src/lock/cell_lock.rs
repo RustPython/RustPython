@@ -11,7 +11,7 @@ pub struct RawCellMutex {
 
 unsafe impl RawMutex for RawCellMutex {
     #[allow(clippy::declare_interior_mutable_const)]
-    const INIT: Self = RawCellMutex {
+    const INIT: Self = Self {
         locked: Cell::new(false),
     };
 
@@ -61,7 +61,7 @@ impl RawCellRwLock {
 
 unsafe impl RawRwLock for RawCellRwLock {
     #[allow(clippy::declare_interior_mutable_const)]
-    const INIT: Self = RawCellRwLock {
+    const INIT: Self = Self {
         state: Cell::new(0),
     };
 
@@ -203,7 +203,7 @@ fn deadlock(lock_kind: &str, ty: &str) -> ! {
 
 pub struct SingleThreadId(());
 unsafe impl GetThreadId for SingleThreadId {
-    const INIT: Self = SingleThreadId(());
+    const INIT: Self = Self(());
     fn nonzero_thread_id(&self) -> NonZero<usize> {
         NonZero::new(1).unwrap()
     }

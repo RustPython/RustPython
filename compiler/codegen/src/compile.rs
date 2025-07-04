@@ -283,7 +283,7 @@ impl Default for PatternContext {
 
 impl PatternContext {
     pub fn new() -> Self {
-        PatternContext {
+        Self {
             stores: Vec::new(),
             allow_irrefutable: false,
             fail_pop: Vec::new(),

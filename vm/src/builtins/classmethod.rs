@@ -92,7 +92,7 @@ impl Constructor for PyClassMethod {
         }
 
         // Create PyClassMethod instance with the pre-populated dict
-        let classmethod = PyClassMethod {
+        let classmethod = Self {
             callable: PyMutex::new(callable),
         };
 

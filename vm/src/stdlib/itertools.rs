@@ -56,7 +56,7 @@ mod decl {
             source: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            PyItertoolsChain {
+            Self {
                 source: PyRwLock::new(Some(source.get_iter(vm)?)),
                 active: PyRwLock::new(None),
             }
@@ -195,7 +195,7 @@ mod decl {
             Self::Args { data, selectors }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
-            PyItertoolsCompress { data, selectors }
+            Self { data, selectors }
                 .into_ref_with_type(vm, cls)
                 .map(Into::into)
         }
@@ -1235,7 +1235,7 @@ mod decl {
             let copyable = if iterable.class().has_attr(identifier!(vm, __copy__)) {
                 vm.call_special_method(iterable.as_object(), identifier!(vm, __copy__), ())?
             } else {
-                PyItertoolsTee::from_iter(iterable, vm)?
+                Self::from_iter(iterable, vm)?
             };
 
             let mut tee_vec: Vec<PyObjectRef> = Vec::with_capacity(n);
@@ -1250,8 +1250,8 @@ mod decl {
     #[pyclass(with(IterNext, Iterable, Constructor))]
     impl PyItertoolsTee {
         fn from_iter(iterator: PyIter, vm: &VirtualMachine) -> PyResult {
-            let class = PyItertoolsTee::class(&vm.ctx);
-            if iterator.class().is(PyItertoolsTee::class(&vm.ctx)) {
+            let class = Self::class(&vm.ctx);
+            if iterator.class().is(Self::class(&vm.ctx)) {
                 return vm.call_special_method(&iterator, identifier!(vm, __copy__), ());
             }
             Ok(Self {

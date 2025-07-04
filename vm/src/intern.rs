@@ -311,7 +311,7 @@ impl MaybeInternedString for Py<PyStr> {
     #[inline(always)]
     fn as_interned(&self) -> Option<&'static PyStrInterned> {
         if self.as_object().is_interned() {
-            Some(unsafe { std::mem::transmute::<&Py<PyStr>, &PyInterned<PyStr>>(self) })
+            Some(unsafe { std::mem::transmute::<&Self, &PyInterned<PyStr>>(self) })
         } else {
             None
         }

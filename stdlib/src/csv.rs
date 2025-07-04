@@ -68,7 +68,7 @@ mod _csv {
         type Args = PyObjectRef;
 
         fn py_new(cls: PyTypeRef, ctx: Self::Args, vm: &VirtualMachine) -> PyResult {
-            PyDialect::try_from_object(vm, ctx)?
+            Self::try_from_object(vm, ctx)?
                 .into_ref_with_type(vm, cls)
                 .map(Into::into)
         }
@@ -425,10 +425,10 @@ mod _csv {
     impl From<QuoteStyle> for csv_core::QuoteStyle {
         fn from(val: QuoteStyle) -> Self {
             match val {
-                QuoteStyle::Minimal => csv_core::QuoteStyle::Always,
-                QuoteStyle::All => csv_core::QuoteStyle::Always,
-                QuoteStyle::Nonnumeric => csv_core::QuoteStyle::NonNumeric,
-                QuoteStyle::None => csv_core::QuoteStyle::Never,
+                QuoteStyle::Minimal => Self::Always,
+                QuoteStyle::All => Self::Always,
+                QuoteStyle::Nonnumeric => Self::NonNumeric,
+                QuoteStyle::None => Self::Never,
                 QuoteStyle::Strings => todo!(),
                 QuoteStyle::Notnull => todo!(),
             }
@@ -444,14 +444,14 @@ mod _csv {
     }
     impl TryFrom<isize> for QuoteStyle {
         type Error = PyTypeError;
-        fn try_from(num: isize) -> Result<QuoteStyle, PyTypeError> {
+        fn try_from(num: isize) -> Result<Self, PyTypeError> {
             match num {
-                0 => Ok(QuoteStyle::Minimal),
-                1 => Ok(QuoteStyle::All),
-                2 => Ok(QuoteStyle::Nonnumeric),
-                3 => Ok(QuoteStyle::None),
-                4 => Ok(QuoteStyle::Strings),
-                5 => Ok(QuoteStyle::Notnull),
+                0 => Ok(Self::Minimal),
+                1 => Ok(Self::All),
+                2 => Ok(Self::Nonnumeric),
+                3 => Ok(Self::None),
+                4 => Ok(Self::Strings),
+                5 => Ok(Self::Notnull),
                 _ => Err(PyTypeError {}),
             }
         }
@@ -488,7 +488,7 @@ mod _csv {
     }
     impl Default for FormatOptions {
         fn default() -> Self {
-            FormatOptions {
+            Self {
                 dialect: DialectItem::None,
                 delimiter: None,
                 quotechar: None,
@@ -557,7 +557,7 @@ mod _csv {
 
     impl FromArgs for FormatOptions {
         fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
-            let mut res = FormatOptions::default();
+            let mut res = Self::default();
             if let Some(dialect) = args.kwargs.swap_remove("dialect") {
                 res.dialect = prase_dialect_item_from_arg(vm, dialect)?;
             } else if let Some(dialect) = args.args.first() {

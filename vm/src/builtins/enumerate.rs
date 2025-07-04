@@ -44,7 +44,7 @@ impl Constructor for PyEnumerate {
         vm: &VirtualMachine,
     ) -> PyResult {
         let counter = start.map_or_else(BigInt::zero, |start| start.as_bigint().clone());
-        PyEnumerate {
+        Self {
             counter: PyRwLock::new(counter),
             iterator,
         }

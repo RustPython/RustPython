@@ -201,7 +201,7 @@ pub(crate) mod _thread {
     impl RLock {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            RLock {
+            Self {
                 mu: RawRMutex::INIT,
             }
             .into_ref_with_type(vm, cls)
@@ -393,7 +393,7 @@ pub(crate) mod _thread {
 
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Local {
+            Self {
                 data: ThreadLocal::new(),
             }
             .into_ref_with_type(vm, cls)

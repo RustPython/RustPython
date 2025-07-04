@@ -679,7 +679,7 @@ impl Node for ruff::ExprAwait {
 // constructor
 impl Node for ruff::ExprYield {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let ruff::ExprYield { value, range } = self;
+        let Self { value, range } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprYield::static_type().to_owned())
             .unwrap();
@@ -695,7 +695,7 @@ impl Node for ruff::ExprYield {
         source_code: &SourceCodeOwned,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        Ok(ruff::ExprYield {
+        Ok(Self {
             value: get_node_field_opt(vm, &object, "value")?
                 .map(|obj| Node::ast_from_object(vm, source_code, obj))
                 .transpose()?,
@@ -1020,7 +1020,7 @@ impl Node for ruff::ExprName {
 // constructor
 impl Node for ruff::ExprList {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let ruff::ExprList { elts, ctx, range } = self;
+        let Self { elts, ctx, range } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprList::static_type().to_owned())
             .unwrap();
@@ -1038,7 +1038,7 @@ impl Node for ruff::ExprList {
         source_code: &SourceCodeOwned,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        Ok(ruff::ExprList {
+        Ok(Self {
             elts: Node::ast_from_object(
                 vm,
                 source_code,
