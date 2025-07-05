@@ -329,14 +329,14 @@ impl Context {
             true_value,
             false_value,
             none,
-            typing_no_default,
             empty_tuple,
             empty_frozenset,
             empty_str,
             empty_bytes,
-
             ellipsis,
+
             not_implemented,
+            typing_no_default,
 
             types,
             exceptions,
