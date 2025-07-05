@@ -21,6 +21,10 @@ impl IntoPyException for FormatSpecError {
                 let msg = format!("Cannot specify '{c1}' with '{c2}'.");
                 vm.new_value_error(msg)
             }
+            Self::ExclusiveFormat(c1, c2) => {
+                let msg = format!("Cannot specify both '{c1}' and '{c2}'.");
+                vm.new_value_error(msg)
+            }
             Self::UnknownFormatCode(c, s) => {
                 let msg = format!("Unknown format code '{c}' for object of type '{s}'");
                 vm.new_value_error(msg)

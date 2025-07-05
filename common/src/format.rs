@@ -127,6 +127,15 @@ impl FormatParse for FormatGrouping {
     }
 }
 
+impl From<&FormatGrouping> for char {
+    fn from(fg: &FormatGrouping) -> Self {
+        match fg {
+            FormatGrouping::Comma => ',',
+            FormatGrouping::Underscore => '_',
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum FormatType {
     String,
@@ -281,6 +290,7 @@ impl FormatSpec {
     pub fn parse(text: impl AsRef<Wtf8>) -> Result<Self, FormatSpecError> {
         Self::_parse(text.as_ref())
     }
+
     fn _parse(text: &Wtf8) -> Result<Self, FormatSpecError> {
         // get_integer in CPython
         let (conversion, text) = FormatConversion::parse(text);
@@ -290,6 +300,9 @@ impl FormatSpec {
         let (zero, text) = parse_zero(text);
         let (width, text) = parse_number(text)?;
         let (grouping_option, text) = FormatGrouping::parse(text);
+        if let Some(grouping) = &grouping_option {
+            Self::validate_separator(grouping, text)?;
+        }
         let (precision, text) = parse_precision(text)?;
         let (format_type, text) = FormatType::parse(text);
         if !text.is_empty() {
@@ -312,6 +325,20 @@ impl FormatSpec {
             precision,
             format_type,
         })
+    }
+
+    fn validate_separator(grouping: &FormatGrouping, text: &Wtf8) -> Result<(), FormatSpecError> {
+        let mut chars = text.code_points().peekable();
+        match chars.peek().and_then(|cp| CodePoint::to_char(*cp)) {
+            Some(c) if c == ',' || c == '_' => {
+                if c == char::from(grouping) {
+                    Err(FormatSpecError::UnspecifiedFormat(c, c))
+                } else {
+                    Err(FormatSpecError::ExclusiveFormat(',', '_'))
+                }
+            }
+            _ => Ok(()),
+        }
     }
 
     fn compute_fill_string(fill_char: CodePoint, fill_chars_needed: i32) -> Wtf8Buf {
@@ -406,10 +433,7 @@ impl FormatSpec {
     fn add_magnitude_separators(&self, magnitude_str: String, prefix: &str) -> String {
         match &self.grouping_option {
             Some(fg) => {
-                let sep = match fg {
-                    FormatGrouping::Comma => ',',
-                    FormatGrouping::Underscore => '_',
-                };
+                let sep = char::from(fg);
                 let inter = self.get_separator_interval().try_into().unwrap();
                 let magnitude_len = magnitude_str.len();
                 let width = self.width.unwrap_or(magnitude_len) as i32 - prefix.len() as i32;
@@ -720,10 +744,7 @@ impl FormatSpec {
         }?;
         match &self.grouping_option {
             Some(fg) => {
-                let sep = match fg {
-                    FormatGrouping::Comma => ',',
-                    FormatGrouping::Underscore => '_',
-                };
+                let sep = char::from(fg);
                 let inter = self.get_separator_interval().try_into().unwrap();
                 let len = magnitude_str.len() as i32;
                 let separated_magnitude =
@@ -818,6 +839,7 @@ pub enum FormatSpecError {
     PrecisionTooBig,
     InvalidFormatSpecifier,
     UnspecifiedFormat(char, char),
+    ExclusiveFormat(char, char),
     UnknownFormatCode(char, &'static str),
     PrecisionNotAllowed,
     NotAllowed(&'static str),
