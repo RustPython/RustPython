@@ -90,8 +90,22 @@ mod decl {
 
     #[cfg(not(unix))]
     #[pyfunction]
-    fn sleep(dur: Duration) {
-        std::thread::sleep(dur);
+    fn sleep(secs: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        // Try to get as float first, if that fails try as integer
+        let secs = if let Ok(float_val) = f64::try_from_object(vm, secs.clone()) {
+            float_val
+        } else if let Ok(int_val) = i64::try_from_object(vm, secs) {
+            int_val as f64
+        } else {
+            return Err(vm.new_type_error("sleep() argument must be a number"));
+        };
+        if !secs.is_finite() || secs < 0.0 || secs > (u32::MAX / 1000) as f64 {
+            return Err(vm.new_value_error("sleep length must be a non-negative finite number"));
+        }
+
+        let duration = Duration::from_secs_f64(secs);
+        std::thread::sleep(duration);
+        Ok(())
     }
 
     #[cfg(not(target_os = "wasi"))]
@@ -527,7 +541,7 @@ mod platform {
     use crate::{
         PyObject, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
         builtins::{PyNamespace, PyStrRef},
-        convert::IntoPyException,
+        convert::{IntoPyException,TryFromObject},
     };
     use nix::{sys::time::TimeSpec, time::ClockId};
     use std::time::Duration;
@@ -691,9 +705,20 @@ mod platform {
     }
 
     #[pyfunction]
-    fn sleep(dur: Duration, vm: &VirtualMachine) -> PyResult<()> {
+    fn sleep(secs: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // this is basically std::thread::sleep, but that catches interrupts and we don't want to;
-
+        // Try to get as float first, if that fails try as integer
+        let secs = if let Ok(float_val) = f64::try_from_object(vm, secs.clone()) {
+            float_val
+        } else if let Ok(int_val) = i64::try_from_object(vm, secs) {
+            int_val as f64
+        } else {
+            return Err(vm.new_type_error("sleep() argument must be a number"));
+        };
+        if !secs.is_finite() || secs < 0.0 || secs > u64::MAX as f64 {
+            return Err(vm.new_value_error("sleep length must be a non-negative finite number"));
+        }
+        let dur = Duration::from_secs_f64(secs);
         let ts = TimeSpec::from(dur);
         let res = unsafe { libc::nanosleep(ts.as_ref(), std::ptr::null_mut()) };
         let interrupted = res == -1 && nix::Error::last_raw() == libc::EINTR;

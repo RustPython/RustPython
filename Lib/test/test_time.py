@@ -155,7 +155,17 @@ class TimeTestCase(unittest.TestCase):
     def test_sleep(self):
         self.assertRaises(ValueError, time.sleep, -2)
         self.assertRaises(ValueError, time.sleep, -1)
+        self.assertRaises(ValueError, time.sleep, float('nan'))
+        self.assertRaises(ValueError, time.sleep, float('inf'))
+        self.assertRaises(ValueError, time.sleep, -float('inf'))
+        self.assertRaises(ValueError, time.sleep, 1e100)
+        time.sleep(0)
+        time.sleep(0.000001)
+        time.sleep(1e-9)          
+        time.sleep(0.5)
         time.sleep(1.2)
+        time.sleep(2)
+
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
