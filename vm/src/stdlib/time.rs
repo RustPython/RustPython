@@ -715,9 +715,9 @@ mod platform {
         } else {
             return Err(vm.new_type_error("sleep() argument must be a number"));
         };
-    if !secs.is_finite() || secs < 0.0 || secs > u64::MAX as f64 {
-        return Err(vm.new_value_error("sleep length must be a non-negative finite number"));
-    }
+        if !secs.is_finite() || secs < 0.0 || secs > u64::MAX as f64 {
+            return Err(vm.new_value_error("sleep length must be a non-negative finite number"));
+        }
         let dur = Duration::from_secs_f64(secs);
         let ts = TimeSpec::from(dur);
         let res = unsafe { libc::nanosleep(ts.as_ref(), std::ptr::null_mut()) };
