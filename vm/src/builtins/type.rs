@@ -1056,8 +1056,8 @@ impl Constructor for PyType {
         let flags = PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT;
         let (slots, heaptype_ext) = {
             let slots = PyTypeSlots {
-                member_count,
                 flags,
+                member_count,
                 ..PyTypeSlots::heap_default()
             };
             let heaptype_ext = HeapTypeExt {

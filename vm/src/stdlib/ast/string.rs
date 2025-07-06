@@ -88,7 +88,7 @@ fn ruff_format_spec_to_joined_str(
                 .map(ruff_fstring_element_to_joined_str_part)
                 .collect();
             let values = values.into_boxed_slice();
-            Some(Box::new(JoinedStr { values, range }))
+            Some(Box::new(JoinedStr { range, values }))
         }
     }
 }
