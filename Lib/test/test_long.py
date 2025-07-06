@@ -625,8 +625,6 @@ class LongTest(unittest.TestCase):
                     eq(x > y, Rcmp > 0)
                     eq(x >= y, Rcmp >= 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test__format__(self):
         self.assertEqual(format(123456789, 'd'), '123456789')
         self.assertEqual(format(123456789, 'd'), '123456789')
