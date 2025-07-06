@@ -1451,7 +1451,11 @@ fn subtype_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     Ok(ret)
 }
 
-fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+fn subtype_set_dict(
+    obj: PyObjectRef,
+    value: PySetterValue<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
     let cls = obj.class();
     match find_base_dict_descr(cls, vm) {
         Some(descr) => {
@@ -1464,10 +1468,14 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
                         cls.name()
                     ))
                 })?;
-            descr_set(&descr, obj, PySetterValue::Assign(value), vm)
+            descr_set(&descr, obj, value, vm)
         }
         None => {
-            object::object_set_dict(obj, value.try_into_value(vm)?, vm)?;
+            let value = value
+                .map(|assign| PyDictRef::try_from_object(vm, assign))
+                .transpose()?;
+
+            object::object_set_dict(obj, value, vm)?;
             Ok(())
         }
     }
