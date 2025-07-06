@@ -90,8 +90,25 @@ mod decl {
 
     #[cfg(not(unix))]
     #[pyfunction]
-    fn sleep(dur: Duration) {
+    fn sleep(seconds: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let dur = seconds.try_into_value::<Duration>(vm).map_err(|e| {
+            if e.class().is(vm.ctx.exceptions.value_error) {
+                // Check if this is a "negative duration" error by examining the args
+                if let Some(args) = e.args().first() {
+                    if let Ok(s) = args.str(vm) {
+                        if s.as_str() == "negative duration" {
+                            return vm.new_value_error("sleep length must be non-negative");
+                        }
+                    }
+                }
+                e
+            } else {
+                e
+            }
+        })?;
+
         std::thread::sleep(dur);
+        Ok(())
     }
 
     #[cfg(not(target_os = "wasi"))]
@@ -525,7 +542,7 @@ mod platform {
     use super::decl::{SEC_TO_NS, US_TO_NS};
     #[cfg_attr(target_os = "macos", allow(unused_imports))]
     use crate::{
-        PyObject, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
+        AsObject, PyObject, PyObjectRef, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
         builtins::{PyNamespace, PyStrRef},
         convert::IntoPyException,
     };
@@ -691,8 +708,22 @@ mod platform {
     }
 
     #[pyfunction]
-    fn sleep(dur: Duration, vm: &VirtualMachine) -> PyResult<()> {
-        // this is basically std::thread::sleep, but that catches interrupts and we don't want to;
+    fn sleep(seconds: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let dur = seconds.try_into_value::<Duration>(vm).map_err(|e| {
+            if e.class().is(vm.ctx.exceptions.value_error) {
+                // Check if this is a "negative duration" error by examining the args
+                if let Some(args) = e.args().first() {
+                    if let Ok(s) = args.str(vm) {
+                        if s.as_str() == "negative duration" {
+                            return vm.new_value_error("sleep length must be non-negative");
+                        }
+                    }
+                }
+                e
+            } else {
+                e
+            }
+        })?;
 
         let ts = TimeSpec::from(dur);
         let res = unsafe { libc::nanosleep(ts.as_ref(), std::ptr::null_mut()) };
