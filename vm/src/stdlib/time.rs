@@ -34,7 +34,7 @@ unsafe extern "C" {
 #[pymodule(name = "time", with(platform))]
 mod decl {
     use crate::{
-        PyObjectRef, PyResult, TryFromObject, VirtualMachine, AsObject,
+        AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyStrRef, PyTypeRef},
         function::{Either, FuncArgs, OptionalArg},
         types::PyStructSequence,
@@ -552,7 +552,7 @@ mod platform {
     use super::decl::{SEC_TO_NS, US_TO_NS};
     #[cfg_attr(target_os = "macos", allow(unused_imports))]
     use crate::{
-        AsObject, PyObject, PyObjectRef, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
+        PyObject, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
         builtins::{PyNamespace, PyStrRef},
         convert::IntoPyException,
     };
