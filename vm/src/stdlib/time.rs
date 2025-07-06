@@ -93,18 +93,13 @@ mod decl {
     fn sleep(seconds: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let dur = seconds.try_into_value::<Duration>(vm).map_err(|e| {
             if e.class().is(vm.ctx.exceptions.value_error) {
-                // Check if this is a "negative duration" error by examining the args
-                if let Some(args) = e.args().first() {
-                    if let Ok(s) = args.str(vm) {
-                        if s.as_str() == "negative duration" {
-                            return vm.new_value_error("sleep length must be non-negative");
-                        }
+                if let Some(s) = e.args().first().and_then(|arg| arg.str(vm).ok()) {
+                    if s.as_str() == "negative duration" {
+                        return vm.new_value_error("sleep length must be non-negative");
                     }
                 }
-                e
-            } else {
-                e
             }
+            e
         })?;
 
         std::thread::sleep(dur);
@@ -711,18 +706,13 @@ mod platform {
     fn sleep(seconds: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let dur = seconds.try_into_value::<Duration>(vm).map_err(|e| {
             if e.class().is(vm.ctx.exceptions.value_error) {
-                // Check if this is a "negative duration" error by examining the args
-                if let Some(args) = e.args().first() {
-                    if let Ok(s) = args.str(vm) {
-                        if s.as_str() == "negative duration" {
-                            return vm.new_value_error("sleep length must be non-negative");
-                        }
+                if let Some(s) = e.args().first().and_then(|arg| arg.str(vm).ok()) {
+                    if s.as_str() == "negative duration" {
+                        return vm.new_value_error("sleep length must be non-negative");
                     }
                 }
-                e
-            } else {
-                e
             }
+            e
         })?;
 
         let ts = TimeSpec::from(dur);
