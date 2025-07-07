@@ -34,7 +34,7 @@ unsafe extern "C" {
 #[pymodule(name = "time", with(platform))]
 mod decl {
     use crate::{
-        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+        AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyStrRef, PyTypeRef},
         function::{Either, FuncArgs, OptionalArg},
         types::PyStructSequence,
@@ -88,10 +88,37 @@ mod decl {
         duration_since_system_now(vm)
     }
 
-    #[cfg(not(unix))]
     #[pyfunction]
-    fn sleep(dur: Duration) {
-        std::thread::sleep(dur);
+    fn sleep(seconds: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let dur = seconds.try_into_value::<Duration>(vm).map_err(|e| {
+            if e.class().is(vm.ctx.exceptions.value_error) {
+                if let Some(s) = e.args().first().and_then(|arg| arg.str(vm).ok()) {
+                    if s.as_str() == "negative duration" {
+                        return vm.new_value_error("sleep length must be non-negative");
+                    }
+                }
+            }
+            e
+        })?;
+
+        #[cfg(unix)]
+        {
+            // this is basically std::thread::sleep, but that catches interrupts and we don't want to;
+            let ts = nix::sys::time::TimeSpec::from(dur);
+            let res = unsafe { libc::nanosleep(ts.as_ref(), std::ptr::null_mut()) };
+            let interrupted = res == -1 && nix::Error::last_raw() == libc::EINTR;
+
+            if interrupted {
+                vm.check_signals()?;
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            std::thread::sleep(dur);
+        }
+
+        Ok(())
     }
 
     #[cfg(not(target_os = "wasi"))]
@@ -688,21 +715,6 @@ mod platform {
 
     pub(super) fn get_perf_time(vm: &VirtualMachine) -> PyResult<Duration> {
         get_clock_time(ClockId::CLOCK_MONOTONIC, vm)
-    }
-
-    #[pyfunction]
-    fn sleep(dur: Duration, vm: &VirtualMachine) -> PyResult<()> {
-        // this is basically std::thread::sleep, but that catches interrupts and we don't want to;
-
-        let ts = TimeSpec::from(dur);
-        let res = unsafe { libc::nanosleep(ts.as_ref(), std::ptr::null_mut()) };
-        let interrupted = res == -1 && nix::Error::last_raw() == libc::EINTR;
-
-        if interrupted {
-            vm.check_signals()?;
-        }
-
-        Ok(())
     }
 
     #[cfg(not(any(

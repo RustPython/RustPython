@@ -3,6 +3,7 @@ use crate::{
     builtins::PyFloat,
     object::{AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult},
 };
+use malachite_bigint::Sign;
 use num_traits::ToPrimitive;
 
 /// Implemented by any type that can be created from a Python object.
@@ -124,10 +125,19 @@ impl<'a, T: PyPayload> TryFromBorrowedObject<'a> for &'a Py<T> {
 impl TryFromObject for std::time::Duration {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         if let Some(float) = obj.payload::<PyFloat>() {
-            Ok(Self::from_secs_f64(float.to_f64()))
+            let f = float.to_f64();
+            if f < 0.0 {
+                return Err(vm.new_value_error("negative duration"));
+            }
+            Ok(Self::from_secs_f64(f))
         } else if let Some(int) = obj.try_index_opt(vm) {
-            let sec = int?
-                .as_bigint()
+            let int = int?;
+            let bigint = int.as_bigint();
+            if bigint.sign() == Sign::Minus {
+                return Err(vm.new_value_error("negative duration"));
+            }
+
+            let sec = bigint
                 .to_u64()
                 .ok_or_else(|| vm.new_value_error("value out of range"))?;
             Ok(Self::from_secs(sec))
