@@ -2193,6 +2193,22 @@ impl Compiler<'_> {
             }
             let dot_type_params = self.name(".type_params");
             emit!(self, Instruction::StoreLocal(dot_type_params));
+
+            // Create .generic_base in the type params scope (like CPython)
+            // Load .type_params
+            emit!(self, Instruction::LoadNameAny(dot_type_params));
+
+            // Call INTRINSIC_SUBSCRIPT_GENERIC to create Generic[*type_params]
+            emit!(
+                self,
+                Instruction::CallIntrinsic1 {
+                    func: bytecode::IntrinsicFunction1::SubscriptGeneric
+                }
+            );
+
+            // Store as .generic_base in the type params scope
+            let dot_generic_base = self.name(".generic_base");
+            emit!(self, Instruction::StoreLocal(dot_generic_base));
         }
 
         // Compile the class body into a code object
@@ -2228,29 +2244,49 @@ impl Compiler<'_> {
 
         // For PEP 695 classes: handle Generic base creation
         if type_params.is_some() {
+            // Stack currently: [function, class_name]
+
+            // Compile the original bases (if any)
             if let Some(arguments) = arguments {
-                // Has explicit bases - use them as is, don't add Generic
-                // CPython doesn't add Generic when explicit bases are present
-                let call = self.compile_call_inner(2, arguments)?;
-                self.compile_normal_call(call);
+                // Compile all the positional arguments (bases)
+                for arg in &arguments.args {
+                    self.compile_expression(arg)?;
+                }
+            }
+
+            // Load .generic_base from the type params scope
+            let dot_generic_base = self.name(".generic_base");
+            emit!(self, Instruction::LoadNameAny(dot_generic_base));
+
+            // Calculate total number of positional args
+            let nargs = if let Some(arguments) = arguments {
+                2 + arguments.args.len() as u32 + 1 // function, name, bases..., generic_base
             } else {
-                // No explicit bases, add Generic[*type_params] as the only base
-                // Stack currently: [function, class_name]
+                3 // function, name, generic_base
+            };
 
-                // Load .type_params for creating Generic base
-                let dot_type_params = self.name(".type_params");
-                emit!(self, Instruction::LoadNameAny(dot_type_params));
+            // Handle keyword arguments if any
+            if let Some(arguments) = arguments
+                && !arguments.keywords.is_empty()
+            {
+                // Compile keyword arguments
+                for keyword in &arguments.keywords {
+                    if let Some(name) = &keyword.arg {
+                        self.emit_load_const(ConstantData::Str {
+                            value: name.as_str().into(),
+                        });
+                    }
+                    self.compile_expression(&keyword.value)?;
+                }
 
-                // Call INTRINSIC_SUBSCRIPT_GENERIC to create Generic[*type_params]
                 emit!(
                     self,
-                    Instruction::CallIntrinsic1 {
-                        func: bytecode::IntrinsicFunction1::SubscriptGeneric
+                    Instruction::CallFunctionKeyword {
+                        nargs: nargs + arguments.keywords.len() as u32
                     }
                 );
-
-                // Call __build_class__ with 3 positional args: function, class_name, Generic[T]
-                emit!(self, Instruction::CallFunctionPositional { nargs: 3 });
+            } else {
+                emit!(self, Instruction::CallFunctionPositional { nargs });
             }
         } else {
             // No type params, normal compilation

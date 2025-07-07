@@ -6934,8 +6934,6 @@ class NamedTupleTests(BaseTestCase):
                 with self.assertRaises(TypeError):
                     G[int, str]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generic_pep695(self):
         class X[T](NamedTuple):
             x: T
@@ -7560,8 +7558,6 @@ class TypedDictTests(BaseTestCase):
             {'a': typing.Optional[T], 'b': int, 'c': str}
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pep695_generic_typeddict(self):
         class A[T](TypedDict):
             a: T
