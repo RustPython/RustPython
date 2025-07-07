@@ -613,6 +613,25 @@ impl Iterable for PyGenericAlias {
     }
 }
 
+/// Creates a GenericAlias from type parameters, equivalent to CPython's _Py_subscript_generic
+/// This is used for PEP 695 classes to create Generic[T] from type parameters
+// _Py_subscript_generic
+pub fn subscript_generic(type_params: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    // Get typing.Generic type
+    let typing_module = vm.import("typing", 0)?;
+    let generic_type = typing_module.get_attr("Generic", vm)?;
+    let generic_type = PyTypeRef::try_from_object(vm, generic_type)?;
+
+    // Create GenericAlias: Generic[type_params]
+    let args = if let Ok(tuple) = type_params.try_to_ref::<PyTuple>(vm) {
+        tuple.to_owned()
+    } else {
+        PyTuple::new_ref(vec![type_params], &vm.ctx)
+    };
+
+    Ok(PyGenericAlias::new(generic_type, args, false, vm).into_pyobject(vm))
+}
+
 pub fn init(context: &Context) {
     let generic_alias_type = &context.types.generic_alias_type;
     PyGenericAlias::extend_class(context, generic_alias_type);

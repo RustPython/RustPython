@@ -2,25 +2,23 @@
 
 from typing import TypeVar, Generic, Optional, TypeAliasType
 
-# TODO: RUSTPYTHON
+default_a: Optional['A'] = None
+default_b: Optional['B'] = None
 
-# default_a: Optional['A'] = None
-# default_b: Optional['B'] = None
-
-# T = TypeVar('T')
+T = TypeVar('T')
 
 
-# class A(Generic[T]):
-#     some_b: 'B'
+class A(Generic[T]):
+    some_b: 'B'
 
 
-# class B(Generic[T]):
-#     class A(Generic[T]):
-#         pass
+class B(Generic[T]):
+    class A(Generic[T]):
+        pass
 
-#     my_inner_a1: 'B.A'
-#     my_inner_a2: A
-#     my_outer_a: 'A'  # unless somebody calls get_type_hints with localns=B.__dict__
+    my_inner_a1: 'B.A'
+    my_inner_a2: A
+    my_outer_a: 'A'  # unless somebody calls get_type_hints with localns=B.__dict__
 
-# type Alias = int
-# OldStyle = TypeAliasType("OldStyle", int)
+type Alias = int
+OldStyle = TypeAliasType("OldStyle", int)

@@ -1215,38 +1215,83 @@ impl Compiler<'_> {
         // First, compile each type parameter and store it
         for type_param in &type_params.type_params {
             match type_param {
-                TypeParam::TypeVar(TypeParamTypeVar { name, bound, .. }) => {
+                TypeParam::TypeVar(TypeParamTypeVar {
+                    name,
+                    bound,
+                    default,
+                    ..
+                }) => {
                     if let Some(expr) = &bound {
                         self.compile_expression(expr)?;
                         self.emit_load_const(ConstantData::Str {
                             value: name.as_str().into(),
                         });
                         emit!(self, Instruction::TypeVarWithBound);
-                        emit!(self, Instruction::Duplicate);
-                        self.store_name(name.as_ref())?;
                     } else {
-                        // self.store_name(type_name.as_str())?;
                         self.emit_load_const(ConstantData::Str {
                             value: name.as_str().into(),
                         });
                         emit!(self, Instruction::TypeVar);
-                        emit!(self, Instruction::Duplicate);
-                        self.store_name(name.as_ref())?;
                     }
+
+                    // Handle default value if present (PEP 695)
+                    if let Some(default_expr) = default {
+                        // Compile the default expression
+                        self.compile_expression(default_expr)?;
+
+                        emit!(
+                            self,
+                            Instruction::CallIntrinsic2 {
+                                func: bytecode::IntrinsicFunction2::SetTypeparamDefault
+                            }
+                        );
+                    }
+
+                    emit!(self, Instruction::Duplicate);
+                    self.store_name(name.as_ref())?;
                 }
-                TypeParam::ParamSpec(TypeParamParamSpec { name, .. }) => {
+                TypeParam::ParamSpec(TypeParamParamSpec { name, default, .. }) => {
                     self.emit_load_const(ConstantData::Str {
                         value: name.as_str().into(),
                     });
                     emit!(self, Instruction::ParamSpec);
+
+                    // Handle default value if present (PEP 695)
+                    if let Some(default_expr) = default {
+                        // Compile the default expression
+                        self.compile_expression(default_expr)?;
+
+                        emit!(
+                            self,
+                            Instruction::CallIntrinsic2 {
+                                func: bytecode::IntrinsicFunction2::SetTypeparamDefault
+                            }
+                        );
+                    }
+
                     emit!(self, Instruction::Duplicate);
                     self.store_name(name.as_ref())?;
                 }
-                TypeParam::TypeVarTuple(TypeParamTypeVarTuple { name, .. }) => {
+                TypeParam::TypeVarTuple(TypeParamTypeVarTuple { name, default, .. }) => {
                     self.emit_load_const(ConstantData::Str {
                         value: name.as_str().into(),
                     });
                     emit!(self, Instruction::TypeVarTuple);
+
+                    // Handle default value if present (PEP 695)
+                    if let Some(default_expr) = default {
+                        // Compile the default expression
+                        self.compile_expression(default_expr)?;
+
+                        // Handle starred expression (*default)
+                        emit!(
+                            self,
+                            Instruction::CallIntrinsic2 {
+                                func: bytecode::IntrinsicFunction2::SetTypeparamDefault
+                            }
+                        );
+                    }
+
                     emit!(self, Instruction::Duplicate);
                     self.store_name(name.as_ref())?;
                 }
@@ -1759,13 +1804,41 @@ impl Compiler<'_> {
 
         self.emit_load_const(ConstantData::Str { value: name.into() });
 
-        // Call the __build_class__ builtin
-        let call = if let Some(arguments) = arguments {
-            self.compile_call_inner(2, arguments)?
+        // For PEP 695 classes: handle Generic base creation
+        if type_params.is_some() {
+            if let Some(arguments) = arguments {
+                // Has explicit bases - use them as is, don't add Generic
+                // CPython doesn't add Generic when explicit bases are present
+                let call = self.compile_call_inner(2, arguments)?;
+                self.compile_normal_call(call);
+            } else {
+                // No explicit bases, add Generic[*type_params] as the only base
+                // Stack currently: [function, class_name]
+
+                // Load .type_params for creating Generic base
+                let dot_type_params = self.name(".type_params");
+                emit!(self, Instruction::LoadNameAny(dot_type_params));
+
+                // Call INTRINSIC_SUBSCRIPT_GENERIC to create Generic[*type_params]
+                emit!(
+                    self,
+                    Instruction::CallIntrinsic1 {
+                        func: bytecode::IntrinsicFunction1::SubscriptGeneric
+                    }
+                );
+
+                // Call __build_class__ with 3 positional args: function, class_name, Generic[T]
+                emit!(self, Instruction::CallFunctionPositional { nargs: 3 });
+            }
         } else {
-            CallType::Positional { nargs: 2 }
-        };
-        self.compile_normal_call(call);
+            // No type params, normal compilation
+            let call = if let Some(arguments) = arguments {
+                self.compile_call_inner(2, arguments)?
+            } else {
+                CallType::Positional { nargs: 2 }
+            };
+            self.compile_normal_call(call);
+        }
 
         // Pop the special type params symbol table
         if type_params.is_some() {

@@ -3,6 +3,7 @@ use crate::{PyPayload, PyRef, VirtualMachine, class::PyClassImpl, stdlib::PyModu
 
 pub use crate::stdlib::typevar::{
     Generic, ParamSpec, ParamSpecArgs, ParamSpecKwargs, TypeVar, TypeVarTuple,
+    set_typeparam_default,
 };
 pub use decl::*;
 

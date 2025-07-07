@@ -1050,6 +1050,19 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_int(len).into());
                 Ok(None)
             }
+            bytecode::Instruction::CallIntrinsic1 { func } => {
+                let value = self.pop_value();
+                let result = self.call_intrinsic_1(func.get(arg), value, vm)?;
+                self.push_value(result);
+                Ok(None)
+            }
+            bytecode::Instruction::CallIntrinsic2 { func } => {
+                let value2 = self.pop_value();
+                let value1 = self.pop_value();
+                let result = self.call_intrinsic_2(func.get(arg), value1, value2, vm)?;
+                self.push_value(result);
+                Ok(None)
+            }
             bytecode::Instruction::GetAwaitable => {
                 let awaited_obj = self.pop_value();
                 let awaitable = if awaited_obj.payload_is::<PyCoroutine>() {
@@ -1288,7 +1301,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::ParamSpec => {
                 let param_spec_name = self.pop_value();
-                let param_spec: PyObjectRef = typing::ParamSpec::new(param_spec_name.clone())
+                let param_spec: PyObjectRef = typing::ParamSpec::new(param_spec_name.clone(), vm)
                     .into_ref(&vm.ctx)
                     .into();
                 self.push_value(param_spec);
@@ -2241,6 +2254,34 @@ impl ExecutingFrame<'_> {
                 x
             }
             None => self.fatal("tried to pop value but there was nothing on the stack"),
+        }
+    }
+
+    fn call_intrinsic_1(
+        &mut self,
+        func: bytecode::IntrinsicFunction1,
+        arg: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        match func {
+            bytecode::IntrinsicFunction1::SubscriptGeneric => {
+                // Used for PEP 695: Generic[*type_params]
+                crate::builtins::genericalias::subscript_generic(arg, vm)
+            }
+        }
+    }
+
+    fn call_intrinsic_2(
+        &mut self,
+        func: bytecode::IntrinsicFunction2,
+        arg1: PyObjectRef,
+        arg2: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        match func {
+            bytecode::IntrinsicFunction2::SetTypeparamDefault => {
+                crate::stdlib::typing::set_typeparam_default(arg1, arg2, vm)
+            }
         }
     }
 

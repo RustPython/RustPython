@@ -400,7 +400,7 @@ class GrammarTests(unittest.TestCase):
     def test_var_annot_in_module(self):
         # check that functions fail the same way when executed
         # outside of module where they were defined
-        from test.ann_module3 import f_bad_ann, g_bad_ann, D_bad_ann
+        from test.typinganndata.ann_module3 import f_bad_ann, g_bad_ann, D_bad_ann
         with self.assertRaises(NameError):
             f_bad_ann()
         with self.assertRaises(NameError):

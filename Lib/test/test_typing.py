@@ -629,8 +629,6 @@ class TypeParameterDefaultsTests(BaseTestCase):
         class A(Generic[T]): ...
         Alias = Optional[T]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_typevar_none(self):
         U = TypeVar('U')
         U_None = TypeVar('U_None', default=None)
@@ -1210,8 +1208,6 @@ class UnpackTests(BaseTestCase):
         self.assertEqual(repr(foo.__annotations__['kwargs']),
                          f"typing.Unpack[{__name__}.Movie]")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_builtin_tuple(self):
         Ts = TypeVarTuple("Ts")
 
@@ -2636,11 +2632,6 @@ class TypingCallableTests(BaseCallableTests, BaseTestCase):
 class CollectionsCallableTests(BaseCallableTests, BaseTestCase):
     Callable = collections.abc.Callable
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_errors(self):
-        super().test_errors()
-
 
 class LiteralTests(BaseTestCase):
     def test_basics(self):
@@ -3608,8 +3599,6 @@ class GenericTests(BaseTestCase):
         c.bar = 'abc'
         self.assertEqual(c.__dict__, {'bar': 'abc'})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setattr_exceptions(self):
         class Immutable[T]:
             def __setattr__(self, key, value):
@@ -3753,8 +3742,6 @@ class GenericTests(BaseTestCase):
         self.assertEqual(Union[T, int][Meta], Union[Meta, int])
         self.assertEqual(Callable[..., Meta].__args__, (Ellipsis, Meta))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generic_hashes(self):
         class A(Generic[T]):
             ...
@@ -4302,8 +4289,6 @@ class GenericTests(BaseTestCase):
         self.assertEqual(A[T], A[T])
         self.assertNotEqual(A[T], B[T])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_multiple_inheritance(self):
 
         class A(Generic[T, VT]):
@@ -6106,8 +6091,6 @@ class GetUtilitiesTestCase(TestCase):
         self.assertIs(get_origin((*tuple[*Ts],)[0]), tuple)
         self.assertIs(get_origin(Unpack[Tuple[Unpack[Ts]]]), Unpack)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_args(self):
         T = TypeVar('T')
         class C(Generic[T]): pass
@@ -7599,8 +7582,6 @@ class TypedDictTests(BaseTestCase):
         self.assertEqual(A[str].__parameters__, ())
         self.assertEqual(A[str].__args__, (str,))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generic_inheritance(self):
         class A(TypedDict, Generic[T]):
             a: T
