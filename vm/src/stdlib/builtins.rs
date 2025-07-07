@@ -249,24 +249,56 @@ mod builtins {
     #[derive(FromArgs)]
     struct ScopeArgs {
         #[pyarg(any, default)]
-        globals: Option<PyDictRef>,
+        globals: Option<PyObjectRef>,
         #[pyarg(any, default)]
         locals: Option<ArgMapping>,
     }
 
     impl ScopeArgs {
-        fn make_scope(self, vm: &VirtualMachine) -> PyResult<crate::scope::Scope> {
+        fn make_scope(
+            self,
+            vm: &VirtualMachine,
+            func_name: &'static str,
+        ) -> PyResult<crate::scope::Scope> {
+            fn validate_globals_dict(
+                globals: &PyObjectRef,
+                vm: &VirtualMachine,
+                func_name: &'static str,
+            ) -> PyResult<()> {
+                if !globals.fast_isinstance(vm.ctx.types.dict_type) {
+                    return Err(match func_name {
+                        "eval" => {
+                            let is_mapping = crate::protocol::PyMapping::check(globals);
+                            vm.new_type_error(if is_mapping {
+                                "globals must be a real dict; try eval(expr, {}, mapping)"
+                                    .to_owned()
+                            } else {
+                                "globals must be a dict".to_owned()
+                            })
+                        }
+                        "exec" => vm.new_type_error(format!(
+                            "exec() globals must be a dict, not {}",
+                            globals.class().name()
+                        )),
+                        _ => vm.new_type_error("globals must be a dict".to_owned()),
+                    });
+                }
+                Ok(())
+            }
+
             let (globals, locals) = match self.globals {
                 Some(globals) => {
+                    validate_globals_dict(&globals, vm, func_name)?;
+
+                    let globals = PyDictRef::try_from_object(vm, globals)?;
                     if !globals.contains_key(identifier!(vm, __builtins__), vm) {
                         let builtins_dict = vm.builtins.dict().into();
                         globals.set_item(identifier!(vm, __builtins__), builtins_dict, vm)?;
                     }
                     (
                         globals.clone(),
-                        self.locals.unwrap_or_else(|| {
-                            ArgMapping::try_from_object(vm, globals.into()).unwrap()
-                        }),
+                        self.locals
+                            .unwrap_or_else(|| ArgMapping::from_dict_exact(globals.clone())),
                     )
                 }
                 None => (
@@ -290,6 +322,8 @@ mod builtins {
         scope: ScopeArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
+        let scope = scope.make_scope(vm, "eval")?;
+
         // source as string
         let code = match source {
             Either::A(either) => {
@@ -323,18 +357,17 @@ mod builtins {
         scope: ScopeArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
+        let scope = scope.make_scope(vm, "exec")?;
         run_code(vm, source, scope, crate::compiler::Mode::Exec, "exec")
     }
 
     fn run_code(
         vm: &VirtualMachine,
         source: Either<PyStrRef, PyRef<crate::builtins::PyCode>>,
-        scope: ScopeArgs,
+        scope: crate::scope::Scope,
         #[allow(unused_variables)] mode: crate::compiler::Mode,
         func: &str,
     ) -> PyResult {
-        let scope = scope.make_scope(vm)?;
-
         // Determine code object:
         let code_obj = match source {
             #[cfg(feature = "rustpython-compiler")]
