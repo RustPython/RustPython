@@ -21,7 +21,7 @@ RustPython is a Python 3 interpreter written in Rust, implementing Python 3.13.0
   - `parser/` - Parser for converting Python source to AST
   - `core/` - Bytecode representation in Rust structures
   - `codegen/` - AST to bytecode compiler
-- `Lib/` - CPython's standard library in Python (copied from CPython)
+- `Lib/` - CPython's standard library in Python (copied from CPython). **IMPORTANT**: Do not edit this directory directly; The only allowed operation is copying files from CPython.
 - `derive/` - Rust macros for RustPython
 - `common/` - Common utilities
 - `extra_tests/` - Integration tests and snippets
