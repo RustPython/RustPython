@@ -375,6 +375,49 @@ op_arg_enum!(
     }
 );
 
+op_arg_enum!(
+    /// Intrinsic function for CALL_INTRINSIC_1
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum IntrinsicFunction1 {
+        /// Import * special case
+        // ImportStar = 0,
+        /// Set stop iteration value
+        // StopAsyncIteration = 1,
+        /// Unary operators
+        // UnaryPositive = 2,
+        // UnaryNegative = 3,
+        // UnaryNot = 4,
+        // UnaryInvert = 5,
+        /// Exit init subclass
+        // ExitInitCheck = 6,
+        /// Create a new list from an iterator
+        // ListToTupleForCall = 7,
+        /// Type parameter related
+        // TypeVar = 8,
+        // TypeVarTuple = 9,
+        // ParamSpec = 10,
+        /// Generic subscript for PEP 695
+        SubscriptGeneric = 10,
+        // TypeAlias = 12,
+        // TypeParams = 13,
+    }
+);
+
+op_arg_enum!(
+    /// Intrinsic function for CALL_INTRINSIC_2
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum IntrinsicFunction2 {
+        // PrepReraiseS tar = 1,
+        // TypeVarWithBound = 2,
+        // TypeVarWithConstraints = 3,
+        // SetFunctionTypeParams = 4,
+        /// Set default value for type parameter (PEP 695)
+        SetTypeparamDefault = 5,
+    }
+);
+
 pub type NameIdx = u32;
 
 /// A Single bytecode instruction.
@@ -454,6 +497,12 @@ pub enum Instruction {
     Duplicate2,
     GetIter,
     GetLen,
+    CallIntrinsic1 {
+        func: Arg<IntrinsicFunction1>,
+    },
+    CallIntrinsic2 {
+        func: Arg<IntrinsicFunction2>,
+    },
     Continue {
         target: Arg<Label>,
     },
@@ -1235,6 +1284,8 @@ impl Instruction {
             Duplicate2 => 2,
             GetIter => 0,
             GetLen => 1,
+            CallIntrinsic1 { .. } => 0,  // Takes 1, pushes 1
+            CallIntrinsic2 { .. } => -1, // Takes 2, pushes 1
             Continue { .. } => 0,
             Break { .. } => 0,
             Jump { .. } => 0,
@@ -1444,6 +1495,8 @@ impl Instruction {
             GetIter => w!(GetIter),
             // GET_LEN
             GetLen => w!(GetLen),
+            CallIntrinsic1 { func } => w!(CallIntrinsic1, ?func),
+            CallIntrinsic2 { func } => w!(CallIntrinsic2, ?func),
             Continue { target } => w!(Continue, target),
             Break { target } => w!(Break, target),
             Jump { target } => w!(Jump, target),

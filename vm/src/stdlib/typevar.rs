@@ -2,6 +2,7 @@
 use crate::{
     AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyTupleRef, PyTypeRef, pystr::AsPyStr},
+    common::lock::PyMutex,
     function::{FuncArgs, IntoFuncArgs, PyComparisonValue},
     protocol::PyNumberMethods,
     types::{AsNumber, Comparable, Constructor, Iterable, PyComparisonOp, Representable},
@@ -76,7 +77,7 @@ pub struct TypeVar {
     constraints: parking_lot::Mutex<PyObjectRef>,
     evaluate_constraints: PyObjectRef,
     default_value: parking_lot::Mutex<PyObjectRef>,
-    evaluate_default: PyObjectRef,
+    evaluate_default: PyMutex<PyObjectRef>,
     covariant: bool,
     contravariant: bool,
     infer_variance: bool,
@@ -145,8 +146,9 @@ impl TypeVar {
         if !default_value.is(&vm.ctx.typing_no_default) {
             return Ok(default_value.clone());
         }
-        if !vm.is_none(&self.evaluate_default) {
-            *default_value = self.evaluate_default.call((), vm)?;
+        let evaluate_default = self.evaluate_default.lock();
+        if !vm.is_none(&evaluate_default) {
+            *default_value = evaluate_default.call((), vm)?;
             Ok(default_value.clone())
         } else {
             // Return NoDefault singleton
@@ -171,7 +173,7 @@ impl TypeVar {
 
     #[pymethod]
     fn has_default(&self, vm: &VirtualMachine) -> bool {
-        if !vm.is_none(&self.evaluate_default) {
+        if !vm.is_none(&self.evaluate_default.lock()) {
             return true;
         }
         let default_value = self.default_value.lock();
@@ -358,7 +360,7 @@ impl Constructor for TypeVar {
             constraints: parking_lot::Mutex::new(constraints_obj),
             evaluate_constraints,
             default_value: parking_lot::Mutex::new(default_value),
-            evaluate_default,
+            evaluate_default: PyMutex::new(evaluate_default),
             covariant,
             contravariant,
             infer_variance,
@@ -384,8 +386,8 @@ impl TypeVar {
             evaluate_bound,
             constraints: parking_lot::Mutex::new(vm.ctx.none()),
             evaluate_constraints,
-            default_value: parking_lot::Mutex::new(vm.ctx.none()),
-            evaluate_default: vm.ctx.none(),
+            default_value: parking_lot::Mutex::new(vm.ctx.typing_no_default.clone().into()),
+            evaluate_default: PyMutex::new(vm.ctx.none()),
             covariant: false,
             contravariant: false,
             infer_variance: false,
@@ -399,8 +401,8 @@ impl TypeVar {
 pub struct ParamSpec {
     name: PyObjectRef,
     bound: Option<PyObjectRef>,
-    default_value: Option<PyObjectRef>,
-    evaluate_default: Option<PyObjectRef>,
+    default_value: PyObjectRef,
+    evaluate_default: PyMutex<PyObjectRef>,
     covariant: bool,
     contravariant: bool,
     infer_variance: bool,
@@ -461,14 +463,13 @@ impl ParamSpec {
 
     #[pygetset]
     fn __default__(&self, vm: &VirtualMachine) -> PyResult {
-        if let Some(ref default_value) = self.default_value {
-            // Check if default_value is NoDefault (not just None)
-            if !default_value.is(&vm.ctx.typing_no_default) {
-                return Ok(default_value.clone());
-            }
+        // Check if default_value is NoDefault (not just None)
+        if !self.default_value.is(&vm.ctx.typing_no_default) {
+            return Ok(self.default_value.clone());
         }
         // handle evaluate_default
-        if let Some(evaluate_default) = self.evaluate_default.clone() {
+        let evaluate_default = self.evaluate_default.lock();
+        if !vm.is_none(&evaluate_default) {
             let default_value = evaluate_default.call((), vm)?;
             return Ok(default_value);
         }
@@ -477,11 +478,8 @@ impl ParamSpec {
     }
 
     #[pygetset]
-    fn evaluate_default(&self, vm: &VirtualMachine) -> PyObjectRef {
-        if let Some(evaluate_default) = self.evaluate_default.clone() {
-            return evaluate_default;
-        }
-        vm.ctx.none()
+    fn evaluate_default(&self, _vm: &VirtualMachine) -> PyObjectRef {
+        self.evaluate_default.lock().clone()
     }
 
     #[pymethod]
@@ -491,15 +489,11 @@ impl ParamSpec {
 
     #[pymethod]
     fn has_default(&self, vm: &VirtualMachine) -> bool {
-        if self.evaluate_default.is_some() {
+        if !vm.is_none(&self.evaluate_default.lock()) {
             return true;
         }
-        if let Some(ref default_value) = self.default_value {
-            // Check if default_value is not NoDefault
-            !default_value.is(&vm.ctx.typing_no_default)
-        } else {
-            false
-        }
+        // Check if default_value is not NoDefault
+        !self.default_value.is(&vm.ctx.typing_no_default)
     }
 
     #[pymethod]
@@ -594,18 +588,13 @@ impl Constructor for ParamSpec {
         }
 
         // Handle default value
-        let default_value = if let Some(default) = default {
-            Some(default)
-        } else {
-            // If no default provided, use NoDefault singleton
-            Some(vm.ctx.typing_no_default.clone().into())
-        };
+        let default_value = default.unwrap_or_else(|| vm.ctx.typing_no_default.clone().into());
 
         let paramspec = Self {
             name,
             bound,
             default_value,
-            evaluate_default: None,
+            evaluate_default: PyMutex::new(vm.ctx.none()),
             covariant,
             contravariant,
             infer_variance,
@@ -627,12 +616,12 @@ impl Representable for ParamSpec {
 }
 
 impl ParamSpec {
-    pub const fn new(name: PyObjectRef) -> Self {
+    pub fn new(name: PyObjectRef, vm: &VirtualMachine) -> Self {
         Self {
             name,
             bound: None,
-            default_value: None,
-            evaluate_default: None,
+            default_value: vm.ctx.typing_no_default.clone().into(),
+            evaluate_default: PyMutex::new(vm.ctx.none()),
             covariant: false,
             contravariant: false,
             infer_variance: false,
@@ -646,7 +635,7 @@ impl ParamSpec {
 pub struct TypeVarTuple {
     name: PyObjectRef,
     default_value: parking_lot::Mutex<PyObjectRef>,
-    evaluate_default: PyObjectRef,
+    evaluate_default: PyMutex<PyObjectRef>,
 }
 #[pyclass(flags(HAS_DICT), with(Constructor, Representable, Iterable))]
 impl TypeVarTuple {
@@ -662,8 +651,9 @@ impl TypeVarTuple {
         if !default_value.is(&vm.ctx.typing_no_default) {
             return Ok(default_value.clone());
         }
-        if !vm.is_none(&self.evaluate_default) {
-            *default_value = self.evaluate_default.call((), vm)?;
+        let evaluate_default = self.evaluate_default.lock();
+        if !vm.is_none(&evaluate_default) {
+            *default_value = evaluate_default.call((), vm)?;
             Ok(default_value.clone())
         } else {
             // Return NoDefault singleton
@@ -673,7 +663,7 @@ impl TypeVarTuple {
 
     #[pymethod]
     fn has_default(&self, vm: &VirtualMachine) -> bool {
-        if !vm.is_none(&self.evaluate_default) {
+        if !vm.is_none(&self.evaluate_default.lock()) {
             return true;
         }
         let default_value = self.default_value.lock();
@@ -765,7 +755,7 @@ impl Constructor for TypeVarTuple {
         let typevartuple = Self {
             name,
             default_value: parking_lot::Mutex::new(default_value),
-            evaluate_default,
+            evaluate_default: PyMutex::new(evaluate_default),
         };
 
         let obj = typevartuple.into_ref_with_type(vm, cls)?;
@@ -788,7 +778,7 @@ impl TypeVarTuple {
         Self {
             name,
             default_value: parking_lot::Mutex::new(vm.ctx.typing_no_default.clone().into()),
-            evaluate_default: vm.ctx.none(),
+            evaluate_default: PyMutex::new(vm.ctx.none()),
         }
     }
 }
@@ -981,17 +971,52 @@ pub struct Generic {}
 #[pyclass(flags(BASETYPE))]
 impl Generic {
     #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        // Convert single arg to FuncArgs
-        let func_args = FuncArgs {
-            args: vec![args],
-            kwargs: Default::default(),
-        };
-        call_typing_args_kwargs("_generic_class_getitem", cls, func_args, vm)
+    fn __class_getitem__(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        call_typing_args_kwargs("_generic_class_getitem", cls, args, vm)
     }
 
     #[pyclassmethod]
     fn __init_subclass__(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         call_typing_args_kwargs("_generic_init_subclass", cls, args, vm)
+    }
+}
+
+/// Sets the default value for a type parameter, equivalent to CPython's _Py_set_typeparam_default
+/// This is used by the CALL_INTRINSIC_2 SetTypeparamDefault instruction
+pub fn set_typeparam_default(
+    type_param: PyObjectRef,
+    evaluate_default: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult {
+    // Inner function to handle common pattern of setting evaluate_default
+    fn try_set_default<T>(
+        obj: &PyObjectRef,
+        evaluate_default: &PyObjectRef,
+        get_field: impl FnOnce(&T) -> &PyMutex<PyObjectRef>,
+    ) -> bool
+    where
+        T: PyPayload,
+    {
+        if let Some(typed_obj) = obj.downcast_ref::<T>() {
+            *get_field(typed_obj).lock() = evaluate_default.clone();
+            true
+        } else {
+            false
+        }
+    }
+
+    // Try each type parameter type
+    if try_set_default::<TypeVar>(&type_param, &evaluate_default, |tv| &tv.evaluate_default)
+        || try_set_default::<ParamSpec>(&type_param, &evaluate_default, |ps| &ps.evaluate_default)
+        || try_set_default::<TypeVarTuple>(&type_param, &evaluate_default, |tvt| {
+            &tvt.evaluate_default
+        })
+    {
+        Ok(type_param)
+    } else {
+        Err(vm.new_type_error(format!(
+            "Expected a type param, got {}",
+            type_param.class().name()
+        )))
     }
 }
