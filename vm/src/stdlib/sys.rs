@@ -73,6 +73,8 @@ mod sys {
                 "android"
             } else if #[cfg(target_os = "macos")] {
                 "darwin"
+            } else if #[cfg(target_os = "ios")] {
+                "ios"
             } else if #[cfg(windows)] {
                 "win32"
             } else if #[cfg(target_os = "wasi")] {
