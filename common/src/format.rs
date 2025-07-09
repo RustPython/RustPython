@@ -436,7 +436,7 @@ impl FormatSpec {
                 let sep = char::from(fg);
                 let inter = self.get_separator_interval().try_into().unwrap();
                 let magnitude_len = magnitude_str.len();
-                let disp_digit_cnt = if let Some('0') = self.fill.and_then(|p| p.to_char()) {
+                let disp_digit_cnt = if self.fill == Some('0'.into()) {
                     let width = self.width.unwrap_or(magnitude_len) as i32 - prefix.len() as i32;
                     cmp::max(width, magnitude_len as i32)
                 } else {
