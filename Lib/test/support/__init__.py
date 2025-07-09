@@ -2601,6 +2601,30 @@ skip_on_s390x = unittest.skipIf(hasattr(os, 'uname') and os.uname().machine == '
                                 'skipped on s390x')
 HAVE_ASAN_FORK_BUG = check_sanitizer(address=True)
 
+# From Cpython 3.13.5
+@contextlib.contextmanager
+def no_color():
+    import _colorize
+    from .os_helper import EnvironmentVarGuard
+
+    with (
+        swap_attr(_colorize, "can_colorize", lambda file=None: False),
+        EnvironmentVarGuard() as env,
+    ):
+        env.unset("FORCE_COLOR", "NO_COLOR", "PYTHON_COLORS")
+        env.set("NO_COLOR", "1")
+        yield
+
+# From Cpython 3.13.5
+def force_not_colorized(func):
+    """Force the terminal not to be colorized."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        with no_color():
+            return func(*args, **kwargs)
+    return wrapper
+
+
 # From python 3.12.8
 class BrokenIter:
     def __init__(self, init_raises=False, next_raises=False, iter_raises=False):

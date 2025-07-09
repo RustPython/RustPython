@@ -10,6 +10,9 @@ import time
 import unittest
 import warnings
 
+# From CPython 3.13.5
+from test import support
+
 
 # Filename used for testing
 TESTFN_ASCII = '@test'
@@ -193,6 +196,26 @@ def skip_unless_symlink(test):
     """Skip decorator for tests that require functional symlink"""
     ok = can_symlink()
     msg = "Requires functional symlink implementation"
+    return test if ok else unittest.skip(msg)(test)
+
+
+# From CPython 3.13.5
+_can_hardlink = None
+
+# From CPython 3.13.5
+def can_hardlink():
+    global _can_hardlink
+    if _can_hardlink is None:
+        # Android blocks hard links using SELinux
+        # (https://stackoverflow.com/q/32365690).
+        _can_hardlink = hasattr(os, "link") and not support.is_android
+    return _can_hardlink
+
+
+# From CPython 3.13.5
+def skip_unless_hardlink(test):
+    ok = can_hardlink()
+    msg = "requires hardlink support"
     return test if ok else unittest.skip(msg)(test)
 
 
@@ -699,8 +722,11 @@ class EnvironmentVarGuard(collections.abc.MutableMapping):
     def set(self, envvar, value):
         self[envvar] = value
 
-    def unset(self, envvar):
-        del self[envvar]
+    # From CPython 3.13.5
+    def unset(self, envvar, /, *envvars):
+        """Unset one or more environment variables."""
+        for ev in (envvar, *envvars):
+            del self[ev]
 
     def copy(self):
         # We do what os.environ.copy() does.
