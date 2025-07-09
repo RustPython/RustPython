@@ -2734,21 +2734,19 @@ mod _sqlite {
                     let name_str = ptr_to_str(name, vm)?;
 
                     // If PARSE_COLNAMES is enabled, strip everything after the first '[' (and preceding space)
-                    let processed_name = if detect_types & PARSE_COLNAMES != 0 {
-                        // Find the position of the first '['
-                        if let Some(bracket_pos) = name_str.find('[') {
-                            // Check if there's a single space before '[' and remove it (CPython compatibility)
-                            let end_pos = if bracket_pos > 0
-                                && name_str.chars().nth(bracket_pos - 1) == Some(' ')
-                            {
-                                bracket_pos - 1
-                            } else {
-                                bracket_pos
-                            };
-                            &name_str[..end_pos]
+                    let processed_name = if detect_types & PARSE_COLNAMES != 0
+                        && let Some(bracket_pos) = name_str.find('[')
+                    {
+                        // Check if there's a single space before '[' and remove it (CPython compatibility)
+                        let end_pos = if bracket_pos > 0
+                            && name_str.chars().nth(bracket_pos - 1) == Some(' ')
+                        {
+                            bracket_pos - 1
                         } else {
-                            name_str
-                        }
+                            bracket_pos
+                        };
+
+                        &name_str[..end_pos]
                     } else {
                         name_str
                     };
