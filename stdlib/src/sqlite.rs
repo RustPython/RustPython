@@ -1346,6 +1346,16 @@ mod _sqlite {
             if let Some(val) = &val {
                 begin_statement_ptr_from_isolation_level(val, vm)?;
             }
+
+            // If setting isolation_level to None (auto-commit mode), commit any pending transaction
+            if val.is_none() {
+                let db = self.db_lock(vm)?;
+                if !db.is_autocommit() {
+                    // Keep the lock and call implicit_commit directly to avoid race conditions
+                    db.implicit_commit(vm)?;
+                }
+            }
+
             let _ = unsafe { self.isolation_level.swap(val) };
             Ok(())
         }
@@ -1472,7 +1482,10 @@ mod _sqlite {
 
             let db = zelf.connection.db_lock(vm)?;
 
-            if stmt.is_dml && db.is_autocommit() {
+            if stmt.is_dml
+                && db.is_autocommit()
+                && zelf.connection.isolation_level.deref().is_some()
+            {
                 db.begin_transaction(
                     zelf.connection
                         .isolation_level
@@ -1552,7 +1565,10 @@ mod _sqlite {
 
             let db = zelf.connection.db_lock(vm)?;
 
-            if stmt.is_dml && db.is_autocommit() {
+            if stmt.is_dml
+                && db.is_autocommit()
+                && zelf.connection.isolation_level.deref().is_some()
+            {
                 db.begin_transaction(
                     zelf.connection
                         .isolation_level
