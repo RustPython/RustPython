@@ -67,9 +67,10 @@ mod sys {
     #[pyattr(name = "platform")]
     pub(crate) const PLATFORM: &str = {
         cfg_if::cfg_if! {
-            if #[cfg(any(target_os = "linux", target_os = "android"))] {
-                // Android is linux as well. see https://bugs.python.org/issue32637
+            if #[cfg(target_os = "linux")] {
                 "linux"
+            } else if #[cfg(target_os = "android")] {
+                "android"
             } else if #[cfg(target_os = "macos")] {
                 "darwin"
             } else if #[cfg(windows)] {
