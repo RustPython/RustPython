@@ -961,8 +961,6 @@ class CommandLineTestsBase:
         # only for more than one optimization level
         self.assertRunNotOK(self.directory, "-o 1", "--hardlink-dupes")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_hardlink(self):
         # 'a = 0' code produces the same bytecode for the 3 optimization
         # levels. All three .pyc files must have the same inode (hardlinks).
@@ -1071,8 +1069,6 @@ class HardlinkDedupTestsBase:
         self.assertEqual(is_hardlink(pycs[1], pycs[2]),
                          not docstring)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_hardlink(self):
         # Test deduplication on all combinations
         for code, docstring, assertion in self.iter_codes():
@@ -1082,8 +1078,6 @@ class HardlinkDedupTestsBase:
                     self.compile_dir()
                     self.check_hardlinks(script, docstring, assertion)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_only_two_levels(self):
         # Don't build the 3 optimization levels, but only 2
         for opts in ((0, 1), (1, 2), (0, 2)):
@@ -1097,8 +1091,6 @@ class HardlinkDedupTestsBase:
                     pyc2 = get_pyc(script, opts[1])
                     self.assertTrue(is_hardlink(pyc1, pyc2))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_duplicated_levels(self):
         # compile_dir() must not fail if optimize contains duplicated
         # optimization levels and/or if optimization levels are not sorted.
@@ -1111,8 +1103,6 @@ class HardlinkDedupTestsBase:
             pyc2 = get_pyc(script, 1)
             self.assertTrue(is_hardlink(pyc1, pyc2))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_recompilation(self):
         # Test compile_dir() when pyc files already exists and the script
         # content changed
@@ -1138,8 +1128,6 @@ class HardlinkDedupTestsBase:
             # opt-1.pyc and opt-2.pyc have different content
             self.assertFalse(filecmp.cmp(pycs[1], pycs[2], shallow=True))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_import(self):
         # Test that import updates a single pyc file when pyc files already
         # exists and the script content changed
