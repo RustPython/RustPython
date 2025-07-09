@@ -1511,7 +1511,7 @@ mod _sqlite {
 
             inner.row_cast_map = zelf.build_row_cast_map(&st, vm)?;
 
-            inner.description = st.columns_description(vm)?;
+            inner.description = st.columns_description(zelf.connection.detect_types, vm)?;
 
             if ret == SQLITE_ROW {
                 drop(st);
@@ -1559,7 +1559,7 @@ mod _sqlite {
                 ));
             }
 
-            inner.description = st.columns_description(vm)?;
+            inner.description = st.columns_description(zelf.connection.detect_types, vm)?;
 
             inner.rowcount = if stmt.is_dml { 0 } else { -1 };
 
@@ -2744,22 +2744,46 @@ mod _sqlite {
             unsafe { sqlite3_column_name(self.st, pos) }
         }
 
-        fn columns_name(self, vm: &VirtualMachine) -> PyResult<Vec<PyStrRef>> {
+        fn columns_name(self, detect_types: i32, vm: &VirtualMachine) -> PyResult<Vec<PyStrRef>> {
             let count = self.column_count();
             (0..count)
                 .map(|i| {
                     let name = self.column_name(i);
-                    ptr_to_str(name, vm).map(|x| vm.ctx.new_str(x))
+                    let name_str = ptr_to_str(name, vm)?;
+
+                    // If PARSE_COLNAMES is enabled, strip everything after the first '[' (and preceding space)
+                    let processed_name = if detect_types & PARSE_COLNAMES != 0
+                        && let Some(bracket_pos) = name_str.find('[')
+                    {
+                        // Check if there's a single space before '[' and remove it (CPython compatibility)
+                        let end_pos = if bracket_pos > 0
+                            && name_str.chars().nth(bracket_pos - 1) == Some(' ')
+                        {
+                            bracket_pos - 1
+                        } else {
+                            bracket_pos
+                        };
+
+                        &name_str[..end_pos]
+                    } else {
+                        name_str
+                    };
+
+                    Ok(vm.ctx.new_str(processed_name))
                 })
                 .collect()
         }
 
-        fn columns_description(self, vm: &VirtualMachine) -> PyResult<Option<PyTupleRef>> {
+        fn columns_description(
+            self,
+            detect_types: i32,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<PyTupleRef>> {
             if self.column_count() == 0 {
                 return Ok(None);
             }
             let columns = self
-                .columns_name(vm)?
+                .columns_name(detect_types, vm)?
                 .into_iter()
                 .map(|s| {
                     vm.ctx

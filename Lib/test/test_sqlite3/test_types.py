@@ -343,8 +343,6 @@ class ColNamesTests(unittest.TestCase):
         val = self.cur.fetchone()[0]
         self.assertEqual(val, None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_col_name(self):
         self.cur.execute("insert into test(x) values (?)", ("xxx",))
         self.cur.execute('select x as "x y [bar]" from test')
