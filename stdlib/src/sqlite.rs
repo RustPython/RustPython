@@ -1498,7 +1498,7 @@ mod _sqlite {
 
             inner.row_cast_map = zelf.build_row_cast_map(&st, vm)?;
 
-            inner.description = st.columns_description(&zelf.connection, vm)?;
+            inner.description = st.columns_description(zelf.connection.detect_types, vm)?;
 
             if ret == SQLITE_ROW {
                 drop(st);
@@ -1546,7 +1546,7 @@ mod _sqlite {
                 ));
             }
 
-            inner.description = st.columns_description(&zelf.connection, vm)?;
+            inner.description = st.columns_description(zelf.connection.detect_types, vm)?;
 
             inner.rowcount = if stmt.is_dml { 0 } else { -1 };
 
@@ -2760,14 +2760,14 @@ mod _sqlite {
 
         fn columns_description(
             self,
-            connection: &Connection,
+            detect_types: i32,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyTupleRef>> {
             if self.column_count() == 0 {
                 return Ok(None);
             }
             let columns = self
-                .columns_name(connection.detect_types, vm)?
+                .columns_name(detect_types, vm)?
                 .into_iter()
                 .map(|s| {
                     vm.ctx
