@@ -337,8 +337,6 @@ class FunctionTests(unittest.TestCase):
         # SQLite has no concept of nan; it is converted to NULL
         self.assertTrue(cur.fetchone()[0])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_too_large_int(self):
         err = "Python int too large to convert to SQLite INTEGER"
         self.assertRaisesRegex(OverflowError, err, self.con.execute,

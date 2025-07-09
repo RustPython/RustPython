@@ -2609,7 +2609,9 @@ mod _sqlite {
             let ret = if vm.is_none(obj) {
                 unsafe { sqlite3_bind_null(self.st, pos) }
             } else if let Some(val) = obj.payload::<PyInt>() {
-                let val = val.try_to_primitive::<i64>(vm)?;
+                let val = val.try_to_primitive::<i64>(vm).map_err(|_| {
+                    vm.new_overflow_error("Python int too large to convert to SQLite INTEGER")
+                })?;
                 unsafe { sqlite3_bind_int64(self.st, pos, val) }
             } else if let Some(val) = obj.payload::<PyFloat>() {
                 let val = val.to_f64();
