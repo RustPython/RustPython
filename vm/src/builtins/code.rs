@@ -298,6 +298,10 @@ impl PyCode {
     fn co_name(&self) -> PyStrRef {
         self.code.obj_name.to_owned()
     }
+    #[pygetset]
+    fn co_qualname(&self) -> PyStrRef {
+        self.code.qualname.to_owned()
+    }
 
     #[pygetset]
     fn co_names(&self, vm: &VirtualMachine) -> PyTupleRef {
@@ -401,6 +405,7 @@ impl PyCode {
                 source_path: source_path.as_object().as_interned_str(vm).unwrap(),
                 first_line_number,
                 obj_name: obj_name.as_object().as_interned_str(vm).unwrap(),
+                qualname: self.code.qualname,
 
                 max_stackdepth: self.code.max_stackdepth,
                 instructions: self.code.instructions.clone(),

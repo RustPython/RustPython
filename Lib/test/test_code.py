@@ -249,8 +249,6 @@ class CodeTest(unittest.TestCase):
                         co.co_freevars,
                         co.co_cellvars)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_qualname(self):
         self.assertEqual(
             CodeTest.test_qualname.__code__.co_qualname,

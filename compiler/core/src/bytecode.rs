@@ -115,6 +115,8 @@ pub struct CodeObject<C: Constant = ConstantData> {
     pub max_stackdepth: u32,
     pub obj_name: C::Name,
     // Name of the object that created this code object
+    pub qualname: C::Name,
+    // Qualified name of the object (like CPython's co_qualname)
     pub cell2arg: Option<Box<[i32]>>,
     pub constants: Box<[C]>,
     pub names: Box<[C::Name]>,
@@ -1140,6 +1142,7 @@ impl<C: Constant> CodeObject<C> {
             freevars: map_names(self.freevars),
             source_path: bag.make_name(self.source_path.as_ref()),
             obj_name: bag.make_name(self.obj_name.as_ref()),
+            qualname: bag.make_name(self.qualname.as_ref()),
 
             instructions: self.instructions,
             locations: self.locations,
@@ -1169,6 +1172,7 @@ impl<C: Constant> CodeObject<C> {
             freevars: map_names(&self.freevars),
             source_path: bag.make_name(self.source_path.as_ref()),
             obj_name: bag.make_name(self.obj_name.as_ref()),
+            qualname: bag.make_name(self.qualname.as_ref()),
 
             instructions: self.instructions.clone(),
             locations: self.locations.clone(),

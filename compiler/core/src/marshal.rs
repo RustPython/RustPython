@@ -211,6 +211,9 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
     let obj_name = bag.make_name(rdr.read_str(len)?);
 
     let len = rdr.read_u32()?;
+    let qualname = bag.make_name(rdr.read_str(len)?);
+
+    let len = rdr.read_u32()?;
     let cell2arg = (len != 0)
         .then(|| {
             (0..len)
@@ -250,6 +253,7 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
         first_line_number,
         max_stackdepth,
         obj_name,
+        qualname,
         cell2arg,
         constants,
         names,
@@ -609,6 +613,7 @@ pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) 
     buf.write_u32(code.max_stackdepth);
 
     write_vec(buf, code.obj_name.as_ref().as_bytes());
+    write_vec(buf, code.qualname.as_ref().as_bytes());
 
     let cell2arg = code.cell2arg.as_deref().unwrap_or(&[]);
     write_len(buf, cell2arg.len());
