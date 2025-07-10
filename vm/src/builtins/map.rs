@@ -5,6 +5,7 @@ use crate::{
     class::PyClassImpl,
     function::PosArgs,
     protocol::{PyIter, PyIterReturn},
+    raise_if_stop,
     types::{Constructor, IterNext, Iterable, SelfIter},
 };
 
@@ -53,14 +54,12 @@ impl PyMap {
 }
 
 impl SelfIter for PyMap {}
+
 impl IterNext for PyMap {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut next_objs = Vec::new();
         for iterator in &zelf.iterators {
-            let item = match iterator.next(vm)? {
-                PyIterReturn::Return(obj) => obj,
-                PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
-            };
+            let item = raise_if_stop!(iterator.next(vm)?);
             next_objs.push(item);
         }
 
