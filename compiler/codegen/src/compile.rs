@@ -310,8 +310,8 @@ impl<'src> Compiler<'src> {
             kwonlyarg_count: 0,
             source_path: source_code.path.to_owned(),
             first_line_number: OneIndexed::MIN,
-            obj_name: code_name,
-
+            obj_name: code_name.clone(),
+            qualname: Some(code_name),
             blocks: vec![ir::Block::default()],
             current_block: ir::BlockIdx(0),
             constants: IndexSet::default(),
@@ -402,6 +402,13 @@ impl Compiler<'_> {
             .map(|(var, _)| var.clone())
             .collect();
 
+        // Calculate qualname based on the current qualified path
+        let qualname = if self.qualified_path.is_empty() {
+            Some(obj_name.clone())
+        } else {
+            Some(self.qualified_path.join("."))
+        };
+
         let info = ir::CodeInfo {
             flags,
             posonlyarg_count,
@@ -410,6 +417,7 @@ impl Compiler<'_> {
             source_path,
             first_line_number,
             obj_name,
+            qualname,
 
             blocks: vec![ir::Block::default()],
             current_block: ir::BlockIdx(0),
@@ -1496,6 +1504,10 @@ impl Compiler<'_> {
 
         self.push_qualified_path(name);
         let qualified_name = self.qualified_path.join(".");
+
+        // Update the qualname in the current code info
+        self.code_stack.last_mut().unwrap().qualname = Some(qualified_name.clone());
+
         self.push_qualified_path("<locals>");
 
         let (doc_str, body) = split_doc(body, &self.opts);
@@ -1719,6 +1731,9 @@ impl Compiler<'_> {
         }
 
         self.push_output(bytecode::CodeFlags::empty(), 0, 0, 0, name.to_owned());
+
+        // Update the qualname in the current code info
+        self.code_stack.last_mut().unwrap().qualname = Some(qualified_name.clone());
 
         let (doc_str, body) = split_doc(body, &self.opts);
 
@@ -3495,6 +3510,9 @@ impl Compiler<'_> {
                 let mut func_flags = self
                     .enter_function(&name, parameters.as_deref().unwrap_or(&Default::default()))?;
 
+                // Lambda qualname should be <lambda>
+                self.code_stack.last_mut().unwrap().qualname = Some(name.clone());
+
                 self.ctx = CompileContext {
                     loop_data: Option::None,
                     in_class: prev_ctx.in_class,
@@ -3956,6 +3974,10 @@ impl Compiler<'_> {
 
         // Create magnificent function <listcomp>:
         self.push_output(flags, 1, 1, 0, name.to_owned());
+
+        // Set qualname for comprehension
+        self.code_stack.last_mut().unwrap().qualname = Some(name.to_owned());
+
         let arg0 = self.varname(".0")?;
 
         let return_none = init_collection.is_none();
