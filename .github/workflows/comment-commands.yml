@@ -1,0 +1,24 @@
+name: Comment Commands
+
+on:
+  issue_comment:
+    types: created
+
+jobs:
+  issue_assign:
+    if: (!github.event.issue.pull_request) && github.event.comment.body == 'take'
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: ${{ github.actor }}-issue-assign
+
+    permissions:
+      issues: write    
+
+    steps:
+      - run: gh issue edit "${{ env.ISSUE_NUMBER }}" --add-assignee "${{ env.USER_LOGIN }}"
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          USER_LOGIN: ${{ github.event.comment.user.login }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
