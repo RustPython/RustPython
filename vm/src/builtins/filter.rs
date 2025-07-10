@@ -3,6 +3,7 @@ use crate::{
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
     protocol::{PyIter, PyIterReturn},
+    raise_if_stop,
     types::{Constructor, IterNext, Iterable, SelfIter},
 };
 
@@ -45,24 +46,22 @@ impl PyFilter {
 }
 
 impl SelfIter for PyFilter {}
+
 impl IterNext for PyFilter {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let predicate = &zelf.predicate;
         loop {
-            let next_obj = match zelf.iterator.next(vm)? {
-                PyIterReturn::Return(obj) => obj,
-                PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
-            };
+            let next_obj = raise_if_stop!(zelf.iterator.next(vm)?);
             let predicate_value = if vm.is_none(predicate) {
                 next_obj.clone()
             } else {
-                // the predicate itself can raise StopIteration which does stop the filter
-                // iteration
-                match PyIterReturn::from_pyresult(predicate.call((next_obj.clone(),), vm), vm)? {
-                    PyIterReturn::Return(obj) => obj,
-                    PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
-                }
+                // the predicate itself can raise StopIteration which does stop the filter iteration
+                raise_if_stop!(PyIterReturn::from_pyresult(
+                    predicate.call((next_obj.clone(),), vm),
+                    vm
+                )?)
             };
+
             if predicate_value.try_to_bool(vm)? {
                 return Ok(PyIterReturn::Return(next_obj));
             }

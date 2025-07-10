@@ -8,6 +8,7 @@ use crate::{
     convert::ToPyObject,
     function::OptionalArg,
     protocol::{PyIter, PyIterReturn},
+    raise_if_stop,
     types::{Constructor, IterNext, Iterable, SelfIter},
 };
 use malachite_bigint::BigInt;
@@ -73,12 +74,10 @@ impl Py<PyEnumerate> {
 }
 
 impl SelfIter for PyEnumerate {}
+
 impl IterNext for PyEnumerate {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        let next_obj = match zelf.iterator.next(vm)? {
-            PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
-            PyIterReturn::Return(obj) => obj,
-        };
+        let next_obj = raise_if_stop!(zelf.iterator.next(vm)?);
         let mut counter = zelf.counter.write();
         let position = counter.clone();
         *counter += 1;
