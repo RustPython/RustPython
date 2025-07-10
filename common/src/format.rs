@@ -436,7 +436,9 @@ impl FormatSpec {
                 let sep = char::from(fg);
                 let inter = self.get_separator_interval().try_into().unwrap();
                 let magnitude_len = magnitude_str.len();
-                let disp_digit_cnt = if self.fill == Some('0'.into()) {
+                let disp_digit_cnt = if self.fill == Some('0'.into())
+                    && self.align == Some(FormatAlign::AfterSign)
+                {
                     let width = self.width.unwrap_or(magnitude_len) as i32 - prefix.len() as i32;
                     cmp::max(width, magnitude_len as i32)
                 } else {
@@ -1321,6 +1323,45 @@ mod tests {
             spec.format_int(&BigInt::from_str("1234567890123456789012345678").unwrap()),
             Ok("1,234,567,890,123,456,789,012,345,678".to_owned())
         );
+    }
+
+    #[test]
+    fn test_format_int_width_and_grouping() {
+        // issue #5922: width + comma grouping should pad left, not inside the number
+        let spec = FormatSpec::parse("10,").unwrap();
+        let result = spec.format_int(&BigInt::from(1234)).unwrap();
+        assert_eq!(result, "     1,234"); // CPython 3.13.5
+    }
+
+    #[test]
+    fn test_format_int_padding_with_grouping() {
+        // CPython behavior: f'{1234:010,}' results in "00,001,234"
+        let spec1 = FormatSpec::parse("010,").unwrap();
+        let result1 = spec1.format_int(&BigInt::from(1234)).unwrap();
+        assert_eq!(result1, "00,001,234");
+
+        // CPython behavior: f'{-1234:010,}' results in "-0,001,234"
+        let spec2 = FormatSpec::parse("010,").unwrap();
+        let result2 = spec2.format_int(&BigInt::from(-1234)).unwrap();
+        assert_eq!(result2, "-0,001,234");
+
+        // CPython behavior: f'{-1234:=10,}' results in "-    1,234"
+        let spec3 = FormatSpec::parse("=10,").unwrap();
+        let result3 = spec3.format_int(&BigInt::from(-1234)).unwrap();
+        assert_eq!(result3, "-    1,234");
+
+        // CPython behavior: f'{1234:=10,}' results in "     1,234" (same as right-align for positive numbers)
+        let spec4 = FormatSpec::parse("=10,").unwrap();
+        let result4 = spec4.format_int(&BigInt::from(1234)).unwrap();
+        assert_eq!(result4, "     1,234");
+    }
+
+    #[test]
+    fn test_format_int_non_aftersign_zero_padding() {
+        // CPython behavior: f'{1234:0>10,}' results in "000001,234"
+        let spec = FormatSpec::parse("0>10,").unwrap();
+        let result = spec.format_int(&BigInt::from(1234)).unwrap();
+        assert_eq!(result, "000001,234");
     }
 
     #[test]
