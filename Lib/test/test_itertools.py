@@ -1761,8 +1761,6 @@ class TestBasicOps(unittest.TestCase):
             del forward, backward
             raise
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_tee_reenter(self):
         class I:
             first = True

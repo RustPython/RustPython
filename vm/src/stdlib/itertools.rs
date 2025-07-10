@@ -1185,6 +1185,7 @@ mod decl {
     struct PyItertoolsTeeData {
         iterable: PyIter,
         values: PyRwLock<Vec<PyObjectRef>>,
+        locked: AtomicCell<bool>,
     }
 
     impl PyItertoolsTeeData {
@@ -1192,14 +1193,23 @@ mod decl {
             Ok(PyRc::new(Self {
                 iterable,
                 values: PyRwLock::new(vec![]),
+                locked: AtomicCell::new(false),
             }))
         }
 
         fn get_item(&self, vm: &VirtualMachine, index: usize) -> PyResult<PyIterReturn> {
             if self.values.read().len() == index {
-                let result = raise_if_stop!(self.iterable.next(vm)?);
-                self.values.write().push(result);
+                if self.locked.swap(true) {
+                    return Err(vm.new_runtime_error("cannot re-enter the tee iterator"));
+                }
+
+                let result = self.iterable.next(vm);
+                self.locked.store(false);
+
+                let obj = raise_if_stop!(result?);
+                self.values.write().push(obj);
             }
+
             Ok(PyIterReturn::Return(self.values.read()[index].clone()))
         }
     }
