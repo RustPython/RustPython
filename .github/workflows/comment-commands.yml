@@ -13,12 +13,11 @@ jobs:
       group: ${{ github.actor }}-issue-assign
 
     permissions:
-      issues: write    
+      issues: write
 
     steps:
-      - run: gh issue edit "${{ env.ISSUE_NUMBER }}" --add-assignee "${{ env.USER_LOGIN }}"
-        env:
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          USER_LOGIN: ${{ github.event.comment.user.login }}
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
+      # Using REST API and not `gh issue edit`. https://github.com/cli/cli/issues/6235#issuecomment-1243487651
+      - run: curl \
+          -H "Authorization: token ${{ github.token }}" \
+          -d '{"assignees": ["${{ github.event.comment.user.login }}"]}' \
+          https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/assignees
