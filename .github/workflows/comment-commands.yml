@@ -16,7 +16,7 @@ jobs:
       issues: write    
 
     steps:
-      - run: gh issue edit "${{ env.ISSUE_NUMBER }}" --add-assignee "@${{ env.USER_LOGIN }}"
+      - run: gh issue edit "${{ env.ISSUE_NUMBER }}" --add-assignee "${{ env.USER_LOGIN }}"
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           USER_LOGIN: ${{ github.event.comment.user.login }}
