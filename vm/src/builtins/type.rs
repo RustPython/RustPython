@@ -833,11 +833,12 @@ impl PyType {
                 value.class().slot_name(),
             ))
         })?;
+
         if name.as_bytes().contains(&0) {
             return Err(vm.new_value_error("type name must not contain null characters"));
         }
 
-        *self.heaptype_ext.as_ref().unwrap().name.write() = name;
+        *self.heaptype_ext.as_ref().unwrap().name.write() = PyStr::new_ref(name.as_str(), &vm.ctx);
 
         Ok(())
     }

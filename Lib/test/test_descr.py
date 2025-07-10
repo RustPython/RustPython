@@ -4261,7 +4261,6 @@ order (MRO) for bases """
         C.__name__ = 'D.E'
         self.assertEqual((C.__module__, C.__name__), (mod, 'D.E'))
 
-    @unittest.skip("TODO: RUSTPYTHON, rustpython hang")
     def test_evil_type_name(self):
         # A badly placed Py_DECREF in type_set_name led to arbitrary code
         # execution while the type structure was not in a sane state, and a
