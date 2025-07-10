@@ -1,4 +1,4 @@
-use super::{PyDict, PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef};
+use super::{PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyStrInterned, pystr::AsPyStr},
@@ -174,11 +174,19 @@ impl PyModule {
 
     #[pymethod]
     fn __dir__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        // First check if __dict__ attribute exists and is actually a dictionary
-        let dict_attr = zelf.as_object().get_attr(identifier!(vm, __dict__), vm)?;
-        let dict = dict_attr
-            .downcast::<PyDict>()
-            .map_err(|_| vm.new_type_error("<module>.__dict__ is not a dictionary"))?;
+        let dict = zelf.dict();
+
+        if let Ok(dir_func) = dict.get_item(identifier!(vm, __dir__), vm) {
+            let result = dir_func.call((), vm)?;
+
+            let iter = result
+                .get_iter(vm)
+                .map_err(|_| vm.new_type_error("<module>.__dict__ is not a dictionary"))?;
+
+            let attrs = iter.try_to_value::<Vec<PyObjectRef>>(vm)?;
+            return Ok(attrs);
+        }
+
         let attrs = dict.into_iter().map(|(k, _v)| k).collect();
         Ok(attrs)
     }
