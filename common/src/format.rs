@@ -1345,7 +1345,7 @@ mod tests {
         let result2 = spec2.format_int(&BigInt::from(-1234)).unwrap();
         assert_eq!(result2, "-0,001,234");
 
-        // CPython behavior: f'{-1234:=10,}' results in "-   1,234"
+        // CPython behavior: f'{-1234:=10,}' results in "-    1,234"
         let spec3 = FormatSpec::parse("=10,").unwrap();
         let result3 = spec3.format_int(&BigInt::from(-1234)).unwrap();
         assert_eq!(result3, "-    1,234");
