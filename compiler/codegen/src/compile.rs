@@ -1067,33 +1067,41 @@ impl Compiler<'_> {
 
                 // For PEP 695 syntax, we need to compile type_params first
                 // so that they're available when compiling the value expression
-                if let Some(type_params) = type_params {
-                    self.push_symbol_table();
-
-                    // Compile type params first to define T1, T2, etc.
-                    self.compile_type_params(type_params)?;
-                    // Stack now has type_params tuple at top
-
-                    // Compile value expression (can now see T1, T2)
-                    self.compile_expression(value)?;
-                    // Stack: [type_params_tuple, value]
-
-                    // We need [value, type_params_tuple] for TypeAlias instruction
-                    emit!(self, Instruction::Rotate2);
-
-                    self.pop_symbol_table();
-                } else {
-                    // No type params - push value first, then None (not empty tuple)
-                    self.compile_expression(value)?;
-                    // Push None for type_params (matching CPython)
-                    self.emit_load_const(ConstantData::None);
-                }
-
-                // Push name last
+                // Push name first
                 self.emit_load_const(ConstantData::Str {
                     value: name_string.clone().into(),
                 });
-                emit!(self, Instruction::TypeAlias);
+
+                if let Some(type_params) = type_params {
+                    self.push_symbol_table();
+
+                    // Compile type params and push to stack
+                    self.compile_type_params(type_params)?;
+                    // Stack now has [name, type_params_tuple]
+
+                    // Compile value expression (can now see T1, T2)
+                    self.compile_expression(value)?;
+                    // Stack: [name, type_params_tuple, value]
+
+                    self.pop_symbol_table();
+                } else {
+                    // Push None for type_params (matching CPython)
+                    self.emit_load_const(ConstantData::None);
+                    // Stack: [name, None]
+
+                    // Compile value expression
+                    self.compile_expression(value)?;
+                    // Stack: [name, None, value]
+                }
+
+                // Build tuple of 3 elements and call intrinsic
+                emit!(self, Instruction::BuildTuple { size: 3 });
+                emit!(
+                    self,
+                    Instruction::CallIntrinsic1 {
+                        func: bytecode::IntrinsicFunction1::TypeAlias
+                    }
+                );
                 self.store_name(&name_string)?;
             }
             Stmt::IpyEscapeCommand(_) => todo!(),
@@ -1246,12 +1254,22 @@ impl Compiler<'_> {
                         self.emit_load_const(ConstantData::Str {
                             value: name.as_str().into(),
                         });
-                        emit!(self, Instruction::TypeVarWithBound);
+                        emit!(
+                            self,
+                            Instruction::CallIntrinsic2 {
+                                func: bytecode::IntrinsicFunction2::TypeVarWithBound
+                            }
+                        );
                     } else {
                         self.emit_load_const(ConstantData::Str {
                             value: name.as_str().into(),
                         });
-                        emit!(self, Instruction::TypeVar);
+                        emit!(
+                            self,
+                            Instruction::CallIntrinsic1 {
+                                func: bytecode::IntrinsicFunction1::TypeVar
+                            }
+                        );
                     }
 
                     // Handle default value if present (PEP 695)
@@ -1274,7 +1292,12 @@ impl Compiler<'_> {
                     self.emit_load_const(ConstantData::Str {
                         value: name.as_str().into(),
                     });
-                    emit!(self, Instruction::ParamSpec);
+                    emit!(
+                        self,
+                        Instruction::CallIntrinsic1 {
+                            func: bytecode::IntrinsicFunction1::ParamSpec
+                        }
+                    );
 
                     // Handle default value if present (PEP 695)
                     if let Some(default_expr) = default {
@@ -1296,7 +1319,12 @@ impl Compiler<'_> {
                     self.emit_load_const(ConstantData::Str {
                         value: name.as_str().into(),
                     });
-                    emit!(self, Instruction::TypeVarTuple);
+                    emit!(
+                        self,
+                        Instruction::CallIntrinsic1 {
+                            func: bytecode::IntrinsicFunction1::TypeVarTuple
+                        }
+                    );
 
                     // Handle default value if present (PEP 695)
                     if let Some(default_expr) = default {

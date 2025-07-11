@@ -113,6 +113,27 @@ pub(crate) mod decl {
                 value,
             }
         }
+
+        #[pygetset]
+        fn __name__(&self) -> PyObjectRef {
+            self.name.clone()
+        }
+
+        #[pygetset]
+        fn __value__(&self) -> PyObjectRef {
+            self.value.clone()
+        }
+
+        #[pygetset]
+        fn __type_params__(&self) -> PyTupleRef {
+            self.type_params.clone()
+        }
+
+        #[pymethod(name = "__repr__")]
+        fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
+            let name = self.name.str(vm)?;
+            Ok(name.as_str().to_owned())
+        }
     }
 
     // impl AsMapping for Generic {
