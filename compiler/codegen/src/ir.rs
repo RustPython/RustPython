@@ -74,6 +74,7 @@ pub struct CodeInfo {
     pub first_line_number: OneIndexed,
     pub obj_name: String, // Name of the object that created this code object
     pub qualname: Option<String>, // Qualified name of the object
+    pub private: Option<String>, // For private name mangling, mostly for class
 
     pub blocks: Vec<Block>,
     pub current_block: BlockIdx,
@@ -101,6 +102,7 @@ impl CodeInfo {
             first_line_number,
             obj_name,
             qualname,
+            private: _, // private is only used during compilation
 
             mut blocks,
             current_block: _,
