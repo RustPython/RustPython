@@ -399,6 +399,13 @@ impl Compiler<'_> {
             .map(|(var, _)| var.clone())
             .collect();
 
+        // Initialize varname_cache from SymbolTable::varnames
+        let varname_cache: IndexSet<String> = table
+            .varnames
+            .iter()
+            .cloned()
+            .collect();
+
         // Qualname will be set later by set_qualname
         let qualname = None;
 
@@ -420,7 +427,7 @@ impl Compiler<'_> {
             current_block: ir::BlockIdx(0),
             constants: IndexSet::default(),
             name_cache: IndexSet::default(),
-            varname_cache: IndexSet::default(),
+            varname_cache,
             cellvar_cache,
             freevar_cache,
         };

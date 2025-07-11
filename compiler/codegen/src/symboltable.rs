@@ -626,6 +626,8 @@ impl SymbolTableBuilder<'_> {
             .unwrap_or(false);
         let table = SymbolTable::new(name.to_owned(), typ, line_number, is_nested);
         self.tables.push(table);
+        // Clear current_varnames for the new scope
+        self.current_varnames.clear();
     }
 
     /// Pop symbol table and add to sub table of parent table.
