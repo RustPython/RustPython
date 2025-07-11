@@ -513,7 +513,7 @@ impl Compiler<'_> {
         let code_info = ir::CodeInfo {
             flags,
             source_path: source_path.clone(),
-            private: private,
+            private,
             blocks: vec![ir::Block::default()],
             current_block: BlockIdx(0),
             metadata: ir::CodeUnitMetadata {
@@ -585,95 +585,32 @@ impl Compiler<'_> {
         kwonlyarg_count: u32,
         obj_name: String,
     ) {
-        let source_path = self.source_code.path.to_owned();
-        let first_line_number = self.get_source_line_number();
-
-        // Get the private name from current scope if exists
-        let private = self.code_stack.last().and_then(|info| info.private.clone());
-
+        // First push the symbol table
         let table = self.push_symbol_table();
+        let scope_type = table.typ;
 
-        // Build cellvars in sorted order (like CPython's dictbytype)
-        let mut cell_names: Vec<_> = table
-            .symbols
-            .iter()
-            .filter(|(_, s)| s.scope == SymbolScope::Cell)
-            .map(|(name, _)| name.clone())
-            .collect();
-        cell_names.sort(); // Sort for deterministic order
-        let mut cellvar_cache: IndexSet<String> = cell_names.into_iter().collect();
+        // The key is the current position in the symbol table stack
+        let key = self.symbol_table_stack.len() - 1;
 
-        // Handle implicit __class__ cell if needed (like CPython)
-        if table.needs_class_closure {
-            cellvar_cache.insert("__class__".to_string());
+        // Get the line number
+        let lineno = self.get_source_line_number().get();
+
+        // Call enter_scope which does most of the work
+        if let Err(e) = self.enter_scope(&obj_name, scope_type, key, lineno.to_u32()) {
+            // In the current implementation, push_output doesn't return an error,
+            // so we panic here. This maintains the same behavior.
+            panic!("enter_scope failed: {e:?}");
         }
 
-        // Handle implicit __classdict__ cell if needed (like CPython)
-        if table.needs_classdict {
-            cellvar_cache.insert("__classdict__".to_string());
+        // Override the values that push_output sets explicitly
+        // enter_scope sets default values based on scope_type, but push_output
+        // allows callers to specify exact values
+        if let Some(info) = self.code_stack.last_mut() {
+            info.flags = flags;
+            info.metadata.argcount = arg_count;
+            info.metadata.posonlyargcount = posonlyarg_count;
+            info.metadata.kwonlyargcount = kwonlyarg_count;
         }
-
-        // Build freevars in sorted order (like CPython's dictbytype)
-        let mut free_names: Vec<_> = table
-            .symbols
-            .iter()
-            .filter(|(_, s)| {
-                s.scope == SymbolScope::Free || s.flags.contains(SymbolFlags::FREE_CLASS)
-            })
-            .map(|(name, _)| name.clone())
-            .collect();
-        free_names.sort(); // Sort for deterministic order
-        let freevar_cache: IndexSet<String> = free_names.into_iter().collect();
-
-        // Initialize varname_cache from SymbolTable::varnames
-        let varname_cache: IndexSet<String> = table.varnames.iter().cloned().collect();
-
-        // Qualname will be set later by set_qualname
-        let qualname = None;
-
-        // Check if this is a class scope
-        let is_class_scope = table.typ == SymbolTableType::Class;
-
-        let info = ir::CodeInfo {
-            flags,
-            source_path,
-            private,
-            blocks: vec![ir::Block::default()],
-            current_block: ir::BlockIdx(0),
-            metadata: ir::CodeUnitMetadata {
-                name: obj_name,
-                qualname,
-                consts: IndexSet::default(),
-                names: IndexSet::default(),
-                varnames: varname_cache,
-                cellvars: cellvar_cache,
-                freevars: freevar_cache,
-                fast_hidden: IndexMap::default(),
-                argcount: arg_count,
-                posonlyargcount: posonlyarg_count,
-                kwonlyargcount: kwonlyarg_count,
-                firstlineno: first_line_number,
-            },
-            static_attributes: if is_class_scope {
-                Some(IndexSet::default())
-            } else {
-                None
-            },
-            in_inlined_comp: false,
-            fblock: Vec::with_capacity(MAXBLOCKS),
-        };
-        self.code_stack.push(info);
-
-        // We just pushed a code object, and need the qualname
-        self.set_qualname();
-
-        // Add RESUME instruction just like CPython's compiler_enter_scope
-        emit!(
-            self,
-            Instruction::Resume {
-                arg: bytecode::ResumeType::AtFuncStart as u32
-            }
-        );
     }
 
     // compiler_exit_scope
@@ -1959,8 +1896,6 @@ impl Compiler<'_> {
             .metadata
             .consts
             .insert_full(ConstantData::None);
-
-        // RESUME instruction is already emitted in push_output
 
         self.compile_statements(body)?;
 
