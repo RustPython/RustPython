@@ -45,6 +45,9 @@ pub struct SymbolTable {
     /// A list of sub-scopes in the order as found in the
     /// AST nodes.
     pub sub_tables: Vec<SymbolTable>,
+
+    /// Variable names in definition order (parameters first, then locals)
+    pub varnames: Vec<String>,
 }
 
 impl SymbolTable {
@@ -56,6 +59,7 @@ impl SymbolTable {
             is_nested,
             symbols: IndexMap::default(),
             sub_tables: vec![],
+            varnames: Vec::new(),
         }
     }
 
@@ -573,6 +577,8 @@ struct SymbolTableBuilder<'src> {
     tables: Vec<SymbolTable>,
     future_annotations: bool,
     source_code: SourceCode<'src>,
+    // Current scope's varnames being collected (temporary storage)
+    current_varnames: Vec<String>,
 }
 
 /// Enum to indicate in what mode an expression
@@ -595,6 +601,7 @@ impl<'src> SymbolTableBuilder<'src> {
             tables: vec![],
             future_annotations: false,
             source_code,
+            current_varnames: Vec::new(),
         };
         this.enter_scope("top", SymbolTableType::Module, 0);
         this
@@ -605,6 +612,8 @@ impl SymbolTableBuilder<'_> {
     fn finish(mut self) -> Result<SymbolTable, SymbolTableError> {
         assert_eq!(self.tables.len(), 1);
         let mut symbol_table = self.tables.pop().unwrap();
+        // Save varnames for the top-level module scope
+        symbol_table.varnames = self.current_varnames;
         analyze_symbol_table(&mut symbol_table)?;
         Ok(symbol_table)
     }
@@ -617,11 +626,15 @@ impl SymbolTableBuilder<'_> {
             .unwrap_or(false);
         let table = SymbolTable::new(name.to_owned(), typ, line_number, is_nested);
         self.tables.push(table);
+        // Clear current_varnames for the new scope
+        self.current_varnames.clear();
     }
 
     /// Pop symbol table and add to sub table of parent table.
     fn leave_scope(&mut self) {
-        let table = self.tables.pop().unwrap();
+        let mut table = self.tables.pop().unwrap();
+        // Save the collected varnames to the symbol table
+        table.varnames = std::mem::take(&mut self.current_varnames);
         self.tables.last_mut().unwrap().sub_tables.push(table);
     }
 
@@ -1533,18 +1546,43 @@ impl SymbolTableBuilder<'_> {
             }
             SymbolUsage::Parameter => {
                 flags.insert(SymbolFlags::PARAMETER);
+                // Parameters are always added to varnames first
+                let name_str = symbol.name.clone();
+                if !self.current_varnames.contains(&name_str) {
+                    self.current_varnames.push(name_str);
+                }
             }
             SymbolUsage::AnnotationParameter => {
                 flags.insert(SymbolFlags::PARAMETER | SymbolFlags::ANNOTATED);
+                // Annotated parameters are also added to varnames
+                let name_str = symbol.name.clone();
+                if !self.current_varnames.contains(&name_str) {
+                    self.current_varnames.push(name_str);
+                }
             }
             SymbolUsage::AnnotationAssigned => {
                 flags.insert(SymbolFlags::ASSIGNED | SymbolFlags::ANNOTATED);
             }
             SymbolUsage::Assigned => {
                 flags.insert(SymbolFlags::ASSIGNED);
+                // Local variables (assigned) are added to varnames if they are local scope
+                // and not already in varnames
+                if symbol.scope == SymbolScope::Local {
+                    let name_str = symbol.name.clone();
+                    if !self.current_varnames.contains(&name_str) {
+                        self.current_varnames.push(name_str);
+                    }
+                }
             }
             SymbolUsage::AssignedNamedExprInComprehension => {
                 flags.insert(SymbolFlags::ASSIGNED | SymbolFlags::ASSIGNED_IN_COMPREHENSION);
+                // Named expressions in comprehensions might also be locals
+                if symbol.scope == SymbolScope::Local {
+                    let name_str = symbol.name.clone();
+                    if !self.current_varnames.contains(&name_str) {
+                        self.current_varnames.push(name_str);
+                    }
+                }
             }
             SymbolUsage::Global => {
                 symbol.scope = SymbolScope::GlobalExplicit;

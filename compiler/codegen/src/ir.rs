@@ -1,11 +1,29 @@
 use std::ops;
 
-use crate::IndexSet;
 use crate::error::InternalError;
+use crate::{IndexMap, IndexSet};
 use ruff_source_file::{OneIndexed, SourceLocation};
 use rustpython_compiler_core::bytecode::{
     CodeFlags, CodeObject, CodeUnit, ConstantData, InstrDisplayContext, Instruction, Label, OpArg,
 };
+
+/// Metadata for a code unit
+// = _PyCompile_CodeUnitMetadata
+#[derive(Clone, Debug)]
+pub struct CodeUnitMetadata {
+    pub name: String,                        // u_name (obj_name)
+    pub qualname: Option<String>,            // u_qualname
+    pub consts: IndexSet<ConstantData>,      // u_consts
+    pub names: IndexSet<String>,             // u_names
+    pub varnames: IndexSet<String>,          // u_varnames
+    pub cellvars: IndexSet<String>,          // u_cellvars
+    pub freevars: IndexSet<String>,          // u_freevars
+    pub fast_hidden: IndexMap<String, bool>, // u_fast_hidden
+    pub argcount: u32,                       // u_argcount
+    pub posonlyargcount: u32,                // u_posonlyargcount
+    pub kwonlyargcount: u32,                 // u_kwonlyargcount
+    pub firstlineno: OneIndexed,             // u_firstlineno
+}
 // use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -67,22 +85,22 @@ impl Default for Block {
 
 pub struct CodeInfo {
     pub flags: CodeFlags,
-    pub posonlyarg_count: u32, // Number of positional-only arguments
-    pub arg_count: u32,
-    pub kwonlyarg_count: u32,
     pub source_path: String,
-    pub first_line_number: OneIndexed,
-    pub obj_name: String, // Name of the object that created this code object
-    pub qualname: Option<String>, // Qualified name of the object
     pub private: Option<String>, // For private name mangling, mostly for class
 
     pub blocks: Vec<Block>,
     pub current_block: BlockIdx,
-    pub constants: IndexSet<ConstantData>,
-    pub name_cache: IndexSet<String>,
-    pub varname_cache: IndexSet<String>,
-    pub cellvar_cache: IndexSet<String>,
-    pub freevar_cache: IndexSet<String>,
+
+    pub metadata: CodeUnitMetadata,
+
+    // For class scopes: attributes accessed via self.X
+    pub static_attributes: Option<IndexSet<String>>,
+
+    // True if compiling an inlined comprehension
+    pub in_inlined_comp: bool,
+
+    // Block stack for tracking nested control structures
+    pub fblock: Vec<crate::compile::FBlockInfo>,
 }
 impl CodeInfo {
     pub fn finalize_code(mut self, optimize: u8) -> crate::InternalResult<CodeObject> {
@@ -95,23 +113,31 @@ impl CodeInfo {
 
         let Self {
             flags,
-            posonlyarg_count,
-            arg_count,
-            kwonlyarg_count,
             source_path,
-            first_line_number,
-            obj_name,
-            qualname,
             private: _, // private is only used during compilation
 
             mut blocks,
             current_block: _,
-            constants,
-            name_cache,
-            varname_cache,
-            cellvar_cache,
-            freevar_cache,
+            metadata,
+            static_attributes: _,
+            in_inlined_comp: _,
+            fblock: _,
         } = self;
+
+        let CodeUnitMetadata {
+            name: obj_name,
+            qualname,
+            consts: constants,
+            names: name_cache,
+            varnames: varname_cache,
+            cellvars: cellvar_cache,
+            freevars: freevar_cache,
+            fast_hidden: _,
+            argcount: arg_count,
+            posonlyargcount: posonlyarg_count,
+            kwonlyargcount: kwonlyarg_count,
+            firstlineno: first_line_number,
+        } = metadata;
 
         let mut instructions = Vec::new();
         let mut locations = Vec::new();
@@ -182,21 +208,23 @@ impl CodeInfo {
     }
 
     fn cell2arg(&self) -> Option<Box<[i32]>> {
-        if self.cellvar_cache.is_empty() {
+        if self.metadata.cellvars.is_empty() {
             return None;
         }
 
-        let total_args = self.arg_count
-            + self.kwonlyarg_count
+        let total_args = self.metadata.argcount
+            + self.metadata.kwonlyargcount
             + self.flags.contains(CodeFlags::HAS_VARARGS) as u32
             + self.flags.contains(CodeFlags::HAS_VARKEYWORDS) as u32;
 
         let mut found_cellarg = false;
         let cell2arg = self
-            .cellvar_cache
+            .metadata
+            .cellvars
             .iter()
             .map(|var| {
-                self.varname_cache
+                self.metadata
+                    .varnames
                     .get_index_of(var)
                     // check that it's actually an arg
                     .filter(|i| *i < total_args as usize)
@@ -302,18 +330,19 @@ impl CodeInfo {
 impl InstrDisplayContext for CodeInfo {
     type Constant = ConstantData;
     fn get_constant(&self, i: usize) -> &ConstantData {
-        &self.constants[i]
+        &self.metadata.consts[i]
     }
     fn get_name(&self, i: usize) -> &str {
-        self.name_cache[i].as_ref()
+        self.metadata.names[i].as_ref()
     }
     fn get_varname(&self, i: usize) -> &str {
-        self.varname_cache[i].as_ref()
+        self.metadata.varnames[i].as_ref()
     }
     fn get_cell_name(&self, i: usize) -> &str {
-        self.cellvar_cache
+        self.metadata
+            .cellvars
             .get_index(i)
-            .unwrap_or_else(|| &self.freevar_cache[i - self.cellvar_cache.len()])
+            .unwrap_or_else(|| &self.metadata.freevars[i - self.metadata.cellvars.len()])
             .as_ref()
     }
 }
