@@ -2286,6 +2286,12 @@ impl ExecutingFrame<'_> {
             bytecode::IntrinsicFunction2::SetTypeparamDefault => {
                 crate::stdlib::typing::set_typeparam_default(arg1, arg2, vm)
             }
+            bytecode::IntrinsicFunction2::SetFunctionTypeParams => {
+                // arg1 is the function, arg2 is the type params tuple
+                // Set __type_params__ attribute on the function
+                arg1.set_attr("__type_params__", arg2, vm)?;
+                Ok(arg1)
+            }
         }
     }
 

@@ -80,6 +80,7 @@ pub enum SymbolTableType {
     Module,
     Class,
     Function,
+    Lambda,
     Comprehension,
     TypeParams,
 }
@@ -90,6 +91,7 @@ impl fmt::Display for SymbolTableType {
             Self::Module => write!(f, "module"),
             Self::Class => write!(f, "class"),
             Self::Function => write!(f, "function"),
+            Self::Lambda => write!(f, "lambda"),
             Self::Comprehension => write!(f, "comprehension"),
             Self::TypeParams => write!(f, "type parameter"),
             // TODO missing types from the C implementation
@@ -493,7 +495,7 @@ impl SymbolTableAnalyzer {
                     location: None,
                 });
             }
-            SymbolTableType::Function => {
+            SymbolTableType::Function | SymbolTableType::Lambda => {
                 if let Some(parent_symbol) = symbols.get_mut(&symbol.name) {
                     if let SymbolScope::Unknown = parent_symbol.scope {
                         // this information is new, as the assignment is done in inner scope
@@ -1140,7 +1142,7 @@ impl SymbolTableBuilder<'_> {
                 } else {
                     self.enter_scope(
                         "lambda",
-                        SymbolTableType::Function,
+                        SymbolTableType::Lambda,
                         self.line_index_start(expression.range()),
                     );
                 }
