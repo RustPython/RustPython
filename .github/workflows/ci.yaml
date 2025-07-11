@@ -113,6 +113,7 @@ jobs:
       RUST_BACKTRACE: full
     name: Run rust tests
     runs-on:  ${{ matrix.os }}
+    timeout-minutes: ${{ contains(matrix.os, 'windows') && 40 || 30 }}
     strategy:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
@@ -175,6 +176,7 @@ jobs:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Ensure compilation on various targets
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -237,6 +239,7 @@ jobs:
       RUST_BACKTRACE: full
     name: Run snippets and cpython tests
     runs-on:  ${{ matrix.os }}
+    timeout-minutes: ${{ contains(matrix.os, 'windows') && 40 || 30 }}
     strategy:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
@@ -344,6 +347,7 @@ jobs:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Run tests under miri
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -361,6 +365,7 @@ jobs:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Check the WASM package and demo
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -421,6 +426,7 @@ jobs:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Run snippets and cpython tests on wasm-wasi
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
