@@ -8,10 +8,10 @@
 #![deny(clippy::cast_possible_truncation)]
 
 use crate::{
-    IndexSet, ToPythonName,
+    IndexMap, IndexSet, ToPythonName,
     error::{CodegenError, CodegenErrorType, PatternUnreachableReason},
     ir::{self, BlockIdx},
-    symboltable::{self, SymbolFlags, SymbolScope, SymbolTable},
+    symboltable::{self, SymbolFlags, SymbolScope, SymbolTable, SymbolTableType},
     unparse::unparse_expr,
 };
 use itertools::Itertools;
@@ -318,6 +318,8 @@ impl<'src> Compiler<'src> {
             varname_cache: IndexSet::default(),
             cellvar_cache: IndexSet::default(),
             freevar_cache: IndexSet::default(),
+            fasthidden_cache: IndexMap::default(),
+            static_attributes: None,
         };
         Compiler {
             code_stack: vec![module_code],
@@ -382,6 +384,9 @@ impl Compiler<'_> {
         let source_path = self.source_code.path.to_owned();
         let first_line_number = self.get_source_line_number();
 
+        // Get the private name from current scope if exists
+        let private = self.code_stack.last().and_then(|info| info.private.clone());
+
         let table = self.push_symbol_table();
 
         let cellvar_cache = table
@@ -400,17 +405,13 @@ impl Compiler<'_> {
             .collect();
 
         // Initialize varname_cache from SymbolTable::varnames
-        let varname_cache: IndexSet<String> = table
-            .varnames
-            .iter()
-            .cloned()
-            .collect();
+        let varname_cache: IndexSet<String> = table.varnames.iter().cloned().collect();
 
         // Qualname will be set later by set_qualname
         let qualname = None;
 
-        // Get the private name from current scope if exists
-        let private = self.code_stack.last().and_then(|info| info.private.clone());
+        // Check if this is a class scope
+        let is_class_scope = table.typ == SymbolTableType::Class;
 
         let info = ir::CodeInfo {
             flags,
@@ -430,6 +431,12 @@ impl Compiler<'_> {
             varname_cache,
             cellvar_cache,
             freevar_cache,
+            fasthidden_cache: IndexMap::default(),
+            static_attributes: if is_class_scope {
+                Some(IndexSet::default())
+            } else {
+                None
+            },
         };
         self.code_stack.push(info);
     }

@@ -1,7 +1,7 @@
 use std::ops;
 
-use crate::IndexSet;
 use crate::error::InternalError;
+use crate::{IndexMap, IndexSet};
 use ruff_source_file::{OneIndexed, SourceLocation};
 use rustpython_compiler_core::bytecode::{
     CodeFlags, CodeObject, CodeUnit, ConstantData, InstrDisplayContext, Instruction, Label, OpArg,
@@ -83,6 +83,13 @@ pub struct CodeInfo {
     pub varname_cache: IndexSet<String>,
     pub cellvar_cache: IndexSet<String>,
     pub freevar_cache: IndexSet<String>,
+
+    // For tracking hidden fast locals (used in comprehensions)
+    // Maps variable name to bool (true if currently fast, false if was fast)
+    pub fast_hidden_cache: IndexMap<String, bool>,
+
+    // For class scopes: attributes accessed via self.X
+    pub static_attributes: Option<IndexSet<String>>,
 }
 impl CodeInfo {
     pub fn finalize_code(mut self, optimize: u8) -> crate::InternalResult<CodeObject> {
@@ -111,6 +118,8 @@ impl CodeInfo {
             varname_cache,
             cellvar_cache,
             freevar_cache,
+            fast_hidden_cache: _,
+            static_attributes: _,
         } = self;
 
         let mut instructions = Vec::new();
