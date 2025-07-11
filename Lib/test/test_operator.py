@@ -1,6 +1,9 @@
 import unittest
+import inspect
 import pickle
 import sys
+from decimal import Decimal
+from fractions import Fraction
 
 from test import support
 from test.support import import_helper
@@ -508,6 +511,44 @@ class OperatorTestCase:
         self.assertEqual(operator.ixor     (c, 5), "ixor")
         self.assertEqual(operator.iconcat  (c, c), "iadd")
 
+    def test_iconcat_without_getitem(self):
+        operator = self.module
+
+        msg = "'int' object can't be concatenated"
+        with self.assertRaisesRegex(TypeError, msg):
+            operator.iconcat(1, 0.5)
+
+    def test_index(self):
+        operator = self.module
+        class X:
+            def __index__(self):
+                return 1
+
+        self.assertEqual(operator.index(X()), 1)
+        self.assertEqual(operator.index(0), 0)
+        self.assertEqual(operator.index(1), 1)
+        self.assertEqual(operator.index(2), 2)
+        with self.assertRaises((AttributeError, TypeError)):
+            operator.index(1.5)
+        with self.assertRaises((AttributeError, TypeError)):
+            operator.index(Fraction(3, 7))
+        with self.assertRaises((AttributeError, TypeError)):
+            operator.index(Decimal(1))
+        with self.assertRaises((AttributeError, TypeError)):
+            operator.index(None)
+
+    def test_not_(self):
+        operator = self.module
+        class C:
+            def __bool__(self):
+                raise SyntaxError
+        self.assertRaises(TypeError, operator.not_)
+        self.assertRaises(SyntaxError, operator.not_, C())
+        self.assertFalse(operator.not_(5))
+        self.assertFalse(operator.not_([0]))
+        self.assertTrue(operator.not_(0))
+        self.assertTrue(operator.not_([]))
+
     def test_length_hint(self):
         operator = self.module
         class X(object):
@@ -533,6 +574,13 @@ class OperatorTestCase:
         with self.assertRaises(LookupError):
             operator.length_hint(X(LookupError))
 
+        class Y: pass
+
+        msg = "'str' object cannot be interpreted as an integer"
+        with self.assertRaisesRegex(TypeError, msg):
+            operator.length_hint(X(2), "abc")
+        self.assertEqual(operator.length_hint(Y(), 10), 10)
+
     def test_call(self):
         operator = self.module
 
@@ -555,12 +603,52 @@ class OperatorTestCase:
             if dunder:
                 self.assertIs(dunder, orig)
 
+    @support.requires_docstrings
+    def test_attrgetter_signature(self):
+        operator = self.module
+        sig = inspect.signature(operator.attrgetter)
+        self.assertEqual(str(sig), '(attr, /, *attrs)')
+        sig = inspect.signature(operator.attrgetter('x', 'z', 'y'))
+        self.assertEqual(str(sig), '(obj, /)')
+
+    @support.requires_docstrings
+    def test_itemgetter_signature(self):
+        operator = self.module
+        sig = inspect.signature(operator.itemgetter)
+        self.assertEqual(str(sig), '(item, /, *items)')
+        sig = inspect.signature(operator.itemgetter(2, 3, 5))
+        self.assertEqual(str(sig), '(obj, /)')
+
+    @support.requires_docstrings
+    def test_methodcaller_signature(self):
+        operator = self.module
+        sig = inspect.signature(operator.methodcaller)
+        self.assertEqual(str(sig), '(name, /, *args, **kwargs)')
+        sig = inspect.signature(operator.methodcaller('foo', 2, y=3))
+        self.assertEqual(str(sig), '(obj, /)')
+
+
 class PyOperatorTestCase(OperatorTestCase, unittest.TestCase):
     module = py_operator
 
 @unittest.skipUnless(c_operator, 'requires _operator')
 class COperatorTestCase(OperatorTestCase, unittest.TestCase):
     module = c_operator
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_attrgetter_signature(self):
+        super().test_attrgetter_signature()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_itemgetter_signature(self):
+        super().test_itemgetter_signature()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_methodcaller_signature(self):
+        super().test_methodcaller_signature()
 
 
 class OperatorPickleTestCase:

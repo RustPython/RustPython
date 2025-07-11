@@ -225,7 +225,7 @@ mod _operator {
             .map(|v| {
                 if !v.fast_isinstance(vm.ctx.types.int_type) {
                     return Err(vm.new_type_error(format!(
-                        "'{}' type cannot be interpreted as an integer",
+                        "'{}' object cannot be interpreted as an integer",
                         v.class().name()
                     )));
                 }
@@ -253,9 +253,10 @@ mod _operator {
         if !a.class().has_attr(identifier!(vm, __getitem__))
             || a.fast_isinstance(vm.ctx.types.dict_type)
         {
-            return Err(
-                vm.new_type_error(format!("{} object can't be concatenated", a.class().name()))
-            );
+            return Err(vm.new_type_error(format!(
+                "'{}' object can't be concatenated",
+                a.class().name()
+            )));
         }
         vm._iadd(&a, &b)
     }
