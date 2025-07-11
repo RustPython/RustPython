@@ -78,7 +78,6 @@ struct Compiler<'src> {
     done_with_future_stmts: DoneWithFuture,
     future_annotations: bool,
     ctx: CompileContext,
-    class_name: Option<String>,
     opts: CompileOpts,
     in_annotation: bool,
 }
@@ -312,6 +311,7 @@ impl<'src> Compiler<'src> {
             first_line_number: OneIndexed::MIN,
             obj_name: code_name.clone(),
             qualname: Some(code_name),
+            private: None,
             blocks: vec![ir::Block::default()],
             current_block: ir::BlockIdx(0),
             constants: IndexSet::default(),
@@ -334,7 +334,6 @@ impl<'src> Compiler<'src> {
                 in_class: false,
                 func: FunctionContext::NoFunction,
             },
-            class_name: None,
             opts,
             in_annotation: false,
         }
@@ -409,6 +408,9 @@ impl Compiler<'_> {
             Some(self.qualified_path.join("."))
         };
 
+        // Get the private name from current scope if exists
+        let private = self.code_stack.last().and_then(|info| info.private.clone());
+
         let info = ir::CodeInfo {
             flags,
             posonlyarg_count,
@@ -418,6 +420,7 @@ impl Compiler<'_> {
             first_line_number,
             obj_name,
             qualname,
+            private,
 
             blocks: vec![ir::Block::default()],
             current_block: ir::BlockIdx(0),
@@ -587,7 +590,12 @@ impl Compiler<'_> {
     }
 
     fn mangle<'a>(&self, name: &'a str) -> Cow<'a, str> {
-        symboltable::mangle_name(self.class_name.as_deref(), name)
+        // Use u_private from current code unit for name mangling
+        let private = self
+            .code_stack
+            .last()
+            .and_then(|info| info.private.as_deref());
+        symboltable::mangle_name(private, name)
     }
 
     fn check_forbidden_name(&mut self, name: &str, usage: NameUsage) -> CompileResult<()> {
@@ -1709,8 +1717,6 @@ impl Compiler<'_> {
             loop_data: None,
         };
 
-        let prev_class_name = self.class_name.replace(name.to_owned());
-
         // Check if the class is declared global
         let symbol_table = self.symbol_table_stack.last().unwrap();
         let symbol = unwrap_internal(
@@ -1729,8 +1735,14 @@ impl Compiler<'_> {
         // If there are type params, we need to push a special symbol table just for them
         if let Some(type_params) = type_params {
             self.push_symbol_table();
+            // Save current private name to restore later
+            let saved_private = self.code_stack.last().and_then(|info| info.private.clone());
             // Compile type parameters and store as .type_params
             self.compile_type_params(type_params)?;
+            // Restore private name after type param scope
+            if let Some(private) = saved_private {
+                self.code_stack.last_mut().unwrap().private = Some(private);
+            }
             let dot_type_params = self.name(".type_params");
             emit!(self, Instruction::StoreLocal(dot_type_params));
         }
@@ -1739,6 +1751,9 @@ impl Compiler<'_> {
 
         // Update the qualname in the current code info
         self.code_stack.last_mut().unwrap().qualname = Some(qualified_name.clone());
+
+        // For class scopes, set u_private to the class name for name mangling
+        self.code_stack.last_mut().unwrap().private = Some(name.to_owned());
 
         let (doc_str, body) = split_doc(body, &self.opts);
 
@@ -1793,7 +1808,6 @@ impl Compiler<'_> {
 
         let code = self.pop_code_object();
 
-        self.class_name = prev_class_name;
         self.qualified_path.pop();
         self.qualified_path.append(global_path_prefix.as_mut());
         self.ctx = prev_ctx;
