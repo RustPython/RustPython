@@ -14,6 +14,33 @@ use crate::{
     symboltable::{self, SymbolFlags, SymbolScope, SymbolTable, SymbolTableType},
     unparse::unparse_expr,
 };
+
+const MAXBLOCKS: usize = 20;
+
+#[derive(Debug, Clone, Copy)]
+pub enum FBlockType {
+    WhileLoop,
+    ForLoop,
+    TryExcept,
+    FinallyTry,
+    FinallyEnd,
+    With,
+    AsyncWith,
+    HandlerCleanup,
+    PopValue,
+    ExceptionHandler,
+    ExceptionGroupHandler,
+    AsyncComprehensionGenerator,
+    StopIteration,
+}
+
+#[derive(Debug, Clone)]
+pub struct FBlockInfo {
+    pub fb_type: FBlockType,
+    pub fb_block: BlockIdx,
+    pub fb_exit: BlockIdx,
+    // fb_datum is not needed in RustPython
+}
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex;
@@ -323,6 +350,7 @@ impl<'src> Compiler<'src> {
             },
             static_attributes: None,
             in_inlined_comp: false,
+            fblock: Vec::with_capacity(MAXBLOCKS),
         };
         Compiler {
             code_stack: vec![module_code],
@@ -442,6 +470,7 @@ impl Compiler<'_> {
                 None
             },
             in_inlined_comp: false,
+            fblock: Vec::with_capacity(MAXBLOCKS),
         };
         self.code_stack.push(info);
     }
@@ -452,6 +481,37 @@ impl Compiler<'_> {
         let pop = self.code_stack.pop();
         let stack_top = compiler_unwrap_option(self, pop);
         unwrap_internal(self, stack_top.finalize_code(self.opts.optimize))
+    }
+
+    /// Push a new fblock
+    // = compiler_push_fblock
+    fn push_fblock(
+        &mut self,
+        fb_type: FBlockType,
+        fb_block: BlockIdx,
+        fb_exit: BlockIdx,
+    ) -> CompileResult<()> {
+        let code = self.current_code_info();
+        if code.fblock.len() >= MAXBLOCKS {
+            return Err(self.error(CodegenErrorType::SyntaxError(
+                "too many statically nested blocks".to_owned(),
+            )));
+        }
+        code.fblock.push(FBlockInfo {
+            fb_type,
+            fb_block,
+            fb_exit,
+        });
+        Ok(())
+    }
+
+    /// Pop an fblock
+    // = compiler_pop_fblock
+    fn pop_fblock(&mut self, _expected_type: FBlockType) -> FBlockInfo {
+        let code = self.current_code_info();
+        // TODO: Add assertion to check expected type matches
+        // assert!(matches!(fblock.fb_type, expected_type));
+        code.fblock.pop().expect("fblock stack underflow")
     }
 
     // could take impl Into<Cow<str>>, but everything is borrowed from ast structs; we never
@@ -1086,26 +1146,62 @@ impl Compiler<'_> {
                     self.switch_to_block(after_block);
                 }
             }
-            Stmt::Break(_) => match self.ctx.loop_data {
-                Some((_, end)) => {
-                    emit!(self, Instruction::Break { target: end });
+            Stmt::Break(_) => {
+                // Find the innermost loop in fblock stack
+                let found_loop = {
+                    let code = self.current_code_info();
+                    let mut result = None;
+                    for i in (0..code.fblock.len()).rev() {
+                        match code.fblock[i].fb_type {
+                            FBlockType::WhileLoop | FBlockType::ForLoop => {
+                                result = Some(code.fblock[i].fb_exit);
+                                break;
+                            }
+                            _ => continue,
+                        }
+                    }
+                    result
+                };
+
+                match found_loop {
+                    Some(exit_block) => {
+                        emit!(self, Instruction::Break { target: exit_block });
+                    }
+                    None => {
+                        return Err(
+                            self.error_ranged(CodegenErrorType::InvalidBreak, statement.range())
+                        );
+                    }
                 }
-                None => {
-                    return Err(
-                        self.error_ranged(CodegenErrorType::InvalidBreak, statement.range())
-                    );
+            }
+            Stmt::Continue(_) => {
+                // Find the innermost loop in fblock stack
+                let found_loop = {
+                    let code = self.current_code_info();
+                    let mut result = None;
+                    for i in (0..code.fblock.len()).rev() {
+                        match code.fblock[i].fb_type {
+                            FBlockType::WhileLoop | FBlockType::ForLoop => {
+                                result = Some(code.fblock[i].fb_block);
+                                break;
+                            }
+                            _ => continue,
+                        }
+                    }
+                    result
+                };
+
+                match found_loop {
+                    Some(loop_block) => {
+                        emit!(self, Instruction::Continue { target: loop_block });
+                    }
+                    None => {
+                        return Err(
+                            self.error_ranged(CodegenErrorType::InvalidContinue, statement.range())
+                        );
+                    }
                 }
-            },
-            Stmt::Continue(_) => match self.ctx.loop_data {
-                Some((start, _)) => {
-                    emit!(self, Instruction::Continue { target: start });
-                }
-                None => {
-                    return Err(
-                        self.error_ranged(CodegenErrorType::InvalidContinue, statement.range())
-                    );
-                }
-            },
+            }
             Stmt::Return(StmtReturn { value, .. }) => {
                 if !self.ctx.in_func() {
                     return Err(
@@ -2028,6 +2124,9 @@ impl Compiler<'_> {
         emit!(self, Instruction::SetupLoop);
         self.switch_to_block(while_block);
 
+        // Push fblock for while loop
+        self.push_fblock(FBlockType::WhileLoop, while_block, after_block)?;
+
         self.compile_jump_if(test, false, else_block)?;
 
         let was_in_loop = self.ctx.loop_data.replace((while_block, after_block));
@@ -2040,6 +2139,9 @@ impl Compiler<'_> {
             }
         );
         self.switch_to_block(else_block);
+
+        // Pop fblock
+        self.pop_fblock(FBlockType::WhileLoop);
         emit!(self, Instruction::PopBlock);
         self.compile_statements(orelse)?;
         self.switch_to_block(after_block);
@@ -2150,6 +2252,10 @@ impl Compiler<'_> {
             emit!(self, Instruction::GetAIter);
 
             self.switch_to_block(for_block);
+
+            // Push fblock for async for loop
+            self.push_fblock(FBlockType::ForLoop, for_block, after_block)?;
+
             emit!(
                 self,
                 Instruction::SetupExcept {
@@ -2172,6 +2278,10 @@ impl Compiler<'_> {
             emit!(self, Instruction::GetIter);
 
             self.switch_to_block(for_block);
+
+            // Push fblock for for loop
+            self.push_fblock(FBlockType::ForLoop, for_block, after_block)?;
+
             emit!(self, Instruction::ForIter { target: else_block });
 
             // Start of loop iteration, set targets:
@@ -2184,6 +2294,10 @@ impl Compiler<'_> {
         emit!(self, Instruction::Jump { target: for_block });
 
         self.switch_to_block(else_block);
+
+        // Pop fblock
+        self.pop_fblock(FBlockType::ForLoop);
+
         if is_async {
             emit!(self, Instruction::EndAsyncFor);
         }
@@ -4161,6 +4275,9 @@ impl Compiler<'_> {
 
         // Create magnificent function <listcomp>:
         self.push_output(flags, 1, 1, 0, name.to_owned());
+
+        // Mark that we're in an inlined comprehension
+        self.current_code_info().in_inlined_comp = true;
 
         // Set qualname for comprehension
         self.set_qualname();

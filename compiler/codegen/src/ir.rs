@@ -98,6 +98,9 @@ pub struct CodeInfo {
 
     // True if compiling an inlined comprehension
     pub in_inlined_comp: bool,
+
+    // Block stack for tracking nested control structures
+    pub fblock: Vec<crate::compile::FBlockInfo>,
 }
 impl CodeInfo {
     pub fn finalize_code(mut self, optimize: u8) -> crate::InternalResult<CodeObject> {
@@ -118,6 +121,7 @@ impl CodeInfo {
             metadata,
             static_attributes: _,
             in_inlined_comp: _,
+            fblock: _,
         } = self;
 
         let CodeUnitMetadata {
