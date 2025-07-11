@@ -605,10 +605,6 @@ class OperatorTestCase:
 
     @support.requires_docstrings
     def test_attrgetter_signature(self):
-        # TODO: RUSTPYTHON fails only when running inside COperatorTestCase
-        if type(self).__name__ == 'COperatorTestCase':
-            self.skipTest("TODO: RUSTPYTHON")
-
         operator = self.module
         sig = inspect.signature(operator.attrgetter)
         self.assertEqual(str(sig), '(attr, /, *attrs)')
@@ -617,10 +613,6 @@ class OperatorTestCase:
 
     @support.requires_docstrings
     def test_itemgetter_signature(self):
-        # TODO: RUSTPYTHON fails only when running inside COperatorTestCase
-        if type(self).__name__ == 'COperatorTestCase':
-            self.skipTest("TODO: RUSTPYTHON")
-
         operator = self.module
         sig = inspect.signature(operator.itemgetter)
         self.assertEqual(str(sig), '(item, /, *items)')
@@ -629,10 +621,6 @@ class OperatorTestCase:
 
     @support.requires_docstrings
     def test_methodcaller_signature(self):
-        # TODO: RUSTPYTHON fails only when running inside COperatorTestCase
-        if type(self).__name__ == 'COperatorTestCase':
-            self.skipTest("TODO: RUSTPYTHON")
-
         operator = self.module
         sig = inspect.signature(operator.methodcaller)
         self.assertEqual(str(sig), '(name, /, *args, **kwargs)')
@@ -646,6 +634,21 @@ class PyOperatorTestCase(OperatorTestCase, unittest.TestCase):
 @unittest.skipUnless(c_operator, 'requires _operator')
 class COperatorTestCase(OperatorTestCase, unittest.TestCase):
     module = c_operator
+
+    #TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_attrgetter_signature(self):
+        super().test_attrgetter_signature()
+
+    #TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_itemgetter_signature(self):
+        super().test_itemgetter_signature()
+
+    #TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_methodcaller_signature(self):
+        super().test_methodcaller_signature()
 
 
 class OperatorPickleTestCase:
