@@ -467,6 +467,101 @@ impl Compiler<'_> {
             .to_u32()
     }
 
+    /// Set the qualified name for the current code object, based on CPython's compiler_set_qualname
+    fn set_qualname(&mut self) -> String {
+        let qualname = self.make_qualname();
+        self.current_code_info().qualname = Some(qualname.clone());
+        qualname
+    }
+    fn make_qualname(&mut self) -> String {
+        let stack_size = self.code_stack.len();
+        assert!(stack_size >= 1);
+
+        let current_obj_name = self.current_code_info().obj_name.clone();
+
+        // If we're at the module level (stack_size == 1), qualname is just the name
+        if stack_size <= 1 {
+            return current_obj_name;
+        }
+
+        // Check parent scope
+        let mut parent_idx = stack_size - 2;
+        let mut parent = &self.code_stack[parent_idx];
+
+        // If parent is a type parameter scope, look at grandparent
+        if parent.obj_name.starts_with("<generic parameters of ") {
+            if stack_size == 2 {
+                // If we're immediately within the module after type params,
+                // qualname is just the name
+                return current_obj_name;
+            }
+            parent_idx = stack_size - 3;
+            parent = &self.code_stack[parent_idx];
+        }
+
+        // Check if this is a global class/function
+        let mut force_global = false;
+        if stack_size > self.symbol_table_stack.len() {
+            // We might be in a situation where symbol table isn't pushed yet
+            // In this case, check the parent symbol table
+            if let Some(parent_table) = self.symbol_table_stack.last() {
+                if let Some(symbol) = parent_table.lookup(&current_obj_name) {
+                    if symbol.scope == SymbolScope::GlobalExplicit {
+                        force_global = true;
+                    }
+                }
+            }
+        } else if let Some(_current_table) = self.symbol_table_stack.last() {
+            // Mangle the name if necessary (for private names in classes)
+            let mangled_name = self.mangle(&current_obj_name);
+
+            // Look up in parent symbol table to check scope
+            if self.symbol_table_stack.len() >= 2 {
+                let parent_table = &self.symbol_table_stack[self.symbol_table_stack.len() - 2];
+                if let Some(symbol) = parent_table.lookup(&mangled_name) {
+                    if symbol.scope == SymbolScope::GlobalExplicit {
+                        force_global = true;
+                    }
+                }
+            }
+        }
+
+        // Build the qualified name
+        if force_global {
+            // For global symbols, qualname is just the name
+            current_obj_name
+        } else {
+            // Check parent scope type
+            let parent_obj_name = &parent.obj_name;
+
+            // Determine if parent is a function-like scope
+            let is_function_parent = parent.flags.contains(bytecode::CodeFlags::IS_OPTIMIZED)
+                && !parent_obj_name.starts_with("<") // Not a special scope like <lambda>, <listcomp>, etc.
+                && parent_obj_name != "<module>"; // Not the module scope
+
+            let path_len = self.qualified_path.len();
+
+            if is_function_parent {
+                // For functions, append .<locals> to parent qualname
+                // Use parent's qualname if available, otherwise use parent_obj_name
+                let parent_qualname = parent.qualname.as_ref().unwrap_or(parent_obj_name);
+                format!("{parent_qualname}.<locals>.{current_obj_name}")
+            } else {
+                // For classes and other scopes, use qualified_path without current name
+                // (since current name is already pushed to qualified_path)
+                if path_len > 0 && self.qualified_path[path_len - 1] == current_obj_name {
+                    // Current name is already in qualified_path, just join
+                    self.qualified_path.join(".")
+                } else if self.qualified_path.is_empty() {
+                    current_obj_name
+                } else {
+                    // Append current name to qualified_path
+                    format!("{}.{}", self.qualified_path.join("."), current_obj_name)
+                }
+            }
+        }
+    }
+
     fn compile_program(
         &mut self,
         body: &ModModule,
@@ -1548,10 +1643,9 @@ impl Compiler<'_> {
         };
 
         self.push_qualified_path(name);
-        let qualified_name = self.qualified_path.join(".");
 
-        // Update the qualname in the current code info
-        self.code_stack.last_mut().unwrap().qualname = Some(qualified_name.clone());
+        // Set qualname using the new method
+        let qualname = self.set_qualname();
 
         self.push_qualified_path("<locals>");
 
@@ -1646,7 +1740,7 @@ impl Compiler<'_> {
             code: Box::new(code),
         });
         self.emit_load_const(ConstantData::Str {
-            value: qualified_name.into(),
+            value: qualname.into(),
         });
 
         // Turn code object into function object:
@@ -1771,7 +1865,6 @@ impl Compiler<'_> {
             global_path_prefix.append(&mut self.qualified_path);
         }
         self.push_qualified_path(name);
-        let qualified_name = self.qualified_path.join(".");
 
         // If there are type params, we need to push a special symbol table just for them
         if let Some(type_params) = type_params {
@@ -1790,8 +1883,8 @@ impl Compiler<'_> {
 
         self.push_output(bytecode::CodeFlags::empty(), 0, 0, 0, name.to_owned());
 
-        // Update the qualname in the current code info
-        self.code_stack.last_mut().unwrap().qualname = Some(qualified_name.clone());
+        // Set qualname using the new method
+        let qualname = self.set_qualname();
 
         // For class scopes, set u_private to the class name for name mangling
         self.code_stack.last_mut().unwrap().private = Some(name.to_owned());
@@ -1803,10 +1896,10 @@ impl Compiler<'_> {
         let dunder_module = self.name("__module__");
         emit!(self, Instruction::StoreLocal(dunder_module));
         self.emit_load_const(ConstantData::Str {
-            value: qualified_name.into(),
+            value: qualname.into(),
         });
-        let qualname = self.name("__qualname__");
-        emit!(self, Instruction::StoreLocal(qualname));
+        let qualname_name = self.name("__qualname__");
+        emit!(self, Instruction::StoreLocal(qualname_name));
         self.load_docstring(doc_str);
         let doc = self.name("__doc__");
         emit!(self, Instruction::StoreLocal(doc));
@@ -3606,8 +3699,8 @@ impl Compiler<'_> {
                 let mut func_flags = self
                     .enter_function(&name, parameters.as_deref().unwrap_or(&Default::default()))?;
 
-                // Lambda qualname should be <lambda>
-                self.code_stack.last_mut().unwrap().qualname = Some(name.clone());
+                // Set qualname for lambda
+                self.set_qualname();
 
                 self.ctx = CompileContext {
                     loop_data: Option::None,
@@ -4078,7 +4171,7 @@ impl Compiler<'_> {
         self.push_output(flags, 1, 1, 0, name.to_owned());
 
         // Set qualname for comprehension
-        self.code_stack.last_mut().unwrap().qualname = Some(name.to_owned());
+        self.set_qualname();
 
         let arg0 = self.varname(".0")?;
 
