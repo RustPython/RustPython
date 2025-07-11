@@ -74,7 +74,6 @@ struct Compiler<'src> {
     source_code: SourceCode<'src>,
     // current_source_location: SourceLocation,
     current_source_range: TextRange,
-    qualified_path: Vec<String>,
     done_with_future_stmts: DoneWithFuture,
     future_annotations: bool,
     ctx: CompileContext,
@@ -326,7 +325,6 @@ impl<'src> Compiler<'src> {
             source_code,
             // current_source_location: SourceLocation::default(),
             current_source_range: TextRange::default(),
-            qualified_path: Vec::new(),
             done_with_future_stmts: DoneWithFuture::No,
             future_annotations: false,
             ctx: CompileContext {
@@ -401,12 +399,8 @@ impl Compiler<'_> {
             .map(|(var, _)| var.clone())
             .collect();
 
-        // Calculate qualname based on the current qualified path
-        let qualname = if self.qualified_path.is_empty() {
-            Some(obj_name.clone())
-        } else {
-            Some(self.qualified_path.join("."))
-        };
+        // Qualname will be set later by set_qualname
+        let qualname = None;
 
         // Get the private name from current scope if exists
         let private = self.code_stack.last().and_then(|info| info.private.clone());
@@ -539,24 +533,21 @@ impl Compiler<'_> {
                 && !parent_obj_name.starts_with("<") // Not a special scope like <lambda>, <listcomp>, etc.
                 && parent_obj_name != "<module>"; // Not the module scope
 
-            let path_len = self.qualified_path.len();
-
             if is_function_parent {
                 // For functions, append .<locals> to parent qualname
                 // Use parent's qualname if available, otherwise use parent_obj_name
                 let parent_qualname = parent.qualname.as_ref().unwrap_or(parent_obj_name);
                 format!("{parent_qualname}.<locals>.{current_obj_name}")
             } else {
-                // For classes and other scopes, use qualified_path without current name
-                // (since current name is already pushed to qualified_path)
-                if path_len > 0 && self.qualified_path[path_len - 1] == current_obj_name {
-                    // Current name is already in qualified_path, just join
-                    self.qualified_path.join(".")
-                } else if self.qualified_path.is_empty() {
+                // For classes and other scopes, use parent's qualname directly
+                // Use parent's qualname if available, otherwise use parent_obj_name
+                let parent_qualname = parent.qualname.as_ref().unwrap_or(parent_obj_name);
+                if parent_qualname == "<module>" {
+                    // Module level, just use the name
                     current_obj_name
                 } else {
-                    // Append current name to qualified_path
-                    format!("{}.{}", self.qualified_path.join("."), current_obj_name)
+                    // Concatenate parent qualname with current name
+                    format!("{parent_qualname}.{current_obj_name}")
                 }
             }
         }
@@ -1642,12 +1633,8 @@ impl Compiler<'_> {
             },
         };
 
-        self.push_qualified_path(name);
-
         // Set qualname using the new method
         let qualname = self.set_qualname();
-
-        self.push_qualified_path("<locals>");
 
         let (doc_str, body) = split_doc(body, &self.opts);
 
@@ -1676,8 +1663,6 @@ impl Compiler<'_> {
         }
 
         let code = self.pop_code_object();
-        self.qualified_path.pop();
-        self.qualified_path.pop();
         self.ctx = prev_ctx;
 
         // Prepare generic type parameters:
@@ -1852,20 +1837,6 @@ impl Compiler<'_> {
             loop_data: None,
         };
 
-        // Check if the class is declared global
-        let symbol_table = self.symbol_table_stack.last().unwrap();
-        let symbol = unwrap_internal(
-            self,
-            symbol_table
-                .lookup(name.as_ref())
-                .ok_or_else(|| InternalError::MissingSymbol(name.to_owned())),
-        );
-        let mut global_path_prefix = Vec::new();
-        if symbol.scope == SymbolScope::GlobalExplicit {
-            global_path_prefix.append(&mut self.qualified_path);
-        }
-        self.push_qualified_path(name);
-
         // If there are type params, we need to push a special symbol table just for them
         if let Some(type_params) = type_params {
             self.push_symbol_table();
@@ -1941,9 +1912,6 @@ impl Compiler<'_> {
         self.emit_return_value();
 
         let code = self.pop_code_object();
-
-        self.qualified_path.pop();
-        self.qualified_path.append(global_path_prefix.as_mut());
         self.ctx = prev_ctx;
 
         emit!(self, Instruction::LoadBuildClass);
@@ -4427,10 +4395,6 @@ impl Compiler<'_> {
     fn get_source_line_number(&mut self) -> OneIndexed {
         self.source_code
             .line_index(self.current_source_range.start())
-    }
-
-    fn push_qualified_path(&mut self, name: &str) {
-        self.qualified_path.push(name.to_owned());
     }
 
     fn mark_generator(&mut self) {
