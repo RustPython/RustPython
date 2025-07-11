@@ -303,23 +303,26 @@ impl<'src> Compiler<'src> {
     fn new(opts: CompileOpts, source_code: SourceCode<'src>, code_name: String) -> Self {
         let module_code = ir::CodeInfo {
             flags: bytecode::CodeFlags::NEW_LOCALS,
-            posonlyarg_count: 0,
-            arg_count: 0,
-            kwonlyarg_count: 0,
             source_path: source_code.path.to_owned(),
-            first_line_number: OneIndexed::MIN,
-            obj_name: code_name.clone(),
-            qualname: Some(code_name),
             private: None,
             blocks: vec![ir::Block::default()],
             current_block: ir::BlockIdx(0),
-            constants: IndexSet::default(),
-            name_cache: IndexSet::default(),
-            varname_cache: IndexSet::default(),
-            cellvar_cache: IndexSet::default(),
-            freevar_cache: IndexSet::default(),
-            fasthidden_cache: IndexMap::default(),
+            metadata: ir::CodeUnitMetadata {
+                name: code_name.clone(),
+                qualname: Some(code_name),
+                consts: IndexSet::default(),
+                names: IndexSet::default(),
+                varnames: IndexSet::default(),
+                cellvars: IndexSet::default(),
+                freevars: IndexSet::default(),
+                fast_hidden: IndexMap::default(),
+                argcount: 0,
+                posonlyargcount: 0,
+                kwonlyargcount: 0,
+                firstlineno: OneIndexed::MIN,
+            },
             static_attributes: None,
+            in_inlined_comp: false,
         };
         Compiler {
             code_stack: vec![module_code],
@@ -415,28 +418,30 @@ impl Compiler<'_> {
 
         let info = ir::CodeInfo {
             flags,
-            posonlyarg_count,
-            arg_count,
-            kwonlyarg_count,
             source_path,
-            first_line_number,
-            obj_name,
-            qualname,
             private,
-
             blocks: vec![ir::Block::default()],
             current_block: ir::BlockIdx(0),
-            constants: IndexSet::default(),
-            name_cache: IndexSet::default(),
-            varname_cache,
-            cellvar_cache,
-            freevar_cache,
-            fasthidden_cache: IndexMap::default(),
+            metadata: ir::CodeUnitMetadata {
+                name: obj_name,
+                qualname,
+                consts: IndexSet::default(),
+                names: IndexSet::default(),
+                varnames: varname_cache,
+                cellvars: cellvar_cache,
+                freevars: freevar_cache,
+                fast_hidden: IndexMap::default(),
+                argcount: arg_count,
+                posonlyargcount: posonlyarg_count,
+                kwonlyargcount: kwonlyarg_count,
+                firstlineno: first_line_number,
+            },
             static_attributes: if is_class_scope {
                 Some(IndexSet::default())
             } else {
                 None
             },
+            in_inlined_comp: false,
         };
         self.code_stack.push(info);
     }
@@ -452,7 +457,7 @@ impl Compiler<'_> {
     // could take impl Into<Cow<str>>, but everything is borrowed from ast structs; we never
     // actually have a `String` to pass
     fn name(&mut self, name: &str) -> bytecode::NameIdx {
-        self._name_inner(name, |i| &mut i.name_cache)
+        self._name_inner(name, |i| &mut i.metadata.names)
     }
     fn varname(&mut self, name: &str) -> CompileResult<bytecode::NameIdx> {
         if Compiler::is_forbidden_arg_name(name) {
@@ -460,7 +465,7 @@ impl Compiler<'_> {
                 "cannot assign to {name}",
             ))));
         }
-        Ok(self._name_inner(name, |i| &mut i.varname_cache))
+        Ok(self._name_inner(name, |i| &mut i.metadata.varnames))
     }
     fn _name_inner(
         &mut self,
@@ -478,14 +483,14 @@ impl Compiler<'_> {
     /// Set the qualified name for the current code object, based on CPython's compiler_set_qualname
     fn set_qualname(&mut self) -> String {
         let qualname = self.make_qualname();
-        self.current_code_info().qualname = Some(qualname.clone());
+        self.current_code_info().metadata.qualname = Some(qualname.clone());
         qualname
     }
     fn make_qualname(&mut self) -> String {
         let stack_size = self.code_stack.len();
         assert!(stack_size >= 1);
 
-        let current_obj_name = self.current_code_info().obj_name.clone();
+        let current_obj_name = self.current_code_info().metadata.name.clone();
 
         // If we're at the module level (stack_size == 1), qualname is just the name
         if stack_size <= 1 {
@@ -497,7 +502,7 @@ impl Compiler<'_> {
         let mut parent = &self.code_stack[parent_idx];
 
         // If parent is a type parameter scope, look at grandparent
-        if parent.obj_name.starts_with("<generic parameters of ") {
+        if parent.metadata.name.starts_with("<generic parameters of ") {
             if stack_size == 2 {
                 // If we're immediately within the module after type params,
                 // qualname is just the name
@@ -540,7 +545,7 @@ impl Compiler<'_> {
             current_obj_name
         } else {
             // Check parent scope type
-            let parent_obj_name = &parent.obj_name;
+            let parent_obj_name = &parent.metadata.name;
 
             // Determine if parent is a function-like scope
             let is_function_parent = parent.flags.contains(bytecode::CodeFlags::IS_OPTIMIZED)
@@ -550,12 +555,12 @@ impl Compiler<'_> {
             if is_function_parent {
                 // For functions, append .<locals> to parent qualname
                 // Use parent's qualname if available, otherwise use parent_obj_name
-                let parent_qualname = parent.qualname.as_ref().unwrap_or(parent_obj_name);
+                let parent_qualname = parent.metadata.qualname.as_ref().unwrap_or(parent_obj_name);
                 format!("{parent_qualname}.<locals>.{current_obj_name}")
             } else {
                 // For classes and other scopes, use parent's qualname directly
                 // Use parent's qualname if available, otherwise use parent_obj_name
-                let parent_qualname = parent.qualname.as_ref().unwrap_or(parent_obj_name);
+                let parent_qualname = parent.metadata.qualname.as_ref().unwrap_or(parent_obj_name);
                 if parent_qualname == "<module>" {
                     // Module level, just use the name
                     current_obj_name
@@ -720,7 +725,7 @@ impl Compiler<'_> {
                 .ok_or_else(|| InternalError::MissingSymbol(name.to_string())),
         );
         let info = self.code_stack.last_mut().unwrap();
-        let mut cache = &mut info.name_cache;
+        let mut cache = &mut info.metadata.names;
         enum NameOpType {
             Fast,
             Global,
@@ -729,7 +734,7 @@ impl Compiler<'_> {
         }
         let op_typ = match symbol.scope {
             SymbolScope::Local if self.ctx.in_func() => {
-                cache = &mut info.varname_cache;
+                cache = &mut info.metadata.varnames;
                 NameOpType::Fast
             }
             SymbolScope::GlobalExplicit => NameOpType::Global,
@@ -739,16 +744,16 @@ impl Compiler<'_> {
             SymbolScope::GlobalImplicit | SymbolScope::Unknown => NameOpType::Local,
             SymbolScope::Local => NameOpType::Local,
             SymbolScope::Free => {
-                cache = &mut info.freevar_cache;
+                cache = &mut info.metadata.freevars;
                 NameOpType::Deref
             }
             SymbolScope::Cell => {
-                cache = &mut info.cellvar_cache;
+                cache = &mut info.metadata.cellvars;
                 NameOpType::Deref
             } // TODO: is this right?
             SymbolScope::TypeParams => {
                 // Type parameters are always cell variables
-                cache = &mut info.cellvar_cache;
+                cache = &mut info.metadata.cellvars;
                 NameOpType::Deref
             } // SymbolScope::Unknown => NameOpType::Global,
         };
@@ -764,7 +769,7 @@ impl Compiler<'_> {
             .get_index_of(name.as_ref())
             .unwrap_or_else(|| cache.insert_full(name.into_owned()).0);
         if let SymbolScope::Free = symbol.scope {
-            idx += info.cellvar_cache.len();
+            idx += info.metadata.cellvars.len();
         }
         let op = match op_typ {
             NameOpType::Fast => match usage {
@@ -1653,7 +1658,8 @@ impl Compiler<'_> {
         let (doc_str, body) = split_doc(body, &self.opts);
 
         self.current_code_info()
-            .constants
+            .metadata
+            .consts
             .insert_full(ConstantData::None);
 
         // Emit RESUME instruction at function start
@@ -1774,10 +1780,12 @@ impl Compiler<'_> {
             );
             let parent_code = self.code_stack.last().unwrap();
             let vars = match symbol.scope {
-                SymbolScope::Free => &parent_code.freevar_cache,
-                SymbolScope::Cell => &parent_code.cellvar_cache,
-                SymbolScope::TypeParams => &parent_code.cellvar_cache,
-                _ if symbol.flags.contains(SymbolFlags::FREE_CLASS) => &parent_code.freevar_cache,
+                SymbolScope::Free => &parent_code.metadata.freevars,
+                SymbolScope::Cell => &parent_code.metadata.cellvars,
+                SymbolScope::TypeParams => &parent_code.metadata.cellvars,
+                _ if symbol.flags.contains(SymbolFlags::FREE_CLASS) => {
+                    &parent_code.metadata.freevars
+                }
                 x => unreachable!(
                     "var {} in a {:?} should be free or cell but it's {:?}",
                     var, table.typ, x
@@ -1785,7 +1793,7 @@ impl Compiler<'_> {
             };
             let mut idx = vars.get_index_of(var).unwrap();
             if let SymbolScope::Free = symbol.scope {
-                idx += parent_code.cellvar_cache.len();
+                idx += parent_code.metadata.cellvars.len();
             }
             emit!(self, Instruction::LoadClosure(idx.to_u32()))
         }
@@ -1910,7 +1918,8 @@ impl Compiler<'_> {
             .code_stack
             .last_mut()
             .unwrap()
-            .cellvar_cache
+            .metadata
+            .cellvars
             .iter()
             .position(|var| *var == "__class__");
 
@@ -3691,7 +3700,8 @@ impl Compiler<'_> {
                 };
 
                 self.current_code_info()
-                    .constants
+                    .metadata
+                    .consts
                     .insert_full(ConstantData::None);
 
                 self.compile_expression(body)?;
@@ -4344,7 +4354,7 @@ impl Compiler<'_> {
 
     fn arg_constant(&mut self, constant: ConstantData) -> u32 {
         let info = self.current_code_info();
-        info.constants.insert_full(constant).0.to_u32()
+        info.metadata.consts.insert_full(constant).0.to_u32()
     }
 
     fn emit_load_const(&mut self, constant: ConstantData) {
