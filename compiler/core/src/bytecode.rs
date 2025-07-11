@@ -24,6 +24,16 @@ pub enum ConversionFlag {
     Repr = b'r' as i8,
 }
 
+/// Resume type for the RESUME instruction
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[repr(u32)]
+pub enum ResumeType {
+    AtFuncStart = 0,
+    AfterYield = 1,
+    AfterYieldFrom = 2,
+    AfterAwait = 3,
+}
+
 pub trait Constant: Sized {
     type Name: AsRef<str>;
 
@@ -382,6 +392,8 @@ op_arg_enum!(
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     #[repr(u8)]
     pub enum IntrinsicFunction1 {
+        /// Import * operation
+        ImportStar = 2,
         /// Type parameter related
         TypeVar = 7,
         ParamSpec = 8,
@@ -419,8 +431,6 @@ pub enum Instruction {
     },
     /// Importing without name
     ImportNameless,
-    /// Import *
-    ImportStar,
     /// from ... import ...
     ImportFrom {
         idx: Arg<NameIdx>,
@@ -549,6 +559,12 @@ pub enum Instruction {
     },
     YieldValue,
     YieldFrom,
+
+    /// Resume execution (e.g., at function start, after yield, etc.)
+    Resume {
+        arg: Arg<u32>,
+    },
+
     SetupAnnotation,
     SetupLoop,
 
@@ -1240,7 +1256,6 @@ impl Instruction {
         match self {
             Nop => 0,
             ImportName { .. } | ImportNameless => -1,
-            ImportStar => -1,
             ImportFrom { .. } => 1,
             LoadFast(_) | LoadNameAny(_) | LoadGlobal(_) | LoadDeref(_) | LoadClassDeref(_) => 1,
             StoreFast(_) | StoreLocal(_) | StoreGlobal(_) | StoreDeref(_) => -1,
@@ -1305,6 +1320,7 @@ impl Instruction {
             }
             ReturnValue => -1,
             ReturnConst { .. } => 0,
+            Resume { .. } => 0,
             YieldValue => 0,
             YieldFrom => -1,
             SetupAnnotation | SetupLoop | SetupFinally { .. } | EnterFinally | EndFinally => 0,
@@ -1433,7 +1449,6 @@ impl Instruction {
             Nop => w!(Nop),
             ImportName { idx } => w!(ImportName, name = idx),
             ImportNameless => w!(ImportNameless),
-            ImportStar => w!(ImportStar),
             ImportFrom { idx } => w!(ImportFrom, name = idx),
             LoadFast(idx) => w!(LoadFast, varname = idx),
             LoadNameAny(idx) => w!(LoadNameAny, name = idx),
@@ -1493,6 +1508,7 @@ impl Instruction {
             ForIter { target } => w!(ForIter, target),
             ReturnValue => w!(ReturnValue),
             ReturnConst { idx } => fmt_const("ReturnConst", arg, f, idx),
+            Resume { arg } => w!(Resume, arg),
             YieldValue => w!(YieldValue),
             YieldFrom => w!(YieldFrom),
             SetupAnnotation => w!(SetupAnnotation),

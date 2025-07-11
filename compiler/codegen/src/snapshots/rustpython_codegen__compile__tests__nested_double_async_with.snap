@@ -11,7 +11,7 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
               6 CallFunctionPositional(1)
               7 BuildTuple           (2)
               8 GetIter
-        >>    9 ForIter              (71)
+        >>    9 ForIter              (73)
              10 StoreLocal           (2, stop_exc)
 
   2          11 LoadNameAny          (3, self)
@@ -21,10 +21,10 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
              15 CallFunctionPositional(1)
              16 LoadConst            (("type"))
              17 CallMethodKeyword    (1)
-             18 SetupWith            (68)
+             18 SetupWith            (70)
              19 Pop
 
-  3          20 SetupExcept          (40)
+  3          20 SetupExcept          (42)
 
   4          21 LoadNameAny          (6, egg)
              22 CallFunctionPositional(0)
@@ -32,55 +32,57 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
              24 GetAwaitable
              25 LoadConst            (None)
              26 YieldFrom
-             27 SetupAsyncWith       (33)
-             28 Pop
+             27 Resume               (3)
+             28 SetupAsyncWith       (34)
+             29 Pop
 
-  5          29 LoadNameAny          (2, stop_exc)
-             30 Raise                (Raise)
+  5          30 LoadNameAny          (2, stop_exc)
+             31 Raise                (Raise)
 
-  4          31 PopBlock
-             32 EnterFinally
-        >>   33 WithCleanupStart
-             34 GetAwaitable
-             35 LoadConst            (None)
-             36 YieldFrom
-             37 WithCleanupFinish
-             38 PopBlock
-             39 Jump                 (57)
-        >>   40 Duplicate
+  4          32 PopBlock
+             33 EnterFinally
+        >>   34 WithCleanupStart
+             35 GetAwaitable
+             36 LoadConst            (None)
+             37 YieldFrom
+             38 Resume               (3)
+             39 WithCleanupFinish
+             40 PopBlock
+             41 Jump                 (59)
+        >>   42 Duplicate
 
-  6          41 LoadNameAny          (7, Exception)
-             42 TestOperation        (ExceptionMatch)
-             43 JumpIfFalse          (56)
-             44 StoreLocal           (8, ex)
+  6          43 LoadNameAny          (7, Exception)
+             44 TestOperation        (ExceptionMatch)
+             45 JumpIfFalse          (58)
+             46 StoreLocal           (8, ex)
 
-  7          45 LoadNameAny          (3, self)
-             46 LoadMethod           (9, assertIs)
-             47 LoadNameAny          (8, ex)
-             48 LoadNameAny          (2, stop_exc)
-             49 CallMethodPositional (2)
-             50 Pop
-             51 PopException
-             52 LoadConst            (None)
-             53 StoreLocal           (8, ex)
-             54 DeleteLocal          (8, ex)
-             55 Jump                 (66)
-        >>   56 Raise                (Reraise)
+  7          47 LoadNameAny          (3, self)
+             48 LoadMethod           (9, assertIs)
+             49 LoadNameAny          (8, ex)
+             50 LoadNameAny          (2, stop_exc)
+             51 CallMethodPositional (2)
+             52 Pop
+             53 PopException
+             54 LoadConst            (None)
+             55 StoreLocal           (8, ex)
+             56 DeleteLocal          (8, ex)
+             57 Jump                 (68)
+        >>   58 Raise                (Reraise)
 
-  9     >>   57 LoadNameAny          (3, self)
-             58 LoadMethod           (10, fail)
-             59 LoadConst            ("")
-             60 LoadNameAny          (2, stop_exc)
-             61 FormatValue          (None)
-             62 LoadConst            (" was suppressed")
-             63 BuildString          (2)
-             64 CallMethodPositional (1)
-             65 Pop
+  9     >>   59 LoadNameAny          (3, self)
+             60 LoadMethod           (10, fail)
+             61 LoadConst            ("")
+             62 LoadNameAny          (2, stop_exc)
+             63 FormatValue          (None)
+             64 LoadConst            (" was suppressed")
+             65 BuildString          (2)
+             66 CallMethodPositional (1)
+             67 Pop
 
-  2     >>   66 PopBlock
-             67 EnterFinally
-        >>   68 WithCleanupStart
-             69 WithCleanupFinish
-             70 Jump                 (9)
-        >>   71 PopBlock
-             72 ReturnConst          (None)
+  2     >>   68 PopBlock
+             69 EnterFinally
+        >>   70 WithCleanupStart
+             71 WithCleanupFinish
+             72 Jump                 (9)
+        >>   73 PopBlock
+             74 ReturnConst          (None)

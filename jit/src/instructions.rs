@@ -612,6 +612,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.stack.pop();
                 Ok(())
             }
+            Instruction::Resume { arg: _resume_arg } => {
+                // TODO: Implement the resume instruction
+                Ok(())
+            }
             _ => Err(JitCompileError::NotSupported),
         }
     }

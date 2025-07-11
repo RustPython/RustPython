@@ -784,7 +784,12 @@ impl Compiler<'_> {
 
                 if import_star {
                     // from .... import *
-                    emit!(self, Instruction::ImportStar);
+                    emit!(
+                        self,
+                        Instruction::CallIntrinsic1 {
+                            func: bytecode::IntrinsicFunction1::ImportStar
+                        }
+                    );
                 } else {
                     // from mod import a, b as c
 
@@ -1556,6 +1561,14 @@ impl Compiler<'_> {
             .constants
             .insert_full(ConstantData::None);
 
+        // Emit RESUME instruction at function start
+        emit!(
+            self,
+            Instruction::Resume {
+                arg: bytecode::ResumeType::AtFuncStart as u32
+            }
+        );
+
         self.compile_statements(body)?;
 
         // Emit None at end:
@@ -1971,6 +1984,12 @@ impl Compiler<'_> {
                 emit!(self, Instruction::GetAwaitable);
                 self.emit_load_const(ConstantData::None);
                 emit!(self, Instruction::YieldFrom);
+                emit!(
+                    self,
+                    Instruction::Resume {
+                        arg: bytecode::ResumeType::AfterAwait as u32
+                    }
+                );
                 emit!(self, Instruction::SetupAsyncWith { end: final_block });
             } else {
                 emit!(self, Instruction::SetupWith { end: final_block });
@@ -2012,6 +2031,12 @@ impl Compiler<'_> {
             emit!(self, Instruction::GetAwaitable);
             self.emit_load_const(ConstantData::None);
             emit!(self, Instruction::YieldFrom);
+            emit!(
+                self,
+                Instruction::Resume {
+                    arg: bytecode::ResumeType::AfterAwait as u32
+                }
+            );
         }
 
         emit!(self, Instruction::WithCleanupFinish);
@@ -2050,6 +2075,12 @@ impl Compiler<'_> {
             emit!(self, Instruction::GetANext);
             self.emit_load_const(ConstantData::None);
             emit!(self, Instruction::YieldFrom);
+            emit!(
+                self,
+                Instruction::Resume {
+                    arg: bytecode::ResumeType::AfterAwait as u32
+                }
+            );
             self.compile_store(target)?;
             emit!(self, Instruction::PopBlock);
         } else {
@@ -3521,6 +3552,12 @@ impl Compiler<'_> {
                     Option::None => self.emit_load_const(ConstantData::None),
                 };
                 emit!(self, Instruction::YieldValue);
+                emit!(
+                    self,
+                    Instruction::Resume {
+                        arg: bytecode::ResumeType::AfterYield as u32
+                    }
+                );
             }
             Expr::Await(ExprAwait { value, .. }) => {
                 if self.ctx.func != FunctionContext::AsyncFunction {
@@ -3530,6 +3567,12 @@ impl Compiler<'_> {
                 emit!(self, Instruction::GetAwaitable);
                 self.emit_load_const(ConstantData::None);
                 emit!(self, Instruction::YieldFrom);
+                emit!(
+                    self,
+                    Instruction::Resume {
+                        arg: bytecode::ResumeType::AfterAwait as u32
+                    }
+                );
             }
             Expr::YieldFrom(ExprYieldFrom { value, .. }) => {
                 match self.ctx.func {
@@ -3546,6 +3589,12 @@ impl Compiler<'_> {
                 emit!(self, Instruction::GetIter);
                 self.emit_load_const(ConstantData::None);
                 emit!(self, Instruction::YieldFrom);
+                emit!(
+                    self,
+                    Instruction::Resume {
+                        arg: bytecode::ResumeType::AfterYieldFrom as u32
+                    }
+                );
             }
             Expr::Name(ExprName { id, .. }) => self.load_name(id.as_str())?,
             Expr::Lambda(ExprLambda {
@@ -3672,6 +3721,12 @@ impl Compiler<'_> {
                         compiler.compile_comprehension_element(elt)?;
                         compiler.mark_generator();
                         emit!(compiler, Instruction::YieldValue);
+                        emit!(
+                            compiler,
+                            Instruction::Resume {
+                                arg: bytecode::ResumeType::AfterYield as u32
+                            }
+                        );
                         emit!(compiler, Instruction::Pop);
 
                         Ok(())
@@ -4067,6 +4122,12 @@ impl Compiler<'_> {
                 emit!(self, Instruction::GetANext);
                 self.emit_load_const(ConstantData::None);
                 emit!(self, Instruction::YieldFrom);
+                emit!(
+                    self,
+                    Instruction::Resume {
+                        arg: bytecode::ResumeType::AfterAwait as u32
+                    }
+                );
                 self.compile_store(&generator.target)?;
                 emit!(self, Instruction::PopBlock);
             } else {
@@ -4145,6 +4206,12 @@ impl Compiler<'_> {
             emit!(self, Instruction::GetAwaitable);
             self.emit_load_const(ConstantData::None);
             emit!(self, Instruction::YieldFrom);
+            emit!(
+                self,
+                Instruction::Resume {
+                    arg: bytecode::ResumeType::AfterAwait as u32
+                }
+            );
         }
 
         Ok(())

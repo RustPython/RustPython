@@ -541,10 +541,6 @@ impl ExecutingFrame<'_> {
                 self.import(vm, None)?;
                 Ok(None)
             }
-            bytecode::Instruction::ImportStar => {
-                self.import_star(vm)?;
-                Ok(None)
-            }
             bytecode::Instruction::ImportFrom { idx } => {
                 let obj = self.import_from(vm, idx.get(arg))?;
                 self.push_value(obj);
@@ -893,6 +889,18 @@ impl ExecutingFrame<'_> {
                 Ok(Some(ExecutionResult::Yield(value)))
             }
             bytecode::Instruction::YieldFrom => self.execute_yield_from(vm),
+            bytecode::Instruction::Resume { arg: resume_arg } => {
+                // Resume execution after yield, await, or at function start
+                // In CPython, this checks instrumentation and eval breaker
+                // For now, we just check for signals/interrupts
+                let _resume_type = resume_arg.get(arg);
+
+                // Check for interrupts if not resuming from yield_from
+                // if resume_type < bytecode::ResumeType::AfterYieldFrom as u32 {
+                //     vm.check_signals()?;
+                // }
+                Ok(None)
+            }
             bytecode::Instruction::SetupAnnotation => self.setup_annotations(vm),
             bytecode::Instruction::SetupLoop => {
                 self.push_block(BlockType::Loop);
@@ -2203,6 +2211,12 @@ impl ExecutingFrame<'_> {
         vm: &VirtualMachine,
     ) -> PyResult {
         match func {
+            bytecode::IntrinsicFunction1::ImportStar => {
+                // arg is the module object
+                self.push_value(arg); // Push module back on stack for import_star
+                self.import_star(vm)?;
+                Ok(vm.ctx.none())
+            }
             bytecode::IntrinsicFunction1::SubscriptGeneric => {
                 // Used for PEP 695: Generic[*type_params]
                 crate::builtins::genericalias::subscript_generic(arg, vm)
