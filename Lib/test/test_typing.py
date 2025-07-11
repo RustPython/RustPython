@@ -6649,8 +6649,6 @@ class OtherABCTests(BaseTestCase):
         self.assertIsInstance(cm, typing.ContextManager)
         self.assertNotIsInstance(42, typing.ContextManager)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_contextmanager_type_params(self):
         cm1 = typing.ContextManager[int]
         self.assertEqual(get_args(cm1), (int, bool | None))

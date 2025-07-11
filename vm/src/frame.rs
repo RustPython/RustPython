@@ -1255,71 +1255,6 @@ impl ExecutingFrame<'_> {
                 *extend_arg = true;
                 Ok(None)
             }
-            bytecode::Instruction::TypeVar => {
-                let type_name = self.pop_value();
-                let type_var: PyObjectRef =
-                    typing::TypeVar::new(vm, type_name.clone(), vm.ctx.none(), vm.ctx.none())
-                        .into_ref(&vm.ctx)
-                        .into();
-                self.push_value(type_var);
-                Ok(None)
-            }
-            bytecode::Instruction::TypeVarWithBound => {
-                let type_name = self.pop_value();
-                let bound = self.pop_value();
-                let type_var: PyObjectRef =
-                    typing::TypeVar::new(vm, type_name.clone(), bound, vm.ctx.none())
-                        .into_ref(&vm.ctx)
-                        .into();
-                self.push_value(type_var);
-                Ok(None)
-            }
-            bytecode::Instruction::TypeVarWithConstraint => {
-                let type_name = self.pop_value();
-                let constraint = self.pop_value();
-                let type_var: PyObjectRef =
-                    typing::TypeVar::new(vm, type_name.clone(), vm.ctx.none(), constraint)
-                        .into_ref(&vm.ctx)
-                        .into();
-                self.push_value(type_var);
-                Ok(None)
-            }
-            bytecode::Instruction::TypeAlias => {
-                let name = self.pop_value();
-                let type_params_obj = self.pop_value();
-
-                // CPython allows None or tuple for type_params
-                let type_params: PyTupleRef = if vm.is_none(&type_params_obj) {
-                    // If None, use empty tuple (matching CPython's behavior)
-                    vm.ctx.empty_tuple.clone()
-                } else {
-                    type_params_obj
-                        .downcast()
-                        .map_err(|_| vm.new_type_error("Type params must be a tuple."))?
-                };
-
-                let value = self.pop_value();
-                let type_alias = typing::TypeAliasType::new(name, type_params, value);
-                self.push_value(type_alias.into_ref(&vm.ctx).into());
-                Ok(None)
-            }
-            bytecode::Instruction::ParamSpec => {
-                let param_spec_name = self.pop_value();
-                let param_spec: PyObjectRef = typing::ParamSpec::new(param_spec_name.clone(), vm)
-                    .into_ref(&vm.ctx)
-                    .into();
-                self.push_value(param_spec);
-                Ok(None)
-            }
-            bytecode::Instruction::TypeVarTuple => {
-                let type_var_tuple_name = self.pop_value();
-                let type_var_tuple: PyObjectRef =
-                    typing::TypeVarTuple::new(type_var_tuple_name.clone(), vm)
-                        .into_ref(&vm.ctx)
-                        .into();
-                self.push_value(type_var_tuple);
-                Ok(None)
-            }
             bytecode::Instruction::MatchMapping => {
                 // Pop the subject from stack
                 let subject = self.pop_value();
@@ -2272,6 +2207,53 @@ impl ExecutingFrame<'_> {
                 // Used for PEP 695: Generic[*type_params]
                 crate::builtins::genericalias::subscript_generic(arg, vm)
             }
+            bytecode::IntrinsicFunction1::TypeVar => {
+                let type_var: PyObjectRef =
+                    typing::TypeVar::new(vm, arg.clone(), vm.ctx.none(), vm.ctx.none())
+                        .into_ref(&vm.ctx)
+                        .into();
+                Ok(type_var)
+            }
+            bytecode::IntrinsicFunction1::ParamSpec => {
+                let param_spec: PyObjectRef = typing::ParamSpec::new(arg.clone(), vm)
+                    .into_ref(&vm.ctx)
+                    .into();
+                Ok(param_spec)
+            }
+            bytecode::IntrinsicFunction1::TypeVarTuple => {
+                let type_var_tuple: PyObjectRef = typing::TypeVarTuple::new(arg.clone(), vm)
+                    .into_ref(&vm.ctx)
+                    .into();
+                Ok(type_var_tuple)
+            }
+            bytecode::IntrinsicFunction1::TypeAlias => {
+                // TypeAlias receives a tuple of (name, type_params, value)
+                let tuple: PyTupleRef = arg
+                    .downcast()
+                    .map_err(|_| vm.new_type_error("TypeAlias expects a tuple argument"))?;
+
+                if tuple.len() != 3 {
+                    return Err(vm.new_type_error(format!(
+                        "TypeAlias expects exactly 3 arguments, got {}",
+                        tuple.len()
+                    )));
+                }
+
+                let name = tuple.as_slice()[0].clone();
+                let type_params_obj = tuple.as_slice()[1].clone();
+                let value = tuple.as_slice()[2].clone();
+
+                let type_params: PyTupleRef = if vm.is_none(&type_params_obj) {
+                    vm.ctx.empty_tuple.clone()
+                } else {
+                    type_params_obj
+                        .downcast()
+                        .map_err(|_| vm.new_type_error("Type params must be a tuple."))?
+                };
+
+                let type_alias = typing::TypeAliasType::new(name, type_params, value);
+                Ok(type_alias.into_ref(&vm.ctx).into())
+            }
         }
     }
 
@@ -2291,6 +2273,20 @@ impl ExecutingFrame<'_> {
                 // Set __type_params__ attribute on the function
                 arg1.set_attr("__type_params__", arg2, vm)?;
                 Ok(arg1)
+            }
+            bytecode::IntrinsicFunction2::TypeVarWithBound => {
+                let type_var: PyObjectRef =
+                    typing::TypeVar::new(vm, arg1.clone(), arg2, vm.ctx.none())
+                        .into_ref(&vm.ctx)
+                        .into();
+                Ok(type_var)
+            }
+            bytecode::IntrinsicFunction2::TypeVarWithConstraint => {
+                let type_var: PyObjectRef =
+                    typing::TypeVar::new(vm, arg1.clone(), vm.ctx.none(), arg2)
+                        .into_ref(&vm.ctx)
+                        .into();
+                Ok(type_var)
             }
         }
     }
