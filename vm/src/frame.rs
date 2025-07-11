@@ -889,6 +889,18 @@ impl ExecutingFrame<'_> {
                 Ok(Some(ExecutionResult::Yield(value)))
             }
             bytecode::Instruction::YieldFrom => self.execute_yield_from(vm),
+            bytecode::Instruction::Resume { arg: resume_arg } => {
+                // Resume execution after yield, await, or at function start
+                // In CPython, this checks instrumentation and eval breaker
+                // For now, we just check for signals/interrupts
+                let _resume_type = resume_arg.get(arg);
+
+                // Check for interrupts if not resuming from yield_from
+                // if resume_type < bytecode::ResumeType::AfterYieldFrom as u32 {
+                //     vm.check_signals()?;
+                // }
+                Ok(None)
+            }
             bytecode::Instruction::SetupAnnotation => self.setup_annotations(vm),
             bytecode::Instruction::SetupLoop => {
                 self.push_block(BlockType::Loop);

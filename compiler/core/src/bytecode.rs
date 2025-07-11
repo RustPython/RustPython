@@ -24,6 +24,16 @@ pub enum ConversionFlag {
     Repr = b'r' as i8,
 }
 
+/// Resume type for the RESUME instruction
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[repr(u32)]
+pub enum ResumeType {
+    AtFuncStart = 0,
+    AfterYield = 1,
+    AfterYieldFrom = 2,
+    AfterAwait = 3,
+}
+
 pub trait Constant: Sized {
     type Name: AsRef<str>;
 
@@ -549,6 +559,12 @@ pub enum Instruction {
     },
     YieldValue,
     YieldFrom,
+
+    /// Resume execution (e.g., at function start, after yield, etc.)
+    Resume {
+        arg: Arg<u32>,
+    },
+
     SetupAnnotation,
     SetupLoop,
 
@@ -1304,6 +1320,7 @@ impl Instruction {
             }
             ReturnValue => -1,
             ReturnConst { .. } => 0,
+            Resume { .. } => 0,
             YieldValue => 0,
             YieldFrom => -1,
             SetupAnnotation | SetupLoop | SetupFinally { .. } | EnterFinally | EndFinally => 0,
@@ -1491,6 +1508,7 @@ impl Instruction {
             ForIter { target } => w!(ForIter, target),
             ReturnValue => w!(ReturnValue),
             ReturnConst { idx } => fmt_const("ReturnConst", arg, f, idx),
+            Resume { arg } => w!(Resume, arg),
             YieldValue => w!(YieldValue),
             YieldFrom => w!(YieldFrom),
             SetupAnnotation => w!(SetupAnnotation),
