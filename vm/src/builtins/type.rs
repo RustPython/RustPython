@@ -1019,9 +1019,6 @@ impl Constructor for PyType {
                 .into()
         });
 
-        // TODO: Flags is currently initialized with HAS_DICT. Should be
-        // updated when __slots__ are supported (toggling the flag off if
-        // a class has __slots__ defined).
         let heaptype_slots: Option<PyTupleTyped<PyStrRef>> =
             if let Some(x) = attributes.get(identifier!(vm, __slots__)) {
                 Some(if x.to_owned().class().is(vm.ctx.types.str_type) {
@@ -1053,7 +1050,12 @@ impl Constructor for PyType {
         let heaptype_member_count = heaptype_slots.as_ref().map(|x| x.len()).unwrap_or(0);
         let member_count: usize = base_member_count + heaptype_member_count;
 
-        let flags = PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT;
+        let mut flags = PyTypeFlags::heap_type_flags();
+        // Only add HAS_DICT and MANAGED_DICT if __slots__ is not defined.
+        if heaptype_slots.is_none() {
+            flags |= PyTypeFlags::HAS_DICT | PyTypeFlags::MANAGED_DICT;
+        }
+
         let (slots, heaptype_ext) = {
             let slots = PyTypeSlots {
                 flags,
