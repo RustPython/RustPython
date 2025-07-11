@@ -113,6 +113,7 @@ pub enum SymbolScope {
     GlobalImplicit,
     Free,
     Cell,
+    TypeParams,
 }
 
 bitflags! {
@@ -359,6 +360,10 @@ impl SymbolTableAnalyzer {
                 SymbolScope::Local | SymbolScope::Cell => {
                     // all is well
                 }
+                SymbolScope::TypeParams => {
+                    // Type parameters are always cell variables in their scope
+                    symbol.scope = SymbolScope::Cell;
+                }
                 SymbolScope::Unknown => {
                     // Try hard to figure out what the scope of this symbol is.
                     let scope = if symbol.is_bound() {
@@ -557,6 +562,7 @@ enum SymbolUsage {
     AnnotationParameter,
     AssignedNamedExprInComprehension,
     Iter,
+    TypeParam,
 }
 
 struct SymbolTableBuilder<'src> {
@@ -1267,6 +1273,9 @@ impl SymbolTableBuilder<'_> {
     }
 
     fn scan_type_params(&mut self, type_params: &TypeParams) -> SymbolTableResult {
+        // Register .type_params as a type parameter (automatically becomes cell variable)
+        self.register_name(".type_params", SymbolUsage::TypeParam, type_params.range)?;
+
         // First register all type parameters
         for type_param in &type_params.type_params {
             match type_param {
@@ -1276,7 +1285,7 @@ impl SymbolTableBuilder<'_> {
                     range: type_var_range,
                     ..
                 }) => {
-                    self.register_name(name.as_str(), SymbolUsage::Assigned, *type_var_range)?;
+                    self.register_name(name.as_str(), SymbolUsage::TypeParam, *type_var_range)?;
                     if let Some(binding) = bound {
                         self.scan_expression(binding, ExpressionContext::Load)?;
                     }
@@ -1286,14 +1295,14 @@ impl SymbolTableBuilder<'_> {
                     range: param_spec_range,
                     ..
                 }) => {
-                    self.register_name(name, SymbolUsage::Assigned, *param_spec_range)?;
+                    self.register_name(name, SymbolUsage::TypeParam, *param_spec_range)?;
                 }
                 TypeParam::TypeVarTuple(TypeParamTypeVarTuple {
                     name,
                     range: type_var_tuple_range,
                     ..
                 }) => {
-                    self.register_name(name, SymbolUsage::Assigned, *type_var_tuple_range)?;
+                    self.register_name(name, SymbolUsage::TypeParam, *type_var_tuple_range)?;
                 }
             }
         }
@@ -1543,6 +1552,11 @@ impl SymbolTableBuilder<'_> {
             }
             SymbolUsage::Iter => {
                 flags.insert(SymbolFlags::ITER);
+            }
+            SymbolUsage::TypeParam => {
+                // Type parameters are always cell variables in their scope
+                symbol.scope = SymbolScope::Cell;
+                flags.insert(SymbolFlags::ASSIGNED);
             }
         }
 

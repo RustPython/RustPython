@@ -596,7 +596,11 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::LoadClassDeref(i) => {
                 let i = i.get(arg) as usize;
-                let name = self.code.freevars[i - self.code.cellvars.len()];
+                let name = if i < self.code.cellvars.len() {
+                    self.code.cellvars[i]
+                } else {
+                    self.code.freevars[i - self.code.cellvars.len()]
+                };
                 let value = self.locals.mapping().subscript(name, vm).ok();
                 self.push_value(match value {
                     Some(v) => v,

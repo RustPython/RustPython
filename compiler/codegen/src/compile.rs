@@ -638,7 +638,11 @@ impl Compiler<'_> {
                 cache = &mut info.cellvar_cache;
                 NameOpType::Deref
             } // TODO: is this right?
-              // SymbolScope::Unknown => NameOpType::Global,
+            SymbolScope::TypeParams => {
+                // Type parameters are always cell variables
+                cache = &mut info.cellvar_cache;
+                NameOpType::Deref
+            } // SymbolScope::Unknown => NameOpType::Global,
         };
 
         if NameUsage::Load == usage && name == "__debug__" {
@@ -1630,6 +1634,7 @@ impl Compiler<'_> {
             let vars = match symbol.scope {
                 SymbolScope::Free => &parent_code.freevar_cache,
                 SymbolScope::Cell => &parent_code.cellvar_cache,
+                SymbolScope::TypeParams => &parent_code.cellvar_cache,
                 _ if symbol.flags.contains(SymbolFlags::FREE_CLASS) => &parent_code.freevar_cache,
                 x => unreachable!(
                     "var {} in a {:?} should be free or cell but it's {:?}",
