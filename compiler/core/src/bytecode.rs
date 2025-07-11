@@ -414,7 +414,7 @@ op_arg_enum!(
         // PrepReraiseS tar = 1,
         // TypeVarWithBound = 2,
         // TypeVarWithConstraints = 3,
-        // SetFunctionTypeParams = 4,
+        SetFunctionTypeParams = 4,
         /// Set default value for type parameter (PEP 695)
         SetTypeparamDefault = 5,
     }
