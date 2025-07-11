@@ -3888,8 +3888,6 @@ class GenericTests(BaseTestCase):
         # should not have changed as a result of the get_type_hints() calls!
         self.assertEqual(ann_module695.__dict__, original_globals)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pep695_generic_class_with_future_annotations_and_local_shadowing(self):
         hints_for_B = get_type_hints(ann_module695.B)
         self.assertEqual(hints_for_B, {"x": int, "y": str, "z": bytes})
@@ -3935,8 +3933,6 @@ class GenericTests(BaseTestCase):
             set(ann_module695.D.generic_method_2.__type_params__)
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pep_695_generics_with_future_annotations_nested_in_function(self):
         results = ann_module695.nested()
 
