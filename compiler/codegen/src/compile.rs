@@ -593,20 +593,37 @@ impl Compiler<'_> {
 
         let table = self.push_symbol_table();
 
-        let cellvar_cache = table
+        // Build cellvars in sorted order (like CPython's dictbytype)
+        let mut cell_names: Vec<_> = table
             .symbols
             .iter()
             .filter(|(_, s)| s.scope == SymbolScope::Cell)
-            .map(|(var, _)| var.clone())
+            .map(|(name, _)| name.clone())
             .collect();
-        let freevar_cache = table
+        cell_names.sort(); // Sort for deterministic order
+        let mut cellvar_cache: IndexSet<String> = cell_names.into_iter().collect();
+
+        // Handle implicit __class__ cell if needed (like CPython)
+        if table.needs_class_closure {
+            cellvar_cache.insert("__class__".to_string());
+        }
+
+        // Handle implicit __classdict__ cell if needed (like CPython)
+        if table.needs_classdict {
+            cellvar_cache.insert("__classdict__".to_string());
+        }
+
+        // Build freevars in sorted order (like CPython's dictbytype)
+        let mut free_names: Vec<_> = table
             .symbols
             .iter()
             .filter(|(_, s)| {
                 s.scope == SymbolScope::Free || s.flags.contains(SymbolFlags::FREE_CLASS)
             })
-            .map(|(var, _)| var.clone())
+            .map(|(name, _)| name.clone())
             .collect();
+        free_names.sort(); // Sort for deterministic order
+        let freevar_cache: IndexSet<String> = free_names.into_iter().collect();
 
         // Initialize varname_cache from SymbolTable::varnames
         let varname_cache: IndexSet<String> = table.varnames.iter().cloned().collect();
@@ -646,6 +663,9 @@ impl Compiler<'_> {
             fblock: Vec::with_capacity(MAXBLOCKS),
         };
         self.code_stack.push(info);
+
+        // We just pushed a code object, and need the qualname
+        self.set_qualname();
 
         // Add RESUME instruction just like CPython's compiler_enter_scope
         emit!(

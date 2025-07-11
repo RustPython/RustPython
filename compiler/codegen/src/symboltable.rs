@@ -236,6 +236,30 @@ fn analyze_symbol_table(symbol_table: &mut SymbolTable) -> SymbolTableResult {
     analyzer.analyze_symbol_table(symbol_table)
 }
 
+/* Drop __class__ and __classdict__ from free variables in class scope
+   and set the appropriate flags. Equivalent to CPython's drop_class_free().
+   See: https://github.com/python/cpython/blob/main/Python/symtable.c#L884
+*/
+fn drop_class_free(symbol_table: &mut SymbolTable) {
+    // Check if __class__ is used as a free variable
+    if let Some(class_symbol) = symbol_table.symbols.get("__class__") {
+        if class_symbol.scope == SymbolScope::Free {
+            symbol_table.needs_class_closure = true;
+            // Note: In CPython, the symbol is removed from the free set,
+            // but in RustPython we handle this differently during code generation
+        }
+    }
+
+    // Check if __classdict__ is used as a free variable
+    if let Some(classdict_symbol) = symbol_table.symbols.get("__classdict__") {
+        if classdict_symbol.scope == SymbolScope::Free {
+            symbol_table.needs_classdict = true;
+            // Note: In CPython, the symbol is removed from the free set,
+            // but in RustPython we handle this differently during code generation
+        }
+    }
+}
+
 type SymbolMap = IndexMap<String, Symbol>;
 
 mod stack {
@@ -322,6 +346,12 @@ impl SymbolTableAnalyzer {
         for symbol in symbol_table.symbols.values_mut() {
             self.analyze_symbol(symbol, symbol_table.typ, sub_tables)?;
         }
+
+        // Handle class-specific implicit cells (like CPython)
+        if symbol_table.typ == SymbolTableType::Class {
+            drop_class_free(symbol_table);
+        }
+
         Ok(())
     }
 
