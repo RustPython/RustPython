@@ -1285,8 +1285,6 @@ class NumberTest(BaseTest):
         self.assertRaises(OverflowError, array.array, self.typecode, [upper+1])
         self.assertRaises(OverflowError, a.__setitem__, 0, upper+1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subclassing(self):
         typecode = self.typecode
         class ExaggeratingArray(array.array):
