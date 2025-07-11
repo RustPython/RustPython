@@ -382,6 +382,8 @@ op_arg_enum!(
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     #[repr(u8)]
     pub enum IntrinsicFunction1 {
+        /// Import * operation
+        ImportStar = 2,
         /// Type parameter related
         TypeVar = 7,
         ParamSpec = 8,
@@ -419,8 +421,6 @@ pub enum Instruction {
     },
     /// Importing without name
     ImportNameless,
-    /// Import *
-    ImportStar,
     /// from ... import ...
     ImportFrom {
         idx: Arg<NameIdx>,
@@ -1240,7 +1240,6 @@ impl Instruction {
         match self {
             Nop => 0,
             ImportName { .. } | ImportNameless => -1,
-            ImportStar => -1,
             ImportFrom { .. } => 1,
             LoadFast(_) | LoadNameAny(_) | LoadGlobal(_) | LoadDeref(_) | LoadClassDeref(_) => 1,
             StoreFast(_) | StoreLocal(_) | StoreGlobal(_) | StoreDeref(_) => -1,
@@ -1433,7 +1432,6 @@ impl Instruction {
             Nop => w!(Nop),
             ImportName { idx } => w!(ImportName, name = idx),
             ImportNameless => w!(ImportNameless),
-            ImportStar => w!(ImportStar),
             ImportFrom { idx } => w!(ImportFrom, name = idx),
             LoadFast(idx) => w!(LoadFast, varname = idx),
             LoadNameAny(idx) => w!(LoadNameAny, name = idx),

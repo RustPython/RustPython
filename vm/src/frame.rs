@@ -541,10 +541,6 @@ impl ExecutingFrame<'_> {
                 self.import(vm, None)?;
                 Ok(None)
             }
-            bytecode::Instruction::ImportStar => {
-                self.import_star(vm)?;
-                Ok(None)
-            }
             bytecode::Instruction::ImportFrom { idx } => {
                 let obj = self.import_from(vm, idx.get(arg))?;
                 self.push_value(obj);
@@ -2203,6 +2199,12 @@ impl ExecutingFrame<'_> {
         vm: &VirtualMachine,
     ) -> PyResult {
         match func {
+            bytecode::IntrinsicFunction1::ImportStar => {
+                // arg is the module object
+                self.push_value(arg); // Push module back on stack for import_star
+                self.import_star(vm)?;
+                Ok(vm.ctx.none())
+            }
             bytecode::IntrinsicFunction1::SubscriptGeneric => {
                 // Used for PEP 695: Generic[*type_params]
                 crate::builtins::genericalias::subscript_generic(arg, vm)

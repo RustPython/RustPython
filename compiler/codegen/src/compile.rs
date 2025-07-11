@@ -784,7 +784,12 @@ impl Compiler<'_> {
 
                 if import_star {
                     // from .... import *
-                    emit!(self, Instruction::ImportStar);
+                    emit!(
+                        self,
+                        Instruction::CallIntrinsic1 {
+                            func: bytecode::IntrinsicFunction1::ImportStar
+                        }
+                    );
                 } else {
                     // from mod import a, b as c
 
