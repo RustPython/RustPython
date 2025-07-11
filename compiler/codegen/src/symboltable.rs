@@ -48,6 +48,12 @@ pub struct SymbolTable {
 
     /// Variable names in definition order (parameters first, then locals)
     pub varnames: Vec<String>,
+
+    /// Whether this class scope needs an implicit __class__ cell
+    pub needs_class_closure: bool,
+
+    /// Whether this class scope needs an implicit __classdict__ cell
+    pub needs_classdict: bool,
 }
 
 impl SymbolTable {
@@ -60,6 +66,8 @@ impl SymbolTable {
             symbols: IndexMap::default(),
             sub_tables: vec![],
             varnames: Vec::new(),
+            needs_class_closure: false,
+            needs_classdict: false,
         }
     }
 
