@@ -635,17 +635,17 @@ class PyOperatorTestCase(OperatorTestCase, unittest.TestCase):
 class COperatorTestCase(OperatorTestCase, unittest.TestCase):
     module = c_operator
 
-    #TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_attrgetter_signature(self):
         super().test_attrgetter_signature()
 
-    #TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_itemgetter_signature(self):
         super().test_itemgetter_signature()
 
-    #TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_methodcaller_signature(self):
         super().test_methodcaller_signature()
