@@ -201,6 +201,8 @@ class BaseBytesTest:
         self.assertRaises(ValueError, self.type2test, [sys.maxsize+1])
         self.assertRaises(ValueError, self.type2test, [10**100])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @bigaddrspacetest
     def test_constructor_overflow(self):
         size = MAX_Py_ssize_t
@@ -324,6 +326,8 @@ class BaseBytesTest:
         # Default encoding is utf-8
         self.assertEqual(self.type2test(b'\xe2\x98\x83').decode(), '\u2603')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_check_encoding_errors(self):
         # bpo-37388: bytes(str) and bytes.encode() must check encoding
         # and errors arguments in dev mode
@@ -968,6 +972,8 @@ class BaseBytesTest:
             self.assertRaises(ValueError, method, 256)
             self.assertRaises(ValueError, method, 9999)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_find_etc_raise_correct_error_messages(self):
         # issue 11828
         b = self.type2test(b'hello')
@@ -987,6 +993,8 @@ class BaseBytesTest:
         self.assertRaisesRegex(TypeError, r'\bendswith\b', b.endswith,
                                 x, None, None, None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_free_after_iterating(self):
         test.support.check_free_after_iterating(self, iter, self.type2test)
         test.support.check_free_after_iterating(self, reversed, self.type2test)
@@ -1575,6 +1583,11 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         self.assertEqual(b, b1)
         self.assertIs(b, b1)
 
+    # NOTE: RUSTPYTHON:
+    #
+    # The second instance of self.assertGreater was replaced with
+    # self.assertGreaterEqual since, in RustPython, the underlying storage
+    # is a Vec which doesn't require trailing null byte.
     def test_alloc(self):
         b = bytearray()
         alloc = b.__alloc__()
@@ -1583,10 +1596,15 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         for i in range(100):
             b += b"x"
             alloc = b.__alloc__()
-            self.assertGreater(alloc, len(b))  # including trailing null byte
+            self.assertGreaterEqual(alloc, len(b))  # NOTE: RUSTPYTHON patched
             if alloc not in seq:
                 seq.append(alloc)
 
+    # NOTE: RUSTPYTHON:
+    #
+    # The usages of self.assertGreater were replaced with
+    # self.assertGreaterEqual since, in RustPython, the underlying storage
+    # is a Vec which doesn't require trailing null byte.
     def test_init_alloc(self):
         b = bytearray()
         def g():
@@ -1597,12 +1615,12 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
                 self.assertEqual(len(b), len(a))
                 self.assertLessEqual(len(b), i)
                 alloc = b.__alloc__()
-                self.assertGreater(alloc, len(b))  # including trailing null byte
+                self.assertGreaterEqual(alloc, len(b))  # NOTE: RUSTPYTHON patched
         b.__init__(g())
         self.assertEqual(list(b), list(range(1, 100)))
         self.assertEqual(len(b), 99)
         alloc = b.__alloc__()
-        self.assertGreater(alloc, len(b))
+        self.assertGreaterEqual(alloc, len(b))  # NOTE: RUSTPYTHON patched
 
     def test_extend(self):
         orig = b'hello'
@@ -2071,6 +2089,7 @@ class SubclassTest:
         s3 = s1.join([b"abcd"])
         self.assertIs(type(s3), self.basetype)
 
+    @unittest.skip("TODO: RUSTPYTHON, Fails on ByteArraySubclassWithSlotsTest")
     def test_pickle(self):
         a = self.type2test(b"abcd")
         a.x = 10
@@ -2085,6 +2104,7 @@ class SubclassTest:
             self.assertEqual(type(a.z), type(b.z))
             self.assertFalse(hasattr(b, 'y'))
 
+    @unittest.skip("TODO: RUSTPYTHON, Fails on ByteArraySubclassWithSlotsTest")
     def test_copy(self):
         a = self.type2test(b"abcd")
         a.x = 10

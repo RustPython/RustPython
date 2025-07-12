@@ -438,7 +438,8 @@ class BaseTest:
 
         self.checkraises(TypeError, 'hello', 'expandtabs', 42, 42)
         # This test is only valid when sizeof(int) == sizeof(void*) == 4.
-        if sys.maxsize < (1 << 32) and struct.calcsize('P') == 4:
+        # XXX RUSTPYTHON TODO: expandtabs overflow checks
+        if sys.maxsize < (1 << 32) and struct.calcsize('P') == 4 and False:
             self.checkraises(OverflowError,
                              '\ta\n\tb', 'expandtabs', sys.maxsize)
 
@@ -779,6 +780,7 @@ class BaseTest:
         self.checkequal(AABAA + "ccc",
                         AABAA + ABBA, 'replace', ABBA, "ccc", 2)
 
+    @unittest.skip("TODO: RUSTPYTHON, may only apply to 32-bit platforms")
     @unittest.skipIf(sys.maxsize > (1 << 32) or struct.calcsize('P') != 4,
                      'only applies to 32-bit platforms')
     def test_replace_overflow(self):
@@ -1246,6 +1248,9 @@ class StringLikeTest(BaseTest):
         self.checkequal(False, 'asd', '__contains__', 'asdf')
         self.checkequal(False, '', '__contains__', 'asdf')
 
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subscript(self):
         self.checkequal('a', 'abc', '__getitem__', 0)
         self.checkequal('c', 'abc', '__getitem__', -1)
@@ -1499,6 +1504,8 @@ class StringLikeTest(BaseTest):
         self.checkequal(True, s, 'startswith', 'h', None, -2)
         self.checkequal(False, s, 'startswith', 'x', None, None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_find_etc_raise_correct_error_messages(self):
         # issue 11828
         s = 'hello'

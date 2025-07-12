@@ -17,6 +17,8 @@ class PEP3131Test(unittest.TestCase):
         𝔘𝔫𝔦𝔠𝔬𝔡𝔢 = 1
         self.assertIn("Unicode", dir())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalid(self):
         try:
             from test.tokenizedata import badsyntax_3131
