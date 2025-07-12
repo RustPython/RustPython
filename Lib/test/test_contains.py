@@ -36,7 +36,6 @@ class TestContains(unittest.TestCase):
 
         self.assertRaises(TypeError, lambda: None in 'abc')
 
-    @unittest.skip("TODO: RUSTPYTHON, hangs")
     def test_builtin_sequence_types(self):
         # a collection of tests on builtin sequence types
         a = range(10)
