@@ -2069,6 +2069,100 @@ impl Compiler<'_> {
         false
     }
 
+    /// Compile the class body into a code object
+    /// This is similar to CPython's compiler_class_body
+    fn compile_class_body(
+        &mut self,
+        name: &str,
+        body: &[Stmt],
+        type_params: Option<&TypeParams>,
+        firstlineno: u32,
+    ) -> CompileResult<CodeObject> {
+        // 1. Enter class scope
+        // Use enter_scope instead of push_output to match CPython
+        let key = self.symbol_table_stack.len();
+        self.push_symbol_table();
+        self.enter_scope(name, SymbolTableType::Class, key, firstlineno)?;
+
+        // Set qualname using the new method
+        let qualname = self.set_qualname();
+
+        // For class scopes, set u_private to the class name for name mangling
+        self.code_stack.last_mut().unwrap().private = Some(name.to_owned());
+
+        // 2. Set up class namespace
+        let (doc_str, body) = split_doc(body, &self.opts);
+
+        // Load (global) __name__ and store as __module__
+        let dunder_name = self.name("__name__");
+        emit!(self, Instruction::LoadGlobal(dunder_name));
+        let dunder_module = self.name("__module__");
+        emit!(self, Instruction::StoreLocal(dunder_module));
+
+        // Store __qualname__
+        self.emit_load_const(ConstantData::Str {
+            value: qualname.into(),
+        });
+        let qualname_name = self.name("__qualname__");
+        emit!(self, Instruction::StoreLocal(qualname_name));
+
+        // Store __doc__
+        self.load_docstring(doc_str);
+        let doc = self.name("__doc__");
+        emit!(self, Instruction::StoreLocal(doc));
+
+        // Store __firstlineno__ (new in Python 3.12+)
+        self.emit_load_const(ConstantData::Integer {
+            value: BigInt::from(firstlineno),
+        });
+        let firstlineno_name = self.name("__firstlineno__");
+        emit!(self, Instruction::StoreLocal(firstlineno_name));
+
+        // Set __type_params__ if we have type parameters
+        if type_params.is_some() {
+            // Load .type_params from enclosing scope
+            let dot_type_params = self.name(".type_params");
+            emit!(self, Instruction::LoadNameAny(dot_type_params));
+
+            // Store as __type_params__
+            let dunder_type_params = self.name("__type_params__");
+            emit!(self, Instruction::StoreLocal(dunder_type_params));
+        }
+
+        // Setup annotations if needed
+        if Self::find_ann(body) {
+            emit!(self, Instruction::SetupAnnotation);
+        }
+
+        // 3. Compile the class body
+        self.compile_statements(body)?;
+
+        // 4. Handle __classcell__ if needed
+        let classcell_idx = self
+            .code_stack
+            .last_mut()
+            .unwrap()
+            .metadata
+            .cellvars
+            .iter()
+            .position(|var| *var == "__class__");
+
+        if let Some(classcell_idx) = classcell_idx {
+            emit!(self, Instruction::LoadClosure(classcell_idx.to_u32()));
+            emit!(self, Instruction::Duplicate);
+            let classcell = self.name("__classcell__");
+            emit!(self, Instruction::StoreLocal(classcell));
+        } else {
+            self.emit_load_const(ConstantData::None);
+        }
+
+        // Return the class namespace
+        self.emit_return_value();
+
+        // Exit scope and return the code object
+        Ok(self.exit_scope())
+    }
+
     fn compile_class_def(
         &mut self,
         name: &str,
@@ -2101,67 +2195,9 @@ impl Compiler<'_> {
             emit!(self, Instruction::StoreLocal(dot_type_params));
         }
 
-        self.push_output(bytecode::CodeFlags::empty(), 0, 0, 0, name.to_owned());
-
-        // Set qualname using the new method
-        let qualname = self.set_qualname();
-
-        // For class scopes, set u_private to the class name for name mangling
-        self.code_stack.last_mut().unwrap().private = Some(name.to_owned());
-
-        let (doc_str, body) = split_doc(body, &self.opts);
-
-        let dunder_name = self.name("__name__");
-        emit!(self, Instruction::LoadGlobal(dunder_name));
-        let dunder_module = self.name("__module__");
-        emit!(self, Instruction::StoreLocal(dunder_module));
-        self.emit_load_const(ConstantData::Str {
-            value: qualname.into(),
-        });
-        let qualname_name = self.name("__qualname__");
-        emit!(self, Instruction::StoreLocal(qualname_name));
-        self.load_docstring(doc_str);
-        let doc = self.name("__doc__");
-        emit!(self, Instruction::StoreLocal(doc));
-        // setup annotations
-        if Self::find_ann(body) {
-            emit!(self, Instruction::SetupAnnotation);
-        }
-
-        // Set __type_params__ from .type_params if we have type parameters (PEP 695)
-        if type_params.is_some() {
-            // Load .type_params from enclosing scope
-            let dot_type_params = self.name(".type_params");
-            emit!(self, Instruction::LoadNameAny(dot_type_params));
-
-            // Store as __type_params__
-            let dunder_type_params = self.name("__type_params__");
-            emit!(self, Instruction::StoreLocal(dunder_type_params));
-        }
-
-        self.compile_statements(body)?;
-
-        let classcell_idx = self
-            .code_stack
-            .last_mut()
-            .unwrap()
-            .metadata
-            .cellvars
-            .iter()
-            .position(|var| *var == "__class__");
-
-        if let Some(classcell_idx) = classcell_idx {
-            emit!(self, Instruction::LoadClosure(classcell_idx.to_u32()));
-            emit!(self, Instruction::Duplicate);
-            let classcell = self.name("__classcell__");
-            emit!(self, Instruction::StoreLocal(classcell));
-        } else {
-            self.emit_load_const(ConstantData::None);
-        }
-
-        self.emit_return_value();
-
-        let code = self.exit_scope();
+        // Compile the class body into a code object
+        let firstlineno = self.get_source_line_number().get().to_u32();
+        let code = self.compile_class_body(name, body, type_params, firstlineno)?;
         self.ctx = prev_ctx;
 
         emit!(self, Instruction::LoadBuildClass);
