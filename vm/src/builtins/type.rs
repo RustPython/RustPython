@@ -680,7 +680,15 @@ impl PyType {
             .heaptype_ext
             .as_ref()
             .expect("HEAPTYPE should have heaptype_ext");
-        *heap_type.qualname.write() = str_value;
+
+        // Use std::mem::replace to swap the new value in and get the old value out,
+        // then drop the old value after releasing the lock
+        let _old_qualname = {
+            let mut qualname_guard = heap_type.qualname.write();
+            std::mem::replace(&mut *qualname_guard, str_value)
+        };
+        // old_qualname is dropped here, outside the lock scope
+
         Ok(())
     }
 
@@ -837,7 +845,13 @@ impl PyType {
             return Err(vm.new_value_error("type name must not contain null characters"));
         }
 
-        *self.heaptype_ext.as_ref().unwrap().name.write() = name;
+        // Use std::mem::replace to swap the new value in and get the old value out,
+        // then drop the old value after releasing the lock (similar to CPython's Py_SETREF)
+        let _old_name = {
+            let mut name_guard = self.heaptype_ext.as_ref().unwrap().name.write();
+            std::mem::replace(&mut *name_guard, name)
+        };
+        // old_name is dropped here, outside the lock scope
 
         Ok(())
     }
