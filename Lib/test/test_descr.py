@@ -5124,8 +5124,6 @@ class DictProxyTests(unittest.TestCase):
         self.assertEqual(keys, ['__dict__', '__doc__', '__module__',
                                 '__weakref__', 'meth'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                         'trace function introduces __local__')
     def test_iter_values(self):

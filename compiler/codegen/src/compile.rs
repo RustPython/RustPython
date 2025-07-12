@@ -2069,39 +2069,20 @@ impl Compiler<'_> {
         false
     }
 
-    fn compile_class_def(
+    /// Compile the class body into a code object
+    /// This is similar to CPython's compiler_class_body
+    fn compile_class_body(
         &mut self,
         name: &str,
         body: &[Stmt],
-        decorator_list: &[Decorator],
         type_params: Option<&TypeParams>,
-        arguments: Option<&Arguments>,
-    ) -> CompileResult<()> {
-        self.prepare_decorators(decorator_list)?;
-
-        let prev_ctx = self.ctx;
-        self.ctx = CompileContext {
-            func: FunctionContext::NoFunction,
-            in_class: true,
-            loop_data: None,
-        };
-
-        // If there are type params, we need to push a special symbol table just for them
-        if let Some(type_params) = type_params {
-            self.push_symbol_table();
-            // Save current private name to restore later
-            let saved_private = self.code_stack.last().and_then(|info| info.private.clone());
-            // Compile type parameters and store as .type_params
-            self.compile_type_params(type_params)?;
-            // Restore private name after type param scope
-            if let Some(private) = saved_private {
-                self.code_stack.last_mut().unwrap().private = Some(private);
-            }
-            let dot_type_params = self.name(".type_params");
-            emit!(self, Instruction::StoreLocal(dot_type_params));
-        }
-
-        self.push_output(bytecode::CodeFlags::empty(), 0, 0, 0, name.to_owned());
+        firstlineno: u32,
+    ) -> CompileResult<CodeObject> {
+        // 1. Enter class scope
+        // Use enter_scope instead of push_output to match CPython
+        let key = self.symbol_table_stack.len();
+        self.push_symbol_table();
+        self.enter_scope(name, SymbolTableType::Class, key, firstlineno)?;
 
         // Set qualname using the new method
         let qualname = self.set_qualname();
@@ -2109,26 +2090,35 @@ impl Compiler<'_> {
         // For class scopes, set u_private to the class name for name mangling
         self.code_stack.last_mut().unwrap().private = Some(name.to_owned());
 
+        // 2. Set up class namespace
         let (doc_str, body) = split_doc(body, &self.opts);
 
+        // Load (global) __name__ and store as __module__
         let dunder_name = self.name("__name__");
         emit!(self, Instruction::LoadGlobal(dunder_name));
         let dunder_module = self.name("__module__");
         emit!(self, Instruction::StoreLocal(dunder_module));
+
+        // Store __qualname__
         self.emit_load_const(ConstantData::Str {
             value: qualname.into(),
         });
         let qualname_name = self.name("__qualname__");
         emit!(self, Instruction::StoreLocal(qualname_name));
+
+        // Store __doc__
         self.load_docstring(doc_str);
         let doc = self.name("__doc__");
         emit!(self, Instruction::StoreLocal(doc));
-        // setup annotations
-        if Self::find_ann(body) {
-            emit!(self, Instruction::SetupAnnotation);
-        }
 
-        // Set __type_params__ from .type_params if we have type parameters (PEP 695)
+        // Store __firstlineno__ (new in Python 3.12+)
+        self.emit_load_const(ConstantData::Integer {
+            value: BigInt::from(firstlineno),
+        });
+        let firstlineno_name = self.name("__firstlineno__");
+        emit!(self, Instruction::StoreLocal(firstlineno_name));
+
+        // Set __type_params__ if we have type parameters
         if type_params.is_some() {
             // Load .type_params from enclosing scope
             let dot_type_params = self.name(".type_params");
@@ -2139,8 +2129,15 @@ impl Compiler<'_> {
             emit!(self, Instruction::StoreLocal(dunder_type_params));
         }
 
+        // Setup annotations if needed
+        if Self::find_ann(body) {
+            emit!(self, Instruction::SetupAnnotation);
+        }
+
+        // 3. Compile the class body
         self.compile_statements(body)?;
 
+        // 4. Handle __classcell__ if needed
         let classcell_idx = self
             .code_stack
             .last_mut()
@@ -2159,65 +2156,167 @@ impl Compiler<'_> {
             self.emit_load_const(ConstantData::None);
         }
 
+        // Return the class namespace
         self.emit_return_value();
 
-        let code = self.exit_scope();
+        // Exit scope and return the code object
+        Ok(self.exit_scope())
+    }
+
+    fn compile_class_def(
+        &mut self,
+        name: &str,
+        body: &[Stmt],
+        decorator_list: &[Decorator],
+        type_params: Option<&TypeParams>,
+        arguments: Option<&Arguments>,
+    ) -> CompileResult<()> {
+        self.prepare_decorators(decorator_list)?;
+
+        let is_generic = type_params.is_some();
+        let firstlineno = self.get_source_line_number().get().to_u32();
+
+        // Step 1: If generic, enter type params scope and compile type params
+        if is_generic {
+            let type_params_name = format!("<generic parameters of {name}>");
+            self.push_output(
+                bytecode::CodeFlags::IS_OPTIMIZED | bytecode::CodeFlags::NEW_LOCALS,
+                0,
+                0,
+                0,
+                type_params_name,
+            );
+
+            // Set private name for name mangling
+            self.code_stack.last_mut().unwrap().private = Some(name.to_owned());
+
+            // Compile type parameters and store as .type_params
+            self.compile_type_params(type_params.unwrap())?;
+            let dot_type_params = self.name(".type_params");
+            emit!(self, Instruction::StoreLocal(dot_type_params));
+        }
+
+        // Step 2: Compile class body (always done, whether generic or not)
+        let prev_ctx = self.ctx;
+        self.ctx = CompileContext {
+            func: FunctionContext::NoFunction,
+            in_class: true,
+            loop_data: None,
+        };
+        let class_code = self.compile_class_body(name, body, type_params, firstlineno)?;
         self.ctx = prev_ctx;
 
-        emit!(self, Instruction::LoadBuildClass);
-
-        let mut func_flags = bytecode::MakeFunctionFlags::empty();
-
-        // Prepare generic type parameters:
-        if type_params.is_some() {
-            // Load .type_params from the type params scope
+        // Step 3: Generate the rest of the code for the call
+        if is_generic {
+            // Still in type params scope
             let dot_type_params = self.name(".type_params");
+            let dot_generic_base = self.name(".generic_base");
+
+            // Create .generic_base
+            emit!(self, Instruction::LoadNameAny(dot_type_params));
+            emit!(
+                self,
+                Instruction::CallIntrinsic1 {
+                    func: bytecode::IntrinsicFunction1::SubscriptGeneric
+                }
+            );
+            emit!(self, Instruction::StoreLocal(dot_generic_base));
+
+            // Generate class creation code
+            emit!(self, Instruction::LoadBuildClass);
+
+            // Set up the class function with type params
+            let mut func_flags = bytecode::MakeFunctionFlags::empty();
             emit!(self, Instruction::LoadNameAny(dot_type_params));
             func_flags |= bytecode::MakeFunctionFlags::TYPE_PARAMS;
-        }
 
-        if self.build_closure(&code) {
-            func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
-        }
+            if self.build_closure(&class_code) {
+                func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
+            }
 
-        self.emit_load_const(ConstantData::Code {
-            code: Box::new(code),
-        });
-        self.emit_load_const(ConstantData::Str { value: name.into() });
+            self.emit_load_const(ConstantData::Code {
+                code: Box::new(class_code),
+            });
+            self.emit_load_const(ConstantData::Str { value: name.into() });
+            emit!(self, Instruction::MakeFunction(func_flags));
+            self.emit_load_const(ConstantData::Str { value: name.into() });
 
-        // Turn code object into function object:
-        emit!(self, Instruction::MakeFunction(func_flags));
-
-        self.emit_load_const(ConstantData::Str { value: name.into() });
-
-        // For PEP 695 classes: handle Generic base creation
-        if type_params.is_some() {
-            if let Some(arguments) = arguments {
-                // Has explicit bases - use them as is, don't add Generic
-                // CPython doesn't add Generic when explicit bases are present
-                let call = self.compile_call_inner(2, arguments)?;
-                self.compile_normal_call(call);
+            // Compile original bases
+            let base_count = if let Some(arguments) = arguments {
+                for arg in &arguments.args {
+                    self.compile_expression(arg)?;
+                }
+                arguments.args.len()
             } else {
-                // No explicit bases, add Generic[*type_params] as the only base
-                // Stack currently: [function, class_name]
+                0
+            };
 
-                // Load .type_params for creating Generic base
-                let dot_type_params = self.name(".type_params");
-                emit!(self, Instruction::LoadNameAny(dot_type_params));
+            // Load .generic_base as the last base
+            emit!(self, Instruction::LoadNameAny(dot_generic_base));
 
-                // Call INTRINSIC_SUBSCRIPT_GENERIC to create Generic[*type_params]
+            let nargs = 2 + u32::try_from(base_count).expect("too many base classes") + 1; // function, name, bases..., generic_base
+
+            // Handle keyword arguments
+            if let Some(arguments) = arguments
+                && !arguments.keywords.is_empty()
+            {
+                for keyword in &arguments.keywords {
+                    if let Some(name) = &keyword.arg {
+                        self.emit_load_const(ConstantData::Str {
+                            value: name.as_str().into(),
+                        });
+                    }
+                    self.compile_expression(&keyword.value)?;
+                }
                 emit!(
                     self,
-                    Instruction::CallIntrinsic1 {
-                        func: bytecode::IntrinsicFunction1::SubscriptGeneric
+                    Instruction::CallFunctionKeyword {
+                        nargs: nargs
+                            + u32::try_from(arguments.keywords.len())
+                                .expect("too many keyword arguments")
                     }
                 );
-
-                // Call __build_class__ with 3 positional args: function, class_name, Generic[T]
-                emit!(self, Instruction::CallFunctionPositional { nargs: 3 });
+            } else {
+                emit!(self, Instruction::CallFunctionPositional { nargs });
             }
+
+            // Return the created class
+            self.emit_return_value();
+
+            // Exit type params scope and wrap in function
+            let type_params_code = self.exit_scope();
+
+            // Execute the type params function
+            if self.build_closure(&type_params_code) {
+                // Should not need closure
+            }
+            self.emit_load_const(ConstantData::Code {
+                code: Box::new(type_params_code),
+            });
+            self.emit_load_const(ConstantData::Str {
+                value: format!("<generic parameters of {name}>").into(),
+            });
+            emit!(
+                self,
+                Instruction::MakeFunction(bytecode::MakeFunctionFlags::empty())
+            );
+            emit!(self, Instruction::CallFunctionPositional { nargs: 0 });
         } else {
-            // No type params, normal compilation
+            // Non-generic class: standard path
+            emit!(self, Instruction::LoadBuildClass);
+
+            let mut func_flags = bytecode::MakeFunctionFlags::empty();
+            if self.build_closure(&class_code) {
+                func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
+            }
+
+            self.emit_load_const(ConstantData::Code {
+                code: Box::new(class_code),
+            });
+            self.emit_load_const(ConstantData::Str { value: name.into() });
+            emit!(self, Instruction::MakeFunction(func_flags));
+            self.emit_load_const(ConstantData::Str { value: name.into() });
+
             let call = if let Some(arguments) = arguments {
                 self.compile_call_inner(2, arguments)?
             } else {
@@ -2226,13 +2325,8 @@ impl Compiler<'_> {
             self.compile_normal_call(call);
         }
 
-        // Pop the special type params symbol table
-        if type_params.is_some() {
-            self.pop_symbol_table();
-        }
-
+        // Step 4: Apply decorators and store (common to both paths)
         self.apply_decorators(decorator_list);
-
         self.store_name(name)
     }
 
