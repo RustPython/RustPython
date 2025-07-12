@@ -21,7 +21,7 @@ class PEP3131Test(unittest.TestCase):
     @unittest.expectedFailure
     def test_invalid(self):
         try:
-            from test import badsyntax_3131
+            from test.tokenizedata import badsyntax_3131
         except SyntaxError as err:
             self.assertEqual(str(err),
               "invalid character '€' (U+20AC) (badsyntax_3131.py, line 2)")

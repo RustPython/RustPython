@@ -11,15 +11,20 @@ from http.client import HTTPException
 import sys
 import unicodedata
 import unittest
-from test.support import (open_urlresource, requires_resource, script_helper,
-                          cpython_only, check_disallow_instantiation,
-                          ResourceDenied)
+from test.support import (
+    open_urlresource,
+    requires_resource,
+    script_helper,
+    cpython_only,
+    check_disallow_instantiation,
+    force_not_colorized,
+)
 
 
 class UnicodeMethodsTest(unittest.TestCase):
 
     # update this, if the database changes
-    expectedchecksum = '4739770dd4d0e5f1b1677accfc3552ed3c8ef326'
+    expectedchecksum = '63aa77dcb36b0e1df082ee2a6071caeda7f0955e'
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -74,7 +79,8 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
 
     # Update this if the database changes. Make sure to do a full rebuild
     # (e.g. 'make distclean && make') to get the correct checksum.
-    expectedchecksum = '98d602e1f69d5c5bb8a5910c40bbbad4e18e8370'
+    expectedchecksum = '232affd2a50ec4bd69d2482aa0291385cbdefaba'
+
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     @requires_resource('cpu')
@@ -94,6 +100,8 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
                 self.db.decomposition(char),
                 str(self.db.mirrored(char)),
                 str(self.db.combining(char)),
+                unicodedata.east_asian_width(char),
+                self.db.name(char, ""),
             ]
             h.update(''.join(data).encode("ascii"))
         result = h.hexdigest()
@@ -105,6 +113,28 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
             char = chr(i)
             if looked_name := self.db.name(char, None):
                 self.assertEqual(self.db.lookup(looked_name), char)
+
+    def test_no_names_in_pua(self):
+        puas = [*range(0xe000, 0xf8ff),
+                *range(0xf0000, 0xfffff),
+                *range(0x100000, 0x10ffff)]
+        for i in puas:
+            char = chr(i)
+            self.assertRaises(ValueError, self.db.name, char)
+
+    # TODO: RUSTPYTHON; LookupError: undefined character name 'LATIN SMLL LETR A'
+    @unittest.expectedFailure
+    def test_lookup_nonexistant(self):
+        # just make sure that lookup can fail
+        for nonexistant in [
+            "LATIN SMLL LETR A",
+            "OPEN HANDS SIGHS",
+            "DREGS",
+            "HANDBUG",
+            "MODIFIER LETTER CYRILLIC SMALL QUESTION MARK",
+            "???",
+        ]:
+            self.assertRaises(KeyError, self.db.lookup, nonexistant)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -247,6 +277,25 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    def test_east_asian_width_unassigned(self):
+        eaw = self.db.east_asian_width
+        # unassigned
+        for char in '\u0530\u0ecf\u10c6\u20fc\uaaca\U000107bd\U000115f2':
+            self.assertEqual(eaw(char), 'N')
+            self.assertIs(self.db.name(char, None), None)
+
+        # unassigned but reserved for CJK
+        for char in '\uFA6E\uFADA\U0002A6E0\U0002FA20\U0003134B\U0003FFFD':
+            self.assertEqual(eaw(char), 'W')
+            self.assertIs(self.db.name(char, None), None)
+
+        # private use areas
+        for char in '\uE000\uF800\U000F0000\U000FFFEE\U00100000\U0010FFF0':
+            self.assertEqual(eaw(char), 'A')
+            self.assertIs(self.db.name(char, None), None)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_east_asian_width_9_0_changes(self):
         self.assertEqual(self.db.ucd_3_2_0.east_asian_width('\u231a'), 'N')
         self.assertEqual(self.db.east_asian_width('\u231a'), 'W')
@@ -260,6 +309,7 @@ class UnicodeMiscTest(UnicodeDatabaseTest):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @force_not_colorized
     def test_failed_import_during_compiling(self):
         # Issue 4367
         # Decoding \N escapes requires the unicodedata module. If it can't be
@@ -322,6 +372,7 @@ class UnicodeMiscTest(UnicodeDatabaseTest):
         self.assertTrue("\u1d79".upper()=='\ua77d')
         self.assertTrue(".".upper()=='.')
 
+    @requires_resource('cpu')
     def test_bug_5828(self):
         self.assertEqual("\u1d79".lower(), "\u1d79")
         # Only U+0000 should have U+0000 as its upper/lower/titlecase variant
@@ -364,6 +415,7 @@ class NormalizationTest(unittest.TestCase):
         return "".join([chr(x) for x in data])
 
     @requires_resource('network')
+    @requires_resource('cpu')
     def test_normalization(self):
         TESTDATAFILE = "NormalizationTest.txt"
         TESTDATAURL = f"http://www.pythontest.net/unicode/{unicodedata.unidata_version}/{TESTDATAFILE}"
