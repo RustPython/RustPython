@@ -10,6 +10,7 @@ import re
 import sys
 import copy
 import functools
+import operator
 import pickle
 import tempfile
 import textwrap
@@ -45,6 +46,10 @@ class Indexable:
 
 
 class BaseBytesTest:
+
+    def assertTypedEqual(self, actual, expected):
+        self.assertIs(type(actual), type(expected))
+        self.assertEqual(actual, expected)
 
     def test_basics(self):
         b = self.type2test()
@@ -196,8 +201,6 @@ class BaseBytesTest:
         self.assertRaises(ValueError, self.type2test, [sys.maxsize+1])
         self.assertRaises(ValueError, self.type2test, [10**100])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @bigaddrspacetest
     def test_constructor_overflow(self):
         size = MAX_Py_ssize_t
@@ -321,8 +324,6 @@ class BaseBytesTest:
         # Default encoding is utf-8
         self.assertEqual(self.type2test(b'\xe2\x98\x83').decode(), '\u2603')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_check_encoding_errors(self):
         # bpo-37388: bytes(str) and bytes.encode() must check encoding
         # and errors arguments in dev mode
@@ -737,6 +738,37 @@ class BaseBytesTest:
         check(b'%i%b %*.*b', (10, b'3', 5, 3, b'abc',), b'103   abc')
         check(b'%c', b'a', b'a')
 
+        class PseudoFloat:
+            def __init__(self, value):
+                self.value = float(value)
+            def __int__(self):
+                return int(self.value)
+
+        pi = PseudoFloat(3.1415)
+
+        exceptions_params = [
+            ('%x format: an integer is required, not float', b'%x', 3.14),
+            ('%X format: an integer is required, not float', b'%X', 2.11),
+            ('%o format: an integer is required, not float', b'%o', 1.79),
+            ('%x format: an integer is required, not PseudoFloat', b'%x', pi),
+            ('%x format: an integer is required, not complex', b'%x', 3j),
+            ('%X format: an integer is required, not complex', b'%X', 2j),
+            ('%o format: an integer is required, not complex', b'%o', 1j),
+            ('%u format: a real number is required, not complex', b'%u', 3j),
+            # See https://github.com/python/cpython/issues/130928 as for why
+            # the exception message contains '%d' instead of '%i'.
+            ('%d format: a real number is required, not complex', b'%i', 2j),
+            ('%d format: a real number is required, not complex', b'%d', 2j),
+            (
+                r'%c requires an integer in range\(256\) or a single byte',
+                b'%c', pi
+            ),
+        ]
+
+        for msg, format_bytes, value in exceptions_params:
+            with self.assertRaisesRegex(TypeError, msg):
+                operator.mod(format_bytes, value)
+
     def test_imod(self):
         b = self.type2test(b'hello, %b!')
         orig = b
@@ -936,8 +968,6 @@ class BaseBytesTest:
             self.assertRaises(ValueError, method, 256)
             self.assertRaises(ValueError, method, 9999)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_find_etc_raise_correct_error_messages(self):
         # issue 11828
         b = self.type2test(b'hello')
@@ -957,8 +987,6 @@ class BaseBytesTest:
         self.assertRaisesRegex(TypeError, r'\bendswith\b', b.endswith,
                                 x, None, None, None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_free_after_iterating(self):
         test.support.check_free_after_iterating(self, iter, self.type2test)
         test.support.check_free_after_iterating(self, reversed, self.type2test)
@@ -995,13 +1023,13 @@ class BaseBytesTest:
         self.assertEqual(c, b'hllo')
 
     def test_sq_item(self):
-        _testcapi = import_helper.import_module('_testcapi')
+        _testlimitedcapi = import_helper.import_module('_testlimitedcapi')
         obj = self.type2test((42,))
         with self.assertRaises(IndexError):
-            _testcapi.sequence_getitem(obj, -2)
+            _testlimitedcapi.sequence_getitem(obj, -2)
         with self.assertRaises(IndexError):
-            _testcapi.sequence_getitem(obj, 1)
-        self.assertEqual(_testcapi.sequence_getitem(obj, 0), 42)
+            _testlimitedcapi.sequence_getitem(obj, 1)
+        self.assertEqual(_testlimitedcapi.sequence_getitem(obj, 0), 42)
 
 
 class BytesTest(BaseBytesTest, unittest.TestCase):
@@ -1031,36 +1059,63 @@ class BytesTest(BaseBytesTest, unittest.TestCase):
             self.assertRaises(TypeError, f.readinto, b"")
 
     def test_custom(self):
-        class A:
-            def __bytes__(self):
-                return b'abc'
-        self.assertEqual(bytes(A()), b'abc')
-        class A: pass
-        self.assertRaises(TypeError, bytes, A())
-        class A:
-            def __bytes__(self):
-                return None
-        self.assertRaises(TypeError, bytes, A())
-        class A:
+        self.assertEqual(bytes(BytesSubclass(b'abc')), b'abc')
+        self.assertEqual(BytesSubclass(OtherBytesSubclass(b'abc')),
+                         BytesSubclass(b'abc'))
+        self.assertEqual(bytes(WithBytes(b'abc')), b'abc')
+        self.assertEqual(BytesSubclass(WithBytes(b'abc')), BytesSubclass(b'abc'))
+
+        class NoBytes: pass
+        self.assertRaises(TypeError, bytes, NoBytes())
+        self.assertRaises(TypeError, bytes, WithBytes('abc'))
+        self.assertRaises(TypeError, bytes, WithBytes(None))
+        class IndexWithBytes:
             def __bytes__(self):
                 return b'a'
             def __index__(self):
                 return 42
-        self.assertEqual(bytes(A()), b'a')
+        self.assertEqual(bytes(IndexWithBytes()), b'a')
         # Issue #25766
-        class A(str):
+        class StrWithBytes(str):
+            def __new__(cls, value):
+                self = str.__new__(cls, '\u20ac')
+                self.value = value
+                return self
             def __bytes__(self):
-                return b'abc'
-        self.assertEqual(bytes(A('\u20ac')), b'abc')
-        self.assertEqual(bytes(A('\u20ac'), 'iso8859-15'), b'\xa4')
+                return self.value
+        self.assertEqual(bytes(StrWithBytes(b'abc')), b'abc')
+        self.assertEqual(bytes(StrWithBytes(b'abc'), 'iso8859-15'), b'\xa4')
+        self.assertEqual(bytes(StrWithBytes(BytesSubclass(b'abc'))), b'abc')
+        self.assertEqual(BytesSubclass(StrWithBytes(b'abc')), BytesSubclass(b'abc'))
+        self.assertEqual(BytesSubclass(StrWithBytes(b'abc'), 'iso8859-15'),
+                         BytesSubclass(b'\xa4'))
+        self.assertEqual(BytesSubclass(StrWithBytes(BytesSubclass(b'abc'))),
+                         BytesSubclass(b'abc'))
+        self.assertEqual(BytesSubclass(StrWithBytes(OtherBytesSubclass(b'abc'))),
+                         BytesSubclass(b'abc'))
         # Issue #24731
-        class A:
+        self.assertTypedEqual(bytes(WithBytes(BytesSubclass(b'abc'))), BytesSubclass(b'abc'))
+        self.assertTypedEqual(BytesSubclass(WithBytes(BytesSubclass(b'abc'))),
+                              BytesSubclass(b'abc'))
+        self.assertTypedEqual(BytesSubclass(WithBytes(OtherBytesSubclass(b'abc'))),
+                              BytesSubclass(b'abc'))
+
+        class BytesWithBytes(bytes):
+            def __new__(cls, value):
+                self = bytes.__new__(cls, b'\xa4')
+                self.value = value
+                return self
             def __bytes__(self):
-                return OtherBytesSubclass(b'abc')
-        self.assertEqual(bytes(A()), b'abc')
-        self.assertIs(type(bytes(A())), OtherBytesSubclass)
-        self.assertEqual(BytesSubclass(A()), b'abc')
-        self.assertIs(type(BytesSubclass(A())), BytesSubclass)
+                return self.value
+        self.assertTypedEqual(bytes(BytesWithBytes(b'abc')), b'abc')
+        self.assertTypedEqual(BytesSubclass(BytesWithBytes(b'abc')),
+                              BytesSubclass(b'abc'))
+        self.assertTypedEqual(bytes(BytesWithBytes(BytesSubclass(b'abc'))),
+                              BytesSubclass(b'abc'))
+        self.assertTypedEqual(BytesSubclass(BytesWithBytes(BytesSubclass(b'abc'))),
+                              BytesSubclass(b'abc'))
+        self.assertTypedEqual(BytesSubclass(BytesWithBytes(OtherBytesSubclass(b'abc'))),
+                              BytesSubclass(b'abc'))
 
     # Test PyBytes_FromFormat()
     def test_from_format(self):
@@ -1233,6 +1288,8 @@ class BytesTest(BaseBytesTest, unittest.TestCase):
 class ByteArrayTest(BaseBytesTest, unittest.TestCase):
     type2test = bytearray
 
+    _testlimitedcapi = import_helper.import_module('_testlimitedcapi')
+
     def test_getitem_error(self):
         b = bytearray(b'python')
         msg = "bytearray indices must be integers or slices"
@@ -1325,47 +1382,73 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         self.assertEqual(re.findall(br"\w+", b), [by("Hello"), by("world")])
 
     def test_setitem(self):
-        b = bytearray([1, 2, 3])
-        b[1] = 100
-        self.assertEqual(b, bytearray([1, 100, 3]))
-        b[-1] = 200
-        self.assertEqual(b, bytearray([1, 100, 200]))
-        b[0] = Indexable(10)
-        self.assertEqual(b, bytearray([10, 100, 200]))
-        try:
-            b[3] = 0
-            self.fail("Didn't raise IndexError")
-        except IndexError:
-            pass
-        try:
-            b[-10] = 0
-            self.fail("Didn't raise IndexError")
-        except IndexError:
-            pass
-        try:
-            b[0] = 256
-            self.fail("Didn't raise ValueError")
-        except ValueError:
-            pass
-        try:
-            b[0] = Indexable(-1)
-            self.fail("Didn't raise ValueError")
-        except ValueError:
-            pass
-        try:
-            b[0] = None
-            self.fail("Didn't raise TypeError")
-        except TypeError:
-            pass
+        def setitem_as_mapping(b, i, val):
+            b[i] = val
+
+        def setitem_as_sequence(b, i, val):
+            self._testlimitedcapi.sequence_setitem(b, i, val)
+
+        def do_tests(setitem):
+            b = bytearray([1, 2, 3])
+            setitem(b, 1, 100)
+            self.assertEqual(b, bytearray([1, 100, 3]))
+            setitem(b, -1, 200)
+            self.assertEqual(b, bytearray([1, 100, 200]))
+            setitem(b, 0, Indexable(10))
+            self.assertEqual(b, bytearray([10, 100, 200]))
+            try:
+                setitem(b, 3, 0)
+                self.fail("Didn't raise IndexError")
+            except IndexError:
+                pass
+            try:
+                setitem(b, -10, 0)
+                self.fail("Didn't raise IndexError")
+            except IndexError:
+                pass
+            try:
+                setitem(b, 0, 256)
+                self.fail("Didn't raise ValueError")
+            except ValueError:
+                pass
+            try:
+                setitem(b, 0, Indexable(-1))
+                self.fail("Didn't raise ValueError")
+            except ValueError:
+                pass
+            try:
+                setitem(b, 0, object())
+                self.fail("Didn't raise TypeError")
+            except TypeError:
+                pass
+
+        with self.subTest("tp_as_mapping"):
+            do_tests(setitem_as_mapping)
+
+        with self.subTest("tp_as_sequence"):
+            do_tests(setitem_as_sequence)
 
     def test_delitem(self):
-        b = bytearray(range(10))
-        del b[0]
-        self.assertEqual(b, bytearray(range(1, 10)))
-        del b[-1]
-        self.assertEqual(b, bytearray(range(1, 9)))
-        del b[4]
-        self.assertEqual(b, bytearray([1, 2, 3, 4, 6, 7, 8]))
+        def del_as_mapping(b, i):
+            del b[i]
+
+        def del_as_sequence(b, i):
+            self._testlimitedcapi.sequence_delitem(b, i)
+
+        def do_tests(delete):
+            b = bytearray(range(10))
+            delete(b, 0)
+            self.assertEqual(b, bytearray(range(1, 10)))
+            delete(b, -1)
+            self.assertEqual(b, bytearray(range(1, 9)))
+            delete(b, 4)
+            self.assertEqual(b, bytearray([1, 2, 3, 4, 6, 7, 8]))
+
+        with self.subTest("tp_as_mapping"):
+            do_tests(del_as_mapping)
+
+        with self.subTest("tp_as_sequence"):
+            do_tests(del_as_sequence)
 
     def test_setslice(self):
         b = bytearray(range(10))
@@ -1492,11 +1575,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         self.assertEqual(b, b1)
         self.assertIs(b, b1)
 
-    # NOTE: RUSTPYTHON:
-    #
-    # The second instance of self.assertGreater was replaced with
-    # self.assertGreaterEqual since, in RustPython, the underlying storage
-    # is a Vec which doesn't require trailing null byte.
     def test_alloc(self):
         b = bytearray()
         alloc = b.__alloc__()
@@ -1505,15 +1583,10 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         for i in range(100):
             b += b"x"
             alloc = b.__alloc__()
-            self.assertGreaterEqual(alloc, len(b))  # NOTE: RUSTPYTHON patched
+            self.assertGreater(alloc, len(b))  # including trailing null byte
             if alloc not in seq:
                 seq.append(alloc)
 
-    # NOTE: RUSTPYTHON:
-    #
-    # The usages of self.assertGreater were replaced with
-    # self.assertGreaterEqual since, in RustPython, the underlying storage
-    # is a Vec which doesn't require trailing null byte.
     def test_init_alloc(self):
         b = bytearray()
         def g():
@@ -1524,12 +1597,12 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
                 self.assertEqual(len(b), len(a))
                 self.assertLessEqual(len(b), i)
                 alloc = b.__alloc__()
-                self.assertGreaterEqual(alloc, len(b))  # NOTE: RUSTPYTHON patched
+                self.assertGreater(alloc, len(b))  # including trailing null byte
         b.__init__(g())
         self.assertEqual(list(b), list(range(1, 100)))
         self.assertEqual(len(b), 99)
         alloc = b.__alloc__()
-        self.assertGreaterEqual(alloc, len(b))  # NOTE: RUSTPYTHON patched
+        self.assertGreater(alloc, len(b))
 
     def test_extend(self):
         orig = b'hello'
@@ -1558,6 +1631,13 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         a = bytearray(b'')
         a.extend([Indexable(ord('a'))])
         self.assertEqual(a, b'a')
+        a = bytearray(b'abc')
+        self.assertRaisesRegex(TypeError,  # Override for string.
+                               "expected iterable of integers; got: 'str'",
+                               a.extend, 'def')
+        self.assertRaisesRegex(TypeError,  # But not for others.
+                               "can't extend bytearray with float",
+                               a.extend, 1.0)
 
     def test_remove(self):
         b = bytearray(b'hello')
@@ -1747,6 +1827,8 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         self.assertEqual(b3, b'xcxcxc')
 
     def test_mutating_index(self):
+        # See gh-91153
+
         class Boom:
             def __index__(self):
                 b.clear()
@@ -1758,10 +1840,9 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
                 b[0] = Boom()
 
         with self.subTest("tp_as_sequence"):
-            _testcapi = import_helper.import_module('_testcapi')
             b = bytearray(b'Now you see me...')
             with self.assertRaises(IndexError):
-                _testcapi.sequence_setitem(b, 0, Boom())
+                self._testlimitedcapi.sequence_setitem(b, 0, Boom())
 
 
 class AssortedBytesTest(unittest.TestCase):
@@ -1990,7 +2071,6 @@ class SubclassTest:
         s3 = s1.join([b"abcd"])
         self.assertIs(type(s3), self.basetype)
 
-    @unittest.skip("TODO: RUSTPYTHON, Fails on ByteArraySubclassWithSlotsTest")
     def test_pickle(self):
         a = self.type2test(b"abcd")
         a.x = 10
@@ -2005,7 +2085,6 @@ class SubclassTest:
             self.assertEqual(type(a.z), type(b.z))
             self.assertFalse(hasattr(b, 'y'))
 
-    @unittest.skip("TODO: RUSTPYTHON, Fails on ByteArraySubclassWithSlotsTest")
     def test_copy(self):
         a = self.type2test(b"abcd")
         a.x = 10
@@ -2059,6 +2138,12 @@ class BytesSubclass(bytes):
 
 class OtherBytesSubclass(bytes):
     pass
+
+class WithBytes:
+    def __init__(self, value):
+        self.value = value
+    def __bytes__(self):
+        return self.value
 
 class ByteArraySubclassTest(SubclassTest, unittest.TestCase):
     basetype = bytearray

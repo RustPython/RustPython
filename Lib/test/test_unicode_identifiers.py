@@ -17,11 +17,9 @@ class PEP3131Test(unittest.TestCase):
         𝔘𝔫𝔦𝔠𝔬𝔡𝔢 = 1
         self.assertIn("Unicode", dir())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_invalid(self):
         try:
-            from test import badsyntax_3131
+            from test.tokenizedata import badsyntax_3131
         except SyntaxError as err:
             self.assertEqual(str(err),
               "invalid character '€' (U+20AC) (badsyntax_3131.py, line 2)")

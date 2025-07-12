@@ -7,6 +7,7 @@ Written by Marc-Andre Lemburg (mal@lemburg.com).
 """
 import _string
 import codecs
+import datetime
 import itertools
 import operator
 import pickle
@@ -55,8 +56,22 @@ def duplicate_string(text):
 class StrSubclass(str):
     pass
 
-class UnicodeTest(string_tests.CommonTest,
-        string_tests.MixinStrUnicodeUserStringTest,
+class OtherStrSubclass(str):
+    pass
+
+class WithStr:
+    def __init__(self, value):
+        self.value = value
+    def __str__(self):
+        return self.value
+
+class WithRepr:
+    def __init__(self, value):
+        self.value = value
+    def __repr__(self):
+        return self.value
+
+class StrTest(string_tests.StringLikeTest,
         string_tests.MixinStrUnicodeTest,
         unittest.TestCase):
 
@@ -83,6 +98,10 @@ class UnicodeTest(string_tests.CommonTest,
             realresult = method(*args)
             self.assertEqual(realresult, result)
             self.assertTrue(object is not realresult)
+
+    def assertTypedEqual(self, actual, expected):
+        self.assertIs(type(actual), type(expected))
+        self.assertEqual(actual, expected)
 
     def test_literals(self):
         self.assertEqual('\xff', '\u00ff')
@@ -128,10 +147,13 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertEqual(ascii("\U00010000" * 39 + "\uffff" * 4096),
                             ascii("\U00010000" * 39 + "\uffff" * 4096))
 
-        class WrongRepr:
-            def __repr__(self):
-                return b'byte-repr'
-        self.assertRaises(TypeError, ascii, WrongRepr())
+        self.assertTypedEqual(ascii('\U0001f40d'), r"'\U0001f40d'")
+        self.assertTypedEqual(ascii(StrSubclass('abc')), "'abc'")
+        self.assertTypedEqual(ascii(WithRepr('<abc>')), '<abc>')
+        self.assertTypedEqual(ascii(WithRepr(StrSubclass('<abc>'))), StrSubclass('<abc>'))
+        self.assertTypedEqual(ascii(WithRepr('<\U0001f40d>')), r'<\U0001f40d>')
+        self.assertTypedEqual(ascii(WithRepr(StrSubclass('<\U0001f40d>'))), r'<\U0001f40d>')
+        self.assertRaises(TypeError, ascii, WithRepr(b'byte-repr'))
 
     def test_repr(self):
         # Test basic sanity of repr()
@@ -169,10 +191,13 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertEqual(repr("\U00010000" * 39 + "\uffff" * 4096),
                             repr("\U00010000" * 39 + "\uffff" * 4096))
 
-        class WrongRepr:
-            def __repr__(self):
-                return b'byte-repr'
-        self.assertRaises(TypeError, repr, WrongRepr())
+        self.assertTypedEqual(repr('\U0001f40d'), "'\U0001f40d'")
+        self.assertTypedEqual(repr(StrSubclass('abc')), "'abc'")
+        self.assertTypedEqual(repr(WithRepr('<abc>')), '<abc>')
+        self.assertTypedEqual(repr(WithRepr(StrSubclass('<abc>'))), StrSubclass('<abc>'))
+        self.assertTypedEqual(repr(WithRepr('<\U0001f40d>')), '<\U0001f40d>')
+        self.assertTypedEqual(repr(WithRepr(StrSubclass('<\U0001f40d>'))), StrSubclass('<\U0001f40d>'))
+        self.assertRaises(TypeError, repr, WithRepr(b'byte-repr'))
 
     def test_iterators(self):
         # Make sure unicode objects have an __iter__ method
@@ -213,7 +238,7 @@ class UnicodeTest(string_tests.CommonTest,
                         self.assertEqual(case, pickled)
 
     def test_count(self):
-        string_tests.CommonTest.test_count(self)
+        string_tests.StringLikeTest.test_count(self)
         # check mixed argument types
         self.checkequalnofix(3,  'aaa', 'count', 'a')
         self.checkequalnofix(0,  'aaa', 'count', 'b')
@@ -243,7 +268,7 @@ class UnicodeTest(string_tests.CommonTest,
         self.checkequal(3, MyStr('aaa'), 'count', 'a')
 
     def test_find(self):
-        string_tests.CommonTest.test_find(self)
+        string_tests.StringLikeTest.test_find(self)
         # test implementation details of the memchr fast path
         self.checkequal(100, 'a' * 100 + '\u0102', 'find', '\u0102')
         self.checkequal(-1, 'a' * 100 + '\u0102', 'find', '\u0201')
@@ -288,7 +313,7 @@ class UnicodeTest(string_tests.CommonTest,
         self.checkequal(-1, '\u0102' * 100, 'find', '\u0102\U00100304')
 
     def test_rfind(self):
-        string_tests.CommonTest.test_rfind(self)
+        string_tests.StringLikeTest.test_rfind(self)
         # test implementation details of the memrchr fast path
         self.checkequal(0, '\u0102' + 'a' * 100 , 'rfind', '\u0102')
         self.checkequal(-1, '\u0102' + 'a' * 100 , 'rfind', '\u0201')
@@ -329,7 +354,7 @@ class UnicodeTest(string_tests.CommonTest,
         self.checkequal(-1, '\u0102' * 100, 'rfind', '\U00100304\u0102')
 
     def test_index(self):
-        string_tests.CommonTest.test_index(self)
+        string_tests.StringLikeTest.test_index(self)
         self.checkequalnofix(0, 'abcdefghiabc', 'index',  '')
         self.checkequalnofix(3, 'abcdefghiabc', 'index',  'def')
         self.checkequalnofix(0, 'abcdefghiabc', 'index',  'abc')
@@ -353,7 +378,7 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertRaises(ValueError, ('\u0102' * 100).index, '\u0102\U00100304')
 
     def test_rindex(self):
-        string_tests.CommonTest.test_rindex(self)
+        string_tests.StringLikeTest.test_rindex(self)
         self.checkequalnofix(12, 'abcdefghiabc', 'rindex',  '')
         self.checkequalnofix(3,  'abcdefghiabc', 'rindex',  'def')
         self.checkequalnofix(9,  'abcdefghiabc', 'rindex',  'abc')
@@ -449,7 +474,7 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertRaises(TypeError, 'abababc'.translate, 'abc', 'xyz')
 
     def test_split(self):
-        string_tests.CommonTest.test_split(self)
+        string_tests.StringLikeTest.test_split(self)
 
         # test mixed kinds
         for left, right in ('ba', '\u0101\u0100', '\U00010301\U00010300'):
@@ -466,7 +491,7 @@ class UnicodeTest(string_tests.CommonTest,
                                 left + delim * 2 + right, 'split', delim *2)
 
     def test_rsplit(self):
-        string_tests.CommonTest.test_rsplit(self)
+        string_tests.StringLikeTest.test_rsplit(self)
         # test mixed kinds
         for left, right in ('ba', 'юё', '\u0101\u0100', '\U00010301\U00010300'):
             left *= 9
@@ -486,7 +511,7 @@ class UnicodeTest(string_tests.CommonTest,
                              left + right, 'rsplit', None)
 
     def test_partition(self):
-        string_tests.MixinStrUnicodeUserStringTest.test_partition(self)
+        string_tests.StringLikeTest.test_partition(self)
         # test mixed kinds
         self.checkequal(('ABCDEFGH', '', ''), 'ABCDEFGH', 'partition', '\u4200')
         for left, right in ('ba', '\u0101\u0100', '\U00010301\U00010300'):
@@ -503,7 +528,7 @@ class UnicodeTest(string_tests.CommonTest,
                                 left + delim * 2 + right, 'partition', delim * 2)
 
     def test_rpartition(self):
-        string_tests.MixinStrUnicodeUserStringTest.test_rpartition(self)
+        string_tests.StringLikeTest.test_rpartition(self)
         # test mixed kinds
         self.checkequal(('', '', 'ABCDEFGH'), 'ABCDEFGH', 'rpartition', '\u4200')
         for left, right in ('ba', '\u0101\u0100', '\U00010301\U00010300'):
@@ -520,7 +545,7 @@ class UnicodeTest(string_tests.CommonTest,
                                 left + delim * 2 + right, 'rpartition', delim * 2)
 
     def test_join(self):
-        string_tests.MixinStrUnicodeUserStringTest.test_join(self)
+        string_tests.StringLikeTest.test_join(self)
 
         class MyWrapper:
             def __init__(self, sval): self.sval = sval
@@ -539,7 +564,6 @@ class UnicodeTest(string_tests.CommonTest,
         self.checkraises(TypeError, ' ', 'join', [1, 2, 3])
         self.checkraises(TypeError, ' ', 'join', ['1', '2', 3])
 
-    @unittest.skip("TODO: RUSTPYTHON, oom handling")
     @unittest.skipIf(sys.maxsize > 2**32,
         'needs too much memory on a 64-bit platform')
     def test_join_overflow(self):
@@ -548,7 +572,7 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertRaises(OverflowError, ''.join, seq)
 
     def test_replace(self):
-        string_tests.CommonTest.test_replace(self)
+        string_tests.StringLikeTest.test_replace(self)
 
         # method call forwarded from str implementation because of unicode argument
         self.checkequalnofix('one@two!three!', 'one!two!three!', 'replace', '!', '@', 1)
@@ -768,8 +792,6 @@ class UnicodeTest(string_tests.CommonTest,
         for ch in ['\U0001D7F6', '\U00011066', '\U000104A0']:
             self.assertTrue(ch.isdecimal(), '{!a} is decimal.'.format(ch))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_isdigit(self):
         super().test_isdigit()
         self.checkequalnofix(True, '\u2460', 'isdigit')
@@ -831,6 +853,15 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertTrue('\U0001F46F'.isprintable())
         self.assertFalse('\U000E0020'.isprintable())
 
+    @support.requires_resource('cpu')
+    def test_isprintable_invariant(self):
+        for codepoint in range(sys.maxunicode + 1):
+            char = chr(codepoint)
+            category = unicodedata.category(char)
+            self.assertEqual(char.isprintable(),
+                             category[0] not in ('C', 'Z')
+                             or char == ' ')
+
     def test_surrogates(self):
         for s in ('a\uD800b\uDFFF', 'a\uDFFFb\uD800',
                   'a\uD800b\uDFFFa', 'a\uDFFFb\uD800a'):
@@ -859,7 +890,7 @@ class UnicodeTest(string_tests.CommonTest,
 
 
     def test_lower(self):
-        string_tests.CommonTest.test_lower(self)
+        string_tests.StringLikeTest.test_lower(self)
         self.assertEqual('\U00010427'.lower(), '\U0001044F')
         self.assertEqual('\U00010427\U00010427'.lower(),
                          '\U0001044F\U0001044F')
@@ -890,7 +921,7 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertEqual('\u00b5'.casefold(), '\u03bc')
 
     def test_upper(self):
-        string_tests.CommonTest.test_upper(self)
+        string_tests.StringLikeTest.test_upper(self)
         self.assertEqual('\U0001044F'.upper(), '\U00010427')
         self.assertEqual('\U0001044F\U0001044F'.upper(),
                          '\U00010427\U00010427')
@@ -906,10 +937,8 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertEqual('\U0008fffe'.upper(), '\U0008fffe')
         self.assertEqual('\u2177'.upper(), '\u2167')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_capitalize(self):
-        string_tests.CommonTest.test_capitalize(self)
+        string_tests.StringLikeTest.test_capitalize(self)
         self.assertEqual('\U0001044F'.capitalize(), '\U00010427')
         self.assertEqual('\U0001044F\U0001044F'.capitalize(),
                          '\U00010427\U0001044F')
@@ -925,8 +954,6 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertEqual('ﬁnnish'.capitalize(), 'Finnish')
         self.assertEqual('A\u0345\u03a3'.capitalize(), 'A\u0345\u03c2')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_title(self):
         super().test_title()
         self.assertEqual('\U0001044F'.title(), '\U00010427')
@@ -944,10 +971,8 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertEqual('A\u03a3 \u1fa1xy'.title(), 'A\u03c2 \u1fa9xy')
         self.assertEqual('A\u03a3A'.title(), 'A\u03c3a')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_swapcase(self):
-        string_tests.CommonTest.test_swapcase(self)
+        string_tests.StringLikeTest.test_swapcase(self)
         self.assertEqual('\U0001044F'.swapcase(), '\U00010427')
         self.assertEqual('\U00010427'.swapcase(), '\U0001044F')
         self.assertEqual('\U0001044F\U0001044F'.swapcase(),
@@ -973,7 +998,7 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertEqual('\u1fd2'.swapcase(), '\u0399\u0308\u0300')
 
     def test_center(self):
-        string_tests.CommonTest.test_center(self)
+        string_tests.StringLikeTest.test_center(self)
         self.assertEqual('x'.center(2, '\U0010FFFF'),
                          'x\U0010FFFF')
         self.assertEqual('x'.center(3, '\U0010FFFF'),
@@ -1045,8 +1070,6 @@ class UnicodeTest(string_tests.CommonTest,
         '\U00100000'.ljust(3, '\U00010000')
         '\U00100000'.rjust(3, '\U00010000')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_format(self):
         self.assertEqual(''.format(), '')
         self.assertEqual('a'.format(), 'a')
@@ -1430,21 +1453,16 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertRaises(TypeError, '{a}'.format_map, [])
         self.assertRaises(ZeroDivisionError, '{a}'.format_map, BadMapping())
 
-    @unittest.skip("TODO: RUSTPYTHON, killed for chewing up RAM")
     def test_format_huge_precision(self):
         format_string = ".{}f".format(sys.maxsize + 1)
         with self.assertRaises(ValueError):
             result = format(2.34, format_string)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_format_huge_width(self):
         format_string = "{}f".format(sys.maxsize + 1)
         with self.assertRaises(ValueError):
             result = format(2.34, format_string)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_format_huge_item_number(self):
         format_string = "{{{}:.6f}}".format(sys.maxsize + 1)
         with self.assertRaises(ValueError):
@@ -1480,10 +1498,8 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertEqual('{:{f}}{g}{}'.format(1, 3, g='g', f=2), ' 1g3')
         self.assertEqual('{f:{}}{}{g}'.format(2, 4, f=1, g='g'), ' 14g')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_formatting(self):
-        string_tests.MixinStrUnicodeUserStringTest.test_formatting(self)
+        string_tests.StringLikeTest.test_formatting(self)
         # Testing Unicode formatting strings...
         self.assertEqual("%s, %s" % ("abc", "abc"), 'abc, abc')
         self.assertEqual("%s, %s, %i, %f, %5.2f" % ("abc", "abc", 1, 2, 3), 'abc, abc, 1, 2.000000,  3.00')
@@ -1659,7 +1675,7 @@ class UnicodeTest(string_tests.CommonTest,
             self.assertIn('str', exc)
             self.assertIn('tuple', exc)
 
-    @support.run_with_locale('LC_ALL', 'de_DE', 'fr_FR')
+    @support.run_with_locale('LC_ALL', 'de_DE', 'fr_FR', '')
     def test_format_float(self):
         # should not format with a comma, but always with C locale
         self.assertEqual('1.0', '%.1f' % 1.0)
@@ -1730,10 +1746,6 @@ class UnicodeTest(string_tests.CommonTest,
             'character buffers are decoded to unicode'
         )
 
-        self.assertRaises(TypeError, str, 42, 42, 42)
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructor_keyword_args(self):
         """Pass various keyword argument combinations to the constructor."""
         # The object argument can be passed as a keyword.
@@ -1743,8 +1755,6 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertEqual(str(b'foo', errors='strict'), 'foo')  # not "b'foo'"
         self.assertEqual(str(object=b'foo', errors='strict'), 'foo')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructor_defaults(self):
         """Check the constructor argument defaults."""
         # The object argument defaults to '' or b''.
@@ -1756,8 +1766,6 @@ class UnicodeTest(string_tests.CommonTest,
         # The errors argument defaults to strict.
         self.assertRaises(UnicodeDecodeError, str, utf8_cent, encoding='ascii')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_codecs_utf7(self):
         utfTests = [
             ('A\u2262\u0391.', b'A+ImIDkQ.'),             # RFC2152 example
@@ -1909,6 +1917,12 @@ class UnicodeTest(string_tests.CommonTest,
                               (b'\xF4'+cb+b'\x80\x80').decode, 'utf-8')
             self.assertRaises(UnicodeDecodeError,
                               (b'\xF4'+cb+b'\xBF\xBF').decode, 'utf-8')
+
+    def test_issue127903(self):
+        # gh-127903: ``_copy_characters`` crashes on DEBUG builds when
+        # there is nothing to copy.
+        d = datetime.datetime(2013, 11, 10, 14, 20, 59)
+        self.assertEqual(d.strftime('%z'), '')
 
     def test_issue8271(self):
         # Issue #8271: during the decoding of an invalid UTF-8 byte sequence,
@@ -2261,8 +2275,6 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertRaises(ValueError, complex, "\ud800")
         self.assertRaises(ValueError, complex, "\udf00")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_codecs(self):
         # Encoding
         self.assertEqual('hello'.encode('ascii'), b'hello')
@@ -2392,32 +2404,39 @@ class UnicodeTest(string_tests.CommonTest,
         else:
             self.fail("Should have raised UnicodeDecodeError")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_conversion(self):
         # Make sure __str__() works properly
-        class ObjectToStr:
-            def __str__(self):
-                return "foo"
-
-        class StrSubclassToStr(str):
-            def __str__(self):
-                return "foo"
-
-        class StrSubclassToStrSubclass(str):
-            def __new__(cls, content=""):
-                return str.__new__(cls, 2*content)
-            def __str__(self):
+        class StrWithStr(str):
+            def __new__(cls, value):
+                self = str.__new__(cls, "")
+                self.value = value
                 return self
+            def __str__(self):
+                return self.value
 
-        self.assertEqual(str(ObjectToStr()), "foo")
-        self.assertEqual(str(StrSubclassToStr("bar")), "foo")
-        s = str(StrSubclassToStrSubclass("foo"))
-        self.assertEqual(s, "foofoo")
-        self.assertIs(type(s), StrSubclassToStrSubclass)
-        s = StrSubclass(StrSubclassToStrSubclass("foo"))
-        self.assertEqual(s, "foofoo")
-        self.assertIs(type(s), StrSubclass)
+        self.assertTypedEqual(str(WithStr('abc')), 'abc')
+        self.assertTypedEqual(str(WithStr(StrSubclass('abc'))), StrSubclass('abc'))
+        self.assertTypedEqual(StrSubclass(WithStr('abc')), StrSubclass('abc'))
+        self.assertTypedEqual(StrSubclass(WithStr(StrSubclass('abc'))),
+                              StrSubclass('abc'))
+        self.assertTypedEqual(StrSubclass(WithStr(OtherStrSubclass('abc'))),
+                              StrSubclass('abc'))
+
+        self.assertTypedEqual(str(StrWithStr('abc')), 'abc')
+        self.assertTypedEqual(str(StrWithStr(StrSubclass('abc'))), StrSubclass('abc'))
+        self.assertTypedEqual(StrSubclass(StrWithStr('abc')), StrSubclass('abc'))
+        self.assertTypedEqual(StrSubclass(StrWithStr(StrSubclass('abc'))),
+                              StrSubclass('abc'))
+        self.assertTypedEqual(StrSubclass(StrWithStr(OtherStrSubclass('abc'))),
+                              StrSubclass('abc'))
+
+        self.assertTypedEqual(str(WithRepr('<abc>')), '<abc>')
+        self.assertTypedEqual(str(WithRepr(StrSubclass('<abc>'))), StrSubclass('<abc>'))
+        self.assertTypedEqual(StrSubclass(WithRepr('<abc>')), StrSubclass('<abc>'))
+        self.assertTypedEqual(StrSubclass(WithRepr(StrSubclass('<abc>'))),
+                              StrSubclass('<abc>'))
+        self.assertTypedEqual(StrSubclass(WithRepr(OtherStrSubclass('<abc>'))),
+                              StrSubclass('<abc>'))
 
     def test_unicode_repr(self):
         class s1:
@@ -2433,7 +2452,6 @@ class UnicodeTest(string_tests.CommonTest,
     # This test only affects 32-bit platforms because expandtabs can only take
     # an int as the max value, not a 64-bit C long.  If expandtabs is changed
     # to take a 64-bit long, this test should apply to all platforms.
-    @unittest.skip("TODO: RUSTPYTHON, oom handling")
     @unittest.skipIf(sys.maxsize > (1 << 32) or struct.calcsize('P') != 4,
                      'only applies to 32-bit platforms')
     def test_expandtabs_overflows_gracefully(self):
@@ -2444,7 +2462,6 @@ class UnicodeTest(string_tests.CommonTest,
         s = 'abc'
         self.assertIs(s.expandtabs(), s)
 
-    @unittest.skip("TODO: RUSTPYTHON, aborted: memory allocation of 9223372036854775759 bytes failed")
     def test_raiseMemError(self):
         asciifields = "nnb"
         compactfields = asciifields + "nP"
@@ -2584,14 +2601,10 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertTrue(astral >= bmp2)
         self.assertFalse(astral >= astral2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, str)
         support.check_free_after_iterating(self, reversed, str)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_check_encoding_errors(self):
         # bpo-37388: str(bytes) and str.decode() must check encoding and errors
         # arguments in dev mode
@@ -2651,6 +2664,47 @@ class UnicodeTest(string_tests.CommonTest,
         ''')
         proc = assert_python_failure('-X', 'dev', '-c', code)
         self.assertEqual(proc.rc, 10, proc)
+
+    def test_str_invalid_call(self):
+        # too many args
+        with self.assertRaisesRegex(TypeError, r"str expected at most 3 arguments, got 4"):
+            str("too", "many", "argu", "ments")
+        with self.assertRaisesRegex(TypeError, r"str expected at most 3 arguments, got 4"):
+            str(1, "", "", 1)
+
+        # no such kw arg
+        with self.assertRaisesRegex(TypeError, r"str\(\) got an unexpected keyword argument 'test'"):
+            str(test=1)
+
+        # 'encoding' must be str
+        with self.assertRaisesRegex(TypeError, r"str\(\) argument 'encoding' must be str, not int"):
+            str(1, 1)
+        with self.assertRaisesRegex(TypeError, r"str\(\) argument 'encoding' must be str, not int"):
+            str(1, encoding=1)
+        with self.assertRaisesRegex(TypeError, r"str\(\) argument 'encoding' must be str, not bytes"):
+            str(b"x", b"ascii")
+        with self.assertRaisesRegex(TypeError, r"str\(\) argument 'encoding' must be str, not bytes"):
+            str(b"x", encoding=b"ascii")
+
+        # 'errors' must be str
+        with self.assertRaisesRegex(TypeError, r"str\(\) argument 'encoding' must be str, not int"):
+            str(1, 1, 1)
+        with self.assertRaisesRegex(TypeError, r"str\(\) argument 'errors' must be str, not int"):
+            str(1, errors=1)
+        with self.assertRaisesRegex(TypeError, r"str\(\) argument 'errors' must be str, not int"):
+            str(1, "", errors=1)
+        with self.assertRaisesRegex(TypeError, r"str\(\) argument 'errors' must be str, not bytes"):
+            str(b"x", "ascii", b"strict")
+        with self.assertRaisesRegex(TypeError, r"str\(\) argument 'errors' must be str, not bytes"):
+            str(b"x", "ascii", errors=b"strict")
+
+        # both positional and kwarg
+        with self.assertRaisesRegex(TypeError, r"argument for str\(\) given by name \('encoding'\) and position \(2\)"):
+            str(b"x", "utf-8", encoding="ascii")
+        with self.assertRaisesRegex(TypeError, r"str\(\) takes at most 3 arguments \(4 given\)"):
+            str(b"x", "utf-8", "ignore", encoding="ascii")
+        with self.assertRaisesRegex(TypeError, r"str\(\) takes at most 3 arguments \(4 given\)"):
+            str(b"x", "utf-8", "strict", errors="ignore")
 
 
 class StringModuleTest(unittest.TestCase):
