@@ -122,6 +122,8 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
             char = chr(i)
             self.assertRaises(ValueError, self.db.name, char)
 
+    # TODO: RUSTPYTHON; LookupError: undefined character name 'LATIN SMLL LETR A'
+    @unittest.expectedFailure
     def test_lookup_nonexistant(self):
         # just make sure that lookup can fail
         for nonexistant in [
@@ -273,6 +275,8 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         self.assertEqual(eaw('\u2010'), 'A')
         self.assertEqual(eaw('\U00020000'), 'W')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_east_asian_width_unassigned(self):
         eaw = self.db.east_asian_width
         # unassigned

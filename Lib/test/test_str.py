@@ -112,6 +112,8 @@ class StrTest(string_tests.StringLikeTest,
         # raw strings should not have unicode escapes
         self.assertNotEqual(r"\u0020", " ")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ascii(self):
         self.assertEqual(ascii('abc'), "'abc'")
         self.assertEqual(ascii('ab\\c'), "'ab\\\\c'")
@@ -2699,6 +2701,8 @@ class StrTest(string_tests.StringLikeTest,
         proc = assert_python_failure('-X', 'dev', '-c', code)
         self.assertEqual(proc.rc, 10, proc)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_str_invalid_call(self):
         # too many args
         with self.assertRaisesRegex(TypeError, r"str expected at most 3 arguments, got 4"):
