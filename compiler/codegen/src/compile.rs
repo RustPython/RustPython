@@ -2173,103 +2173,97 @@ impl Compiler<'_> {
     ) -> CompileResult<()> {
         self.prepare_decorators(decorator_list)?;
 
-        let prev_ctx = self.ctx;
-        self.ctx = CompileContext {
-            func: FunctionContext::NoFunction,
-            in_class: true,
-            loop_data: None,
-        };
+        let has_type_params = type_params.is_some();
+        let firstlineno = self.get_source_line_number().get().to_u32();
 
-        // If there are type params, we need to push a special symbol table just for them
-        if let Some(type_params) = type_params {
-            self.push_symbol_table();
-            // Save current private name to restore later
-            let saved_private = self.code_stack.last().and_then(|info| info.private.clone());
+        if has_type_params {
+            // For PEP 695 classes, we need to:
+            // 1. Enter type params scope
+            // 2. Compile type params
+            // 3. Call compile_class_body (creates nested scope)
+            // 4. Generate class creation code
+            // 5. Exit type params scope and wrap everything in a function
+
+            let type_params_name = format!("<generic parameters of {}>", name);
+            self.push_output(
+                bytecode::CodeFlags::IS_OPTIMIZED | bytecode::CodeFlags::NEW_LOCALS,
+                0,
+                0,
+                0,
+                type_params_name.clone(),
+            );
+
+            // Set private name for name mangling
+            self.code_stack.last_mut().unwrap().private = Some(name.to_owned());
+
             // Compile type parameters and store as .type_params
-            self.compile_type_params(type_params)?;
-            // Restore private name after type param scope
-            if let Some(private) = saved_private {
-                self.code_stack.last_mut().unwrap().private = Some(private);
-            }
+            self.compile_type_params(type_params.unwrap())?;
             let dot_type_params = self.name(".type_params");
             emit!(self, Instruction::StoreLocal(dot_type_params));
 
-            // Create .generic_base in the type params scope (like CPython)
-            // Load .type_params
-            emit!(self, Instruction::LoadNameAny(dot_type_params));
+            // Compile the class body (creates its own scope)
+            let prev_ctx = self.ctx;
+            self.ctx = CompileContext {
+                func: FunctionContext::NoFunction,
+                in_class: true,
+                loop_data: None,
+            };
+            let class_code = self.compile_class_body(name, body, type_params, firstlineno)?;
+            self.ctx = prev_ctx;
 
-            // Call INTRINSIC_SUBSCRIPT_GENERIC to create Generic[*type_params]
+            // Back in type params scope, create .generic_base
+            emit!(self, Instruction::LoadNameAny(dot_type_params));
             emit!(
                 self,
                 Instruction::CallIntrinsic1 {
                     func: bytecode::IntrinsicFunction1::SubscriptGeneric
                 }
             );
-
-            // Store as .generic_base in the type params scope
             let dot_generic_base = self.name(".generic_base");
             emit!(self, Instruction::StoreLocal(dot_generic_base));
-        }
 
-        // Compile the class body into a code object
-        let firstlineno = self.get_source_line_number().get().to_u32();
-        let code = self.compile_class_body(name, body, type_params, firstlineno)?;
-        self.ctx = prev_ctx;
+            // Generate the class creation code (still in type params scope)
+            emit!(self, Instruction::LoadBuildClass);
 
-        emit!(self, Instruction::LoadBuildClass);
+            // Set up the class function
+            let mut func_flags = bytecode::MakeFunctionFlags::empty();
 
-        let mut func_flags = bytecode::MakeFunctionFlags::empty();
-
-        // Prepare generic type parameters:
-        if type_params.is_some() {
-            // Load .type_params from the type params scope
-            let dot_type_params = self.name(".type_params");
+            // Load .type_params for the class function
             emit!(self, Instruction::LoadNameAny(dot_type_params));
             func_flags |= bytecode::MakeFunctionFlags::TYPE_PARAMS;
-        }
 
-        if self.build_closure(&code) {
-            func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
-        }
+            if self.build_closure(&class_code) {
+                func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
+            }
 
-        self.emit_load_const(ConstantData::Code {
-            code: Box::new(code),
-        });
-        self.emit_load_const(ConstantData::Str { value: name.into() });
+            self.emit_load_const(ConstantData::Code {
+                code: Box::new(class_code),
+            });
+            self.emit_load_const(ConstantData::Str { value: name.into() });
 
-        // Turn code object into function object:
-        emit!(self, Instruction::MakeFunction(func_flags));
+            emit!(self, Instruction::MakeFunction(func_flags));
 
-        self.emit_load_const(ConstantData::Str { value: name.into() });
+            self.emit_load_const(ConstantData::Str { value: name.into() });
 
-        // For PEP 695 classes: handle Generic base creation
-        if type_params.is_some() {
-            // Stack currently: [function, class_name]
-
-            // Compile the original bases (if any)
-            if let Some(arguments) = arguments {
-                // Compile all the positional arguments (bases)
+            // Compile bases with .generic_base appended
+            let base_count = if let Some(arguments) = arguments {
                 for arg in &arguments.args {
                     self.compile_expression(arg)?;
                 }
-            }
-
-            // Load .generic_base from the type params scope
-            let dot_generic_base = self.name(".generic_base");
-            emit!(self, Instruction::LoadNameAny(dot_generic_base));
-
-            // Calculate total number of positional args
-            let nargs = if let Some(arguments) = arguments {
-                2 + arguments.args.len() as u32 + 1 // function, name, bases..., generic_base
+                arguments.args.len()
             } else {
-                3 // function, name, generic_base
+                0
             };
 
-            // Handle keyword arguments if any
+            // Load .generic_base as the last base
+            emit!(self, Instruction::LoadNameAny(dot_generic_base));
+
+            let nargs = 2 + base_count as u32 + 1; // function, name, bases..., generic_base
+
+            // Handle keyword arguments
             if let Some(arguments) = arguments
                 && !arguments.keywords.is_empty()
             {
-                // Compile keyword arguments
                 for keyword in &arguments.keywords {
                     if let Some(name) = &keyword.arg {
                         self.emit_load_const(ConstantData::Str {
@@ -2288,8 +2282,58 @@ impl Compiler<'_> {
             } else {
                 emit!(self, Instruction::CallFunctionPositional { nargs });
             }
+
+            // Return the created class
+            self.emit_return_value();
+
+            // Exit type params scope and get the code object
+            let type_params_code = self.exit_scope();
+
+            // Now execute the type params function
+            if self.build_closure(&type_params_code) {
+                // Should not need closure
+            }
+            self.emit_load_const(ConstantData::Code {
+                code: Box::new(type_params_code),
+            });
+            self.emit_load_const(ConstantData::Str {
+                value: type_params_name.into(),
+            });
+            emit!(
+                self,
+                Instruction::MakeFunction(bytecode::MakeFunctionFlags::empty())
+            );
+
+            emit!(self, Instruction::CallFunctionPositional { nargs: 0 });
         } else {
-            // No type params, normal compilation
+            // Traditional class without type params
+            let prev_ctx = self.ctx;
+            self.ctx = CompileContext {
+                func: FunctionContext::NoFunction,
+                in_class: true,
+                loop_data: None,
+            };
+
+            let code = self.compile_class_body(name, body, type_params, firstlineno)?;
+            self.ctx = prev_ctx;
+
+            emit!(self, Instruction::LoadBuildClass);
+
+            let mut func_flags = bytecode::MakeFunctionFlags::empty();
+
+            if self.build_closure(&code) {
+                func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
+            }
+
+            self.emit_load_const(ConstantData::Code {
+                code: Box::new(code),
+            });
+            self.emit_load_const(ConstantData::Str { value: name.into() });
+
+            emit!(self, Instruction::MakeFunction(func_flags));
+
+            self.emit_load_const(ConstantData::Str { value: name.into() });
+
             let call = if let Some(arguments) = arguments {
                 self.compile_call_inner(2, arguments)?
             } else {
@@ -2298,13 +2342,7 @@ impl Compiler<'_> {
             self.compile_normal_call(call);
         }
 
-        // Pop the special type params symbol table
-        if type_params.is_some() {
-            self.pop_symbol_table();
-        }
-
         self.apply_decorators(decorator_list);
-
         self.store_name(name)
     }
 
