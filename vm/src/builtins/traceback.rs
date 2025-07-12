@@ -1,8 +1,9 @@
 use rustpython_common::lock::PyMutex;
 
-use super::PyType;
+use super::{PyType, PyTypeRef};
 use crate::{
-    Context, Py, PyPayload, PyRef, class::PyClassImpl, frame::FrameRef, source::LineNumber,
+    Context, Py, PyPayload, PyRef, PyResult, VirtualMachine, class::PyClassImpl, frame::FrameRef,
+    source::LineNumber, types::Constructor,
 };
 
 #[pyclass(module = false, name = "traceback", traverse)]
@@ -25,7 +26,7 @@ impl PyPayload for PyTraceback {
     }
 }
 
-#[pyclass]
+#[pyclass(with(Constructor))]
 impl PyTraceback {
     pub const fn new(
         next: Option<PyRef<Self>>,
@@ -64,6 +65,18 @@ impl PyTraceback {
     #[pygetset(setter)]
     fn set_tb_next(&self, value: Option<PyRef<Self>>) {
         *self.next.lock() = value;
+    }
+}
+
+impl Constructor for PyTraceback {
+    type Args = (Option<PyRef<PyTraceback>>, FrameRef, u32, usize);
+
+    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        let (next, frame, lasti, lineno) = args;
+        let lineno = LineNumber::new(lineno)
+            .ok_or_else(|| vm.new_value_error("lineno must be positive".to_owned()))?;
+        let tb = PyTraceback::new(next, frame, lasti, lineno);
+        tb.into_ref_with_type(vm, cls).map(Into::into)
     }
 }
 
