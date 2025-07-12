@@ -176,7 +176,7 @@ pub fn compile_program(
         .map_err(|e| e.into_codegen_error(source_code.path.to_owned()))?;
     let mut compiler = Compiler::new(opts, source_code, "<module>".to_owned());
     compiler.compile_program(ast, symbol_table)?;
-    let code = compiler.pop_code_object();
+    let code = compiler.exit_scope();
     trace!("Compilation completed: {code:?}");
     Ok(code)
 }
@@ -191,7 +191,7 @@ pub fn compile_program_single(
         .map_err(|e| e.into_codegen_error(source_code.path.to_owned()))?;
     let mut compiler = Compiler::new(opts, source_code, "<module>".to_owned());
     compiler.compile_program_single(&ast.body, symbol_table)?;
-    let code = compiler.pop_code_object();
+    let code = compiler.exit_scope();
     trace!("Compilation completed: {code:?}");
     Ok(code)
 }
@@ -205,7 +205,7 @@ pub fn compile_block_expression(
         .map_err(|e| e.into_codegen_error(source_code.path.to_owned()))?;
     let mut compiler = Compiler::new(opts, source_code, "<module>".to_owned());
     compiler.compile_block_expr(&ast.body, symbol_table)?;
-    let code = compiler.pop_code_object();
+    let code = compiler.exit_scope();
     trace!("Compilation completed: {code:?}");
     Ok(code)
 }
@@ -219,7 +219,7 @@ pub fn compile_expression(
         .map_err(|e| e.into_codegen_error(source_code.path.to_owned()))?;
     let mut compiler = Compiler::new(opts, source_code, "<module>".to_owned());
     compiler.compile_eval(ast, symbol_table)?;
-    let code = compiler.pop_code_object();
+    let code = compiler.exit_scope();
     Ok(code)
 }
 
@@ -404,55 +404,121 @@ impl Compiler<'_> {
         self.symbol_table_stack.pop().expect("compiler bug")
     }
 
-    fn push_output(
+    /// Enter a new scope
+    // = compiler_enter_scope
+    fn enter_scope(
         &mut self,
-        flags: bytecode::CodeFlags,
-        posonlyarg_count: u32,
-        arg_count: u32,
-        kwonlyarg_count: u32,
-        obj_name: String,
-    ) {
+        name: &str,
+        scope_type: SymbolTableType,
+        key: usize, // In RustPython, we use the index in symbol_table_stack as key
+        lineno: u32,
+    ) -> CompileResult<()> {
+        // Create location
+        let location = ruff_source_file::SourceLocation {
+            row: OneIndexed::new(lineno as usize).unwrap_or(OneIndexed::MIN),
+            column: OneIndexed::new(1).unwrap(),
+        };
+
+        // Allocate a new compiler unit
+
+        // In Rust, we'll create the structure directly
         let source_path = self.source_code.path.to_owned();
-        let first_line_number = self.get_source_line_number();
 
-        // Get the private name from current scope if exists
-        let private = self.code_stack.last().and_then(|info| info.private.clone());
+        // Lookup symbol table entry using key (_PySymtable_Lookup)
+        let ste = if key < self.symbol_table_stack.len() {
+            &self.symbol_table_stack[key]
+        } else {
+            return Err(self.error(CodegenErrorType::SyntaxError(
+                "unknown symbol table entry".to_owned(),
+            )));
+        };
 
-        let table = self.push_symbol_table();
+        // Use varnames from symbol table (already collected in definition order)
+        let varname_cache: IndexSet<String> = ste.varnames.iter().cloned().collect();
 
-        let cellvar_cache = table
+        // Build cellvars using dictbytype (CELL scope, sorted)
+        let mut cellvar_cache = IndexSet::default();
+        let mut cell_names: Vec<_> = ste
             .symbols
             .iter()
             .filter(|(_, s)| s.scope == SymbolScope::Cell)
-            .map(|(var, _)| var.clone())
+            .map(|(name, _)| name.clone())
             .collect();
-        let freevar_cache = table
+        cell_names.sort();
+        for name in cell_names {
+            cellvar_cache.insert(name);
+        }
+
+        // Handle implicit __class__ cell if needed
+        if ste.needs_class_closure {
+            // Cook up an implicit __class__ cell
+            debug_assert_eq!(scope_type, SymbolTableType::Class);
+            cellvar_cache.insert("__class__".to_string());
+        }
+
+        // Handle implicit __classdict__ cell if needed
+        if ste.needs_classdict {
+            // Cook up an implicit __classdict__ cell
+            debug_assert_eq!(scope_type, SymbolTableType::Class);
+            cellvar_cache.insert("__classdict__".to_string());
+        }
+
+        // Build freevars using dictbytype (FREE scope, offset by cellvars size)
+        let mut freevar_cache = IndexSet::default();
+        let mut free_names: Vec<_> = ste
             .symbols
             .iter()
             .filter(|(_, s)| {
                 s.scope == SymbolScope::Free || s.flags.contains(SymbolFlags::FREE_CLASS)
             })
-            .map(|(var, _)| var.clone())
+            .map(|(name, _)| name.clone())
             .collect();
+        free_names.sort();
+        for name in free_names {
+            freevar_cache.insert(name);
+        }
 
-        // Initialize varname_cache from SymbolTable::varnames
-        let varname_cache: IndexSet<String> = table.varnames.iter().cloned().collect();
+        // Initialize u_metadata fields
+        let (flags, posonlyarg_count, arg_count, kwonlyarg_count) = match scope_type {
+            SymbolTableType::Module => (bytecode::CodeFlags::empty(), 0, 0, 0),
+            SymbolTableType::Class => (bytecode::CodeFlags::empty(), 0, 0, 0),
+            SymbolTableType::Function | SymbolTableType::Lambda => (
+                bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
+                0, // Will be set later in enter_function
+                0, // Will be set later in enter_function
+                0, // Will be set later in enter_function
+            ),
+            SymbolTableType::Comprehension => (
+                bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
+                0,
+                1, // comprehensions take one argument (.0)
+                0,
+            ),
+            SymbolTableType::TypeParams => (
+                bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
+                0,
+                0,
+                0,
+            ),
+        };
 
-        // Qualname will be set later by set_qualname
-        let qualname = None;
+        // Get private name from parent scope
+        let private = if !self.code_stack.is_empty() {
+            self.code_stack.last().unwrap().private.clone()
+        } else {
+            None
+        };
 
-        // Check if this is a class scope
-        let is_class_scope = table.typ == SymbolTableType::Class;
-
-        let info = ir::CodeInfo {
+        // Create the new compilation unit
+        let code_info = ir::CodeInfo {
             flags,
-            source_path,
+            source_path: source_path.clone(),
             private,
             blocks: vec![ir::Block::default()],
-            current_block: ir::BlockIdx(0),
+            current_block: BlockIdx(0),
             metadata: ir::CodeUnitMetadata {
-                name: obj_name,
-                qualname,
+                name: name.to_owned(),
+                qualname: None, // Will be set below
                 consts: IndexSet::default(),
                 names: IndexSet::default(),
                 varnames: varname_cache,
@@ -462,9 +528,9 @@ impl Compiler<'_> {
                 argcount: arg_count,
                 posonlyargcount: posonlyarg_count,
                 kwonlyargcount: kwonlyarg_count,
-                firstlineno: first_line_number,
+                firstlineno: OneIndexed::new(lineno as usize).unwrap_or(OneIndexed::MIN),
             },
-            static_attributes: if is_class_scope {
+            static_attributes: if scope_type == SymbolTableType::Class {
                 Some(IndexSet::default())
             } else {
                 None
@@ -472,10 +538,83 @@ impl Compiler<'_> {
             in_inlined_comp: false,
             fblock: Vec::with_capacity(MAXBLOCKS),
         };
-        self.code_stack.push(info);
+
+        // Push the old compiler unit on the stack (like PyCapsule)
+        // This happens before setting qualname
+        self.code_stack.push(code_info);
+
+        // Set qualname after pushing (uses compiler_set_qualname logic)
+        if scope_type != SymbolTableType::Module {
+            self.set_qualname();
+        }
+
+        // Emit RESUME instruction
+        let _resume_loc = if scope_type == SymbolTableType::Module {
+            // Module scope starts with lineno 0
+            ruff_source_file::SourceLocation {
+                row: OneIndexed::MIN,
+                column: OneIndexed::MIN,
+            }
+        } else {
+            location
+        };
+
+        // Set the source range for the RESUME instruction
+        // For now, just use an empty range at the beginning
+        self.current_source_range = TextRange::default();
+        emit!(
+            self,
+            Instruction::Resume {
+                arg: bytecode::ResumeType::AtFuncStart as u32
+            }
+        );
+
+        if scope_type == SymbolTableType::Module {
+            // This would be loc.lineno = -1 in CPython
+            // We handle this differently in RustPython
+        }
+
+        Ok(())
     }
 
-    fn pop_code_object(&mut self) -> CodeObject {
+    fn push_output(
+        &mut self,
+        flags: bytecode::CodeFlags,
+        posonlyarg_count: u32,
+        arg_count: u32,
+        kwonlyarg_count: u32,
+        obj_name: String,
+    ) {
+        // First push the symbol table
+        let table = self.push_symbol_table();
+        let scope_type = table.typ;
+
+        // The key is the current position in the symbol table stack
+        let key = self.symbol_table_stack.len() - 1;
+
+        // Get the line number
+        let lineno = self.get_source_line_number().get();
+
+        // Call enter_scope which does most of the work
+        if let Err(e) = self.enter_scope(&obj_name, scope_type, key, lineno.to_u32()) {
+            // In the current implementation, push_output doesn't return an error,
+            // so we panic here. This maintains the same behavior.
+            panic!("enter_scope failed: {e:?}");
+        }
+
+        // Override the values that push_output sets explicitly
+        // enter_scope sets default values based on scope_type, but push_output
+        // allows callers to specify exact values
+        if let Some(info) = self.code_stack.last_mut() {
+            info.flags = flags;
+            info.metadata.argcount = arg_count;
+            info.metadata.posonlyargcount = posonlyarg_count;
+            info.metadata.kwonlyargcount = kwonlyarg_count;
+        }
+    }
+
+    // compiler_exit_scope
+    fn exit_scope(&mut self) -> CodeObject {
         let table = self.pop_symbol_table();
         assert!(table.sub_tables.is_empty());
         let pop = self.code_stack.pop();
@@ -755,7 +894,7 @@ impl Compiler<'_> {
     }
 
     fn mangle<'a>(&self, name: &'a str) -> Cow<'a, str> {
-        // Use u_private from current code unit for name mangling
+        // Use private from current code unit for name mangling
         let private = self
             .code_stack
             .last()
@@ -1758,14 +1897,6 @@ impl Compiler<'_> {
             .consts
             .insert_full(ConstantData::None);
 
-        // Emit RESUME instruction at function start
-        emit!(
-            self,
-            Instruction::Resume {
-                arg: bytecode::ResumeType::AtFuncStart as u32
-            }
-        );
-
         self.compile_statements(body)?;
 
         // Emit None at end:
@@ -1778,7 +1909,7 @@ impl Compiler<'_> {
             }
         }
 
-        let code = self.pop_code_object();
+        let code = self.exit_scope();
         self.ctx = prev_ctx;
 
         // Prepare generic type parameters:
@@ -2030,7 +2161,7 @@ impl Compiler<'_> {
 
         self.emit_return_value();
 
-        let code = self.pop_code_object();
+        let code = self.exit_scope();
         self.ctx = prev_ctx;
 
         emit!(self, Instruction::LoadBuildClass);
@@ -3820,7 +3951,7 @@ impl Compiler<'_> {
 
                 self.compile_expression(body)?;
                 self.emit_return_value();
-                let code = self.pop_code_object();
+                let code = self.exit_scope();
                 if self.build_closure(&code) {
                     func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
                 }
@@ -4369,7 +4500,7 @@ impl Compiler<'_> {
         self.emit_return_value();
 
         // Fetch code for listcomp function:
-        let code = self.pop_code_object();
+        let code = self.exit_scope();
 
         self.ctx = prev_ctx;
 
@@ -5076,7 +5207,7 @@ mod tests {
             .unwrap();
         let mut compiler = Compiler::new(opts, source_code, "<module>".to_owned());
         compiler.compile_program(&ast, symbol_table).unwrap();
-        compiler.pop_code_object()
+        compiler.exit_scope()
     }
 
     macro_rules! assert_dis_snapshot {
