@@ -674,7 +674,7 @@ impl SymbolTableBuilder<'_> {
         let in_class = self
             .tables
             .last()
-            .map_or(false, |t| t.typ == CompilerScope::Class);
+            .is_some_and(|t| t.typ == CompilerScope::Class);
 
         self.enter_scope(name, CompilerScope::TypeParams, line_number);
 
@@ -1368,6 +1368,26 @@ impl SymbolTableBuilder<'_> {
         Ok(())
     }
 
+    /// Scan type parameter bound or default in a separate scope
+    // = symtable_visit_type_param_bound_or_default
+    fn scan_type_param_bound_or_default(&mut self, expr: &Expr, name: &str) -> SymbolTableResult {
+        // Enter a new TypeParams scope for the bound/default expression
+        // This allows the expression to access outer scope symbols
+        let line_number = self.line_index_start(expr.range());
+        self.enter_scope(name, CompilerScope::TypeParams, line_number);
+
+        // Note: In CPython, can_see_class_scope is preserved in the new scope
+        // In RustPython, this is handled through the scope hierarchy
+
+        // Scan the expression in this new scope
+        let result = self.scan_expression(expr, ExpressionContext::Load);
+
+        // Exit the scope
+        self.leave_scope();
+
+        result
+    }
+
     fn scan_type_params(&mut self, type_params: &TypeParams) -> SymbolTableResult {
         // Register .type_params as a type parameter (automatically becomes cell variable)
         self.register_name(".type_params", SymbolUsage::TypeParam, type_params.range)?;
@@ -1379,26 +1399,51 @@ impl SymbolTableBuilder<'_> {
                     name,
                     bound,
                     range: type_var_range,
-                    ..
+                    default,
                 }) => {
                     self.register_name(name.as_str(), SymbolUsage::TypeParam, *type_var_range)?;
+
+                    // Process bound in a separate scope
                     if let Some(binding) = bound {
-                        self.scan_expression(binding, ExpressionContext::Load)?;
+                        let scope_name = if binding.is_tuple_expr() {
+                            format!("<TypeVar constraint of {name}>")
+                        } else {
+                            format!("<TypeVar bound of {name}>")
+                        };
+                        self.scan_type_param_bound_or_default(binding, &scope_name)?;
+                    }
+
+                    // Process default in a separate scope
+                    if let Some(default_value) = default {
+                        let scope_name = format!("<TypeVar default of {name}>");
+                        self.scan_type_param_bound_or_default(default_value, &scope_name)?;
                     }
                 }
                 TypeParam::ParamSpec(TypeParamParamSpec {
                     name,
                     range: param_spec_range,
-                    ..
+                    default,
                 }) => {
                     self.register_name(name, SymbolUsage::TypeParam, *param_spec_range)?;
+
+                    // Process default in a separate scope
+                    if let Some(default_value) = default {
+                        let scope_name = format!("<ParamSpec default of {name}>");
+                        self.scan_type_param_bound_or_default(default_value, &scope_name)?;
+                    }
                 }
                 TypeParam::TypeVarTuple(TypeParamTypeVarTuple {
                     name,
                     range: type_var_tuple_range,
-                    ..
+                    default,
                 }) => {
                     self.register_name(name, SymbolUsage::TypeParam, *type_var_tuple_range)?;
+
+                    // Process default in a separate scope
+                    if let Some(default_value) = default {
+                        let scope_name = format!("<TypeVarTuple default of {name}>");
+                        self.scan_type_param_bound_or_default(default_value, &scope_name)?;
+                    }
                 }
             }
         }
