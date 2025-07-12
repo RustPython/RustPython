@@ -154,8 +154,6 @@ class BaseTest:
                     self.assertEqual(rem, 0, '%s != 0 for %s' % (rem, i))
                     self.assertEqual(r1, r2, '%s != %s for %s' % (r1, r2, i))
 
-    # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument count
-    @unittest.expectedFailure
     def test_count_keyword(self):
         self.assertEqual('aa'.replace('a', 'b', 0), 'aa'.replace('a', 'b', count=0))
         self.assertEqual('aa'.replace('a', 'b', 1), 'aa'.replace('a', 'b', count=1))

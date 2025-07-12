@@ -1018,20 +1018,27 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn replace(&self, old: PyStrRef, new: PyStrRef, count: OptionalArg<isize>) -> Wtf8Buf {
+    fn replace(&self, args: ReplaceArgs) -> Wtf8Buf {
+        use std::cmp::Ordering;
+
         let s = self.as_wtf8();
-        match count {
-            OptionalArg::Present(max_count) if max_count >= 0 => {
-                if max_count == 0 || (s.is_empty() && !old.is_empty()) {
-                    // nothing to do; return the original bytes
+        let ReplaceArgs { old, new, count } = args;
+
+        match count.cmp(&0) {
+            Ordering::Less => s.replace(old.as_wtf8(), new.as_wtf8()),
+            Ordering::Equal => s.to_owned(),
+            Ordering::Greater => {
+                let s_is_empty = s.is_empty();
+                let old_is_empty = old.is_empty();
+
+                if s_is_empty && !old_is_empty {
                     s.to_owned()
-                } else if s.is_empty() && old.is_empty() {
+                } else if s_is_empty && old_is_empty {
                     new.as_wtf8().to_owned()
                 } else {
-                    s.replacen(old.as_wtf8(), new.as_wtf8(), max_count as usize)
+                    s.replacen(old.as_wtf8(), new.as_wtf8(), count as usize)
                 }
             }
-            _ => s.replace(old.as_wtf8(), new.as_wtf8()),
         }
     }
 
@@ -1683,6 +1690,18 @@ impl FindArgs {
         let range = adjust_indices(self.start, self.end, len);
         (self.sub, range)
     }
+}
+
+#[derive(FromArgs)]
+struct ReplaceArgs {
+    #[pyarg(positional)]
+    old: PyStrRef,
+
+    #[pyarg(positional)]
+    new: PyStrRef,
+
+    #[pyarg(any, default = -1)]
+    count: isize,
 }
 
 pub fn init(ctx: &Context) {
