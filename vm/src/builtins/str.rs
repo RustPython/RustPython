@@ -1017,9 +1017,6 @@ impl PyStr {
         !self.data.is_empty() && self.char_all(char::is_alphabetic)
     }
 
-    /// Return a copy of the string with all occurrences of substring old replaced by new.
-    /// If count is given, only the first count occurrences are replaced.
-    /// If count is not specified or -1, then all occurrences are replaced.
     #[pymethod]
     fn replace(&self, args: ReplaceArgs) -> Wtf8Buf {
         use std::cmp::Ordering;
