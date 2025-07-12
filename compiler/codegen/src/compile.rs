@@ -1959,24 +1959,13 @@ impl Compiler<'_> {
             );
         }
 
-        if self.build_closure(&code) {
-            func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
-        }
-
         // Pop the special type params symbol table
         if type_params.is_some() {
             self.pop_symbol_table();
         }
 
-        self.emit_load_const(ConstantData::Code {
-            code: Box::new(code),
-        });
-        self.emit_load_const(ConstantData::Str {
-            value: qualname.into(),
-        });
-
-        // Turn code object into function object:
-        emit!(self, Instruction::MakeFunction(func_flags));
+        // Create function with closure
+        self.make_closure(code, &qualname, func_flags)?;
 
         if let Some(value) = doc_str {
             emit!(self, Instruction::Duplicate);
@@ -1993,44 +1982,86 @@ impl Compiler<'_> {
         self.store_name(name)
     }
 
-    fn build_closure(&mut self, code: &CodeObject) -> bool {
-        if code.freevars.is_empty() {
-            return false;
-        }
-        for var in &*code.freevars {
-            let table = self.symbol_table_stack.last().unwrap();
-            let symbol = unwrap_internal(
+    /// Loads closure variables if needed and creates a function object
+    // = compiler_make_closure
+    fn make_closure(
+        &mut self,
+        code: CodeObject,
+        qualname: &str,
+        mut flags: bytecode::MakeFunctionFlags,
+    ) -> CompileResult<()> {
+        // Handle free variables (closure)
+        if !code.freevars.is_empty() {
+            // Build closure tuple by loading free variables
+            for var in &code.freevars {
+                let table = self.symbol_table_stack.last().unwrap();
+                let symbol = match table.lookup(var) {
+                    Some(s) => s,
+                    None => {
+                        return Err(self.error(CodegenErrorType::SyntaxError(format!(
+                            "compiler_make_closure: cannot find symbol '{var}'",
+                        ))));
+                    }
+                };
+
+                let parent_code = self.code_stack.last().unwrap();
+                let vars = match symbol.scope {
+                    SymbolScope::Free => &parent_code.metadata.freevars,
+                    SymbolScope::Cell => &parent_code.metadata.cellvars,
+                    SymbolScope::TypeParams => &parent_code.metadata.cellvars,
+                    _ if symbol.flags.contains(SymbolFlags::FREE_CLASS) => {
+                        &parent_code.metadata.freevars
+                    }
+                    _ => {
+                        return Err(self.error(CodegenErrorType::SyntaxError(format!(
+                            "compiler_make_closure: invalid scope for '{var}'",
+                        ))));
+                    }
+                };
+
+                let idx = match vars.get_index_of(var) {
+                    Some(i) => i,
+                    None => {
+                        return Err(self.error(CodegenErrorType::SyntaxError(format!(
+                            "compiler_make_closure: cannot find '{var}' in parent vars",
+                        ))));
+                    }
+                };
+
+                let idx = if let SymbolScope::Free = symbol.scope {
+                    idx + parent_code.metadata.cellvars.len()
+                } else {
+                    idx
+                };
+
+                emit!(self, Instruction::LoadClosure(idx.to_u32()));
+            }
+
+            // Build tuple of closure variables
+            emit!(
                 self,
-                table
-                    .lookup(var)
-                    .ok_or_else(|| InternalError::MissingSymbol(var.to_owned())),
-            );
-            let parent_code = self.code_stack.last().unwrap();
-            let vars = match symbol.scope {
-                SymbolScope::Free => &parent_code.metadata.freevars,
-                SymbolScope::Cell => &parent_code.metadata.cellvars,
-                SymbolScope::TypeParams => &parent_code.metadata.cellvars,
-                _ if symbol.flags.contains(SymbolFlags::FREE_CLASS) => {
-                    &parent_code.metadata.freevars
+                Instruction::BuildTuple {
+                    size: code.freevars.len().to_u32(),
                 }
-                x => unreachable!(
-                    "var {} in a {:?} should be free or cell but it's {:?}",
-                    var, table.typ, x
-                ),
-            };
-            let mut idx = vars.get_index_of(var).unwrap();
-            if let SymbolScope::Free = symbol.scope {
-                idx += parent_code.metadata.cellvars.len();
-            }
-            emit!(self, Instruction::LoadClosure(idx.to_u32()))
+            );
+
+            flags |= bytecode::MakeFunctionFlags::CLOSURE;
         }
-        emit!(
-            self,
-            Instruction::BuildTuple {
-                size: code.freevars.len().to_u32(),
-            }
-        );
-        true
+
+        // Load code object
+        self.emit_load_const(ConstantData::Code {
+            code: Box::new(code),
+        });
+
+        // Load qualified name
+        self.emit_load_const(ConstantData::Str {
+            value: qualname.into(),
+        });
+
+        // Make function with proper flags
+        emit!(self, Instruction::MakeFunction(flags));
+
+        Ok(())
     }
 
     // Python/compile.c find_ann
@@ -2230,15 +2261,8 @@ impl Compiler<'_> {
             emit!(self, Instruction::LoadNameAny(dot_type_params));
             func_flags |= bytecode::MakeFunctionFlags::TYPE_PARAMS;
 
-            if self.build_closure(&class_code) {
-                func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
-            }
-
-            self.emit_load_const(ConstantData::Code {
-                code: Box::new(class_code),
-            });
-            self.emit_load_const(ConstantData::Str { value: name.into() });
-            emit!(self, Instruction::MakeFunction(func_flags));
+            // Create class function with closure
+            self.make_closure(class_code, name, func_flags)?;
             self.emit_load_const(ConstantData::Str { value: name.into() });
 
             // Compile original bases
@@ -2287,34 +2311,19 @@ impl Compiler<'_> {
             let type_params_code = self.exit_scope();
 
             // Execute the type params function
-            if self.build_closure(&type_params_code) {
-                // Should not need closure
-            }
-            self.emit_load_const(ConstantData::Code {
-                code: Box::new(type_params_code),
-            });
-            self.emit_load_const(ConstantData::Str {
-                value: format!("<generic parameters of {name}>").into(),
-            });
-            emit!(
-                self,
-                Instruction::MakeFunction(bytecode::MakeFunctionFlags::empty())
-            );
+            let type_params_name = format!("<generic parameters of {name}>");
+            self.make_closure(
+                type_params_code,
+                &type_params_name,
+                bytecode::MakeFunctionFlags::empty(),
+            )?;
             emit!(self, Instruction::CallFunctionPositional { nargs: 0 });
         } else {
             // Non-generic class: standard path
             emit!(self, Instruction::LoadBuildClass);
 
-            let mut func_flags = bytecode::MakeFunctionFlags::empty();
-            if self.build_closure(&class_code) {
-                func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
-            }
-
-            self.emit_load_const(ConstantData::Code {
-                code: Box::new(class_code),
-            });
-            self.emit_load_const(ConstantData::Str { value: name.into() });
-            emit!(self, Instruction::MakeFunction(func_flags));
+            // Create class function with closure
+            self.make_closure(class_code, name, bytecode::MakeFunctionFlags::empty())?;
             self.emit_load_const(ConstantData::Str { value: name.into() });
 
             let call = if let Some(arguments) = arguments {
@@ -4026,7 +4035,7 @@ impl Compiler<'_> {
                 let prev_ctx = self.ctx;
 
                 let name = "<lambda>".to_owned();
-                let mut func_flags = self
+                let func_flags = self
                     .enter_function(&name, parameters.as_deref().unwrap_or(&Default::default()))?;
 
                 // Set qualname for lambda
@@ -4046,15 +4055,9 @@ impl Compiler<'_> {
                 self.compile_expression(body)?;
                 self.emit_return_value();
                 let code = self.exit_scope();
-                if self.build_closure(&code) {
-                    func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
-                }
-                self.emit_load_const(ConstantData::Code {
-                    code: Box::new(code),
-                });
-                self.emit_load_const(ConstantData::Str { value: name.into() });
-                // Turn code object into function object:
-                emit!(self, Instruction::MakeFunction(func_flags));
+
+                // Create lambda function with closure
+                self.make_closure(code, &name, func_flags)?;
 
                 self.ctx = prev_ctx;
             }
@@ -4598,21 +4601,8 @@ impl Compiler<'_> {
 
         self.ctx = prev_ctx;
 
-        let mut func_flags = bytecode::MakeFunctionFlags::empty();
-        if self.build_closure(&code) {
-            func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
-        }
-
-        // List comprehension code:
-        self.emit_load_const(ConstantData::Code {
-            code: Box::new(code),
-        });
-
-        // List comprehension function name:
-        self.emit_load_const(ConstantData::Str { value: name.into() });
-
-        // Turn code object into function object:
-        emit!(self, Instruction::MakeFunction(func_flags));
+        // Create comprehension function with closure
+        self.make_closure(code, name, bytecode::MakeFunctionFlags::empty())?;
 
         // Evaluate iterated item:
         self.compile_expression(&generators[0].iter)?;
