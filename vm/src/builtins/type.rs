@@ -936,9 +936,9 @@ impl Constructor for PyType {
             return Err(vm.new_value_error("type name must not contain null characters"));
         }
 
-        let (metatype, base, bases) = if bases.is_empty() {
+        let (metatype, base, bases, base_is_type) = if bases.is_empty() {
             let base = vm.ctx.types.object_type.to_owned();
-            (metatype, base.clone(), vec![base])
+            (metatype, base.clone(), vec![base], false)
         } else {
             let bases = bases
                 .iter()
@@ -972,8 +972,9 @@ impl Constructor for PyType {
             };
 
             let base = best_base(&bases, vm)?;
+            let base_is_type = base.is(vm.ctx.types.type_type);
 
-            (metatype, base.to_owned(), bases)
+            (metatype, base.to_owned(), bases, base_is_type)
         };
 
         let qualname = dict
@@ -1021,17 +1022,21 @@ impl Constructor for PyType {
         // All *classes* should have a dict. Exceptions are *instances* of
         // classes that define __slots__ and instances of built-in classes
         // (with exceptions, e.g function)
-        let __dict__ = identifier!(vm, __dict__);
-        attributes.entry(__dict__).or_insert_with(|| {
-            vm.ctx
-                .new_static_getset(
-                    "__dict__",
-                    vm.ctx.types.type_type,
-                    subtype_get_dict,
-                    subtype_set_dict,
-                )
-                .into()
-        });
+        // Also, type subclasses don't need their own __dict__ descriptor
+        // since they inherit it from type
+        if !base_is_type {
+            let __dict__ = identifier!(vm, __dict__);
+            attributes.entry(__dict__).or_insert_with(|| {
+                vm.ctx
+                    .new_static_getset(
+                        "__dict__",
+                        vm.ctx.types.type_type,
+                        subtype_get_dict,
+                        subtype_set_dict,
+                    )
+                    .into()
+            });
+        }
 
         // TODO: Flags is currently initialized with HAS_DICT. Should be
         // updated when __slots__ are supported (toggling the flag off if
