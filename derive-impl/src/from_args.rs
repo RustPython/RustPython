@@ -180,7 +180,7 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream> {
 }
 
 pub fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
-    // TODO: Set lower airty bound dynamicly
+    // TODO: Set lower arity bound dynamicly
     let (fields, arity) = match input.data {
         Data::Struct(syn::DataStruct { fields, .. }) => (
             fields
