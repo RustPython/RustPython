@@ -8,7 +8,7 @@ import sys
 import unittest
 import weakref
 from test import support
-from test.support import import_helper, C_RECURSION_LIMIT
+from test.support import import_helper, get_c_recursion_limit
 
 
 class DictTest(unittest.TestCase):
@@ -312,16 +312,33 @@ class DictTest(unittest.TestCase):
         self.assertRaises(Exc, baddict2.fromkeys, [1])
 
         # test fast path for dictionary inputs
+        res = dict(zip(range(6), [0]*6))
         d = dict(zip(range(6), range(6)))
-        self.assertEqual(dict.fromkeys(d, 0), dict(zip(range(6), [0]*6)))
+        self.assertEqual(dict.fromkeys(d, 0), res)
+        # test fast path for set inputs
+        d = set(range(6))
+        self.assertEqual(dict.fromkeys(d, 0), res)
+        # test slow path for other iterable inputs
+        d = list(range(6))
+        self.assertEqual(dict.fromkeys(d, 0), res)
 
+        # test fast path when object's constructor returns large non-empty dict
         class baddict3(dict):
             def __new__(cls):
                 return d
-        d = {i : i for i in range(10)}
+        d = {i : i for i in range(1000)}
         res = d.copy()
         res.update(a=None, b=None, c=None)
         self.assertEqual(baddict3.fromkeys({"a", "b", "c"}), res)
+
+        # test slow path when object is a proper subclass of dict
+        class baddict4(dict):
+            def __init__(self):
+                dict.__init__(self, d)
+        d = {i : i for i in range(1000)}
+        res = d.copy()
+        res.update(a=None, b=None, c=None)
+        self.assertEqual(baddict4.fromkeys({"a", "b", "c"}), res)
 
     def test_copy(self):
         d = {1: 1, 2: 2, 3: 3}
@@ -596,10 +613,9 @@ class DictTest(unittest.TestCase):
         d = {1: BadRepr()}
         self.assertRaises(Exc, repr, d)
 
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def test_repr_deep(self):
         d = {}
-        for i in range(C_RECURSION_LIMIT + 1):
+        for i in range(get_c_recursion_limit() + 1):
             d = {1: d}
         self.assertRaises(RecursionError, repr, d)
 
@@ -994,6 +1010,18 @@ class DictTest(unittest.TestCase):
             pass
         self._tracked(MyDict())
 
+    @support.cpython_only
+    def test_track_lazy_instance_dicts(self):
+        class C:
+            pass
+        o = C()
+        d = o.__dict__
+        self._not_tracked(d)
+        o.untracked = 42
+        self._not_tracked(d)
+        o.tracked = []
+        self._tracked(d)
+
     def make_shared_key_dict(self, n):
         class C:
             pass
@@ -1108,10 +1136,8 @@ class DictTest(unittest.TestCase):
         a = C()
         a.x = 1
         d = a.__dict__
-        before_resize = sys.getsizeof(d)
         d[2] = 2 # split table is resized to a generic combined table
 
-        self.assertGreater(sys.getsizeof(d), before_resize)
         self.assertEqual(list(d), ['x', 2])
 
     def test_iterator_pickling(self):
@@ -1485,6 +1511,24 @@ class DictTest(unittest.TestCase):
         gc.collect()
         self.assertTrue(gc.is_tracked(next(it)))
 
+    def test_store_evilattr(self):
+        class EvilAttr:
+            def __init__(self, d):
+                self.d = d
+
+            def __del__(self):
+                if 'attr' in self.d:
+                    del self.d['attr']
+                gc.collect()
+
+        class Obj:
+            pass
+
+        obj = Obj()
+        obj.__dict__ = {}
+        for _ in range(10):
+            obj.attr = EvilAttr(obj.__dict__)
+
     def test_str_nonstr(self):
         # cpython uses a different lookup function if the dict only contains
         # `str` keys. Make sure the unoptimized path is used when a non-`str`
@@ -1591,8 +1635,8 @@ class CAPITest(unittest.TestCase):
     # Test _PyDict_GetItem_KnownHash()
     @support.cpython_only
     def test_getitem_knownhash(self):
-        _testcapi = import_helper.import_module('_testcapi')
-        dict_getitem_knownhash = _testcapi.dict_getitem_knownhash
+        _testinternalcapi = import_helper.import_module('_testinternalcapi')
+        dict_getitem_knownhash = _testinternalcapi.dict_getitem_knownhash
 
         d = {'x': 1, 'y': 2, 'z': 3}
         self.assertEqual(dict_getitem_knownhash(d, 'x', hash('x')), 1)
