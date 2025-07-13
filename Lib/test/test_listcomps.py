@@ -177,7 +177,7 @@ class ListComprehensionTest(unittest.TestCase):
             res = [__class__ for x in [1]]
         """
         self._check_in_scopes(
-            code, outputs={"res": [2]}, scopes=["module", "function"])
+                code, outputs={"res": [2]}, scopes=["module", "function"])
         self._check_in_scopes(code, raises=NameError, scopes=["class"])
 
     def test_references___class___enclosing(self):
@@ -648,11 +648,18 @@ class ListComprehensionTest(unittest.TestCase):
         """
         self._check_in_scopes(code, {"value": [1, None]})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_frame_locals(self):
         code = """
-            val = [sys._getframe().f_locals for a in [0]][0]["a"]
+            val = "a" in [sys._getframe().f_locals for a in [0]][0]
         """
         import sys
+        self._check_in_scopes(code, {"val": False}, ns={"sys": sys})
+
+        code = """
+            val = [sys._getframe().f_locals["a"] for a in [0]][0]
+        """
         self._check_in_scopes(code, {"val": 0}, ns={"sys": sys})
 
     def _recursive_replace(self, maybe_code):
@@ -736,7 +743,7 @@ class ListComprehensionTest(unittest.TestCase):
         for func, expected in [(init_raises, "BrokenIter(init_raises=True)"),
                                (next_raises, "BrokenIter(next_raises=True)"),
                                (iter_raises, "BrokenIter(iter_raises=True)"),
-                               ]:
+                              ]:
             with self.subTest(func):
                 exc = func()
                 f = traceback.extract_tb(exc.__traceback__)[0]

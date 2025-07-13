@@ -1,6 +1,8 @@
 import sys
+import textwrap
 from test import list_tests
 from test.support import cpython_only
+from test.support.script_helper import assert_python_ok
 import pickle
 import unittest
 
@@ -98,8 +100,13 @@ class ListTest(list_tests.CommonTest):
         self.assertRaises((MemoryError, OverflowError), mul, lst, n)
         self.assertRaises((MemoryError, OverflowError), imul, lst, n)
 
+    def test_empty_slice(self):
+        x = []
+        x[:] = x
+        self.assertEqual(x, [])
+
     # TODO: RUSTPYTHON
-    @unittest.skip("Crashes on windows debug build")
+    @unittest.skip("TODO: RUSTPYTHON crash")
     def test_list_resize_overflow(self):
         # gh-97616: test new_allocated * sizeof(PyObject*) overflow
         # check in list_resize()
@@ -113,13 +120,28 @@ class ListTest(list_tests.CommonTest):
         with self.assertRaises((MemoryError, OverflowError)):
             lst *= size
 
+    # TODO: RUSTPYTHON
+    @unittest.skip("TODO: RUSTPYTHON hangs")
+    def test_repr_mutate(self):
+        class Obj:
+            @staticmethod
+            def __repr__():
+                try:
+                    mylist.pop()
+                except IndexError:
+                    pass
+                return 'obj'
+
+        mylist = [Obj() for _ in range(5)]
+        self.assertEqual(repr(mylist), '[obj, obj, obj]')
+
     def test_repr_large(self):
         # Check the repr of large list objects
         def check(n):
             l = [0] * n
             s = repr(l)
             self.assertEqual(s,
-                             '[' + ', '.join(['0'] * n) + ']')
+                '[' + ', '.join(['0'] * n) + ']')
         check(10)       # check our checking code
         check(1000000)
 
@@ -302,6 +324,35 @@ class ListTest(list_tests.CommonTest):
         lst = [X(), X()]
         X() in lst
 
+    def test_tier2_invalidates_iterator(self):
+        # GH-121012
+        for _ in range(100):
+            a = [1, 2, 3]
+            it = iter(a)
+            for _ in it:
+                pass
+            a.append(4)
+            self.assertEqual(list(it), [])
+
+    def test_deopt_from_append_list(self):
+        # gh-132011: it used to crash, because
+        # of `CALL_LIST_APPEND` specialization failure.
+        code = textwrap.dedent("""
+            l = []
+            def lappend(l, x, y):
+                l.append((x, y))
+            for x in range(3):
+                lappend(l, None, None)
+            try:
+                lappend(list, None, None)
+            except TypeError:
+                pass
+            else:
+                raise AssertionError
+        """)
+
+        rc, _, _ = assert_python_ok("-c", code)
+        self.assertEqual(rc, 0)
 
 if __name__ == "__main__":
     unittest.main()
