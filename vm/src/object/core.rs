@@ -655,7 +655,7 @@ impl PyObject {
 
     #[inline(always)]
     pub fn payload_is<T: PyObjectPayload>(&self) -> bool {
-        self.0.typeid == TypeId::of::<T>()
+        self.0.typeid == T::payload_type_id()
     }
 
     /// Force to return payload as T.
