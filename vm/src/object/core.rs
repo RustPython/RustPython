@@ -15,7 +15,7 @@ use super::{
     ext::{AsObject, PyRefExact, PyResult},
     payload::PyObjectPayload,
 };
-use crate::object::traverse::{Traverse, TraverseFn};
+use crate::object::traverse::{MaybeTraverse, Traverse, TraverseFn};
 use crate::object::traverse_object::PyObjVTable;
 use crate::{
     builtins::{PyDictRef, PyType, PyTypeRef},
@@ -121,7 +121,7 @@ impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
     }
 }
 
-unsafe impl<T: PyObjectPayload> Traverse for Py<T> {
+unsafe impl<T: MaybeTraverse> Traverse for Py<T> {
     /// DO notice that call `trace` on `Py<T>` means apply `tracer_fn` on `Py<T>`'s children,
     /// not like call `trace` on `PyRef<T>` which apply `tracer_fn` on `PyRef<T>` itself
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
@@ -557,7 +557,7 @@ impl PyObjectRef {
     /// # Safety
     /// T must be the exact payload type
     #[inline(always)]
-    pub unsafe fn downcast_unchecked<T: PyObjectPayload>(self) -> PyRef<T> {
+    pub unsafe fn downcast_unchecked<T>(self) -> PyRef<T> {
         // PyRef::from_obj_unchecked(self)
         // manual impl to avoid assertion
         let obj = ManuallyDrop::new(self);
@@ -893,7 +893,7 @@ impl fmt::Debug for PyObjectRef {
 }
 
 #[repr(transparent)]
-pub struct Py<T: PyObjectPayload>(PyInner<T>);
+pub struct Py<T>(PyInner<T>);
 
 impl<T: PyObjectPayload> Py<T> {
     pub fn downgrade(
@@ -908,7 +908,7 @@ impl<T: PyObjectPayload> Py<T> {
     }
 }
 
-impl<T: PyObjectPayload> ToOwned for Py<T> {
+impl<T> ToOwned for Py<T> {
     type Owned = PyRef<T>;
 
     #[inline(always)]
@@ -920,7 +920,7 @@ impl<T: PyObjectPayload> ToOwned for Py<T> {
     }
 }
 
-impl<T: PyObjectPayload> Deref for Py<T> {
+impl<T> Deref for Py<T> {
     type Target = T;
 
     #[inline(always)]
@@ -984,24 +984,24 @@ impl<T: PyObjectPayload> fmt::Debug for Py<T> {
 /// situations (such as when implementing in-place methods such as `__iadd__`)
 /// where a reference to the same object must be returned.
 #[repr(transparent)]
-pub struct PyRef<T: PyObjectPayload> {
+pub struct PyRef<T> {
     ptr: NonNull<Py<T>>,
 }
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "threading")] {
-        unsafe impl<T: PyObjectPayload> Send for PyRef<T> {}
-        unsafe impl<T: PyObjectPayload> Sync for PyRef<T> {}
+        unsafe impl<T> Send for PyRef<T> {}
+        unsafe impl<T> Sync for PyRef<T> {}
     }
 }
 
-impl<T: PyObjectPayload> fmt::Debug for PyRef<T> {
+impl<T: fmt::Debug> fmt::Debug for PyRef<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         (**self).fmt(f)
     }
 }
 
-impl<T: PyObjectPayload> Drop for PyRef<T> {
+impl<T> Drop for PyRef<T> {
     #[inline]
     fn drop(&mut self) {
         if self.0.ref_count.dec() {
@@ -1010,7 +1010,7 @@ impl<T: PyObjectPayload> Drop for PyRef<T> {
     }
 }
 
-impl<T: PyObjectPayload> Clone for PyRef<T> {
+impl<T> Clone for PyRef<T> {
     #[inline(always)]
     fn clone(&self) -> Self {
         (**self).to_owned()
@@ -1070,10 +1070,7 @@ where
     }
 }
 
-impl<T> From<PyRef<T>> for PyObjectRef
-where
-    T: PyObjectPayload,
-{
+impl<T> From<PyRef<T>> for PyObjectRef {
     #[inline]
     fn from(value: PyRef<T>) -> Self {
         let me = ManuallyDrop::new(value);
@@ -1081,30 +1078,21 @@ where
     }
 }
 
-impl<T> Borrow<Py<T>> for PyRef<T>
-where
-    T: PyObjectPayload,
-{
+impl<T> Borrow<Py<T>> for PyRef<T> {
     #[inline(always)]
     fn borrow(&self) -> &Py<T> {
         self
     }
 }
 
-impl<T> AsRef<Py<T>> for PyRef<T>
-where
-    T: PyObjectPayload,
-{
+impl<T> AsRef<Py<T>> for PyRef<T> {
     #[inline(always)]
     fn as_ref(&self) -> &Py<T> {
         self
     }
 }
 
-impl<T> Deref for PyRef<T>
-where
-    T: PyObjectPayload,
-{
+impl<T> Deref for PyRef<T> {
     type Target = Py<T>;
 
     #[inline(always)]

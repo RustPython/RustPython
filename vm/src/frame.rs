@@ -7,7 +7,7 @@ use crate::{
         PySlice, PyStr, PyStrInterned, PyStrRef, PyTraceback, PyType,
         asyncgenerator::PyAsyncGenWrappedValue,
         function::{PyCell, PyCellRef, PyFunction},
-        tuple::{PyTuple, PyTupleRef, PyTupleTyped},
+        tuple::{PyTuple, PyTupleRef},
     },
     bytecode,
     convert::{IntoObject, ToPyResult},
@@ -1346,11 +1346,14 @@ impl ExecutingFrame<'_> {
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn import(&mut self, vm: &VirtualMachine, module_name: Option<&Py<PyStr>>) -> PyResult<()> {
         let module_name = module_name.unwrap_or(vm.ctx.empty_str);
-        let from_list = <Option<PyTupleTyped<PyStrRef>>>::try_from_object(vm, self.pop_value())?
-            .unwrap_or_else(|| PyTupleTyped::empty(vm));
+        let top = self.pop_value();
+        let from_list = match <Option<PyTupleRef>>::try_from_object(vm, top)? {
+            Some(from_list) => from_list.try_into_typed::<PyStr>(vm)?,
+            None => vm.ctx.empty_tuple_typed().to_owned(),
+        };
         let level = usize::try_from_object(vm, self.pop_value())?;
 
-        let module = vm.import_from(module_name, from_list, level)?;
+        let module = vm.import_from(module_name, &from_list, level)?;
 
         self.push_value(module);
         Ok(())
@@ -1839,7 +1842,8 @@ impl ExecutingFrame<'_> {
             .expect("Second to top value on the stack must be a code object");
 
         let closure = if flags.contains(bytecode::MakeFunctionFlags::CLOSURE) {
-            Some(PyTupleTyped::try_from_object(vm, self.pop_value()).unwrap())
+            let tuple = PyTupleRef::try_from_object(vm, self.pop_value()).unwrap();
+            Some(tuple.try_into_typed(vm).expect("This is a compiler bug"))
         } else {
             None
         };

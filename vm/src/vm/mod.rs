@@ -599,7 +599,7 @@ impl VirtualMachine {
     #[inline]
     pub fn import<'a>(&self, module_name: impl AsPyStr<'a>, level: usize) -> PyResult {
         let module_name = module_name.as_pystr(&self.ctx);
-        let from_list = PyTupleTyped::empty(self);
+        let from_list = self.ctx.empty_tuple_typed();
         self.import_inner(module_name, from_list, level)
     }
 
@@ -609,7 +609,7 @@ impl VirtualMachine {
     pub fn import_from<'a>(
         &self,
         module_name: impl AsPyStr<'a>,
-        from_list: PyTupleTyped<PyStrRef>,
+        from_list: &Py<PyTupleTyped<PyStrRef>>,
         level: usize,
     ) -> PyResult {
         let module_name = module_name.as_pystr(&self.ctx);
@@ -619,7 +619,7 @@ impl VirtualMachine {
     fn import_inner(
         &self,
         module: &Py<PyStr>,
-        from_list: PyTupleTyped<PyStrRef>,
+        from_list: &Py<PyTupleTyped<PyStrRef>>,
         level: usize,
     ) -> PyResult {
         // if the import inputs seem weird, e.g a package import or something, rather than just
@@ -657,7 +657,7 @@ impl VirtualMachine {
                 } else {
                     (None, None)
                 };
-                let from_list = from_list.to_pyobject(self);
+                let from_list: PyObjectRef = from_list.to_owned().into();
                 import_func
                     .call((module.to_owned(), globals, locals, from_list, level), self)
                     .inspect_err(|exc| import::remove_importlib_frames(self, exc))

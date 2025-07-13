@@ -3,7 +3,7 @@ use crate::common::{
     hash::{PyHash, PyUHash},
     lock::PyMutex,
 };
-use crate::object::{Traverse, TraverseFn};
+use crate::object::{MaybeTraverse, Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     atomic_func,
@@ -449,6 +449,24 @@ impl Representable for PyTuple {
     }
 }
 
+impl PyRef<PyTuple> {
+    pub fn try_into_typed<T: PyPayload>(
+        self,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<PyTupleTyped<PyRef<T>>>> {
+        PyRef::<PyTupleTyped<PyRef<T>>>::try_from_untyped(self, vm)
+    }
+    /// # Safety
+    ///
+    /// The caller must ensure that all elements in the tuple are valid instances
+    /// of type `T` before calling this method. This is typically verified by
+    /// calling `try_into_typed` first.
+    unsafe fn into_typed_unchecked<T: PyPayload>(self) -> PyRef<PyTupleTyped<PyRef<T>>> {
+        let obj: PyObjectRef = self.into();
+        unsafe { obj.downcast_unchecked::<PyTupleTyped<PyRef<T>>>() }
+    }
+}
+
 #[pyclass(module = false, name = "tuple_iterator", traverse)]
 #[derive(Debug)]
 pub(crate) struct PyTupleIterator {
@@ -500,53 +518,75 @@ pub(crate) fn init(context: &Context) {
     PyTupleIterator::extend_class(context, context.types.tuple_iterator_type);
 }
 
-pub struct PyTupleTyped<T: TransmuteFromObject> {
+#[repr(transparent)]
+pub struct PyTupleTyped<R> {
     // SAFETY INVARIANT: T must be repr(transparent) over PyObjectRef, and the
     //                   elements must be logically valid when transmuted to T
-    tuple: PyTupleRef,
-    _marker: PhantomData<Vec<T>>,
+    tuple: PyTuple,
+    _marker: PhantomData<R>,
 }
 
-unsafe impl<T> Traverse for PyTupleTyped<T>
+unsafe impl<R> Traverse for PyTupleTyped<R>
 where
-    T: TransmuteFromObject + Traverse,
+    R: TransmuteFromObject,
 {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.tuple.traverse(tracer_fn);
     }
 }
 
-impl<T: TransmuteFromObject> TryFromObject for PyTupleTyped<T> {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let tuple = PyTupleRef::try_from_object(vm, obj)?;
-        for elem in &*tuple {
-            T::check(vm, elem)?
-        }
-        // SAFETY: the contract of TransmuteFromObject upholds the variant on `tuple`
-        Ok(Self {
-            tuple,
-            _marker: PhantomData,
-        })
+impl<R: TransmuteFromObject + Traverse> MaybeTraverse for PyTupleTyped<R> {
+    const IS_TRACE: bool = true;
+    fn try_traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self.traverse(tracer_fn);
     }
 }
 
-impl<T: TransmuteFromObject> AsRef<[T]> for PyTupleTyped<T> {
-    fn as_ref(&self) -> &[T] {
+impl<T: PyPayload> PyTupleTyped<PyRef<T>> {
+    pub fn new_ref(elements: Vec<PyRef<T>>, ctx: &Context) -> PyRef<Self> {
+        // SAFETY: PyRef<T> has the same layout as PyObjectRef
+        unsafe {
+            let elements: Vec<PyObjectRef> =
+                std::mem::transmute::<Vec<PyRef<T>>, Vec<PyObjectRef>>(elements);
+            let tuple = PyTuple::new_ref(elements, ctx);
+            tuple.into_typed_unchecked::<T>()
+        }
+    }
+}
+
+impl<T: PyPayload> PyRef<PyTupleTyped<PyRef<T>>> {
+    pub fn into_untyped(self) -> PyRef<PyTuple> {
+        // SAFETY: PyTupleTyped is transparent over PyTuple
+        unsafe { std::mem::transmute::<PyRef<PyTupleTyped<PyRef<T>>>, PyRef<PyTuple>>(self) }
+    }
+
+    pub fn try_from_untyped(tuple: PyTupleRef, vm: &VirtualMachine) -> PyResult<Self> {
+        // Check that all elements are of the correct type
+        for elem in tuple.as_slice() {
+            <PyRef<T> as TransmuteFromObject>::check(vm, elem)?;
+        }
+        // SAFETY: We just verified all elements are of type T, and PyTupleTyped has the same layout as PyTuple
+        Ok(unsafe { std::mem::transmute::<PyRef<PyTuple>, PyRef<PyTupleTyped<PyRef<T>>>>(tuple) })
+    }
+}
+
+impl<T: PyPayload> Py<PyTupleTyped<PyRef<T>>> {
+    pub fn as_untyped(&self) -> &Py<PyTuple> {
+        // SAFETY: PyTupleTyped is transparent over PyTuple
+        unsafe { std::mem::transmute::<&Py<PyTupleTyped<PyRef<T>>>, &Py<PyTuple>>(self) }
+    }
+}
+
+impl<T: PyPayload> AsRef<[PyRef<T>]> for PyTupleTyped<PyRef<T>> {
+    fn as_ref(&self) -> &[PyRef<T>] {
         self.as_slice()
     }
 }
 
-impl<T: TransmuteFromObject> PyTupleTyped<T> {
-    pub fn empty(vm: &VirtualMachine) -> Self {
-        Self {
-            tuple: vm.ctx.empty_tuple.clone(),
-            _marker: PhantomData,
-        }
-    }
-
+impl<T: PyPayload> PyTupleTyped<PyRef<T>> {
     #[inline]
-    pub fn as_slice(&self) -> &[T] {
-        unsafe { &*(self.tuple.as_slice() as *const [PyObjectRef] as *const [T]) }
+    pub fn as_slice(&self) -> &[PyRef<T>] {
+        unsafe { &*(self.tuple.as_slice() as *const [PyObjectRef] as *const [PyRef<T>]) }
     }
 
     #[inline]
@@ -560,32 +600,16 @@ impl<T: TransmuteFromObject> PyTupleTyped<T> {
     }
 }
 
-impl<T: TransmuteFromObject> Clone for PyTupleTyped<T> {
-    fn clone(&self) -> Self {
-        Self {
-            tuple: self.tuple.clone(),
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<T: TransmuteFromObject + fmt::Debug> fmt::Debug for PyTupleTyped<T> {
+impl<R: fmt::Debug> fmt::Debug for PyTupleTyped<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.as_slice().fmt(f)
+        self.tuple.as_slice().fmt(f)
     }
 }
 
-impl<T: TransmuteFromObject> From<PyTupleTyped<T>> for PyTupleRef {
+impl<T: PyPayload> From<PyRef<PyTupleTyped<PyRef<T>>>> for PyTupleRef {
     #[inline]
-    fn from(tup: PyTupleTyped<T>) -> Self {
-        tup.tuple
-    }
-}
-
-impl<T: TransmuteFromObject> ToPyObject for PyTupleTyped<T> {
-    #[inline]
-    fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
-        self.tuple.into()
+    fn from(tup: PyRef<PyTupleTyped<PyRef<T>>>) -> Self {
+        tup.into_untyped()
     }
 }
 

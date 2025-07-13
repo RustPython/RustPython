@@ -11,6 +11,7 @@ use crate::{
         },
         getset::PyGetSet,
         object, pystr,
+        tuple::PyTupleTyped,
         type_::PyAttributes,
     },
     class::{PyClassImpl, StaticType},
@@ -371,6 +372,12 @@ impl Context {
     #[inline(always)]
     pub fn not_implemented(&self) -> PyObjectRef {
         self.not_implemented.clone().into()
+    }
+
+    #[inline]
+    pub fn empty_tuple_typed<T>(&self) -> &Py<PyTupleTyped<T>> {
+        let py: &Py<PyTuple> = &self.empty_tuple;
+        unsafe { std::mem::transmute(py) }
     }
 
     // universal pyref constructor

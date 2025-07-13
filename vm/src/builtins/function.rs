@@ -8,7 +8,6 @@ use super::{
 #[cfg(feature = "jit")]
 use crate::common::lock::OnceCell;
 use crate::common::lock::PyMutex;
-use crate::convert::{ToPyObject, TryFromObject};
 use crate::function::ArgMapping;
 use crate::object::{Traverse, TraverseFn};
 use crate::{
@@ -32,7 +31,7 @@ pub struct PyFunction {
     code: PyRef<PyCode>,
     globals: PyDictRef,
     builtins: PyObjectRef,
-    closure: Option<PyTupleTyped<PyCellRef>>,
+    closure: Option<PyRef<PyTupleTyped<PyCellRef>>>,
     defaults_and_kwdefaults: PyMutex<(Option<PyTupleRef>, Option<PyDictRef>)>,
     name: PyMutex<PyStrRef>,
     qualname: PyMutex<PyStrRef>,
@@ -47,7 +46,9 @@ pub struct PyFunction {
 unsafe impl Traverse for PyFunction {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.globals.traverse(tracer_fn);
-        self.closure.traverse(tracer_fn);
+        if let Some(closure) = self.closure.as_ref() {
+            closure.as_untyped().traverse(tracer_fn);
+        }
         self.defaults_and_kwdefaults.traverse(tracer_fn);
     }
 }
@@ -58,7 +59,7 @@ impl PyFunction {
     pub(crate) fn new(
         code: PyRef<PyCode>,
         globals: PyDictRef,
-        closure: Option<PyTupleTyped<PyCellRef>>,
+        closure: Option<PyRef<PyTupleTyped<PyCellRef>>>,
         defaults: Option<PyTupleRef>,
         kw_only_defaults: Option<PyDictRef>,
         qualname: PyStrRef,
@@ -326,6 +327,7 @@ impl Py<PyFunction> {
     ) -> PyResult {
         #[cfg(feature = "jit")]
         if let Some(jitted_code) = self.jitted_code.get() {
+            use crate::convert::ToPyObject;
             match jit::get_jit_args(self, &func_args, jitted_code, vm) {
                 Ok(args) => {
                     return Ok(args.invoke().to_pyobject(vm));
@@ -427,7 +429,7 @@ impl PyFunction {
     #[pymember]
     fn __closure__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf = Self::_as_pyref(&zelf, vm)?;
-        Ok(vm.unwrap_or_none(zelf.closure.clone().map(|x| x.to_pyobject(vm))))
+        Ok(vm.unwrap_or_none(zelf.closure.clone().map(|x| x.into())))
     }
 
     #[pymember]
@@ -612,8 +614,7 @@ impl Constructor for PyFunction {
             }
 
             // Validate that all items are cells and create typed tuple
-            let typed_closure =
-                PyTupleTyped::<PyCellRef>::try_from_object(vm, closure_tuple.into())?;
+            let typed_closure = closure_tuple.try_into_typed::<PyCell>(vm)?;
             Some(typed_closure)
         } else if !args.code.freevars.is_empty() {
             return Err(vm.new_type_error("arg 5 (closure) must be tuple"));
