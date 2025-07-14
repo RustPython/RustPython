@@ -1380,8 +1380,6 @@ class CircularImportTests(unittest.TestCase):
         self.assertIn('partially initialized module', errmsg)
         self.assertIn('circular import', errmsg)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_circular_from_import(self):
         with self.assertRaises(ImportError) as cm:
             import test.test_import.data.circular_imports.from_cycle1

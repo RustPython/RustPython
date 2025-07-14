@@ -1363,19 +1363,38 @@ impl ExecutingFrame<'_> {
     fn import_from(&mut self, vm: &VirtualMachine, idx: bytecode::NameIdx) -> PyResult {
         let module = self.top_value();
         let name = self.code.names[idx as usize];
-        let err = || vm.new_import_error(format!("cannot import name '{name}'"), name.to_owned());
+
         // Load attribute, and transform any error into import error.
         if let Some(obj) = vm.get_attribute_opt(module.to_owned(), name)? {
             return Ok(obj);
         }
         // fallback to importing '{module.__name__}.{name}' from sys.modules
-        let mod_name = module
-            .get_attr(identifier!(vm, __name__), vm)
-            .map_err(|_| err())?;
-        let mod_name = mod_name.downcast::<PyStr>().map_err(|_| err())?;
-        let full_mod_name = format!("{mod_name}.{name}");
-        let sys_modules = vm.sys_module.get_attr("modules", vm).map_err(|_| err())?;
-        sys_modules.get_item(&full_mod_name, vm).map_err(|_| err())
+        let fallback_module = (|| {
+            let mod_name = module.get_attr(identifier!(vm, __name__), vm).ok()?;
+            let mod_name = mod_name.downcast_ref::<PyStr>()?;
+            let full_mod_name = format!("{mod_name}.{name}");
+            let sys_modules = vm.sys_module.get_attr("modules", vm).ok()?;
+            sys_modules.get_item(&full_mod_name, vm).ok()
+        })();
+
+        if let Some(sub_module) = fallback_module {
+            return Ok(sub_module);
+        }
+
+        if is_module_initializing(module, vm) {
+            let module_name = module
+                .get_attr(identifier!(vm, __name__), vm)
+                .ok()
+                .and_then(|n| n.downcast_ref::<PyStr>().map(|s| s.as_str().to_owned()))
+                .unwrap_or_else(|| "<unknown>".to_owned());
+
+            let msg = format!(
+                "cannot import name '{name}' from partially initialized module '{module_name}' (most likely due to a circular import)",
+            );
+            Err(vm.new_import_error(msg, name.to_owned()))
+        } else {
+            Err(vm.new_import_error(format!("cannot import name '{name}'"), name.to_owned()))
+        }
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
@@ -2371,4 +2390,17 @@ impl fmt::Debug for Frame {
             locals.into_object()
         )
     }
+}
+
+fn is_module_initializing(module: &PyObject, vm: &VirtualMachine) -> bool {
+    let Ok(spec) = module.get_attr(&vm.ctx.new_str("__spec__"), vm) else {
+        return false;
+    };
+    if vm.is_none(&spec) {
+        return false;
+    }
+    let Ok(initializing_attr) = spec.get_attr(&vm.ctx.new_str("_initializing"), vm) else {
+        return false;
+    };
+    initializing_attr.try_to_bool(vm).unwrap_or(false)
 }
