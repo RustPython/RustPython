@@ -2291,10 +2291,10 @@ mod _sqlite {
     impl Statement {
         fn new(
             connection: &Connection,
-            sql: &PyStr,
+            sql: PyRef<PyStr>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<Self>> {
-            let _ = sql.try_to_str(vm)?;
+            let sql = sql.try_into_utf8(vm)?;
             let sql_cstr = sql.to_cstring(vm)?;
             let sql_len = sql.byte_len() + 1;
 

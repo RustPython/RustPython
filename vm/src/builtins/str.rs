@@ -37,8 +37,8 @@ use rustpython_common::{
     str::DeduceStrKind,
     wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Chunk},
 };
-use std::sync::LazyLock;
 use std::{borrow::Cow, char, fmt, ops::Range};
+use std::{mem, sync::LazyLock};
 use unic_ucd_bidi::BidiClass;
 use unic_ucd_category::GeneralCategory;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
@@ -77,6 +77,25 @@ impl fmt::Debug for PyStr {
             .field("kind", &self.data.kind())
             .field("hash", &self.hash)
             .finish()
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug)]
+pub struct PyUtf8Str(PyStr);
+
+impl std::ops::Deref for PyUtf8Str {
+    type Target = PyStr;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl PyUtf8Str {
+    /// Returns the underlying string slice. This is safe because the
+    /// type invariant guarantees UTF-8 validity.
+    pub fn as_str(&self) -> &str {
+        self.0.to_str().expect("PyUtf8Str invariant was violated")
     }
 }
 
@@ -1485,6 +1504,11 @@ impl PyStrRef {
         s.push_wtf8(self.as_ref());
         s.push_wtf8(other);
         *self = PyStr::from(s).into_ref(&vm.ctx);
+    }
+
+    pub fn try_into_utf8(self, vm: &VirtualMachine) -> PyResult<PyRef<PyUtf8Str>> {
+        let _ = self.try_to_str(vm)?;
+        Ok(unsafe { mem::transmute::<PyRef<PyStr>, PyRef<PyUtf8Str>>(self) })
     }
 }
 
