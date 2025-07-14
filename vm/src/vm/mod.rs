@@ -14,8 +14,6 @@ mod vm_new;
 mod vm_object;
 mod vm_ops;
 
-#[cfg(not(feature = "stdio"))]
-use crate::builtins::PyNone;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
@@ -337,7 +335,8 @@ impl VirtualMachine {
                     Ok(stdio)
                 };
                 #[cfg(not(feature = "stdio"))]
-                let make_stdio = |_name, _fd, _write| Ok(PyNone.into_pyobject(self));
+                let make_stdio =
+                    |_name, _fd, _write| Ok(crate::builtins::PyNone.into_pyobject(self));
 
                 let set_stdio = |name, fd, write| {
                     let stdio = make_stdio(name, fd, write)?;
