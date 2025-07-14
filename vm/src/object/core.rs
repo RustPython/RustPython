@@ -1023,12 +1023,12 @@ impl<T> Clone for PyRef<T> {
 }
 
 impl<T: PyObjectPayload> PyRef<T> {
-    #[inline(always)]
-    pub(crate) const fn into_non_null(self) -> NonNull<Py<T>> {
-        let ptr = self.ptr;
-        std::mem::forget(self);
-        ptr
-    }
+    // #[inline(always)]
+    // pub(crate) const fn into_non_null(self) -> NonNull<Py<T>> {
+    //     let ptr = self.ptr;
+    //     std::mem::forget(self);
+    //     ptr
+    // }
 
     #[inline(always)]
     pub(crate) const unsafe fn from_non_null(ptr: NonNull<Py<T>>) -> Self {
