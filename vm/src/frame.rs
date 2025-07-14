@@ -1369,20 +1369,15 @@ impl ExecutingFrame<'_> {
             return Ok(obj);
         }
 
-        let fallback_result: Option<PyResult> = module
-            .get_attr(&vm.ctx.new_str("__name__"), vm)
-            .ok()
-            .and_then(|mod_name| mod_name.downcast_ref::<PyStr>().map(|s| s.to_owned()))
-            .and_then(|mod_name_str| {
-                let full_mod_name = format!("{}.{}", mod_name_str.as_str(), name.as_str());
-                vm.sys_module
-                    .get_attr("modules", vm)
-                    .ok()
-                    .and_then(|sys_modules| sys_modules.get_item(&full_mod_name, vm).ok())
-            })
-            .map(Ok);
+        let fallback_module = (|| {
+            let mod_name = module.get_attr(&vm.ctx.new_str("__name__"), vm).ok()?;
+            let mod_name_str = mod_name.downcast_ref::<PyStr>()?;
+            let full_mod_name = format!("{}.{}", mod_name_str.as_str(), name.as_str());
+            let sys_modules = vm.sys_module.get_attr("modules", vm).ok()?;
+            sys_modules.get_item(&full_mod_name, vm).ok()
+        })();
 
-        if let Some(Ok(sub_module)) = fallback_result {
+        if let Some(sub_module) = fallback_module {
             return Ok(sub_module);
         }
 
