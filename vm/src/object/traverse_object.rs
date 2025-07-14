@@ -3,7 +3,8 @@ use std::fmt;
 use crate::{
     PyObject,
     object::{
-        Erased, InstanceDict, PyInner, PyObjectPayload, debug_obj, drop_dealloc_obj, try_trace_obj,
+        Erased, InstanceDict, MaybeTraverse, PyInner, PyObjectPayload, debug_obj, drop_dealloc_obj,
+        try_trace_obj,
     },
 };
 
@@ -56,7 +57,7 @@ unsafe impl Traverse for PyInner<Erased> {
     }
 }
 
-unsafe impl<T: PyObjectPayload> Traverse for PyInner<T> {
+unsafe impl<T: MaybeTraverse> Traverse for PyInner<T> {
     /// Type is known, so we can call `try_trace` directly instead of using erased type vtable
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         // 1. trace `dict` and `slots` field(`typ` can't trace for it's a AtomicRef while is leaked by design)

@@ -19,6 +19,10 @@ cfg_if::cfg_if! {
 pub trait PyPayload:
     std::fmt::Debug + MaybeTraverse + PyThreadingConstraint + Sized + 'static
 {
+    #[inline]
+    fn payload_type_id() -> std::any::TypeId {
+        std::any::TypeId::of::<Self>()
+    }
     fn class(ctx: &Context) -> &'static Py<PyType>;
 
     #[inline]
@@ -75,7 +79,7 @@ pub trait PyPayload:
 }
 
 pub trait PyObjectPayload:
-    std::any::Any + std::fmt::Debug + MaybeTraverse + PyThreadingConstraint + 'static
+    PyPayload + std::any::Any + std::fmt::Debug + MaybeTraverse + PyThreadingConstraint + 'static
 {
 }
 

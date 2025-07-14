@@ -105,8 +105,19 @@ pub(crate) fn impl_pytraverse(mut item: DeriveInput) -> Result<TokenStream> {
 
     let ty = &item.ident;
 
+    // Add Traverse bound to all type parameters
+    for param in &mut item.generics.params {
+        if let syn::GenericParam::Type(type_param) = param {
+            type_param
+                .bounds
+                .push(syn::parse_quote!(::rustpython_vm::object::Traverse));
+        }
+    }
+
+    let (impl_generics, ty_generics, where_clause) = item.generics.split_for_impl();
+
     let ret = quote! {
-        unsafe impl ::rustpython_vm::object::Traverse for #ty {
+        unsafe impl #impl_generics ::rustpython_vm::object::Traverse for #ty #ty_generics #where_clause {
             fn traverse(&self, tracer_fn: &mut ::rustpython_vm::object::TraverseFn) {
                 #trace_code
             }

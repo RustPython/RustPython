@@ -373,6 +373,12 @@ impl Context {
         self.not_implemented.clone().into()
     }
 
+    #[inline]
+    pub fn empty_tuple_typed<T>(&self) -> &Py<PyTuple<T>> {
+        let py: &Py<PyTuple> = &self.empty_tuple;
+        unsafe { std::mem::transmute(py) }
+    }
+
     // universal pyref constructor
     pub fn new_pyref<T, P>(&self, value: T) -> PyRef<P>
     where

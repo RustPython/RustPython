@@ -78,12 +78,12 @@ where
     #[inline]
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let class = T::class(&vm.ctx);
-        if obj.fast_isinstance(class) {
+        let result = if obj.fast_isinstance(class) {
             obj.downcast()
-                .map_err(|obj| vm.new_downcast_runtime_error(class, &obj))
         } else {
-            Err(vm.new_downcast_type_error(class, &obj))
-        }
+            Err(obj)
+        };
+        result.map_err(|obj| vm.new_downcast_type_error(class, &obj))
     }
 }
 
