@@ -13,4 +13,3 @@ rustpython-vm = { path = "../../vm", default-features = false, features = ["comp
 [workspace]
 
 [patch.crates-io]
-radium = { version = "1.1.0", git = "https://github.com/youknowone/ferrilab", branch = "fix-nightly" }
