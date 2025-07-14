@@ -1989,7 +1989,7 @@ impl Compiler<'_> {
     }
 
     /// Determines if a variable should be CELL or FREE type
-    /// Equivalent to CPython's get_ref_type
+    // = get_ref_type
     fn get_ref_type(&self, name: &str) -> Result<SymbolScope, CodegenErrorType> {
         // Special handling for __class__ and __classdict__ in class scope
         if self.ctx.in_class && (name == "__class__" || name == "__classdict__") {
@@ -2024,7 +2024,7 @@ impl Compiler<'_> {
         if has_freevars {
             // Build closure tuple by loading free variables
 
-            for var in &*code.freevars {
+            for var in &code.freevars {
                 // Special case: If a class contains a method with a
                 // free variable that has the same name as a method,
                 // the name will be considered free *and* local in the
@@ -2040,38 +2040,33 @@ impl Compiler<'_> {
 
                 // Look up the variable index based on reference type
                 let idx = match ref_type {
-                    SymbolScope::Cell => {
-                        match parent_code.metadata.cellvars.get_index_of(var) {
-                            Some(i) => i,
-                            None => {
-                                // Try in freevars as fallback
-                                match parent_code.metadata.freevars.get_index_of(var) {
-                                    Some(i) => i + cellvars_len,
-                                    None => {
-                                        return Err(self.error(CodegenErrorType::SyntaxError(format!(
-                                            "compiler_make_closure: cannot find '{var}' in parent vars",
-                                        ))));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    SymbolScope::Free => {
-                        match parent_code.metadata.freevars.get_index_of(var) {
-                            Some(i) => i + cellvars_len,
-                            None => {
-                                // Try in cellvars as fallback
-                                match parent_code.metadata.cellvars.get_index_of(var) {
-                                    Some(i) => i,
-                                    None => {
-                                        return Err(self.error(CodegenErrorType::SyntaxError(format!(
-                                            "compiler_make_closure: cannot find '{var}' in parent vars",
-                                        ))));
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    SymbolScope::Cell => parent_code
+                        .metadata
+                        .cellvars
+                        .get_index_of(var)
+                        .or_else(|| {
+                            parent_code
+                                .metadata
+                                .freevars
+                                .get_index_of(var)
+                                .map(|i| i + cellvars_len)
+                        })
+                        .ok_or_else(|| {
+                            self.error(CodegenErrorType::SyntaxError(format!(
+                                "compiler_make_closure: cannot find '{var}' in parent vars",
+                            )))
+                        })?,
+                    SymbolScope::Free => parent_code
+                        .metadata
+                        .freevars
+                        .get_index_of(var)
+                        .map(|i| i + cellvars_len)
+                        .or_else(|| parent_code.metadata.cellvars.get_index_of(var))
+                        .ok_or_else(|| {
+                            self.error(CodegenErrorType::SyntaxError(format!(
+                                "compiler_make_closure: cannot find '{var}' in parent vars",
+                            )))
+                        })?,
                     _ => {
                         return Err(self.error(CodegenErrorType::SyntaxError(format!(
                             "compiler_make_closure: unexpected ref_type {ref_type:?} for '{var}'",
@@ -2091,16 +2086,13 @@ impl Compiler<'_> {
             );
         }
 
-        // CPython 3.13 style: load code object and create function
+        // load code object and create function
         self.emit_load_const(ConstantData::Code {
             code: Box::new(code),
         });
 
         // Create function with no flags
-        emit!(
-            self,
-            Instruction::MakeFunction(bytecode::MakeFunctionFlags::empty())
-        );
+        emit!(self, Instruction::MakeFunction);
 
         // Now set attributes one by one using SET_FUNCTION_ATTRIBUTE
         // Note: The order matters! Values must be on stack before calling SET_FUNCTION_ATTRIBUTE

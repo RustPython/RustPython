@@ -528,7 +528,7 @@ pub enum Instruction {
     JumpIfFalseOrPop {
         target: Arg<Label>,
     },
-    MakeFunction(Arg<MakeFunctionFlags>),
+    MakeFunction,
     SetFunctionAttribute {
         attr: Arg<MakeFunctionFlags>,
     },
@@ -1299,7 +1299,7 @@ impl Instruction {
                     -1
                 }
             }
-            MakeFunction(_flags) => {
+            MakeFunction => {
                 // CPython 3.13 style: MakeFunction only pops code object
                 -1 + 1 // pop code, push function
             }
@@ -1500,7 +1500,7 @@ impl Instruction {
             JumpIfFalse { target } => w!(JumpIfFalse, target),
             JumpIfTrueOrPop { target } => w!(JumpIfTrueOrPop, target),
             JumpIfFalseOrPop { target } => w!(JumpIfFalseOrPop, target),
-            MakeFunction(flags) => w!(MakeFunction, ?flags),
+            MakeFunction => w!(MakeFunction),
             SetFunctionAttribute { attr } => w!(SetFunctionAttribute, ?attr),
             CallFunctionPositional { nargs } => w!(CallFunctionPositional, nargs),
             CallFunctionKeyword { nargs } => w!(CallFunctionKeyword, nargs),

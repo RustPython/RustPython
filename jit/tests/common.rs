@@ -122,14 +122,12 @@ impl StackMachine {
                 }
                 self.stack.push(StackValue::Map(map));
             }
-            Instruction::MakeFunction(_flags) => {
-                // CPython 3.13 style: MakeFunction only takes code object
+            Instruction::MakeFunction => {
                 let code = if let Some(StackValue::Code(code)) = self.stack.pop() {
                     code
                 } else {
                     panic!("Expected function code")
                 };
-                // Create function with minimal attributes
                 // Other attributes will be set by SET_FUNCTION_ATTRIBUTE
                 self.stack.push(StackValue::Function(Function {
                     code,
@@ -137,7 +135,6 @@ impl StackMachine {
                 }));
             }
             Instruction::SetFunctionAttribute { attr } => {
-                // CPython 3.13 style: SET_FUNCTION_ATTRIBUTE sets attributes on a function
                 // Stack: [..., attr_value, func] -> [..., func]
                 let func = if let Some(StackValue::Function(func)) = self.stack.pop() {
                     func

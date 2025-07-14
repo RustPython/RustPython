@@ -1159,9 +1159,7 @@ impl ExecutingFrame<'_> {
                 }
             }
             bytecode::Instruction::ForIter { target } => self.execute_for_iter(vm, target.get(arg)),
-            bytecode::Instruction::MakeFunction(flags) => {
-                self.execute_make_function(vm, flags.get(arg))
-            }
+            bytecode::Instruction::MakeFunction => self.execute_make_function(vm),
             bytecode::Instruction::SetFunctionAttribute { attr } => {
                 self.execute_set_function_attribute(vm, attr.get(arg))
             }
@@ -1830,34 +1828,15 @@ impl ExecutingFrame<'_> {
             }
         }
     }
-    fn execute_make_function(
-        &mut self,
-        vm: &VirtualMachine,
-        _flags: bytecode::MakeFunctionFlags,
-    ) -> FrameResult {
-        // CPython 3.13 style: MakeFunction only takes code object, no flags
+    fn execute_make_function(&mut self, vm: &VirtualMachine) -> FrameResult {
+        // MakeFunction only takes code object, no flags
         let code_obj: PyRef<PyCode> = self
             .pop_value()
             .downcast()
             .expect("Stack value should be code object");
 
         // Create function with minimal attributes
-        // qualname is taken from code object's co_qualname (not co_name)
-        let qualname = code_obj.qualname.to_owned();
-
-        let func_obj = PyFunction::new(
-            code_obj,
-            self.globals.clone(),
-            None, // closure - will be set by SET_FUNCTION_ATTRIBUTE
-            None, // defaults - will be set by SET_FUNCTION_ATTRIBUTE
-            None, // kw_only_defaults - will be set by SET_FUNCTION_ATTRIBUTE
-            qualname,
-            vm.ctx.empty_tuple.clone(), // type_params - will be set by SET_FUNCTION_ATTRIBUTE
-            vm.ctx.new_dict(),          // annotations - will be set by SET_FUNCTION_ATTRIBUTE
-            vm.ctx.none(),              // doc
-            vm,
-        )?
-        .into_pyobject(vm);
+        let func_obj = PyFunction::new(code_obj, self.globals.clone(), vm)?.into_pyobject(vm);
 
         self.push_value(func_obj);
         Ok(None)
@@ -1873,16 +1852,9 @@ impl ExecutingFrame<'_> {
         // Stack order: func is at -1, attr_value is at -2
 
         let func = self.pop_value();
-        let attr_value = self.pop_value();
+        let attr_value = self.replace_top(func);
 
-        // Verify that we have a function object
-        if !func.class().is(vm.ctx.types.function_type) {
-            return Err(vm.new_type_error(format!(
-                "SET_FUNCTION_ATTRIBUTE requires function, not {}",
-                func.class().name()
-            )));
-        }
-
+        let func = self.top_value();
         // Get the function reference and call the new method
         let func_ref = func
             .downcast_ref::<PyFunction>()
@@ -1895,9 +1867,6 @@ impl ExecutingFrame<'_> {
             let payload_ptr = payload as *const PyFunction as *mut PyFunction;
             (*payload_ptr).set_function_attribute(attr, attr_value, vm)?;
         };
-
-        // Push function back onto stack
-        self.push_value(func);
 
         Ok(None)
     }
