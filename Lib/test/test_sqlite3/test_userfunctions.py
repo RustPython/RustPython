@@ -354,8 +354,6 @@ class FunctionTests(unittest.TestCase):
             cur = self.con.execute("select return_noncont_blob()")
             cur.fetchone()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_param_surrogates(self):
         self.assertRaisesRegex(UnicodeEncodeError, "surrogates not allowed",
                                self.con.execute, "select spam(?)",
