@@ -1,3 +1,5 @@
+use std::sync::atomic::AtomicBool;
+
 use super::{PyDict, PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -51,6 +53,8 @@ pub struct PyModule {
     // weaklist
     // for logging purposes after md_dict is cleared
     pub name: Option<&'static PyStrInterned>,
+
+    pub(crate) initializing: AtomicBool,
 }
 
 impl PyPayload for PyModule {
@@ -73,6 +77,7 @@ impl PyModule {
         Self {
             def: None,
             name: None,
+            initializing: AtomicBool::new(false),
         }
     }
 
@@ -80,6 +85,7 @@ impl PyModule {
         Self {
             def: Some(def),
             name: Some(def.name),
+            initializing: AtomicBool::new(false),
         }
     }
 
