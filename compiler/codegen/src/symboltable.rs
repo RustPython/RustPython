@@ -127,6 +127,7 @@ pub enum SymbolScope {
     GlobalImplicit,
     Free,
     Cell,
+    // TODO: wrong place. not a symbol scope, but a COMPILER_SCOPE_TYPEPARAMS
     TypeParams,
 }
 

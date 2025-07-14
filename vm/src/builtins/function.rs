@@ -5,6 +5,7 @@ use super::{
     PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStr, PyStrRef, PyTuple, PyTupleRef,
     PyType, PyTypeRef,
 };
+use crate::PyAtomicRef;
 #[cfg(feature = "jit")]
 use crate::common::lock::OnceCell;
 use crate::common::lock::PyMutex;
@@ -31,7 +32,7 @@ pub struct PyFunction {
     code: PyRef<PyCode>,
     globals: PyDictRef,
     builtins: PyObjectRef,
-    closure: Option<PyRef<PyTuple<PyCellRef>>>,
+    closure: PyAtomicRef<Option<PyTuple>>,
     defaults_and_kwdefaults: PyMutex<(Option<PyTupleRef>, Option<PyDictRef>)>,
     name: PyMutex<PyStrRef>,
     qualname: PyMutex<PyStrRef>,
@@ -46,8 +47,8 @@ pub struct PyFunction {
 unsafe impl Traverse for PyFunction {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.globals.traverse(tracer_fn);
-        if let Some(closure) = self.closure.as_ref() {
-            closure.as_untyped().traverse(tracer_fn);
+        if let Some(closure) = self.closure.deref() {
+            closure.traverse(tracer_fn);
         }
         self.defaults_and_kwdefaults.traverse(tracer_fn);
     }
@@ -59,7 +60,7 @@ impl PyFunction {
     pub(crate) fn new(
         code: PyRef<PyCode>,
         globals: PyDictRef,
-        closure: Option<PyRef<PyTuple<PyCellRef>>>,
+        closure: Option<PyTupleRef>,
         defaults: Option<PyTupleRef>,
         kw_only_defaults: Option<PyDictRef>,
         qualname: PyStrRef,
@@ -83,7 +84,7 @@ impl PyFunction {
             code,
             globals,
             builtins,
-            closure,
+            closure: PyAtomicRef::from(closure),
             defaults_and_kwdefaults: PyMutex::new((defaults, kw_only_defaults)),
             name,
             qualname: PyMutex::new(qualname),
@@ -355,7 +356,15 @@ impl Py<PyFunction> {
             code.clone(),
             Scope::new(Some(locals), self.globals.clone()),
             vm.builtins.dict(),
-            self.closure.as_ref().map_or(&[], |c| c.as_slice()),
+            self.closure.deref().as_ref().map_or(&[], |tuple| {
+                // SAFETY: We know closure contains only cells from construction
+                unsafe {
+                    std::slice::from_raw_parts(
+                        tuple.as_slice().as_ptr() as *const PyCellRef,
+                        tuple.len(),
+                    )
+                }
+            }),
             Some(self.to_owned().into()),
             vm,
         )
@@ -377,6 +386,14 @@ impl Py<PyFunction> {
     #[inline(always)]
     pub fn invoke(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         self.invoke_with_locals(func_args, None, vm)
+    }
+
+    /// SAFETY: This method should only be called from frame.rs for SET_FUNCTION_ATTRIBUTE
+    /// It allows setting the closure after function creation, which is required for
+    /// CPython 3.13 compatibility. The closure must be a valid tuple of cells.
+    #[doc(hidden)]
+    pub(crate) fn set_closure(&self, closure: Option<PyTupleRef>) {
+        let _ = unsafe { self.closure.swap(closure) };
     }
 }
 
@@ -429,7 +446,8 @@ impl PyFunction {
     #[pymember]
     fn __closure__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf = Self::_as_pyref(&zelf, vm)?;
-        Ok(vm.unwrap_or_none(zelf.closure.clone().map(|x| x.into())))
+        let closure = zelf.closure.deref().map(|x| x.as_object().to_owned());
+        Ok(vm.unwrap_or_none(closure))
     }
 
     #[pymember]
@@ -613,9 +631,9 @@ impl Constructor for PyFunction {
                 )));
             }
 
-            // Validate that all items are cells and create typed tuple
+            // Validate that all items are cells
             let typed_closure = closure_tuple.try_into_typed::<PyCell>(vm)?;
-            Some(typed_closure)
+            Some(typed_closure.into_untyped())
         } else if !args.code.freevars.is_empty() {
             return Err(vm.new_type_error("arg 5 (closure) must be tuple"));
         } else {

@@ -1162,6 +1162,9 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::MakeFunction(flags) => {
                 self.execute_make_function(vm, flags.get(arg))
             }
+            bytecode::Instruction::SetFunctionAttribute { attr } => {
+                self.execute_set_function_attribute(vm, attr.get(arg))
+            }
             bytecode::Instruction::CallFunctionPositional { nargs } => {
                 let args = self.collect_positional_args(nargs.get(arg));
                 self.execute_call(args, vm)
@@ -1830,76 +1833,102 @@ impl ExecutingFrame<'_> {
     fn execute_make_function(
         &mut self,
         vm: &VirtualMachine,
-        flags: bytecode::MakeFunctionFlags,
+        _flags: bytecode::MakeFunctionFlags,
     ) -> FrameResult {
-        let qualified_name = self
-            .pop_value()
-            .downcast::<PyStr>()
-            .expect("qualified name to be a string");
+        // CPython 3.13 style: MakeFunction only takes code object, no flags
         let code_obj: PyRef<PyCode> = self
             .pop_value()
             .downcast()
-            .expect("Second to top value on the stack must be a code object");
+            .expect("Stack value should be code object");
 
-        let closure = if flags.contains(bytecode::MakeFunctionFlags::CLOSURE) {
-            let tuple = PyTupleRef::try_from_object(vm, self.pop_value()).unwrap();
-            Some(tuple.try_into_typed(vm).expect("This is a compiler bug"))
-        } else {
-            None
-        };
+        // Create function with minimal attributes
+        // qualname is taken from code object's co_qualname (not co_name)
+        let qualname = code_obj.qualname.to_owned();
 
-        let annotations = if flags.contains(bytecode::MakeFunctionFlags::ANNOTATIONS) {
-            self.pop_value()
-        } else {
-            vm.ctx.new_dict().into()
-        };
-
-        let type_params: PyTupleRef = if flags.contains(bytecode::MakeFunctionFlags::TYPE_PARAMS) {
-            self.pop_value()
-                .downcast()
-                .map_err(|_| vm.new_type_error("Type params must be a tuple."))?
-        } else {
-            vm.ctx.empty_tuple.clone()
-        };
-
-        let kw_only_defaults = if flags.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
-            Some(
-                self.pop_value()
-                    .downcast::<PyDict>()
-                    .expect("Stack value for keyword only defaults expected to be a dict"),
-            )
-        } else {
-            None
-        };
-
-        let defaults = if flags.contains(bytecode::MakeFunctionFlags::DEFAULTS) {
-            Some(
-                self.pop_value()
-                    .downcast::<PyTuple>()
-                    .expect("Stack value for defaults expected to be a tuple"),
-            )
-        } else {
-            None
-        };
-
-        // pop argc arguments
-        // argument: name, args, globals
-        // let scope = self.scope.clone();
         let func_obj = PyFunction::new(
             code_obj,
             self.globals.clone(),
-            closure,
-            defaults,
-            kw_only_defaults,
-            qualified_name.clone(),
-            type_params,
-            annotations.downcast().unwrap(),
-            vm.ctx.none(),
+            None, // closure - will be set by SET_FUNCTION_ATTRIBUTE
+            None, // defaults - will be set by SET_FUNCTION_ATTRIBUTE
+            None, // kw_only_defaults - will be set by SET_FUNCTION_ATTRIBUTE
+            qualname,
+            vm.ctx.empty_tuple.clone(), // type_params - will be set by SET_FUNCTION_ATTRIBUTE
+            vm.ctx.new_dict(),          // annotations - will be set by SET_FUNCTION_ATTRIBUTE
+            vm.ctx.none(),              // doc
             vm,
         )?
         .into_pyobject(vm);
 
         self.push_value(func_obj);
+        Ok(None)
+    }
+
+    fn execute_set_function_attribute(
+        &mut self,
+        vm: &VirtualMachine,
+        attr: bytecode::MakeFunctionFlags,
+    ) -> FrameResult {
+        // CPython 3.13 style: SET_FUNCTION_ATTRIBUTE sets attributes on a function
+        // Stack: [..., attr_value, func] -> [..., func]
+        // Stack order: func is at -1, attr_value is at -2
+
+        let func = self.pop_value();
+        let attr_value = self.pop_value();
+
+        // Verify that we have a function object
+        if !func.class().is(vm.ctx.types.function_type) {
+            return Err(vm.new_type_error(format!(
+                "SET_FUNCTION_ATTRIBUTE requires function, not {}",
+                func.class().name()
+            )));
+        }
+
+        // Set the attribute based on the flag
+        if attr.contains(bytecode::MakeFunctionFlags::DEFAULTS) {
+            func.set_attr("__defaults__", attr_value, vm)?;
+        } else if attr.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
+            func.set_attr("__kwdefaults__", attr_value, vm)?;
+        } else if attr.contains(bytecode::MakeFunctionFlags::ANNOTATIONS) {
+            func.set_attr("__annotations__", attr_value, vm)?;
+        } else if attr.contains(bytecode::MakeFunctionFlags::CLOSURE) {
+            // For closure, we need special handling
+            // The closure tuple contains cell objects
+            let closure_tuple = attr_value.downcast_exact::<PyTuple>(vm).map_err(|obj| {
+                vm.new_type_error(format!(
+                    "closure must be a tuple, not {}",
+                    obj.class().name()
+                ))
+            })?;
+
+            // Convert to tuple of cells
+            let cells: Result<Vec<_>, _> = closure_tuple
+                .iter()
+                .map(|cell| cell.clone().downcast_exact::<PyCell>(vm))
+                .collect();
+            let cells = cells
+                .map_err(|_| vm.new_type_error("closure must be a tuple of cells".to_owned()))?;
+
+            // Convert cells to PyTuple
+            let cells_objects: Vec<PyObjectRef> = cells
+                .into_iter()
+                .map(|cell| cell.into_pyref().into())
+                .collect();
+            let cells_tuple = PyTuple::new_ref(cells_objects, &vm.ctx);
+
+            // Get reference to the function
+            let func_ref = func
+                .downcast_ref::<PyFunction>()
+                .expect("SET_FUNCTION_ATTRIBUTE expects function on stack");
+
+            func_ref.set_closure(Some(cells_tuple));
+        } else if attr.contains(bytecode::MakeFunctionFlags::TYPE_PARAMS) {
+            // Type params can be set via attribute
+            func.set_attr("__type_params__", attr_value, vm)?;
+        }
+
+        // Push function back onto stack
+        self.push_value(func);
+
         Ok(None)
     }
 
