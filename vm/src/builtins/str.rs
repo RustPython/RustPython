@@ -84,6 +84,7 @@ impl fmt::Debug for PyStr {
 #[derive(Debug)]
 pub struct PyUtf8Str(PyStr);
 
+// TODO: Remove this Deref which may hide missing optimized methods of PyUtf8Str
 impl std::ops::Deref for PyUtf8Str {
     type Target = PyStr;
     fn deref(&self) -> &Self::Target {
@@ -92,13 +93,13 @@ impl std::ops::Deref for PyUtf8Str {
 }
 
 impl PyUtf8Str {
-    /// Returns the underlying string slice. This is safe because the
-    /// type invariant guarantees UTF-8 validity.
+    /// Returns the underlying string slice.
     pub fn as_str(&self) -> &str {
         debug_assert!(
             self.0.is_utf8(),
             "PyUtf8Str invariant violated: inner string is not valid UTF-8"
         );
+        // Safety: This is safe because the type invariant guarantees UTF-8 validity.
         unsafe { self.0.to_str().unwrap_unchecked() }
     }
 }
