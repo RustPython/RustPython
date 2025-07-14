@@ -245,6 +245,19 @@ pub struct PyAtomicRef<T> {
     _phantom: PhantomData<T>,
 }
 
+impl<T> Drop for PyAtomicRef<T> {
+    fn drop(&mut self) {
+        // SAFETY: We are dropping the atomic reference, so we can safely
+        // release the pointer.
+        unsafe {
+            let ptr = Radium::swap(&self.inner, null_mut(), Ordering::Relaxed);
+            if let Some(ptr) = NonNull::<PyObject>::new(ptr.cast()) {
+                let _: PyObjectRef = PyObjectRef::from_raw(ptr);
+            }
+        }
+    }
+}
+
 cfg_if::cfg_if! {
     if #[cfg(feature = "threading")] {
         unsafe impl<T: Send + PyObjectPayload> Send for PyAtomicRef<T> {}
