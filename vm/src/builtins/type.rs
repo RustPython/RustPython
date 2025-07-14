@@ -1,5 +1,5 @@
 use super::{
-    PyClassMethod, PyDictRef, PyList, PyStr, PyStrInterned, PyStrRef, PyTuple, PyTupleRef, PyWeak,
+    PyClassMethod, PyDictRef, PyList, PyStr, PyStrInterned, PyStrRef, PyTupleRef, PyWeak,
     mappingproxy::PyMappingProxy, object, union_,
 };
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
             PyMemberDescriptor,
         },
         function::PyCellRef,
-        tuple::{IntoPyTuple, PyTupleTyped},
+        tuple::{IntoPyTuple, PyTuple},
     },
     class::{PyClassImpl, StaticType},
     common::{
@@ -62,7 +62,7 @@ unsafe impl crate::object::Traverse for PyType {
 pub struct HeapTypeExt {
     pub name: PyRwLock<PyStrRef>,
     pub qualname: PyRwLock<PyStrRef>,
-    pub slots: Option<PyRef<PyTupleTyped<PyStrRef>>>,
+    pub slots: Option<PyRef<PyTuple<PyStrRef>>>,
     pub sequence_methods: PySequenceMethods,
     pub mapping_methods: PyMappingMethods,
 }
@@ -1041,11 +1041,11 @@ impl Constructor for PyType {
         // TODO: Flags is currently initialized with HAS_DICT. Should be
         // updated when __slots__ are supported (toggling the flag off if
         // a class has __slots__ defined).
-        let heaptype_slots: Option<PyRef<PyTupleTyped<PyStrRef>>> =
+        let heaptype_slots: Option<PyRef<PyTuple<PyStrRef>>> =
             if let Some(x) = attributes.get(identifier!(vm, __slots__)) {
                 let slots = if x.class().is(vm.ctx.types.str_type) {
                     let x = unsafe { x.downcast_unchecked_ref::<PyStr>() };
-                    PyTupleTyped::new_ref(vec![x.to_owned()], &vm.ctx)
+                    PyTuple::new_ref_typed(vec![x.to_owned()], &vm.ctx)
                 } else {
                     let iter = x.get_iter(vm)?;
                     let elements = {

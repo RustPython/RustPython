@@ -2,8 +2,8 @@
 mod jit;
 
 use super::{
-    PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStr, PyStrRef, PyTupleRef, PyType,
-    PyTypeRef, tuple::PyTupleTyped,
+    PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStr, PyStrRef, PyTuple, PyTupleRef,
+    PyType, PyTypeRef,
 };
 #[cfg(feature = "jit")]
 use crate::common::lock::OnceCell;
@@ -31,7 +31,7 @@ pub struct PyFunction {
     code: PyRef<PyCode>,
     globals: PyDictRef,
     builtins: PyObjectRef,
-    closure: Option<PyRef<PyTupleTyped<PyCellRef>>>,
+    closure: Option<PyRef<PyTuple<PyCellRef>>>,
     defaults_and_kwdefaults: PyMutex<(Option<PyTupleRef>, Option<PyDictRef>)>,
     name: PyMutex<PyStrRef>,
     qualname: PyMutex<PyStrRef>,
@@ -59,7 +59,7 @@ impl PyFunction {
     pub(crate) fn new(
         code: PyRef<PyCode>,
         globals: PyDictRef,
-        closure: Option<PyRef<PyTupleTyped<PyCellRef>>>,
+        closure: Option<PyRef<PyTuple<PyCellRef>>>,
         defaults: Option<PyTupleRef>,
         kw_only_defaults: Option<PyDictRef>,
         qualname: PyStrRef,

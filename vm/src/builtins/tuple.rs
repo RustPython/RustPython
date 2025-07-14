@@ -3,7 +3,6 @@ use crate::common::{
     hash::{PyHash, PyUHash},
     lock::PyMutex,
 };
-use crate::object::{MaybeTraverse, Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     atomic_func,
@@ -22,14 +21,14 @@ use crate::{
     utils::collection_repr,
     vm::VirtualMachine,
 };
-use std::{fmt, marker::PhantomData, sync::LazyLock};
+use std::{fmt, sync::LazyLock};
 
 #[pyclass(module = false, name = "tuple", traverse)]
-pub struct PyTuple {
-    elements: Box<[PyObjectRef]>,
+pub struct PyTuple<R = PyObjectRef> {
+    elements: Box<[R]>,
 }
 
-impl fmt::Debug for PyTuple {
+impl<R> fmt::Debug for PyTuple<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO: implement more informational, non-recursive Debug formatter
         f.write_str("tuple")
@@ -140,39 +139,60 @@ impl Constructor for PyTuple {
     }
 }
 
-impl AsRef<[PyObjectRef]> for PyTuple {
-    fn as_ref(&self) -> &[PyObjectRef] {
-        self.as_slice()
+impl<R> AsRef<[R]> for PyTuple<R> {
+    fn as_ref(&self) -> &[R] {
+        &self.elements
     }
 }
 
-impl std::ops::Deref for PyTuple {
-    type Target = [PyObjectRef];
+impl<R> std::ops::Deref for PyTuple<R> {
+    type Target = [R];
 
-    fn deref(&self) -> &[PyObjectRef] {
-        self.as_slice()
+    fn deref(&self) -> &[R] {
+        &self.elements
     }
 }
 
-impl<'a> std::iter::IntoIterator for &'a PyTuple {
-    type Item = &'a PyObjectRef;
-    type IntoIter = std::slice::Iter<'a, PyObjectRef>;
+impl<'a, R> std::iter::IntoIterator for &'a PyTuple<R> {
+    type Item = &'a R;
+    type IntoIter = std::slice::Iter<'a, R>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-impl<'a> std::iter::IntoIterator for &'a Py<PyTuple> {
-    type Item = &'a PyObjectRef;
-    type IntoIter = std::slice::Iter<'a, PyObjectRef>;
+impl<'a, R> std::iter::IntoIterator for &'a Py<PyTuple<R>> {
+    type Item = &'a R;
+    type IntoIter = std::slice::Iter<'a, R>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-impl PyTuple {
+impl<R> PyTuple<R> {
+    pub const fn as_slice(&self) -> &[R] {
+        &self.elements
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.elements.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.elements.is_empty()
+    }
+
+    #[inline]
+    pub fn iter(&self) -> std::slice::Iter<'_, R> {
+        self.elements.iter()
+    }
+}
+
+impl PyTuple<PyObjectRef> {
     pub fn new_ref(elements: Vec<PyObjectRef>, ctx: &Context) -> PyRef<Self> {
         if elements.is_empty() {
             ctx.empty_tuple.clone()
@@ -187,10 +207,6 @@ impl PyTuple {
     /// Calling this function implies trying micro optimization for non-zero-sized tuple.
     pub const fn new_unchecked(elements: Box<[PyObjectRef]>) -> Self {
         Self { elements }
-    }
-
-    pub const fn as_slice(&self) -> &[PyObjectRef] {
-        &self.elements
     }
 
     fn repeat(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
@@ -211,6 +227,18 @@ impl PyTuple {
 
     pub fn extract_tuple<'a, T: FromPyTuple<'a>>(&'a self, vm: &VirtualMachine) -> PyResult<T> {
         T::from_pytuple(self, vm)
+    }
+}
+
+impl<T> PyTuple<PyRef<T>> {
+    pub fn new_ref_typed(elements: Vec<PyRef<T>>, ctx: &Context) -> PyRef<PyTuple<PyRef<T>>> {
+        // SAFETY: PyRef<T> has the same layout as PyObjectRef
+        unsafe {
+            let elements: Vec<PyObjectRef> =
+                std::mem::transmute::<Vec<PyRef<T>>, Vec<PyObjectRef>>(elements);
+            let tuple = PyTuple::<PyObjectRef>::new_ref(elements, ctx);
+            std::mem::transmute::<PyRef<PyTuple>, PyRef<PyTuple<PyRef<T>>>>(tuple)
+        }
     }
 }
 
@@ -270,11 +298,6 @@ impl PyTuple {
     #[pymethod]
     pub const fn __len__(&self) -> usize {
         self.elements.len()
-    }
-
-    #[inline]
-    pub const fn is_empty(&self) -> bool {
-        self.elements.is_empty()
     }
 
     #[pymethod(name = "__rmul__")]
@@ -449,21 +472,38 @@ impl Representable for PyTuple {
     }
 }
 
-impl PyRef<PyTuple> {
+impl PyRef<PyTuple<PyObjectRef>> {
     pub fn try_into_typed<T: PyPayload>(
         self,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<PyTupleTyped<PyRef<T>>>> {
-        PyRef::<PyTupleTyped<PyRef<T>>>::try_from_untyped(self, vm)
+    ) -> PyResult<PyRef<PyTuple<PyRef<T>>>> {
+        // Check that all elements are of the correct type
+        for elem in self.as_slice() {
+            <PyRef<T> as TransmuteFromObject>::check(vm, elem)?;
+        }
+        // SAFETY: We just verified all elements are of type T
+        Ok(unsafe { std::mem::transmute::<PyRef<PyTuple>, PyRef<PyTuple<PyRef<T>>>>(self) })
     }
-    /// # Safety
-    ///
-    /// The caller must ensure that all elements in the tuple are valid instances
-    /// of type `T` before calling this method. This is typically verified by
-    /// calling `try_into_typed` first.
-    unsafe fn into_typed_unchecked<T: PyPayload>(self) -> PyRef<PyTupleTyped<PyRef<T>>> {
-        let obj: PyObjectRef = self.into();
-        unsafe { obj.downcast_unchecked::<PyTupleTyped<PyRef<T>>>() }
+}
+
+impl<T: PyPayload> PyRef<PyTuple<PyRef<T>>> {
+    pub fn into_untyped(self) -> PyRef<PyTuple> {
+        // SAFETY: PyTuple<PyRef<T>> has the same layout as PyTuple
+        unsafe { std::mem::transmute::<PyRef<PyTuple<PyRef<T>>>, PyRef<PyTuple>>(self) }
+    }
+}
+
+impl<T: PyPayload> Py<PyTuple<PyRef<T>>> {
+    pub fn as_untyped(&self) -> &Py<PyTuple> {
+        // SAFETY: PyTuple<PyRef<T>> has the same layout as PyTuple
+        unsafe { std::mem::transmute::<&Py<PyTuple<PyRef<T>>>, &Py<PyTuple>>(self) }
+    }
+}
+
+impl<T: PyPayload> From<PyRef<PyTuple<PyRef<T>>>> for PyTupleRef {
+    #[inline]
+    fn from(tup: PyRef<PyTuple<PyRef<T>>>) -> Self {
+        tup.into_untyped()
     }
 }
 
@@ -516,101 +556,6 @@ impl IterNext for PyTupleIterator {
 pub(crate) fn init(context: &Context) {
     PyTuple::extend_class(context, context.types.tuple_type);
     PyTupleIterator::extend_class(context, context.types.tuple_iterator_type);
-}
-
-#[repr(transparent)]
-pub struct PyTupleTyped<R> {
-    // SAFETY INVARIANT: T must be repr(transparent) over PyObjectRef, and the
-    //                   elements must be logically valid when transmuted to T
-    tuple: PyTuple,
-    _marker: PhantomData<R>,
-}
-
-unsafe impl<R> Traverse for PyTupleTyped<R>
-where
-    R: TransmuteFromObject,
-{
-    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        self.tuple.traverse(tracer_fn);
-    }
-}
-
-impl<R: TransmuteFromObject + Traverse> MaybeTraverse for PyTupleTyped<R> {
-    const IS_TRACE: bool = true;
-    fn try_traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        self.traverse(tracer_fn);
-    }
-}
-
-impl<T: PyPayload> PyTupleTyped<PyRef<T>> {
-    pub fn new_ref(elements: Vec<PyRef<T>>, ctx: &Context) -> PyRef<Self> {
-        // SAFETY: PyRef<T> has the same layout as PyObjectRef
-        unsafe {
-            let elements: Vec<PyObjectRef> =
-                std::mem::transmute::<Vec<PyRef<T>>, Vec<PyObjectRef>>(elements);
-            let tuple = PyTuple::new_ref(elements, ctx);
-            tuple.into_typed_unchecked::<T>()
-        }
-    }
-}
-
-impl<T: PyPayload> PyRef<PyTupleTyped<PyRef<T>>> {
-    pub fn into_untyped(self) -> PyRef<PyTuple> {
-        // SAFETY: PyTupleTyped is transparent over PyTuple
-        unsafe { std::mem::transmute::<PyRef<PyTupleTyped<PyRef<T>>>, PyRef<PyTuple>>(self) }
-    }
-
-    pub fn try_from_untyped(tuple: PyTupleRef, vm: &VirtualMachine) -> PyResult<Self> {
-        // Check that all elements are of the correct type
-        for elem in tuple.as_slice() {
-            <PyRef<T> as TransmuteFromObject>::check(vm, elem)?;
-        }
-        // SAFETY: We just verified all elements are of type T, and PyTupleTyped has the same layout as PyTuple
-        Ok(unsafe { std::mem::transmute::<PyRef<PyTuple>, PyRef<PyTupleTyped<PyRef<T>>>>(tuple) })
-    }
-}
-
-impl<T: PyPayload> Py<PyTupleTyped<PyRef<T>>> {
-    pub fn as_untyped(&self) -> &Py<PyTuple> {
-        // SAFETY: PyTupleTyped is transparent over PyTuple
-        unsafe { std::mem::transmute::<&Py<PyTupleTyped<PyRef<T>>>, &Py<PyTuple>>(self) }
-    }
-}
-
-impl<T: PyPayload> AsRef<[PyRef<T>]> for PyTupleTyped<PyRef<T>> {
-    fn as_ref(&self) -> &[PyRef<T>] {
-        self.as_slice()
-    }
-}
-
-impl<T: PyPayload> PyTupleTyped<PyRef<T>> {
-    #[inline]
-    pub fn as_slice(&self) -> &[PyRef<T>] {
-        unsafe { &*(self.tuple.as_slice() as *const [PyObjectRef] as *const [PyRef<T>]) }
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.tuple.len()
-    }
-
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.tuple.is_empty()
-    }
-}
-
-impl<R: fmt::Debug> fmt::Debug for PyTupleTyped<R> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.tuple.as_slice().fmt(f)
-    }
-}
-
-impl<T: PyPayload> From<PyRef<PyTupleTyped<PyRef<T>>>> for PyTupleRef {
-    #[inline]
-    fn from(tup: PyRef<PyTupleTyped<PyRef<T>>>) -> Self {
-        tup.into_untyped()
-    }
 }
 
 pub(super) fn tuple_hash(elements: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<PyHash> {

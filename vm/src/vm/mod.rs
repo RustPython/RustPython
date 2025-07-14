@@ -20,10 +20,7 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
         PyBaseExceptionRef, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned, PyStrRef,
-        PyTypeRef,
-        code::PyCode,
-        pystr::AsPyStr,
-        tuple::{PyTuple, PyTupleTyped},
+        PyTypeRef, code::PyCode, pystr::AsPyStr, tuple::PyTuple,
     },
     codecs::CodecsRegistry,
     common::{hash::HashSecret, lock::PyMutex, rc::PyRc},
@@ -609,7 +606,7 @@ impl VirtualMachine {
     pub fn import_from<'a>(
         &self,
         module_name: impl AsPyStr<'a>,
-        from_list: &Py<PyTupleTyped<PyStrRef>>,
+        from_list: &Py<PyTuple<PyStrRef>>,
         level: usize,
     ) -> PyResult {
         let module_name = module_name.as_pystr(&self.ctx);
@@ -619,7 +616,7 @@ impl VirtualMachine {
     fn import_inner(
         &self,
         module: &Py<PyStr>,
-        from_list: &Py<PyTupleTyped<PyStrRef>>,
+        from_list: &Py<PyTuple<PyStrRef>>,
         level: usize,
     ) -> PyResult {
         // if the import inputs seem weird, e.g a package import or something, rather than just

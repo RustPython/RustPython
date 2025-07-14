@@ -11,7 +11,6 @@ use crate::{
         },
         getset::PyGetSet,
         object, pystr,
-        tuple::PyTupleTyped,
         type_::PyAttributes,
     },
     class::{PyClassImpl, StaticType},
@@ -375,7 +374,7 @@ impl Context {
     }
 
     #[inline]
-    pub fn empty_tuple_typed<T>(&self) -> &Py<PyTupleTyped<T>> {
+    pub fn empty_tuple_typed<T>(&self) -> &Py<PyTuple<T>> {
         let py: &Py<PyTuple> = &self.empty_tuple;
         unsafe { std::mem::transmute(py) }
     }
