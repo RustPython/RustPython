@@ -906,6 +906,11 @@ impl<T: PyObjectPayload> Py<T> {
             _marker: PhantomData,
         })
     }
+
+    pub fn payload(&self) -> &T {
+        // SAFETY: we know the payload is T because of the type parameter
+        unsafe { self.as_object().payload_unchecked() }
+    }
 }
 
 impl<T> ToOwned for Py<T> {

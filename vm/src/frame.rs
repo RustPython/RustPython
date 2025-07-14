@@ -1888,7 +1888,13 @@ impl ExecutingFrame<'_> {
             .downcast_ref::<PyFunction>()
             .expect("SET_FUNCTION_ATTRIBUTE expects function on stack");
 
-        func_ref.set_function_attribute(attr, attr_value, vm)?;
+        let payload: &PyFunction = func_ref.payload();
+        // SetFunctionAttribute always follows MakeFunction, so at this point
+        // there are no other references to func. It is therefore safe to treat it as mutable.
+        unsafe {
+            let payload_ptr = payload as *const PyFunction as *mut PyFunction;
+            (*payload_ptr).set_function_attribute(attr, attr_value, vm)?;
+        };
 
         // Push function back onto stack
         self.push_value(func);
