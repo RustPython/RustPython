@@ -1371,8 +1371,8 @@ impl ExecutingFrame<'_> {
         // fallback to importing '{module.__name__}.{name}' from sys.modules
         let fallback_module = (|| {
             let mod_name = module.get_attr(identifier!(vm, __name__), vm).ok()?;
-            let mod_name_str = mod_name.downcast_ref::<PyStr>()?;
-            let full_mod_name = format!("{}.{}", mod_name_str.as_str(), name.as_str());
+            let mod_name = mod_name.downcast_ref::<PyStr>()?;
+            let full_mod_name = format!("{mod_name}.{name}");
             let sys_modules = vm.sys_module.get_attr("modules", vm).ok()?;
             sys_modules.get_item(&full_mod_name, vm).ok()
         })();
@@ -1389,16 +1389,11 @@ impl ExecutingFrame<'_> {
                 .unwrap_or_else(|| "<unknown>".to_owned());
 
             let msg = format!(
-                "cannot import name '{}' from partially initialized module '{}' (most likely due to a circular import)",
-                name.as_str(),
-                module_name
+                "cannot import name '{name}' from partially initialized module '{module_name}' (most likely due to a circular import)",
             );
             Err(vm.new_import_error(msg, name.to_owned()))
         } else {
-            Err(vm.new_import_error(
-                format!("cannot import name '{}'", name.as_str()),
-                name.to_owned(),
-            ))
+            Err(vm.new_import_error(format!("cannot import name '{name}'"), name.to_owned()))
         }
     }
 
