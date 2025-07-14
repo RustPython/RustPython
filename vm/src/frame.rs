@@ -1883,48 +1883,12 @@ impl ExecutingFrame<'_> {
             )));
         }
 
-        // Set the attribute based on the flag
-        if attr.contains(bytecode::MakeFunctionFlags::DEFAULTS) {
-            func.set_attr("__defaults__", attr_value, vm)?;
-        } else if attr.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
-            func.set_attr("__kwdefaults__", attr_value, vm)?;
-        } else if attr.contains(bytecode::MakeFunctionFlags::ANNOTATIONS) {
-            func.set_attr("__annotations__", attr_value, vm)?;
-        } else if attr.contains(bytecode::MakeFunctionFlags::CLOSURE) {
-            // For closure, we need special handling
-            // The closure tuple contains cell objects
-            let closure_tuple = attr_value.downcast_exact::<PyTuple>(vm).map_err(|obj| {
-                vm.new_type_error(format!(
-                    "closure must be a tuple, not {}",
-                    obj.class().name()
-                ))
-            })?;
+        // Get the function reference and call the new method
+        let func_ref = func
+            .downcast_ref::<PyFunction>()
+            .expect("SET_FUNCTION_ATTRIBUTE expects function on stack");
 
-            // Convert to tuple of cells
-            let cells: Result<Vec<_>, _> = closure_tuple
-                .iter()
-                .map(|cell| cell.clone().downcast_exact::<PyCell>(vm))
-                .collect();
-            let cells = cells
-                .map_err(|_| vm.new_type_error("closure must be a tuple of cells".to_owned()))?;
-
-            // Convert cells to PyTuple
-            let cells_objects: Vec<PyObjectRef> = cells
-                .into_iter()
-                .map(|cell| cell.into_pyref().into())
-                .collect();
-            let cells_tuple = PyTuple::new_ref(cells_objects, &vm.ctx);
-
-            // Get reference to the function
-            let func_ref = func
-                .downcast_ref::<PyFunction>()
-                .expect("SET_FUNCTION_ATTRIBUTE expects function on stack");
-
-            func_ref.set_closure(Some(cells_tuple));
-        } else if attr.contains(bytecode::MakeFunctionFlags::TYPE_PARAMS) {
-            // Type params can be set via attribute
-            func.set_attr("__type_params__", attr_value, vm)?;
-        }
+        func_ref.set_function_attribute(attr, attr_value, vm)?;
 
         // Push function back onto stack
         self.push_value(func);

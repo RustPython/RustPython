@@ -395,6 +395,81 @@ impl Py<PyFunction> {
     pub(crate) fn set_closure(&self, closure: Option<PyTupleRef>) {
         let _ = unsafe { self.closure.swap(closure) };
     }
+
+    /// Set function attribute based on MakeFunctionFlags
+    /// This is used by SET_FUNCTION_ATTRIBUTE instruction in CPython 3.13 style
+    pub(crate) fn set_function_attribute(
+        &self,
+        attr: bytecode::MakeFunctionFlags,
+        attr_value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        use crate::builtins::PyDict;
+        if attr.contains(bytecode::MakeFunctionFlags::DEFAULTS) {
+            let defaults = attr_value.clone().downcast::<PyTuple>().map_err(|_| {
+                vm.new_type_error(format!(
+                    "__defaults__ must be a tuple, not {}",
+                    attr_value.class().name()
+                ))
+            })?;
+            self.set___defaults__(Some(defaults));
+        } else if attr.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
+            let kwdefaults = attr_value.clone().downcast::<PyDict>().map_err(|_| {
+                vm.new_type_error(format!(
+                    "__kwdefaults__ must be a dict, not {}",
+                    attr_value.class().name()
+                ))
+            })?;
+            self.set___kwdefaults__(Some(kwdefaults));
+        } else if attr.contains(bytecode::MakeFunctionFlags::ANNOTATIONS) {
+            let annotations = attr_value.clone().downcast::<PyDict>().map_err(|_| {
+                vm.new_type_error(format!(
+                    "__annotations__ must be a dict, not {}",
+                    attr_value.class().name()
+                ))
+            })?;
+            *self.annotations.lock() = annotations;
+        } else if attr.contains(bytecode::MakeFunctionFlags::CLOSURE) {
+            // For closure, we need special handling
+            // The closure tuple contains cell objects
+            let closure_tuple =
+                attr_value
+                    .clone()
+                    .downcast_exact::<PyTuple>(vm)
+                    .map_err(|obj| {
+                        vm.new_type_error(format!(
+                            "closure must be a tuple, not {}",
+                            obj.class().name()
+                        ))
+                    })?;
+
+            // Convert to tuple of cells
+            let cells: Result<Vec<_>, _> = closure_tuple
+                .iter()
+                .map(|cell| cell.clone().downcast_exact::<PyCell>(vm))
+                .collect();
+            let cells = cells
+                .map_err(|_| vm.new_type_error("closure must be a tuple of cells".to_owned()))?;
+
+            // Convert cells to PyTuple
+            let cells_objects: Vec<PyObjectRef> = cells
+                .into_iter()
+                .map(|cell| cell.into_pyref().into())
+                .collect();
+            let cells_tuple = PyTuple::new_ref(cells_objects, &vm.ctx);
+
+            self.set_closure(Some(cells_tuple));
+        } else if attr.contains(bytecode::MakeFunctionFlags::TYPE_PARAMS) {
+            let type_params = attr_value.clone().downcast::<PyTuple>().map_err(|_| {
+                vm.new_type_error(format!(
+                    "__type_params__ must be a tuple, not {}",
+                    attr_value.class().name()
+                ))
+            })?;
+            *self.type_params.lock() = type_params;
+        }
+        Ok(())
+    }
 }
 
 impl PyPayload for PyFunction {
