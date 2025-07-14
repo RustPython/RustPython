@@ -5353,8 +5353,6 @@ class ForwardRefTests(BaseTestCase):
             some.__no_type_check__
         self.assertEqual(get_type_hints(some), {'args': int, 'return': int})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_type_check_lambda(self):
         @no_type_check
         class A:

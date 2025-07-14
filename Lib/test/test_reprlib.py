@@ -176,8 +176,6 @@ class ReprTests(unittest.TestCase):
         self.assertTrue(s.endswith(">"))
         self.assertIn(s.find("..."), [12, 13])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_lambda(self):
         r = repr(lambda x: x)
         self.assertTrue(r.startswith("<function ReprTests.test_lambda.<locals>.<lambda"), r)

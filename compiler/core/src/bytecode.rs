@@ -528,7 +528,10 @@ pub enum Instruction {
     JumpIfFalseOrPop {
         target: Arg<Label>,
     },
-    MakeFunction(Arg<MakeFunctionFlags>),
+    MakeFunction,
+    SetFunctionAttribute {
+        attr: Arg<MakeFunctionFlags>,
+    },
     CallFunctionPositional {
         nargs: Arg<u32>,
     },
@@ -1296,13 +1299,13 @@ impl Instruction {
                     -1
                 }
             }
-            MakeFunction(flags) => {
-                let flags = flags.get(arg);
-                -2 - flags.contains(MakeFunctionFlags::CLOSURE) as i32
-                    - flags.contains(MakeFunctionFlags::ANNOTATIONS) as i32
-                    - flags.contains(MakeFunctionFlags::KW_ONLY_DEFAULTS) as i32
-                    - flags.contains(MakeFunctionFlags::DEFAULTS) as i32
-                    + 1
+            MakeFunction => {
+                // CPython 3.13 style: MakeFunction only pops code object
+                -1 + 1 // pop code, push function
+            }
+            SetFunctionAttribute { .. } => {
+                // pops attribute value and function, pushes function back
+                -2 + 1
             }
             CallFunctionPositional { nargs } => -(nargs.get(arg) as i32) - 1 + 1,
             CallMethodPositional { nargs } => -(nargs.get(arg) as i32) - 3 + 1,
@@ -1497,7 +1500,8 @@ impl Instruction {
             JumpIfFalse { target } => w!(JumpIfFalse, target),
             JumpIfTrueOrPop { target } => w!(JumpIfTrueOrPop, target),
             JumpIfFalseOrPop { target } => w!(JumpIfFalseOrPop, target),
-            MakeFunction(flags) => w!(MakeFunction, ?flags),
+            MakeFunction => w!(MakeFunction),
+            SetFunctionAttribute { attr } => w!(SetFunctionAttribute, ?attr),
             CallFunctionPositional { nargs } => w!(CallFunctionPositional, nargs),
             CallFunctionKeyword { nargs } => w!(CallFunctionKeyword, nargs),
             CallFunctionEx { has_kwargs } => w!(CallFunctionEx, has_kwargs),

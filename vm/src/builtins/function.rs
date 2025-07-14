@@ -36,11 +36,11 @@ pub struct PyFunction {
     name: PyMutex<PyStrRef>,
     qualname: PyMutex<PyStrRef>,
     type_params: PyMutex<PyTupleRef>,
-    #[cfg(feature = "jit")]
-    jitted_code: OnceCell<CompiledCode>,
     annotations: PyMutex<PyDictRef>,
     module: PyMutex<PyObjectRef>,
     doc: PyMutex<PyObjectRef>,
+    #[cfg(feature = "jit")]
+    jitted_code: OnceCell<CompiledCode>,
 }
 
 unsafe impl Traverse for PyFunction {
@@ -54,18 +54,10 @@ unsafe impl Traverse for PyFunction {
 }
 
 impl PyFunction {
-    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub(crate) fn new(
         code: PyRef<PyCode>,
         globals: PyDictRef,
-        closure: Option<PyRef<PyTuple<PyCellRef>>>,
-        defaults: Option<PyTupleRef>,
-        kw_only_defaults: Option<PyDictRef>,
-        qualname: PyStrRef,
-        type_params: PyTupleRef,
-        annotations: PyDictRef,
-        doc: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
         let name = PyMutex::new(code.obj_name.to_owned());
@@ -79,27 +71,22 @@ impl PyFunction {
             }
         });
 
+        let qualname = vm.ctx.new_str(code.qualname.as_str());
         let func = Self {
-            code,
+            code: code.clone(),
             globals,
             builtins,
-            closure,
-            defaults_and_kwdefaults: PyMutex::new((defaults, kw_only_defaults)),
+            closure: None,
+            defaults_and_kwdefaults: PyMutex::new((None, None)),
             name,
             qualname: PyMutex::new(qualname),
-            type_params: PyMutex::new(type_params),
-            annotations: PyMutex::new(annotations),
+            type_params: PyMutex::new(vm.ctx.empty_tuple.clone()),
+            annotations: PyMutex::new(vm.ctx.new_dict()),
             module: PyMutex::new(module),
-            doc: PyMutex::new(doc),
+            doc: PyMutex::new(vm.ctx.none()),
             #[cfg(feature = "jit")]
             jitted_code: OnceCell::new(),
         };
-
-        // let name = qualname.as_str().split('.').next_back().unwrap();
-        // func.set_attr(identifier!(vm, __name__), vm.new_pyobj(name), vm)?;
-        // func.set_attr(identifier!(vm, __qualname__), qualname, vm)?;
-        // func.set_attr(identifier!(vm, __doc__), doc, vm)?;
-
         Ok(func)
     }
 
@@ -314,6 +301,76 @@ impl PyFunction {
             }
         }
 
+        Ok(())
+    }
+
+    /// Set function attribute based on MakeFunctionFlags
+    pub(crate) fn set_function_attribute(
+        &mut self,
+        attr: bytecode::MakeFunctionFlags,
+        attr_value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        use crate::builtins::PyDict;
+        if attr == bytecode::MakeFunctionFlags::DEFAULTS {
+            let defaults = match attr_value.downcast::<PyTuple>() {
+                Ok(tuple) => tuple,
+                Err(obj) => {
+                    return Err(vm.new_type_error(format!(
+                        "__defaults__ must be a tuple, not {}",
+                        obj.class().name()
+                    )));
+                }
+            };
+            self.defaults_and_kwdefaults.lock().0 = Some(defaults);
+        } else if attr == bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS {
+            let kwdefaults = match attr_value.downcast::<PyDict>() {
+                Ok(dict) => dict,
+                Err(obj) => {
+                    return Err(vm.new_type_error(format!(
+                        "__kwdefaults__ must be a dict, not {}",
+                        obj.class().name()
+                    )));
+                }
+            };
+            self.defaults_and_kwdefaults.lock().1 = Some(kwdefaults);
+        } else if attr == bytecode::MakeFunctionFlags::ANNOTATIONS {
+            let annotations = match attr_value.downcast::<PyDict>() {
+                Ok(dict) => dict,
+                Err(obj) => {
+                    return Err(vm.new_type_error(format!(
+                        "__annotations__ must be a dict, not {}",
+                        obj.class().name()
+                    )));
+                }
+            };
+            *self.annotations.lock() = annotations;
+        } else if attr == bytecode::MakeFunctionFlags::CLOSURE {
+            // For closure, we need special handling
+            // The closure tuple contains cell objects
+            let closure_tuple = attr_value
+                .clone()
+                .downcast_exact::<PyTuple>(vm)
+                .map_err(|obj| {
+                    vm.new_type_error(format!(
+                        "closure must be a tuple, not {}",
+                        obj.class().name()
+                    ))
+                })?
+                .into_pyref();
+
+            self.closure = Some(closure_tuple.try_into_typed::<PyCell>(vm)?);
+        } else if attr == bytecode::MakeFunctionFlags::TYPE_PARAMS {
+            let type_params = attr_value.clone().downcast::<PyTuple>().map_err(|_| {
+                vm.new_type_error(format!(
+                    "__type_params__ must be a tuple, not {}",
+                    attr_value.class().name()
+                ))
+            })?;
+            *self.type_params.lock() = type_params;
+        } else {
+            unreachable!("This is a compiler bug");
+        }
         Ok(())
     }
 }
@@ -622,34 +679,23 @@ impl Constructor for PyFunction {
             None
         };
 
-        // Get function name - use provided name or default to code object name
-        let name = args
-            .name
-            .into_option()
-            .unwrap_or_else(|| PyStr::from(args.code.obj_name.as_str()).into_ref(&vm.ctx));
-
-        // Get qualname - for now just use the name
-        let qualname = name.clone();
-
-        // Create empty type_params and annotations
-        let type_params = vm.ctx.new_tuple(vec![]);
-        let annotations = vm.ctx.new_dict();
-
-        // Get doc from code object - for now just use None
-        let doc = vm.ctx.none();
-
-        let func = Self::new(
-            args.code,
-            args.globals,
-            closure,
-            args.defaults.into_option(),
-            args.kwdefaults.into_option(),
-            qualname,
-            type_params,
-            annotations,
-            doc,
-            vm,
-        )?;
+        let mut func = Self::new(args.code.clone(), args.globals.clone(), vm)?;
+        // Set function name if provided
+        if let Some(name) = args.name.into_option() {
+            *func.name.lock() = name.clone();
+            // Also update qualname to match the name
+            *func.qualname.lock() = name;
+        }
+        // Now set additional attributes directly
+        if let Some(closure_tuple) = closure {
+            func.closure = Some(closure_tuple);
+        }
+        if let Some(defaults) = args.defaults.into_option() {
+            func.defaults_and_kwdefaults.lock().0 = Some(defaults);
+        }
+        if let Some(kwdefaults) = args.kwdefaults.into_option() {
+            func.defaults_and_kwdefaults.lock().1 = Some(kwdefaults);
+        }
 
         func.into_ref_with_type(vm, cls).map(Into::into)
     }

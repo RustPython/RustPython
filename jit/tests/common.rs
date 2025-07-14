@@ -122,24 +122,47 @@ impl StackMachine {
                 }
                 self.stack.push(StackValue::Map(map));
             }
-            Instruction::MakeFunction(_flags) => {
-                let _name = if let Some(StackValue::String(name)) = self.stack.pop() {
-                    name
-                } else {
-                    panic!("Expected function name")
-                };
+            Instruction::MakeFunction => {
                 let code = if let Some(StackValue::Code(code)) = self.stack.pop() {
                     code
                 } else {
                     panic!("Expected function code")
                 };
-                let annotations = if let Some(StackValue::Map(map)) = self.stack.pop() {
-                    map
+                // Other attributes will be set by SET_FUNCTION_ATTRIBUTE
+                self.stack.push(StackValue::Function(Function {
+                    code,
+                    annotations: HashMap::new(), // empty annotations, will be set later if needed
+                }));
+            }
+            Instruction::SetFunctionAttribute { attr } => {
+                // Stack: [..., attr_value, func] -> [..., func]
+                let func = if let Some(StackValue::Function(func)) = self.stack.pop() {
+                    func
                 } else {
-                    panic!("Expected function annotations")
+                    panic!("Expected function on stack for SET_FUNCTION_ATTRIBUTE")
                 };
-                self.stack
-                    .push(StackValue::Function(Function { code, annotations }));
+                let attr_value = self.stack.pop().expect("Expected attribute value on stack");
+
+                // For now, we only handle ANNOTATIONS flag in JIT tests
+                if attr
+                    .get(arg)
+                    .contains(rustpython_compiler_core::bytecode::MakeFunctionFlags::ANNOTATIONS)
+                {
+                    if let StackValue::Map(annotations) = attr_value {
+                        // Update function's annotations
+                        let updated_func = Function {
+                            code: func.code,
+                            annotations,
+                        };
+                        self.stack.push(StackValue::Function(updated_func));
+                    } else {
+                        panic!("Expected annotations to be a map");
+                    }
+                } else {
+                    // For other attributes, just push the function back unchanged
+                    // (since JIT tests mainly care about type annotations)
+                    self.stack.push(StackValue::Function(func));
+                }
             }
             Instruction::Duplicate => {
                 let value = self.stack.last().unwrap().clone();

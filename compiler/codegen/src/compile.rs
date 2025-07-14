@@ -1482,26 +1482,7 @@ impl Compiler<'_> {
         Ok(())
     }
 
-    fn enter_function(
-        &mut self,
-        name: &str,
-        parameters: &Parameters,
-    ) -> CompileResult<bytecode::MakeFunctionFlags> {
-        let defaults: Vec<_> = std::iter::empty()
-            .chain(&parameters.posonlyargs)
-            .chain(&parameters.args)
-            .filter_map(|x| x.default.as_deref())
-            .collect();
-        let have_defaults = !defaults.is_empty();
-        if have_defaults {
-            // Construct a tuple:
-            let size = defaults.len().to_u32();
-            for element in &defaults {
-                self.compile_expression(element)?;
-            }
-            emit!(self, Instruction::BuildTuple { size });
-        }
-
+    fn enter_function(&mut self, name: &str, parameters: &Parameters) -> CompileResult<()> {
         // TODO: partition_in_place
         let mut kw_without_defaults = vec![];
         let mut kw_with_defaults = vec![];
@@ -1511,31 +1492,6 @@ impl Compiler<'_> {
             } else {
                 kw_without_defaults.push(&kwonlyarg.parameter);
             }
-        }
-
-        // let (kw_without_defaults, kw_with_defaults) = args.split_kwonlyargs();
-        if !kw_with_defaults.is_empty() {
-            let default_kw_count = kw_with_defaults.len();
-            for (arg, default) in kw_with_defaults.iter() {
-                self.emit_load_const(ConstantData::Str {
-                    value: arg.name.as_str().into(),
-                });
-                self.compile_expression(default)?;
-            }
-            emit!(
-                self,
-                Instruction::BuildMap {
-                    size: default_kw_count.to_u32(),
-                }
-            );
-        }
-
-        let mut func_flags = bytecode::MakeFunctionFlags::empty();
-        if have_defaults {
-            func_flags |= bytecode::MakeFunctionFlags::DEFAULTS;
-        }
-        if !kw_with_defaults.is_empty() {
-            func_flags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
         }
 
         self.push_output(
@@ -1565,7 +1521,7 @@ impl Compiler<'_> {
             self.varname(name.name.as_str())?;
         }
 
-        Ok(func_flags)
+        Ok(())
     }
 
     fn prepare_decorators(&mut self, decorator_list: &[Decorator]) -> CompileResult<()> {
@@ -1869,7 +1825,57 @@ impl Compiler<'_> {
             self.push_symbol_table();
         }
 
-        let mut func_flags = self.enter_function(name, parameters)?;
+        // Prepare defaults and kwdefaults before entering function
+        let defaults: Vec<_> = std::iter::empty()
+            .chain(&parameters.posonlyargs)
+            .chain(&parameters.args)
+            .filter_map(|x| x.default.as_deref())
+            .collect();
+        let have_defaults = !defaults.is_empty();
+
+        // Compile defaults before entering function scope
+        if have_defaults {
+            // Construct a tuple:
+            let size = defaults.len().to_u32();
+            for element in &defaults {
+                self.compile_expression(element)?;
+            }
+            emit!(self, Instruction::BuildTuple { size });
+        }
+
+        // Prepare keyword-only defaults
+        let mut kw_with_defaults = vec![];
+        for kwonlyarg in &parameters.kwonlyargs {
+            if let Some(default) = &kwonlyarg.default {
+                kw_with_defaults.push((&kwonlyarg.parameter, default));
+            }
+        }
+
+        let have_kwdefaults = !kw_with_defaults.is_empty();
+        if have_kwdefaults {
+            let default_kw_count = kw_with_defaults.len();
+            for (arg, default) in kw_with_defaults.iter() {
+                self.emit_load_const(ConstantData::Str {
+                    value: arg.name.as_str().into(),
+                });
+                self.compile_expression(default)?;
+            }
+            emit!(
+                self,
+                Instruction::BuildMap {
+                    size: default_kw_count.to_u32(),
+                }
+            );
+        }
+
+        self.enter_function(name, parameters)?;
+        let mut func_flags = bytecode::MakeFunctionFlags::empty();
+        if have_defaults {
+            func_flags |= bytecode::MakeFunctionFlags::DEFAULTS;
+        }
+        if have_kwdefaults {
+            func_flags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
+        }
         self.current_code_info()
             .flags
             .set(bytecode::CodeFlags::IS_COROUTINE, is_async);
@@ -1888,7 +1894,7 @@ impl Compiler<'_> {
         };
 
         // Set qualname using the new method
-        let qualname = self.set_qualname();
+        self.set_qualname();
 
         let (doc_str, body) = split_doc(body, &self.opts);
 
@@ -1965,7 +1971,7 @@ impl Compiler<'_> {
         }
 
         // Create function with closure
-        self.make_closure(code, &qualname, func_flags)?;
+        self.make_closure(code, func_flags)?;
 
         if let Some(value) = doc_str {
             emit!(self, Instruction::Duplicate);
@@ -1982,56 +1988,90 @@ impl Compiler<'_> {
         self.store_name(name)
     }
 
+    /// Determines if a variable should be CELL or FREE type
+    // = get_ref_type
+    fn get_ref_type(&self, name: &str) -> Result<SymbolScope, CodegenErrorType> {
+        // Special handling for __class__ and __classdict__ in class scope
+        if self.ctx.in_class && (name == "__class__" || name == "__classdict__") {
+            return Ok(SymbolScope::Cell);
+        }
+
+        let table = self.symbol_table_stack.last().unwrap();
+        match table.lookup(name) {
+            Some(symbol) => match symbol.scope {
+                SymbolScope::Cell | SymbolScope::TypeParams => Ok(SymbolScope::Cell),
+                SymbolScope::Free => Ok(SymbolScope::Free),
+                _ if symbol.flags.contains(SymbolFlags::FREE_CLASS) => Ok(SymbolScope::Free),
+                _ => Err(CodegenErrorType::SyntaxError(format!(
+                    "get_ref_type: invalid scope for '{name}'"
+                ))),
+            },
+            None => Err(CodegenErrorType::SyntaxError(format!(
+                "get_ref_type: cannot find symbol '{name}'"
+            ))),
+        }
+    }
+
     /// Loads closure variables if needed and creates a function object
     // = compiler_make_closure
     fn make_closure(
         &mut self,
         code: CodeObject,
-        qualname: &str,
-        mut flags: bytecode::MakeFunctionFlags,
+        flags: bytecode::MakeFunctionFlags,
     ) -> CompileResult<()> {
         // Handle free variables (closure)
-        if !code.freevars.is_empty() {
+        let has_freevars = !code.freevars.is_empty();
+        if has_freevars {
             // Build closure tuple by loading free variables
-            for var in &code.freevars {
-                let table = self.symbol_table_stack.last().unwrap();
-                let symbol = match table.lookup(var) {
-                    Some(s) => s,
-                    None => {
-                        return Err(self.error(CodegenErrorType::SyntaxError(format!(
-                            "compiler_make_closure: cannot find symbol '{var}'",
-                        ))));
-                    }
-                };
 
+            for var in &code.freevars {
+                // Special case: If a class contains a method with a
+                // free variable that has the same name as a method,
+                // the name will be considered free *and* local in the
+                // class. It should be handled by the closure, as
+                // well as by the normal name lookup logic.
+
+                // Get reference type using our get_ref_type function
+                let ref_type = self.get_ref_type(var).map_err(|e| self.error(e))?;
+
+                // Get parent code info
                 let parent_code = self.code_stack.last().unwrap();
-                let vars = match symbol.scope {
-                    SymbolScope::Free => &parent_code.metadata.freevars,
-                    SymbolScope::Cell => &parent_code.metadata.cellvars,
-                    SymbolScope::TypeParams => &parent_code.metadata.cellvars,
-                    _ if symbol.flags.contains(SymbolFlags::FREE_CLASS) => {
-                        &parent_code.metadata.freevars
-                    }
+                let cellvars_len = parent_code.metadata.cellvars.len();
+
+                // Look up the variable index based on reference type
+                let idx = match ref_type {
+                    SymbolScope::Cell => parent_code
+                        .metadata
+                        .cellvars
+                        .get_index_of(var)
+                        .or_else(|| {
+                            parent_code
+                                .metadata
+                                .freevars
+                                .get_index_of(var)
+                                .map(|i| i + cellvars_len)
+                        })
+                        .ok_or_else(|| {
+                            self.error(CodegenErrorType::SyntaxError(format!(
+                                "compiler_make_closure: cannot find '{var}' in parent vars",
+                            )))
+                        })?,
+                    SymbolScope::Free => parent_code
+                        .metadata
+                        .freevars
+                        .get_index_of(var)
+                        .map(|i| i + cellvars_len)
+                        .or_else(|| parent_code.metadata.cellvars.get_index_of(var))
+                        .ok_or_else(|| {
+                            self.error(CodegenErrorType::SyntaxError(format!(
+                                "compiler_make_closure: cannot find '{var}' in parent vars",
+                            )))
+                        })?,
                     _ => {
                         return Err(self.error(CodegenErrorType::SyntaxError(format!(
-                            "compiler_make_closure: invalid scope for '{var}'",
+                            "compiler_make_closure: unexpected ref_type {ref_type:?} for '{var}'",
                         ))));
                     }
-                };
-
-                let idx = match vars.get_index_of(var) {
-                    Some(i) => i,
-                    None => {
-                        return Err(self.error(CodegenErrorType::SyntaxError(format!(
-                            "compiler_make_closure: cannot find '{var}' in parent vars",
-                        ))));
-                    }
-                };
-
-                let idx = if let SymbolScope::Free = symbol.scope {
-                    idx + parent_code.metadata.cellvars.len()
-                } else {
-                    idx
                 };
 
                 emit!(self, Instruction::LoadClosure(idx.to_u32()));
@@ -2044,22 +2084,73 @@ impl Compiler<'_> {
                     size: code.freevars.len().to_u32(),
                 }
             );
-
-            flags |= bytecode::MakeFunctionFlags::CLOSURE;
         }
 
-        // Load code object
+        // load code object and create function
         self.emit_load_const(ConstantData::Code {
             code: Box::new(code),
         });
 
-        // Load qualified name
-        self.emit_load_const(ConstantData::Str {
-            value: qualname.into(),
-        });
+        // Create function with no flags
+        emit!(self, Instruction::MakeFunction);
 
-        // Make function with proper flags
-        emit!(self, Instruction::MakeFunction(flags));
+        // Now set attributes one by one using SET_FUNCTION_ATTRIBUTE
+        // Note: The order matters! Values must be on stack before calling SET_FUNCTION_ATTRIBUTE
+
+        // Set closure if needed
+        if has_freevars {
+            // Closure tuple is already on stack
+            emit!(
+                self,
+                Instruction::SetFunctionAttribute {
+                    attr: bytecode::MakeFunctionFlags::CLOSURE
+                }
+            );
+        }
+
+        // Set annotations if present
+        if flags.contains(bytecode::MakeFunctionFlags::ANNOTATIONS) {
+            // Annotations dict is already on stack
+            emit!(
+                self,
+                Instruction::SetFunctionAttribute {
+                    attr: bytecode::MakeFunctionFlags::ANNOTATIONS
+                }
+            );
+        }
+
+        // Set kwdefaults if present
+        if flags.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
+            // kwdefaults dict is already on stack
+            emit!(
+                self,
+                Instruction::SetFunctionAttribute {
+                    attr: bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS
+                }
+            );
+        }
+
+        // Set defaults if present
+        if flags.contains(bytecode::MakeFunctionFlags::DEFAULTS) {
+            // defaults tuple is already on stack
+            emit!(
+                self,
+                Instruction::SetFunctionAttribute {
+                    attr: bytecode::MakeFunctionFlags::DEFAULTS
+                }
+            );
+        }
+
+        // Set type_params if present
+        if flags.contains(bytecode::MakeFunctionFlags::TYPE_PARAMS) {
+            // type_params tuple is already on stack
+            emit!(
+                self,
+                Instruction::SetFunctionAttribute {
+                    attr: bytecode::MakeFunctionFlags::TYPE_PARAMS
+                }
+            );
+        }
 
         Ok(())
     }
@@ -2262,7 +2353,7 @@ impl Compiler<'_> {
             func_flags |= bytecode::MakeFunctionFlags::TYPE_PARAMS;
 
             // Create class function with closure
-            self.make_closure(class_code, name, func_flags)?;
+            self.make_closure(class_code, func_flags)?;
             self.emit_load_const(ConstantData::Str { value: name.into() });
 
             // Compile original bases
@@ -2311,19 +2402,14 @@ impl Compiler<'_> {
             let type_params_code = self.exit_scope();
 
             // Execute the type params function
-            let type_params_name = format!("<generic parameters of {name}>");
-            self.make_closure(
-                type_params_code,
-                &type_params_name,
-                bytecode::MakeFunctionFlags::empty(),
-            )?;
+            self.make_closure(type_params_code, bytecode::MakeFunctionFlags::empty())?;
             emit!(self, Instruction::CallFunctionPositional { nargs: 0 });
         } else {
             // Non-generic class: standard path
             emit!(self, Instruction::LoadBuildClass);
 
             // Create class function with closure
-            self.make_closure(class_code, name, bytecode::MakeFunctionFlags::empty())?;
+            self.make_closure(class_code, bytecode::MakeFunctionFlags::empty())?;
             self.emit_load_const(ConstantData::Str { value: name.into() });
 
             let call = if let Some(arguments) = arguments {
@@ -4033,10 +4119,59 @@ impl Compiler<'_> {
                 parameters, body, ..
             }) => {
                 let prev_ctx = self.ctx;
-
                 let name = "<lambda>".to_owned();
-                let func_flags = self
-                    .enter_function(&name, parameters.as_deref().unwrap_or(&Default::default()))?;
+                let default_params = Default::default();
+                let params = parameters.as_deref().unwrap_or(&default_params);
+
+                // Prepare defaults before entering function
+                let defaults: Vec<_> = std::iter::empty()
+                    .chain(&params.posonlyargs)
+                    .chain(&params.args)
+                    .filter_map(|x| x.default.as_deref())
+                    .collect();
+                let have_defaults = !defaults.is_empty();
+
+                if have_defaults {
+                    let size = defaults.len().to_u32();
+                    for element in &defaults {
+                        self.compile_expression(element)?;
+                    }
+                    emit!(self, Instruction::BuildTuple { size });
+                }
+
+                // Prepare keyword-only defaults
+                let mut kw_with_defaults = vec![];
+                for kwonlyarg in &params.kwonlyargs {
+                    if let Some(default) = &kwonlyarg.default {
+                        kw_with_defaults.push((&kwonlyarg.parameter, default));
+                    }
+                }
+
+                let have_kwdefaults = !kw_with_defaults.is_empty();
+                if have_kwdefaults {
+                    let default_kw_count = kw_with_defaults.len();
+                    for (arg, default) in kw_with_defaults.iter() {
+                        self.emit_load_const(ConstantData::Str {
+                            value: arg.name.as_str().into(),
+                        });
+                        self.compile_expression(default)?;
+                    }
+                    emit!(
+                        self,
+                        Instruction::BuildMap {
+                            size: default_kw_count.to_u32(),
+                        }
+                    );
+                }
+
+                self.enter_function(&name, params)?;
+                let mut func_flags = bytecode::MakeFunctionFlags::empty();
+                if have_defaults {
+                    func_flags |= bytecode::MakeFunctionFlags::DEFAULTS;
+                }
+                if have_kwdefaults {
+                    func_flags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
+                }
 
                 // Set qualname for lambda
                 self.set_qualname();
@@ -4057,7 +4192,7 @@ impl Compiler<'_> {
                 let code = self.exit_scope();
 
                 // Create lambda function with closure
-                self.make_closure(code, &name, func_flags)?;
+                self.make_closure(code, func_flags)?;
 
                 self.ctx = prev_ctx;
             }
@@ -4602,7 +4737,7 @@ impl Compiler<'_> {
         self.ctx = prev_ctx;
 
         // Create comprehension function with closure
-        self.make_closure(code, name, bytecode::MakeFunctionFlags::empty())?;
+        self.make_closure(code, bytecode::MakeFunctionFlags::empty())?;
 
         // Evaluate iterated item:
         self.compile_expression(&generators[0].iter)?;

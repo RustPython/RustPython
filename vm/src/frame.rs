@@ -1159,8 +1159,9 @@ impl ExecutingFrame<'_> {
                 }
             }
             bytecode::Instruction::ForIter { target } => self.execute_for_iter(vm, target.get(arg)),
-            bytecode::Instruction::MakeFunction(flags) => {
-                self.execute_make_function(vm, flags.get(arg))
+            bytecode::Instruction::MakeFunction => self.execute_make_function(vm),
+            bytecode::Instruction::SetFunctionAttribute { attr } => {
+                self.execute_set_function_attribute(vm, attr.get(arg))
             }
             bytecode::Instruction::CallFunctionPositional { nargs } => {
                 let args = self.collect_positional_args(nargs.get(arg));
@@ -1846,79 +1847,46 @@ impl ExecutingFrame<'_> {
             }
         }
     }
-    fn execute_make_function(
-        &mut self,
-        vm: &VirtualMachine,
-        flags: bytecode::MakeFunctionFlags,
-    ) -> FrameResult {
-        let qualified_name = self
-            .pop_value()
-            .downcast::<PyStr>()
-            .expect("qualified name to be a string");
+    fn execute_make_function(&mut self, vm: &VirtualMachine) -> FrameResult {
+        // MakeFunction only takes code object, no flags
         let code_obj: PyRef<PyCode> = self
             .pop_value()
             .downcast()
-            .expect("Second to top value on the stack must be a code object");
+            .expect("Stack value should be code object");
 
-        let closure = if flags.contains(bytecode::MakeFunctionFlags::CLOSURE) {
-            let tuple = PyTupleRef::try_from_object(vm, self.pop_value()).unwrap();
-            Some(tuple.try_into_typed(vm).expect("This is a compiler bug"))
-        } else {
-            None
-        };
-
-        let annotations = if flags.contains(bytecode::MakeFunctionFlags::ANNOTATIONS) {
-            self.pop_value()
-        } else {
-            vm.ctx.new_dict().into()
-        };
-
-        let type_params: PyTupleRef = if flags.contains(bytecode::MakeFunctionFlags::TYPE_PARAMS) {
-            self.pop_value()
-                .downcast()
-                .map_err(|_| vm.new_type_error("Type params must be a tuple."))?
-        } else {
-            vm.ctx.empty_tuple.clone()
-        };
-
-        let kw_only_defaults = if flags.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
-            Some(
-                self.pop_value()
-                    .downcast::<PyDict>()
-                    .expect("Stack value for keyword only defaults expected to be a dict"),
-            )
-        } else {
-            None
-        };
-
-        let defaults = if flags.contains(bytecode::MakeFunctionFlags::DEFAULTS) {
-            Some(
-                self.pop_value()
-                    .downcast::<PyTuple>()
-                    .expect("Stack value for defaults expected to be a tuple"),
-            )
-        } else {
-            None
-        };
-
-        // pop argc arguments
-        // argument: name, args, globals
-        // let scope = self.scope.clone();
-        let func_obj = PyFunction::new(
-            code_obj,
-            self.globals.clone(),
-            closure,
-            defaults,
-            kw_only_defaults,
-            qualified_name.clone(),
-            type_params,
-            annotations.downcast().unwrap(),
-            vm.ctx.none(),
-            vm,
-        )?
-        .into_pyobject(vm);
+        // Create function with minimal attributes
+        let func_obj = PyFunction::new(code_obj, self.globals.clone(), vm)?.into_pyobject(vm);
 
         self.push_value(func_obj);
+        Ok(None)
+    }
+
+    fn execute_set_function_attribute(
+        &mut self,
+        vm: &VirtualMachine,
+        attr: bytecode::MakeFunctionFlags,
+    ) -> FrameResult {
+        // CPython 3.13 style: SET_FUNCTION_ATTRIBUTE sets attributes on a function
+        // Stack: [..., attr_value, func] -> [..., func]
+        // Stack order: func is at -1, attr_value is at -2
+
+        let func = self.pop_value();
+        let attr_value = self.replace_top(func);
+
+        let func = self.top_value();
+        // Get the function reference and call the new method
+        let func_ref = func
+            .downcast_ref::<PyFunction>()
+            .expect("SET_FUNCTION_ATTRIBUTE expects function on stack");
+
+        let payload: &PyFunction = func_ref.payload();
+        // SetFunctionAttribute always follows MakeFunction, so at this point
+        // there are no other references to func. It is therefore safe to treat it as mutable.
+        unsafe {
+            let payload_ptr = payload as *const PyFunction as *mut PyFunction;
+            (*payload_ptr).set_function_attribute(attr, attr_value, vm)?;
+        };
+
         Ok(None)
     }
 

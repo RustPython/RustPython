@@ -176,8 +176,6 @@ class FunctionPropertiesTest(FuncAttrsTest):
         self.assertEqual(self.fi.a.__name__, 'a')
         self.cannot_set_attr(self.fi.a, "__name__", 'a', AttributeError)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test___qualname__(self):
         # PEP 3155
         self.assertEqual(self.b.__qualname__, 'FuncAttrsTest.setUp.<locals>.b')

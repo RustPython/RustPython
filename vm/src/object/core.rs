@@ -906,6 +906,11 @@ impl<T: PyObjectPayload> Py<T> {
             _marker: PhantomData,
         })
     }
+
+    pub fn payload(&self) -> &T {
+        // SAFETY: we know the payload is T because of the type parameter
+        unsafe { self.as_object().payload_unchecked() }
+    }
 }
 
 impl<T> ToOwned for Py<T> {
@@ -1018,11 +1023,23 @@ impl<T> Clone for PyRef<T> {
 }
 
 impl<T: PyObjectPayload> PyRef<T> {
+    // #[inline(always)]
+    // pub(crate) const fn into_non_null(self) -> NonNull<Py<T>> {
+    //     let ptr = self.ptr;
+    //     std::mem::forget(self);
+    //     ptr
+    // }
+
+    #[inline(always)]
+    pub(crate) const unsafe fn from_non_null(ptr: NonNull<Py<T>>) -> Self {
+        Self { ptr }
+    }
+
+    /// # Safety
+    /// The raw pointer must point to a valid `Py<T>` object
     #[inline(always)]
     pub(crate) const unsafe fn from_raw(raw: *const Py<T>) -> Self {
-        Self {
-            ptr: unsafe { NonNull::new_unchecked(raw as *mut _) },
-        }
+        unsafe { Self::from_non_null(NonNull::new_unchecked(raw as *mut _)) }
     }
 
     /// Safety: payload type of `obj` must be `T`
