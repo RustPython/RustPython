@@ -1958,8 +1958,9 @@ checksum = "74765f6d916ee2faa39bc8e68e4f3ed8949b48cccdac59983d287a7cb71ce9c5"
 
 [[package]]
 name = "radium"
-version = "1.1.0"
-source = "git+https://github.com/youknowone/ferrilab?branch=fix-nightly#4a301c3a223e096626a2773d1a1eed1fc4e21140"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1775bc532a9bfde46e26eba441ca1171b91608d14a3bae71fea371f18a00cffe"
 dependencies = [
  "cfg-if",
 ]
