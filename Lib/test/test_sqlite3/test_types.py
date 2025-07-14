@@ -439,8 +439,6 @@ class ObjectAdaptationTests(unittest.TestCase):
         with self.assertRaises(sqlite.ProgrammingError):
             sqlite.adapt(1, None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_defect_proto(self):
         class DefectProto():
             def __adapt__(self):
@@ -448,8 +446,6 @@ class ObjectAdaptationTests(unittest.TestCase):
         with self.assertRaises(sqlite.ProgrammingError):
             sqlite.adapt(1., DefectProto)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_defect_self_adapt(self):
         class DefectSelfAdapt(float):
             def __conform__(self, _):

@@ -695,7 +695,11 @@ mod _sqlite {
         }
         if let Ok(adapter) = proto.get_attr("__adapt__", vm) {
             match adapter.call((obj,), vm) {
-                Ok(val) => return Ok(val),
+                Ok(val) => {
+                    if !vm.is_none(&val) {
+                        return Ok(val);
+                    }
+                }
                 Err(exc) => {
                     if !exc.fast_isinstance(vm.ctx.exceptions.type_error) {
                         return Err(exc);
@@ -705,7 +709,11 @@ mod _sqlite {
         }
         if let Ok(adapter) = obj.get_attr("__conform__", vm) {
             match adapter.call((proto,), vm) {
-                Ok(val) => return Ok(val),
+                Ok(val) => {
+                    if !vm.is_none(&val) {
+                        return Ok(val);
+                    }
+                }
                 Err(exc) => {
                     if !exc.fast_isinstance(vm.ctx.exceptions.type_error) {
                         return Err(exc);
