@@ -1368,9 +1368,9 @@ impl ExecutingFrame<'_> {
         if let Some(obj) = vm.get_attribute_opt(module.to_owned(), name)? {
             return Ok(obj);
         }
-
+        // fallback to importing '{module.__name__}.{name}' from sys.modules
         let fallback_module = (|| {
-            let mod_name = module.get_attr(&vm.ctx.new_str("__name__"), vm).ok()?;
+            let mod_name = module.get_attr(identifier!(vm, __name__), vm).ok()?;
             let mod_name_str = mod_name.downcast_ref::<PyStr>()?;
             let full_mod_name = format!("{}.{}", mod_name_str.as_str(), name.as_str());
             let sys_modules = vm.sys_module.get_attr("modules", vm).ok()?;
@@ -1383,7 +1383,7 @@ impl ExecutingFrame<'_> {
 
         if is_module_initializing(module, vm) {
             let module_name = module
-                .get_attr(&vm.ctx.new_str("__name__"), vm)
+                .get_attr(identifier!(vm, __name__), vm)
                 .ok()
                 .and_then(|n| n.downcast_ref::<PyStr>().map(|s| s.as_str().to_owned()))
                 .unwrap_or_else(|| "<unknown>".to_owned());
