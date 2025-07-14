@@ -1,10 +1,8 @@
 //! Import mechanics
 
-use std::sync::atomic::Ordering;
-
 use crate::{
     AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
-    builtins::{PyBaseExceptionRef, PyCode, PyModule, list, traceback::PyTraceback},
+    builtins::{PyBaseExceptionRef, PyCode, list, traceback::PyTraceback},
     scope::Scope,
     version::get_git_revision,
     vm::{VirtualMachine, thread},
@@ -158,25 +156,9 @@ pub fn import_code_obj(
     let sys_modules = vm.sys_module.get_attr("modules", vm)?;
     sys_modules.set_item(module_name, module.clone().into(), vm)?;
 
-    {
-        struct InitializingGuard<'a> {
-            module: &'a PyModule,
-        }
-
-        impl<'a> Drop for InitializingGuard<'a> {
-            fn drop(&mut self) {
-                self.module.initializing.store(false, Ordering::Relaxed);
-            }
-        }
-
-        module.initializing.store(true, Ordering::Relaxed);
-        let _guard = InitializingGuard { module: &module };
-
-        // Execute main code in module:
-        let scope = Scope::with_builtins(None, attrs, vm);
-        vm.run_code_obj(code_obj, scope)?;
-    }
-
+    // Execute main code in module:
+    let scope = Scope::with_builtins(None, attrs, vm);
+    vm.run_code_obj(code_obj, scope)?;
     Ok(module.into())
 }
 
