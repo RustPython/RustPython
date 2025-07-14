@@ -2294,6 +2294,7 @@ mod _sqlite {
             sql: &PyStr,
             vm: &VirtualMachine,
         ) -> PyResult<Option<Self>> {
+            let _ = sql.try_to_str(vm)?;
             let sql_cstr = sql.to_cstring(vm)?;
             let sql_len = sql.byte_len() + 1;
 
