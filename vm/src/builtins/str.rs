@@ -95,7 +95,11 @@ impl PyUtf8Str {
     /// Returns the underlying string slice. This is safe because the
     /// type invariant guarantees UTF-8 validity.
     pub fn as_str(&self) -> &str {
-        self.0.to_str().expect("PyUtf8Str invariant was violated")
+        debug_assert!(
+            self.0.is_utf8(),
+            "PyUtf8Str invariant violated: inner string is not valid UTF-8"
+        );
+        unsafe { self.0.to_str().unwrap_unchecked() }
     }
 }
 
@@ -452,21 +456,29 @@ impl PyStr {
         self.data.as_str()
     }
 
-    pub fn try_to_str(&self, vm: &VirtualMachine) -> PyResult<&str> {
-        self.to_str().ok_or_else(|| {
+    fn ensure_valid_utf8(&self, vm: &VirtualMachine) -> PyResult<()> {
+        if self.is_utf8() {
+            Ok(())
+        } else {
             let start = self
                 .as_wtf8()
                 .code_points()
                 .position(|c| c.to_char().is_none())
                 .unwrap();
-            vm.new_unicode_encode_error_real(
+            Err(vm.new_unicode_encode_error_real(
                 identifier!(vm, utf_8).to_owned(),
                 vm.ctx.new_str(self.data.clone()),
                 start,
                 start + 1,
                 vm.ctx.new_str("surrogates not allowed"),
-            )
-        })
+            ))
+        }
+    }
+
+    pub fn try_to_str(&self, vm: &VirtualMachine) -> PyResult<&str> {
+        self.ensure_valid_utf8(vm)?;
+        // SAFETY: ensure_valid_utf8 passed, so unwrap is safe.
+        Ok(unsafe { self.to_str().unwrap_unchecked() })
     }
 
     pub fn to_string_lossy(&self) -> Cow<'_, str> {
@@ -1507,7 +1519,7 @@ impl PyStrRef {
     }
 
     pub fn try_into_utf8(self, vm: &VirtualMachine) -> PyResult<PyRef<PyUtf8Str>> {
-        let _ = self.try_to_str(vm)?;
+        self.ensure_valid_utf8(vm)?;
         Ok(unsafe { mem::transmute::<PyRef<PyStr>, PyRef<PyUtf8Str>>(self) })
     }
 }
