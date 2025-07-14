@@ -844,7 +844,7 @@ mod _sqlite {
         type Args = (PyStrRef,);
 
         fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            if let Some(stmt) = Statement::new(zelf, &args.0, vm)? {
+            if let Some(stmt) = Statement::new(zelf, args.0, vm)? {
                 Ok(stmt.into_ref(&vm.ctx).into())
             } else {
                 Ok(vm.ctx.none())
@@ -1480,7 +1480,7 @@ mod _sqlite {
                 stmt.lock().reset();
             }
 
-            let Some(stmt) = Statement::new(&zelf.connection, &sql, vm)? else {
+            let Some(stmt) = Statement::new(&zelf.connection, sql, vm)? else {
                 drop(inner);
                 return Ok(zelf);
             };
@@ -1552,7 +1552,7 @@ mod _sqlite {
                 stmt.lock().reset();
             }
 
-            let Some(stmt) = Statement::new(&zelf.connection, &sql, vm)? else {
+            let Some(stmt) = Statement::new(&zelf.connection, sql, vm)? else {
                 drop(inner);
                 return Ok(zelf);
             };
@@ -2291,9 +2291,10 @@ mod _sqlite {
     impl Statement {
         fn new(
             connection: &Connection,
-            sql: &PyStr,
+            sql: PyStrRef,
             vm: &VirtualMachine,
         ) -> PyResult<Option<Self>> {
+            let sql = sql.try_into_utf8(vm)?;
             let sql_cstr = sql.to_cstring(vm)?;
             let sql_len = sql.byte_len() + 1;
 

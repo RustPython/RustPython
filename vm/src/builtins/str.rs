@@ -37,8 +37,8 @@ use rustpython_common::{
     str::DeduceStrKind,
     wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Chunk},
 };
-use std::sync::LazyLock;
 use std::{borrow::Cow, char, fmt, ops::Range};
+use std::{mem, sync::LazyLock};
 use unic_ucd_bidi::BidiClass;
 use unic_ucd_category::GeneralCategory;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
@@ -77,6 +77,30 @@ impl fmt::Debug for PyStr {
             .field("kind", &self.data.kind())
             .field("hash", &self.hash)
             .finish()
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug)]
+pub struct PyUtf8Str(PyStr);
+
+// TODO: Remove this Deref which may hide missing optimized methods of PyUtf8Str
+impl std::ops::Deref for PyUtf8Str {
+    type Target = PyStr;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl PyUtf8Str {
+    /// Returns the underlying string slice.
+    pub fn as_str(&self) -> &str {
+        debug_assert!(
+            self.0.is_utf8(),
+            "PyUtf8Str invariant violated: inner string is not valid UTF-8"
+        );
+        // Safety: This is safe because the type invariant guarantees UTF-8 validity.
+        unsafe { self.0.to_str().unwrap_unchecked() }
     }
 }
 
@@ -433,21 +457,29 @@ impl PyStr {
         self.data.as_str()
     }
 
-    pub fn try_to_str(&self, vm: &VirtualMachine) -> PyResult<&str> {
-        self.to_str().ok_or_else(|| {
+    fn ensure_valid_utf8(&self, vm: &VirtualMachine) -> PyResult<()> {
+        if self.is_utf8() {
+            Ok(())
+        } else {
             let start = self
                 .as_wtf8()
                 .code_points()
                 .position(|c| c.to_char().is_none())
                 .unwrap();
-            vm.new_unicode_encode_error_real(
+            Err(vm.new_unicode_encode_error_real(
                 identifier!(vm, utf_8).to_owned(),
                 vm.ctx.new_str(self.data.clone()),
                 start,
                 start + 1,
                 vm.ctx.new_str("surrogates not allowed"),
-            )
-        })
+            ))
+        }
+    }
+
+    pub fn try_to_str(&self, vm: &VirtualMachine) -> PyResult<&str> {
+        self.ensure_valid_utf8(vm)?;
+        // SAFETY: ensure_valid_utf8 passed, so unwrap is safe.
+        Ok(unsafe { self.to_str().unwrap_unchecked() })
     }
 
     pub fn to_string_lossy(&self) -> Cow<'_, str> {
@@ -1485,6 +1517,11 @@ impl PyStrRef {
         s.push_wtf8(self.as_ref());
         s.push_wtf8(other);
         *self = PyStr::from(s).into_ref(&vm.ctx);
+    }
+
+    pub fn try_into_utf8(self, vm: &VirtualMachine) -> PyResult<PyRef<PyUtf8Str>> {
+        self.ensure_valid_utf8(vm)?;
+        Ok(unsafe { mem::transmute::<PyRef<PyStr>, PyRef<PyUtf8Str>>(self) })
     }
 }
 

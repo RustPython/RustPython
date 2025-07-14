@@ -343,8 +343,6 @@ class RegressionTests(unittest.TestCase):
                 self.assertRaisesRegex(sqlite.ProgrammingError, "null char",
                                        cur.execute, query)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_surrogates(self):
         con = sqlite.connect(":memory:")
         self.assertRaises(UnicodeEncodeError, con, "select '\ud8ff'")
