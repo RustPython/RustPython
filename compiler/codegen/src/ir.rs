@@ -318,7 +318,10 @@ impl CodeInfo {
                     continue 'process_blocks;
                 }
             }
-            stackdepth_push(&mut stack, &mut start_depths, block.next, depth);
+            // Only push next block if it's not NULL (similar to CPython)
+            if block.next != BlockIdx::NULL {
+                stackdepth_push(&mut stack, &mut start_depths, block.next, depth);
+            }
         }
         if DEBUG {
             eprintln!("DONE: {maxdepth}");
