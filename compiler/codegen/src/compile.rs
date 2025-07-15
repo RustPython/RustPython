@@ -4953,6 +4953,44 @@ impl Compiler<'_> {
         count
     }
 
+    /// Enter a TypeParams scope with proper setup
+    /// This handles the specific requirements for type parameter scopes
+    fn enter_type_params_scope(
+        &mut self,
+        parent_name: &str,
+        firstlineno: u32,
+    ) -> CompileResult<()> {
+        // Create the type params scope name in CPython format
+        let type_params_name = format!("<generic parameters of {}>", parent_name);
+
+        // Push symbol table and get its index
+        self.push_symbol_table();
+        let key = self.symbol_table_stack.len() - 1;
+
+        // Enter the TypeParams scope
+        self.enter_scope(
+            &type_params_name,
+            CompilerScope::TypeParams,
+            key,
+            firstlineno,
+        )?;
+
+        Ok(())
+    }
+
+    /// Exit a TypeParams scope and return its code object
+    /// This handles the special requirements for exiting type parameter scopes
+    fn exit_type_params_scope(&mut self) -> CodeObject {
+        // Make sure we're actually in a TypeParams scope
+        debug_assert!(
+            self.is_in_type_params_scope(),
+            "exit_type_params_scope called when not in TypeParams scope"
+        );
+
+        // Exit the scope and get the code object
+        self.exit_scope()
+    }
+
     fn current_block(&mut self) -> &mut ir::Block {
         let info = self.current_code_info();
         &mut info.blocks[info.current_block]
