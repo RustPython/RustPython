@@ -702,6 +702,16 @@ impl Compiler<'_> {
 
         let current_obj_name = self.current_code_info().metadata.name.clone();
 
+        // Special handling for TypeParams scope
+        // Check if current scope is TypeParams by examining the symbol table
+        if let Some(current_table) = self.symbol_table_stack.last() {
+            if current_table.typ == CompilerScope::TypeParams {
+                // For TypeParams scope, the qualname should already be set correctly
+                // in the form "<generic parameters of {parent}>"
+                return current_obj_name;
+            }
+        }
+
         // If we're at the module level (stack_size == 1), qualname is just the name
         if stack_size <= 1 {
             return current_obj_name;
@@ -4862,6 +4872,85 @@ impl Compiler<'_> {
             .last()
             .map(|table| table.typ == CompilerScope::TypeParams)
             .unwrap_or(false)
+    }
+
+    /// Enter a nested scope while preserving the parent TypeParams scope
+    /// This is used when entering function body scope from within a TypeParams scope
+    fn enter_nested_scope(
+        &mut self,
+        name: &str,
+        scope_type: CompilerScope,
+        firstlineno: u32,
+    ) -> CompileResult<()> {
+        // Special handling for entering a scope from within TypeParams scope
+        if self.is_in_type_params_scope() {
+            // When in TypeParams scope, we need to handle the transition carefully
+            // The symbol table for the nested scope should already be in the stack
+            let key = self.symbol_table_stack.len() - 1;
+
+            // Enter the nested scope without popping the TypeParams scope
+            self.enter_scope(name, scope_type, key, firstlineno)?;
+
+            // Mark that we're in a nested scope situation
+            // This helps with proper scope management later
+            Ok(())
+        } else {
+            // Normal scope entry when not in TypeParams scope
+            self.push_symbol_table();
+            let key = self.symbol_table_stack.len() - 1;
+            self.enter_scope(name, scope_type, key, firstlineno)
+        }
+    }
+
+    /// Resolve a name in TypeParams scope if we're in a nested function scope
+    /// This allows type parameters to be visible in function bodies
+    fn resolve_name_in_type_params_scope(&self, name: &str) -> Option<&symboltable::Symbol> {
+        // Check if we have at least 2 scopes (current + TypeParams)
+        if self.symbol_table_stack.len() < 2 {
+            return None;
+        }
+
+        // Check if the parent scope is a TypeParams scope
+        let parent_idx = self.symbol_table_stack.len() - 2;
+        let parent_table = &self.symbol_table_stack[parent_idx];
+
+        if parent_table.typ == CompilerScope::TypeParams {
+            // Look up the name in the TypeParams scope
+            parent_table.lookup(name)
+        } else {
+            None
+        }
+    }
+
+    /// Load type parameter arguments in TypeParams scope
+    /// This is used to load default arguments that need to be accessible in type params scope
+    fn load_type_param_args(&mut self, num_args: u32) -> CompileResult<()> {
+        // In CPython, default arguments are passed as positional arguments to the type params function
+        // They are loaded using LOAD_FAST with indices 0, 1, etc.
+        for i in 0..num_args {
+            // Load argument at position i
+            let idx = self.varname(&format!(".{}", i))?;
+            emit!(self, Instruction::LoadFast(idx));
+        }
+        Ok(())
+    }
+
+    /// Calculate the number of arguments to pass to type params scope
+    /// Based on whether the function has defaults and/or kwdefaults
+    fn calculate_typeparam_args(&self, func_flags: bytecode::MakeFunctionFlags) -> u32 {
+        let mut count = 0;
+
+        // If function has default arguments, they need to be passed to type params scope
+        if func_flags.contains(bytecode::MakeFunctionFlags::DEFAULTS) {
+            count += 1;
+        }
+
+        // If function has keyword-only defaults, they need to be passed to type params scope
+        if func_flags.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
+            count += 1;
+        }
+
+        count
     }
 
     fn current_block(&mut self) -> &mut ir::Block {
