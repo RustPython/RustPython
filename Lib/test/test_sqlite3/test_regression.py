@@ -329,8 +329,6 @@ class RegressionTests(unittest.TestCase):
                           sqlite.connect, ":memory:", isolation_level=123)
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_null_character(self):
         # Issue #21147
         cur = self.con.cursor()
