@@ -2309,11 +2309,10 @@ mod _sqlite {
                 ));
             }
             let sql_cstr = sql.to_cstring(vm)?;
-            let sql_len = sql.byte_len() + 1;
 
             let db = connection.db_lock(vm)?;
 
-            db.sql_limit(sql_len, vm)?;
+            db.sql_limit(sql.byte_len(), vm)?;
 
             let mut tail = null();
             let st = db.prepare(sql_cstr.as_ptr(), &mut tail, vm)?;
