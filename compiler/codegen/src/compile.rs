@@ -4855,6 +4855,15 @@ impl Compiler<'_> {
         self.code_stack.last_mut().expect("no code on stack")
     }
 
+    /// Check if the current scope is a TypeParams scope
+    /// This is useful for handling nested scopes within type parameters
+    fn is_in_type_params_scope(&self) -> bool {
+        self.symbol_table_stack
+            .last()
+            .map(|table| table.typ == CompilerScope::TypeParams)
+            .unwrap_or(false)
+    }
+
     fn current_block(&mut self) -> &mut ir::Block {
         let info = self.current_code_info();
         &mut info.blocks[info.current_block]
