@@ -1874,20 +1874,6 @@ class PurePythonTracebackErrorCaretTests(
 @cpython_only
 # @requires_debug_ranges() # XXX: RUSTPYTHON patch
 @force_not_colorized_test_class
-class PurePythonTracebackErrorCaretTests(
-    PurePythonExceptionFormattingMixin,
-    TracebackErrorLocationCaretTestBase,
-    unittest.TestCase,
-):
-    """
-    Same set of tests as above using the pure Python implementation of
-    traceback printing in traceback.py.
-    """
-
-
-@cpython_only
-# @requires_debug_ranges() # XXX: RUSTPYTHON patch
-@force_not_colorized_test_class
 class CPythonTracebackErrorCaretTests(
     CAPIExceptionFormattingMixin,
     TracebackErrorLocationCaretTestBase,
