@@ -80,30 +80,6 @@ impl fmt::Debug for PyStr {
     }
 }
 
-#[repr(transparent)]
-#[derive(Debug)]
-pub struct PyUtf8Str(PyStr);
-
-// TODO: Remove this Deref which may hide missing optimized methods of PyUtf8Str
-impl std::ops::Deref for PyUtf8Str {
-    type Target = PyStr;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl PyUtf8Str {
-    /// Returns the underlying string slice.
-    pub fn as_str(&self) -> &str {
-        debug_assert!(
-            self.0.is_utf8(),
-            "PyUtf8Str invariant violated: inner string is not valid UTF-8"
-        );
-        // Safety: This is safe because the type invariant guarantees UTF-8 validity.
-        unsafe { self.0.to_str().unwrap_unchecked() }
-    }
-}
-
 impl AsRef<str> for PyStr {
     #[track_caller] // <- can remove this once it doesn't panic
     fn as_ref(&self) -> &str {
@@ -1937,6 +1913,45 @@ impl AnyStrWrapper<AsciiStr> for PyStrRef {
 
     fn is_empty(&self) -> bool {
         self.data.is_empty()
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug)]
+pub struct PyUtf8Str(PyStr);
+
+impl PyUtf8Str {
+    /// Returns the underlying string slice.
+    pub fn as_str(&self) -> &str {
+        debug_assert!(
+            self.0.is_utf8(),
+            "PyUtf8Str invariant violated: inner string is not valid UTF-8"
+        );
+        // Safety: This is safe because the type invariant guarantees UTF-8 validity.
+        unsafe { self.0.to_str().unwrap_unchecked() }
+    }
+}
+
+impl Py<PyUtf8Str> {
+    /// Upcast to PyStr.
+    pub fn as_pystr(&self) -> &Py<PyStr> {
+        unsafe {
+            // Safety: PyUtf8Str is a wrapper around PyStr, so this cast is safe.
+            &*(self as *const Self as *const Py<PyStr>)
+        }
+    }
+}
+
+impl PartialEq for PyUtf8Str {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+impl Eq for PyUtf8Str {}
+
+impl std::borrow::Borrow<PyObject> for Py<PyUtf8Str> {
+    fn borrow(&self) -> &PyObject {
+        self.as_pystr().borrow()
     }
 }
 
