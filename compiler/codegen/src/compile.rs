@@ -373,31 +373,6 @@ impl<'src> Compiler<'src> {
 }
 
 impl Compiler<'_> {
-    /// Lookup symbol in current scope chain, following CPython's logic
-    fn lookup_symbol_in_scope(&self, name: &str) -> CompileResult<&Symbol> {
-        // Start with current scope
-        let current_symbol_table_index = self.code_stack.last().unwrap().symbol_table_index;
-
-        // Check current scope
-        if let Some(symbol) = self.symbol_table_stack[current_symbol_table_index].lookup(name) {
-            return Ok(symbol);
-        }
-
-        // For type alias compilation, check if we pushed a symbol table without entering scope
-        // This happens when compiling type params
-        if self.symbol_table_stack.len() > self.code_stack.len() {
-            // We have extra symbol tables on the stack (type params)
-            for table in self.symbol_table_stack.iter().rev() {
-                if let Some(symbol) = table.lookup(name) {
-                    return Ok(symbol);
-                }
-            }
-        }
-
-        Err(self.error(CodegenErrorType::InternalError(
-            InternalError::MissingSymbol(name.to_string()),
-        )))
-    }
     fn error(&mut self, error: CodegenErrorType) -> CodegenError {
         self.error_ranged(error, self.current_source_range)
     }
@@ -642,18 +617,15 @@ impl Compiler<'_> {
 
     // compiler_exit_scope
     fn exit_scope(&mut self) -> CodeObject {
-        let table = self.pop_symbol_table();
+        let _table = self.pop_symbol_table();
 
-        // TypeParams scope can have sub_tables (the function body's symbol table)
-        // This matches CPython's behavior where type params scope contains the function scope
-        if table.typ != CompilerScope::TypeParams {
-            assert!(
-                table.sub_tables.is_empty(),
-                "Only TypeParams scope can have sub_tables, but {:?} has {} sub_tables",
-                table.typ,
-                table.sub_tables.len()
-            );
-        }
+        // Various scopes can have sub_tables:
+        // - TypeParams scope can have sub_tables (the function body's symbol table)
+        // - Module scope can have sub_tables (for TypeAlias scopes, nested functions, classes)
+        // - Function scope can have sub_tables (for nested functions, classes)
+        // - Class scope can have sub_tables (for nested classes, methods)
+        // This matches CPython's behavior
+        // So we don't need to check for sub_tables at all
 
         let pop = self.code_stack.pop();
         let stack_top = compiler_unwrap_option(self, pop);
@@ -964,8 +936,15 @@ impl Compiler<'_> {
 
         self.check_forbidden_name(&name, usage)?;
 
-        // Get symbol from proper scope
-        let symbol = self.lookup_symbol_in_scope(&name)?;
+        // Get symbol table index from current code info
+        let symbol_table_index = self.code_stack.last().unwrap().symbol_table_index;
+        let symbol_table = &self.symbol_table_stack[symbol_table_index];
+        let symbol = unwrap_internal(
+            self,
+            symbol_table
+                .lookup(name.as_ref())
+                .ok_or_else(|| InternalError::MissingSymbol(name.to_string())),
+        );
         let info = self.code_stack.last_mut().unwrap();
         let mut cache = &mut info.metadata.names;
         enum NameOpType {
@@ -1457,7 +1436,28 @@ impl Compiler<'_> {
                 });
 
                 if let Some(type_params) = type_params {
-                    self.push_symbol_table();
+                    // For TypeAlias, we don't create a new code object, just temporarily
+                    // switch symbol tables to make type params visible during value compilation
+
+                    // Find the TypeAlias scope in sub_tables
+                    let current_table = self.symbol_table_stack.last().unwrap();
+                    let typealias_scope = current_table
+                        .sub_tables
+                        .iter()
+                        .find(|st| st.name == "TypeAlias" && st.typ == CompilerScope::TypeParams)
+                        .expect("TypeAlias scope should exist in sub_tables")
+                        .clone();
+
+                    // Save current symbol table context
+                    let saved_symbol_table_index =
+                        self.code_stack.last().unwrap().symbol_table_index;
+
+                    // Temporarily push the TypeAlias scope
+                    self.symbol_table_stack.push(typealias_scope);
+                    let typealias_scope_idx = self.symbol_table_stack.len() - 1;
+
+                    // Update symbol table index in current code info
+                    self.code_stack.last_mut().unwrap().symbol_table_index = typealias_scope_idx;
 
                     // Compile type params and push to stack
                     self.compile_type_params(type_params)?;
@@ -1467,7 +1467,10 @@ impl Compiler<'_> {
                     self.compile_expression(value)?;
                     // Stack: [name, type_params_tuple, value]
 
-                    self.pop_symbol_table();
+                    // Restore symbol table context
+                    self.symbol_table_stack.pop();
+                    self.code_stack.last_mut().unwrap().symbol_table_index =
+                        saved_symbol_table_index;
                 } else {
                     // Push None for type_params (matching CPython)
                     self.emit_load_const(ConstantData::None);
