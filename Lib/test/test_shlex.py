@@ -3,7 +3,6 @@ import itertools
 import shlex
 import string
 import unittest
-from unittest import mock
 
 
 # The original test data set was from shellwords, by Hartmut Goebel.
@@ -162,18 +161,17 @@ class ShlexTest(unittest.TestCase):
             tok = lex.get_token()
         return ret
 
-    @mock.patch('sys.stdin', io.StringIO())
-    def testSplitNoneDeprecation(self):
-        with self.assertWarns(DeprecationWarning):
+    def testSplitNone(self):
+        with self.assertRaises(ValueError):
             shlex.split(None)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON; ValueError: Error Retrieving Value
     @unittest.expectedFailure
     def testSplitPosix(self):
         """Test data splitting with posix parser"""
         self.splitTest(self.posix_data, comments=True)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON; ValueError: Error Retrieving Value
     @unittest.expectedFailure
     def testCompat(self):
         """Test compatibility interface"""
@@ -315,7 +313,7 @@ class ShlexTest(unittest.TestCase):
         s = shlex.shlex("'')abc", punctuation_chars=True)
         self.assertEqual(list(s), expected)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON; ValueError: Error Retrieving Value
     @unittest.expectedFailure
     def testUnicodeHandling(self):
         """Test punctuation_chars and whitespace_split handle unicode."""
@@ -356,7 +354,7 @@ class ShlexTest(unittest.TestCase):
                 joined = shlex.join(split_command)
                 self.assertEqual(joined, command)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON; ValueError: Error Retrieving Value
     @unittest.expectedFailure
     def testJoinRoundtrip(self):
         all_data = self.data + self.posix_data
