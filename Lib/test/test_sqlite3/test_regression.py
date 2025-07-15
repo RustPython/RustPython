@@ -351,8 +351,6 @@ class RegressionTests(unittest.TestCase):
         self.assertRaises(UnicodeEncodeError, cur.execute, "select '\ud8ff'")
         self.assertRaises(UnicodeEncodeError, cur.execute, "select '\udcff'")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_large_sql(self):
         msg = "query string is too large"
         with memory_database() as cx, cx_limit(cx) as lim:
