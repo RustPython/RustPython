@@ -433,8 +433,6 @@ class ObjectAdaptationTests(unittest.TestCase):
         with self.assertRaises(sqlite.ProgrammingError):
             sqlite.adapt(1.)  # No float adapter registered
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_missing_protocol(self):
         with self.assertRaises(sqlite.ProgrammingError):
             sqlite.adapt(1, None)
