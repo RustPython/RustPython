@@ -1,7 +1,7 @@
 import collections.abc
 import types
 import unittest
-from test.support import C_RECURSION_LIMIT
+from test.support import get_c_recursion_limit
 
 class TestExceptionGroupTypeHierarchy(unittest.TestCase):
     def test_exception_group_types(self):
