@@ -6,7 +6,7 @@ mod symtable {
         PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, builtins::PyStrRef, compiler,
     };
     use rustpython_codegen::symboltable::{
-        Symbol, SymbolFlags, SymbolScope, SymbolTable, SymbolTableType,
+        CompilerScope, Symbol, SymbolFlags, SymbolScope, SymbolTable,
     };
     use std::fmt;
 
@@ -70,7 +70,7 @@ mod symtable {
 
         #[pymethod]
         fn is_optimized(&self) -> bool {
-            self.symtable.typ == SymbolTableType::Function
+            self.symtable.typ == CompilerScope::Function
         }
 
         #[pymethod]

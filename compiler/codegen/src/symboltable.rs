@@ -31,7 +31,7 @@ pub struct SymbolTable {
     pub name: String,
 
     /// The type of symbol table
-    pub typ: SymbolTableType,
+    pub typ: CompilerScope,
 
     /// The line number in the source code where this symboltable begins.
     pub line_number: u32,
@@ -57,7 +57,7 @@ pub struct SymbolTable {
 }
 
 impl SymbolTable {
-    fn new(name: String, typ: SymbolTableType, line_number: u32, is_nested: bool) -> Self {
+    fn new(name: String, typ: CompilerScope, line_number: u32, is_nested: bool) -> Self {
         Self {
             name,
             typ,
@@ -88,21 +88,23 @@ impl SymbolTable {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SymbolTableType {
+pub enum CompilerScope {
     Module,
     Class,
     Function,
+    AsyncFunction,
     Lambda,
     Comprehension,
     TypeParams,
 }
 
-impl fmt::Display for SymbolTableType {
+impl fmt::Display for CompilerScope {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Module => write!(f, "module"),
             Self::Class => write!(f, "class"),
             Self::Function => write!(f, "function"),
+            Self::AsyncFunction => write!(f, "async function"),
             Self::Lambda => write!(f, "lambda"),
             Self::Comprehension => write!(f, "comprehension"),
             Self::TypeParams => write!(f, "type parameter"),
@@ -127,8 +129,6 @@ pub enum SymbolScope {
     GlobalImplicit,
     Free,
     Cell,
-    // TODO: wrong place. not a symbol scope, but a COMPILER_SCOPE_TYPEPARAMS
-    TypeParams,
 }
 
 bitflags! {
@@ -323,7 +323,7 @@ use stack::StackStack;
 #[derive(Default)]
 #[repr(transparent)]
 struct SymbolTableAnalyzer {
-    tables: StackStack<(SymbolMap, SymbolTableType)>,
+    tables: StackStack<(SymbolMap, CompilerScope)>,
 }
 
 impl SymbolTableAnalyzer {
@@ -349,7 +349,7 @@ impl SymbolTableAnalyzer {
         }
 
         // Handle class-specific implicit cells (like CPython)
-        if symbol_table.typ == SymbolTableType::Class {
+        if symbol_table.typ == CompilerScope::Class {
             drop_class_free(symbol_table);
         }
 
@@ -359,13 +359,13 @@ impl SymbolTableAnalyzer {
     fn analyze_symbol(
         &mut self,
         symbol: &mut Symbol,
-        st_typ: SymbolTableType,
+        st_typ: CompilerScope,
         sub_tables: &[SymbolTable],
     ) -> SymbolTableResult {
         if symbol
             .flags
             .contains(SymbolFlags::ASSIGNED_IN_COMPREHENSION)
-            && st_typ == SymbolTableType::Comprehension
+            && st_typ == CompilerScope::Comprehension
         {
             // propagate symbol to next higher level that can hold it,
             // i.e., function or module. Comprehension is skipped and
@@ -405,10 +405,6 @@ impl SymbolTableAnalyzer {
                 SymbolScope::Local | SymbolScope::Cell => {
                     // all is well
                 }
-                SymbolScope::TypeParams => {
-                    // Type parameters are always cell variables in their scope
-                    symbol.scope = SymbolScope::Cell;
-                }
                 SymbolScope::Unknown => {
                     // Try hard to figure out what the scope of this symbol is.
                     let scope = if symbol.is_bound() {
@@ -433,8 +429,8 @@ impl SymbolTableAnalyzer {
     fn found_in_outer_scope(&mut self, name: &str) -> Option<SymbolScope> {
         let mut decl_depth = None;
         for (i, (symbols, typ)) in self.tables.iter().rev().enumerate() {
-            if matches!(typ, SymbolTableType::Module)
-                || matches!(typ, SymbolTableType::Class if name != "__class__")
+            if matches!(typ, CompilerScope::Module)
+                || matches!(typ, CompilerScope::Class if name != "__class__")
             {
                 continue;
             }
@@ -456,7 +452,7 @@ impl SymbolTableAnalyzer {
             // decl_depth is the number of tables between the current one and
             // the one that declared the cell var
             for (table, typ) in self.tables.iter_mut().rev().take(decl_depth) {
-                if let SymbolTableType::Class = typ {
+                if let CompilerScope::Class = typ {
                     if let Some(free_class) = table.get_mut(name) {
                         free_class.flags.insert(SymbolFlags::FREE_CLASS)
                     } else {
@@ -481,12 +477,12 @@ impl SymbolTableAnalyzer {
         &self,
         sub_tables: &[SymbolTable],
         name: &str,
-        st_typ: SymbolTableType,
+        st_typ: CompilerScope,
     ) -> Option<SymbolScope> {
         sub_tables.iter().find_map(|st| {
             let sym = st.symbols.get(name)?;
             if sym.scope == SymbolScope::Free || sym.flags.contains(SymbolFlags::FREE_CLASS) {
-                if st_typ == SymbolTableType::Class && name != "__class__" {
+                if st_typ == CompilerScope::Class && name != "__class__" {
                     None
                 } else {
                     Some(SymbolScope::Cell)
@@ -527,10 +523,10 @@ impl SymbolTableAnalyzer {
         }
 
         match table_type {
-            SymbolTableType::Module => {
+            CompilerScope::Module => {
                 symbol.scope = SymbolScope::GlobalImplicit;
             }
-            SymbolTableType::Class => {
+            CompilerScope::Class => {
                 // named expressions are forbidden in comprehensions on class scope
                 return Err(SymbolTableError {
                     error: "assignment expression within a comprehension cannot be used in a class body".to_string(),
@@ -538,7 +534,7 @@ impl SymbolTableAnalyzer {
                     location: None,
                 });
             }
-            SymbolTableType::Function | SymbolTableType::Lambda => {
+            CompilerScope::Function | CompilerScope::AsyncFunction | CompilerScope::Lambda => {
                 if let Some(parent_symbol) = symbols.get_mut(&symbol.name) {
                     if let SymbolScope::Unknown = parent_symbol.scope {
                         // this information is new, as the assignment is done in inner scope
@@ -556,7 +552,7 @@ impl SymbolTableAnalyzer {
                     last.0.insert(cloned_sym.name.to_owned(), cloned_sym);
                 }
             }
-            SymbolTableType::Comprehension => {
+            CompilerScope::Comprehension => {
                 // TODO check for conflicts - requires more context information about variables
                 match symbols.get_mut(&symbol.name) {
                     Some(parent_symbol) => {
@@ -587,7 +583,7 @@ impl SymbolTableAnalyzer {
 
                 self.analyze_symbol_comprehension(symbol, parent_offset + 1)?;
             }
-            SymbolTableType::TypeParams => {
+            CompilerScope::TypeParams => {
                 todo!("analyze symbol comprehension for type params");
             }
         }
@@ -642,7 +638,7 @@ impl<'src> SymbolTableBuilder<'src> {
             source_code,
             current_varnames: Vec::new(),
         };
-        this.enter_scope("top", SymbolTableType::Module, 0);
+        this.enter_scope("top", CompilerScope::Module, 0);
         this
     }
 }
@@ -657,11 +653,11 @@ impl SymbolTableBuilder<'_> {
         Ok(symbol_table)
     }
 
-    fn enter_scope(&mut self, name: &str, typ: SymbolTableType, line_number: u32) {
+    fn enter_scope(&mut self, name: &str, typ: CompilerScope, line_number: u32) {
         let is_nested = self
             .tables
             .last()
-            .map(|table| table.is_nested || table.typ == SymbolTableType::Function)
+            .map(|table| table.is_nested || table.typ == CompilerScope::Function)
             .unwrap_or(false);
         let table = SymbolTable::new(name.to_owned(), typ, line_number, is_nested);
         self.tables.push(table);
@@ -752,7 +748,7 @@ impl SymbolTableBuilder<'_> {
                 if let Some(type_params) = type_params {
                     self.enter_scope(
                         &format!("<generic parameters of {}>", name.as_str()),
-                        SymbolTableType::TypeParams,
+                        CompilerScope::TypeParams,
                         // FIXME: line no
                         self.line_index_start(*range),
                     );
@@ -780,14 +776,14 @@ impl SymbolTableBuilder<'_> {
                 if let Some(type_params) = type_params {
                     self.enter_scope(
                         &format!("<generic parameters of {}>", name.as_str()),
-                        SymbolTableType::TypeParams,
+                        CompilerScope::TypeParams,
                         self.line_index_start(type_params.range),
                     );
                     self.scan_type_params(type_params)?;
                 }
                 self.enter_scope(
                     name.as_str(),
-                    SymbolTableType::Class,
+                    CompilerScope::Class,
                     self.line_index_start(*range),
                 );
                 let prev_class = self.class_name.replace(name.to_string());
@@ -972,7 +968,7 @@ impl SymbolTableBuilder<'_> {
                     self.enter_scope(
                         // &name.to_string(),
                         "TypeAlias",
-                        SymbolTableType::TypeParams,
+                        CompilerScope::TypeParams,
                         self.line_index_start(type_params.range),
                     );
                     self.scan_type_params(type_params)?;
@@ -1174,7 +1170,7 @@ impl SymbolTableBuilder<'_> {
                 // Interesting stuff about the __class__ variable:
                 // https://docs.python.org/3/reference/datamodel.html?highlight=__class__#creating-the-class-object
                 if context == ExpressionContext::Load
-                    && self.tables.last().unwrap().typ == SymbolTableType::Function
+                    && self.tables.last().unwrap().typ == CompilerScope::Function
                     && id == "super"
                 {
                     self.register_name("__class__", SymbolUsage::Used, *range)?;
@@ -1194,7 +1190,7 @@ impl SymbolTableBuilder<'_> {
                 } else {
                     self.enter_scope(
                         "lambda",
-                        SymbolTableType::Lambda,
+                        CompilerScope::Lambda,
                         self.line_index_start(expression.range()),
                     );
                 }
@@ -1260,7 +1256,7 @@ impl SymbolTableBuilder<'_> {
                 if let Expr::Name(ExprName { id, .. }) = &**target {
                     let id = id.as_str();
                     let table = self.tables.last().unwrap();
-                    if table.typ == SymbolTableType::Comprehension {
+                    if table.typ == CompilerScope::Comprehension {
                         self.register_name(
                             id,
                             SymbolUsage::AssignedNamedExprInComprehension,
@@ -1291,7 +1287,7 @@ impl SymbolTableBuilder<'_> {
         // Comprehensions are compiled as functions, so create a scope for them:
         self.enter_scope(
             scope_name,
-            SymbolTableType::Comprehension,
+            CompilerScope::Comprehension,
             self.line_index_start(range),
         );
 
@@ -1457,7 +1453,7 @@ impl SymbolTableBuilder<'_> {
             self.scan_annotation(annotation)?;
         }
 
-        self.enter_scope(name, SymbolTableType::Function, line_number);
+        self.enter_scope(name, CompilerScope::Function, line_number);
 
         // Fill scope with parameter names:
         self.scan_parameters(&parameters.posonlyargs)?;
