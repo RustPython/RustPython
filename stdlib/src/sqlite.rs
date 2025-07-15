@@ -732,7 +732,14 @@ mod _sqlite {
         alt: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        // TODO: None proto
+        if matches!(proto, OptionalArg::Present(None)) {
+            return if let OptionalArg::Present(alt) = alt {
+                Ok(alt)
+            } else {
+                Err(new_programming_error(vm, "can't adapt".to_owned()))
+            };
+        }
+
         let proto = proto
             .flatten()
             .unwrap_or_else(|| PrepareProtocol::class(&vm.ctx).to_owned());
