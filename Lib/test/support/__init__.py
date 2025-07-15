@@ -2617,6 +2617,10 @@ skip_on_s390x = unittest.skipIf(hasattr(os, 'uname') and os.uname().machine == '
                                 'skipped on s390x')
 HAVE_ASAN_FORK_BUG = check_sanitizer(address=True)
 
+# From CPython 3.13.5
+Py_TRACE_REFS = hasattr(sys, 'getobjects')
+
+
 # From Cpython 3.13.5
 @contextlib.contextmanager
 def no_color():
@@ -2639,6 +2643,21 @@ def force_not_colorized(func):
         with no_color():
             return func(*args, **kwargs)
     return wrapper
+
+
+# From Cpython 3.13.5
+def force_not_colorized_test_class(cls):
+    """Force the terminal not to be colorized for the entire test class."""
+    original_setUpClass = cls.setUpClass
+
+    @classmethod
+    @functools.wraps(cls.setUpClass)
+    def new_setUpClass(cls):
+        cls.enterClassContext(no_color())
+        original_setUpClass()
+
+    cls.setUpClass = new_setUpClass
+    return cls
 
 
 # From python 3.12.8
