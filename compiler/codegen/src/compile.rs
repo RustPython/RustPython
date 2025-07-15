@@ -351,6 +351,7 @@ impl<'src> Compiler<'src> {
             static_attributes: None,
             in_inlined_comp: false,
             fblock: Vec::with_capacity(MAXBLOCKS),
+            symbol_table_index: 0, // Module is always the first symbol table
         };
         Compiler {
             code_stack: vec![module_code],
@@ -537,6 +538,7 @@ impl Compiler<'_> {
             },
             in_inlined_comp: false,
             fblock: Vec::with_capacity(MAXBLOCKS),
+            symbol_table_index: key,
         };
 
         // Push the old compiler unit on the stack (like PyCapsule)
@@ -937,7 +939,9 @@ impl Compiler<'_> {
 
         self.check_forbidden_name(&name, usage)?;
 
-        let symbol_table = self.symbol_table_stack.last().unwrap();
+        // Get symbol table index from current code info
+        let symbol_table_index = self.code_stack.last().unwrap().symbol_table_index;
+        let symbol_table = &self.symbol_table_stack[symbol_table_index];
         let symbol = unwrap_internal(
             self,
             symbol_table
