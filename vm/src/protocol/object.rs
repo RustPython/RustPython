@@ -352,8 +352,8 @@ impl PyObject {
     }
 
     // Container of the virtual machine state:
-    pub fn str(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let obj = match self.to_owned().downcast_exact::<PyStr>(vm) {
+    pub fn str(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
+        let obj = match self.to_owned().downcast_exact::<PyWtf8Str>(vm) {
             Ok(s) => return Ok(s.into_pyref()),
             Err(obj) => obj,
         };
@@ -363,7 +363,7 @@ impl PyObject {
             None => return obj.repr(vm),
         };
         let s = str_method.invoke((), vm)?;
-        s.downcast::<PyStr>().map_err(|obj| {
+        s.downcast::<PyWtf8Str>().map_err(|obj| {
             vm.new_type_error(format!(
                 "__str__ returned non-string (type {})",
                 obj.class().name()

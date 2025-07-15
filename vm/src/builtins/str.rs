@@ -15,7 +15,7 @@ use crate::{
     format::{format, format_map},
     function::{ArgIterable, ArgSize, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
     intern::PyInterned,
-    object::{Traverse, TraverseFn},
+    object::{MaybeTraverse, Traverse, TraverseFn},
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     sequence::SequenceExt,
     sliceable::{SequenceIndex, SliceableSequenceOp},
@@ -350,7 +350,7 @@ impl Constructor for PyStr {
     type Args = StrArgs;
 
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        let string: PyStrRef = match args.object {
+        let string: PyRef<PyWtf8Str> = match args.object {
             OptionalArg::Present(input) => {
                 if let OptionalArg::Present(enc) = args.encoding {
                     vm.state.codec_registry.decode_text(
@@ -364,7 +364,7 @@ impl Constructor for PyStr {
                 }
             }
             OptionalArg::Missing => {
-                Self::from(String::new()).into_ref_with_type(vm, cls.clone())?
+                Self::from(String::new()).into_ref_with_type(vm, cls.clone())?.into_wtf8()
             }
         };
         if string.class().is(&cls) {
@@ -1499,6 +1499,11 @@ impl PyStrRef {
         self.ensure_valid_utf8(vm)?;
         Ok(unsafe { mem::transmute::<PyRef<PyStr>, PyRef<PyUtf8Str>>(self) })
     }
+
+    pub fn into_wtf8(self) -> PyRef<PyWtf8Str> {
+        // PyStr can always be safely cast to PyWtf8Str
+        unsafe { mem::transmute::<PyRef<PyStr>, PyRef<PyWtf8Str>>(self) }
+    }
 }
 
 impl Representable for PyStr {
@@ -1954,6 +1959,79 @@ impl std::borrow::Borrow<PyObject> for Py<PyUtf8Str> {
         self.as_pystr().borrow()
     }
 }
+
+#[repr(transparent)]
+#[derive(Debug)]
+pub struct PyWtf8Str(PyStr);
+
+impl PyWtf8Str {
+    /// Returns the underlying WTF-8 slice.
+    pub fn as_wtf8(&self) -> &Wtf8 {
+        self.0.as_wtf8()
+    }
+}
+
+impl MaybeTraverse for PyWtf8Str {
+    fn try_traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        self.0.try_traverse(traverse_fn);
+    }
+}
+
+impl PyPayload for PyWtf8Str {
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.str_type
+    }
+    fn payload_type_id() -> std::any::TypeId {
+        std::any::TypeId::of::<PyStr>()
+    }
+}
+
+impl From<PyStr> for PyWtf8Str {
+    fn from(s: PyStr) -> Self {
+        PyWtf8Str(s)
+    }
+}
+
+impl<'a> From<&'a str> for PyWtf8Str {
+    fn from(s: &'a str) -> Self {
+        PyWtf8Str(PyStr::from(s))
+    }
+}
+
+impl<'a> From<&'a Wtf8> for PyWtf8Str {
+    fn from(s: &'a Wtf8) -> Self {
+        PyWtf8Str(PyStr::from(s))
+    }
+}
+
+impl From<String> for PyWtf8Str {
+    fn from(s: String) -> Self {
+        PyWtf8Str(PyStr::from(s))
+    }
+}
+
+impl From<Wtf8Buf> for PyWtf8Str {
+    fn from(w: Wtf8Buf) -> Self {
+        PyWtf8Str(PyStr::from(w))
+    }
+}
+
+impl Py<PyWtf8Str> {
+    /// Upcast to PyStr.
+    pub fn as_pystr(&self) -> &Py<PyStr> {
+        unsafe {
+            // Safety: PyWtf8Str is a wrapper around PyStr, so this cast is safe.
+            &*(self as *const Self as *const Py<PyStr>)
+        }
+    }
+}
+
+impl PartialEq for PyWtf8Str {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_wtf8() == other.as_wtf8()
+    }
+}
+impl Eq for PyWtf8Str {}
 
 impl AnyStrContainer<str> for String {
     fn new() -> Self {

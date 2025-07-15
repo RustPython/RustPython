@@ -326,7 +326,7 @@ impl CodecsRegistry {
         encoding: &str,
         errors: Option<PyStrRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyStrRef> {
+    ) -> PyResult<PyRef<PyWtf8Str>> {
         let codec = self._lookup_text_encoding(encoding, "codecs.decode()", vm)?;
         codec.decode(obj, errors, vm)?.downcast().map_err(|obj| {
             vm.new_type_error(format!(
