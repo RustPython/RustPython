@@ -1032,14 +1032,13 @@ impl ToTokens for MethodNursery {
 #[derive(Default)]
 #[allow(clippy::type_complexity)]
 struct GetSetNursery {
-    map: HashMap<(String, Vec<Attribute>), (Option<Ident>, Option<Ident>, Option<Ident>)>,
+    map: HashMap<(String, Vec<Attribute>), (Option<Ident>, Option<Ident>)>,
     validated: bool,
 }
 
 enum GetSetItemKind {
     Get,
     Set,
-    Delete,
 }
 
 impl GetSetNursery {
@@ -1058,7 +1057,6 @@ impl GetSetNursery {
         let func = match kind {
             GetSetItemKind::Get => &mut entry.0,
             GetSetItemKind::Set => &mut entry.1,
-            GetSetItemKind::Delete => &mut entry.2,
         };
         if func.is_some() {
             bail_span!(
@@ -1073,10 +1071,10 @@ impl GetSetNursery {
 
     fn validate(&mut self) -> Result<()> {
         let mut errors = Vec::new();
-        for ((name, _cfgs), (getter, setter, deleter)) in &self.map {
+        for ((name, _cfgs), (getter, setter)) in &self.map {
             if getter.is_none() {
                 errors.push(err_span!(
-                    setter.as_ref().or(deleter.as_ref()).unwrap(),
+                    setter.as_ref().unwrap(),
                     "GetSet '{}' is missing a getter",
                     name
                 ));
@@ -1091,33 +1089,24 @@ impl GetSetNursery {
 impl ToTokens for GetSetNursery {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         assert!(self.validated, "Call `validate()` before token generation");
-        let properties = self
-            .map
-            .iter()
-            .map(|((name, cfgs), (getter, setter, deleter))| {
-                let setter = match setter {
-                    Some(setter) => quote_spanned! { setter.span() => .with_set(Self::#setter)},
-                    None => quote! {},
-                };
-                let deleter = match deleter {
-                    Some(deleter) => {
-                        quote_spanned! { deleter.span() => .with_delete(Self::#deleter)}
-                    }
-                    None => quote! {},
-                };
-                quote_spanned! { getter.span() =>
-                    #( #cfgs )*
-                    class.set_str_attr(
-                        #name,
-                        ::rustpython_vm::PyRef::new_ref(
-                            ::rustpython_vm::builtins::PyGetSet::new(#name.into(), class)
-                                .with_get(Self::#getter)
-                                #setter #deleter,
-                                ctx.types.getset_type.to_owned(), None),
-                        ctx
-                    );
-                }
-            });
+        let properties = self.map.iter().map(|((name, cfgs), (getter, setter))| {
+            let setter = match setter {
+                Some(setter) => quote_spanned! { setter.span() => .with_set(Self::#setter)},
+                None => quote! {},
+            };
+            quote_spanned! { getter.span() =>
+                #( #cfgs )*
+                class.set_str_attr(
+                    #name,
+                    ::rustpython_vm::PyRef::new_ref(
+                        ::rustpython_vm::builtins::PyGetSet::new(#name.into(), class)
+                            .with_get(Self::#getter)
+                            #setter,
+                            ctx.types.getset_type.to_owned(), None),
+                    ctx
+                );
+            }
+        });
         tokens.extend(properties);
     }
 }
@@ -1242,7 +1231,7 @@ impl MethodItemMeta {
 struct GetSetItemMeta(ItemMetaInner);
 
 impl ItemMeta for GetSetItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "setter", "deleter"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "setter"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -1256,17 +1245,10 @@ impl ItemMeta for GetSetItemMeta {
 impl GetSetItemMeta {
     fn getset_name(&self) -> Result<(String, GetSetItemKind)> {
         let inner = self.inner();
-        let kind = match (inner._bool("setter")?, inner._bool("deleter")?) {
-            (false, false) => GetSetItemKind::Get,
-            (true, false) => GetSetItemKind::Set,
-            (false, true) => GetSetItemKind::Delete,
-            (true, true) => {
-                bail_span!(
-                    &inner.meta_ident,
-                    "can't have both setter and deleter on a #[{}] fn",
-                    inner.meta_name()
-                )
-            }
+        let kind = if inner._bool("setter")? {
+            GetSetItemKind::Set
+        } else {
+            GetSetItemKind::Get
         };
         let name = inner._optional_str("name")?;
         let py_name = if let Some(name) = name {
@@ -1299,7 +1281,6 @@ impl GetSetItemMeta {
             match kind {
                 GetSetItemKind::Get => sig_name,
                 GetSetItemKind::Set => extract_prefix_name("set_", "setter")?,
-                GetSetItemKind::Delete => extract_prefix_name("del_", "deleter")?,
             }
         };
         Ok((py_name, kind))
