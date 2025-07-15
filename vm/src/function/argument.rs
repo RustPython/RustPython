@@ -213,7 +213,7 @@ impl FuncArgs {
 
         if !self.args.is_empty() {
             Err(vm.new_type_error(format!(
-                "Expected at most {} arguments ({} given)",
+                "expected at most {} arguments, got {}",
                 T::arity().end(),
                 given_args,
             )))
@@ -263,12 +263,12 @@ impl ArgumentError {
     ) -> PyBaseExceptionRef {
         match self {
             Self::TooFewArgs => vm.new_type_error(format!(
-                "Expected at least {} arguments ({} given)",
+                "expected at least {} arguments, got {}",
                 arity.start(),
                 num_given
             )),
             Self::TooManyArgs => vm.new_type_error(format!(
-                "Expected at most {} arguments ({} given)",
+                "expected at most {} arguments, got {}",
                 arity.end(),
                 num_given
             )),

@@ -180,12 +180,16 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream> {
 }
 
 pub fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
-    let fields = match input.data {
-        Data::Struct(syn::DataStruct { fields, .. }) => fields
-            .iter()
-            .enumerate()
-            .map(generate_field)
-            .collect::<Result<TokenStream>>()?,
+    // TODO: Set lower arity bound dynamicly
+    let (fields, arity) = match input.data {
+        Data::Struct(syn::DataStruct { fields, .. }) => (
+            fields
+                .iter()
+                .enumerate()
+                .map(generate_field)
+                .collect::<Result<TokenStream>>()?,
+            fields.len(),
+        ),
         _ => bail_span!(input, "FromArgs input must be a struct"),
     };
 
@@ -193,11 +197,15 @@ pub fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let output = quote! {
         impl #impl_generics ::rustpython_vm::function::FromArgs for #name #ty_generics #where_clause {
+            fn arity() -> ::std::ops::RangeInclusive<usize> {
+                0..=#arity
+            }
+
             fn from_args(
                 vm: &::rustpython_vm::VirtualMachine,
                 args: &mut ::rustpython_vm::function::FuncArgs
             ) -> ::std::result::Result<Self, ::rustpython_vm::function::ArgumentError> {
-                Ok(#name { #fields })
+                Ok(Self { #fields })
             }
         }
     };
