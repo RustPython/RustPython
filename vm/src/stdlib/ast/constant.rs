@@ -161,7 +161,7 @@ impl Node for ConstantLiteral {
                 .ctx
                 .new_complex(num_complex::Complex::new(real, imag))
                 .into_pyobject(vm),
-            Self::Ellipsis => vm.ctx.ellipsis(),
+            Self::Ellipsis => vm.ctx.ellipsis.clone().into(),
         }
     }
 

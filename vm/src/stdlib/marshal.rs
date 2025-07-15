@@ -138,7 +138,7 @@ mod decl {
         }
 
         fn make_ellipsis(&self) -> Self::Value {
-            self.0.ctx.ellipsis()
+            self.0.ctx.ellipsis.clone().into()
         }
 
         fn make_float(&self, value: f64) -> Self::Value {

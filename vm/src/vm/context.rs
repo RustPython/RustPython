@@ -364,11 +364,6 @@ impl Context {
     }
 
     #[inline(always)]
-    pub fn ellipsis(&self) -> PyObjectRef {
-        self.ellipsis.clone().into()
-    }
-
-    #[inline(always)]
     pub fn not_implemented(&self) -> PyObjectRef {
         self.not_implemented.clone().into()
     }

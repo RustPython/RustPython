@@ -143,7 +143,7 @@ impl ConstantBag for PyObjBag<'_> {
                 ctx.new_tuple(elements).into()
             }
             bytecode::BorrowedConstant::None => ctx.none(),
-            bytecode::BorrowedConstant::Ellipsis => ctx.ellipsis(),
+            bytecode::BorrowedConstant::Ellipsis => ctx.ellipsis.clone().into(),
         };
         Literal(obj)
     }
