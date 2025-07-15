@@ -351,6 +351,7 @@ impl<'src> Compiler<'src> {
             static_attributes: None,
             in_inlined_comp: false,
             fblock: Vec::with_capacity(MAXBLOCKS),
+            symbol_table_index: 0, // Module is always the first symbol table
         };
         Compiler {
             code_stack: vec![module_code],
@@ -384,15 +385,76 @@ impl Compiler<'_> {
         }
     }
 
+    /// Get the SymbolTable for the current scope.
+    fn current_symbol_table(&self) -> &SymbolTable {
+        if self.symbol_table_stack.is_empty() {
+            panic!("symbol_table_stack is empty! This is a compiler bug.");
+        }
+        let index = self.symbol_table_stack.len() - 1;
+        &self.symbol_table_stack[index]
+    }
+
+    /// Get the index of a free variable.
+    fn get_free_var_index(&mut self, name: &str) -> CompileResult<u32> {
+        let info = self.code_stack.last_mut().unwrap();
+        let idx = info
+            .metadata
+            .freevars
+            .get_index_of(name)
+            .unwrap_or_else(|| info.metadata.freevars.insert_full(name.to_owned()).0);
+        Ok((idx + info.metadata.cellvars.len()).to_u32())
+    }
+
+    /// Get the index of a cell variable.
+    fn get_cell_var_index(&mut self, name: &str) -> CompileResult<u32> {
+        let info = self.code_stack.last_mut().unwrap();
+        let idx = info
+            .metadata
+            .cellvars
+            .get_index_of(name)
+            .unwrap_or_else(|| info.metadata.cellvars.insert_full(name.to_owned()).0);
+        Ok(idx.to_u32())
+    }
+
+    /// Get the index of a local variable.
+    fn get_local_var_index(&mut self, name: &str) -> CompileResult<u32> {
+        let info = self.code_stack.last_mut().unwrap();
+        let idx = info
+            .metadata
+            .varnames
+            .get_index_of(name)
+            .unwrap_or_else(|| info.metadata.varnames.insert_full(name.to_owned()).0);
+        Ok(idx.to_u32())
+    }
+
+    /// Get the index of a global name.
+    fn get_global_name_index(&mut self, name: &str) -> u32 {
+        let info = self.code_stack.last_mut().unwrap();
+        let idx = info
+            .metadata
+            .names
+            .get_index_of(name)
+            .unwrap_or_else(|| info.metadata.names.insert_full(name.to_owned()).0);
+        idx.to_u32()
+    }
+
     /// Push the next symbol table on to the stack
     fn push_symbol_table(&mut self) -> &SymbolTable {
         // Look up the next table contained in the scope of the current table
-        let table = self
+        let current_table = self
             .symbol_table_stack
             .last_mut()
-            .expect("no next symbol table")
-            .sub_tables
-            .remove(0);
+            .expect("no current symbol table");
+
+        if current_table.sub_tables.is_empty() {
+            panic!(
+                "push_symbol_table: no sub_tables available in {} (type: {:?})",
+                current_table.name, current_table.typ
+            );
+        }
+
+        let table = current_table.sub_tables.remove(0);
+
         // Push the next table onto the stack
         let last_idx = self.symbol_table_stack.len();
         self.symbol_table_stack.push(table);
@@ -537,6 +599,7 @@ impl Compiler<'_> {
             },
             in_inlined_comp: false,
             fblock: Vec::with_capacity(MAXBLOCKS),
+            symbol_table_index: key,
         };
 
         // Push the old compiler unit on the stack (like PyCapsule)
@@ -615,21 +678,17 @@ impl Compiler<'_> {
 
     // compiler_exit_scope
     fn exit_scope(&mut self) -> CodeObject {
-        let table = self.pop_symbol_table();
+        let _table = self.pop_symbol_table();
 
-        // TypeParams scope can have sub_tables (the function body's symbol table)
-        // This matches CPython's behavior where type params scope contains the function scope
-        if table.typ != CompilerScope::TypeParams {
-            assert!(
-                table.sub_tables.is_empty(),
-                "Only TypeParams scope can have sub_tables, but {:?} has {} sub_tables",
-                table.typ,
-                table.sub_tables.len()
-            );
-        }
+        // Various scopes can have sub_tables:
+        // - TypeParams scope can have sub_tables (the function body's symbol table)
+        // - Module scope can have sub_tables (for TypeAlias scopes, nested functions, classes)
+        // - Function scope can have sub_tables (for nested functions, classes)
+        // - Class scope can have sub_tables (for nested classes, methods)
 
         let pop = self.code_stack.pop();
         let stack_top = compiler_unwrap_option(self, pop);
+        // No parent scope stack to maintain
         unwrap_internal(self, stack_top.finalize_code(self.opts.optimize))
     }
 
@@ -690,7 +749,8 @@ impl Compiler<'_> {
             .to_u32()
     }
 
-    /// Set the qualified name for the current code object, based on CPython's compiler_set_qualname
+    /// Set the qualified name for the current code object
+    // = compiler_set_qualname
     fn set_qualname(&mut self) -> String {
         let qualname = self.make_qualname();
         self.current_code_info().metadata.qualname = Some(qualname.clone());
@@ -711,13 +771,14 @@ impl Compiler<'_> {
         let mut parent_idx = stack_size - 2;
         let mut parent = &self.code_stack[parent_idx];
 
-        // If parent is a type parameter scope, look at grandparent
+        // If parent is TypeParams scope, look at grandparent
+        // Check if parent is a type params scope by name pattern
         if parent.metadata.name.starts_with("<generic parameters of ") {
             if stack_size == 2 {
-                // If we're immediately within the module after type params,
-                // qualname is just the name
+                // If we're immediately within the module, qualname is just the name
                 return current_obj_name;
             }
+            // Use grandparent
             parent_idx = stack_size - 3;
             parent = &self.code_stack[parent_idx];
         }
@@ -922,48 +983,19 @@ impl Compiler<'_> {
         Err(self.error(CodegenErrorType::SyntaxError(format!("{msg} {name}"))))
     }
 
+    // = compiler_nameop
     fn compile_name(&mut self, name: &str, usage: NameUsage) -> CompileResult<()> {
-        let name = self.mangle(name);
-
-        self.check_forbidden_name(&name, usage)?;
-
-        let symbol_table = self.symbol_table_stack.last().unwrap();
-        let symbol = unwrap_internal(
-            self,
-            symbol_table
-                .lookup(name.as_ref())
-                .ok_or_else(|| InternalError::MissingSymbol(name.to_string())),
-        );
-        let info = self.code_stack.last_mut().unwrap();
-        let mut cache = &mut info.metadata.names;
-        enum NameOpType {
+        enum NameOp {
             Fast,
             Global,
             Deref,
-            Local,
+            Name,
         }
-        let op_typ = match symbol.scope {
-            SymbolScope::Local if self.ctx.in_func() => {
-                cache = &mut info.metadata.varnames;
-                NameOpType::Fast
-            }
-            SymbolScope::GlobalExplicit => NameOpType::Global,
-            SymbolScope::GlobalImplicit | SymbolScope::Unknown if self.ctx.in_func() => {
-                NameOpType::Global
-            }
-            SymbolScope::GlobalImplicit | SymbolScope::Unknown => NameOpType::Local,
-            SymbolScope::Local => NameOpType::Local,
-            SymbolScope::Free => {
-                cache = &mut info.metadata.freevars;
-                NameOpType::Deref
-            }
-            SymbolScope::Cell => {
-                cache = &mut info.metadata.cellvars;
-                NameOpType::Deref
-            } // TODO: is this right?
-              // SymbolScope::Unknown => NameOpType::Global,
-        };
 
+        let name = self.mangle(name);
+        self.check_forbidden_name(&name, usage)?;
+
+        // Special handling for __debug__
         if NameUsage::Load == usage && name == "__debug__" {
             self.emit_load_const(ConstantData::Boolean {
                 value: self.opts.optimize == 0,
@@ -971,38 +1003,111 @@ impl Compiler<'_> {
             return Ok(());
         }
 
-        let mut idx = cache
-            .get_index_of(name.as_ref())
-            .unwrap_or_else(|| cache.insert_full(name.into_owned()).0);
-        if let SymbolScope::Free = symbol.scope {
-            idx += info.metadata.cellvars.len();
-        }
-        let op = match op_typ {
-            NameOpType::Fast => match usage {
-                NameUsage::Load => Instruction::LoadFast,
-                NameUsage::Store => Instruction::StoreFast,
-                NameUsage::Delete => Instruction::DeleteFast,
-            },
-            NameOpType::Global => match usage {
-                NameUsage::Load => Instruction::LoadGlobal,
-                NameUsage::Store => Instruction::StoreGlobal,
-                NameUsage::Delete => Instruction::DeleteGlobal,
-            },
-            NameOpType::Deref => match usage {
-                NameUsage::Load if !self.ctx.in_func() && self.ctx.in_class => {
-                    Instruction::LoadClassDeref
+        // Determine the operation type based on symbol scope
+        let is_function_like = self.ctx.in_func();
+
+        // Look up the symbol, handling TypeParams scope specially
+        let (symbol_scope, _is_typeparams) = {
+            let current_table = self.current_symbol_table();
+            let is_typeparams = current_table.typ == CompilerScope::TypeParams;
+
+            // First try to find in current table
+            let symbol = current_table.lookup(name.as_ref());
+
+            // If not found and we're in TypeParams scope, try parent scope
+            let symbol = if symbol.is_none() && is_typeparams {
+                if self.symbol_table_stack.len() > 1 {
+                    let parent_idx = self.symbol_table_stack.len() - 2;
+                    self.symbol_table_stack[parent_idx].lookup(name.as_ref())
+                } else {
+                    None
                 }
-                NameUsage::Load => Instruction::LoadDeref,
-                NameUsage::Store => Instruction::StoreDeref,
-                NameUsage::Delete => Instruction::DeleteDeref,
-            },
-            NameOpType::Local => match usage {
-                NameUsage::Load => Instruction::LoadNameAny,
-                NameUsage::Store => Instruction::StoreLocal,
-                NameUsage::Delete => Instruction::DeleteLocal,
-            },
+            } else {
+                symbol
+            };
+
+            (symbol.map(|s| s.scope), is_typeparams)
         };
-        self.emit_arg(idx.to_u32(), op);
+
+        let actual_scope = symbol_scope.ok_or_else(|| {
+            self.error(CodegenErrorType::SyntaxError(format!(
+                "The symbol '{name}' must be present in the symbol table"
+            )))
+        })?;
+
+        // Determine operation type based on scope
+        let op_type = match actual_scope {
+            SymbolScope::Free => NameOp::Deref,
+            SymbolScope::Cell => NameOp::Deref,
+            SymbolScope::Local => {
+                if is_function_like {
+                    NameOp::Fast
+                } else {
+                    NameOp::Name
+                }
+            }
+            SymbolScope::GlobalImplicit => {
+                if is_function_like {
+                    NameOp::Global
+                } else {
+                    NameOp::Name
+                }
+            }
+            SymbolScope::GlobalExplicit => NameOp::Global,
+            SymbolScope::Unknown => NameOp::Name,
+        };
+
+        // Generate appropriate instructions based on operation type
+        match op_type {
+            NameOp::Deref => {
+                let idx = match actual_scope {
+                    SymbolScope::Free => self.get_free_var_index(&name)?,
+                    SymbolScope::Cell => self.get_cell_var_index(&name)?,
+                    _ => unreachable!("Invalid scope for Deref operation"),
+                };
+
+                let op = match usage {
+                    NameUsage::Load => {
+                        // Special case for class scope
+                        if self.ctx.in_class && !self.ctx.in_func() {
+                            Instruction::LoadClassDeref
+                        } else {
+                            Instruction::LoadDeref
+                        }
+                    }
+                    NameUsage::Store => Instruction::StoreDeref,
+                    NameUsage::Delete => Instruction::DeleteDeref,
+                };
+                self.emit_arg(idx, op);
+            }
+            NameOp::Fast => {
+                let idx = self.get_local_var_index(&name)?;
+                let op = match usage {
+                    NameUsage::Load => Instruction::LoadFast,
+                    NameUsage::Store => Instruction::StoreFast,
+                    NameUsage::Delete => Instruction::DeleteFast,
+                };
+                self.emit_arg(idx, op);
+            }
+            NameOp::Global => {
+                let idx = self.get_global_name_index(&name);
+                let op = match usage {
+                    NameUsage::Load => Instruction::LoadGlobal,
+                    NameUsage::Store => Instruction::StoreGlobal,
+                    NameUsage::Delete => Instruction::DeleteGlobal,
+                };
+                self.emit_arg(idx, op);
+            }
+            NameOp::Name => {
+                let idx = self.get_global_name_index(&name);
+                let op = match usage {
+                    NameUsage::Load => Instruction::LoadNameAny,
+                    NameUsage::Store => Instruction::StoreLocal,
+                    NameUsage::Delete => Instruction::DeleteLocal,
+                };
+                self.emit_arg(idx, op);
+            }
+        }
 
         Ok(())
     }
@@ -1425,6 +1530,7 @@ impl Compiler<'_> {
                 });
 
                 if let Some(type_params) = type_params {
+                    // For TypeAlias, we need to use push_symbol_table to properly handle the TypeAlias scope
                     self.push_symbol_table();
 
                     // Compile type params and push to stack
@@ -1435,9 +1541,10 @@ impl Compiler<'_> {
                     self.compile_expression(value)?;
                     // Stack: [name, type_params_tuple, value]
 
+                    // Pop the TypeAlias scope
                     self.pop_symbol_table();
                 } else {
-                    // Push None for type_params (matching CPython)
+                    // Push None for type_params
                     self.emit_load_const(ConstantData::None);
                     // Stack: [name, None]
 
@@ -1746,7 +1853,7 @@ impl Compiler<'_> {
 
             // Delete the exception variable if it was bound
             if let Some(alias) = name {
-                // Set the variable to None before deleting (as CPython does)
+                // Set the variable to None before deleting
                 self.emit_load_const(ConstantData::None);
                 self.store_name(alias.as_str())?;
                 self.compile_name(alias.as_str(), NameUsage::Delete)?;
@@ -1814,6 +1921,174 @@ impl Compiler<'_> {
         is_forbidden_name(name)
     }
 
+    /// Compile default arguments
+    // = compiler_default_arguments
+    fn compile_default_arguments(
+        &mut self,
+        parameters: &Parameters,
+    ) -> CompileResult<bytecode::MakeFunctionFlags> {
+        let mut funcflags = bytecode::MakeFunctionFlags::empty();
+
+        // Handle positional defaults
+        let defaults: Vec<_> = std::iter::empty()
+            .chain(&parameters.posonlyargs)
+            .chain(&parameters.args)
+            .filter_map(|x| x.default.as_deref())
+            .collect();
+
+        if !defaults.is_empty() {
+            // Compile defaults and build tuple
+            for default in &defaults {
+                self.compile_expression(default)?;
+            }
+            emit!(
+                self,
+                Instruction::BuildTuple {
+                    size: defaults.len().to_u32()
+                }
+            );
+            funcflags |= bytecode::MakeFunctionFlags::DEFAULTS;
+        }
+
+        // Handle keyword-only defaults
+        let mut kw_with_defaults = vec![];
+        for kwonlyarg in &parameters.kwonlyargs {
+            if let Some(default) = &kwonlyarg.default {
+                kw_with_defaults.push((&kwonlyarg.parameter, default));
+            }
+        }
+
+        if !kw_with_defaults.is_empty() {
+            // Compile kwdefaults and build dict
+            for (arg, default) in &kw_with_defaults {
+                self.emit_load_const(ConstantData::Str {
+                    value: arg.name.as_str().into(),
+                });
+                self.compile_expression(default)?;
+            }
+            emit!(
+                self,
+                Instruction::BuildMap {
+                    size: kw_with_defaults.len().to_u32(),
+                }
+            );
+            funcflags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
+        }
+
+        Ok(funcflags)
+    }
+
+    /// Compile function body and create function object
+    // = compiler_function_body
+    fn compile_function_body(
+        &mut self,
+        name: &str,
+        parameters: &Parameters,
+        body: &[Stmt],
+        is_async: bool,
+        funcflags: bytecode::MakeFunctionFlags,
+    ) -> CompileResult<()> {
+        // Always enter function scope
+        self.enter_function(name, parameters)?;
+        self.current_code_info()
+            .flags
+            .set(bytecode::CodeFlags::IS_COROUTINE, is_async);
+
+        // Set up context
+        let prev_ctx = self.ctx;
+        self.ctx = CompileContext {
+            loop_data: None,
+            in_class: prev_ctx.in_class,
+            func: if is_async {
+                FunctionContext::AsyncFunction
+            } else {
+                FunctionContext::Function
+            },
+        };
+
+        // Set qualname
+        self.set_qualname();
+
+        // Handle docstring
+        let (doc_str, body) = split_doc(body, &self.opts);
+        self.current_code_info()
+            .metadata
+            .consts
+            .insert_full(ConstantData::None);
+
+        // Compile body statements
+        self.compile_statements(body)?;
+
+        // Emit None at end if needed
+        match body.last() {
+            Some(Stmt::Return(_)) => {}
+            _ => {
+                self.emit_return_const(ConstantData::None);
+            }
+        }
+
+        // Exit scope and create function object
+        let code = self.exit_scope();
+        self.ctx = prev_ctx;
+
+        // Create function object with closure
+        self.make_closure(code, funcflags)?;
+
+        // Handle docstring if present
+        if let Some(doc) = doc_str {
+            emit!(self, Instruction::Duplicate);
+            self.emit_load_const(ConstantData::Str {
+                value: doc.to_string().into(),
+            });
+            emit!(self, Instruction::Rotate2);
+            let doc_attr = self.name("__doc__");
+            emit!(self, Instruction::StoreAttr { idx: doc_attr });
+        }
+
+        Ok(())
+    }
+
+    /// Compile function annotations
+    // = compiler_visit_annotations
+    fn visit_annotations(
+        &mut self,
+        parameters: &Parameters,
+        returns: Option<&Expr>,
+    ) -> CompileResult<u32> {
+        let mut num_annotations = 0;
+
+        // Handle return annotation first
+        if let Some(annotation) = returns {
+            self.emit_load_const(ConstantData::Str {
+                value: "return".into(),
+            });
+            self.compile_annotation(annotation)?;
+            num_annotations += 1;
+        }
+
+        // Handle parameter annotations
+        let parameters_iter = std::iter::empty()
+            .chain(&parameters.posonlyargs)
+            .chain(&parameters.args)
+            .chain(&parameters.kwonlyargs)
+            .map(|x| &x.parameter)
+            .chain(parameters.vararg.as_deref())
+            .chain(parameters.kwarg.as_deref());
+
+        for param in parameters_iter {
+            if let Some(annotation) = &param.annotation {
+                self.emit_load_const(ConstantData::Str {
+                    value: self.mangle(param.name.as_str()).into_owned().into(),
+                });
+                self.compile_annotation(annotation)?;
+                num_annotations += 1;
+            }
+        }
+
+        Ok(num_annotations)
+    }
+
+    // = compiler_function
     #[allow(clippy::too_many_arguments)]
     fn compile_function_def(
         &mut self,
@@ -1827,143 +2102,66 @@ impl Compiler<'_> {
     ) -> CompileResult<()> {
         self.prepare_decorators(decorator_list)?;
 
-        // If there are type params, we need to push a special symbol table just for them
-        if type_params.is_some() {
-            self.push_symbol_table();
-        }
+        // compile defaults and return funcflags
+        let funcflags = self.compile_default_arguments(parameters)?;
 
-        // Prepare defaults and kwdefaults before entering function
-        let defaults: Vec<_> = std::iter::empty()
-            .chain(&parameters.posonlyargs)
-            .chain(&parameters.args)
-            .filter_map(|x| x.default.as_deref())
-            .collect();
-        let have_defaults = !defaults.is_empty();
+        let is_generic = type_params.is_some();
+        let mut num_typeparam_args = 0;
 
-        // Compile defaults before entering function scope
-        if have_defaults {
-            // Construct a tuple:
-            let size = defaults.len().to_u32();
-            for element in &defaults {
-                self.compile_expression(element)?;
+        if is_generic {
+            // Count args to pass to type params scope
+            if funcflags.contains(bytecode::MakeFunctionFlags::DEFAULTS) {
+                num_typeparam_args += 1;
             }
-            emit!(self, Instruction::BuildTuple { size });
-        }
-
-        // Prepare keyword-only defaults
-        let mut kw_with_defaults = vec![];
-        for kwonlyarg in &parameters.kwonlyargs {
-            if let Some(default) = &kwonlyarg.default {
-                kw_with_defaults.push((&kwonlyarg.parameter, default));
+            if funcflags.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
+                num_typeparam_args += 1;
             }
-        }
 
-        let have_kwdefaults = !kw_with_defaults.is_empty();
-        if have_kwdefaults {
-            let default_kw_count = kw_with_defaults.len();
-            for (arg, default) in kw_with_defaults.iter() {
-                self.emit_load_const(ConstantData::Str {
-                    value: arg.name.as_str().into(),
-                });
-                self.compile_expression(default)?;
+            // SWAP if we have both
+            if num_typeparam_args == 2 {
+                emit!(self, Instruction::Swap { index: 2 });
             }
-            emit!(
-                self,
-                Instruction::BuildMap {
-                    size: default_kw_count.to_u32(),
-                }
+
+            // Enter type params scope
+            let type_params_name = format!("<generic parameters of {name}>");
+            self.push_output(
+                bytecode::CodeFlags::IS_OPTIMIZED | bytecode::CodeFlags::NEW_LOCALS,
+                0,
+                num_typeparam_args as u32,
+                0,
+                type_params_name,
             );
-        }
 
-        self.enter_function(name, parameters)?;
-        let mut func_flags = bytecode::MakeFunctionFlags::empty();
-        if have_defaults {
-            func_flags |= bytecode::MakeFunctionFlags::DEFAULTS;
-        }
-        if have_kwdefaults {
-            func_flags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
-        }
-        self.current_code_info()
-            .flags
-            .set(bytecode::CodeFlags::IS_COROUTINE, is_async);
-
-        // remember to restore self.ctx.in_loop to the original after the function is compiled
-        let prev_ctx = self.ctx;
-
-        self.ctx = CompileContext {
-            loop_data: None,
-            in_class: prev_ctx.in_class,
-            func: if is_async {
-                FunctionContext::AsyncFunction
-            } else {
-                FunctionContext::Function
-            },
-        };
-
-        // Set qualname using the new method
-        self.set_qualname();
-
-        let (doc_str, body) = split_doc(body, &self.opts);
-
-        self.current_code_info()
-            .metadata
-            .consts
-            .insert_full(ConstantData::None);
-
-        self.compile_statements(body)?;
-
-        // Emit None at end:
-        match body.last() {
-            Some(Stmt::Return(_)) => {
-                // the last instruction is a ReturnValue already, we don't need to emit it
+            // Add parameter names to varnames for the type params scope
+            // These will be passed as arguments when the closure is called
+            let current_info = self.current_code_info();
+            if funcflags.contains(bytecode::MakeFunctionFlags::DEFAULTS) {
+                current_info
+                    .metadata
+                    .varnames
+                    .insert(".defaults".to_owned());
             }
-            _ => {
-                self.emit_return_const(ConstantData::None);
+            if funcflags.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
+                current_info
+                    .metadata
+                    .varnames
+                    .insert(".kwdefaults".to_owned());
+            }
+
+            // Compile type parameters
+            self.compile_type_params(type_params.unwrap())?;
+
+            // Load defaults/kwdefaults with LOAD_FAST
+            for i in 0..num_typeparam_args {
+                emit!(self, Instruction::LoadFast(i as u32));
             }
         }
 
-        let code = self.exit_scope();
-        self.ctx = prev_ctx;
-
-        // Prepare generic type parameters:
-        if let Some(type_params) = type_params {
-            self.compile_type_params(type_params)?;
-            func_flags |= bytecode::MakeFunctionFlags::TYPE_PARAMS;
-        }
-
-        // Prepare type annotations:
-        let mut num_annotations = 0;
-
-        // Return annotation:
-        if let Some(annotation) = returns {
-            // key:
-            self.emit_load_const(ConstantData::Str {
-                value: "return".into(),
-            });
-            // value:
-            self.compile_annotation(annotation)?;
-            num_annotations += 1;
-        }
-
-        let parameters_iter = std::iter::empty()
-            .chain(&parameters.posonlyargs)
-            .chain(&parameters.args)
-            .chain(&parameters.kwonlyargs)
-            .map(|x| &x.parameter)
-            .chain(parameters.vararg.as_deref())
-            .chain(parameters.kwarg.as_deref());
-        for param in parameters_iter {
-            if let Some(annotation) = &param.annotation {
-                self.emit_load_const(ConstantData::Str {
-                    value: self.mangle(param.name.as_str()).into_owned().into(),
-                });
-                self.compile_annotation(annotation)?;
-                num_annotations += 1;
-            }
-        }
-
+        // Compile annotations
+        let mut annotations_flag = bytecode::MakeFunctionFlags::empty();
+        let num_annotations = self.visit_annotations(parameters, returns)?;
         if num_annotations > 0 {
-            func_flags |= bytecode::MakeFunctionFlags::ANNOTATIONS;
+            annotations_flag = bytecode::MakeFunctionFlags::ANNOTATIONS;
             emit!(
                 self,
                 Instruction::BuildMap {
@@ -1972,27 +2170,63 @@ impl Compiler<'_> {
             );
         }
 
-        // Pop the special type params symbol table
-        if type_params.is_some() {
-            self.pop_symbol_table();
+        // Compile function body
+        let final_funcflags = funcflags | annotations_flag;
+        self.compile_function_body(name, parameters, body, is_async, final_funcflags)?;
+
+        // Handle type params if present
+        if is_generic {
+            // SWAP to get function on top
+            // Stack: [type_params_tuple, function] -> [function, type_params_tuple]
+            emit!(self, Instruction::Swap { index: 2 });
+
+            // Call INTRINSIC_SET_FUNCTION_TYPE_PARAMS
+            emit!(
+                self,
+                Instruction::CallIntrinsic2 {
+                    func: bytecode::IntrinsicFunction2::SetFunctionTypeParams,
+                }
+            );
+
+            // Return the function object from type params scope
+            emit!(self, Instruction::ReturnValue);
+
+            // Set argcount for type params scope
+            self.current_code_info().metadata.argcount = num_typeparam_args as u32;
+
+            // Exit type params scope and create closure
+            let type_params_code = self.exit_scope();
+
+            // Make closure for type params code
+            self.make_closure(type_params_code, bytecode::MakeFunctionFlags::empty())?;
+
+            // Call the closure
+            if num_typeparam_args > 0 {
+                emit!(
+                    self,
+                    Instruction::Swap {
+                        index: (num_typeparam_args + 1) as u32
+                    }
+                );
+                emit!(
+                    self,
+                    Instruction::CallFunctionPositional {
+                        nargs: num_typeparam_args as u32
+                    }
+                );
+            } else {
+                // No arguments, just call the closure
+                emit!(self, Instruction::CallFunctionPositional { nargs: 0 });
+            }
         }
 
-        // Create function with closure
-        self.make_closure(code, func_flags)?;
-
-        if let Some(value) = doc_str {
-            emit!(self, Instruction::Duplicate);
-            self.emit_load_const(ConstantData::Str {
-                value: value.into(),
-            });
-            emit!(self, Instruction::Rotate2);
-            let doc = self.name("__doc__");
-            emit!(self, Instruction::StoreAttr { idx: doc });
-        }
-
+        // Apply decorators
         self.apply_decorators(decorator_list);
 
-        self.store_name(name)
+        // Store the function
+        self.store_name(name)?;
+
+        Ok(())
     }
 
     /// Determines if a variable should be CELL or FREE type
@@ -2199,7 +2433,7 @@ impl Compiler<'_> {
     }
 
     /// Compile the class body into a code object
-    /// This is similar to CPython's compiler_class_body
+    // = compiler_class_body
     fn compile_class_body(
         &mut self,
         name: &str,
@@ -2208,7 +2442,6 @@ impl Compiler<'_> {
         firstlineno: u32,
     ) -> CompileResult<CodeObject> {
         // 1. Enter class scope
-        // Use enter_scope instead of push_output to match CPython
         let key = self.symbol_table_stack.len();
         self.push_symbol_table();
         self.enter_scope(name, CompilerScope::Class, key, firstlineno)?;
@@ -5177,8 +5410,8 @@ impl EmitArg<bytecode::Label> for ir::BlockIdx {
 
 /// Strips leading whitespace from a docstring.
 ///
-/// The code has been ported from `_PyCompile_CleanDoc` in cpython.
-/// `inspect.cleandoc` is also a good reference, but has a few incompatibilities.
+/// `inspect.cleandoc` is a good reference, but has a few incompatibilities.
+// = _PyCompile_CleanDoc
 fn clean_doc(doc: &str) -> String {
     let doc = expandtabs(doc, 8);
     // First pass: find minimum indentation of any non-blank lines
