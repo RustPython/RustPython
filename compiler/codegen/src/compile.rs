@@ -616,7 +616,18 @@ impl Compiler<'_> {
     // compiler_exit_scope
     fn exit_scope(&mut self) -> CodeObject {
         let table = self.pop_symbol_table();
-        assert!(table.sub_tables.is_empty());
+
+        // TypeParams scope can have sub_tables (the function body's symbol table)
+        // This matches CPython's behavior where type params scope contains the function scope
+        if table.typ != CompilerScope::TypeParams {
+            assert!(
+                table.sub_tables.is_empty(),
+                "Only TypeParams scope can have sub_tables, but {:?} has {} sub_tables",
+                table.typ,
+                table.sub_tables.len()
+            );
+        }
+
         let pop = self.code_stack.pop();
         let stack_top = compiler_unwrap_option(self, pop);
         unwrap_internal(self, stack_top.finalize_code(self.opts.optimize))
