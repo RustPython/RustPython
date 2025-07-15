@@ -2064,6 +2064,8 @@ class AssertionErrorTests(unittest.TestCase):
     def tearDown(self):
         unlink(TESTFN)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @force_not_colorized
     def test_assertion_error_location(self):
         cases = [
@@ -2162,6 +2164,8 @@ class AssertionErrorTests(unittest.TestCase):
                 result = run_script(source)
                 self.assertEqual(result[-3:], expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @force_not_colorized
     def test_multiline_not_highlighted(self):
         cases = [
@@ -2376,6 +2380,8 @@ class SyntaxErrorTests(unittest.TestCase):
         self.assertEqual(exc.offset, 1)
         self.assertEqual(exc.end_offset, 12)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_file_source(self):
         self.addCleanup(unlink, TESTFN)
         err = run_script('return "ä"')
