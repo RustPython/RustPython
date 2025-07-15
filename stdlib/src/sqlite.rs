@@ -2295,6 +2295,12 @@ mod _sqlite {
             vm: &VirtualMachine,
         ) -> PyResult<Option<Self>> {
             let sql = sql.try_into_utf8(vm)?;
+            if sql.as_str().contains('\0') {
+                return Err(new_programming_error(
+                    vm,
+                    "statement contains a null character.".to_owned(),
+                ));
+            }
             let sql_cstr = sql.to_cstring(vm)?;
             let sql_len = sql.byte_len() + 1;
 
