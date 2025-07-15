@@ -373,6 +373,31 @@ impl<'src> Compiler<'src> {
 }
 
 impl Compiler<'_> {
+    /// Lookup symbol in current scope chain, following CPython's logic
+    fn lookup_symbol_in_scope(&self, name: &str) -> CompileResult<&Symbol> {
+        // Start with current scope
+        let current_symbol_table_index = self.code_stack.last().unwrap().symbol_table_index;
+
+        // Check current scope
+        if let Some(symbol) = self.symbol_table_stack[current_symbol_table_index].lookup(name) {
+            return Ok(symbol);
+        }
+
+        // For type alias compilation, check if we pushed a symbol table without entering scope
+        // This happens when compiling type params
+        if self.symbol_table_stack.len() > self.code_stack.len() {
+            // We have extra symbol tables on the stack (type params)
+            for table in self.symbol_table_stack.iter().rev() {
+                if let Some(symbol) = table.lookup(name) {
+                    return Ok(symbol);
+                }
+            }
+        }
+
+        Err(self.error(CodegenErrorType::InternalError(
+            InternalError::MissingSymbol(name.to_string()),
+        )))
+    }
     fn error(&mut self, error: CodegenErrorType) -> CodegenError {
         self.error_ranged(error, self.current_source_range)
     }
@@ -939,15 +964,8 @@ impl Compiler<'_> {
 
         self.check_forbidden_name(&name, usage)?;
 
-        // Get symbol table index from current code info
-        let symbol_table_index = self.code_stack.last().unwrap().symbol_table_index;
-        let symbol_table = &self.symbol_table_stack[symbol_table_index];
-        let symbol = unwrap_internal(
-            self,
-            symbol_table
-                .lookup(name.as_ref())
-                .ok_or_else(|| InternalError::MissingSymbol(name.to_string())),
-        );
+        // Get symbol from proper scope
+        let symbol = self.lookup_symbol_in_scope(&name)?;
         let info = self.code_stack.last_mut().unwrap();
         let mut cache = &mut info.metadata.names;
         enum NameOpType {
