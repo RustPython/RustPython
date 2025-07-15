@@ -132,8 +132,8 @@ fn spec_format_string(
         CFormatType::String(conversion) => {
             let result = match conversion {
                 CFormatConversion::Ascii => builtins::ascii(obj, vm)?.into(),
-                CFormatConversion::Str => obj.str(vm)?.as_wtf8().to_owned(),
-                CFormatConversion::Repr => obj.repr(vm)?.as_wtf8().to_owned(),
+                CFormatConversion::Str => obj.str_wtf8(vm)?.as_wtf8().to_owned(),
+                CFormatConversion::Repr => obj.repr_wtf8(vm)?.as_wtf8().to_owned(),
                 CFormatConversion::Bytes => {
                     // idx is the position of the %, we want the position of the b
                     return Err(vm.new_value_error(format!(

@@ -218,6 +218,7 @@ impl Default for PyStr {
 }
 
 pub type PyStrRef = PyRef<PyStr>;
+pub type PyWtf8StrRef = PyRef<PyWtf8Str>;
 
 impl fmt::Display for PyStr {
     #[inline]
@@ -360,12 +361,12 @@ impl Constructor for PyStr {
                         vm,
                     )?
                 } else {
-                    input.str(vm)?
+                    input.str_wtf8(vm)?
                 }
             }
-            OptionalArg::Missing => {
-                Self::from(String::new()).into_ref_with_type(vm, cls.clone())?.into_wtf8()
-            }
+            OptionalArg::Missing => Self::from(String::new())
+                .into_ref_with_type(vm, cls.clone())?
+                .into_wtf8(),
         };
         if string.class().is(&cls) {
             Ok(string.into())
@@ -433,9 +434,10 @@ impl PyStr {
         self.data.as_str()
     }
 
-    fn ensure_valid_utf8(&self, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn try_to_str(&self, vm: &VirtualMachine) -> PyResult<&str> {
         if self.is_utf8() {
-            Ok(())
+            // SAFETY: is_utf8() passed, so unwrap is safe.
+            Ok(unsafe { self.to_str().unwrap_unchecked() })
         } else {
             let start = self
                 .as_wtf8()
@@ -450,12 +452,6 @@ impl PyStr {
                 vm.ctx.new_str("surrogates not allowed"),
             ))
         }
-    }
-
-    pub fn try_to_str(&self, vm: &VirtualMachine) -> PyResult<&str> {
-        self.ensure_valid_utf8(vm)?;
-        // SAFETY: ensure_valid_utf8 passed, so unwrap is safe.
-        Ok(unsafe { self.to_str().unwrap_unchecked() })
     }
 
     pub fn to_string_lossy(&self) -> Cow<'_, str> {
@@ -955,22 +951,26 @@ impl PyStr {
     }
 
     #[pymethod(name = "__format__")]
-    fn __format__(zelf: PyRef<Self>, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn __format__(
+        zelf: PyRef<PyWtf8Str>,
+        spec: PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<PyWtf8Str>> {
         let spec = spec.as_str();
         if spec.is_empty() {
             return if zelf.class().is(vm.ctx.types.str_type) {
                 Ok(zelf)
             } else {
-                zelf.as_object().str(vm)
+                zelf.as_object().str_wtf8(vm)
             };
         }
-
+        let zelf = zelf.try_into_utf8(vm)?;
         let s = FormatSpec::parse(spec)
             .and_then(|format_spec| {
                 format_spec.format_string(&CharLenStr(zelf.as_str(), zelf.char_len()))
             })
             .map_err(|err| err.into_pyexception(vm))?;
-        Ok(vm.ctx.new_str(s))
+        Ok(vm.ctx.new_str(s).into())
     }
 
     /// Return a titlecased version of the string where words start with an
@@ -1496,13 +1496,28 @@ impl PyStrRef {
     }
 
     pub fn try_into_utf8(self, vm: &VirtualMachine) -> PyResult<PyRef<PyUtf8Str>> {
-        self.ensure_valid_utf8(vm)?;
+        self.try_to_str(vm)?; // This will check for surrogates
         Ok(unsafe { mem::transmute::<PyRef<PyStr>, PyRef<PyUtf8Str>>(self) })
     }
 
     pub fn into_wtf8(self) -> PyRef<PyWtf8Str> {
         // PyStr can always be safely cast to PyWtf8Str
         unsafe { mem::transmute::<PyRef<PyStr>, PyRef<PyWtf8Str>>(self) }
+    }
+}
+
+impl PyRef<PyWtf8Str> {
+    pub fn try_into_utf8(self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        // Check if the string contains surrogates
+        self.ensure_valid_utf8(vm)?;
+        // If no surrogates, we can safely cast to PyStr
+        Ok(unsafe { mem::transmute::<PyRef<PyWtf8Str>, PyRef<PyStr>>(self) })
+    }
+}
+
+impl From<PyRef<PyStr>> for PyRef<PyWtf8Str> {
+    fn from(s: PyRef<PyStr>) -> Self {
+        s.into_wtf8()
     }
 }
 
@@ -1969,6 +1984,25 @@ impl PyWtf8Str {
     pub fn as_wtf8(&self) -> &Wtf8 {
         self.0.as_wtf8()
     }
+
+    fn ensure_valid_utf8(&self, vm: &VirtualMachine) -> PyResult<()> {
+        if self.0.is_utf8() {
+            Ok(())
+        } else {
+            let start = self
+                .as_wtf8()
+                .code_points()
+                .position(|c| c.to_char().is_none())
+                .unwrap();
+            Err(vm.new_unicode_encode_error_real(
+                identifier!(vm, utf_8).to_owned(),
+                vm.ctx.new_str(self.0.data.clone()),
+                start,
+                start + 1,
+                vm.ctx.new_str("surrogates not allowed"),
+            ))
+        }
+    }
 }
 
 impl MaybeTraverse for PyWtf8Str {
@@ -2016,22 +2050,19 @@ impl From<Wtf8Buf> for PyWtf8Str {
     }
 }
 
-impl Py<PyWtf8Str> {
-    /// Upcast to PyStr.
-    pub fn as_pystr(&self) -> &Py<PyStr> {
-        unsafe {
-            // Safety: PyWtf8Str is a wrapper around PyStr, so this cast is safe.
-            &*(self as *const Self as *const Py<PyStr>)
-        }
-    }
-}
-
 impl PartialEq for PyWtf8Str {
     fn eq(&self, other: &Self) -> bool {
         self.as_wtf8() == other.as_wtf8()
     }
 }
 impl Eq for PyWtf8Str {}
+
+impl fmt::Display for PyWtf8Str {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 impl AnyStrContainer<str> for String {
     fn new() -> Self {

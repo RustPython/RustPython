@@ -1,8 +1,8 @@
-use super::{PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
+use super::{PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef, PyWtf8Str};
 use crate::common::hash::PyHash;
 use crate::types::PyTypeFlags;
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     convert::ToPyResult,
     function::{Either, FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
@@ -333,13 +333,13 @@ impl PyBaseObject {
 
     /// Return str(self).
     #[pymethod]
-    fn __str__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn __str__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
         // FIXME: try tp_repr first and fallback to object.__repr__
-        zelf.repr(vm)
+        zelf.repr_wtf8(vm)
     }
 
     #[pyslot]
-    fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
         let class = zelf.class();
         match (
             class
@@ -358,19 +358,21 @@ impl PyBaseObject {
                 qualname,
                 zelf.get_id()
             ))
-            .into_ref(&vm.ctx)),
+            .into_ref(&vm.ctx)
+            .into_wtf8()),
             _ => Ok(PyStr::from(format!(
                 "<{} object at {:#x}>",
                 class.slot_name(),
                 zelf.get_id()
             ))
-            .into_ref(&vm.ctx)),
+            .into_ref(&vm.ctx)
+            .into_wtf8()),
         }
     }
 
     /// Return repr(self).
     #[pymethod]
-    fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
         Self::slot_repr(&zelf, vm)
     }
 
@@ -392,14 +394,14 @@ impl PyBaseObject {
         obj: PyObjectRef,
         format_spec: PyStrRef,
         vm: &VirtualMachine,
-    ) -> PyResult<PyStrRef> {
+    ) -> PyResult<PyRef<PyWtf8Str>> {
         if !format_spec.is_empty() {
             return Err(vm.new_type_error(format!(
                 "unsupported format string passed to {}.__format__",
                 obj.class().name()
             )));
         }
-        obj.str(vm)
+        obj.str_wtf8(vm)
     }
 
     #[pyslot]

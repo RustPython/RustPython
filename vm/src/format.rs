@@ -99,8 +99,8 @@ fn format_internal(
                 let format_spec = format_internal(vm, &nested_format, field_func)?;
 
                 let argument = match conversion_spec.and_then(FormatConversion::from_char) {
-                    Some(FormatConversion::Str) => argument.str(vm)?.into(),
-                    Some(FormatConversion::Repr) => argument.repr(vm)?.into(),
+                    Some(FormatConversion::Str) => argument.str_wtf8(vm)?.into(),
+                    Some(FormatConversion::Repr) => argument.repr_wtf8(vm)?.into(),
                     Some(FormatConversion::Ascii) => {
                         vm.ctx.new_str(builtins::ascii(argument, vm)?).into()
                     }
@@ -111,8 +111,8 @@ fn format_internal(
                 };
 
                 // FIXME: compiler can intern specs using parser tree. Then this call can be interned_str
-                pystr = vm.format(&argument, vm.ctx.new_str(format_spec))?;
-                pystr.as_ref()
+                pystr = vm.format_wtf8(&argument, vm.ctx.new_str(format_spec))?;
+                pystr.as_wtf8()
             }
             FormatPart::Literal(literal) => literal,
         };

@@ -60,7 +60,7 @@ mod _sqlite {
             PyBaseException, PyBaseExceptionRef, PyByteArray, PyBytes, PyDict, PyDictRef, PyFloat,
             PyInt, PyIntRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
         },
-        convert::{IntoObject, ToPyException},
+        convert::IntoObject,
         function::{ArgCallable, ArgIterable, FsPath, FuncArgs, OptionalArg, PyComparisonValue},
         object::{Traverse, TraverseFn},
         protocol::{PyBuffer, PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
@@ -2301,7 +2301,7 @@ mod _sqlite {
             sql: PyStrRef,
             vm: &VirtualMachine,
         ) -> PyResult<Option<Self>> {
-            let sql = sql.try_into_utf8(vm)?;
+            let _ = sql.try_to_str(vm)?;
             if sql.as_str().contains('\0') {
                 return Err(new_programming_error(
                     vm,

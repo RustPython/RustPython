@@ -1,7 +1,7 @@
 //! Implementation of the python bytearray object.
 use super::{
     PositionIterInternal, PyBytes, PyBytesRef, PyDictRef, PyGenericAlias, PyIntRef, PyStrRef,
-    PyTuple, PyTupleRef, PyType, PyTypeRef,
+    PyTuple, PyTupleRef, PyType, PyTypeRef, pystr::PyWtf8Str,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -673,7 +673,7 @@ impl PyRef<PyByteArray> {
     }
 
     #[pymethod]
-    fn decode(self, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn decode(self, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
         bytes_decode(self.into(), args, vm)
     }
 }

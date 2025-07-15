@@ -2,10 +2,10 @@
 //! <https://docs.python.org/3/c-api/object.html>
 
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
-        PyAsyncGen, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyStrRef,
-        PyTuple, PyTupleRef, PyType, PyTypeRef, pystr::AsPyStr,
+        PyAsyncGen, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyTuple,
+        PyTupleRef, PyType, PyTypeRef, PyWtf8Str, pystr::AsPyStr,
     },
     bytes_inner::ByteInnerNewOptions,
     common::{hash::PyHash, str::to_ascii},
@@ -328,7 +328,11 @@ impl PyObject {
         }
     }
 
-    pub fn repr(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    pub fn repr(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
+        self.repr_wtf8(vm)?.try_into_utf8(vm)
+    }
+
+    pub fn repr_wtf8(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
         vm.with_recursion("while getting the repr of an object", || {
             // TODO: RustPython does not implement type slots inheritance yet
             self.class()
@@ -351,8 +355,10 @@ impl PyObject {
         Ok(ascii)
     }
 
-    // Container of the virtual machine state:
-    pub fn str(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
+    pub fn str(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
+        self.str_wtf8(vm)?.try_into_utf8(vm)
+    }
+    pub fn str_wtf8(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
         let obj = match self.to_owned().downcast_exact::<PyWtf8Str>(vm) {
             Ok(s) => return Ok(s.into_pyref()),
             Err(obj) => obj,
@@ -360,7 +366,7 @@ impl PyObject {
         // TODO: replace to obj.class().slots.str
         let str_method = match vm.get_special_method(&obj, identifier!(vm, __str__))? {
             Some(str_method) => str_method,
-            None => return obj.repr(vm),
+            None => return obj.repr_wtf8(vm),
         };
         let s = str_method.invoke((), vm)?;
         s.downcast::<PyWtf8Str>().map_err(|obj| {

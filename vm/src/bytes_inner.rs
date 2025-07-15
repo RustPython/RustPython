@@ -1,10 +1,11 @@
 // spell-checker:ignore unchunked
 use crate::{
-    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
+    VirtualMachine,
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
     builtins::{
         PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr, PyStrRef,
-        PyTypeRef, pystr,
+        PyTypeRef, PyWtf8Str, pystr,
     },
     byte::bytes_from_object,
     cformat::cformat_bytes,
@@ -1138,7 +1139,7 @@ pub fn bytes_decode(
     zelf: PyObjectRef,
     args: DecodeArgs,
     vm: &VirtualMachine,
-) -> PyResult<PyStrRef> {
+) -> PyResult<PyRef<PyWtf8Str>> {
     let DecodeArgs { encoding, errors } = args;
     let encoding = encoding
         .as_ref()

@@ -954,12 +954,11 @@ impl VirtualMachine {
             Err(s) => {
                 let bytes = self.ctx.new_bytes(s.into_encoded_bytes());
                 let errors = self.fs_encode_errors().to_owned();
-                let res = self.state.codec_registry.decode_text(
-                    bytes.into(),
-                    "utf-8",
-                    Some(errors),
-                    self,
-                );
+                let res = self
+                    .state
+                    .codec_registry
+                    .decode_text(bytes.into(), "utf-8", Some(errors), self)
+                    .and_then(|s| s.try_into_utf8(self));
                 self.expect_pyresult(res, "fsdecode should be lossless and never fail")
             }
         }
