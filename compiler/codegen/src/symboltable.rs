@@ -104,6 +104,7 @@ impl fmt::Display for CompilerScope {
             Self::Module => write!(f, "module"),
             Self::Class => write!(f, "class"),
             Self::Function => write!(f, "function"),
+            Self::AsyncFunction => write!(f, "async function"),
             Self::Lambda => write!(f, "lambda"),
             Self::Comprehension => write!(f, "comprehension"),
             Self::TypeParams => write!(f, "type parameter"),
@@ -128,8 +129,6 @@ pub enum SymbolScope {
     GlobalImplicit,
     Free,
     Cell,
-    // TODO: wrong place. not a symbol scope, but a COMPILER_SCOPE_TYPEPARAMS
-    TypeParams,
 }
 
 bitflags! {
@@ -406,10 +405,6 @@ impl SymbolTableAnalyzer {
                 SymbolScope::Local | SymbolScope::Cell => {
                     // all is well
                 }
-                SymbolScope::TypeParams => {
-                    // Type parameters are always cell variables in their scope
-                    symbol.scope = SymbolScope::Cell;
-                }
                 SymbolScope::Unknown => {
                     // Try hard to figure out what the scope of this symbol is.
                     let scope = if symbol.is_bound() {
@@ -539,7 +534,7 @@ impl SymbolTableAnalyzer {
                     location: None,
                 });
             }
-            CompilerScope::Function | CompilerScope::Lambda => {
+            CompilerScope::Function | CompilerScope::AsyncFunction | CompilerScope::Lambda => {
                 if let Some(parent_symbol) = symbols.get_mut(&symbol.name) {
                     if let SymbolScope::Unknown = parent_symbol.scope {
                         // this information is new, as the assignment is done in inner scope

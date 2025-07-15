@@ -6,7 +6,7 @@ mod symtable {
         PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, builtins::PyStrRef, compiler,
     };
     use rustpython_codegen::symboltable::{
-        Symbol, SymbolFlags, SymbolScope, SymbolTable, CompilerScope,
+        CompilerScope, Symbol, SymbolFlags, SymbolScope, SymbolTable,
     };
     use std::fmt;
 

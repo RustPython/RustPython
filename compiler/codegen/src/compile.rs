@@ -11,7 +11,7 @@ use crate::{
     IndexMap, IndexSet, ToPythonName,
     error::{CodegenError, CodegenErrorType, PatternUnreachableReason},
     ir::{self, BlockIdx},
-    symboltable::{self, SymbolFlags, SymbolScope, SymbolTable, SymbolTableType},
+    symboltable::{self, CompilerScope, SymbolFlags, SymbolScope, SymbolTable},
     unparse::unparse_expr,
 };
 
@@ -409,7 +409,7 @@ impl Compiler<'_> {
     fn enter_scope(
         &mut self,
         name: &str,
-        scope_type: SymbolTableType,
+        scope_type: CompilerScope,
         key: usize, // In RustPython, we use the index in symbol_table_stack as key
         lineno: u32,
     ) -> CompileResult<()> {
@@ -452,14 +452,14 @@ impl Compiler<'_> {
         // Handle implicit __class__ cell if needed
         if ste.needs_class_closure {
             // Cook up an implicit __class__ cell
-            debug_assert_eq!(scope_type, SymbolTableType::Class);
+            debug_assert_eq!(scope_type, CompilerScope::Class);
             cellvar_cache.insert("__class__".to_string());
         }
 
         // Handle implicit __classdict__ cell if needed
         if ste.needs_classdict {
             // Cook up an implicit __classdict__ cell
-            debug_assert_eq!(scope_type, SymbolTableType::Class);
+            debug_assert_eq!(scope_type, CompilerScope::Class);
             cellvar_cache.insert("__classdict__".to_string());
         }
 
@@ -480,21 +480,21 @@ impl Compiler<'_> {
 
         // Initialize u_metadata fields
         let (flags, posonlyarg_count, arg_count, kwonlyarg_count) = match scope_type {
-            SymbolTableType::Module => (bytecode::CodeFlags::empty(), 0, 0, 0),
-            SymbolTableType::Class => (bytecode::CodeFlags::empty(), 0, 0, 0),
-            SymbolTableType::Function | SymbolTableType::Lambda => (
+            CompilerScope::Module => (bytecode::CodeFlags::empty(), 0, 0, 0),
+            CompilerScope::Class => (bytecode::CodeFlags::empty(), 0, 0, 0),
+            CompilerScope::Function | CompilerScope::AsyncFunction | CompilerScope::Lambda => (
                 bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
                 0, // Will be set later in enter_function
                 0, // Will be set later in enter_function
                 0, // Will be set later in enter_function
             ),
-            SymbolTableType::Comprehension => (
+            CompilerScope::Comprehension => (
                 bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
                 0,
                 1, // comprehensions take one argument (.0)
                 0,
             ),
-            SymbolTableType::TypeParams => (
+            CompilerScope::TypeParams => (
                 bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
                 0,
                 0,
@@ -530,7 +530,7 @@ impl Compiler<'_> {
                 kwonlyargcount: kwonlyarg_count,
                 firstlineno: OneIndexed::new(lineno as usize).unwrap_or(OneIndexed::MIN),
             },
-            static_attributes: if scope_type == SymbolTableType::Class {
+            static_attributes: if scope_type == CompilerScope::Class {
                 Some(IndexSet::default())
             } else {
                 None
@@ -544,12 +544,12 @@ impl Compiler<'_> {
         self.code_stack.push(code_info);
 
         // Set qualname after pushing (uses compiler_set_qualname logic)
-        if scope_type != SymbolTableType::Module {
+        if scope_type != CompilerScope::Module {
             self.set_qualname();
         }
 
         // Emit RESUME instruction
-        let _resume_loc = if scope_type == SymbolTableType::Module {
+        let _resume_loc = if scope_type == CompilerScope::Module {
             // Module scope starts with lineno 0
             ruff_source_file::SourceLocation {
                 row: OneIndexed::MIN,
@@ -569,7 +569,7 @@ impl Compiler<'_> {
             }
         );
 
-        if scope_type == SymbolTableType::Module {
+        if scope_type == CompilerScope::Module {
             // This would be loc.lineno = -1 in CPython
             // We handle this differently in RustPython
         }
@@ -950,11 +950,7 @@ impl Compiler<'_> {
                 cache = &mut info.metadata.cellvars;
                 NameOpType::Deref
             } // TODO: is this right?
-            SymbolScope::TypeParams => {
-                // Type parameters are always cell variables
-                cache = &mut info.metadata.cellvars;
-                NameOpType::Deref
-            } // SymbolScope::Unknown => NameOpType::Global,
+              // SymbolScope::Unknown => NameOpType::Global,
         };
 
         if NameUsage::Load == usage && name == "__debug__" {
@@ -1999,7 +1995,7 @@ impl Compiler<'_> {
         let table = self.symbol_table_stack.last().unwrap();
         match table.lookup(name) {
             Some(symbol) => match symbol.scope {
-                SymbolScope::Cell | SymbolScope::TypeParams => Ok(SymbolScope::Cell),
+                SymbolScope::Cell => Ok(SymbolScope::Cell),
                 SymbolScope::Free => Ok(SymbolScope::Free),
                 _ if symbol.flags.contains(SymbolFlags::FREE_CLASS) => Ok(SymbolScope::Free),
                 _ => Err(CodegenErrorType::SyntaxError(format!(
@@ -2204,7 +2200,7 @@ impl Compiler<'_> {
         // Use enter_scope instead of push_output to match CPython
         let key = self.symbol_table_stack.len();
         self.push_symbol_table();
-        self.enter_scope(name, SymbolTableType::Class, key, firstlineno)?;
+        self.enter_scope(name, CompilerScope::Class, key, firstlineno)?;
 
         // Set qualname using the new method
         let qualname = self.set_qualname();
