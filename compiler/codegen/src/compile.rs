@@ -94,10 +94,19 @@ fn is_forbidden_name(name: &str) -> bool {
     BUILTIN_CONSTANTS.contains(&name)
 }
 
+/// Structure to track parent scope information for symbol resolution
+#[derive(Clone)]
+struct ParentScopeInfo {
+    scope_type: CompilerScope,
+    symbol_table_index: usize,
+}
+
 /// Main structure holding the state of compilation.
 struct Compiler<'src> {
     code_stack: Vec<ir::CodeInfo>,
     symbol_table_stack: Vec<SymbolTable>,
+    /// Stack of parent scope info (like CPython's c->c_stack)
+    parent_scope_stack: Vec<ParentScopeInfo>,
     source_code: SourceCode<'src>,
     // current_source_location: SourceLocation,
     current_source_range: TextRange,
@@ -356,6 +365,7 @@ impl<'src> Compiler<'src> {
         Compiler {
             code_stack: vec![module_code],
             symbol_table_stack: Vec::new(),
+            parent_scope_stack: Vec::new(),
             source_code,
             // current_source_location: SourceLocation::default(),
             current_source_range: TextRange::default(),
@@ -576,6 +586,21 @@ impl Compiler<'_> {
             // We handle this differently in RustPython
         }
 
+        // CPython처럼 현재 scope 정보를 parent stack에 push
+        if !self.symbol_table_stack.is_empty() {
+            // 현재 scope 정보를 저장 (enter_scope 호출 전의 scope)
+            let parent_scope_type = if self.symbol_table_stack.len() > key {
+                self.symbol_table_stack[key].typ
+            } else {
+                // 첫 번째 scope는 항상 Module
+                CompilerScope::Module
+            };
+            self.parent_scope_stack.push(ParentScopeInfo {
+                scope_type: parent_scope_type,
+                symbol_table_index: key,
+            });
+        }
+
         Ok(())
     }
 
@@ -629,7 +654,79 @@ impl Compiler<'_> {
 
         let pop = self.code_stack.pop();
         let stack_top = compiler_unwrap_option(self, pop);
-        unwrap_internal(self, stack_top.finalize_code(self.opts.optimize))
+        let code = unwrap_internal(self, stack_top.finalize_code(self.opts.optimize));
+
+        // CPython처럼 parent scope stack에서 pop
+        if !self.parent_scope_stack.is_empty() {
+            self.parent_scope_stack.pop();
+        }
+
+        code
+    }
+
+    // CPython의 _PyST_GetScope와 같은 역할
+    // 현재 unit의 parent scope를 가져오는 메서드
+    fn get_parent_scope(&self) -> Option<(CompilerScope, &SymbolTable)> {
+        if let Some(parent_info) = self.parent_scope_stack.last() {
+            if parent_info.symbol_table_index < self.symbol_table_stack.len() {
+                let symbol_table = &self.symbol_table_stack[parent_info.symbol_table_index];
+
+                // TypeParams scope면 grandparent 확인 (CPython 방식)
+                if matches!(parent_info.scope_type, CompilerScope::TypeParams) {
+                    if self.parent_scope_stack.len() >= 2 {
+                        let grandparent_info =
+                            &self.parent_scope_stack[self.parent_scope_stack.len() - 2];
+                        if grandparent_info.symbol_table_index < self.symbol_table_stack.len() {
+                            return Some((
+                                grandparent_info.scope_type,
+                                &self.symbol_table_stack[grandparent_info.symbol_table_index],
+                            ));
+                        }
+                    }
+                }
+
+                Some((parent_info.scope_type, symbol_table))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    // CPython의 _PyST_GetScope 기능 구현
+    // 심볼의 scope를 현재 context와 parent scope를 고려하여 결정
+    fn get_symbol_scope(&self, mangled: &str) -> Option<SymbolScope> {
+        // 먼저 현재 scope의 symbol table에서 찾기
+        if let Some(current_unit) = self.code_stack.last() {
+            let symbol_table_idx = current_unit.symbol_table_index;
+            if symbol_table_idx < self.symbol_table_stack.len() {
+                let current_table = &self.symbol_table_stack[symbol_table_idx];
+                if let Some(symbol) = current_table.symbols.get(mangled) {
+                    return Some(symbol.scope);
+                }
+
+                // 현재 scope가 TypeParams면 parent (grandparent)에서 찾기
+                if matches!(current_table.typ, CompilerScope::TypeParams) {
+                    if let Some((_, parent_table)) = self.get_parent_scope() {
+                        if let Some(symbol) = parent_table.symbols.get(mangled) {
+                            // Parent에서 찾은 경우의 scope 결정
+                            if matches!(
+                                symbol.scope,
+                                SymbolScope::GlobalImplicit | SymbolScope::GlobalExplicit
+                            ) {
+                                return Some(symbol.scope);
+                            } else {
+                                // Free variable로 처리
+                                return Some(SymbolScope::Free);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     /// Push a new fblock
@@ -939,12 +1036,36 @@ impl Compiler<'_> {
         // Get symbol table index from current code info
         let symbol_table_index = self.code_stack.last().unwrap().symbol_table_index;
         let symbol_table = &self.symbol_table_stack[symbol_table_index];
-        let symbol = unwrap_internal(
-            self,
-            symbol_table
-                .lookup(name.as_ref())
-                .ok_or_else(|| InternalError::MissingSymbol(name.to_string())),
-        );
+
+        // TypeParams scope 처리: 현재 scope에서 못 찾으면 parent에서 찾기
+        let actual_scope = if let Some(sym) = symbol_table.lookup(name.as_ref()) {
+            sym.scope
+        } else if self
+            .code_stack
+            .last()
+            .map(|unit| {
+                let idx = unit.symbol_table_index;
+                idx < self.symbol_table_stack.len()
+                    && matches!(self.symbol_table_stack[idx].typ, CompilerScope::TypeParams)
+            })
+            .unwrap_or(false)
+        {
+            // TypeParams scope에서 symbol을 못 찾은 경우, parent scope 확인
+            if let Some(scope) = self.get_symbol_scope(&name) {
+                scope
+            } else {
+                return Err(self.error(CodegenErrorType::SyntaxError(format!(
+                    "name '{}' is not defined",
+                    name
+                ))));
+            }
+        } else {
+            return Err(self.error(CodegenErrorType::SyntaxError(format!(
+                "name '{}' is not defined",
+                name
+            ))));
+        };
+
         let info = self.code_stack.last_mut().unwrap();
         let mut cache = &mut info.metadata.names;
         enum NameOpType {
@@ -953,7 +1074,7 @@ impl Compiler<'_> {
             Deref,
             Local,
         }
-        let op_typ = match symbol.scope {
+        let op_typ = match actual_scope {
             SymbolScope::Local if self.ctx.in_func() => {
                 cache = &mut info.metadata.varnames;
                 NameOpType::Fast
@@ -985,7 +1106,7 @@ impl Compiler<'_> {
         let mut idx = cache
             .get_index_of(name.as_ref())
             .unwrap_or_else(|| cache.insert_full(name.into_owned()).0);
-        if let SymbolScope::Free = symbol.scope {
+        if let SymbolScope::Free = actual_scope {
             idx += info.metadata.cellvars.len();
         }
         let op = match op_typ {
