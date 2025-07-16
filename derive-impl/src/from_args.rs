@@ -188,26 +188,47 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream> {
     Ok(file_output)
 }
 
+fn compute_arity_bounds(field_attrs: &[ArgAttribute]) -> (usize, usize) {
+    let positional_fields = field_attrs.iter().filter(|attr| {
+        matches!(
+            attr.kind,
+            ParameterKind::PositionalOnly | ParameterKind::PositionalOrKeyword
+        )
+    });
+
+    let min_arity = positional_fields
+        .clone()
+        .filter(|attr| attr.default.is_none())
+        .count();
+    let max_arity = positional_fields.count();
+
+    (min_arity, max_arity)
+}
+
 pub fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
-    // TODO: Set lower arity bound dynamicly
-    let (fields, arity) = match input.data {
+    let (fields, field_attrs) = match input.data {
         Data::Struct(syn::DataStruct { fields, .. }) => (
             fields
                 .iter()
                 .enumerate()
                 .map(generate_field)
                 .collect::<Result<TokenStream>>()?,
-            fields.len(),
+            fields
+                .iter()
+                .filter_map(|field| field.try_into().ok())
+                .collect::<Vec<ArgAttribute>>(),
         ),
         _ => bail_span!(input, "FromArgs input must be a struct"),
     };
+
+    let (min_arity, max_arity) = compute_arity_bounds(&field_attrs);
 
     let name = input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let output = quote! {
         impl #impl_generics ::rustpython_vm::function::FromArgs for #name #ty_generics #where_clause {
             fn arity() -> ::std::ops::RangeInclusive<usize> {
-                0..=#arity
+                #min_arity..=#max_arity
             }
 
             fn from_args(
