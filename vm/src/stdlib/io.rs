@@ -738,6 +738,16 @@ mod _io {
         fn encoding(_zelf: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
             vm.ctx.none()
         }
+
+        #[pygetset]
+        fn errors(_zelf: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+            vm.ctx.none()
+        }
+
+        #[pygetset]
+        fn line_buffering(_zelf: PyObjectRef) -> bool {
+            false
+        }
     }
 
     #[derive(FromArgs, Clone)]
