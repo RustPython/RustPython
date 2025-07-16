@@ -113,7 +113,7 @@ jobs:
       RUST_BACKTRACE: full
     name: Run rust tests
     runs-on:  ${{ matrix.os }}
-    timeout-minutes: ${{ contains(matrix.os, 'windows') && 40 || 30 }}
+    timeout-minutes: ${{ contains(matrix.os, 'windows') && 45 || 30 }}
     strategy:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
@@ -239,7 +239,7 @@ jobs:
       RUST_BACKTRACE: full
     name: Run snippets and cpython tests
     runs-on:  ${{ matrix.os }}
-    timeout-minutes: ${{ contains(matrix.os, 'windows') && 40 || 30 }}
+    timeout-minutes: ${{ contains(matrix.os, 'windows') && 45 || 30 }}
     strategy:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
