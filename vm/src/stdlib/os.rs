@@ -801,7 +801,7 @@ pub(super) mod _os {
                 let mut vec_args = Vec::from(r);
                 loop {
                     if let Ok(obj) = vec_args.iter().exactly_one() {
-                        match obj.payload::<PyTuple>() {
+                        match obj.downcast_ref::<PyTuple>() {
                             Some(t) => {
                                 vec_args = Vec::from(t.as_slice());
                             }
@@ -1045,7 +1045,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn utime(args: UtimeArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let parse_tup = |tup: &PyTuple| -> Option<(PyObjectRef, PyObjectRef)> {
+        let parse_tup = |tup: &Py<PyTuple>| -> Option<(PyObjectRef, PyObjectRef)> {
             if tup.len() != 2 {
                 None
             } else {
@@ -1065,17 +1065,16 @@ pub(super) mod _os {
                 let ns_in_sec: PyObjectRef = vm.ctx.new_int(1_000_000_000).into();
                 let ns_to_dur = |obj: PyObjectRef| {
                     let divmod = vm._divmod(&obj, &ns_in_sec)?;
-                    let (div, rem) =
-                        divmod
-                            .payload::<PyTuple>()
-                            .and_then(parse_tup)
-                            .ok_or_else(|| {
-                                vm.new_type_error(format!(
-                                    "{}.__divmod__() must return a 2-tuple, not {}",
-                                    obj.class().name(),
-                                    divmod.class().name()
-                                ))
-                            })?;
+                    let (div, rem) = divmod
+                        .downcast_ref::<PyTuple>()
+                        .and_then(parse_tup)
+                        .ok_or_else(|| {
+                            vm.new_type_error(format!(
+                                "{}.__divmod__() must return a 2-tuple, not {}",
+                                obj.class().name(),
+                                divmod.class().name()
+                            ))
+                        })?;
                     let secs = div.try_index(vm)?.try_to_primitive(vm)?;
                     let ns = rem.try_index(vm)?.try_to_primitive(vm)?;
                     Ok(Duration::new(secs, ns))

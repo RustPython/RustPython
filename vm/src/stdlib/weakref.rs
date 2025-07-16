@@ -56,7 +56,7 @@ mod _weakref {
         dict._as_dict_inner()
             .delete_if(vm, &*key, |wr| {
                 let wr = wr
-                    .payload::<PyWeak>()
+                    .downcast_ref::<PyWeak>()
                     .ok_or_else(|| vm.new_type_error("not a weakref"))?;
                 Ok(wr.is_dead())
             })

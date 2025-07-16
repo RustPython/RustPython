@@ -549,7 +549,7 @@ impl PyStr {
 impl PyStr {
     #[pymethod]
     fn __add__(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(other) = other.payload::<Self>() {
+        if let Some(other) = other.downcast_ref::<Self>() {
             let bytes = zelf.as_wtf8().py_add(other.as_wtf8());
             Ok(unsafe {
                 // SAFETY: `kind` is safely decided
@@ -569,7 +569,7 @@ impl PyStr {
     }
 
     fn _contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        if let Some(needle) = needle.payload::<Self>() {
+        if let Some(needle) = needle.downcast_ref::<Self>() {
             Ok(memchr::memmem::find(self.as_bytes(), needle.as_bytes()).is_some())
         } else {
             Err(vm.new_type_error(format!(
@@ -1374,9 +1374,9 @@ impl PyStr {
         for c in self.as_str().chars() {
             match table.get_item(&*(c as u32).to_pyobject(vm), vm) {
                 Ok(value) => {
-                    if let Some(text) = value.payload::<Self>() {
+                    if let Some(text) = value.downcast_ref::<Self>() {
                         translated.push_str(text.as_str());
-                    } else if let Some(bigint) = value.payload::<PyInt>() {
+                    } else if let Some(bigint) = value.downcast_ref::<PyInt>() {
                         let ch = bigint
                             .as_bigint()
                             .to_u32()
@@ -1438,13 +1438,13 @@ impl PyStr {
                 Ok(dict) => {
                     for (key, val) in dict {
                         // FIXME: ints are key-compatible
-                        if let Some(num) = key.payload::<PyInt>() {
+                        if let Some(num) = key.downcast_ref::<PyInt>() {
                             new_dict.set_item(
                                 &*num.as_bigint().to_i32().to_pyobject(vm),
                                 val,
                                 vm,
                             )?;
-                        } else if let Some(string) = key.payload::<Self>() {
+                        } else if let Some(string) = key.downcast_ref::<Self>() {
                             if string.len() == 1 {
                                 let num_value = string.as_str().chars().next().unwrap() as u32;
                                 new_dict.set_item(&*num_value.to_pyobject(vm), val, vm)?;

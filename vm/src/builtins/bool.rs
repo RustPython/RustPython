@@ -57,7 +57,7 @@ impl PyObjectRef {
                 Some(method_or_err) => {
                     let method = method_or_err?;
                     let bool_obj = method.call((), vm)?;
-                    let int_obj = bool_obj.payload::<PyInt>().ok_or_else(|| {
+                    let int_obj = bool_obj.downcast_ref::<PyInt>().ok_or_else(|| {
                         vm.new_type_error(format!(
                             "'{}' object cannot be interpreted as an integer",
                             bool_obj.class().name()
@@ -128,8 +128,8 @@ impl PyBool {
             let lhs = get_value(&lhs);
             let rhs = get_value(&rhs);
             (lhs || rhs).to_pyobject(vm)
-        } else if let Some(lhs) = lhs.payload::<PyInt>() {
-            lhs.__or__(rhs, vm).to_pyobject(vm)
+        } else if let Some(lhs) = lhs.downcast_ref::<PyInt>() {
+            lhs.__or__(rhs).to_pyobject(vm)
         } else {
             vm.ctx.not_implemented()
         }
@@ -144,8 +144,8 @@ impl PyBool {
             let lhs = get_value(&lhs);
             let rhs = get_value(&rhs);
             (lhs && rhs).to_pyobject(vm)
-        } else if let Some(lhs) = lhs.payload::<PyInt>() {
-            lhs.__and__(rhs, vm).to_pyobject(vm)
+        } else if let Some(lhs) = lhs.downcast_ref::<PyInt>() {
+            lhs.__and__(rhs).to_pyobject(vm)
         } else {
             vm.ctx.not_implemented()
         }
@@ -160,8 +160,8 @@ impl PyBool {
             let lhs = get_value(&lhs);
             let rhs = get_value(&rhs);
             (lhs ^ rhs).to_pyobject(vm)
-        } else if let Some(lhs) = lhs.payload::<PyInt>() {
-            lhs.__xor__(rhs, vm).to_pyobject(vm)
+        } else if let Some(lhs) = lhs.downcast_ref::<PyInt>() {
+            lhs.__xor__(rhs).to_pyobject(vm)
         } else {
             vm.ctx.not_implemented()
         }
@@ -212,5 +212,5 @@ pub(crate) fn init(context: &Context) {
 
 // Retrieve inner int value:
 pub(crate) fn get_value(obj: &PyObject) -> bool {
-    !obj.payload::<PyInt>().unwrap().as_bigint().is_zero()
+    !obj.downcast_ref::<PyInt>().unwrap().as_bigint().is_zero()
 }

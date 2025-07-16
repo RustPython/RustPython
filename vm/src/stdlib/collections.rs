@@ -365,7 +365,7 @@ mod _collections {
         }
 
         fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<Self> {
-            if let Some(o) = other.payload_if_subclass::<Self>(vm) {
+            if let Some(o) = other.downcast_ref::<Self>() {
                 let mut deque = self.borrow_deque().clone();
                 let elements = o.borrow_deque().clone();
                 deque.extend(elements);
@@ -446,7 +446,7 @@ mod _collections {
             let maxlen = if let Some(obj) = maxlen.into_option() {
                 if !vm.is_none(&obj) {
                     let maxlen: isize = obj
-                        .payload::<PyInt>()
+                        .downcast_ref::<PyInt>()
                         .ok_or_else(|| vm.new_type_error("an integer is required."))?
                         .try_to_primitive(vm)?;
 

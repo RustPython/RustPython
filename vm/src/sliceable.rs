@@ -263,12 +263,12 @@ impl SequenceIndex {
         obj: &PyObject,
         type_name: &str,
     ) -> PyResult<Self> {
-        if let Some(i) = obj.payload::<PyInt>() {
+        if let Some(i) = obj.downcast_ref::<PyInt>() {
             // TODO: number protocol
             i.try_to_primitive(vm)
                 .map_err(|_| vm.new_index_error("cannot fit 'int' into an index-sized integer"))
                 .map(Self::Int)
-        } else if let Some(slice) = obj.payload::<PySlice>() {
+        } else if let Some(slice) = obj.downcast_ref::<PySlice>() {
             slice.to_saturated(vm).map(Self::Slice)
         } else if let Some(i) = obj.try_index_opt(vm) {
             // TODO: __index__ for indices is no more supported?

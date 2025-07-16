@@ -535,7 +535,7 @@ mod _sqlite {
                 let access = ptr_to_str(access, vm)?;
 
                 let val = callable.call((action, arg1, arg2, db_name, access), vm)?;
-                let Some(val) = val.payload::<PyInt>() else {
+                let Some(val) = val.downcast_ref::<PyInt>() else {
                     return Ok(SQLITE_DENY);
                 };
                 val.try_to_primitive::<c_int>(vm)
@@ -1897,18 +1897,18 @@ mod _sqlite {
             Ok(self
                 .description
                 .iter()
-                .map(|x| x.payload::<PyTuple>().unwrap().as_slice()[0].clone())
+                .map(|x| x.downcast_ref::<PyTuple>().unwrap().as_slice()[0].clone())
                 .collect())
         }
 
         fn subscript(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-            if let Some(i) = needle.payload::<PyInt>() {
+            if let Some(i) = needle.downcast_ref::<PyInt>() {
                 let i = i.try_to_primitive::<isize>(vm)?;
                 self.data.getitem_by_index(vm, i)
-            } else if let Some(name) = needle.payload::<PyStr>() {
+            } else if let Some(name) = needle.downcast_ref::<PyStr>() {
                 for (obj, i) in self.description.iter().zip(0..) {
-                    let obj = &obj.payload::<PyTuple>().unwrap().as_slice()[0];
-                    let Some(obj) = obj.payload::<PyStr>() else {
+                    let obj = &obj.downcast_ref::<PyTuple>().unwrap().as_slice()[0];
+                    let Some(obj) = obj.downcast_ref::<PyStr>() else {
                         break;
                     };
                     let a_iter = name.as_str().chars().flat_map(|x| x.to_uppercase());
@@ -1919,7 +1919,7 @@ mod _sqlite {
                     }
                 }
                 Err(vm.new_index_error("No item with that key"))
-            } else if let Some(slice) = needle.payload::<PySlice>() {
+            } else if let Some(slice) = needle.downcast_ref::<PySlice>() {
                 let list = self.data.getitem_by_slice(vm, slice.to_saturated(vm)?)?;
                 Ok(vm.ctx.new_tuple(list).into())
             } else {
@@ -1962,7 +1962,7 @@ mod _sqlite {
             vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue> {
             op.eq_only(|| {
-                if let Some(other) = other.payload::<Self>() {
+                if let Some(other) = other.downcast_ref::<Self>() {
                     let eq = vm
                         .bool_eq(zelf.description.as_object(), other.description.as_object())?
                         && vm.bool_eq(zelf.data.as_object(), other.data.as_object())?;
@@ -2179,7 +2179,7 @@ mod _sqlite {
                 let mut byte: u8 = 0;
                 let ret = inner.blob.read_single(&mut byte, index);
                 self.check(ret, vm).map(|_| vm.ctx.new_int(byte).into())
-            } else if let Some(slice) = needle.payload::<PySlice>() {
+            } else if let Some(slice) = needle.downcast_ref::<PySlice>() {
                 let blob_len = inner.blob.bytes();
                 let slice = slice.to_saturated(vm)?;
                 let (range, step, length) = slice.adjust_indices(blob_len as usize);
@@ -2220,7 +2220,7 @@ mod _sqlite {
             let inner = self.inner(vm)?;
 
             if let Some(index) = needle.try_index_opt(vm) {
-                let Some(value) = value.payload::<PyInt>() else {
+                let Some(value) = value.downcast_ref::<PyInt>() else {
                     return Err(vm.new_type_error(format!(
                         "'{}' object cannot be interpreted as an integer",
                         value.class()
@@ -2232,7 +2232,7 @@ mod _sqlite {
                 Self::expect_write(blob_len, 1, index, vm)?;
                 let ret = inner.blob.write_single(value, index);
                 self.check(ret, vm)
-            } else if let Some(_slice) = needle.payload::<PySlice>() {
+            } else if let Some(_slice) = needle.downcast_ref::<PySlice>() {
                 Err(vm.new_not_implemented_error("Blob slice assignment is not implemented"))
                 // let blob_len = inner.blob.bytes();
                 // let slice = slice.to_saturated(vm)?;
@@ -2645,15 +2645,15 @@ mod _sqlite {
 
             let ret = if vm.is_none(obj) {
                 unsafe { sqlite3_bind_null(self.st, pos) }
-            } else if let Some(val) = obj.payload::<PyInt>() {
+            } else if let Some(val) = obj.downcast_ref::<PyInt>() {
                 let val = val.try_to_primitive::<i64>(vm).map_err(|_| {
                     vm.new_overflow_error("Python int too large to convert to SQLite INTEGER")
                 })?;
                 unsafe { sqlite3_bind_int64(self.st, pos, val) }
-            } else if let Some(val) = obj.payload::<PyFloat>() {
+            } else if let Some(val) = obj.downcast_ref::<PyFloat>() {
                 let val = val.to_f64();
                 unsafe { sqlite3_bind_double(self.st, pos, val) }
-            } else if let Some(val) = obj.payload::<PyStr>() {
+            } else if let Some(val) = obj.downcast_ref::<PyStr>() {
                 let (ptr, len) = str_to_ptr_len(val, vm)?;
                 unsafe { sqlite3_bind_text(self.st, pos, ptr, len, SQLITE_TRANSIENT()) }
             } else if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, obj) {
@@ -2900,11 +2900,11 @@ mod _sqlite {
             unsafe {
                 if vm.is_none(val) {
                     sqlite3_result_null(self.ctx)
-                } else if let Some(val) = val.payload::<PyInt>() {
+                } else if let Some(val) = val.downcast_ref::<PyInt>() {
                     sqlite3_result_int64(self.ctx, val.try_to_primitive(vm)?)
-                } else if let Some(val) = val.payload::<PyFloat>() {
+                } else if let Some(val) = val.downcast_ref::<PyFloat>() {
                     sqlite3_result_double(self.ctx, val.to_f64())
-                } else if let Some(val) = val.payload::<PyStr>() {
+                } else if let Some(val) = val.downcast_ref::<PyStr>() {
                     let (ptr, len) = str_to_ptr_len(val, vm)?;
                     sqlite3_result_text(self.ctx, ptr, len, SQLITE_TRANSIENT())
                 } else if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, val) {

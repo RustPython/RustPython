@@ -145,7 +145,7 @@ macro_rules! match_class {
         }
     };
     (match ($obj:expr) { ref $binding:ident @ $class:ty => $expr:expr, $($rest:tt)* }) => {
-        match $obj.payload::<$class>() {
+        match $obj.downcast_ref::<$class>() {
             ::std::option::Option::Some($binding) => $expr,
             ::std::option::Option::None => $crate::match_class!(match ($obj) { $($rest)* }),
         }
@@ -160,7 +160,7 @@ macro_rules! match_class {
     // An arm taken when the object is an instance of the specified built-in
     // class.
     (match ($obj:expr) { $class:ty => $expr:expr, $($rest:tt)* }) => {
-        if $obj.payload_is::<$class>() {
+        if $obj.downcastable::<$class>() {
             $expr
         } else {
             $crate::match_class!(match ($obj) { $($rest)* })

@@ -63,9 +63,7 @@ impl Constructor for PyMappingProxy {
 
     fn py_new(cls: PyTypeRef, mapping: Self::Args, vm: &VirtualMachine) -> PyResult {
         if let Some(methods) = PyMapping::find_methods(&mapping) {
-            if mapping.payload_if_subclass::<PyList>(vm).is_none()
-                && mapping.payload_if_subclass::<PyTuple>(vm).is_none()
-            {
+            if !mapping.downcastable::<PyList>() && !mapping.downcastable::<PyTuple>() {
                 return Self {
                     mapping: MappingProxyInner::Mapping(ArgMapping::with_methods(
                         mapping,

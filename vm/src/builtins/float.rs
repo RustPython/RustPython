@@ -57,9 +57,9 @@ impl From<f64> for PyFloat {
 }
 
 pub(crate) fn to_op_float(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<f64>> {
-    let v = if let Some(float) = obj.payload_if_subclass::<PyFloat>(vm) {
+    let v = if let Some(float) = obj.downcast_ref::<PyFloat>() {
         Some(float.value)
-    } else if let Some(int) = obj.payload_if_subclass::<PyInt>(vm) {
+    } else if let Some(int) = obj.downcast_ref::<PyInt>() {
         Some(try_bigint_to_f64(int.as_bigint(), vm)?)
     } else {
         None
@@ -154,7 +154,7 @@ impl Constructor for PyFloat {
 
 fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
     let (bytearray, buffer, buffer_lock, mapped_string);
-    let b = if let Some(s) = val.payload_if_subclass::<PyStr>(vm) {
+    let b = if let Some(s) = val.downcast_ref::<PyStr>() {
         use crate::common::str::PyKindStr;
         match s.as_str_kind() {
             PyKindStr::Ascii(s) => s.trim().as_bytes(),
@@ -178,9 +178,9 @@ fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
             // so we can just choose a known bad value
             PyKindStr::Wtf8(_) => b"",
         }
-    } else if let Some(bytes) = val.payload_if_subclass::<PyBytes>(vm) {
+    } else if let Some(bytes) = val.downcast_ref::<PyBytes>() {
         bytes.as_bytes()
-    } else if let Some(buf) = val.payload_if_subclass::<PyByteArray>(vm) {
+    } else if let Some(buf) = val.downcast_ref::<PyByteArray>() {
         bytearray = buf.borrow_buf();
         &*bytearray
     } else if let Ok(b) = ArgBytesLike::try_from_borrowed_object(vm, &val) {
@@ -521,13 +521,13 @@ impl Comparable for PyFloat {
         zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
-        vm: &VirtualMachine,
+        _vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        let ret = if let Some(other) = other.payload_if_subclass::<Self>(vm) {
+        let ret = if let Some(other) = other.downcast_ref::<Self>() {
             zelf.value
                 .partial_cmp(&other.value)
                 .map_or_else(|| op == PyComparisonOp::Ne, |ord| op.eval_ord(ord))
-        } else if let Some(other) = other.payload_if_subclass::<PyInt>(vm) {
+        } else if let Some(other) = other.downcast_ref::<PyInt>() {
             let a = zelf.to_f64();
             let b = other.as_bigint();
             match op {
@@ -633,7 +633,7 @@ impl PyFloat {
 // Retrieve inner float value:
 #[cfg(feature = "serde")]
 pub(crate) fn get_value(obj: &PyObject) -> f64 {
-    obj.payload::<PyFloat>().unwrap().value
+    obj.downcast_ref::<PyFloat>().unwrap().value
 }
 
 #[rustfmt::skip] // to avoid line splitting

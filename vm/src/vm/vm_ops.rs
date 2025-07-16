@@ -119,7 +119,7 @@ impl VirtualMachine {
             }
         };
         let hint = result
-            .payload_if_subclass::<PyInt>(self)
+            .downcast_ref::<PyInt>()
             .ok_or_else(|| {
                 self.new_type_error(format!(
                     "'{}' object cannot be interpreted as an integer",

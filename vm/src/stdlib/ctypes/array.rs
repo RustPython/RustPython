@@ -108,8 +108,8 @@ impl PyCArray {
 impl PyCArray {
     pub fn to_arg(&self, _vm: &VirtualMachine) -> PyResult<libffi::middle::Arg> {
         let value = self.value.read();
-        let py_bytes = value.payload::<PyBytes>().unwrap();
-        let bytes = py_bytes.as_ref().to_vec();
+        let py_bytes = value.downcast_ref::<PyBytes>().unwrap();
+        let bytes = py_bytes.payload().to_vec();
         Ok(libffi::middle::Arg::new(&bytes))
     }
 }

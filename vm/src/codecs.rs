@@ -852,7 +852,7 @@ impl<'a> EncodeErrorHandler<PyEncodeContext<'a>> for ErrorsHandler<'_> {
         let res = handler.call((encode_exc.clone(),), vm)?;
         let tuple_err =
             || vm.new_type_error("encoding error handler must return (str/bytes, int) tuple");
-        let (replace, restart) = match res.payload::<PyTuple>().map(|tup| tup.as_slice()) {
+        let (replace, restart) = match res.downcast_ref::<PyTuple>().map(|tup| tup.as_slice()) {
             Some([replace, restart]) => (replace.clone(), restart),
             _ => return Err(tuple_err()),
         };
@@ -910,7 +910,7 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for ErrorsHandler<'_> {
         }
         let data = &*ctx.data;
         let tuple_err = || vm.new_type_error("decoding error handler must return (str, int) tuple");
-        match res.payload::<PyTuple>().map(|tup| tup.as_slice()) {
+        match res.downcast_ref::<PyTuple>().map(|tup| tup.as_slice()) {
             Some([replace, restart]) => {
                 let replace = replace
                     .downcast_ref::<PyStr>()

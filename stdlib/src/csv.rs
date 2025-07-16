@@ -269,7 +269,7 @@ mod _csv {
         mut _rest: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let Some(name) = name.payload_if_subclass::<PyStr>(vm) else {
+        let Some(name) = name.downcast_ref::<PyStr>() else {
             return Err(vm.new_type_error("argument 0 must be a string"));
         };
         let dialect = match dialect {
@@ -290,7 +290,7 @@ mod _csv {
         mut _rest: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyDialect> {
-        let Some(name) = name.payload_if_subclass::<PyStr>(vm) else {
+        let Some(name) = name.downcast_ref::<PyStr>() else {
             return Err(vm.new_exception_msg(
                 super::_csv::error(vm),
                 format!("argument 0 must be a string, not '{}'", name.class()),
@@ -309,7 +309,7 @@ mod _csv {
         mut _rest: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let Some(name) = name.payload_if_subclass::<PyStr>(vm) else {
+        let Some(name) = name.downcast_ref::<PyStr>() else {
             return Err(vm.new_exception_msg(
                 super::_csv::error(vm),
                 format!("argument 0 must be a string, not '{}'", name.class()),

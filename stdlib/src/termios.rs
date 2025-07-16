@@ -217,9 +217,12 @@ mod termios {
             ))
         })?;
         for (cc, x) in termios.c_cc.iter_mut().zip(cc.iter()) {
-            *cc = if let Some(c) = x.payload::<PyBytes>().filter(|b| b.as_bytes().len() == 1) {
+            *cc = if let Some(c) = x
+                .downcast_ref::<PyBytes>()
+                .filter(|b| b.as_bytes().len() == 1)
+            {
                 c.as_bytes()[0] as _
-            } else if let Some(i) = x.payload::<PyInt>() {
+            } else if let Some(i) = x.downcast_ref::<PyInt>() {
                 i.try_to_primitive(vm)?
             } else {
                 return Err(vm.new_type_error(

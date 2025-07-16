@@ -43,14 +43,14 @@ impl Function {
         let args = args
             .iter()
             .map(|arg| {
-                if let Some(arg) = arg.payload_if_subclass::<PyCSimple>(vm) {
+                if let Some(arg) = arg.downcast_ref::<PyCSimple>() {
                     let converted = ffi_type_from_str(&arg._type_);
                     return match converted {
                         Some(t) => Ok(t),
                         None => Err(vm.new_type_error("Invalid type")), // TODO: add type name
                     };
                 }
-                if let Some(arg) = arg.payload_if_subclass::<PyCArray>(vm) {
+                if let Some(arg) = arg.downcast_ref::<PyCArray>() {
                     let t = arg.typ.read();
                     let ty_attributes = t.attributes.read();
                     let ty_pystr = ty_attributes
@@ -107,10 +107,10 @@ impl Function {
             .enumerate()
             .map(|(count, arg)| {
                 // none type check
-                if let Some(d) = arg.payload_if_subclass::<PyCSimple>(vm) {
+                if let Some(d) = arg.downcast_ref::<PyCSimple>() {
                     return Ok(d.to_arg(self.args[count].clone(), vm).unwrap());
                 }
-                if let Some(d) = arg.payload_if_subclass::<PyCArray>(vm) {
+                if let Some(d) = arg.downcast_ref::<PyCArray>() {
                     return Ok(d.to_arg(vm).unwrap());
                 }
                 Err(vm.new_type_error("Expected a ctypes simple type"))

@@ -63,7 +63,7 @@ fn spec_format_bytes(
                     obj => {
                         if let Some(method) = vm.get_method(obj.clone(), identifier!(vm, __int__)) {
                             let result = method?.call((), vm)?;
-                            if let Some(i) = result.payload::<PyInt>() {
+                            if let Some(i) = result.downcast_ref::<PyInt>() {
                                 return Ok(spec.format_number(i.as_bigint()).into_bytes());
                             }
                         }
@@ -76,7 +76,7 @@ fn spec_format_bytes(
                 })
             }
             _ => {
-                if let Some(i) = obj.payload::<PyInt>() {
+                if let Some(i) = obj.downcast_ref::<PyInt>() {
                     Ok(spec.format_number(i.as_bigint()).into_bytes())
                 } else {
                     Err(vm.new_type_error(format!(
@@ -101,17 +101,17 @@ fn spec_format_bytes(
             Ok(spec.format_float(value.into()).into_bytes())
         }
         CFormatType::Character(CCharacterType::Character) => {
-            if let Some(i) = obj.payload::<PyInt>() {
+            if let Some(i) = obj.downcast_ref::<PyInt>() {
                 let ch = i
                     .try_to_primitive::<u8>(vm)
                     .map_err(|_| vm.new_overflow_error("%c arg not in range(256)"))?;
                 return Ok(spec.format_char(ch));
             }
-            if let Some(b) = obj.payload::<PyBytes>() {
+            if let Some(b) = obj.downcast_ref::<PyBytes>() {
                 if b.len() == 1 {
                     return Ok(spec.format_char(b.as_bytes()[0]));
                 }
-            } else if let Some(ba) = obj.payload::<PyByteArray>() {
+            } else if let Some(ba) = obj.downcast_ref::<PyByteArray>() {
                 let buf = ba.borrow_buf();
                 if buf.len() == 1 {
                     return Ok(spec.format_char(buf[0]));
@@ -158,7 +158,7 @@ fn spec_format_string(
                     obj => {
                         if let Some(method) = vm.get_method(obj.clone(), identifier!(vm, __int__)) {
                             let result = method?.call((), vm)?;
-                            if let Some(i) = result.payload::<PyInt>() {
+                            if let Some(i) = result.downcast_ref::<PyInt>() {
                                 return Ok(spec.format_number(i.as_bigint()).into());
                             }
                         }
@@ -171,7 +171,7 @@ fn spec_format_string(
                 })
             }
             _ => {
-                if let Some(i) = obj.payload::<PyInt>() {
+                if let Some(i) = obj.downcast_ref::<PyInt>() {
                     Ok(spec.format_number(i.as_bigint()).into())
                 } else {
                     Err(vm.new_type_error(format!(
@@ -187,7 +187,7 @@ fn spec_format_string(
             Ok(spec.format_float(value.into()).into())
         }
         CFormatType::Character(CCharacterType::Character) => {
-            if let Some(i) = obj.payload::<PyInt>() {
+            if let Some(i) = obj.downcast_ref::<PyInt>() {
                 let ch = i
                     .as_bigint()
                     .to_u32()
@@ -195,7 +195,7 @@ fn spec_format_string(
                     .ok_or_else(|| vm.new_overflow_error("%c arg not in range(0x110000)"))?;
                 return Ok(spec.format_char(ch));
             }
-            if let Some(s) = obj.payload::<PyStr>() {
+            if let Some(s) = obj.downcast_ref::<PyStr>() {
                 if let Ok(ch) = s.as_wtf8().code_points().exactly_one() {
                     return Ok(spec.format_char(ch));
                 }
@@ -211,7 +211,7 @@ fn try_update_quantity_from_element(
 ) -> PyResult<CFormatQuantity> {
     match element {
         Some(width_obj) => {
-            if let Some(i) = width_obj.payload::<PyInt>() {
+            if let Some(i) = width_obj.downcast_ref::<PyInt>() {
                 let i = i.try_to_primitive::<i32>(vm)?.unsigned_abs();
                 Ok(CFormatQuantity::Amount(i as usize))
             } else {
@@ -228,7 +228,7 @@ fn try_conversion_flag_from_tuple(
 ) -> PyResult<CConversionFlags> {
     match element {
         Some(width_obj) => {
-            if let Some(i) = width_obj.payload::<PyInt>() {
+            if let Some(i) = width_obj.downcast_ref::<PyInt>() {
                 let i = i.try_to_primitive::<i32>(vm)?;
                 let flags = if i < 0 {
                     CConversionFlags::LEFT_ADJUST
@@ -299,7 +299,7 @@ pub(crate) fn cformat_bytes(
         // literal only
         return if is_mapping
             || values_obj
-                .payload::<tuple::PyTuple>()
+                .downcast_ref::<tuple::PyTuple>()
                 .is_some_and(|e| e.is_empty())
         {
             for (_, part) in format.iter_mut() {
@@ -335,7 +335,7 @@ pub(crate) fn cformat_bytes(
     }
 
     // tuple
-    let values = if let Some(tup) = values_obj.payload_if_subclass::<tuple::PyTuple>(vm) {
+    let values = if let Some(tup) = values_obj.downcast_ref::<tuple::PyTuple>() {
         tup.as_slice()
     } else {
         std::slice::from_ref(&values_obj)
@@ -393,7 +393,7 @@ pub(crate) fn cformat_string(
         // literal only
         return if is_mapping
             || values_obj
-                .payload::<tuple::PyTuple>()
+                .downcast_ref::<tuple::PyTuple>()
                 .is_some_and(|e| e.is_empty())
         {
             for (_, part) in format.iter() {
@@ -428,7 +428,7 @@ pub(crate) fn cformat_string(
     }
 
     // tuple
-    let values = if let Some(tup) = values_obj.payload_if_subclass::<tuple::PyTuple>(vm) {
+    let values = if let Some(tup) = values_obj.downcast_ref::<tuple::PyTuple>() {
         tup.as_slice()
     } else {
         std::slice::from_ref(&values_obj)

@@ -1699,7 +1699,7 @@ mod decl {
             let r = match r.flatten() {
                 Some(r) => {
                     let val = r
-                        .payload::<PyInt>()
+                        .downcast_ref::<PyInt>()
                         .ok_or_else(|| vm.new_type_error("Expected int as r"))?
                         .as_bigint();
 

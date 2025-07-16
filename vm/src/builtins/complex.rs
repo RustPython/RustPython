@@ -58,7 +58,7 @@ impl PyObjectRef {
     /// Tries converting a python object into a complex, returns an option of whether the complex
     /// and whether the  object was a complex originally or coerced into one
     pub fn try_complex(&self, vm: &VirtualMachine) -> PyResult<Option<(Complex64, bool)>> {
-        if let Some(complex) = self.payload_if_exact::<PyComplex>(vm) {
+        if let Some(complex) = self.downcast_ref_if_exact::<PyComplex>(vm) {
             return Ok(Some((complex.value, true)));
         }
         if let Some(method) = vm.get_method(self.clone(), identifier!(vm, __complex__)) {
@@ -79,7 +79,7 @@ impl PyObjectRef {
 
                 return Ok(Some((ret.value, true)));
             } else {
-                return match result.payload::<PyComplex>() {
+                return match result.downcast_ref::<PyComplex>() {
                     Some(complex_obj) => Ok(Some((complex_obj.value, true))),
                     None => Err(vm.new_type_error(format!(
                         "__complex__ returned non-complex (type '{}')",
@@ -90,7 +90,7 @@ impl PyObjectRef {
         }
         // `complex` does not have a `__complex__` by default, so subclasses might not either,
         // use the actual stored value in this case
-        if let Some(complex) = self.payload_if_subclass::<PyComplex>(vm) {
+        if let Some(complex) = self.downcast_ref::<PyComplex>() {
             return Ok(Some((complex.value, true)));
         }
         if let Some(float) = self.try_float_opt(vm) {
@@ -105,7 +105,7 @@ pub fn init(context: &Context) {
 }
 
 fn to_op_complex(value: &PyObject, vm: &VirtualMachine) -> PyResult<Option<Complex64>> {
-    let r = if let Some(complex) = value.payload_if_subclass::<PyComplex>(vm) {
+    let r = if let Some(complex) = value.downcast_ref::<PyComplex>() {
         Some(complex.value)
     } else {
         float::to_op_float(value, vm)?.map(|float| Complex64::new(float, 0.0))
@@ -175,7 +175,7 @@ impl Constructor for PyComplex {
 
                 if let Some(c) = val.try_complex(vm)? {
                     c
-                } else if let Some(s) = val.payload_if_subclass::<PyStr>(vm) {
+                } else if let Some(s) = val.downcast_ref::<PyStr>() {
                     if args.imag.is_present() {
                         return Err(vm.new_type_error(
                             "complex() can't take second arg if first is a string",
@@ -419,7 +419,7 @@ impl Comparable for PyComplex {
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
         op.eq_only(|| {
-            let result = if let Some(other) = other.payload_if_subclass::<Self>(vm) {
+            let result = if let Some(other) = other.downcast_ref::<Self>() {
                 if zelf.value.re.is_nan()
                     && zelf.value.im.is_nan()
                     && other.value.re.is_nan()

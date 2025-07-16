@@ -534,21 +534,10 @@ impl PyObjectRef {
     /// another downcast can be attempted without unnecessary cloning.
     #[inline(always)]
     pub fn downcast<T: PyObjectPayload>(self) -> Result<PyRef<T>, Self> {
-        if self.payload_is::<T>() {
+        if self.downcastable::<T>() {
             Ok(unsafe { self.downcast_unchecked() })
         } else {
             Err(self)
-        }
-    }
-
-    #[inline(always)]
-    pub fn downcast_ref<T: PyObjectPayload>(&self) -> Option<&Py<T>> {
-        if self.payload_is::<T>() {
-            // SAFETY: just checked that the payload is T, and PyRef is repr(transparent) over
-            // PyObjectRef
-            Some(unsafe { &*(self as *const Self as *const PyRef<T>) })
-        } else {
-            None
         }
     }
 
@@ -566,15 +555,6 @@ impl PyObjectRef {
         }
     }
 
-    /// # Safety
-    /// T must be the exact payload type
-    #[inline(always)]
-    pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &Py<T> {
-        debug_assert!(self.payload_is::<T>());
-        // SAFETY: requirements forwarded from caller
-        unsafe { &*(self as *const Self as *const PyRef<T>) }
-    }
-
     // ideally we'd be able to define these in pyobject.rs, but method visibility rules are weird
 
     /// Attempt to downcast this reference to the specific class that is associated `T`.
@@ -589,10 +569,10 @@ impl PyObjectRef {
         if self.class().is(T::class(&vm.ctx)) {
             // TODO: is this always true?
             assert!(
-                self.payload_is::<T>(),
+                self.downcastable::<T>(),
                 "obj.__class__ is T::class() but payload is not T"
             );
-            // SAFETY: just asserted that payload_is::<T>()
+            // SAFETY: just asserted that downcastable::<T>()
             Ok(unsafe { PyRefExact::new_unchecked(PyRef::from_obj_unchecked(self)) })
         } else {
             Err(self)
@@ -670,6 +650,7 @@ impl PyObject {
         &inner.payload
     }
 
+    #[deprecated(note = "use downcast_ref instead")]
     #[inline(always)]
     pub fn payload<T: PyObjectPayload>(&self) -> Option<&T> {
         if self.payload_is::<T>() {
@@ -688,12 +669,14 @@ impl PyObject {
         self.0.typ.swap_to_temporary_refs(typ, vm);
     }
 
+    #[deprecated(note = "use downcast_ref_if_exact instead")]
     #[inline(always)]
     pub fn payload_if_exact<T: PyObjectPayload + crate::PyPayload>(
         &self,
         vm: &VirtualMachine,
     ) -> Option<&T> {
         if self.class().is(T::class(&vm.ctx)) {
+            #[allow(deprecated)]
             self.payload()
         } else {
             None
@@ -722,18 +705,27 @@ impl PyObject {
         }
     }
 
+    #[deprecated(note = "use downcast_ref instead")]
     #[inline(always)]
     pub fn payload_if_subclass<T: crate::PyPayload>(&self, vm: &VirtualMachine) -> Option<&T> {
         if self.class().fast_issubclass(T::class(&vm.ctx)) {
+            #[allow(deprecated)]
             self.payload()
         } else {
             None
         }
     }
 
+    /// Check if this object can be downcast to T.
+    #[inline(always)]
+    pub fn downcastable<T: PyObjectPayload>(&self) -> bool {
+        self.payload_is::<T>()
+    }
+
+    /// Attempt to downcast this reference to a subclass.
     #[inline(always)]
     pub fn downcast_ref<T: PyObjectPayload>(&self) -> Option<&Py<T>> {
-        if self.payload_is::<T>() {
+        if self.downcastable::<T>() {
             // SAFETY: just checked that the payload is T, and PyRef is repr(transparent) over
             // PyObjectRef
             Some(unsafe { self.downcast_unchecked_ref::<T>() })
@@ -756,7 +748,7 @@ impl PyObject {
     /// T must be the exact payload type
     #[inline(always)]
     pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &Py<T> {
-        debug_assert!(self.payload_is::<T>());
+        debug_assert!(self.downcastable::<T>());
         // SAFETY: requirements forwarded from caller
         unsafe { &*(self as *const Self as *const Py<T>) }
     }
@@ -1045,7 +1037,7 @@ impl<T: PyObjectPayload> PyRef<T> {
     /// Safety: payload type of `obj` must be `T`
     #[inline(always)]
     unsafe fn from_obj_unchecked(obj: PyObjectRef) -> Self {
-        debug_assert!(obj.payload_is::<T>());
+        debug_assert!(obj.downcast_ref::<T>().is_some());
         let obj = ManuallyDrop::new(obj);
         Self {
             ptr: obj.ptr.cast(),
