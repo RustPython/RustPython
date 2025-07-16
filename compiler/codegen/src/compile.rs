@@ -395,6 +395,70 @@ impl Compiler<'_> {
         }
     }
 
+    /// 현재 scope의 SymbolTable 가져오기
+    fn current_symbol_table(&self) -> &SymbolTable {
+        let index = self.symbol_table_stack.len() - 1;
+        &self.symbol_table_stack[index]
+    }
+
+    /// 특정 index의 SymbolTable 가져오기
+    fn get_symbol_table(&self, index: usize) -> Option<&SymbolTable> {
+        self.symbol_table_stack.get(index)
+    }
+
+    /// free variable의 index를 가져오기
+    fn get_free_var_index(&mut self, name: &str) -> CompileResult<u32> {
+        let info = self.code_stack.last_mut().unwrap();
+        let idx = info
+            .metadata
+            .freevars
+            .get_index_of(name)
+            .unwrap_or_else(|| info.metadata.freevars.insert_full(name.to_owned()).0);
+        Ok((idx + info.metadata.cellvars.len()).to_u32())
+    }
+
+    /// cell variable의 index를 가져오기
+    fn get_cell_var_index(&mut self, name: &str) -> CompileResult<u32> {
+        let info = self.code_stack.last_mut().unwrap();
+        let idx = info
+            .metadata
+            .cellvars
+            .get_index_of(name)
+            .unwrap_or_else(|| info.metadata.cellvars.insert_full(name.to_owned()).0);
+        Ok(idx.to_u32())
+    }
+
+    /// local variable의 index를 가져오기
+    fn get_local_var_index(&mut self, name: &str) -> CompileResult<u32> {
+        let info = self.code_stack.last_mut().unwrap();
+        let idx = info
+            .metadata
+            .varnames
+            .get_index_of(name)
+            .unwrap_or_else(|| info.metadata.varnames.insert_full(name.to_owned()).0);
+        Ok(idx.to_u32())
+    }
+
+    /// global name의 index를 가져오기
+    fn get_global_name_index(&mut self, name: &str) -> u32 {
+        let info = self.code_stack.last_mut().unwrap();
+        let idx = info
+            .metadata
+            .names
+            .get_index_of(name)
+            .unwrap_or_else(|| info.metadata.names.insert_full(name.to_owned()).0);
+        idx.to_u32()
+    }
+
+    /// free variable이 있는지 시도해보기
+    fn try_get_free_var_index(&self, name: &str) -> Option<u32> {
+        let info = self.code_stack.last().unwrap();
+        info.metadata
+            .freevars
+            .get_index_of(name)
+            .map(|idx| (idx + info.metadata.cellvars.len()).to_u32())
+    }
+
     /// Push the next symbol table on to the stack
     fn push_symbol_table(&mut self) -> &SymbolTable {
         // Look up the next table contained in the scope of the current table
@@ -1030,72 +1094,9 @@ impl Compiler<'_> {
 
     fn compile_name(&mut self, name: &str, usage: NameUsage) -> CompileResult<()> {
         let name = self.mangle(name);
-
         self.check_forbidden_name(&name, usage)?;
 
-        // Get symbol table index from current code info
-        let symbol_table_index = self.code_stack.last().unwrap().symbol_table_index;
-        let symbol_table = &self.symbol_table_stack[symbol_table_index];
-
-        // TypeParams scope 처리: 현재 scope에서 못 찾으면 parent에서 찾기
-        let actual_scope = if let Some(sym) = symbol_table.lookup(name.as_ref()) {
-            sym.scope
-        } else if self
-            .code_stack
-            .last()
-            .map(|unit| {
-                let idx = unit.symbol_table_index;
-                idx < self.symbol_table_stack.len()
-                    && matches!(self.symbol_table_stack[idx].typ, CompilerScope::TypeParams)
-            })
-            .unwrap_or(false)
-        {
-            // TypeParams scope에서 symbol을 못 찾은 경우, parent scope 확인
-            if let Some(scope) = self.get_symbol_scope(&name) {
-                scope
-            } else {
-                return Err(self.error(CodegenErrorType::SyntaxError(format!(
-                    "name '{}' is not defined",
-                    name
-                ))));
-            }
-        } else {
-            return Err(self.error(CodegenErrorType::SyntaxError(format!(
-                "name '{}' is not defined",
-                name
-            ))));
-        };
-
-        let info = self.code_stack.last_mut().unwrap();
-        let mut cache = &mut info.metadata.names;
-        enum NameOpType {
-            Fast,
-            Global,
-            Deref,
-            Local,
-        }
-        let op_typ = match actual_scope {
-            SymbolScope::Local if self.ctx.in_func() => {
-                cache = &mut info.metadata.varnames;
-                NameOpType::Fast
-            }
-            SymbolScope::GlobalExplicit => NameOpType::Global,
-            SymbolScope::GlobalImplicit | SymbolScope::Unknown if self.ctx.in_func() => {
-                NameOpType::Global
-            }
-            SymbolScope::GlobalImplicit | SymbolScope::Unknown => NameOpType::Local,
-            SymbolScope::Local => NameOpType::Local,
-            SymbolScope::Free => {
-                cache = &mut info.metadata.freevars;
-                NameOpType::Deref
-            }
-            SymbolScope::Cell => {
-                cache = &mut info.metadata.cellvars;
-                NameOpType::Deref
-            } // TODO: is this right?
-              // SymbolScope::Unknown => NameOpType::Global,
-        };
-
+        // __debug__는 특별 처리
         if NameUsage::Load == usage && name == "__debug__" {
             self.emit_load_const(ConstantData::Boolean {
                 value: self.opts.optimize == 0,
@@ -1103,38 +1104,87 @@ impl Compiler<'_> {
             return Ok(());
         }
 
-        let mut idx = cache
-            .get_index_of(name.as_ref())
-            .unwrap_or_else(|| cache.insert_full(name.into_owned()).0);
-        if let SymbolScope::Free = actual_scope {
-            idx += info.metadata.cellvars.len();
-        }
-        let op = match op_typ {
-            NameOpType::Fast => match usage {
-                NameUsage::Load => Instruction::LoadFast,
-                NameUsage::Store => Instruction::StoreFast,
-                NameUsage::Delete => Instruction::DeleteFast,
-            },
-            NameOpType::Global => match usage {
-                NameUsage::Load => Instruction::LoadGlobal,
-                NameUsage::Store => Instruction::StoreGlobal,
-                NameUsage::Delete => Instruction::DeleteGlobal,
-            },
-            NameOpType::Deref => match usage {
-                NameUsage::Load if !self.ctx.in_func() && self.ctx.in_class => {
-                    Instruction::LoadClassDeref
-                }
-                NameUsage::Load => Instruction::LoadDeref,
-                NameUsage::Store => Instruction::StoreDeref,
-                NameUsage::Delete => Instruction::DeleteDeref,
-            },
-            NameOpType::Local => match usage {
-                NameUsage::Load => Instruction::LoadNameAny,
-                NameUsage::Store => Instruction::StoreLocal,
-                NameUsage::Delete => Instruction::DeleteLocal,
-            },
+        // CPython의 compiler_nameop처럼 현재 SymbolTable에서 scope 결정
+        let symbol_scope = {
+            let current_table = self.current_symbol_table();
+            current_table
+                .lookup(name.as_ref())
+                .map(|symbol| symbol.scope)
+                .ok_or_else(|| {
+                    CodegenErrorType::SyntaxError(format!(
+                        "The symbol '{}' must be present in the symbol table",
+                        name
+                    ))
+                })
         };
-        self.emit_arg(idx.to_u32(), op);
+        let actual_scope = symbol_scope.map_err(|e| self.error(e))?;
+
+        // CPython의 compiler_nameop 패턴에 따라 scope별로 처리
+        match actual_scope {
+            SymbolScope::Free => {
+                // CPython: case OP_DEREF
+                let idx = self.get_free_var_index(&name)?;
+                let op = match usage {
+                    NameUsage::Load => Instruction::LoadDeref,
+                    NameUsage::Store => Instruction::StoreDeref,
+                    NameUsage::Delete => Instruction::DeleteDeref,
+                };
+                self.emit_arg(idx, op);
+            }
+            SymbolScope::Cell => {
+                // CPython: case OP_DEREF
+                let idx = self.get_cell_var_index(&name)?;
+                let op = match usage {
+                    NameUsage::Load if !self.ctx.in_func() && self.ctx.in_class => {
+                        Instruction::LoadClassDeref
+                    }
+                    NameUsage::Load => Instruction::LoadDeref,
+                    NameUsage::Store => Instruction::StoreDeref,
+                    NameUsage::Delete => Instruction::DeleteDeref,
+                };
+                self.emit_arg(idx, op);
+            }
+            SymbolScope::Local if self.ctx.in_func() => {
+                // CPython: case OP_FAST
+                let idx = self.get_local_var_index(&name)?;
+                let op = match usage {
+                    NameUsage::Load => Instruction::LoadFast,
+                    NameUsage::Store => Instruction::StoreFast,
+                    NameUsage::Delete => Instruction::DeleteFast,
+                };
+                self.emit_arg(idx, op);
+            }
+            SymbolScope::GlobalExplicit | SymbolScope::GlobalImplicit => {
+                // CPython: case OP_GLOBAL
+                let idx = self.get_global_name_index(&name);
+                let op = match usage {
+                    NameUsage::Load => {
+                        // TypeParams scope에서 GLOBAL_IMPLICIT일 때 특별 처리
+                        // CPython의 경우 LOAD_FROM_DICT_OR_GLOBALS를 사용하지만
+                        // RustPython에서는 TypeParams에서도 일반 global 접근 사용
+                        Instruction::LoadGlobal
+                    }
+                    NameUsage::Store => Instruction::StoreGlobal,
+                    NameUsage::Delete => Instruction::DeleteGlobal,
+                };
+                self.emit_arg(idx, op);
+            }
+            SymbolScope::Local | SymbolScope::Unknown => {
+                // CPython: case OP_NAME
+                let idx = self.get_global_name_index(&name);
+                let op = match usage {
+                    NameUsage::Load => {
+                        // CPython에서는 ClassBlock에서 inlined comprehension일 때
+                        // LOAD_GLOBAL을 사용하지만, RustPython에서는 현재 이 케이스를
+                        // 특별히 처리하지 않음
+                        Instruction::LoadNameAny
+                    }
+                    NameUsage::Store => Instruction::StoreLocal,
+                    NameUsage::Delete => Instruction::DeleteLocal,
+                };
+                self.emit_arg(idx, op);
+            }
+        }
 
         Ok(())
     }

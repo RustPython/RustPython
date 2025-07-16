@@ -216,6 +216,16 @@ impl SymbolTable {
     pub fn lookup(&self, name: &str) -> Option<&Symbol> {
         self.symbols.get(name)
     }
+
+    /// CPython의 _PyST_GetScope에 해당
+    pub fn get_symbol_scope(&self, name: &str) -> Option<SymbolScope> {
+        self.symbols.get(name).map(|symbol| symbol.scope)
+    }
+
+    /// CPython의 _PyST_GetSymbol에 해당  
+    pub fn get_symbol(&self, name: &str) -> Option<&Symbol> {
+        self.symbols.get(name)
+    }
 }
 
 impl std::fmt::Debug for SymbolTable {
