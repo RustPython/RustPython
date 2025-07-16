@@ -757,14 +757,7 @@ impl PyInt {
         remainder: Some(|a, b, vm| Self::number_op(a, b, inner_mod, vm)),
         divmod: Some(|a, b, vm| Self::number_op(a, b, inner_divmod, vm)),
         power: Some(|a, b, c, vm| {
-            if let (Some(a), Some(b)) = (
-                a.payload::<Self>(),
-                if b.payload_is::<Self>() {
-                    Some(b)
-                } else {
-                    None
-                },
-            ) {
+            if let Some(a) = a.downcast_ref::<Self>() {
                 if vm.is_none(c) {
                     a.general_op(b.to_owned(), |a, b| inner_pow(a, b, vm), vm)
                 } else {
