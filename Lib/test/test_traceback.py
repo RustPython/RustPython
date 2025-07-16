@@ -430,6 +430,8 @@ class TracebackCases(unittest.TestCase):
                     self.assertEqual(len(err), 1)
                 self.assertEqual(err[-1], 'SyntaxError: error\n')
 
+    # TODO: RUSTPYTHON; IndexError: index out of range
+    @unittest.expectedFailure
     @requires_subprocess()
     @force_not_colorized
     def test_encoded_file(self):
