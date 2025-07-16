@@ -633,6 +633,7 @@ impl PyObject {
         self.weak_ref_list().map(|wrl| wrl.get_weak_references())
     }
 
+    #[deprecated(note = "use downcastable instead")]
     #[inline(always)]
     pub fn payload_is<T: PyObjectPayload>(&self) -> bool {
         self.0.typeid == T::payload_type_id()
@@ -642,6 +643,7 @@ impl PyObject {
     ///
     /// # Safety
     /// The actual payload type must be T.
+    #[deprecated(note = "use downcast_unchecked_ref instead")]
     #[inline(always)]
     pub const unsafe fn payload_unchecked<T: PyObjectPayload>(&self) -> &T {
         // we cast to a PyInner<T> first because we don't know T's exact offset because of
@@ -653,7 +655,9 @@ impl PyObject {
     #[deprecated(note = "use downcast_ref instead")]
     #[inline(always)]
     pub fn payload<T: PyObjectPayload>(&self) -> Option<&T> {
+        #[allow(deprecated)]
         if self.payload_is::<T>() {
+            #[allow(deprecated)]
             Some(unsafe { self.payload_unchecked() })
         } else {
             None
@@ -719,7 +723,7 @@ impl PyObject {
     /// Check if this object can be downcast to T.
     #[inline(always)]
     pub fn downcastable<T: PyObjectPayload>(&self) -> bool {
-        self.payload_is::<T>()
+        self.0.typeid == T::payload_type_id()
     }
 
     /// Attempt to downcast this reference to a subclass.
@@ -899,9 +903,9 @@ impl<T: PyObjectPayload> Py<T> {
         })
     }
 
+    #[inline]
     pub fn payload(&self) -> &T {
-        // SAFETY: we know the payload is T because of the type parameter
-        unsafe { self.as_object().payload_unchecked() }
+        &self.0.payload
     }
 }
 
