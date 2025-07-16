@@ -59,7 +59,7 @@ impl<T> PositionIterInternal<T> {
         F: FnOnce(&T, usize) -> usize,
     {
         if let IterStatus::Active(obj) = &self.status {
-            if let Some(i) = state.payload::<PyInt>() {
+            if let Some(i) = state.downcast_ref::<PyInt>() {
                 let i = i.try_to_primitive(vm).unwrap_or(0);
                 self.position = f(obj, i);
                 Ok(())

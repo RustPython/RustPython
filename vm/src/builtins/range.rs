@@ -165,7 +165,7 @@ impl PyRange {
 }
 
 // pub fn get_value(obj: &PyObject) -> PyRange {
-//     obj.payload::<PyRange>().unwrap().clone()
+//     obj.downcast_ref::<PyRange>().unwrap().clone()
 // }
 
 pub fn init(context: &Context) {
@@ -677,7 +677,7 @@ fn range_iter_reduce(
 
 // Silently clips state (i.e index) in range [0, usize::MAX].
 fn range_state(length: &BigInt, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-    if let Some(i) = state.payload::<PyInt>() {
+    if let Some(i) = state.downcast_ref::<PyInt>() {
         let mut index = i.as_bigint();
         let max_usize = BigInt::from(usize::MAX);
         if index > length {

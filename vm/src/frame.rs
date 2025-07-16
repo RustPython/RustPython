@@ -733,7 +733,7 @@ impl ExecutingFrame<'_> {
                     .pop_multiple(size.get(arg) as usize)
                     .as_slice()
                     .iter()
-                    .map(|pyobj| pyobj.payload::<PyStr>().unwrap())
+                    .map(|pyobj| pyobj.downcast_ref::<PyStr>().unwrap())
                     .collect::<Wtf8Buf>();
                 let str_obj = vm.ctx.new_str(s);
                 self.push_value(str_obj.into());
@@ -1077,7 +1077,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::GetAwaitable => {
                 let awaited_obj = self.pop_value();
-                let awaitable = if awaited_obj.payload_is::<PyCoroutine>() {
+                let awaitable = if awaited_obj.downcastable::<PyCoroutine>() {
                     awaited_obj
                 } else {
                     let await_method = vm.get_method_or_type_error(
@@ -1595,7 +1595,7 @@ impl ExecutingFrame<'_> {
         let kwarg_names = kwarg_names
             .as_slice()
             .iter()
-            .map(|pyobj| pyobj.payload::<PyStr>().unwrap().as_str().to_owned());
+            .map(|pyobj| pyobj.downcast_ref::<PyStr>().unwrap().as_str().to_owned());
         FuncArgs::with_kwargs_names(args, kwarg_names)
     }
 
@@ -2337,7 +2337,7 @@ impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let state = self.state.lock();
         let stack_str = state.stack.iter().fold(String::new(), |mut s, elem| {
-            if elem.payload_is::<Self>() {
+            if elem.downcastable::<Self>() {
                 s.push_str("\n  > {frame}");
             } else {
                 std::fmt::write(&mut s, format_args!("\n  > {elem:?}")).unwrap();

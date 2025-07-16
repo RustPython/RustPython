@@ -801,7 +801,7 @@ pub(super) mod _os {
                 let mut vec_args = Vec::from(r);
                 loop {
                     if let Ok(obj) = vec_args.iter().exactly_one() {
-                        match obj.payload::<PyTuple>() {
+                        match obj.downcast_ref::<PyTuple>() {
                             Some(t) => {
                                 vec_args = Vec::from(t.as_slice());
                             }

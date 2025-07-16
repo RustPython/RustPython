@@ -446,7 +446,7 @@ mod _collections {
             let maxlen = if let Some(obj) = maxlen.into_option() {
                 if !vm.is_none(&obj) {
                     let maxlen: isize = obj
-                        .payload::<PyInt>()
+                        .downcast_ref::<PyInt>()
                         .ok_or_else(|| vm.new_type_error("an integer is required."))?
                         .try_to_primitive(vm)?;
 

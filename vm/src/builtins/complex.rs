@@ -79,7 +79,7 @@ impl PyObjectRef {
 
                 return Ok(Some((ret.value, true)));
             } else {
-                return match result.payload::<PyComplex>() {
+                return match result.downcast_ref::<PyComplex>() {
                     Some(complex_obj) => Ok(Some((complex_obj.value, true))),
                     None => Err(vm.new_type_error(format!(
                         "__complex__ returned non-complex (type '{}')",

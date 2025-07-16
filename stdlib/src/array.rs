@@ -667,7 +667,7 @@ mod array {
                 ArrayContentType::from_char(spec).map_err(|err| vm.new_value_error(err))?;
 
             if let OptionalArg::Present(init) = init {
-                if let Some(init) = init.payload::<Self>() {
+                if let Some(init) = init.downcast_ref::<Self>() {
                     match (spec, init.read().typecode()) {
                         (spec, ch) if spec == ch => array.frombytes(&init.get_bytes()),
                         (spec, 'u') => {
@@ -681,7 +681,7 @@ mod array {
                             }
                         }
                     }
-                } else if let Some(wtf8) = init.payload::<PyStr>() {
+                } else if let Some(wtf8) = init.downcast_ref::<PyStr>() {
                     if spec == 'u' {
                         let bytes = Self::_unicode_to_wchar_bytes(wtf8.as_wtf8(), array.itemsize());
                         array.frombytes_move(bytes);
@@ -690,7 +690,7 @@ mod array {
                             "cannot use a str to initialize an array with typecode '{spec}'"
                         )));
                     }
-                } else if init.payload_is::<PyBytes>() || init.payload_is::<PyByteArray>() {
+                } else if init.downcastable::<PyBytes>() || init.downcastable::<PyByteArray>() {
                     init.try_bytes_like(vm, |x| array.frombytes(x))?;
                 } else if let Ok(iter) = ArgIterable::try_from_object(vm, init.clone()) {
                     for obj in iter.iter(vm)? {
@@ -765,7 +765,7 @@ mod array {
             let mut w = zelf.try_resizable(vm)?;
             if zelf.is(&obj) {
                 w.imul(2, vm)
-            } else if let Some(array) = obj.payload::<Self>() {
+            } else if let Some(array) = obj.downcast_ref::<Self>() {
                 w.iadd(&array.read(), vm)
             } else {
                 let iter = ArgIterable::try_from_object(vm, obj)?;
@@ -1013,7 +1013,7 @@ mod array {
                         cloned = zelf.read().clone();
                         &cloned
                     } else {
-                        match value.payload::<Self>() {
+                        match value.downcast_ref::<Self>() {
                             Some(array) => {
                                 guard = array.read();
                                 &*guard
@@ -1059,7 +1059,7 @@ mod array {
 
         #[pymethod]
         fn __add__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            if let Some(other) = other.payload::<Self>() {
+            if let Some(other) = other.downcast_ref::<Self>() {
                 self.read()
                     .add(&other.read(), vm)
                     .map(|array| Self::from(array).into_ref(&vm.ctx))
@@ -1079,7 +1079,7 @@ mod array {
         ) -> PyResult<PyRef<Self>> {
             if zelf.is(&other) {
                 zelf.try_resizable(vm)?.imul(2, vm)?;
-            } else if let Some(other) = other.payload::<Self>() {
+            } else if let Some(other) = other.downcast_ref::<Self>() {
                 zelf.try_resizable(vm)?.iadd(&other.read(), vm)?;
             } else {
                 return Err(vm.new_type_error(format!(

@@ -344,7 +344,9 @@ impl PyAsyncGenAThrow {
                 let ret = self.ag.inner.send(self.ag.as_object(), val, vm);
                 if self.aclose {
                     match ret {
-                        Ok(PyIterReturn::Return(v)) if v.payload_is::<PyAsyncGenWrappedValue>() => {
+                        Ok(PyIterReturn::Return(v))
+                            if v.downcastable::<PyAsyncGenWrappedValue>() =>
+                        {
                             Err(self.yield_close(vm))
                         }
                         other => other
@@ -392,7 +394,7 @@ impl PyAsyncGenAThrow {
 
     fn ignored_close(&self, res: &PyResult<PyIterReturn>) -> bool {
         res.as_ref().is_ok_and(|v| match v {
-            PyIterReturn::Return(obj) => obj.payload_is::<PyAsyncGenWrappedValue>(),
+            PyIterReturn::Return(obj) => obj.downcastable::<PyAsyncGenWrappedValue>(),
             PyIterReturn::StopIteration(_) => false,
         })
     }

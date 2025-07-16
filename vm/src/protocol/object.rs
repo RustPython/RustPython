@@ -93,7 +93,7 @@ impl PyObject {
 
     // PyObject *PyObject_GetAIter(PyObject *o)
     pub fn get_aiter(&self, vm: &VirtualMachine) -> PyResult {
-        if self.payload_is::<PyAsyncGen>() {
+        if self.downcastable::<PyAsyncGen>() {
             vm.call_special_method(self, identifier!(vm, __aiter__), ())
         } else {
             Err(vm.new_type_error("wrong argument type"))

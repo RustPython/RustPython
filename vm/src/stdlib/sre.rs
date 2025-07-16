@@ -99,7 +99,7 @@ mod _sre {
         // re.Scanner has no official API and in CPython's implement
         // isbytes will be hanging (-1)
         // here is just a hack to let re.Scanner works only with str not bytes
-        let isbytes = !vm.is_none(&pattern) && !pattern.payload_is::<PyStr>();
+        let isbytes = !vm.is_none(&pattern) && !pattern.downcastable::<PyStr>();
         let code = code.try_to_value(vm)?;
         Ok(Pattern {
             pattern,
@@ -155,7 +155,7 @@ mod _sre {
 
         for trunk in trunks {
             let index: usize = trunk[0]
-                .payload::<PyInt>()
+                .downcast_ref::<PyInt>()
                 .ok_or_else(|| vm.new_type_error("expected usize"))?
                 .try_to_primitive(vm)?;
             items.push((index, trunk[1].clone()));
@@ -218,7 +218,7 @@ mod _sre {
         where
             F: FnOnce(&Wtf8) -> PyResult<R>,
         {
-            let string = string.payload::<PyStr>().ok_or_else(|| {
+            let string = string.downcast_ref::<PyStr>().ok_or_else(|| {
                 vm.new_type_error(format!("expected string got '{}'", string.class()))
             })?;
             f(string.as_wtf8())

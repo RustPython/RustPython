@@ -192,7 +192,7 @@ pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;
 // slot_sq_length
 pub(crate) fn len_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
     let ret = vm.call_special_method(obj, identifier!(vm, __len__), ())?;
-    let len = ret.payload::<PyInt>().ok_or_else(|| {
+    let len = ret.downcast_ref::<PyInt>().ok_or_else(|| {
         vm.new_type_error(format!(
             "'{}' object cannot be interpreted as an integer",
             ret.class()

@@ -229,7 +229,7 @@ mod _operator {
                         v.class().name()
                     )));
                 }
-                v.payload::<PyInt>().unwrap().try_to_primitive(vm)
+                v.downcast_ref::<PyInt>().unwrap().try_to_primitive(vm)
             })
             .unwrap_or(Ok(0))?;
         obj.length_hint(default, vm)

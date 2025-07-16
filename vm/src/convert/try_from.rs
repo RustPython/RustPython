@@ -124,7 +124,7 @@ impl<'a, T: PyPayload> TryFromBorrowedObject<'a> for &'a Py<T> {
 
 impl TryFromObject for std::time::Duration {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        if let Some(float) = obj.payload::<PyFloat>() {
+        if let Some(float) = obj.downcast_ref::<PyFloat>() {
             let f = float.to_f64();
             if f < 0.0 {
                 return Err(vm.new_value_error("negative duration"));

@@ -41,7 +41,7 @@ pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyBaseExceptionRef) -> JsV
     };
     let js_arg = js_arg
         .as_ref()
-        .and_then(|x| x.payload::<js_module::PyJsValue>());
+        .and_then(|x| x.downcast_ref::<js_module::PyJsValue>());
     match js_arg {
         Some(val) => val.value.clone(),
         None => {
@@ -134,7 +134,7 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
     }
     // the browser module might not be injected
     if vm.try_class("_js", "Promise").is_ok() {
-        if let Some(py_prom) = py_obj.payload::<js_module::PyPromise>() {
+        if let Some(py_prom) = py_obj.downcast_ref::<js_module::PyPromise>() {
             return py_prom.as_js(vm).into();
         }
     }

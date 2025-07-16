@@ -25,7 +25,7 @@ impl PyObject {
     pub fn try_index_opt(&self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
         if let Some(i) = self.downcast_ref_if_exact::<PyInt>(vm) {
             Some(Ok(i.to_owned()))
-        } else if let Some(i) = self.payload::<PyInt>() {
+        } else if let Some(i) = self.downcast_ref::<PyInt>() {
             Some(Ok(vm.ctx.new_bigint(i.as_bigint())))
         } else {
             self.to_number().index(vm)
@@ -75,11 +75,11 @@ impl PyObject {
                     ret.class()
                 ))
             })
-        } else if let Some(s) = self.payload::<PyStr>() {
+        } else if let Some(s) = self.downcast_ref::<PyStr>() {
             try_convert(self, s.as_wtf8().trim().as_bytes(), vm)
-        } else if let Some(bytes) = self.payload::<PyBytes>() {
+        } else if let Some(bytes) = self.downcast_ref::<PyBytes>() {
             try_convert(self, bytes, vm)
-        } else if let Some(bytearray) = self.payload::<PyByteArray>() {
+        } else if let Some(bytearray) = self.downcast_ref::<PyByteArray>() {
             try_convert(self, &bytearray.borrow_buf(), vm)
         } else if let Ok(buffer) = ArgBytesLike::try_from_borrowed_object(vm, self) {
             // TODO: replace to PyBuffer
@@ -450,7 +450,7 @@ impl<'a> PyNumber<'a> {
         methods.int.load().is_some()
             || methods.index.load().is_some()
             || methods.float.load().is_some()
-            || obj.payload_is::<PyComplex>()
+            || obj.downcastable::<PyComplex>()
     }
 }
 

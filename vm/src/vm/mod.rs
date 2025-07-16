@@ -657,9 +657,9 @@ impl VirtualMachine {
         let cls = value.class();
         let list_borrow;
         let slice = if cls.is(self.ctx.types.tuple_type) {
-            value.payload::<PyTuple>().unwrap().as_slice()
+            value.downcast_ref::<PyTuple>().unwrap().as_slice()
         } else if cls.is(self.ctx.types.list_type) {
-            list_borrow = value.payload::<PyList>().unwrap().borrow_vec();
+            list_borrow = value.downcast_ref::<PyList>().unwrap().borrow_vec();
             &list_borrow
         } else {
             return self.map_py_iter(value, func);

@@ -2370,7 +2370,7 @@ mod _io {
                     codec.get_incremental_encoder(Some(errors.to_owned()), vm)?;
                 let encoding_name = vm.get_attribute_opt(incremental_encoder.clone(), "name")?;
                 let encode_func = encoding_name.and_then(|name| {
-                    let name = name.payload::<PyStr>()?;
+                    let name = name.downcast_ref::<PyStr>()?;
                     match name.as_str() {
                         "utf-8" => Some(textio_encode_utf8 as EncodeFunc),
                         _ => None,
@@ -3090,7 +3090,7 @@ mod _io {
                         obj.class().name()
                     ))
                 })?;
-                let flags = flags.payload::<int::PyInt>().ok_or_else(state_err)?;
+                let flags = flags.downcast_ref::<int::PyInt>().ok_or_else(state_err)?;
                 let flags = flags.try_to_primitive(vm)?;
                 Ok((buf, flags))
             }
@@ -4273,7 +4273,7 @@ mod fileio {
         fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             // TODO: let atomic_flag_works
             let name = args.name;
-            let arg_fd = if let Some(i) = name.payload::<crate::builtins::PyInt>() {
+            let arg_fd = if let Some(i) = name.downcast_ref::<crate::builtins::PyInt>() {
                 let fd = i.try_to_primitive(vm)?;
                 if fd < 0 {
                     return Err(vm.new_value_error("negative file descriptor"));

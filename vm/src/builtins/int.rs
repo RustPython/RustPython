@@ -793,7 +793,7 @@ impl PyInt {
         F: FnOnce(&BigInt, &BigInt, &VirtualMachine) -> R,
         R: ToPyResult,
     {
-        if let (Some(a), Some(b)) = (a.payload::<Self>(), b.payload::<Self>()) {
+        if let (Some(a), Some(b)) = (a.downcast_ref::<Self>(), b.downcast_ref::<Self>()) {
             op(&a.value, &b.value, vm).to_pyresult(vm)
         } else {
             Ok(vm.ctx.not_implemented())
@@ -860,7 +860,7 @@ fn try_int_radix(obj: &PyObject, base: u32, vm: &VirtualMachine) -> PyResult<Big
 
 // Retrieve inner int value:
 pub(crate) fn get_value(obj: &PyObject) -> &BigInt {
-    &obj.payload::<PyInt>().unwrap().value
+    &obj.downcast_ref::<PyInt>().unwrap().value
 }
 
 pub fn try_to_float(int: &BigInt, vm: &VirtualMachine) -> PyResult<f64> {

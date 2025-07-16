@@ -350,7 +350,7 @@ mod decl {
             fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
                 let timeout = if vm.is_none(&obj) {
                     None
-                } else if let Some(float) = obj.payload::<PyFloat>() {
+                } else if let Some(float) = obj.downcast_ref::<PyFloat>() {
                     let float = float.to_f64();
                     if float.is_nan() {
                         return Err(vm.new_value_error("Invalid value NaN (not a number)"));

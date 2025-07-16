@@ -213,7 +213,7 @@ impl Comparable for PyNativeMethod {
         _vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
         op.eq_only(|| {
-            if let Some(other) = other.payload::<Self>() {
+            if let Some(other) = other.downcast_ref::<Self>() {
                 let eq = match (zelf.func.zelf.as_ref(), other.func.zelf.as_ref()) {
                     (Some(z), Some(o)) => z.is(o),
                     (None, None) => true,

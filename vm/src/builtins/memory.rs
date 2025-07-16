@@ -75,7 +75,7 @@ impl PyMemoryView {
     /// this should be the main entrance to create the memoryview
     /// to avoid the chained memoryview
     pub fn from_object(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Self> {
-        if let Some(other) = obj.payload::<Self>() {
+        if let Some(other) = obj.downcast_ref::<Self>() {
             Ok(other.new_view())
         } else {
             let buffer = PyBuffer::try_from_borrowed_object(vm, obj)?;
@@ -330,7 +330,7 @@ impl PyMemoryView {
             return Ok(false);
         }
 
-        if let Some(other) = other.payload::<Self>() {
+        if let Some(other) = other.downcast_ref::<Self>() {
             if other.released.load() {
                 return Ok(false);
             }
@@ -665,7 +665,7 @@ impl PyMemoryView {
             if needle.is(&vm.ctx.ellipsis) {
                 return Ok(zelf.into());
             }
-            if let Some(tuple) = needle.payload::<PyTuple>() {
+            if let Some(tuple) = needle.downcast_ref::<PyTuple>() {
                 if tuple.is_empty() {
                     return zelf.unpack_single(0, vm);
                 }
@@ -864,7 +864,7 @@ impl Py<PyMemoryView> {
             // TODO: merge branches when we got conditional if let
             if needle.is(&vm.ctx.ellipsis) {
                 return self.pack_single(0, value, vm);
-            } else if let Some(tuple) = needle.payload::<PyTuple>() {
+            } else if let Some(tuple) = needle.downcast_ref::<PyTuple>() {
                 if tuple.is_empty() {
                     return self.pack_single(0, value, vm);
                 }
@@ -907,15 +907,15 @@ enum SubscriptNeedle {
 impl TryFromObject for SubscriptNeedle {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         // TODO: number protocol
-        if let Some(i) = obj.payload::<PyInt>() {
+        if let Some(i) = obj.downcast_ref::<PyInt>() {
             Ok(Self::Index(i.try_to_primitive(vm)?))
-        } else if obj.payload_is::<PySlice>() {
+        } else if obj.downcastable::<PySlice>() {
             Ok(Self::Slice(unsafe { obj.downcast_unchecked::<PySlice>() }))
         } else if let Ok(i) = obj.try_index(vm) {
             Ok(Self::Index(i.try_to_primitive(vm)?))
         } else {
-            if let Some(tuple) = obj.payload::<PyTuple>() {
-                if tuple.iter().all(|x| x.payload_is::<PyInt>()) {
+            if let Some(tuple) = obj.downcast_ref::<PyTuple>() {
+                if tuple.iter().all(|x| x.downcastable::<PyInt>()) {
                     let v = tuple
                         .iter()
                         .map(|x| {
@@ -924,7 +924,7 @@ impl TryFromObject for SubscriptNeedle {
                         })
                         .try_collect()?;
                     return Ok(Self::MultiIndex(v));
-                } else if tuple.iter().all(|x| x.payload_is::<PySlice>()) {
+                } else if tuple.iter().all(|x| x.downcastable::<PySlice>()) {
                     return Err(vm.new_not_implemented_error(
                         "multi-dimensional slicing is not implemented",
                     ));

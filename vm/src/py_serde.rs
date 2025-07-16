@@ -62,7 +62,7 @@ impl serde::Serialize for PyObjectSerializer<'_> {
                 }
                 seq.end()
             };
-        if let Some(s) = self.pyobject.payload::<PyStr>() {
+        if let Some(s) = self.pyobject.downcast_ref::<PyStr>() {
             serializer.serialize_str(s.as_ref())
         } else if self.pyobject.fast_isinstance(self.vm.ctx.types.float_type) {
             serializer.serialize_f64(float::get_value(self.pyobject))
