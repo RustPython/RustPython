@@ -51,6 +51,25 @@ mod _csv {
         vm.new_exception_msg(super::_csv::error(vm), msg)
     }
 
+    struct StyleDescriptor {
+        style: QuoteStyle,
+        name: String
+    }
+
+    fn get_dialect_from_registry(name: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDialect> {
+        let Some(name) = name.payload_if_subclass::<PyStr>(vm) else {
+            return Err(vm.new_exception_msg(
+                super::_csv::error(vm),
+                format!("argument 0 must be a string, not '{}'", name.class()),
+            ));
+        };
+        let g = GLOBAL_HASHMAP.lock();
+        if let Some(dialect) = g.get(name.as_str()) {
+            return Ok(*dialect);
+        }
+        Err(vm.new_exception_msg(super::_csv::error(vm), "unknown dialect".to_string()))
+    }
+
     #[pyattr]
     #[pyclass(module = "csv", name = "Dialect")]
     #[derive(Debug, PyPayload, Clone, Copy)]
@@ -290,17 +309,7 @@ mod _csv {
         mut _rest: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyDialect> {
-        let Some(name) = name.payload_if_subclass::<PyStr>(vm) else {
-            return Err(vm.new_exception_msg(
-                super::_csv::error(vm),
-                format!("argument 0 must be a string, not '{}'", name.class()),
-            ));
-        };
-        let g = GLOBAL_HASHMAP.lock();
-        if let Some(dialect) = g.get(name.as_str()) {
-            return Ok(*dialect);
-        }
-        Err(vm.new_exception_msg(super::_csv::error(vm), "unknown dialect".to_string()))
+        get_dialect_from_registry(name, vm)
     }
 
     #[pyfunction]
@@ -962,7 +971,11 @@ mod _csv {
                     .rposition(|&x| x != b' ')
                     .map(|i| i + 1)
                     .unwrap_or(0);
-                &input[trimmed_start..trimmed_end]
+                if trimmed_start < trimmed_end {
+                    &input[trimmed_start..trimmed_end]
+                } else {
+                    &input[0..0]
+                }
             }
             let input = if *skipinitialspace {
                 let t = input.split(|x| x == delimiter);
