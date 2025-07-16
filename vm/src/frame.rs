@@ -1607,7 +1607,7 @@ impl ExecutingFrame<'_> {
             // Use keys() method for all mapping objects to preserve order
             Self::iterate_mapping_keys(vm, &kw_obj, "argument after **", |key| {
                 let key_str = key
-                    .payload_if_subclass::<PyStr>(vm)
+                    .downcast_ref::<PyStr>()
                     .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
                 let value = kw_obj.get_item(&*key, vm)?;
                 kwargs.insert(key_str.as_str().to_owned(), value);

@@ -365,7 +365,7 @@ mod _collections {
         }
 
         fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<Self> {
-            if let Some(o) = other.payload_if_subclass::<Self>(vm) {
+            if let Some(o) = other.downcast_ref::<Self>() {
                 let mut deque = self.borrow_deque().clone();
                 let elements = o.borrow_deque().clone();
                 deque.extend(elements);

@@ -1445,7 +1445,7 @@ pub(super) mod types {
             if (2..=5).contains(&len) {
                 let errno = &args[0];
                 errno
-                    .payload_if_subclass::<PyInt>(vm)
+                    .downcast_ref::<PyInt>()
                     .and_then(|errno| errno.try_to_primitive::<i32>(vm).ok())
                     .and_then(|errno| super::errno_to_exc_type(errno, vm))
                     .and_then(|typ| vm.invoke_exception(typ.to_owned(), args.to_vec()).ok())

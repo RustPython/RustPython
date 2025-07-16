@@ -80,9 +80,9 @@ impl serde::Serialize for PyObjectSerializer<'_> {
             } else {
                 serializer.serialize_i64(v.to_i64().ok_or_else(int_too_large)?)
             }
-        } else if let Some(list) = self.pyobject.payload_if_subclass::<PyList>(self.vm) {
+        } else if let Some(list) = self.pyobject.downcast_ref::<PyList>() {
             serialize_seq_elements(serializer, &list.borrow_vec())
-        } else if let Some(tuple) = self.pyobject.payload_if_subclass::<PyTuple>(self.vm) {
+        } else if let Some(tuple) = self.pyobject.downcast_ref::<PyTuple>() {
             serialize_seq_elements(serializer, tuple)
         } else if self.pyobject.fast_isinstance(self.vm.ctx.types.dict_type) {
             let dict: PyDictRef = self.pyobject.to_owned().downcast().unwrap();

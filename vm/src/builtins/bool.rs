@@ -129,7 +129,7 @@ impl PyBool {
             let rhs = get_value(&rhs);
             (lhs || rhs).to_pyobject(vm)
         } else if let Some(lhs) = lhs.downcast_ref::<PyInt>() {
-            lhs.__or__(rhs, vm).to_pyobject(vm)
+            lhs.__or__(rhs).to_pyobject(vm)
         } else {
             vm.ctx.not_implemented()
         }
@@ -145,7 +145,7 @@ impl PyBool {
             let rhs = get_value(&rhs);
             (lhs && rhs).to_pyobject(vm)
         } else if let Some(lhs) = lhs.downcast_ref::<PyInt>() {
-            lhs.__and__(rhs, vm).to_pyobject(vm)
+            lhs.__and__(rhs).to_pyobject(vm)
         } else {
             vm.ctx.not_implemented()
         }
@@ -161,7 +161,7 @@ impl PyBool {
             let rhs = get_value(&rhs);
             (lhs ^ rhs).to_pyobject(vm)
         } else if let Some(lhs) = lhs.downcast_ref::<PyInt>() {
-            lhs.__xor__(rhs, vm).to_pyobject(vm)
+            lhs.__xor__(rhs).to_pyobject(vm)
         } else {
             vm.ctx.not_implemented()
         }

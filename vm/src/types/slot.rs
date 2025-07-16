@@ -262,7 +262,7 @@ fn repr_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
 fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
     let hash_obj = vm.call_special_method(zelf, identifier!(vm, __hash__), ())?;
     let py_int = hash_obj
-        .payload_if_subclass::<PyInt>(vm)
+        .downcast_ref::<PyInt>()
         .ok_or_else(|| vm.new_type_error("__hash__ method should return an integer"))?;
     let big_int = py_int.as_bigint();
     let hash: PyHash = big_int

@@ -474,7 +474,7 @@ impl PySetInner {
         F: Fn(&PyObject, &VirtualMachine) -> PyResult<T>,
     {
         op(item, vm).or_else(|original_err| {
-            item.payload_if_subclass::<PySet>(vm)
+            item.downcast_ref::<PySet>()
                 // Keep original error around.
                 .ok_or(original_err)
                 .and_then(|set| {

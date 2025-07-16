@@ -777,7 +777,7 @@ impl DictKey for Py<PyStr> {
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
         if self.is(other_key) {
             Ok(true)
-        } else if let Some(pystr) = other_key.payload_if_exact::<PyStr>(vm) {
+        } else if let Some(pystr) = other_key.downcast_ref_if_exact::<PyStr>(vm) {
             Ok(self.as_wtf8() == pystr.as_wtf8())
         } else {
             vm.bool_eq(self.as_object(), other_key)
@@ -875,7 +875,7 @@ impl DictKey for str {
     }
 
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
-        if let Some(pystr) = other_key.payload_if_exact::<PyStr>(vm) {
+        if let Some(pystr) = other_key.downcast_ref_if_exact::<PyStr>(vm) {
             Ok(pystr.as_wtf8() == self)
         } else {
             // Fall back to PyObjectRef implementation.
@@ -936,7 +936,7 @@ impl DictKey for Wtf8 {
     }
 
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
-        if let Some(pystr) = other_key.payload_if_exact::<PyStr>(vm) {
+        if let Some(pystr) = other_key.downcast_ref_if_exact::<PyStr>(vm) {
             Ok(pystr.as_wtf8() == self)
         } else {
             // Fall back to PyObjectRef implementation.
@@ -997,7 +997,7 @@ impl DictKey for [u8] {
     }
 
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
-        if let Some(pystr) = other_key.payload_if_exact::<PyBytes>(vm) {
+        if let Some(pystr) = other_key.downcast_ref_if_exact::<PyBytes>(vm) {
             Ok(pystr.as_bytes() == self)
         } else {
             // Fall back to PyObjectRef implementation.
@@ -1053,7 +1053,7 @@ impl DictKey for usize {
     }
 
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
-        if let Some(int) = other_key.payload_if_exact::<PyInt>(vm) {
+        if let Some(int) = other_key.downcast_ref_if_exact::<PyInt>(vm) {
             if let Some(i) = int.as_bigint().to_usize() {
                 Ok(i == *self)
             } else {

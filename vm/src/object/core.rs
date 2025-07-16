@@ -650,6 +650,7 @@ impl PyObject {
         &inner.payload
     }
 
+    #[deprecated(note = "use downcast_ref instead")]
     #[inline(always)]
     pub fn payload<T: PyObjectPayload>(&self) -> Option<&T> {
         if self.payload_is::<T>() {
@@ -668,12 +669,14 @@ impl PyObject {
         self.0.typ.swap_to_temporary_refs(typ, vm);
     }
 
+    #[deprecated(note = "use downcast_ref_if_exact instead")]
     #[inline(always)]
     pub fn payload_if_exact<T: PyObjectPayload + crate::PyPayload>(
         &self,
         vm: &VirtualMachine,
     ) -> Option<&T> {
         if self.class().is(T::class(&vm.ctx)) {
+            #[allow(deprecated)]
             self.payload()
         } else {
             None
@@ -702,9 +705,11 @@ impl PyObject {
         }
     }
 
+    #[deprecated(note = "use downcast_ref instead")]
     #[inline(always)]
     pub fn payload_if_subclass<T: crate::PyPayload>(&self, vm: &VirtualMachine) -> Option<&T> {
         if self.class().fast_issubclass(T::class(&vm.ctx)) {
+            #[allow(deprecated)]
             self.payload()
         } else {
             None

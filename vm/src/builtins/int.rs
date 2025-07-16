@@ -293,12 +293,12 @@ impl PyInt {
     }
 
     #[inline]
-    fn int_op<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyArithmeticValue<BigInt>
+    fn int_op<F>(&self, other: PyObjectRef, op: F) -> PyArithmeticValue<BigInt>
     where
         F: Fn(&BigInt, &BigInt) -> BigInt,
     {
         let r = other
-            .payload_if_subclass::<Self>(vm)
+            .downcast_ref::<Self>()
             .map(|other| op(&self.value, &other.value));
         PyArithmeticValue::from_option(r)
     }
@@ -308,7 +308,7 @@ impl PyInt {
     where
         F: Fn(&BigInt, &BigInt) -> PyResult,
     {
-        if let Some(other) = other.payload_if_subclass::<Self>(vm) {
+        if let Some(other) = other.downcast_ref::<Self>() {
             op(&self.value, &other.value)
         } else {
             Ok(vm.ctx.not_implemented())
@@ -323,24 +323,24 @@ impl PyInt {
 impl PyInt {
     #[pymethod(name = "__radd__")]
     #[pymethod]
-    fn __add__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
-        self.int_op(other, |a, b| a + b, vm)
+    fn __add__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
+        self.int_op(other, |a, b| a + b)
     }
 
     #[pymethod]
-    fn __sub__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
-        self.int_op(other, |a, b| a - b, vm)
+    fn __sub__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
+        self.int_op(other, |a, b| a - b)
     }
 
     #[pymethod]
-    fn __rsub__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
-        self.int_op(other, |a, b| b - a, vm)
+    fn __rsub__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
+        self.int_op(other, |a, b| b - a)
     }
 
     #[pymethod(name = "__rmul__")]
     #[pymethod]
-    fn __mul__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
-        self.int_op(other, |a, b| a * b, vm)
+    fn __mul__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
+        self.int_op(other, |a, b| a * b)
     }
 
     #[pymethod]
@@ -385,24 +385,24 @@ impl PyInt {
 
     #[pymethod(name = "__rxor__")]
     #[pymethod]
-    pub fn __xor__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
-        self.int_op(other, |a, b| a ^ b, vm)
+    pub fn __xor__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
+        self.int_op(other, |a, b| a ^ b)
     }
 
     #[pymethod(name = "__ror__")]
     #[pymethod]
-    pub fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
-        self.int_op(other, |a, b| a | b, vm)
+    pub fn __or__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
+        self.int_op(other, |a, b| a | b)
     }
 
     #[pymethod(name = "__rand__")]
     #[pymethod]
-    pub fn __and__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyArithmeticValue<BigInt> {
-        self.int_op(other, |a, b| a & b, vm)
+    pub fn __and__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
+        self.int_op(other, |a, b| a & b)
     }
 
     fn modpow(&self, other: PyObjectRef, modulus: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let modulus = match modulus.payload_if_subclass::<Self>(vm) {
+        let modulus = match modulus.downcast_ref::<Self>() {
             Some(val) => val.as_bigint(),
             None => return Ok(vm.ctx.not_implemented()),
         };
@@ -714,10 +714,10 @@ impl Comparable for PyInt {
         zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
-        vm: &VirtualMachine,
+        _vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
         let r = other
-            .payload_if_subclass::<Self>(vm)
+            .downcast_ref::<Self>()
             .map(|other| op.eval_ord(zelf.value.cmp(&other.value)));
         Ok(PyComparisonValue::from_option(r))
     }

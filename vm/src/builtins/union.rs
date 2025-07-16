@@ -153,7 +153,7 @@ impl PyUnion {
 
 pub fn is_unionable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
     obj.class().is(vm.ctx.types.none_type)
-        || obj.payload_if_subclass::<PyType>(vm).is_some()
+        || obj.downcastable::<PyType>()
         || obj.class().is(vm.ctx.types.generic_alias_type)
         || obj.class().is(vm.ctx.types.union_type)
 }

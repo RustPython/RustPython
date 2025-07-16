@@ -131,7 +131,7 @@ impl PyList {
     }
 
     fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        let other = other.payload_if_subclass::<Self>(vm).ok_or_else(|| {
+        let other = other.downcast_ref::<Self>().ok_or_else(|| {
             vm.new_type_error(format!(
                 "Cannot add {} and {}",
                 Self::class(&vm.ctx).name(),
@@ -346,9 +346,9 @@ where
     F: FnMut(PyObjectRef) -> PyResult<R>,
 {
     use crate::builtins::PyTuple;
-    if let Some(tuple) = obj.payload_if_exact::<PyTuple>(vm) {
+    if let Some(tuple) = obj.downcast_ref_if_exact::<PyTuple>(vm) {
         tuple.iter().map(|x| f(x.clone())).collect()
-    } else if let Some(list) = obj.payload_if_exact::<PyList>(vm) {
+    } else if let Some(list) = obj.downcast_ref_if_exact::<PyList>(vm) {
         list.borrow_vec().iter().map(|x| f(x.clone())).collect()
     } else {
         let iter = obj.to_owned().get_iter(vm)?;

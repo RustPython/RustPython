@@ -335,7 +335,7 @@ pub(crate) fn cformat_bytes(
     }
 
     // tuple
-    let values = if let Some(tup) = values_obj.payload_if_subclass::<tuple::PyTuple>(vm) {
+    let values = if let Some(tup) = values_obj.downcast_ref::<tuple::PyTuple>() {
         tup.as_slice()
     } else {
         std::slice::from_ref(&values_obj)
@@ -428,7 +428,7 @@ pub(crate) fn cformat_string(
     }
 
     // tuple
-    let values = if let Some(tup) = values_obj.payload_if_subclass::<tuple::PyTuple>(vm) {
+    let values = if let Some(tup) = values_obj.downcast_ref::<tuple::PyTuple>() {
         tup.as_slice()
     } else {
         std::slice::from_ref(&values_obj)

@@ -592,7 +592,7 @@ impl PyType {
                 PyType::resolve_mro(&cls.bases.read()).map_err(|msg| vm.new_type_error(msg))?;
             for subclass in cls.subclasses.write().iter() {
                 let subclass = subclass.upgrade().unwrap();
-                let subclass: &PyType = subclass.payload().unwrap();
+                let subclass: &Py<PyType> = subclass.downcast_ref().unwrap();
                 update_mro_recursively(subclass, vm)?;
             }
             Ok(())
