@@ -61,7 +61,10 @@ mod _sqlite {
             PyInt, PyIntRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
         },
         convert::IntoObject,
-        function::{ArgCallable, ArgIterable, FsPath, FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
+        function::{
+            ArgCallable, ArgIterable, FsPath, FuncArgs, OptionalArg, PyComparisonValue,
+            PySetterValue,
+        },
         object::{Traverse, TraverseFn},
         protocol::{PyBuffer, PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
         sliceable::{SaturatedSliceIter, SliceableSequenceOp},
