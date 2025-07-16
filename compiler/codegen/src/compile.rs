@@ -94,19 +94,10 @@ fn is_forbidden_name(name: &str) -> bool {
     BUILTIN_CONSTANTS.contains(&name)
 }
 
-/// Structure to track parent scope information for symbol resolution
-#[derive(Clone)]
-struct ParentScopeInfo {
-    scope_type: CompilerScope,
-    symbol_table_index: usize,
-}
-
 /// Main structure holding the state of compilation.
 struct Compiler<'src> {
     code_stack: Vec<ir::CodeInfo>,
     symbol_table_stack: Vec<SymbolTable>,
-    /// Stack of parent scope info (like CPython's c->c_stack)
-    parent_scope_stack: Vec<ParentScopeInfo>,
     source_code: SourceCode<'src>,
     // current_source_location: SourceLocation,
     current_source_range: TextRange,
@@ -365,7 +356,6 @@ impl<'src> Compiler<'src> {
         Compiler {
             code_stack: vec![module_code],
             symbol_table_stack: Vec::new(),
-            parent_scope_stack: Vec::new(),
             source_code,
             // current_source_location: SourceLocation::default(),
             current_source_range: TextRange::default(),
@@ -399,6 +389,11 @@ impl Compiler<'_> {
     fn current_symbol_table(&self) -> &SymbolTable {
         let index = self.symbol_table_stack.len() - 1;
         &self.symbol_table_stack[index]
+    }
+
+    /// Get the effective symbol table for symbol lookup
+    fn get_effective_symbol_table(&self) -> &SymbolTable {
+        self.current_symbol_table()
     }
 
     /// 특정 index의 SymbolTable 가져오기
@@ -462,12 +457,20 @@ impl Compiler<'_> {
     /// Push the next symbol table on to the stack
     fn push_symbol_table(&mut self) -> &SymbolTable {
         // Look up the next table contained in the scope of the current table
-        let table = self
+        let current_table = self
             .symbol_table_stack
             .last_mut()
-            .expect("no next symbol table")
-            .sub_tables
-            .remove(0);
+            .expect("no current symbol table");
+
+        if current_table.sub_tables.is_empty() {
+            panic!(
+                "push_symbol_table: no sub_tables available in {} (type: {:?})",
+                current_table.name, current_table.typ
+            );
+        }
+
+        let table = current_table.sub_tables.remove(0);
+
         // Push the next table onto the stack
         let last_idx = self.symbol_table_stack.len();
         self.symbol_table_stack.push(table);
@@ -650,20 +653,7 @@ impl Compiler<'_> {
             // We handle this differently in RustPython
         }
 
-        // CPython처럼 현재 scope 정보를 parent stack에 push
-        if !self.symbol_table_stack.is_empty() {
-            // 현재 scope 정보를 저장 (enter_scope 호출 전의 scope)
-            let parent_scope_type = if self.symbol_table_stack.len() > key {
-                self.symbol_table_stack[key].typ
-            } else {
-                // 첫 번째 scope는 항상 Module
-                CompilerScope::Module
-            };
-            self.parent_scope_stack.push(ParentScopeInfo {
-                scope_type: parent_scope_type,
-                symbol_table_index: key,
-            });
-        }
+        // No need for parent scope tracking - we use symbol_table_stack directly
 
         Ok(())
     }
@@ -720,38 +710,25 @@ impl Compiler<'_> {
         let stack_top = compiler_unwrap_option(self, pop);
         let code = unwrap_internal(self, stack_top.finalize_code(self.opts.optimize));
 
-        // CPython처럼 parent scope stack에서 pop
-        if !self.parent_scope_stack.is_empty() {
-            self.parent_scope_stack.pop();
-        }
+        // No parent scope stack to maintain
 
         code
     }
 
     // CPython의 _PyST_GetScope와 같은 역할
-    // 현재 unit의 parent scope를 가져오는 메서드
+    // Get parent scope from symbol table stack
     fn get_parent_scope(&self) -> Option<(CompilerScope, &SymbolTable)> {
-        if let Some(parent_info) = self.parent_scope_stack.last() {
-            if parent_info.symbol_table_index < self.symbol_table_stack.len() {
-                let symbol_table = &self.symbol_table_stack[parent_info.symbol_table_index];
+        if self.symbol_table_stack.len() >= 2 {
+            let parent_idx = self.symbol_table_stack.len() - 2;
+            let parent_table = &self.symbol_table_stack[parent_idx];
 
-                // TypeParams scope면 grandparent 확인 (CPython 방식)
-                if matches!(parent_info.scope_type, CompilerScope::TypeParams) {
-                    if self.parent_scope_stack.len() >= 2 {
-                        let grandparent_info =
-                            &self.parent_scope_stack[self.parent_scope_stack.len() - 2];
-                        if grandparent_info.symbol_table_index < self.symbol_table_stack.len() {
-                            return Some((
-                                grandparent_info.scope_type,
-                                &self.symbol_table_stack[grandparent_info.symbol_table_index],
-                            ));
-                        }
-                    }
-                }
-
-                Some((parent_info.scope_type, symbol_table))
+            // If parent is TypeParams, get grandparent
+            if parent_table.typ == CompilerScope::TypeParams && self.symbol_table_stack.len() >= 3 {
+                let grandparent_idx = self.symbol_table_stack.len() - 3;
+                let grandparent_table = &self.symbol_table_stack[grandparent_idx];
+                Some((grandparent_table.typ, grandparent_table))
             } else {
-                None
+                Some((parent_table.typ, parent_table))
             }
         } else {
             None
@@ -862,16 +839,6 @@ impl Compiler<'_> {
 
         let current_obj_name = self.current_code_info().metadata.name.clone();
 
-        // Special handling for TypeParams scope
-        // Check if current scope is TypeParams by examining the symbol table
-        if let Some(current_table) = self.symbol_table_stack.last() {
-            if current_table.typ == CompilerScope::TypeParams {
-                // For TypeParams scope, the qualname should already be set correctly
-                // in the form "<generic parameters of {parent}>"
-                return current_obj_name;
-            }
-        }
-
         // If we're at the module level (stack_size == 1), qualname is just the name
         if stack_size <= 1 {
             return current_obj_name;
@@ -881,13 +848,14 @@ impl Compiler<'_> {
         let mut parent_idx = stack_size - 2;
         let mut parent = &self.code_stack[parent_idx];
 
-        // If parent is a type parameter scope, look at grandparent
+        // CPython logic: If parent is TypeParams scope, look at grandparent
+        // Check if parent is a type params scope by name pattern
         if parent.metadata.name.starts_with("<generic parameters of ") {
             if stack_size == 2 {
-                // If we're immediately within the module after type params,
-                // qualname is just the name
+                // If we're immediately within the module, qualname is just the name
                 return current_obj_name;
             }
+            // Use grandparent
             parent_idx = stack_size - 3;
             parent = &self.code_stack[parent_idx];
         }
@@ -1105,17 +1073,37 @@ impl Compiler<'_> {
         }
 
         // CPython의 compiler_nameop처럼 현재 SymbolTable에서 scope 결정
+        // TypeParams scope의 특수성을 고려하여 effective symbol table 사용
         let symbol_scope = {
-            let current_table = self.current_symbol_table();
-            current_table
-                .lookup(name.as_ref())
-                .map(|symbol| symbol.scope)
-                .ok_or_else(|| {
-                    CodegenErrorType::SyntaxError(format!(
-                        "The symbol '{}' must be present in the symbol table",
-                        name
-                    ))
-                })
+            let current_table = self.get_effective_symbol_table();
+
+            // First try to find in current table
+            let symbol = current_table.lookup(name.as_ref());
+
+            // If not found and we're in TypeParams scope, try parent scope
+            if symbol.is_none() && current_table.typ == CompilerScope::TypeParams {
+                // Try to find in parent scope (usually Module)
+                if self.symbol_table_stack.len() > 1 {
+                    let parent_idx = self.symbol_table_stack.len() - 2;
+                    if let Some(parent_symbol) =
+                        self.symbol_table_stack[parent_idx].lookup(name.as_ref())
+                    {
+                        Some(parent_symbol.scope)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                symbol.map(|s| s.scope)
+            }
+            .ok_or_else(|| {
+                CodegenErrorType::SyntaxError(format!(
+                    "The symbol '{}' must be present in the symbol table",
+                    name
+                ))
+            })
         };
         let actual_scope = symbol_scope.map_err(|e| self.error(e))?;
 
@@ -2020,6 +2008,63 @@ impl Compiler<'_> {
         is_forbidden_name(name)
     }
 
+    /// Helper function to compile function body
+    fn compile_function_body_inner(
+        &mut self,
+        name: &str,
+        parameters: &Parameters,
+        body: &[Stmt],
+        is_async: bool,
+    ) -> CompileResult<(CodeObject, Option<(String, ConstantData)>)> {
+        self.enter_function(name, parameters)?;
+        self.current_code_info()
+            .flags
+            .set(bytecode::CodeFlags::IS_COROUTINE, is_async);
+
+        // remember to restore self.ctx.in_loop to the original after the function is compiled
+        let prev_ctx = self.ctx;
+
+        self.ctx = CompileContext {
+            loop_data: None,
+            in_class: prev_ctx.in_class,
+            func: if is_async {
+                FunctionContext::AsyncFunction
+            } else {
+                FunctionContext::Function
+            },
+        };
+
+        // Set qualname using the new method
+        self.set_qualname();
+
+        let (doc_str, body) = split_doc(body, &self.opts);
+
+        self.current_code_info()
+            .metadata
+            .consts
+            .insert_full(ConstantData::None);
+
+        self.compile_statements(body)?;
+
+        // Emit None at end:
+        match body.last() {
+            Some(Stmt::Return(_)) => {
+                // the last instruction is a ReturnValue already, we don't need to emit it
+            }
+            _ => {
+                self.emit_return_const(ConstantData::None);
+            }
+        }
+
+        let code = self.exit_scope();
+        self.ctx = prev_ctx;
+
+        Ok((
+            code,
+            doc_str.map(|s| (s.to_string(), ConstantData::Str { value: s.into() })),
+        ))
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn compile_function_def(
         &mut self,
@@ -2032,11 +2077,6 @@ impl Compiler<'_> {
         type_params: Option<&TypeParams>,
     ) -> CompileResult<()> {
         self.prepare_decorators(decorator_list)?;
-
-        // If there are type params, we need to push a special symbol table just for them
-        if type_params.is_some() {
-            self.push_symbol_table();
-        }
 
         // Prepare defaults and kwdefaults before entering function
         let defaults: Vec<_> = std::iter::empty()
@@ -2081,110 +2121,281 @@ impl Compiler<'_> {
             );
         }
 
-        self.enter_function(name, parameters)?;
-        let mut func_flags = bytecode::MakeFunctionFlags::empty();
-        if have_defaults {
-            func_flags |= bytecode::MakeFunctionFlags::DEFAULTS;
-        }
-        if have_kwdefaults {
-            func_flags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
-        }
-        self.current_code_info()
-            .flags
-            .set(bytecode::CodeFlags::IS_COROUTINE, is_async);
+        // Handle generic type parameters (PEP 695)
+        let is_generic = type_params.is_some();
+        let code;
+        let doc_str;
 
-        // remember to restore self.ctx.in_loop to the original after the function is compiled
-        let prev_ctx = self.ctx;
-
-        self.ctx = CompileContext {
-            loop_data: None,
-            in_class: prev_ctx.in_class,
-            func: if is_async {
-                FunctionContext::AsyncFunction
-            } else {
-                FunctionContext::Function
-            },
-        };
-
-        // Set qualname using the new method
-        self.set_qualname();
-
-        let (doc_str, body) = split_doc(body, &self.opts);
-
-        self.current_code_info()
-            .metadata
-            .consts
-            .insert_full(ConstantData::None);
-
-        self.compile_statements(body)?;
-
-        // Emit None at end:
-        match body.last() {
-            Some(Stmt::Return(_)) => {
-                // the last instruction is a ReturnValue already, we don't need to emit it
+        if is_generic {
+            // For generic functions, we need to enter TypeParams scope first
+            // Count how many args to pass to type params scope
+            let mut num_typeparam_args = 0;
+            if have_defaults {
+                num_typeparam_args += 1;
             }
-            _ => {
-                self.emit_return_const(ConstantData::None);
+            if have_kwdefaults {
+                num_typeparam_args += 1;
             }
-        }
 
-        let code = self.exit_scope();
-        self.ctx = prev_ctx;
+            // SWAP if we have both defaults and kwdefaults
+            if num_typeparam_args == 2 {
+                emit!(self, Instruction::Swap { index: 2 });
+            }
 
-        // Prepare generic type parameters:
-        if let Some(type_params) = type_params {
-            self.compile_type_params(type_params)?;
+            // Enter type params scope first
+            let type_params_name = format!("<generic parameters of {}>", name);
+
+            // Push output for TypeParams scope with correct argcount
+            // Note: push_output will call push_symbol_table internally
+            self.push_output(
+                bytecode::CodeFlags::IS_OPTIMIZED | bytecode::CodeFlags::NEW_LOCALS,
+                0,
+                num_typeparam_args,
+                0,
+                type_params_name,
+            );
+
+            // Compile type parameters in the TypeParams scope (we're already in it)
+            self.compile_type_params(type_params.unwrap())?;
+            // Stack now has: [..., type_params_tuple]
+
+            // Store the type params tuple in .type_params (matching CPython)
+            // .type_params is a Cell variable, so use StoreDeref
+            let dot_type_params = self.name(".type_params");
+            emit!(self, Instruction::Duplicate);
+            emit!(self, Instruction::StoreDeref(dot_type_params));
+            // Stack still has: [..., type_params_tuple]
+
+            // Now enter the function scope within the TypeParams scope
+            self.enter_function(name, parameters)?;
+            let mut func_flags = bytecode::MakeFunctionFlags::empty();
+            if have_defaults {
+                func_flags |= bytecode::MakeFunctionFlags::DEFAULTS;
+            }
+            if have_kwdefaults {
+                func_flags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
+            }
             func_flags |= bytecode::MakeFunctionFlags::TYPE_PARAMS;
-        }
 
-        // Prepare type annotations:
-        let mut num_annotations = 0;
+            self.current_code_info()
+                .flags
+                .set(bytecode::CodeFlags::IS_COROUTINE, is_async);
 
-        // Return annotation:
-        if let Some(annotation) = returns {
-            // key:
-            self.emit_load_const(ConstantData::Str {
-                value: "return".into(),
-            });
-            // value:
-            self.compile_annotation(annotation)?;
-            num_annotations += 1;
-        }
+            // remember to restore self.ctx.in_loop to the original after the function is compiled
+            let prev_ctx = self.ctx;
 
-        let parameters_iter = std::iter::empty()
-            .chain(&parameters.posonlyargs)
-            .chain(&parameters.args)
-            .chain(&parameters.kwonlyargs)
-            .map(|x| &x.parameter)
-            .chain(parameters.vararg.as_deref())
-            .chain(parameters.kwarg.as_deref());
-        for param in parameters_iter {
-            if let Some(annotation) = &param.annotation {
+            self.ctx = CompileContext {
+                loop_data: None,
+                in_class: prev_ctx.in_class,
+                func: if is_async {
+                    FunctionContext::AsyncFunction
+                } else {
+                    FunctionContext::Function
+                },
+            };
+
+            // Set qualname using the new method
+            self.set_qualname();
+
+            let (doc_str_tmp, body) = split_doc(body, &self.opts);
+            doc_str = doc_str_tmp;
+
+            self.current_code_info()
+                .metadata
+                .consts
+                .insert_full(ConstantData::None);
+
+            self.compile_statements(body)?;
+
+            // Emit None at end:
+            match body.last() {
+                Some(Stmt::Return(_)) => {
+                    // the last instruction is a ReturnValue already, we don't need to emit it
+                }
+                _ => {
+                    self.emit_return_const(ConstantData::None);
+                }
+            }
+
+            // Exit function scope
+            code = self.exit_scope();
+            self.ctx = prev_ctx;
+
+            // Load the type params tuple back onto the stack
+            // .type_params is a Cell variable, so use LoadDeref
+            let dot_type_params = self.name(".type_params");
+            emit!(self, Instruction::LoadDeref(dot_type_params));
+            // Stack now has: [..., type_params_tuple]
+
+            // Load defaults/kwdefaults from arguments passed to TypeParams scope
+            // The TypeParams scope receives these as parameters
+            // We need to ensure the varnames are set up correctly
+            if num_typeparam_args > 0 {
+                // Set up varnames for the TypeParams scope parameters
+                let info = self.current_code_info();
+                if have_defaults {
+                    info.metadata.varnames.insert(".defaults".to_owned());
+                }
+                if have_kwdefaults {
+                    info.metadata.varnames.insert(".kwdefaults".to_owned());
+                }
+
+                // Now load the arguments
+                if have_defaults {
+                    emit!(self, Instruction::LoadFast(0));
+                }
+                if have_kwdefaults {
+                    let idx = if have_defaults { 1 } else { 0 };
+                    emit!(self, Instruction::LoadFast(idx));
+                }
+            }
+
+            // Create function object inside the type params scope
+            self.make_closure(code, func_flags)?;
+            // Stack now has: [..., type_params_tuple, function]
+
+            // SWAP to put function after type params on stack
+            // Stack has [type_params_tuple, function], we want [function, type_params_tuple]
+            // So swap the top two elements
+            emit!(self, Instruction::Swap { index: 1 });
+
+            // SET_FUNCTION_TYPE_PARAMS intrinsic
+            emit!(
+                self,
+                Instruction::CallIntrinsic2 {
+                    func: bytecode::IntrinsicFunction2::SetFunctionTypeParams,
+                }
+            );
+
+            // The TypeParams scope should return the function object
+            emit!(self, Instruction::ReturnValue);
+
+            // Exit type params scope
+            let type_params_code = self.exit_scope();
+
+            // Create closure for type params scope
+            let closure_flags = bytecode::MakeFunctionFlags::empty();
+            self.make_closure(type_params_code, closure_flags)?;
+
+            // Call the type params closure with the default arguments
+            if num_typeparam_args > 0 {
+                // SWAP to put closure after args
+                // Stack has [..., arg1, ..., argN, closure]
+                // We want [..., closure, arg1, ..., argN]
+                // So swap closure with the first arg
+                emit!(
+                    self,
+                    Instruction::Swap {
+                        index: num_typeparam_args as u32
+                    }
+                );
+                emit!(
+                    self,
+                    Instruction::CallFunctionPositional {
+                        nargs: num_typeparam_args as u32,
+                    }
+                );
+            } else {
+                // No args, just call with no arguments
+                emit!(self, Instruction::CallFunctionPositional { nargs: 0 });
+            }
+        } else {
+            // Non-generic function: compile normally
+            self.enter_function(name, parameters)?;
+            let mut func_flags = bytecode::MakeFunctionFlags::empty();
+            if have_defaults {
+                func_flags |= bytecode::MakeFunctionFlags::DEFAULTS;
+            }
+            if have_kwdefaults {
+                func_flags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
+            }
+            self.current_code_info()
+                .flags
+                .set(bytecode::CodeFlags::IS_COROUTINE, is_async);
+
+            // remember to restore self.ctx.in_loop to the original after the function is compiled
+            let prev_ctx = self.ctx;
+
+            self.ctx = CompileContext {
+                loop_data: None,
+                in_class: prev_ctx.in_class,
+                func: if is_async {
+                    FunctionContext::AsyncFunction
+                } else {
+                    FunctionContext::Function
+                },
+            };
+
+            // Set qualname using the new method
+            self.set_qualname();
+
+            let (doc_str_tmp, body) = split_doc(body, &self.opts);
+            doc_str = doc_str_tmp;
+
+            self.current_code_info()
+                .metadata
+                .consts
+                .insert_full(ConstantData::None);
+
+            self.compile_statements(body)?;
+
+            // Emit None at end:
+            match body.last() {
+                Some(Stmt::Return(_)) => {
+                    // the last instruction is a ReturnValue already, we don't need to emit it
+                }
+                _ => {
+                    self.emit_return_const(ConstantData::None);
+                }
+            }
+
+            code = self.exit_scope();
+            self.ctx = prev_ctx;
+
+            // Prepare type annotations
+            let mut num_annotations = 0;
+
+            // Return annotation:
+            if let Some(annotation) = returns {
+                // key:
                 self.emit_load_const(ConstantData::Str {
-                    value: self.mangle(param.name.as_str()).into_owned().into(),
+                    value: "return".into(),
                 });
+                // value:
                 self.compile_annotation(annotation)?;
                 num_annotations += 1;
             }
-        }
 
-        if num_annotations > 0 {
-            func_flags |= bytecode::MakeFunctionFlags::ANNOTATIONS;
-            emit!(
-                self,
-                Instruction::BuildMap {
-                    size: num_annotations,
+            let parameters_iter = std::iter::empty()
+                .chain(&parameters.posonlyargs)
+                .chain(&parameters.args)
+                .chain(&parameters.kwonlyargs)
+                .map(|x| &x.parameter)
+                .chain(parameters.vararg.as_deref())
+                .chain(parameters.kwarg.as_deref());
+            for param in parameters_iter {
+                if let Some(annotation) = &param.annotation {
+                    self.emit_load_const(ConstantData::Str {
+                        value: self.mangle(param.name.as_str()).into_owned().into(),
+                    });
+                    self.compile_annotation(annotation)?;
+                    num_annotations += 1;
                 }
-            );
-        }
+            }
 
-        // Pop the special type params symbol table
-        if type_params.is_some() {
-            self.pop_symbol_table();
-        }
+            if num_annotations > 0 {
+                func_flags |= bytecode::MakeFunctionFlags::ANNOTATIONS;
+                emit!(
+                    self,
+                    Instruction::BuildMap {
+                        size: num_annotations,
+                    }
+                );
+            }
 
-        // Create function with closure
-        self.make_closure(code, func_flags)?;
+            // Create function normally for non-generic functions
+            self.make_closure(code, func_flags)?;
+        }
 
         if let Some(value) = doc_str {
             emit!(self, Instruction::Duplicate);
@@ -5154,7 +5365,7 @@ impl Compiler<'_> {
     fn enter_type_params_scope(
         &mut self,
         parent_name: &str,
-        firstlineno: u32,
+        _firstlineno: u32,
     ) -> CompileResult<()> {
         // Create the type params scope name in CPython format
         let type_params_name = format!("<generic parameters of {}>", parent_name);
@@ -5168,8 +5379,37 @@ impl Compiler<'_> {
             &type_params_name,
             CompilerScope::TypeParams,
             key,
-            firstlineno,
+            _firstlineno,
         )?;
+
+        Ok(())
+    }
+
+    /// Enter a TypeParams scope for a function with proper setup
+    /// This handles entering the TypeParams scope and sets up for the nested function
+    fn enter_type_params_scope_for_function(
+        &mut self,
+        function_name: &str,
+        _firstlineno: u32,
+    ) -> CompileResult<()> {
+        // Create the type params scope name in CPython format
+        let type_params_name = format!("<generic parameters of {}>", function_name);
+
+        // Push symbol table for TypeParams scope
+        self.push_symbol_table();
+        let _key = self.symbol_table_stack.len() - 1;
+
+        // Enter the TypeParams scope with proper flags
+        self.push_output(
+            bytecode::CodeFlags::IS_OPTIMIZED | bytecode::CodeFlags::NEW_LOCALS,
+            0,
+            0, // We'll update this later based on defaults
+            0,
+            type_params_name,
+        );
+
+        // Update the symbol table stack to track we're in TypeParams scope
+        // Note: We don't call enter_scope here because push_output already set up the code object
 
         Ok(())
     }
