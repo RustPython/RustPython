@@ -145,23 +145,15 @@ jobs:
         if: ${{ success() }}
         run: |
           cd rustpython || exit 13 ;
-          original_ulimit=$(ulimit -t) ;
           for referance_file in ${{ steps.reftestfiles.outputs.files }} ; do
-            if [[ "${OS}" != "Windows" ]] ; then
-              # Set the new ulimit value
-              ulimit -t 360
-              # TODO: RustPython workaround Windows timeout for hangs
-            fi ;
+            # TODO: RustPython workaround Windows timeout for hangs
             printf "Now Testing '%s'\n" "${referance_file}"
             # Execute the testing command in a subshell
             (
               RUSTPYTHONPATH=Lib cargo run --release -- Lib/test/$(basename "${referance_file}") || printf "::error, file='%s',title='testing-failure':: Could not pass tests for file.\n" "${referance_file}" >2 ;
               # should dump a diff or something here
             ) ;
-            if [[ "${OS}" != "Windows" ]] ; then
-              # Restore the original ulimit value
-              ulimit -t $original_ulimit || exit 126 ;
-            fi ;
+            printf "\n---\n" ;
           done
           cd .. ;
       - name: Post-Clean
