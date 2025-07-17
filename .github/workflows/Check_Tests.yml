@@ -112,7 +112,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           for referance_file in ${{ steps.reftestfiles.outputs.files }} ; do
-            cp -vf cpython/"${referance_file}" rpython/Lib/tests/$(basename "${referance_file}") || printf "::warning, file='%s',title='integration failure':: Could not integrate file.\n" "${referance_file}" ;
+            cp -vf cpython/"${referance_file}" rustpython/Lib/tests/$(basename "${referance_file}") || printf "::warning, file='%s',title='integration failure':: Could not integrate file.\n" "${referance_file}" ;
           done
       - id: output_python
         name: "bootstrap Python"
@@ -127,7 +127,7 @@ jobs:
         shell: bash
         if: ${{ !cancelled() }}
         run: |
-          cd rpython || exit 13 ;
+          cd rustpython || exit 13 ;
           for referance_file in ${{ steps.reftestfiles.outputs.files }} ; do
             # Set the new ulimit value
             ulimit -t 30
@@ -140,7 +140,7 @@ jobs:
             # Restore the original ulimit value
             ulimit -t "$original_ulimit"
           done
-          # cd "${OLDPWD:-..}"
+          cd .. ;
       - name: Post-Clean
         id: post-bootstrap
         run: |
