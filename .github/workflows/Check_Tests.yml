@@ -1,0 +1,146 @@
+---
+name: CI-5974
+description: "Continuous Integration workflow for GHI 5974."
+run-name: Prototyping integration tests ${{ github.ref_name }}
+#
+# Jobs included:
+# - BUILD: Ensures the project compiles correctly
+# - BOOTSTRAP: Tests installation across Python versions and locales
+#
+# Required Secrets:
+# NONE
+
+on:  # yamllint disable-line rule:truthy
+  push:
+    branches: ["**"]  # matches any branch
+    tags: ["v*"]
+
+# Declare default permissions as none.
+permissions: {}
+
+env:
+  # ENVIRONMENT: ${{ (startsWith(github.ref, 'refs/heads/CI-CD-Patch-') }}
+  # Define Python versions at the top level -- Expected format: X.Y (e.g., 3.13)
+  PYTHON_DEFAULT: "${{ vars.PYTHON_DEFAULT }}"
+  PYTHON_OLD_MIN: "${{ vars.PYTHON_OLD_MIN }}"  # For Oldest Python versions
+  PYTHON_OLD_EXTRA: "${{ vars.PYTHON_OLD_EXTRA }}"  # For Older Python versions (Extra coverage)
+  PYTHON_EXPERIMENTAL: "${{ vars.PYTHON_EXPERIMENTAL }}"  # For future Python versions
+  # Define the referance files to pull as a file glob pattern
+  TEST_MATCH_PATTERN: "Lib/tests/*.py"
+
+jobs:
+  TEST-5974:
+    permissions:
+      actions: read
+      contents: read
+      statuses: write
+      packages: none
+      pull-requests: read
+      security-events: none
+    if: ${{ (startsWith(github.ref, 'refs/heads/CI-CD-Patch-')) && !cancelled() }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, macos-15, windows-latest]
+        python-version: ["${{ vars.PYTHON_OLD_MIN }}", "${{ vars.PYTHON_OLD_EXTRA }}", "${{ vars.PYTHON_DEFAULT }}", "${{ vars.PYTHON_EXPERIMENTAL }}"]
+        experimental: [true]
+        include:
+          - os: ubuntu-latest
+            python-version: "${{ vars.PYTHON_DEFAULT }}"
+            experimental: false
+          - os: macos-latest
+            python-version: "${{ vars.PYTHON_EXPERIMENTAL }}"
+            experimental: false
+          - os: windows-latest
+            python-version: "${{ vars.PYTHON_DEFAULT }}"
+            experimental: false
+          - os: macos-14
+            python-version: "${{ vars.PYTHON_DEFAULT }}"
+            experimental: true
+    outputs:
+      bootstrap_status: ${{ steps.smoke_testing.outcome }}
+    env:
+      PYTHON_VERSION: ${{ matrix.python-version }}
+    steps:
+      - name: Checkout RustPython repository
+        id: rpython
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          path: rustpython
+          # ref: 
+          sparse-checkout-cone-mode: false
+      - id: cpython
+        name: Fetch Cpython
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-tags: true
+          repository: "python/cpython"
+          path: cpython
+          sparse-checkout: |
+            Lib/test
+          sparse-checkout-cone-mode: true
+        # checkout ${{ matrix.python-version }}
+      - name: Enumerate Referance Lib Files
+        id: reftestfiles
+        shell: bash
+        run: |
+          cd cpython
+          FILES=$(git ls-files --exclude-standard -- ${{ env.TEST_MATCH_PATTERN }} )
+          if [ -z "$FILES" ]; then
+            printf "%s\n" "::warning file=.github/workflows/Check_Tests.yml:: No Lib/Test Referance files found."
+            printf "%s\n" "files=" >> "$GITHUB_OUTPUT"
+          else
+            printf "%s\n" "Lib/Test Referance files found:"
+            printf "%s\n" "$FILES"
+            # Replace line breaks with commas for GitHub Action Output
+            FILES="${FILES//$'\n'/ }"
+            printf "%s\n" "files=$FILES" >> "$GITHUB_OUTPUT"
+          fi
+        if: ${{ success() }}
+        # this next part is WIP and needs to be updated with filtering for more control of what parts of the referance lib is used
+      - name: "Integrate EVERY file"
+        id: merge_theirs
+        shell: bash
+        if: ${{ !cancelled() }}
+        run: |
+          for referance_file in ${{ steps.reftestfiles.outputs.files }} ; do
+            cp -vf cpython/"${referance_file}" rpython/Lib/tests/$(basename "${referance_file}") || printf "::warning, file='%s',title='integration failure':: Could not integrate file.\n" "${referance_file}" ;
+          done
+      - id: output_python
+        name: "bootstrap Python"
+        shell: bash
+        run: |
+          printf "%s\n" "::group::bootstrap-python-env"
+          printf "python-version=%s\n" "${{ matrix.python-version }}" >> "$GITHUB_OUTPUT"
+          printf "PYTHON_VERSION=%s\n" "${{ matrix.python-version }}" >> "$GITHUB_ENV"
+          printf "%s\n" "::endgroup::"
+      - name: Try Smoke Testing
+        id: smoke_testing
+        shell: bash
+        if: ${{ !cancelled() }}
+        run: |
+          cd rpython || exit 13 ;
+          for referance_file in ${{ steps.reftestfiles.outputs.files }} ; do
+            # Set the new ulimit value
+            ulimit -t 30
+            printf "Now Testing '%s'\n" "${referance_file}"
+            # Execute the testing command in a subshell
+            (
+              RUSTPYTHONPATH=Lib cargo run --release Lib/test/$(basename "${referance_file}") || printf "::error, file='%s',title='testing failure':: Could not pass tests for file.\n" "${referance_file}" ;
+              # should dump a diff or something here
+            ) ;
+            # Restore the original ulimit value
+            ulimit -t "$original_ulimit"
+          done
+          # cd "${OLDPWD:-..}"
+      - name: Post-Clean
+        id: post-bootstrap
+        run: |
+          exit 0 ; # don't break on regression
+        if: ${{ always() }}
+        shell: bash
