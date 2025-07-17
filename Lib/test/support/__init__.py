@@ -840,11 +840,27 @@ def python_is_optimized():
     return final_opt not in ('', '-O0', '-Og')
 
 
-_header = 'nP'
+# From CPython 3.13.5
+Py_GIL_DISABLED = bool(sysconfig.get_config_var('Py_GIL_DISABLED'))
+
+# From CPython 3.13.5
+def requires_gil_enabled(msg="needs the GIL enabled"):
+    """Decorator for skipping tests on the free-threaded build."""
+    return unittest.skipIf(Py_GIL_DISABLED, msg)
+
+# From CPython 3.13.5
+def expected_failure_if_gil_disabled():
+    """Expect test failure if the GIL is disabled."""
+    if Py_GIL_DISABLED:
+        return unittest.expectedFailure
+    return lambda test_case: test_case
+
+# From CPython 3.13.5
+if Py_GIL_DISABLED:
+    _header = 'PHBBInP'
+else:
+    _header = 'nP'
 _align = '0n'
-if hasattr(sys, "getobjects"):
-    _header = '2P' + _header
-    _align = '0P'
 _vheader = _header + 'n'
 
 def calcobjsize(fmt):
@@ -2617,6 +2633,10 @@ skip_on_s390x = unittest.skipIf(hasattr(os, 'uname') and os.uname().machine == '
                                 'skipped on s390x')
 HAVE_ASAN_FORK_BUG = check_sanitizer(address=True)
 
+# From CPython 3.13.5
+Py_TRACE_REFS = hasattr(sys, 'getobjects')
+
+
 # From Cpython 3.13.5
 @contextlib.contextmanager
 def no_color():
@@ -2639,6 +2659,21 @@ def force_not_colorized(func):
         with no_color():
             return func(*args, **kwargs)
     return wrapper
+
+
+# From Cpython 3.13.5
+def force_not_colorized_test_class(cls):
+    """Force the terminal not to be colorized for the entire test class."""
+    original_setUpClass = cls.setUpClass
+
+    @classmethod
+    @functools.wraps(cls.setUpClass)
+    def new_setUpClass(cls):
+        cls.enterClassContext(no_color())
+        original_setUpClass()
+
+    cls.setUpClass = new_setUpClass
+    return cls
 
 
 # From python 3.12.8
