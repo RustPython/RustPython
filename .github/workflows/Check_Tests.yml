@@ -63,7 +63,6 @@ jobs:
     outputs:
       bootstrap_status: ${{ steps.smoke_testing.outcome }}
     env:
-      OS: ${{ runner.os }}
       PYTHON_VERSION: ${{ matrix.python-version }}
     steps:
       - name: Checkout RustPython repository
@@ -138,6 +137,8 @@ jobs:
       - name: Try Smoke Testing
         id: smoke_testing
         shell: bash
+        env:
+          OS: ${{ runner.os }}
         if: ${{ success() }}
         run: |
           cd rustpython || exit 13 ;
