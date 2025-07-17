@@ -39,13 +39,13 @@ jobs:
       security-events: none
     if: ${{ !cancelled() }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 30
     continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-15, windows-latest]
-        python-version: ["${{ vars.PYTHON_DEFAULT }}"] # skip fo now ["${{ vars.PYTHON_OLD_MIN }}", "${{ vars.PYTHON_OLD_EXTRA }}", "${{ vars.PYTHON_DEFAULT }}", "${{ vars.PYTHON_EXPERIMENTAL }}"]
+        os: [ubuntu-latest, macos-14, macos-15, windows-latest]
+        python-version: ["${{ vars.PYTHON_OLD_MIN }}", "${{ vars.PYTHON_OLD_EXTRA }}", "${{ vars.PYTHON_DEFAULT }}", "${{ vars.PYTHON_EXPERIMENTAL }}"]
         experimental: [true]
         include:
           - os: ubuntu-latest
@@ -58,6 +58,9 @@ jobs:
             python-version: "${{ vars.PYTHON_DEFAULT }}"
             experimental: false
           - os: macos-14
+            python-version: "${{ vars.PYTHON_DEFAULT }}"
+            experimental: true
+          - os: windows-2025
             python-version: "${{ vars.PYTHON_DEFAULT }}"
             experimental: true
     outputs:
@@ -117,7 +120,7 @@ jobs:
           cd .. ;
         if: ${{ success() }}
         # this next part is WIP and needs to be updated with filtering for more control of what parts of the referance lib is used
-      - name: "Integrate EVERY file"
+      - name: "Integrate Cpython Test file"
         id: merge_theirs
         shell: bash
         if: ${{ !cancelled() }}
@@ -142,16 +145,17 @@ jobs:
         if: ${{ success() }}
         run: |
           cd rustpython || exit 13 ;
+          original_ulimit=$(ulimit -t) ;
           for referance_file in ${{ steps.reftestfiles.outputs.files }} ; do
             if [[ "${OS}" != "Windows" ]] ; then
               # Set the new ulimit value
-              ulimit -t 180
+              ulimit -t 360
               # TODO: RustPython workaround Windows timeout for hangs
             fi ;
             printf "Now Testing '%s'\n" "${referance_file}"
             # Execute the testing command in a subshell
             (
-              RUSTPYTHONPATH=Lib cargo run --release -- Lib/test/$(basename "${referance_file}") || printf "::error, file='%s',title='testing failure':: Could not pass tests for file.\n" "${referance_file}" ;
+              RUSTPYTHONPATH=Lib cargo run --release -- Lib/test/$(basename "${referance_file}") || printf "::error, file='%s',title='testing-failure':: Could not pass tests for file.\n" "${referance_file}" >>&2 ;
               # should dump a diff or something here
             ) ;
             if [[ "${OS}" != "Windows" ]] ; then
