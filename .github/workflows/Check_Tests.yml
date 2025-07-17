@@ -89,7 +89,11 @@ jobs:
         id: reftestfiles
         shell: bash
         run: |
+          ls -lap ${{ github.workspace }}
+          printf "\n\n"
+          ls -lap .
           cd cpython
+          ls -lap .
           FILES=$(git ls-files --exclude-standard -- ${{ env.TEST_MATCH_PATTERN }} )
           if [ -z "$FILES" ]; then
             printf "%s\n" "::warning file=.github/workflows/Check_Tests.yml:: No Lib/Test Referance files found."
@@ -101,6 +105,7 @@ jobs:
             FILES="${FILES//$'\n'/ }"
             printf "%s\n" "files=$FILES" >> "$GITHUB_OUTPUT"
           fi
+          cd ${{ git.
         if: ${{ success() }}
         # this next part is WIP and needs to be updated with filtering for more control of what parts of the referance lib is used
       - name: "Integrate EVERY file"
