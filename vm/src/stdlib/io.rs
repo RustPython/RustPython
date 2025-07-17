@@ -738,6 +738,11 @@ mod _io {
         fn encoding(_zelf: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
             vm.ctx.none()
         }
+
+        #[pygetset]
+        fn errors(_zelf: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+            vm.ctx.none()
+        }
     }
 
     #[derive(FromArgs, Clone)]
@@ -3593,6 +3598,11 @@ mod _io {
             let mut buffer = self.buffer(vm)?;
             let pos = pos.try_usize(vm)?;
             Ok(buffer.truncate(pos))
+        }
+
+        #[pygetset]
+        fn line_buffering(&self) -> bool {
+            false
         }
     }
 

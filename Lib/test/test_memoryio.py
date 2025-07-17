@@ -940,8 +940,6 @@ class CStringIOTest(PyStringIOTest):
     def test_seek(self):
         super().test_seek()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_textio_properties(self):
         super().test_textio_properties()
 
@@ -1046,8 +1044,6 @@ class CStringIOPickleTest(PyStringIOPickleTest):
     def test_relative_seek(self):
         super().test_relative_seek()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_textio_properties(self):
         super().test_textio_properties()
 
