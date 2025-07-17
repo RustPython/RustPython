@@ -37,7 +37,7 @@ jobs:
       packages: none
       pull-requests: read
       security-events: none
-    if: ${{ (startsWith(github.ref, 'refs/heads/CI-CD-Patch-')) && !cancelled() }}
+    if: ${{ !cancelled() }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     continue-on-error: ${{ matrix.experimental }}
