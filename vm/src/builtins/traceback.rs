@@ -65,24 +65,56 @@ impl PyTraceback {
 
     #[pygetset(setter)]
     fn set_tb_next(&self, value: Option<PyRef<Self>>, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(ref new_tb) = value {
-            // Check for direct loop (tb.tb_next = tb)
-            if std::ptr::eq(self as *const _, new_tb.deref().deref() as *const _) {
-                return Err(vm.new_value_error("circular reference in traceback chain".to_owned()));
-            }
+        // Check for circular references using Floyd's cycle detection algorithm
+        if let Some(ref _new_tb) = value {
+            // Temporarily make the assignment to simulate the new chain
+            let old_next = self.next.lock().clone();
+            *self.next.lock() = value.clone();
             
-            // Check for indirect loops by walking the chain
-            let mut current = new_tb.tb_next();
-            while let Some(ref tb) = current {
-                if std::ptr::eq(self as *const _, tb.deref().deref() as *const _) {
-                    return Err(vm.new_value_error("circular reference in traceback chain".to_owned()));
-                }
-                current = tb.tb_next();
+            // Use Floyd's cycle detection on the chain starting from self
+            let has_cycle = Self::has_cycle_from(self);
+            
+            // Restore the original state
+            *self.next.lock() = old_next;
+            
+            if has_cycle {
+                return Err(vm.new_value_error("circular reference in traceback chain".to_owned()));
             }
         }
         
         *self.next.lock() = value;
         Ok(())
+    }
+    
+    /// Detect cycles in traceback chain using Floyd's cycle detection algorithm
+    fn has_cycle_from(start: &PyTraceback) -> bool {
+        let mut slow = start.tb_next();
+        let mut fast = start.tb_next();
+        
+        while let (Some(slow_tb), Some(fast_tb)) = (&slow, &fast) {
+            // Move slow pointer one step
+            slow = slow_tb.tb_next();
+            
+            // Move fast pointer two steps
+            fast = fast_tb.tb_next();
+            if let Some(ref fast_tb2) = fast {
+                fast = fast_tb2.tb_next();
+            } else {
+                break;
+            }
+            
+            // Check if slow and fast pointers meet (cycle detected)
+            if let (Some(slow_ptr), Some(fast_ptr)) = (&slow, &fast) {
+                if std::ptr::eq(
+                    slow_ptr.deref().deref() as *const PyTraceback,
+                    fast_ptr.deref().deref() as *const PyTraceback
+                ) {
+                    return true;
+                }
+            }
+        }
+        
+        false
     }
 }
 
