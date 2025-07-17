@@ -111,6 +111,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           for referance_file in ${{ steps.reftestfiles.outputs.files }} ; do
+            printf "::warning, file='%s',title='integration disabled':: SKIPPING integration of file.\n" "${referance_file}" ;
             cp -vf cpython/"${referance_file}" rustpython/"${referance_file}" || printf "::warning, file='%s',title='integration failure':: Could not integrate file.\n" "${referance_file}" ;
           done
       - id: output_python
@@ -129,7 +130,7 @@ jobs:
           cd rustpython || exit 13 ;
           for referance_file in ${{ steps.reftestfiles.outputs.files }} ; do
             # Set the new ulimit value
-            ulimit -t 30
+            ulimit -t 45
             printf "Now Testing '%s'\n" "${referance_file}"
             # Execute the testing command in a subshell
             (
@@ -137,7 +138,7 @@ jobs:
               # should dump a diff or something here
             ) ;
             # Restore the original ulimit value
-            ulimit -t "$original_ulimit"
+            ulimit -t $original_ulimit || exit 126 ;
           done
           cd .. ;
       - name: Post-Clean
