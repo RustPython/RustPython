@@ -26,7 +26,7 @@ env:
   PYTHON_OLD_EXTRA: "${{ vars.PYTHON_OLD_EXTRA }}"  # For Older Python versions (Extra coverage)
   PYTHON_EXPERIMENTAL: "${{ vars.PYTHON_EXPERIMENTAL }}"  # For future Python versions
   # Define the referance files to pull as a file glob pattern
-  TEST_MATCH_PATTERN: "Lib/tests/*.py"
+  TEST_MATCH_PATTERN: "Lib/test/*.py"
 
 jobs:
   TEST-5974:
@@ -89,7 +89,6 @@ jobs:
         id: reftestfiles
         shell: bash
         run: |
-          ls -lap . ;
           cd cpython ;
           ls -lap . ;
           FILES=$(git ls-files --exclude-standard -- ${{ env.TEST_MATCH_PATTERN }} )
@@ -112,7 +111,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           for referance_file in ${{ steps.reftestfiles.outputs.files }} ; do
-            cp -vf cpython/"${referance_file}" rustpython/Lib/tests/$(basename "${referance_file}") || printf "::warning, file='%s',title='integration failure':: Could not integrate file.\n" "${referance_file}" ;
+            cp -vf cpython/"${referance_file}" rustpython/"${referance_file}" || printf "::warning, file='%s',title='integration failure':: Could not integrate file.\n" "${referance_file}" ;
           done
       - id: output_python
         name: "bootstrap Python"
