@@ -44,8 +44,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]  # disabled , macos-14, macos-15, windows-latest]
-        python-version: ["${{ vars.PYTHON_OLD_MIN }}", "${{ vars.PYTHON_OLD_EXTRA }}", "${{ vars.PYTHON_DEFAULT }}", "${{ vars.PYTHON_EXPERIMENTAL }}"]
+        os: [ubuntu-latest, macos-15, windows-latest]
+        python-version: ["${{ vars.PYTHON_DEFAULT }}"] # skip fo now ["${{ vars.PYTHON_OLD_MIN }}", "${{ vars.PYTHON_OLD_EXTRA }}", "${{ vars.PYTHON_DEFAULT }}", "${{ vars.PYTHON_EXPERIMENTAL }}"]
         experimental: [true]
         include:
           - os: ubuntu-latest
@@ -63,6 +63,7 @@ jobs:
     outputs:
       bootstrap_status: ${{ steps.smoke_testing.outcome }}
     env:
+      OS: ${{ runner.os }}
       PYTHON_VERSION: ${{ matrix.python-version }}
     steps:
       - name: Checkout RustPython repository
@@ -73,6 +74,18 @@ jobs:
           path: rustpython
           # ref: 
           sparse-checkout-cone-mode: false
+      - name: Pre-Test Build check
+        id: build_testing
+        shell: bash
+        if: ${{ !cancelled() }}
+        run: |
+          cd rustpython || exit 13 ;
+            printf "Now Building '%s'\n" ""
+            # Execute the testing command in a subshell
+            (
+              RUSTPYTHONPATH=Lib cargo run --release -- --version || printf "::error, title='build failure':: Could not pass build step for version check.\n" ;
+            ) ;
+          cd .. ;
       - id: cpython
         name: Fetch Cpython
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -84,7 +97,7 @@ jobs:
           sparse-checkout: |
             Lib/test
           sparse-checkout-cone-mode: true
-        # checkout ${{ matrix.python-version }}
+          ref: '${{ matrix.python-version }}'
       - name: Enumerate Referance Lib Files
         id: reftestfiles
         shell: bash
@@ -111,21 +124,8 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           for referance_file in ${{ steps.reftestfiles.outputs.files }} ; do
-            printf "::warning, file='%s',title='integration disabled':: SKIPPING integration of file.\n" "${referance_file}" ;
-            #cp -vf cpython/"${referance_file}" rustpython/"${referance_file}" || printf "::warning, file='%s',title='integration failure':: Could not integrate file.\n" "${referance_file}" ;
+            cp -vf cpython/"${referance_file}" rustpython/"${referance_file}" || printf "::warning, file='%s',title='integration failure':: Could not integrate file.\n" "${referance_file}" ;
           done
-      - name: Pre-Test Build check
-        id: build_testing
-        shell: bash
-        if: ${{ !cancelled() }}
-        run: |
-          cd rustpython || exit 13 ;
-            printf "Now Building '%s'\n" ""
-            # Execute the testing command in a subshell
-            (
-              RUSTPYTHONPATH=Lib cargo run --release -- --version || printf "::error, title='build failure':: Could not pass build step for version check.\n" ;
-            ) ;
-          cd .. ;
       - id: output_python
         name: "bootstrap Python"
         if: ${{ !cancelled() }}
@@ -142,16 +142,21 @@ jobs:
         run: |
           cd rustpython || exit 13 ;
           for referance_file in ${{ steps.reftestfiles.outputs.files }} ; do
-            # Set the new ulimit value
-            ulimit -t 180
+            if [[ "${OS}" != "Windows" ]] ; then
+              # Set the new ulimit value
+              ulimit -t 180
+              # TODO: RustPython workaround Windows timeout for hangs
+            fi ;
             printf "Now Testing '%s'\n" "${referance_file}"
             # Execute the testing command in a subshell
             (
               RUSTPYTHONPATH=Lib cargo run --release -- Lib/test/$(basename "${referance_file}") || printf "::error, file='%s',title='testing failure':: Could not pass tests for file.\n" "${referance_file}" ;
               # should dump a diff or something here
             ) ;
-            # Restore the original ulimit value
-            ulimit -t $original_ulimit || exit 126 ;
+            if [[ "${OS}" != "Windows" ]] ; then
+              # Restore the original ulimit value
+              ulimit -t $original_ulimit || exit 126 ;
+            fi ;
           done
           cd .. ;
       - name: Post-Clean
