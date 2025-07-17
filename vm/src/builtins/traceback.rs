@@ -1,4 +1,5 @@
 use rustpython_common::lock::PyMutex;
+use std::ops::Deref;
 
 use super::{PyType, PyTypeRef};
 use crate::{
@@ -63,8 +64,25 @@ impl PyTraceback {
     }
 
     #[pygetset(setter)]
-    fn set_tb_next(&self, value: Option<PyRef<Self>>) {
+    fn set_tb_next(&self, value: Option<PyRef<Self>>, vm: &VirtualMachine) -> PyResult<()> {
+        if let Some(ref new_tb) = value {
+            // Check for direct loop (tb.tb_next = tb)
+            if std::ptr::eq(self as *const _, new_tb.deref().deref() as *const _) {
+                return Err(vm.new_value_error("circular reference in traceback chain".to_owned()));
+            }
+            
+            // Check for indirect loops by walking the chain
+            let mut current = new_tb.tb_next();
+            while let Some(ref tb) = current {
+                if std::ptr::eq(self as *const _, tb.deref().deref() as *const _) {
+                    return Err(vm.new_value_error("circular reference in traceback chain".to_owned()));
+                }
+                current = tb.tb_next();
+            }
+        }
+        
         *self.next.lock() = value;
+        Ok(())
     }
 }
 
