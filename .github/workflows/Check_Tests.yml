@@ -123,11 +123,12 @@ jobs:
             printf "Now Building '%s'\n" ""
             # Execute the testing command in a subshell
             (
-              RUSTPYTHONPATH=Lib cargo run --release --version || printf "::error, title='build failure':: Could not pass build step for version check.\n" ;
+              RUSTPYTHONPATH=Lib cargo run --release -- --version || printf "::error, title='build failure':: Could not pass build step for version check.\n" ;
             ) ;
           cd .. ;
       - id: output_python
         name: "bootstrap Python"
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           printf "%s\n" "::group::bootstrap-python-env"
@@ -137,7 +138,7 @@ jobs:
       - name: Try Smoke Testing
         id: smoke_testing
         shell: bash
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
         run: |
           cd rustpython || exit 13 ;
           for referance_file in ${{ steps.reftestfiles.outputs.files }} ; do
@@ -146,7 +147,7 @@ jobs:
             printf "Now Testing '%s'\n" "${referance_file}"
             # Execute the testing command in a subshell
             (
-              RUSTPYTHONPATH=Lib cargo run --release Lib/test/$(basename "${referance_file}") || printf "::error, file='%s',title='testing failure':: Could not pass tests for file.\n" "${referance_file}" ;
+              RUSTPYTHONPATH=Lib cargo run --release -- Lib/test/$(basename "${referance_file}") || printf "::error, file='%s',title='testing failure':: Could not pass tests for file.\n" "${referance_file}" ;
               # should dump a diff or something here
             ) ;
             # Restore the original ulimit value
