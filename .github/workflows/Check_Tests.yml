@@ -89,7 +89,7 @@ jobs:
         id: reftestfiles
         shell: bash
         run: |
-          ls -lap ${{ github.workspace }}
+          ls -lap "${{ github.workspace }}"
           printf "\n\n"
           ls -lap .
           cd cpython
