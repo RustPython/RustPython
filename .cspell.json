@@ -73,6 +73,7 @@
     "jitting",
     "lossily",
     "makeunicodedata",
+    "mimalloc",
     "miri",
     "notrace",
     "openat",

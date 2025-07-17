@@ -39,6 +39,7 @@ pub use rustpython_derive::*;
 #[macro_use]
 pub(crate) mod macros;
 
+mod alloc;
 mod anystr;
 pub mod buffer;
 pub mod builtins;
@@ -84,6 +85,7 @@ pub mod warn;
 #[cfg(windows)]
 pub mod windows;
 
+pub use self::alloc::RustPythonAllocator;
 pub use self::compiler::source;
 pub use self::convert::{TryFromBorrowedObject, TryFromObject};
 pub use self::object::{
