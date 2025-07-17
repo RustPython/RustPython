@@ -1353,28 +1353,26 @@ mod _sqlite {
             self.isolation_level.deref().map(|x| x.to_owned())
         }
         #[pygetset(setter)]
-        fn set_isolation_level(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_isolation_level(
+            &self,
+            value: PySetterValue<Option<PyStrRef>>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             match value {
-                PySetterValue::Assign(new_value) => {
-                    let val = if vm.is_none(&new_value) {
-                        None
-                    } else {
-                        Some(new_value.try_into_value::<PyStrRef>(vm)?)
-                    };
-
-                    if let Some(val_str) = &val {
+                PySetterValue::Assign(value) => {
+                    if let Some(val_str) = &value {
                         begin_statement_ptr_from_isolation_level(val_str, vm)?;
                     }
 
                     // If setting isolation_level to None (auto-commit mode), commit any pending transaction
-                    if val.is_none() {
+                    if value.is_none() {
                         let db = self.db_lock(vm)?;
                         if !db.is_autocommit() {
                             // Keep the lock and call implicit_commit directly to avoid race conditions
                             db.implicit_commit(vm)?;
                         }
                     }
-                    let _ = unsafe { self.isolation_level.swap(val) };
+                    let _ = unsafe { self.isolation_level.swap(value) };
                     Ok(())
                 }
                 PySetterValue::Delete => Err(vm.new_attribute_error(
