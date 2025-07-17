@@ -155,7 +155,7 @@ jobs:
             printf "Now Testing '%s'\n" "${referance_file}"
             # Execute the testing command in a subshell
             (
-              RUSTPYTHONPATH=Lib cargo run --release -- Lib/test/$(basename "${referance_file}") || printf "::error, file='%s',title='testing-failure':: Could not pass tests for file.\n" "${referance_file}" >>&2 ;
+              RUSTPYTHONPATH=Lib cargo run --release -- Lib/test/$(basename "${referance_file}") || printf "::error, file='%s',title='testing-failure':: Could not pass tests for file.\n" "${referance_file}" >2 ;
               # should dump a diff or something here
             ) ;
             if [[ "${OS}" != "Windows" ]] ; then
