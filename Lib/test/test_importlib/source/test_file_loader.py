@@ -672,10 +672,9 @@ class SourceLoaderBadBytecodeTest:
                 os.chmod(bytecode_path, stat.S_IWUSR)
 
 
-# TODO: RUSTPYTHON
-# class SourceLoaderBadBytecodeTestPEP451(
-#         SourceLoaderBadBytecodeTest, BadBytecodeTestPEP451):
-#     pass
+class SourceLoaderBadBytecodeTestPEP451(
+        SourceLoaderBadBytecodeTest, BadBytecodeTestPEP451):
+    pass
 
 
 # (Frozen_SourceBadBytecodePEP451,
@@ -772,10 +771,9 @@ class SourcelessLoaderBadBytecodeTest:
         self._test_non_code_marshal(del_source=True)
 
 
-# TODO: RUSTPYTHON
-# class SourcelessLoaderBadBytecodeTestPEP451(SourcelessLoaderBadBytecodeTest,
-#         BadBytecodeTestPEP451):
-#     pass
+class SourcelessLoaderBadBytecodeTestPEP451(SourcelessLoaderBadBytecodeTest,
+        BadBytecodeTestPEP451):
+    pass
 
 
 # (Frozen_SourcelessBadBytecodePEP451,
