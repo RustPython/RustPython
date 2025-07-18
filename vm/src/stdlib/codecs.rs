@@ -286,12 +286,12 @@ mod _codecs {
         delegate_pycodecs!(charmap_build, args, vm)
     }
     #[pyfunction]
-    fn utf_16_le_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_le_encode, args, vm)
+    fn utf_16_le_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        do_codec!(utf16_le::encode, args, vm)
     }
     #[pyfunction]
-    fn utf_16_le_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_le_decode, args, vm)
+    fn utf_16_le_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        do_codec!(utf16_le::decode, args, vm)
     }
     #[pyfunction]
     fn utf_16_be_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
