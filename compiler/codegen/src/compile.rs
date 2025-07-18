@@ -1986,6 +1986,45 @@ impl Compiler<'_> {
         is_forbidden_name(name)
     }
 
+    /// Compile function annotations (matching CPython's compiler_visit_annotations)
+    fn compiler_visit_annotations(
+        &mut self,
+        parameters: &Parameters,
+        returns: Option<&Expr>,
+    ) -> CompileResult<u32> {
+        let mut num_annotations = 0;
+
+        // Handle return annotation first
+        if let Some(annotation) = returns {
+            self.emit_load_const(ConstantData::Str {
+                value: "return".into(),
+            });
+            self.compile_annotation(annotation)?;
+            num_annotations += 1;
+        }
+
+        // Handle parameter annotations
+        let parameters_iter = std::iter::empty()
+            .chain(&parameters.posonlyargs)
+            .chain(&parameters.args)
+            .chain(&parameters.kwonlyargs)
+            .map(|x| &x.parameter)
+            .chain(parameters.vararg.as_deref())
+            .chain(parameters.kwarg.as_deref());
+
+        for param in parameters_iter {
+            if let Some(annotation) = &param.annotation {
+                self.emit_load_const(ConstantData::Str {
+                    value: self.mangle(param.name.as_str()).into_owned().into(),
+                });
+                self.compile_annotation(annotation)?;
+                num_annotations += 1;
+            }
+        }
+
+        Ok(num_annotations)
+    }
+
     /// Helper function to compile function body
     fn compile_function_body_inner(
         &mut self,
@@ -2199,12 +2238,6 @@ impl Compiler<'_> {
             code = self.exit_scope();
             self.ctx = prev_ctx;
 
-            // Load the type params tuple back onto the stack
-            // .type_params is a Cell variable, so use LoadDeref
-            let dot_type_params = self.name(".type_params");
-            emit!(self, Instruction::LoadDeref(dot_type_params));
-            // Stack now has: [..., type_params_tuple]
-
             // Load defaults/kwdefaults from arguments passed to TypeParams scope
             // The TypeParams scope receives these as parameters
             // We need to ensure the varnames are set up correctly
@@ -2218,7 +2251,7 @@ impl Compiler<'_> {
                     info.metadata.varnames.insert(".kwdefaults".to_owned());
                 }
 
-                // Now load the arguments
+                // Now load the arguments in correct order for make_closure
                 if have_defaults {
                     emit!(self, Instruction::LoadFast(0));
                 }
@@ -2228,16 +2261,32 @@ impl Compiler<'_> {
                 }
             }
 
-            // Create function object inside the type params scope
-            self.make_closure(code, func_flags)?;
-            // Stack now has: [..., type_params_tuple, function]
+            // Compile annotations in TypeParams scope (after function body)
+            let num_annotations = self.compiler_visit_annotations(parameters, returns)?;
+            if num_annotations > 0 {
+                func_flags |= bytecode::MakeFunctionFlags::ANNOTATIONS;
+                emit!(
+                    self,
+                    Instruction::BuildMap {
+                        size: num_annotations,
+                    }
+                );
+            }
 
-            // SWAP to put function after type params on stack
-            // Stack has [type_params_tuple, function], we want [function, type_params_tuple]
-            // So swap the top two elements
-            emit!(self, Instruction::Swap { index: 1 });
+            // Create function object inside the type params scope
+            // Stack order for make_closure: defaults?, kwdefaults?, annotations?, closure?
+            // Do NOT include TYPE_PARAMS flag here - it's set separately via intrinsic
+            self.make_closure(code, func_flags)?;
+            // Stack now has: [..., function]
+
+            // Load the type params tuple after creating the function
+            // .type_params is a Cell variable, so use LoadDeref
+            let dot_type_params = self.name(".type_params");
+            emit!(self, Instruction::LoadDeref(dot_type_params));
+            // Stack now has: [..., function, type_params_tuple]
 
             // SET_FUNCTION_TYPE_PARAMS intrinsic
+            // Expects stack: [function, type_params_tuple]
             emit!(
                 self,
                 Instruction::CallIntrinsic2 {
@@ -2287,6 +2336,7 @@ impl Compiler<'_> {
             if have_kwdefaults {
                 func_flags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
             }
+
             self.current_code_info()
                 .flags
                 .set(bytecode::CodeFlags::IS_COROUTINE, is_async);
