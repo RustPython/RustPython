@@ -1,6 +1,6 @@
-use super::{PyStrRef, PyType, PyTypeRef};
+use super::{PyStrRef, PyType, PyTypeRef, PyWtf8Str};
 use crate::{
-    Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     convert::ToPyObject,
     protocol::PyNumberMethods,
@@ -53,8 +53,8 @@ impl PyNone {
 
 impl Representable for PyNone {
     #[inline]
-    fn repr(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        Ok(vm.ctx.names.None.to_owned())
+    fn repr(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
+        Ok(vm.ctx.names.None.to_owned().into_wtf8())
     }
 
     #[cold]
@@ -110,8 +110,8 @@ impl PyNotImplemented {
 
 impl Representable for PyNotImplemented {
     #[inline]
-    fn repr(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        Ok(vm.ctx.names.NotImplemented.to_owned())
+    fn repr(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
+        Ok(vm.ctx.names.NotImplemented.to_owned().into_wtf8())
     }
 
     #[cold]

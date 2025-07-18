@@ -1,4 +1,4 @@
-use super::{PyStr, PyStrRef, PyType, PyTypeRef, PyWeak};
+use super::{PyStr, PyStrRef, PyType, PyTypeRef, PyWeak, PyWtf8Str};
 use crate::{
     Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
     class::PyClassImpl,
@@ -220,8 +220,8 @@ impl AsMapping for PyWeakProxy {
 
 impl Representable for PyWeakProxy {
     #[inline]
-    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        zelf.try_upgrade(vm)?.repr(vm)
+    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
+        zelf.try_upgrade(vm)?.repr_wtf8(vm)
     }
 
     #[cold]

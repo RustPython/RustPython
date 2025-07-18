@@ -1,7 +1,8 @@
 use super::VirtualMachine;
 use crate::stdlib::warnings;
 use crate::{
-    builtins::{PyInt, PyIntRef, PyStr, PyStrRef},
+    PyRef,
+    builtins::{PyInt, PyIntRef, PyStrRef, pystr::PyWtf8Str},
     object::{AsObject, PyObject, PyObjectRef, PyResult},
     protocol::{PyIterReturn, PyNumberBinaryOp, PyNumberTernaryOp, PySequence},
     types::PyComparisonOp,
@@ -491,14 +492,14 @@ impl VirtualMachine {
     }
 
     // PyObject_Format
-    pub fn format(&self, obj: &PyObject, format_spec: PyStrRef) -> PyResult<PyStrRef> {
+    pub fn format_wtf8(&self, obj: &PyObject, format_spec: PyStrRef) -> PyResult<PyRef<PyWtf8Str>> {
         if format_spec.is_empty() {
-            let obj = match obj.to_owned().downcast_exact::<PyStr>(self) {
+            let obj = match obj.to_owned().downcast_exact::<PyWtf8Str>(self) {
                 Ok(s) => return Ok(s.into_pyref()),
                 Err(obj) => obj,
             };
             if obj.class().is(self.ctx.types.int_type) {
-                return obj.str(self);
+                return obj.str_wtf8(self);
             }
         }
         let bound_format = self
@@ -516,6 +517,9 @@ impl VirtualMachine {
                 &result.class().name()
             ))
         })
+    }
+    pub fn format(&self, obj: &PyObject, format_spec: PyStrRef) -> PyResult<PyStrRef> {
+        self.format_wtf8(obj, format_spec)?.try_into_utf8(self)
     }
 
     // https://docs.python.org/3/reference/expressions.html#membership-test-operations

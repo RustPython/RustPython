@@ -1,6 +1,6 @@
 use super::{
     PositionIterInternal, PyDictRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef,
-    PyType, PyTypeRef,
+    PyType, PyTypeRef, PyWtf8Str,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
@@ -547,7 +547,7 @@ impl PyRef<PyBytes> {
     /// see https://docs.python.org/3/library/codecs.html#standard-encodings
     /// currently, only 'utf-8' and 'ascii' implemented
     #[pymethod]
-    fn decode(self, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn decode(self, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
         bytes_decode(self.into(), args, vm)
     }
 }

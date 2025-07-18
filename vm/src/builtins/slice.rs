@@ -1,6 +1,6 @@
 // sliceobject.{h,c} in CPython
 // spell-checker:ignore sliceobject
-use super::{PyGenericAlias, PyStrRef, PyTupleRef, PyType, PyTypeRef};
+use super::{PyGenericAlias, PyStrRef, PyTupleRef, PyType, PyTypeRef, PyWtf8Str};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -333,8 +333,8 @@ impl PyEllipsis {
 
 impl Representable for PyEllipsis {
     #[inline]
-    fn repr(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        Ok(vm.ctx.names.Ellipsis.to_owned())
+    fn repr(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
+        Ok(vm.ctx.names.Ellipsis.to_owned().into_wtf8())
     }
 
     #[cold]

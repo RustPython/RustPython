@@ -120,7 +120,7 @@ mod _io {
         TryFromBorrowedObject, TryFromObject,
         builtins::{
             PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyMemoryView, PyStr,
-            PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
+            PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyWtf8Str,
         },
         class::StaticType,
         common::lock::{
@@ -1579,7 +1579,7 @@ mod _io {
         }
 
         #[pyslot]
-        fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
             let name_repr = repr_file_obj_name(zelf, vm)?;
             let cls = zelf.class();
             let slot_name = cls.slot_name();
@@ -1588,11 +1588,11 @@ mod _io {
             } else {
                 format!("<{slot_name}>")
             };
-            Ok(vm.ctx.new_str(repr))
+            Ok(vm.ctx.new_str(repr).into_wtf8())
         }
 
         #[pymethod]
-        fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
             Self::slot_repr(&zelf, vm)
         }
 

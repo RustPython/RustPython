@@ -1,4 +1,4 @@
-use super::{PyDict, PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef};
+use super::{PyDict, PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef, PyWtf8Str};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyStrInterned, pystr::AsPyStr},
@@ -207,12 +207,14 @@ impl GetAttr for PyModule {
 
 impl Representable for PyModule {
     #[inline]
-    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
         let importlib = vm.import("_frozen_importlib", 0)?;
         let module_repr = importlib.get_attr("_module_repr", vm)?;
         let repr = module_repr.call((zelf.to_owned(),), vm)?;
-        repr.downcast()
-            .map_err(|_| vm.new_type_error("_module_repr did not return a string"))
+        Ok(repr
+            .downcast::<PyStr>()
+            .map_err(|_| vm.new_type_error("_module_repr did not return a string"))?
+            .into_wtf8())
     }
 
     #[cold]
