@@ -387,6 +387,9 @@ impl Compiler<'_> {
 
     /// 현재 scope의 SymbolTable 가져오기
     fn current_symbol_table(&self) -> &SymbolTable {
+        if self.symbol_table_stack.is_empty() {
+            panic!("symbol_table_stack is empty! This is a compiler bug.");
+        }
         let index = self.symbol_table_stack.len() - 1;
         &self.symbol_table_stack[index]
     }
@@ -1986,6 +1989,62 @@ impl Compiler<'_> {
         is_forbidden_name(name)
     }
 
+    /// Compile default arguments (matching CPython's compiler_default_arguments)
+    fn compiler_default_arguments(
+        &mut self,
+        parameters: &Parameters,
+    ) -> CompileResult<bytecode::MakeFunctionFlags> {
+        let mut funcflags = bytecode::MakeFunctionFlags::empty();
+
+        // Handle positional defaults
+        let defaults: Vec<_> = std::iter::empty()
+            .chain(&parameters.posonlyargs)
+            .chain(&parameters.args)
+            .filter_map(|x| x.default.as_deref())
+            .collect();
+
+        if !defaults.is_empty() {
+            // Compile defaults and build tuple
+            for default in &defaults {
+                self.compile_expression(default)?;
+            }
+            emit!(
+                self,
+                Instruction::BuildTuple {
+                    size: defaults.len().to_u32()
+                }
+            );
+            funcflags |= bytecode::MakeFunctionFlags::DEFAULTS;
+        }
+
+        // Handle keyword-only defaults
+        let mut kw_with_defaults = vec![];
+        for kwonlyarg in &parameters.kwonlyargs {
+            if let Some(default) = &kwonlyarg.default {
+                kw_with_defaults.push((&kwonlyarg.parameter, default));
+            }
+        }
+
+        if !kw_with_defaults.is_empty() {
+            // Compile kwdefaults and build dict
+            for (arg, default) in &kw_with_defaults {
+                self.emit_load_const(ConstantData::Str {
+                    value: arg.name.as_str().into(),
+                });
+                self.compile_expression(default)?;
+            }
+            emit!(
+                self,
+                Instruction::BuildMap {
+                    size: kw_with_defaults.len().to_u32(),
+                }
+            );
+            funcflags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
+        }
+
+        Ok(funcflags)
+    }
+
     /// Compile function annotations (matching CPython's compiler_visit_annotations)
     fn compiler_visit_annotations(
         &mut self,
@@ -2093,200 +2152,82 @@ impl Compiler<'_> {
         is_async: bool,
         type_params: Option<&TypeParams>,
     ) -> CompileResult<()> {
+        // Following CPython's compiler_function structure
         self.prepare_decorators(decorator_list)?;
 
-        // Prepare defaults and kwdefaults before entering function
-        let defaults: Vec<_> = std::iter::empty()
-            .chain(&parameters.posonlyargs)
-            .chain(&parameters.args)
-            .filter_map(|x| x.default.as_deref())
-            .collect();
-        let have_defaults = !defaults.is_empty();
+        // Get firstlineno
+        let firstlineno = body
+            .first()
+            .map(|s| s.range().start().to_u32())
+            .unwrap_or(1);
 
-        // Compile defaults before entering function scope
-        if have_defaults {
-            // Construct a tuple:
-            let size = defaults.len().to_u32();
-            for element in &defaults {
-                self.compile_expression(element)?;
-            }
-            emit!(self, Instruction::BuildTuple { size });
-        }
+        // compiler_default_arguments - compile defaults and return funcflags
+        let funcflags = self.compiler_default_arguments(parameters)?;
 
-        // Prepare keyword-only defaults
-        let mut kw_with_defaults = vec![];
-        for kwonlyarg in &parameters.kwonlyargs {
-            if let Some(default) = &kwonlyarg.default {
-                kw_with_defaults.push((&kwonlyarg.parameter, default));
-            }
-        }
-
-        let have_kwdefaults = !kw_with_defaults.is_empty();
-        if have_kwdefaults {
-            let default_kw_count = kw_with_defaults.len();
-            for (arg, default) in kw_with_defaults.iter() {
-                self.emit_load_const(ConstantData::Str {
-                    value: arg.name.as_str().into(),
-                });
-                self.compile_expression(default)?;
-            }
-            emit!(
-                self,
-                Instruction::BuildMap {
-                    size: default_kw_count.to_u32(),
-                }
-            );
-        }
-
-        // Handle generic type parameters (PEP 695)
         let is_generic = type_params.is_some();
-        let code;
-        let doc_str;
+        let mut num_typeparam_args = 0;
 
         if is_generic {
-            // For generic functions, we need to enter TypeParams scope first
-            // Count how many args to pass to type params scope
-            let mut num_typeparam_args = 0;
-            if have_defaults {
+            // Count args to pass to type params scope
+            if funcflags.contains(bytecode::MakeFunctionFlags::DEFAULTS) {
                 num_typeparam_args += 1;
             }
-            if have_kwdefaults {
+            if funcflags.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
                 num_typeparam_args += 1;
             }
 
-            // SWAP if we have both defaults and kwdefaults
+            // SWAP if we have both
             if num_typeparam_args == 2 {
                 emit!(self, Instruction::Swap { index: 2 });
             }
 
-            // Enter type params scope first
+            // Enter type params scope (like CPython's compiler_enter_scope)
             let type_params_name = format!("<generic parameters of {}>", name);
-
-            // Push output for TypeParams scope with correct argcount
-            // Note: push_output will call push_symbol_table internally
             self.push_output(
                 bytecode::CodeFlags::IS_OPTIMIZED | bytecode::CodeFlags::NEW_LOCALS,
                 0,
-                num_typeparam_args,
+                num_typeparam_args as u32,
                 0,
                 type_params_name,
             );
 
-            // Compile type parameters in the TypeParams scope (we're already in it)
+            // Compile type parameters
             self.compile_type_params(type_params.unwrap())?;
-            // Stack now has: [..., type_params_tuple]
 
-            // Store the type params tuple in .type_params (matching CPython)
-            // .type_params is a Cell variable, so use StoreDeref
-            let dot_type_params = self.name(".type_params");
-            emit!(self, Instruction::Duplicate);
-            emit!(self, Instruction::StoreDeref(dot_type_params));
-            // Stack still has: [..., type_params_tuple]
-
-            // Now enter the function scope within the TypeParams scope
-            self.enter_function(name, parameters)?;
-            let mut func_flags = bytecode::MakeFunctionFlags::empty();
-            if have_defaults {
-                func_flags |= bytecode::MakeFunctionFlags::DEFAULTS;
+            // Load defaults/kwdefaults with LOAD_FAST
+            for i in 0..num_typeparam_args {
+                emit!(self, Instruction::LoadFast(i as u32));
             }
-            if have_kwdefaults {
-                func_flags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
-            }
-            func_flags |= bytecode::MakeFunctionFlags::TYPE_PARAMS;
+        }
 
-            self.current_code_info()
-                .flags
-                .set(bytecode::CodeFlags::IS_COROUTINE, is_async);
-
-            // remember to restore self.ctx.in_loop to the original after the function is compiled
-            let prev_ctx = self.ctx;
-
-            self.ctx = CompileContext {
-                loop_data: None,
-                in_class: prev_ctx.in_class,
-                func: if is_async {
-                    FunctionContext::AsyncFunction
-                } else {
-                    FunctionContext::Function
-                },
-            };
-
-            // Set qualname using the new method
-            self.set_qualname();
-
-            let (doc_str_tmp, body) = split_doc(body, &self.opts);
-            doc_str = doc_str_tmp;
-
-            self.current_code_info()
-                .metadata
-                .consts
-                .insert_full(ConstantData::None);
-
-            self.compile_statements(body)?;
-
-            // Emit None at end:
-            match body.last() {
-                Some(Stmt::Return(_)) => {
-                    // the last instruction is a ReturnValue already, we don't need to emit it
+        // Compile annotations (matching CPython's compiler_visit_annotations)
+        let mut annotations_flag = bytecode::MakeFunctionFlags::empty();
+        let num_annotations = self.compiler_visit_annotations(parameters, returns)?;
+        if num_annotations > 0 {
+            annotations_flag = bytecode::MakeFunctionFlags::ANNOTATIONS;
+            emit!(
+                self,
+                Instruction::BuildMap {
+                    size: num_annotations,
                 }
-                _ => {
-                    self.emit_return_const(ConstantData::None);
-                }
-            }
+            );
+        }
 
-            // Exit function scope
-            code = self.exit_scope();
-            self.ctx = prev_ctx;
+        // Compile function body (matching CPython's compiler_function_body)
+        let mut final_funcflags = funcflags | annotations_flag;
+        let (code, doc_str_data) =
+            self.compile_function_body_inner(name, parameters, body, is_async)?;
 
-            // Load defaults/kwdefaults from arguments passed to TypeParams scope
-            // The TypeParams scope receives these as parameters
-            // We need to ensure the varnames are set up correctly
-            if num_typeparam_args > 0 {
-                // Set up varnames for the TypeParams scope parameters
-                let info = self.current_code_info();
-                if have_defaults {
-                    info.metadata.varnames.insert(".defaults".to_owned());
-                }
-                if have_kwdefaults {
-                    info.metadata.varnames.insert(".kwdefaults".to_owned());
-                }
+        // Create the function object
+        self.make_closure(code, final_funcflags)?;
 
-                // Now load the arguments in correct order for make_closure
-                if have_defaults {
-                    emit!(self, Instruction::LoadFast(0));
-                }
-                if have_kwdefaults {
-                    let idx = if have_defaults { 1 } else { 0 };
-                    emit!(self, Instruction::LoadFast(idx));
-                }
-            }
+        // Handle type params if present
+        if is_generic {
+            // SWAP to get function on top
+            // Stack: [type_params_tuple, function] -> [function, type_params_tuple]
+            emit!(self, Instruction::Swap { index: 1 });
 
-            // Compile annotations in TypeParams scope (after function body)
-            let num_annotations = self.compiler_visit_annotations(parameters, returns)?;
-            if num_annotations > 0 {
-                func_flags |= bytecode::MakeFunctionFlags::ANNOTATIONS;
-                emit!(
-                    self,
-                    Instruction::BuildMap {
-                        size: num_annotations,
-                    }
-                );
-            }
-
-            // Create function object inside the type params scope
-            // Stack order for make_closure: defaults?, kwdefaults?, annotations?, closure?
-            // Do NOT include TYPE_PARAMS flag here - it's set separately via intrinsic
-            self.make_closure(code, func_flags)?;
-            // Stack now has: [..., function]
-
-            // Load the type params tuple after creating the function
-            // .type_params is a Cell variable, so use LoadDeref
-            let dot_type_params = self.name(".type_params");
-            emit!(self, Instruction::LoadDeref(dot_type_params));
-            // Stack now has: [..., function, type_params_tuple]
-
-            // SET_FUNCTION_TYPE_PARAMS intrinsic
-            // Expects stack: [function, type_params_tuple]
+            // Call INTRINSIC_SET_FUNCTION_TYPE_PARAMS
             emit!(
                 self,
                 Instruction::CallIntrinsic2 {
@@ -2294,150 +2235,51 @@ impl Compiler<'_> {
                 }
             );
 
-            // The TypeParams scope should return the function object
+            // Return the function object from type params scope
             emit!(self, Instruction::ReturnValue);
 
-            // Exit type params scope
+            // Exit type params scope and create closure
             let type_params_code = self.exit_scope();
 
-            // Create closure for type params scope
-            let closure_flags = bytecode::MakeFunctionFlags::empty();
-            self.make_closure(type_params_code, closure_flags)?;
+            // Make closure for type params code
+            self.make_closure(type_params_code, bytecode::MakeFunctionFlags::empty())?;
 
-            // Call the type params closure with the default arguments
+            // Call the closure
             if num_typeparam_args > 0 {
-                // SWAP to put closure after args
-                // Stack has [..., arg1, ..., argN, closure]
-                // We want [..., closure, arg1, ..., argN]
-                // So swap closure with the first arg
                 emit!(
                     self,
                     Instruction::Swap {
-                        index: num_typeparam_args as u32
+                        index: (num_typeparam_args + 1) as u32
                     }
                 );
                 emit!(
                     self,
                     Instruction::CallFunctionPositional {
-                        nargs: num_typeparam_args as u32,
+                        nargs: num_typeparam_args as u32
                     }
                 );
             } else {
-                // No args, just call with no arguments
+                // No arguments, just call the closure
                 emit!(self, Instruction::CallFunctionPositional { nargs: 0 });
             }
-        } else {
-            // Non-generic function: compile normally
-            self.enter_function(name, parameters)?;
-            let mut func_flags = bytecode::MakeFunctionFlags::empty();
-            if have_defaults {
-                func_flags |= bytecode::MakeFunctionFlags::DEFAULTS;
-            }
-            if have_kwdefaults {
-                func_flags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
-            }
-
-            self.current_code_info()
-                .flags
-                .set(bytecode::CodeFlags::IS_COROUTINE, is_async);
-
-            // remember to restore self.ctx.in_loop to the original after the function is compiled
-            let prev_ctx = self.ctx;
-
-            self.ctx = CompileContext {
-                loop_data: None,
-                in_class: prev_ctx.in_class,
-                func: if is_async {
-                    FunctionContext::AsyncFunction
-                } else {
-                    FunctionContext::Function
-                },
-            };
-
-            // Set qualname using the new method
-            self.set_qualname();
-
-            let (doc_str_tmp, body) = split_doc(body, &self.opts);
-            doc_str = doc_str_tmp;
-
-            self.current_code_info()
-                .metadata
-                .consts
-                .insert_full(ConstantData::None);
-
-            self.compile_statements(body)?;
-
-            // Emit None at end:
-            match body.last() {
-                Some(Stmt::Return(_)) => {
-                    // the last instruction is a ReturnValue already, we don't need to emit it
-                }
-                _ => {
-                    self.emit_return_const(ConstantData::None);
-                }
-            }
-
-            code = self.exit_scope();
-            self.ctx = prev_ctx;
-
-            // Prepare type annotations
-            let mut num_annotations = 0;
-
-            // Return annotation:
-            if let Some(annotation) = returns {
-                // key:
-                self.emit_load_const(ConstantData::Str {
-                    value: "return".into(),
-                });
-                // value:
-                self.compile_annotation(annotation)?;
-                num_annotations += 1;
-            }
-
-            let parameters_iter = std::iter::empty()
-                .chain(&parameters.posonlyargs)
-                .chain(&parameters.args)
-                .chain(&parameters.kwonlyargs)
-                .map(|x| &x.parameter)
-                .chain(parameters.vararg.as_deref())
-                .chain(parameters.kwarg.as_deref());
-            for param in parameters_iter {
-                if let Some(annotation) = &param.annotation {
-                    self.emit_load_const(ConstantData::Str {
-                        value: self.mangle(param.name.as_str()).into_owned().into(),
-                    });
-                    self.compile_annotation(annotation)?;
-                    num_annotations += 1;
-                }
-            }
-
-            if num_annotations > 0 {
-                func_flags |= bytecode::MakeFunctionFlags::ANNOTATIONS;
-                emit!(
-                    self,
-                    Instruction::BuildMap {
-                        size: num_annotations,
-                    }
-                );
-            }
-
-            // Create function normally for non-generic functions
-            self.make_closure(code, func_flags)?;
         }
 
-        if let Some(value) = doc_str {
+        // Handle docstring
+        if let Some((_, doc_const)) = doc_str_data {
             emit!(self, Instruction::Duplicate);
-            self.emit_load_const(ConstantData::Str {
-                value: value.into(),
-            });
+            self.emit_load_const(doc_const);
             emit!(self, Instruction::Rotate2);
             let doc = self.name("__doc__");
             emit!(self, Instruction::StoreAttr { idx: doc });
         }
 
+        // Apply decorators
         self.apply_decorators(decorator_list);
 
-        self.store_name(name)
+        // Store the function
+        self.store_name(name)?;
+
+        Ok(())
     }
 
     /// Determines if a variable should be CELL or FREE type
