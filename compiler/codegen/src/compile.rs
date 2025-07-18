@@ -1595,28 +1595,8 @@ impl Compiler<'_> {
                 });
 
                 if let Some(type_params) = type_params {
-                    // For TypeAlias, we don't create a new code object, just temporarily
-                    // switch symbol tables to make type params visible during value compilation
-
-                    // Find the TypeAlias scope in sub_tables
-                    let current_table = self.symbol_table_stack.last().unwrap();
-                    let typealias_scope = current_table
-                        .sub_tables
-                        .iter()
-                        .find(|st| st.name == "TypeAlias" && st.typ == CompilerScope::TypeParams)
-                        .expect("TypeAlias scope should exist in sub_tables")
-                        .clone();
-
-                    // Save current symbol table context
-                    let saved_symbol_table_index =
-                        self.code_stack.last().unwrap().symbol_table_index;
-
-                    // Temporarily push the TypeAlias scope
-                    self.symbol_table_stack.push(typealias_scope);
-                    let typealias_scope_idx = self.symbol_table_stack.len() - 1;
-
-                    // Update symbol table index in current code info
-                    self.code_stack.last_mut().unwrap().symbol_table_index = typealias_scope_idx;
+                    // For TypeAlias, we need to use push_symbol_table to properly handle the TypeAlias scope
+                    self.push_symbol_table();
 
                     // Compile type params and push to stack
                     self.compile_type_params(type_params)?;
@@ -1626,10 +1606,8 @@ impl Compiler<'_> {
                     self.compile_expression(value)?;
                     // Stack: [name, type_params_tuple, value]
 
-                    // Restore symbol table context
-                    self.symbol_table_stack.pop();
-                    self.code_stack.last_mut().unwrap().symbol_table_index =
-                        saved_symbol_table_index;
+                    // Pop the TypeAlias scope
+                    self.pop_symbol_table();
                 } else {
                     // Push None for type_params (matching CPython)
                     self.emit_load_const(ConstantData::None);
