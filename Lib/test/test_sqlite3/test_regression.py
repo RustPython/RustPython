@@ -409,8 +409,6 @@ class RegressionTests(unittest.TestCase):
         del ref
         support.gc_collect()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_del_isolation_level_segfault(self):
         with self.assertRaises(AttributeError):
             del self.con.isolation_level
