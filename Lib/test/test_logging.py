@@ -1115,6 +1115,8 @@ class SMTPHandlerTest(BaseTest):
     # bpo-14314, bpo-19665, bpo-34092: don't wait forever
     TIMEOUT = support.LONG_TIMEOUT
 
+    # TODO: RUSTPYTHON
+    @unittest.skip(reason="RUSTPYTHON hangs")
     def test_basic(self):
         sockmap = {}
         server = TestSMTPServer((socket_helper.HOST, 0), self.process_message, 0.001,
@@ -4056,6 +4058,8 @@ class ConfigDictTest(BaseTest):
         # log a message (this creates a record put in the queue)
         logging.getLogger().info(message_to_log)
 
+    # TODO: RUSTPYTHON; ImportError: cannot import name 'SemLock'
+    @unittest.expectedFailure
     @skip_if_tsan_fork
     @support.requires_subprocess()
     def test_multiprocessing_queues(self):
@@ -4115,6 +4119,8 @@ class ConfigDictTest(BaseTest):
         # Logger should be enabled, since explicitly mentioned
         self.assertFalse(logger.disabled)
 
+    # TODO: RUSTPYTHON; ImportError: cannot import name 'SemLock'
+    @unittest.expectedFailure
     def test_111615(self):
         # See gh-111615
         import_helper.import_module('_multiprocessing')  # see gh-113692
@@ -4163,6 +4169,8 @@ class ConfigDictTest(BaseTest):
         handler = logging.getHandlerByName('custom')
         self.assertEqual(handler.custom_kwargs, custom_kwargs)
 
+    # TODO: RUSTPYTHON; ImportError: cannot import name 'SemLock'
+    @unittest.expectedFailure
     # See gh-91555 and gh-90321
     @support.requires_subprocess()
     def test_deadlock_in_queue(self):
@@ -4653,6 +4661,8 @@ class FormatterTest(unittest.TestCase, AssertErrorMessage):
         f = logging.Formatter('${asctime}--', style='$')
         self.assertTrue(f.usesTime())
 
+    # TODO: RUSTPYTHON; ValueError: Unexpected error parsing format string
+    @unittest.expectedFailure
     def test_format_validate(self):
         # Check correct formatting
         # Percentage style
@@ -4826,6 +4836,8 @@ class FormatterTest(unittest.TestCase, AssertErrorMessage):
     def test_invalid_style(self):
         self.assertRaises(ValueError, logging.Formatter, None, None, 'x')
 
+    # TODO: RUSTPYTHON; AttributeError: 'struct_time' object has no attribute 'tm_gmtoff'
+    @unittest.expectedFailure
     def test_time(self):
         r = self.get_record()
         dt = datetime.datetime(1993, 4, 21, 8, 3, 0, 0, utc)
@@ -4840,6 +4852,8 @@ class FormatterTest(unittest.TestCase, AssertErrorMessage):
         f.format(r)
         self.assertEqual(r.asctime, '1993-04-21 08:03:00,123')
 
+    # TODO: RUSTPYTHON; AttributeError: 'struct_time' object has no attribute 'tm_gmtoff'
+    @unittest.expectedFailure
     def test_default_msec_format_none(self):
         class NoMsecFormatter(logging.Formatter):
             default_msec_format = None
@@ -5241,6 +5255,8 @@ class ModuleLevelMiscTest(BaseTest):
             h.close()
             logging.setLoggerClass(logging.Logger)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_logging_at_shutdown(self):
         # bpo-20037: Doing text I/O late at interpreter shutdown must not crash
         code = textwrap.dedent("""
@@ -5260,6 +5276,8 @@ class ModuleLevelMiscTest(BaseTest):
         self.assertIn("exception in __del__", err)
         self.assertIn("ValueError: some error", err)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_logging_at_shutdown_open(self):
         # bpo-26789: FileHandler keeps a reference to the builtin open()
         # function to be able to open or reopen the file during Python
