@@ -101,6 +101,9 @@ pub struct CodeInfo {
 
     // Block stack for tracking nested control structures
     pub fblock: Vec<crate::compile::FBlockInfo>,
+
+    // Reference to the symbol table for this scope
+    pub symbol_table_index: usize,
 }
 impl CodeInfo {
     pub fn finalize_code(mut self, optimize: u8) -> crate::InternalResult<CodeObject> {
@@ -122,6 +125,7 @@ impl CodeInfo {
             static_attributes: _,
             in_inlined_comp: _,
             fblock: _,
+            symbol_table_index: _,
         } = self;
 
         let CodeUnitMetadata {
@@ -318,7 +322,10 @@ impl CodeInfo {
                     continue 'process_blocks;
                 }
             }
-            stackdepth_push(&mut stack, &mut start_depths, block.next, depth);
+            // Only push next block if it's not NULL
+            if block.next != BlockIdx::NULL {
+                stackdepth_push(&mut stack, &mut start_depths, block.next, depth);
+            }
         }
         if DEBUG {
             eprintln!("DONE: {maxdepth}");

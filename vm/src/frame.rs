@@ -697,8 +697,11 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::Swap { index } => {
                 let len = self.state.stack.len();
-                let i = len - 1;
-                let j = len - 1 - index.get(arg) as usize;
+                let i = len - 1; // TOS index
+                let index_val = index.get(arg) as usize;
+                // SWAP(i) swaps TOS with element i positions down from TOS
+                // So the target index is len - index_val
+                let j = len - index_val;
                 self.state.stack.swap(i, j);
                 Ok(None)
             }

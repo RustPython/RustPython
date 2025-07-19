@@ -1012,6 +1012,28 @@ impl SymbolTableBuilder<'_> {
         context: ExpressionContext,
     ) -> SymbolTableResult {
         use ruff_python_ast::*;
+
+        // Check for expressions not allowed in type parameters scope
+        if let Some(table) = self.tables.last() {
+            if table.typ == CompilerScope::TypeParams {
+                if let Some(keyword) = match expression {
+                    Expr::Yield(_) | Expr::YieldFrom(_) => Some("yield"),
+                    Expr::Await(_) => Some("await"),
+                    Expr::Named(_) => Some("named"),
+                    _ => None,
+                } {
+                    return Err(SymbolTableError {
+                        error: format!(
+                            "{keyword} expression cannot be used within a type parameter"
+                        ),
+                        location: Some(
+                            self.source_code.source_location(expression.range().start()),
+                        ),
+                    });
+                }
+            }
+        }
+
         match expression {
             Expr::BinOp(ExprBinOp {
                 left,
