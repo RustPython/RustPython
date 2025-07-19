@@ -90,7 +90,10 @@ def dispatch(c, id, methodname, args=(), kwds={}):
     kind, result = c.recv()
     if kind == '#RETURN':
         return result
-    raise convert_to_error(kind, result)
+    try:
+        raise convert_to_error(kind, result)
+    finally:
+        del result  # break reference cycle
 
 def convert_to_error(kind, result):
     if kind == '#ERROR':
@@ -755,22 +758,29 @@ class BaseProxy(object):
     _address_to_local = {}
     _mutex = util.ForkAwareThreadLock()
 
+    # Each instance gets a `_serial` number. Unlike `id(...)`, this number
+    # is never reused.
+    _next_serial = 1
+
     def __init__(self, token, serializer, manager=None,
                  authkey=None, exposed=None, incref=True, manager_owned=False):
         with BaseProxy._mutex:
-            tls_idset = BaseProxy._address_to_local.get(token.address, None)
-            if tls_idset is None:
-                tls_idset = util.ForkAwareLocal(), ProcessLocalSet()
-                BaseProxy._address_to_local[token.address] = tls_idset
+            tls_serials = BaseProxy._address_to_local.get(token.address, None)
+            if tls_serials is None:
+                tls_serials = util.ForkAwareLocal(), ProcessLocalSet()
+                BaseProxy._address_to_local[token.address] = tls_serials
+
+            self._serial = BaseProxy._next_serial
+            BaseProxy._next_serial += 1
 
         # self._tls is used to record the connection used by this
         # thread to communicate with the manager at token.address
-        self._tls = tls_idset[0]
+        self._tls = tls_serials[0]
 
-        # self._idset is used to record the identities of all shared
-        # objects for which the current process owns references and
+        # self._all_serials is a set used to record the identities of all
+        # shared objects for which the current process owns references and
         # which are in the manager at token.address
-        self._idset = tls_idset[1]
+        self._all_serials = tls_serials[1]
 
         self._token = token
         self._id = self._token.id
@@ -833,7 +843,10 @@ class BaseProxy(object):
             conn = self._Client(token.address, authkey=self._authkey)
             dispatch(conn, None, 'decref', (token.id,))
             return proxy
-        raise convert_to_error(kind, result)
+        try:
+            raise convert_to_error(kind, result)
+        finally:
+            del result   # break reference cycle
 
     def _getvalue(self):
         '''
@@ -850,20 +863,20 @@ class BaseProxy(object):
         dispatch(conn, None, 'incref', (self._id,))
         util.debug('INCREF %r', self._token.id)
 
-        self._idset.add(self._id)
+        self._all_serials.add(self._serial)
 
         state = self._manager and self._manager._state
 
         self._close = util.Finalize(
             self, BaseProxy._decref,
-            args=(self._token, self._authkey, state,
-                  self._tls, self._idset, self._Client),
+            args=(self._token, self._serial, self._authkey, state,
+                  self._tls, self._all_serials, self._Client),
             exitpriority=10
             )
 
     @staticmethod
-    def _decref(token, authkey, state, tls, idset, _Client):
-        idset.discard(token.id)
+    def _decref(token, serial, authkey, state, tls, idset, _Client):
+        idset.discard(serial)
 
         # check whether manager is still alive
         if state is None or state.value == State.STARTED:
@@ -1159,15 +1172,19 @@ class ListProxy(BaseListProxy):
         self._callmethod('__imul__', (value,))
         return self
 
+    __class_getitem__ = classmethod(types.GenericAlias)
 
-DictProxy = MakeProxyType('DictProxy', (
+
+_BaseDictProxy = MakeProxyType('DictProxy', (
     '__contains__', '__delitem__', '__getitem__', '__iter__', '__len__',
     '__setitem__', 'clear', 'copy', 'get', 'items',
     'keys', 'pop', 'popitem', 'setdefault', 'update', 'values'
     ))
-DictProxy._method_to_typeid_ = {
+_BaseDictProxy._method_to_typeid_ = {
     '__iter__': 'Iterator',
     }
+class DictProxy(_BaseDictProxy):
+    __class_getitem__ = classmethod(types.GenericAlias)
 
 
 ArrayProxy = MakeProxyType('ArrayProxy', (
