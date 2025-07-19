@@ -72,6 +72,11 @@ mod stat {
 
     // TODO: RUSTPYTHON Support BSD
     // https://man.freebsd.org/cgi/man.cgi?stat(2)
+
+    #[cfg(target_os = "macos")]
+    #[pyattr]
+    pub const S_IFWHT: Mode = 0o160000;
+    #[cfg(not(target_os = "macos"))]
     #[pyattr]
     pub const S_IFWHT: Mode = 0;
 
