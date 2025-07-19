@@ -2084,8 +2084,7 @@ impl Compiler<'_> {
         Ok(num_annotations)
     }
 
-    /// Compile function body (matching CPython's compiler_function_body)
-    /// For generic functions, this is called within the type params scope
+    /// Compile function body and create function object (matching CPython's compiler_function_body)
     fn compile_function_body(
         &mut self,
         name: &str,
@@ -2093,8 +2092,8 @@ impl Compiler<'_> {
         body: &[Stmt],
         is_async: bool,
         funcflags: bytecode::MakeFunctionFlags,
-    ) -> CompileResult<Option<(String, ConstantData)>> {
-        // Enter function scope
+    ) -> CompileResult<Option<String>> {
+        // Always enter function scope (matching CPython)
         self.enter_function(name, parameters)?;
         self.current_code_info()
             .flags
@@ -2137,10 +2136,10 @@ impl Compiler<'_> {
         let code = self.exit_scope();
         self.ctx = prev_ctx;
 
-        // Create function object
+        // Create function object (matching CPython's compiler_make_closure call)
         self.make_closure(code, funcflags)?;
 
-        Ok(doc_str.map(|s| (s.to_string(), ConstantData::Str { value: s.into() })))
+        Ok(doc_str.map(|s| s.to_string()))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2231,13 +2230,22 @@ impl Compiler<'_> {
             );
         }
 
-        // Compile function body
+        // Compile function body (matching CPython's compiler_function_body)
         let final_funcflags = funcflags | annotations_flag;
-        let doc_str_data =
+        let doc_str =
             self.compile_function_body(name, parameters, body, is_async, final_funcflags)?;
 
         // Handle type params if present
         if is_generic {
+            // Handle docstring before wrapping in type params closure
+            if let Some(doc) = doc_str {
+                emit!(self, Instruction::Duplicate);
+                self.emit_load_const(ConstantData::Str { value: doc.into() });
+                emit!(self, Instruction::Rotate2);
+                let doc_attr = self.name("__doc__");
+                emit!(self, Instruction::StoreAttr { idx: doc_attr });
+            }
+
             // SWAP to get function on top
             // Stack: [type_params_tuple, function] -> [function, type_params_tuple]
             emit!(self, Instruction::Swap { index: 2 });
@@ -2277,15 +2285,15 @@ impl Compiler<'_> {
                 // No arguments, just call the closure
                 emit!(self, Instruction::CallFunctionPositional { nargs: 0 });
             }
-        }
-
-        // Handle docstring
-        if let Some((_, doc_const)) = doc_str_data {
-            emit!(self, Instruction::Duplicate);
-            self.emit_load_const(doc_const);
-            emit!(self, Instruction::Rotate2);
-            let doc = self.name("__doc__");
-            emit!(self, Instruction::StoreAttr { idx: doc });
+        } else {
+            // For non-generic functions, handle docstring here
+            if let Some(doc) = doc_str {
+                emit!(self, Instruction::Duplicate);
+                self.emit_load_const(ConstantData::Str { value: doc.into() });
+                emit!(self, Instruction::Rotate2);
+                let doc_attr = self.name("__doc__");
+                emit!(self, Instruction::StoreAttr { idx: doc_attr });
+            }
         }
 
         // Apply decorators
