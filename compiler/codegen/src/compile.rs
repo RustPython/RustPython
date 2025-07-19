@@ -2092,7 +2092,7 @@ impl Compiler<'_> {
         body: &[Stmt],
         is_async: bool,
         funcflags: bytecode::MakeFunctionFlags,
-    ) -> CompileResult<(CodeObject, Option<String>)> {
+    ) -> CompileResult<()> {
         // Always enter function scope (matching CPython)
         self.enter_function(name, parameters)?;
         self.current_code_info()
@@ -2132,11 +2132,25 @@ impl Compiler<'_> {
             }
         }
 
-        // Exit scope and return code object (like CPython)
+        // Exit scope and create function object (like CPython)
         let code = self.exit_scope();
         self.ctx = prev_ctx;
 
-        Ok((code, doc_str.map(|s| s.to_string())))
+        // Create function object with closure (matching CPython's compiler_make_closure)
+        self.make_closure(code, funcflags)?;
+
+        // Handle docstring if present (like CPython does after make_closure)
+        if let Some(doc) = doc_str {
+            emit!(self, Instruction::Duplicate);
+            self.emit_load_const(ConstantData::Str {
+                value: doc.to_string().into(),
+            });
+            emit!(self, Instruction::Rotate2);
+            let doc_attr = self.name("__doc__");
+            emit!(self, Instruction::StoreAttr { idx: doc_attr });
+        }
+
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2154,7 +2168,7 @@ impl Compiler<'_> {
         self.prepare_decorators(decorator_list)?;
 
         // Get firstlineno
-        let firstlineno = body
+        let _firstlineno = body
             .first()
             .map(|s| s.range().start().to_u32())
             .unwrap_or(1);
@@ -2229,14 +2243,10 @@ impl Compiler<'_> {
 
         // Compile function body (matching CPython's compiler_function_body)
         let final_funcflags = funcflags | annotations_flag;
-        let (code, doc_str) =
-            self.compile_function_body(name, parameters, body, is_async, final_funcflags)?;
+        self.compile_function_body(name, parameters, body, is_async, final_funcflags)?;
 
         // Handle type params if present
         if is_generic {
-            // Create function object first (like CPython)
-            self.make_closure(code, final_funcflags)?;
-
             // SWAP to get function on top
             // Stack: [type_params_tuple, function] -> [function, type_params_tuple]
             emit!(self, Instruction::Swap { index: 2 });
@@ -2251,6 +2261,9 @@ impl Compiler<'_> {
 
             // Return the function object from type params scope
             emit!(self, Instruction::ReturnValue);
+
+            // Set argcount for type params scope (matching CPython)
+            self.current_code_info().metadata.argcount = num_typeparam_args as u32;
 
             // Exit type params scope and create closure
             let type_params_code = self.exit_scope();
@@ -2276,18 +2289,6 @@ impl Compiler<'_> {
                 // No arguments, just call the closure
                 emit!(self, Instruction::CallFunctionPositional { nargs: 0 });
             }
-        } else {
-            // For non-generic functions, create function object
-            self.make_closure(code, final_funcflags)?;
-        }
-
-        // Handle docstring for all functions (generic and non-generic)
-        if let Some(doc) = doc_str {
-            emit!(self, Instruction::Duplicate);
-            self.emit_load_const(ConstantData::Str { value: doc.into() });
-            emit!(self, Instruction::Rotate2);
-            let doc_attr = self.name("__doc__");
-            emit!(self, Instruction::StoreAttr { idx: doc_attr });
         }
 
         // Apply decorators
