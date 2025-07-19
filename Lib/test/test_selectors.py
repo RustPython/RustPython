@@ -6,8 +6,7 @@ import signal
 import socket
 import sys
 from test import support
-from test.support import os_helper
-from test.support import socket_helper
+from test.support import is_apple, os_helper, socket_helper
 from time import sleep
 import unittest
 import unittest.mock
@@ -132,6 +131,7 @@ class BaseSelectorTestCase:
         s.unregister(r)
         s.unregister(w)
 
+    # TODO: RUSTPYTHON
     @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_unregister_after_socket_close(self):
         s = self.SELECTOR()
@@ -224,6 +224,8 @@ class BaseSelectorTestCase:
         self.assertRaises(RuntimeError, s.get_key, wr)
         self.assertRaises(KeyError, mapping.__getitem__, rd)
         self.assertRaises(KeyError, mapping.__getitem__, wr)
+        self.assertEqual(mapping.get(rd), None)
+        self.assertEqual(mapping.get(wr), None)
 
     def test_get_key(self):
         s = self.SELECTOR()
@@ -242,13 +244,17 @@ class BaseSelectorTestCase:
         self.addCleanup(s.close)
 
         rd, wr = self.make_socketpair()
+        sentinel = object()
 
         keys = s.get_map()
         self.assertFalse(keys)
         self.assertEqual(len(keys), 0)
         self.assertEqual(list(keys), [])
+        self.assertEqual(keys.get(rd), None)
+        self.assertEqual(keys.get(rd, sentinel), sentinel)
         key = s.register(rd, selectors.EVENT_READ, "data")
         self.assertIn(rd, keys)
+        self.assertEqual(key, keys.get(rd))
         self.assertEqual(key, keys[rd])
         self.assertEqual(len(keys), 1)
         self.assertEqual(list(keys), [rd.fileno()])
@@ -521,7 +527,7 @@ class ScalableSelectorMixIn:
         try:
             fds = s.select()
         except OSError as e:
-            if e.errno == errno.EINVAL and sys.platform == 'darwin':
+            if e.errno == errno.EINVAL and is_apple:
                 # unexplainable errors on macOS don't need to fail the test
                 self.skipTest("Invalid argument error calling poll()")
             raise
