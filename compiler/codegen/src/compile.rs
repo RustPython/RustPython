@@ -385,7 +385,7 @@ impl Compiler<'_> {
         }
     }
 
-    /// 현재 scope의 SymbolTable 가져오기
+    /// Get the SymbolTable for the current scope.
     fn current_symbol_table(&self) -> &SymbolTable {
         if self.symbol_table_stack.is_empty() {
             panic!("symbol_table_stack is empty! This is a compiler bug.");
@@ -394,17 +394,7 @@ impl Compiler<'_> {
         &self.symbol_table_stack[index]
     }
 
-    /// Get the effective symbol table for symbol lookup
-    fn get_effective_symbol_table(&self) -> &SymbolTable {
-        self.current_symbol_table()
-    }
-
-    /// 특정 index의 SymbolTable 가져오기
-    fn get_symbol_table(&self, index: usize) -> Option<&SymbolTable> {
-        self.symbol_table_stack.get(index)
-    }
-
-    /// free variable의 index를 가져오기
+    /// Get the index of a free variable.
     fn get_free_var_index(&mut self, name: &str) -> CompileResult<u32> {
         let info = self.code_stack.last_mut().unwrap();
         let idx = info
@@ -415,7 +405,7 @@ impl Compiler<'_> {
         Ok((idx + info.metadata.cellvars.len()).to_u32())
     }
 
-    /// cell variable의 index를 가져오기
+    /// Get the index of a cell variable.
     fn get_cell_var_index(&mut self, name: &str) -> CompileResult<u32> {
         let info = self.code_stack.last_mut().unwrap();
         let idx = info
@@ -426,7 +416,7 @@ impl Compiler<'_> {
         Ok(idx.to_u32())
     }
 
-    /// local variable의 index를 가져오기
+    /// Get the index of a local variable.
     fn get_local_var_index(&mut self, name: &str) -> CompileResult<u32> {
         let info = self.code_stack.last_mut().unwrap();
         let idx = info
@@ -437,7 +427,7 @@ impl Compiler<'_> {
         Ok(idx.to_u32())
     }
 
-    /// global name의 index를 가져오기
+    /// Get the index of a global name.
     fn get_global_name_index(&mut self, name: &str) -> u32 {
         let info = self.code_stack.last_mut().unwrap();
         let idx = info
@@ -446,15 +436,6 @@ impl Compiler<'_> {
             .get_index_of(name)
             .unwrap_or_else(|| info.metadata.names.insert_full(name.to_owned()).0);
         idx.to_u32()
-    }
-
-    /// free variable이 있는지 시도해보기
-    fn try_get_free_var_index(&self, name: &str) -> Option<u32> {
-        let info = self.code_stack.last().unwrap();
-        info.metadata
-            .freevars
-            .get_index_of(name)
-            .map(|idx| (idx + info.metadata.cellvars.len()).to_u32())
     }
 
     /// Push the next symbol table on to the stack
@@ -656,8 +637,6 @@ impl Compiler<'_> {
             // We handle this differently in RustPython
         }
 
-        // No need for parent scope tracking - we use symbol_table_stack directly
-
         Ok(())
     }
 
@@ -706,71 +685,11 @@ impl Compiler<'_> {
         // - Module scope can have sub_tables (for TypeAlias scopes, nested functions, classes)
         // - Function scope can have sub_tables (for nested functions, classes)
         // - Class scope can have sub_tables (for nested classes, methods)
-        // This matches CPython's behavior
-        // So we don't need to check for sub_tables at all
 
         let pop = self.code_stack.pop();
         let stack_top = compiler_unwrap_option(self, pop);
-        let code = unwrap_internal(self, stack_top.finalize_code(self.opts.optimize));
-
         // No parent scope stack to maintain
-
-        code
-    }
-
-    // CPython의 _PyST_GetScope와 같은 역할
-    // Get parent scope from symbol table stack
-    fn get_parent_scope(&self) -> Option<(CompilerScope, &SymbolTable)> {
-        if self.symbol_table_stack.len() >= 2 {
-            let parent_idx = self.symbol_table_stack.len() - 2;
-            let parent_table = &self.symbol_table_stack[parent_idx];
-
-            // If parent is TypeParams, get grandparent
-            if parent_table.typ == CompilerScope::TypeParams && self.symbol_table_stack.len() >= 3 {
-                let grandparent_idx = self.symbol_table_stack.len() - 3;
-                let grandparent_table = &self.symbol_table_stack[grandparent_idx];
-                Some((grandparent_table.typ, grandparent_table))
-            } else {
-                Some((parent_table.typ, parent_table))
-            }
-        } else {
-            None
-        }
-    }
-
-    // CPython의 _PyST_GetScope 기능 구현
-    // 심볼의 scope를 현재 context와 parent scope를 고려하여 결정
-    fn get_symbol_scope(&self, mangled: &str) -> Option<SymbolScope> {
-        // 먼저 현재 scope의 symbol table에서 찾기
-        if let Some(current_unit) = self.code_stack.last() {
-            let symbol_table_idx = current_unit.symbol_table_index;
-            if symbol_table_idx < self.symbol_table_stack.len() {
-                let current_table = &self.symbol_table_stack[symbol_table_idx];
-                if let Some(symbol) = current_table.symbols.get(mangled) {
-                    return Some(symbol.scope);
-                }
-
-                // 현재 scope가 TypeParams면 parent (grandparent)에서 찾기
-                if matches!(current_table.typ, CompilerScope::TypeParams) {
-                    if let Some((_, parent_table)) = self.get_parent_scope() {
-                        if let Some(symbol) = parent_table.symbols.get(mangled) {
-                            // Parent에서 찾은 경우의 scope 결정
-                            if matches!(
-                                symbol.scope,
-                                SymbolScope::GlobalImplicit | SymbolScope::GlobalExplicit
-                            ) {
-                                return Some(symbol.scope);
-                            } else {
-                                // Free variable로 처리
-                                return Some(SymbolScope::Free);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        None
+        unwrap_internal(self, stack_top.finalize_code(self.opts.optimize))
     }
 
     /// Push a new fblock
@@ -830,7 +749,8 @@ impl Compiler<'_> {
             .to_u32()
     }
 
-    /// Set the qualified name for the current code object, based on CPython's compiler_set_qualname
+    /// Set the qualified name for the current code object
+    // = compiler_set_qualname
     fn set_qualname(&mut self) -> String {
         let qualname = self.make_qualname();
         self.current_code_info().metadata.qualname = Some(qualname.clone());
@@ -851,7 +771,7 @@ impl Compiler<'_> {
         let mut parent_idx = stack_size - 2;
         let mut parent = &self.code_stack[parent_idx];
 
-        // CPython logic: If parent is TypeParams scope, look at grandparent
+        // If parent is TypeParams scope, look at grandparent
         // Check if parent is a type params scope by name pattern
         if parent.metadata.name.starts_with("<generic parameters of ") {
             if stack_size == 2 {
@@ -1063,11 +983,19 @@ impl Compiler<'_> {
         Err(self.error(CodegenErrorType::SyntaxError(format!("{msg} {name}"))))
     }
 
+    // = compiler_nameop
     fn compile_name(&mut self, name: &str, usage: NameUsage) -> CompileResult<()> {
+        enum NameOp {
+            Fast,
+            Global,
+            Deref,
+            Name,
+        }
+
         let name = self.mangle(name);
         self.check_forbidden_name(&name, usage)?;
 
-        // __debug__는 특별 처리
+        // Special handling for __debug__
         if NameUsage::Load == usage && name == "__debug__" {
             self.emit_load_const(ConstantData::Boolean {
                 value: self.opts.optimize == 0,
@@ -1075,68 +1003,84 @@ impl Compiler<'_> {
             return Ok(());
         }
 
-        // CPython의 compiler_nameop처럼 현재 SymbolTable에서 scope 결정
-        // TypeParams scope의 특수성을 고려하여 effective symbol table 사용
-        let symbol_scope = {
-            let current_table = self.get_effective_symbol_table();
+        // Determine the operation type based on symbol scope
+        let is_function_like = self.ctx.in_func();
+
+        // Look up the symbol, handling TypeParams scope specially
+        let (symbol_scope, _is_typeparams) = {
+            let current_table = self.current_symbol_table();
+            let is_typeparams = current_table.typ == CompilerScope::TypeParams;
 
             // First try to find in current table
             let symbol = current_table.lookup(name.as_ref());
 
             // If not found and we're in TypeParams scope, try parent scope
-            if symbol.is_none() && current_table.typ == CompilerScope::TypeParams {
-                // Try to find in parent scope (usually Module)
+            let symbol = if symbol.is_none() && is_typeparams {
                 if self.symbol_table_stack.len() > 1 {
                     let parent_idx = self.symbol_table_stack.len() - 2;
-                    if let Some(parent_symbol) =
-                        self.symbol_table_stack[parent_idx].lookup(name.as_ref())
-                    {
-                        Some(parent_symbol.scope)
-                    } else {
-                        None
-                    }
+                    self.symbol_table_stack[parent_idx].lookup(name.as_ref())
                 } else {
                     None
                 }
             } else {
-                symbol.map(|s| s.scope)
-            }
-            .ok_or_else(|| {
-                CodegenErrorType::SyntaxError(format!(
-                    "The symbol '{}' must be present in the symbol table",
-                    name
-                ))
-            })
-        };
-        let actual_scope = symbol_scope.map_err(|e| self.error(e))?;
+                symbol
+            };
 
-        // CPython의 compiler_nameop 패턴에 따라 scope별로 처리
-        match actual_scope {
-            SymbolScope::Free => {
-                // CPython: case OP_DEREF
-                let idx = self.get_free_var_index(&name)?;
-                let op = match usage {
-                    NameUsage::Load => Instruction::LoadDeref,
-                    NameUsage::Store => Instruction::StoreDeref,
-                    NameUsage::Delete => Instruction::DeleteDeref,
-                };
-                self.emit_arg(idx, op);
+            (symbol.map(|s| s.scope), is_typeparams)
+        };
+
+        let actual_scope = symbol_scope.ok_or_else(|| {
+            self.error(CodegenErrorType::SyntaxError(format!(
+                "The symbol '{name}' must be present in the symbol table"
+            )))
+        })?;
+
+        // Determine operation type based on scope
+        let op_type = match actual_scope {
+            SymbolScope::Free => NameOp::Deref,
+            SymbolScope::Cell => NameOp::Deref,
+            SymbolScope::Local => {
+                if is_function_like {
+                    NameOp::Fast
+                } else {
+                    NameOp::Name
+                }
             }
-            SymbolScope::Cell => {
-                // CPython: case OP_DEREF
-                let idx = self.get_cell_var_index(&name)?;
+            SymbolScope::GlobalImplicit => {
+                if is_function_like {
+                    NameOp::Global
+                } else {
+                    NameOp::Name
+                }
+            }
+            SymbolScope::GlobalExplicit => NameOp::Global,
+            SymbolScope::Unknown => NameOp::Name,
+        };
+
+        // Generate appropriate instructions based on operation type
+        match op_type {
+            NameOp::Deref => {
+                let idx = match actual_scope {
+                    SymbolScope::Free => self.get_free_var_index(&name)?,
+                    SymbolScope::Cell => self.get_cell_var_index(&name)?,
+                    _ => unreachable!("Invalid scope for Deref operation"),
+                };
+
                 let op = match usage {
-                    NameUsage::Load if !self.ctx.in_func() && self.ctx.in_class => {
-                        Instruction::LoadClassDeref
+                    NameUsage::Load => {
+                        // Special case for class scope
+                        if self.ctx.in_class && !self.ctx.in_func() {
+                            Instruction::LoadClassDeref
+                        } else {
+                            Instruction::LoadDeref
+                        }
                     }
-                    NameUsage::Load => Instruction::LoadDeref,
                     NameUsage::Store => Instruction::StoreDeref,
                     NameUsage::Delete => Instruction::DeleteDeref,
                 };
                 self.emit_arg(idx, op);
             }
-            SymbolScope::Local if self.ctx.in_func() => {
-                // CPython: case OP_FAST
+            NameOp::Fast => {
                 let idx = self.get_local_var_index(&name)?;
                 let op = match usage {
                     NameUsage::Load => Instruction::LoadFast,
@@ -1145,31 +1089,19 @@ impl Compiler<'_> {
                 };
                 self.emit_arg(idx, op);
             }
-            SymbolScope::GlobalExplicit | SymbolScope::GlobalImplicit => {
-                // CPython: case OP_GLOBAL
+            NameOp::Global => {
                 let idx = self.get_global_name_index(&name);
                 let op = match usage {
-                    NameUsage::Load => {
-                        // TypeParams scope에서 GLOBAL_IMPLICIT일 때 특별 처리
-                        // CPython의 경우 LOAD_FROM_DICT_OR_GLOBALS를 사용하지만
-                        // RustPython에서는 TypeParams에서도 일반 global 접근 사용
-                        Instruction::LoadGlobal
-                    }
+                    NameUsage::Load => Instruction::LoadGlobal,
                     NameUsage::Store => Instruction::StoreGlobal,
                     NameUsage::Delete => Instruction::DeleteGlobal,
                 };
                 self.emit_arg(idx, op);
             }
-            SymbolScope::Local | SymbolScope::Unknown => {
-                // CPython: case OP_NAME
+            NameOp::Name => {
                 let idx = self.get_global_name_index(&name);
                 let op = match usage {
-                    NameUsage::Load => {
-                        // CPython에서는 ClassBlock에서 inlined comprehension일 때
-                        // LOAD_GLOBAL을 사용하지만, RustPython에서는 현재 이 케이스를
-                        // 특별히 처리하지 않음
-                        Instruction::LoadNameAny
-                    }
+                    NameUsage::Load => Instruction::LoadNameAny,
                     NameUsage::Store => Instruction::StoreLocal,
                     NameUsage::Delete => Instruction::DeleteLocal,
                 };
@@ -1612,7 +1544,7 @@ impl Compiler<'_> {
                     // Pop the TypeAlias scope
                     self.pop_symbol_table();
                 } else {
-                    // Push None for type_params (matching CPython)
+                    // Push None for type_params
                     self.emit_load_const(ConstantData::None);
                     // Stack: [name, None]
 
@@ -1921,7 +1853,7 @@ impl Compiler<'_> {
 
             // Delete the exception variable if it was bound
             if let Some(alias) = name {
-                // Set the variable to None before deleting (as CPython does)
+                // Set the variable to None before deleting
                 self.emit_load_const(ConstantData::None);
                 self.store_name(alias.as_str())?;
                 self.compile_name(alias.as_str(), NameUsage::Delete)?;
@@ -1989,8 +1921,9 @@ impl Compiler<'_> {
         is_forbidden_name(name)
     }
 
-    /// Compile default arguments (matching CPython's compiler_default_arguments)
-    fn compiler_default_arguments(
+    /// Compile default arguments
+    // = compiler_default_arguments
+    fn compile_default_arguments(
         &mut self,
         parameters: &Parameters,
     ) -> CompileResult<bytecode::MakeFunctionFlags> {
@@ -2045,46 +1978,8 @@ impl Compiler<'_> {
         Ok(funcflags)
     }
 
-    /// Compile function annotations (matching CPython's compiler_visit_annotations)
-    fn compiler_visit_annotations(
-        &mut self,
-        parameters: &Parameters,
-        returns: Option<&Expr>,
-    ) -> CompileResult<u32> {
-        let mut num_annotations = 0;
-
-        // Handle return annotation first
-        if let Some(annotation) = returns {
-            self.emit_load_const(ConstantData::Str {
-                value: "return".into(),
-            });
-            self.compile_annotation(annotation)?;
-            num_annotations += 1;
-        }
-
-        // Handle parameter annotations
-        let parameters_iter = std::iter::empty()
-            .chain(&parameters.posonlyargs)
-            .chain(&parameters.args)
-            .chain(&parameters.kwonlyargs)
-            .map(|x| &x.parameter)
-            .chain(parameters.vararg.as_deref())
-            .chain(parameters.kwarg.as_deref());
-
-        for param in parameters_iter {
-            if let Some(annotation) = &param.annotation {
-                self.emit_load_const(ConstantData::Str {
-                    value: self.mangle(param.name.as_str()).into_owned().into(),
-                });
-                self.compile_annotation(annotation)?;
-                num_annotations += 1;
-            }
-        }
-
-        Ok(num_annotations)
-    }
-
-    /// Compile function body and create function object (matching CPython's compiler_function_body)
+    /// Compile function body and create function object
+    // = compiler_function_body
     fn compile_function_body(
         &mut self,
         name: &str,
@@ -2093,7 +1988,7 @@ impl Compiler<'_> {
         is_async: bool,
         funcflags: bytecode::MakeFunctionFlags,
     ) -> CompileResult<()> {
-        // Always enter function scope (matching CPython)
+        // Always enter function scope
         self.enter_function(name, parameters)?;
         self.current_code_info()
             .flags
@@ -2132,14 +2027,14 @@ impl Compiler<'_> {
             }
         }
 
-        // Exit scope and create function object (like CPython)
+        // Exit scope and create function object
         let code = self.exit_scope();
         self.ctx = prev_ctx;
 
-        // Create function object with closure (matching CPython's compiler_make_closure)
+        // Create function object with closure
         self.make_closure(code, funcflags)?;
 
-        // Handle docstring if present (like CPython does after make_closure)
+        // Handle docstring if present
         if let Some(doc) = doc_str {
             emit!(self, Instruction::Duplicate);
             self.emit_load_const(ConstantData::Str {
@@ -2153,6 +2048,47 @@ impl Compiler<'_> {
         Ok(())
     }
 
+    /// Compile function annotations
+    // = compiler_visit_annotations
+    fn visit_annotations(
+        &mut self,
+        parameters: &Parameters,
+        returns: Option<&Expr>,
+    ) -> CompileResult<u32> {
+        let mut num_annotations = 0;
+
+        // Handle return annotation first
+        if let Some(annotation) = returns {
+            self.emit_load_const(ConstantData::Str {
+                value: "return".into(),
+            });
+            self.compile_annotation(annotation)?;
+            num_annotations += 1;
+        }
+
+        // Handle parameter annotations
+        let parameters_iter = std::iter::empty()
+            .chain(&parameters.posonlyargs)
+            .chain(&parameters.args)
+            .chain(&parameters.kwonlyargs)
+            .map(|x| &x.parameter)
+            .chain(parameters.vararg.as_deref())
+            .chain(parameters.kwarg.as_deref());
+
+        for param in parameters_iter {
+            if let Some(annotation) = &param.annotation {
+                self.emit_load_const(ConstantData::Str {
+                    value: self.mangle(param.name.as_str()).into_owned().into(),
+                });
+                self.compile_annotation(annotation)?;
+                num_annotations += 1;
+            }
+        }
+
+        Ok(num_annotations)
+    }
+
+    // = compiler_function
     #[allow(clippy::too_many_arguments)]
     fn compile_function_def(
         &mut self,
@@ -2164,17 +2100,10 @@ impl Compiler<'_> {
         is_async: bool,
         type_params: Option<&TypeParams>,
     ) -> CompileResult<()> {
-        // Following CPython's compiler_function structure
         self.prepare_decorators(decorator_list)?;
 
-        // Get firstlineno
-        let _firstlineno = body
-            .first()
-            .map(|s| s.range().start().to_u32())
-            .unwrap_or(1);
-
-        // compiler_default_arguments - compile defaults and return funcflags
-        let funcflags = self.compiler_default_arguments(parameters)?;
+        // compile defaults and return funcflags
+        let funcflags = self.compile_default_arguments(parameters)?;
 
         let is_generic = type_params.is_some();
         let mut num_typeparam_args = 0;
@@ -2193,8 +2122,8 @@ impl Compiler<'_> {
                 emit!(self, Instruction::Swap { index: 2 });
             }
 
-            // Enter type params scope (like CPython's compiler_enter_scope)
-            let type_params_name = format!("<generic parameters of {}>", name);
+            // Enter type params scope
+            let type_params_name = format!("<generic parameters of {name}>");
             self.push_output(
                 bytecode::CodeFlags::IS_OPTIMIZED | bytecode::CodeFlags::NEW_LOCALS,
                 0,
@@ -2228,9 +2157,9 @@ impl Compiler<'_> {
             }
         }
 
-        // Compile annotations (matching CPython's compiler_visit_annotations)
+        // Compile annotations
         let mut annotations_flag = bytecode::MakeFunctionFlags::empty();
-        let num_annotations = self.compiler_visit_annotations(parameters, returns)?;
+        let num_annotations = self.visit_annotations(parameters, returns)?;
         if num_annotations > 0 {
             annotations_flag = bytecode::MakeFunctionFlags::ANNOTATIONS;
             emit!(
@@ -2241,7 +2170,7 @@ impl Compiler<'_> {
             );
         }
 
-        // Compile function body (matching CPython's compiler_function_body)
+        // Compile function body
         let final_funcflags = funcflags | annotations_flag;
         self.compile_function_body(name, parameters, body, is_async, final_funcflags)?;
 
@@ -2262,7 +2191,7 @@ impl Compiler<'_> {
             // Return the function object from type params scope
             emit!(self, Instruction::ReturnValue);
 
-            // Set argcount for type params scope (matching CPython)
+            // Set argcount for type params scope
             self.current_code_info().metadata.argcount = num_typeparam_args as u32;
 
             // Exit type params scope and create closure
@@ -2504,7 +2433,7 @@ impl Compiler<'_> {
     }
 
     /// Compile the class body into a code object
-    /// This is similar to CPython's compiler_class_body
+    // = compiler_class_body
     fn compile_class_body(
         &mut self,
         name: &str,
@@ -2513,7 +2442,6 @@ impl Compiler<'_> {
         firstlineno: u32,
     ) -> CompileResult<CodeObject> {
         // 1. Enter class scope
-        // Use enter_scope instead of push_output to match CPython
         let key = self.symbol_table_stack.len();
         self.push_symbol_table();
         self.enter_scope(name, CompilerScope::Class, key, firstlineno)?;
@@ -5160,161 +5088,6 @@ impl Compiler<'_> {
         self.code_stack.last_mut().expect("no code on stack")
     }
 
-    /// Check if the current scope is a TypeParams scope
-    /// This is useful for handling nested scopes within type parameters
-    fn is_in_type_params_scope(&self) -> bool {
-        self.symbol_table_stack
-            .last()
-            .map(|table| table.typ == CompilerScope::TypeParams)
-            .unwrap_or(false)
-    }
-
-    /// Enter a nested scope while preserving the parent TypeParams scope
-    /// This is used when entering function body scope from within a TypeParams scope
-    fn enter_nested_scope(
-        &mut self,
-        name: &str,
-        scope_type: CompilerScope,
-        firstlineno: u32,
-    ) -> CompileResult<()> {
-        // Special handling for entering a scope from within TypeParams scope
-        if self.is_in_type_params_scope() {
-            // When in TypeParams scope, we need to handle the transition carefully
-            // The symbol table for the nested scope should already be in the stack
-            let key = self.symbol_table_stack.len() - 1;
-
-            // Enter the nested scope without popping the TypeParams scope
-            self.enter_scope(name, scope_type, key, firstlineno)?;
-
-            // Mark that we're in a nested scope situation
-            // This helps with proper scope management later
-            Ok(())
-        } else {
-            // Normal scope entry when not in TypeParams scope
-            self.push_symbol_table();
-            let key = self.symbol_table_stack.len() - 1;
-            self.enter_scope(name, scope_type, key, firstlineno)
-        }
-    }
-
-    /// Resolve a name in TypeParams scope if we're in a nested function scope
-    /// This allows type parameters to be visible in function bodies
-    fn resolve_name_in_type_params_scope(&self, name: &str) -> Option<&symboltable::Symbol> {
-        // Check if we have at least 2 scopes (current + TypeParams)
-        if self.symbol_table_stack.len() < 2 {
-            return None;
-        }
-
-        // Check if the parent scope is a TypeParams scope
-        let parent_idx = self.symbol_table_stack.len() - 2;
-        let parent_table = &self.symbol_table_stack[parent_idx];
-
-        if parent_table.typ == CompilerScope::TypeParams {
-            // Look up the name in the TypeParams scope
-            parent_table.lookup(name)
-        } else {
-            None
-        }
-    }
-
-    /// Load type parameter arguments in TypeParams scope
-    /// This is used to load default arguments that need to be accessible in type params scope
-    fn load_type_param_args(&mut self, num_args: u32) -> CompileResult<()> {
-        // In CPython, default arguments are passed as positional arguments to the type params function
-        // They are loaded using LOAD_FAST with indices 0, 1, etc.
-        for i in 0..num_args {
-            // Load argument at position i
-            let idx = self.varname(&format!(".{}", i))?;
-            emit!(self, Instruction::LoadFast(idx));
-        }
-        Ok(())
-    }
-
-    /// Calculate the number of arguments to pass to type params scope
-    /// Based on whether the function has defaults and/or kwdefaults
-    fn calculate_typeparam_args(&self, func_flags: bytecode::MakeFunctionFlags) -> u32 {
-        let mut count = 0;
-
-        // If function has default arguments, they need to be passed to type params scope
-        if func_flags.contains(bytecode::MakeFunctionFlags::DEFAULTS) {
-            count += 1;
-        }
-
-        // If function has keyword-only defaults, they need to be passed to type params scope
-        if func_flags.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
-            count += 1;
-        }
-
-        count
-    }
-
-    /// Enter a TypeParams scope with proper setup
-    /// This handles the specific requirements for type parameter scopes
-    fn enter_type_params_scope(
-        &mut self,
-        parent_name: &str,
-        _firstlineno: u32,
-    ) -> CompileResult<()> {
-        // Create the type params scope name in CPython format
-        let type_params_name = format!("<generic parameters of {}>", parent_name);
-
-        // Push symbol table and get its index
-        self.push_symbol_table();
-        let key = self.symbol_table_stack.len() - 1;
-
-        // Enter the TypeParams scope
-        self.enter_scope(
-            &type_params_name,
-            CompilerScope::TypeParams,
-            key,
-            _firstlineno,
-        )?;
-
-        Ok(())
-    }
-
-    /// Enter a TypeParams scope for a function with proper setup
-    /// This handles entering the TypeParams scope and sets up for the nested function
-    fn enter_type_params_scope_for_function(
-        &mut self,
-        function_name: &str,
-        _firstlineno: u32,
-    ) -> CompileResult<()> {
-        // Create the type params scope name in CPython format
-        let type_params_name = format!("<generic parameters of {}>", function_name);
-
-        // Push symbol table for TypeParams scope
-        self.push_symbol_table();
-        let _key = self.symbol_table_stack.len() - 1;
-
-        // Enter the TypeParams scope with proper flags
-        self.push_output(
-            bytecode::CodeFlags::IS_OPTIMIZED | bytecode::CodeFlags::NEW_LOCALS,
-            0,
-            0, // We'll update this later based on defaults
-            0,
-            type_params_name,
-        );
-
-        // Update the symbol table stack to track we're in TypeParams scope
-        // Note: We don't call enter_scope here because push_output already set up the code object
-
-        Ok(())
-    }
-
-    /// Exit a TypeParams scope and return its code object
-    /// This handles the special requirements for exiting type parameter scopes
-    fn exit_type_params_scope(&mut self) -> CodeObject {
-        // Make sure we're actually in a TypeParams scope
-        debug_assert!(
-            self.is_in_type_params_scope(),
-            "exit_type_params_scope called when not in TypeParams scope"
-        );
-
-        // Exit the scope and get the code object
-        self.exit_scope()
-    }
-
     fn current_block(&mut self) -> &mut ir::Block {
         let info = self.current_code_info();
         &mut info.blocks[info.current_block]
@@ -5637,8 +5410,8 @@ impl EmitArg<bytecode::Label> for ir::BlockIdx {
 
 /// Strips leading whitespace from a docstring.
 ///
-/// The code has been ported from `_PyCompile_CleanDoc` in cpython.
-/// `inspect.cleandoc` is also a good reference, but has a few incompatibilities.
+/// `inspect.cleandoc` is a good reference, but has a few incompatibilities.
+// = _PyCompile_CleanDoc
 fn clean_doc(doc: &str) -> String {
     let doc = expandtabs(doc, 8);
     // First pass: find minimum indentation of any non-blank lines

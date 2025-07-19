@@ -216,16 +216,6 @@ impl SymbolTable {
     pub fn lookup(&self, name: &str) -> Option<&Symbol> {
         self.symbols.get(name)
     }
-
-    /// CPython의 _PyST_GetScope에 해당
-    pub fn get_symbol_scope(&self, name: &str) -> Option<SymbolScope> {
-        self.symbols.get(name).map(|symbol| symbol.scope)
-    }
-
-    /// CPython의 _PyST_GetSymbol에 해당  
-    pub fn get_symbol(&self, name: &str) -> Option<&Symbol> {
-        self.symbols.get(name)
-    }
 }
 
 impl std::fmt::Debug for SymbolTable {
@@ -1026,35 +1016,20 @@ impl SymbolTableBuilder<'_> {
         // Check for expressions not allowed in type parameters scope
         if let Some(table) = self.tables.last() {
             if table.typ == CompilerScope::TypeParams {
-                match expression {
-                    Expr::Yield(_) | Expr::YieldFrom(_) => {
-                        return Err(SymbolTableError {
-                            error: "yield expression cannot be used within a type parameter"
-                                .to_string(),
-                            location: Some(
-                                self.source_code.source_location(expression.range().start()),
-                            ),
-                        });
-                    }
-                    Expr::Await(_) => {
-                        return Err(SymbolTableError {
-                            error: "await expression cannot be used within a type parameter"
-                                .to_string(),
-                            location: Some(
-                                self.source_code.source_location(expression.range().start()),
-                            ),
-                        });
-                    }
-                    Expr::Named(_) => {
-                        return Err(SymbolTableError {
-                            error: "named expressions cannot be used within a type parameter"
-                                .to_string(),
-                            location: Some(
-                                self.source_code.source_location(expression.range().start()),
-                            ),
-                        });
-                    }
-                    _ => {}
+                if let Some(keyword) = match expression {
+                    Expr::Yield(_) | Expr::YieldFrom(_) => Some("yield"),
+                    Expr::Await(_) => Some("await"),
+                    Expr::Named(_) => Some("named"),
+                    _ => None,
+                } {
+                    return Err(SymbolTableError {
+                        error: format!(
+                            "{keyword} expression cannot be used within a type parameter"
+                        ),
+                        location: Some(
+                            self.source_code.source_location(expression.range().start()),
+                        ),
+                    });
                 }
             }
         }

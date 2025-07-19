@@ -322,7 +322,7 @@ impl CodeInfo {
                     continue 'process_blocks;
                 }
             }
-            // Only push next block if it's not NULL (similar to CPython)
+            // Only push next block if it's not NULL
             if block.next != BlockIdx::NULL {
                 stackdepth_push(&mut stack, &mut start_depths, block.next, depth);
             }

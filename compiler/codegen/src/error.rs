@@ -40,9 +40,6 @@ pub enum InternalError {
     StackOverflow,
     StackUnderflow,
     MissingSymbol(String),
-    InvalidScopeTransition { from: String, to: String },
-    TypeParamsScopeError(String),
-    TypeParamNotFound(String),
 }
 
 impl Display for InternalError {
@@ -54,13 +51,6 @@ impl Display for InternalError {
                 f,
                 "The symbol '{s}' must be present in the symbol table, even when it is undefined in python."
             ),
-            Self::InvalidScopeTransition { from, to } => {
-                write!(f, "Invalid scope transition from {} to {}", from, to)
-            }
-            Self::TypeParamsScopeError(msg) => write!(f, "Type parameters scope error: {}", msg),
-            Self::TypeParamNotFound(name) => {
-                write!(f, "Type parameter '{}' not found in symbol table", name)
-            }
         }
     }
 }
