@@ -352,14 +352,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
-            toolchain: nightly
+            toolchain: nightly-2025-07-18 # TODO: Set to "nightly" once https://github.com/rust-lang/rust/issues/144168 is fixed
             components: miri
 
       - uses: Swatinem/rust-cache@v2
       - name: Run tests under miri
         # miri-ignore-leaks because the type-object circular reference means that there will always be
         # a memory leak, at least until we have proper cyclic gc
-        run: MIRIFLAGS='-Zmiri-ignore-leaks' cargo +nightly miri test -p rustpython-vm -- miri_test
+        # run: MIRIFLAGS='-Zmiri-ignore-leaks' cargo +nightly miri test -p rustpython-vm -- miri_test
+         run: MIRIFLAGS='-Zmiri-ignore-leaks' cargo +nightly-2025-07-18 miri test -p rustpython-vm -- miri_test
 
   wasm:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
