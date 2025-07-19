@@ -2193,6 +2193,22 @@ impl Compiler<'_> {
                 type_params_name,
             );
 
+            // Add parameter names to varnames for the type params scope
+            // These will be passed as arguments when the closure is called
+            let current_info = self.current_code_info();
+            if funcflags.contains(bytecode::MakeFunctionFlags::DEFAULTS) {
+                current_info
+                    .metadata
+                    .varnames
+                    .insert(".defaults".to_owned());
+            }
+            if funcflags.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
+                current_info
+                    .metadata
+                    .varnames
+                    .insert(".kwdefaults".to_owned());
+            }
+
             // Compile type parameters
             self.compile_type_params(type_params.unwrap())?;
 
