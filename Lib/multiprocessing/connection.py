@@ -19,7 +19,6 @@ import time
 import tempfile
 import itertools
 
-import _multiprocessing
 
 from . import util
 
@@ -28,6 +27,7 @@ from .context import reduction
 _ForkingPickler = reduction.ForkingPickler
 
 try:
+    import _multiprocessing
     import _winapi
     from _winapi import WAIT_OBJECT_0, WAIT_ABANDONED_0, WAIT_TIMEOUT, INFINITE
 except ImportError:
@@ -846,7 +846,7 @@ _MD5_DIGEST_LEN = 16
 _LEGACY_LENGTHS = (_MD5ONLY_MESSAGE_LENGTH, _MD5_DIGEST_LEN)
 
 
-def _get_digest_name_and_payload(message: bytes) -> (str, bytes):
+def _get_digest_name_and_payload(message):  # type: (bytes) -> tuple[str, bytes]
     """Returns a digest name and the payload for a response hash.
 
     If a legacy protocol is detected based on the message length
@@ -956,7 +956,7 @@ def answer_challenge(connection, authkey: bytes):
                 f'Protocol error, expected challenge: {message=}')
     message = message[len(_CHALLENGE):]
     if len(message) < _MD5ONLY_MESSAGE_LENGTH:
-        raise AuthenticationError('challenge too short: {len(message)} bytes')
+        raise AuthenticationError(f'challenge too short: {len(message)} bytes')
     digest = _create_response(authkey, message)
     connection.send_bytes(digest)
     response = connection.recv_bytes(256)        # reject large message
@@ -1012,8 +1012,20 @@ if sys.platform == 'win32':
         # returning the first signalled might create starvation issues.)
         L = list(handles)
         ready = []
+        # Windows limits WaitForMultipleObjects at 64 handles, and we use a
+        # few for synchronisation, so we switch to batched waits at 60.
+        if len(L) > 60:
+            try:
+                res = _winapi.BatchedWaitForMultipleObjects(L, False, timeout)
+            except TimeoutError:
+                return []
+            ready.extend(L[i] for i in res)
+            if res:
+                L = [h for i, h in enumerate(L) if i > res[0] & i not in res]
+            timeout = 0
         while L:
-            res = _winapi.WaitForMultipleObjects(L, False, timeout)
+            short_L = L[:60] if len(L) > 60 else L
+            res = _winapi.WaitForMultipleObjects(short_L, False, timeout)
             if res == WAIT_TIMEOUT:
                 break
             elif WAIT_OBJECT_0 <= res < WAIT_OBJECT_0 + len(L):
