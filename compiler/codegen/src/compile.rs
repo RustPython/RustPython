@@ -2084,22 +2084,24 @@ impl Compiler<'_> {
         Ok(num_annotations)
     }
 
-    /// Helper function to compile function body
-    fn compile_function_body_inner(
+    /// Compile function body (matching CPython's compiler_function_body)
+    /// For generic functions, this is called within the type params scope
+    fn compile_function_body(
         &mut self,
         name: &str,
         parameters: &Parameters,
         body: &[Stmt],
         is_async: bool,
-    ) -> CompileResult<(CodeObject, Option<(String, ConstantData)>)> {
+        funcflags: bytecode::MakeFunctionFlags,
+    ) -> CompileResult<Option<(String, ConstantData)>> {
+        // Enter function scope
         self.enter_function(name, parameters)?;
         self.current_code_info()
             .flags
             .set(bytecode::CodeFlags::IS_COROUTINE, is_async);
 
-        // remember to restore self.ctx.in_loop to the original after the function is compiled
+        // Set up context
         let prev_ctx = self.ctx;
-
         self.ctx = CompileContext {
             loop_data: None,
             in_class: prev_ctx.in_class,
@@ -2110,35 +2112,35 @@ impl Compiler<'_> {
             },
         };
 
-        // Set qualname using the new method
+        // Set qualname
         self.set_qualname();
 
+        // Handle docstring
         let (doc_str, body) = split_doc(body, &self.opts);
-
         self.current_code_info()
             .metadata
             .consts
             .insert_full(ConstantData::None);
 
+        // Compile body statements
         self.compile_statements(body)?;
 
-        // Emit None at end:
+        // Emit None at end if needed
         match body.last() {
-            Some(Stmt::Return(_)) => {
-                // the last instruction is a ReturnValue already, we don't need to emit it
-            }
+            Some(Stmt::Return(_)) => {}
             _ => {
                 self.emit_return_const(ConstantData::None);
             }
         }
 
+        // Exit scope and create code object
         let code = self.exit_scope();
         self.ctx = prev_ctx;
 
-        Ok((
-            code,
-            doc_str.map(|s| (s.to_string(), ConstantData::Str { value: s.into() })),
-        ))
+        // Create function object
+        self.make_closure(code, funcflags)?;
+
+        Ok(doc_str.map(|s| (s.to_string(), ConstantData::Str { value: s.into() })))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2213,13 +2215,10 @@ impl Compiler<'_> {
             );
         }
 
-        // Compile function body (matching CPython's compiler_function_body)
-        let mut final_funcflags = funcflags | annotations_flag;
-        let (code, doc_str_data) =
-            self.compile_function_body_inner(name, parameters, body, is_async)?;
-
-        // Create the function object
-        self.make_closure(code, final_funcflags)?;
+        // Compile function body
+        let final_funcflags = funcflags | annotations_flag;
+        let doc_str_data =
+            self.compile_function_body(name, parameters, body, is_async, final_funcflags)?;
 
         // Handle type params if present
         if is_generic {
