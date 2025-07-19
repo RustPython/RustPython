@@ -2224,7 +2224,7 @@ impl Compiler<'_> {
         if is_generic {
             // SWAP to get function on top
             // Stack: [type_params_tuple, function] -> [function, type_params_tuple]
-            emit!(self, Instruction::Swap { index: 1 });
+            emit!(self, Instruction::Swap { index: 2 });
 
             // Call INTRINSIC_SET_FUNCTION_TYPE_PARAMS
             emit!(
