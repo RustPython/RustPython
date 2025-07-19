@@ -769,8 +769,6 @@ class CursorTests(unittest.TestCase):
         with self.assertRaises(sqlite.OperationalError):
             self.cu.execute("select asdf")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_execute_multiple_statements(self):
         msg = "You can only execute one statement at a time"
         dataset = (
@@ -793,8 +791,6 @@ class CursorTests(unittest.TestCase):
                 with self.assertRaisesRegex(sqlite.ProgrammingError, msg):
                     self.cu.execute(query)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_execute_with_appended_comments(self):
         dataset = (
             "select 1; -- foo bar",
@@ -963,8 +959,6 @@ class CursorTests(unittest.TestCase):
         self.assertEqual(self.cu.fetchone()[0], 1)
         self.assertEqual(self.cu.rowcount, 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_rowcount_prefixed_with_comment(self):
         # gh-79579: rowcount is updated even if query is prefixed with comments
         self.cu.execute("""

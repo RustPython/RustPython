@@ -3081,36 +3081,52 @@ mod _sqlite {
     }
 
     fn lstrip_sql(sql: &[u8]) -> Option<&[u8]> {
-        let mut pos = sql;
-        loop {
-            match pos.first()? {
+        let mut pos = 0;
+
+        // This loop is borrowed from the SQLite source code.
+        while let Some(t_char) = sql.get(pos) {
+            match t_char {
                 b' ' | b'\t' | b'\x0c' | b'\n' | b'\r' => {
-                    pos = &pos[1..];
+                    // Skip whitespace.
+                    pos += 1;
                 }
                 b'-' => {
-                    if *pos.get(1)? == b'-' {
-                        // line comments
-                        pos = &pos[2..];
-                        while *pos.first()? != b'\n' {
-                            pos = &pos[1..];
+                    // Skip line comments.
+                    if sql.get(pos + 1) == Some(&b'-') {
+                        pos += 2;
+                        while let Some(&ch) = sql.get(pos) {
+                            if ch == b'\n' {
+                                break;
+                            }
+                            pos += 1;
                         }
+                        let _ = sql.get(pos)?;
                     } else {
-                        return Some(pos);
+                        return Some(&sql[pos..]);
                     }
                 }
                 b'/' => {
-                    if *pos.get(1)? == b'*' {
-                        // c style comments
-                        pos = &pos[2..];
-                        while *pos.first()? != b'*' || *pos.get(1)? != b'/' {
-                            pos = &pos[1..];
+                    // Skip C style comments.
+                    if sql.get(pos + 1) == Some(&b'*') {
+                        pos += 2;
+                        while let Some(&ch) = sql.get(pos) {
+                            if ch == b'*' && sql.get(pos + 1) == Some(&b'/') {
+                                break;
+                            }
+                            pos += 1;
                         }
+                        let _ = sql.get(pos)?;
+                        pos += 2;
                     } else {
-                        return Some(pos);
+                        return Some(&sql[pos..]);
                     }
                 }
-                _ => return Some(pos),
+                _ => {
+                    return Some(&sql[pos..]);
+                }
             }
         }
+
+        None
     }
 }
