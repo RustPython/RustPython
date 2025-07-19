@@ -235,7 +235,7 @@ impl Node for ConstantLiteral {
             Self::Ellipsis
         } else {
             return Err(vm.new_type_error(format!(
-                "invalid type in Constant: {}",
+                "got an invalid type in Constant: {}",
                 value_object.class().name()
             )));
         };
