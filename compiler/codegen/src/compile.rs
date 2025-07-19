@@ -2236,15 +2236,6 @@ impl Compiler<'_> {
         if is_generic {
             // Create function object first (like CPython)
             self.make_closure(code, final_funcflags)?;
-            
-            // Handle docstring
-            if let Some(doc) = doc_str {
-                emit!(self, Instruction::Duplicate);
-                self.emit_load_const(ConstantData::Str { value: doc.into() });
-                emit!(self, Instruction::Rotate2);
-                let doc_attr = self.name("__doc__");
-                emit!(self, Instruction::StoreAttr { idx: doc_attr });
-            }
 
             // SWAP to get function on top
             // Stack: [type_params_tuple, function] -> [function, type_params_tuple]
@@ -2288,15 +2279,15 @@ impl Compiler<'_> {
         } else {
             // For non-generic functions, create function object
             self.make_closure(code, final_funcflags)?;
-            
-            // Handle docstring
-            if let Some(doc) = doc_str {
-                emit!(self, Instruction::Duplicate);
-                self.emit_load_const(ConstantData::Str { value: doc.into() });
-                emit!(self, Instruction::Rotate2);
-                let doc_attr = self.name("__doc__");
-                emit!(self, Instruction::StoreAttr { idx: doc_attr });
-            }
+        }
+
+        // Handle docstring for all functions (generic and non-generic)
+        if let Some(doc) = doc_str {
+            emit!(self, Instruction::Duplicate);
+            self.emit_load_const(ConstantData::Str { value: doc.into() });
+            emit!(self, Instruction::Rotate2);
+            let doc_attr = self.name("__doc__");
+            emit!(self, Instruction::StoreAttr { idx: doc_attr });
         }
 
         // Apply decorators
