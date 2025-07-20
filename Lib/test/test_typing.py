@@ -2948,8 +2948,6 @@ class ProtocolTests(BaseTestCase):
         self.assertNotIsInstance(D(), E)
         self.assertNotIsInstance(E(), D)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_instantiation(self):
         class P(Protocol): pass
 
@@ -4500,8 +4498,6 @@ class GenericTests(BaseTestCase):
         self.assertEqual(c.from_a, 'foo')
         self.assertEqual(c.from_c, 'foo')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_new_no_args(self):
 
         class A(Generic[T]):
