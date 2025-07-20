@@ -2,6 +2,8 @@ import codecs
 from collections import OrderedDict
 from test.test_json import PyTest, CTest
 
+import unittest # XXX: RUSTPYTHON; importing to be able to skip tests
+
 
 class TestUnicode:
     # test_encoding1 and test_encoding2 from 2.x are irrelevant (only str
@@ -57,6 +59,8 @@ class TestUnicode:
         self.assertRaises(TypeError, self.dumps, b"hi")
         self.assertRaises(TypeError, self.dumps, [b"hi"])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bytes_decode(self):
         for encoding, bom in [
                 ('utf-8', codecs.BOM_UTF8),

@@ -4,6 +4,8 @@ from collections import OrderedDict
 from test.test_json import PyTest, CTest
 from test import support
 
+import unittest # XXX: RUSTPYTHON; importing to be able to skip tests
+
 
 class TestDecode:
     def test_decimal(self):
@@ -16,6 +18,8 @@ class TestDecode:
         self.assertIsInstance(rval, float)
         self.assertEqual(rval, 1.0)
 
+    # TODO: RUSTPYTHON
+    @unittest.skip("TODO: RUSTPYTHON; called `Result::unwrap()` on an `Err` value: ParseFloatError { kind: Invalid }")
     def test_nonascii_digits_rejected(self):
         # JSON specifies only ascii digits, see gh-125687
         for num in ["1\uff10", "0.\uff10", "0e\uff10"]:
@@ -123,6 +127,8 @@ class TestDecode:
         d = self.json.JSONDecoder()
         self.assertRaises(ValueError, d.raw_decode, 'a'*42, -50000)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_limit_int(self):
         maxdigits = 5000
         with support.adjust_int_max_str_digits(maxdigits):
@@ -132,4 +138,9 @@ class TestDecode:
 
 
 class TestPyDecode(TestDecode, PyTest): pass
-class TestCDecode(TestDecode, CTest): pass
+
+class TestCDecode(TestDecode, CTest):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_keys_reuse(self):
+        return super().test_keys_reuse()

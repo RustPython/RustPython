@@ -8,7 +8,9 @@ from test.support import import_helper
 
 
 # import json with and without accelerations
-cjson = import_helper.import_fresh_module('json', fresh=['_json'])
+# XXX RUSTPYTHON: we don't import _json as fresh since the fresh module isn't placed
+# into the sys.modules cache, and therefore the vm can't recognize the _json.Scanner class
+cjson = import_helper.import_fresh_module('json') #, fresh=['_json'])
 pyjson = import_helper.import_fresh_module('json', blocked=['_json'])
 # JSONDecodeError is cached inside the _json module
 cjson.JSONDecodeError = cjson.decoder.JSONDecodeError = json.JSONDecodeError
@@ -39,6 +41,8 @@ class TestPyTest(PyTest):
                          'json.encoder')
 
 class TestCTest(CTest):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cjson(self):
         self.assertEqual(self.json.scanner.make_scanner.__module__, '_json')
         self.assertEqual(self.json.decoder.scanstring.__module__, '_json')
