@@ -5,6 +5,8 @@
 //!   <https://github.com/python/cpython/blob/main/Python/compile.c>
 //!   <https://github.com/micropython/micropython/blob/master/py/compile.c>
 
+// spell-checker:ignore starunpack subscripter
+
 #![deny(clippy::cast_possible_truncation)]
 
 use crate::{
@@ -47,9 +49,9 @@ use num_complex::Complex;
 use num_traits::{Num, ToPrimitive};
 use ruff_python_ast::{
     Alias, Arguments, BoolOp, CmpOp, Comprehension, ConversionFlag, DebugText, Decorator, DictItem,
-    ExceptHandler, ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprFString,
-    ExprList, ExprName, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp, FString,
-    FStringElement, FStringElements, FStringFlags, FStringPart, Identifier, Int, Keyword,
+    ExceptHandler, ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprContext,
+    ExprFString, ExprList, ExprName, ExprSlice, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp,
+    FString, FStringElement, FStringElements, FStringFlags, FStringPart, Identifier, Int, Keyword,
     MatchCase, ModExpression, ModModule, Operator, Parameters, Pattern, PatternMatchAs,
     PatternMatchClass, PatternMatchOr, PatternMatchSequence, PatternMatchSingleton,
     PatternMatchStar, PatternMatchValue, Singleton, Stmt, StmtExpr, TypeParam, TypeParamParamSpec,
@@ -372,7 +374,158 @@ impl<'src> Compiler<'src> {
     }
 }
 
+/// Type of collection to build in starunpack_helper
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum CollectionType {
+    Tuple,
+    List,
+    Set,
+}
+
 impl Compiler<'_> {
+    /// Check if the slice is a two-element slice (no step)
+    // = is_two_element_slice
+    fn is_two_element_slice(slice: &Expr) -> bool {
+        matches!(slice, Expr::Slice(s) if s.step.is_none())
+    }
+
+    /// Compile a slice expression
+    // = compiler_slice
+    fn compile_slice(&mut self, s: &ExprSlice) -> CompileResult<u32> {
+        // Compile lower
+        if let Some(lower) = &s.lower {
+            self.compile_expression(lower)?;
+        } else {
+            self.emit_load_const(ConstantData::None);
+        }
+
+        // Compile upper
+        if let Some(upper) = &s.upper {
+            self.compile_expression(upper)?;
+        } else {
+            self.emit_load_const(ConstantData::None);
+        }
+
+        // Compile step if present
+        if let Some(step) = &s.step {
+            self.compile_expression(step)?;
+            Ok(3) // Three values on stack
+        } else {
+            Ok(2) // Two values on stack
+        }
+    }
+
+    /// Compile a subscript expression
+    // = compiler_subscript
+    fn compile_subscript(
+        &mut self,
+        value: &Expr,
+        slice: &Expr,
+        ctx: ExprContext,
+    ) -> CompileResult<()> {
+        // 1. Check subscripter and index for Load context
+        // 2. VISIT value
+        // 3. Handle two-element slice specially
+        // 4. Otherwise VISIT slice and emit appropriate instruction
+
+        // For Load context, CPython does some checks (we skip for now)
+        // if ctx == ExprContext::Load {
+        //     check_subscripter(value);
+        //     check_index(value, slice);
+        // }
+
+        // VISIT(c, expr, e->v.Subscript.value)
+        self.compile_expression(value)?;
+
+        // Handle two-element slice (for Load/Store, not Del)
+        if Self::is_two_element_slice(slice) && !matches!(ctx, ExprContext::Del) {
+            let n = match slice {
+                Expr::Slice(s) => self.compile_slice(s)?,
+                _ => unreachable!("is_two_element_slice should only return true for Expr::Slice"),
+            };
+            match ctx {
+                ExprContext::Load => {
+                    // CPython uses BINARY_SLICE
+                    emit!(self, Instruction::BuildSlice { step: n == 3 });
+                    emit!(self, Instruction::Subscript);
+                }
+                ExprContext::Store => {
+                    // CPython uses STORE_SLICE
+                    emit!(self, Instruction::BuildSlice { step: n == 3 });
+                    emit!(self, Instruction::StoreSubscript);
+                }
+                _ => unreachable!(),
+            }
+        } else {
+            // VISIT(c, expr, e->v.Subscript.slice)
+            self.compile_expression(slice)?;
+
+            // Emit appropriate instruction based on context
+            match ctx {
+                ExprContext::Load => emit!(self, Instruction::Subscript),
+                ExprContext::Store => emit!(self, Instruction::StoreSubscript),
+                ExprContext::Del => emit!(self, Instruction::DeleteSubscript),
+                ExprContext::Invalid => {
+                    return Err(self.error(CodegenErrorType::SyntaxError(
+                        "Invalid expression context".to_owned(),
+                    )));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Helper function for compiling tuples/lists/sets with starred expressions
+    ///
+    /// Parameters:
+    /// - elts: The elements to compile
+    /// - pushed: Number of items already on the stack
+    /// - collection_type: What type of collection to build (tuple, list, set)
+    ///
+    // = starunpack_helper in compile.c
+    fn starunpack_helper(
+        &mut self,
+        elts: &[Expr],
+        pushed: u32,
+        collection_type: CollectionType,
+    ) -> CompileResult<()> {
+        // Use RustPython's existing approach with BuildXFromTuples
+        let (size, unpack) = self.gather_elements(pushed, elts)?;
+
+        if unpack {
+            // Has starred elements
+            match collection_type {
+                CollectionType::Tuple => {
+                    if size > 1 || pushed > 0 {
+                        emit!(self, Instruction::BuildTupleFromTuples { size });
+                    }
+                    // If size == 1 and pushed == 0, the single tuple is already on the stack
+                }
+                CollectionType::List => {
+                    emit!(self, Instruction::BuildListFromTuples { size });
+                }
+                CollectionType::Set => {
+                    emit!(self, Instruction::BuildSetFromTuples { size });
+                }
+            }
+        } else {
+            // No starred elements
+            match collection_type {
+                CollectionType::Tuple => {
+                    emit!(self, Instruction::BuildTuple { size });
+                }
+                CollectionType::List => {
+                    emit!(self, Instruction::BuildList { size });
+                }
+                CollectionType::Set => {
+                    emit!(self, Instruction::BuildSet { size });
+                }
+            }
+        }
+
+        Ok(())
+    }
     fn error(&mut self, error: CodegenErrorType) -> CodegenError {
         self.error_ranged(error, self.current_source_range)
     }
@@ -1578,10 +1731,10 @@ impl Compiler<'_> {
                 let idx = self.name(attr.as_str());
                 emit!(self, Instruction::DeleteAttr { idx });
             }
-            Expr::Subscript(ExprSubscript { value, slice, .. }) => {
-                self.compile_expression(value)?;
-                self.compile_expression(slice)?;
-                emit!(self, Instruction::DeleteSubscript);
+            Expr::Subscript(ExprSubscript {
+                value, slice, ctx, ..
+            }) => {
+                self.compile_subscript(value, slice, *ctx)?;
             }
             Expr::Tuple(ExprTuple { elts, .. }) | Expr::List(ExprList { elts, .. }) => {
                 for element in elts {
@@ -3946,10 +4099,10 @@ impl Compiler<'_> {
     fn compile_store(&mut self, target: &Expr) -> CompileResult<()> {
         match &target {
             Expr::Name(ExprName { id, .. }) => self.store_name(id.as_str())?,
-            Expr::Subscript(ExprSubscript { value, slice, .. }) => {
-                self.compile_expression(value)?;
-                self.compile_expression(slice)?;
-                emit!(self, Instruction::StoreSubscript);
+            Expr::Subscript(ExprSubscript {
+                value, slice, ctx, ..
+            }) => {
+                self.compile_subscript(value, slice, *ctx)?;
             }
             Expr::Attribute(ExprAttribute { value, attr, .. }) => {
                 self.check_forbidden_name(attr.as_str(), NameUsage::Store)?;
@@ -4030,7 +4183,14 @@ impl Compiler<'_> {
                 self.compile_name(id, NameUsage::Load)?;
                 AugAssignKind::Name { id }
             }
-            Expr::Subscript(ExprSubscript { value, slice, .. }) => {
+            Expr::Subscript(ExprSubscript {
+                value,
+                slice,
+                ctx: _,
+                ..
+            }) => {
+                // For augmented assignment, we need to load the value first
+                // But we can't use compile_subscript directly because we need DUP_TOP2
                 self.compile_expression(value)?;
                 self.compile_expression(slice)?;
                 emit!(self, Instruction::Duplicate2);
@@ -4264,10 +4424,10 @@ impl Compiler<'_> {
                 // Perform operation:
                 self.compile_op(op, false);
             }
-            Expr::Subscript(ExprSubscript { value, slice, .. }) => {
-                self.compile_expression(value)?;
-                self.compile_expression(slice)?;
-                emit!(self, Instruction::Subscript);
+            Expr::Subscript(ExprSubscript {
+                value, slice, ctx, ..
+            }) => {
+                self.compile_subscript(value, slice, *ctx)?;
             }
             Expr::UnaryOp(ExprUnaryOp { op, operand, .. }) => {
                 self.compile_expression(operand)?;
@@ -4298,30 +4458,13 @@ impl Compiler<'_> {
             //     self.emit_load_const(compile_constant(value));
             // }
             Expr::List(ExprList { elts, .. }) => {
-                let (size, unpack) = self.gather_elements(0, elts)?;
-                if unpack {
-                    emit!(self, Instruction::BuildListFromTuples { size });
-                } else {
-                    emit!(self, Instruction::BuildList { size });
-                }
+                self.starunpack_helper(elts, 0, CollectionType::List)?;
             }
             Expr::Tuple(ExprTuple { elts, .. }) => {
-                let (size, unpack) = self.gather_elements(0, elts)?;
-                if unpack {
-                    if size > 1 {
-                        emit!(self, Instruction::BuildTupleFromTuples { size });
-                    }
-                } else {
-                    emit!(self, Instruction::BuildTuple { size });
-                }
+                self.starunpack_helper(elts, 0, CollectionType::Tuple)?;
             }
             Expr::Set(ExprSet { elts, .. }) => {
-                let (size, unpack) = self.gather_elements(0, elts)?;
-                if unpack {
-                    emit!(self, Instruction::BuildSetFromTuples { size });
-                } else {
-                    emit!(self, Instruction::BuildSet { size });
-                }
+                self.starunpack_helper(elts, 0, CollectionType::Set)?;
             }
             Expr::Dict(ExprDict { items, .. }) => {
                 self.compile_dict(items)?;

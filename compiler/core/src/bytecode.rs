@@ -392,8 +392,15 @@ op_arg_enum!(
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     #[repr(u8)]
     pub enum IntrinsicFunction1 {
+        // Invalid = 0,
+        // Print = 1,
         /// Import * operation
         ImportStar = 2,
+        // StopIterationError = 3,
+        // AsyncGenWrap = 4,
+        // UnaryPositive = 5,
+        /// Convert list to tuple
+        ListToTuple = 6,
         /// Type parameter related
         TypeVar = 7,
         ParamSpec = 8,

@@ -2262,6 +2262,13 @@ impl ExecutingFrame<'_> {
                 let type_alias = typing::TypeAliasType::new(name, type_params, value);
                 Ok(type_alias.into_ref(&vm.ctx).into())
             }
+            bytecode::IntrinsicFunction1::ListToTuple => {
+                // Convert list to tuple
+                let list = arg
+                    .downcast::<PyList>()
+                    .map_err(|_| vm.new_type_error("LIST_TO_TUPLE expects a list"))?;
+                Ok(vm.ctx.new_tuple(list.borrow_vec().to_vec()).into())
+            }
         }
     }
 
