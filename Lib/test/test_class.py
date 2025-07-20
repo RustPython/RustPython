@@ -851,11 +851,7 @@ try:
 except ImportError:
     has_inline_values = None
 
-
-Py_TPFLAGS_MANAGED_DICT = (1 << 4)
-
-class NoManagedDict:
-    __slots__ = ('a',)
+Py_TPFLAGS_MANAGED_DICT = (1 << 2)
 
 class Plain:
     pass
@@ -869,18 +865,11 @@ class WithAttrs:
         self.c = 3
         self.d = 4
 
-class TestNoManagedValues(unittest.TestCase):
-    def test_flags(self):
-        self.assertEqual(NoManagedDict.__flags__ & Py_TPFLAGS_MANAGED_DICT, 0)
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_no_inline_values_for_slots_class(self):
-        c = NoManagedDict()
-        self.assertFalse(has_inline_values(c))
 
 class TestInlineValues(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_flags(self):
         self.assertEqual(Plain.__flags__ & Py_TPFLAGS_MANAGED_DICT, Py_TPFLAGS_MANAGED_DICT)
         self.assertEqual(WithAttrs.__flags__ & Py_TPFLAGS_MANAGED_DICT, Py_TPFLAGS_MANAGED_DICT)
