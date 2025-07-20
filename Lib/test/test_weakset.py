@@ -44,7 +44,7 @@ class TestWeakSet(unittest.TestCase):
     def test_methods(self):
         weaksetmethods = dir(WeakSet)
         for method in dir(set):
-            if method == 'test_c_api' or method.startswith('_'):
+            if method.startswith('_'):
                 continue
             self.assertIn(method, weaksetmethods,
                          "WeakSet missing method " + method)
@@ -458,8 +458,6 @@ class TestWeakSet(unittest.TestCase):
         self.assertIsInstance(self.s, Set)
         self.assertIsInstance(self.s, MutableSet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copying(self):
         for cls in WeakSet, WeakSetWithSlots:
             s = cls(self.items)
