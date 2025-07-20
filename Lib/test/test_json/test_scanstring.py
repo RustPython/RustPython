@@ -1,7 +1,7 @@
-import unittest
 import sys
 from test.test_json import PyTest, CTest
 
+import unittest # XXX: RUSTPYTHON; importing to be able to skip tests
 
 class TestScanstring:
     def test_scanstring(self):
@@ -117,6 +117,11 @@ class TestScanstring:
             '"\\u012z"',
             '"\\u0x12"',
             '"\\u0X12"',
+            '"\\u{0}"'.format("\uff10" * 4),
+            '"\\u 123"',
+            '"\\u-123"',
+            '"\\u+123"',
+            '"\\u1_23"',
             '"\\ud834\\"',
             '"\\ud834\\u"',
             '"\\ud834\\ud"',
@@ -128,6 +133,11 @@ class TestScanstring:
             '"\\ud834\\udd2z"',
             '"\\ud834\\u0x20"',
             '"\\ud834\\u0X20"',
+            '"\\ud834\\u{0}"'.format("\uff10" * 4),
+            '"\\ud834\\u 123"',
+            '"\\ud834\\u-123"',
+            '"\\ud834\\u+123"',
+            '"\\ud834\\u1_23"',
         ]
         for s in bad_escapes:
             with self.assertRaises(self.JSONDecodeError, msg=s):

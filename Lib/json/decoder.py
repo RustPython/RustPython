@@ -41,7 +41,6 @@ class JSONDecodeError(ValueError):
         pos += col
         return cls(msg, doc, pos)
 
-
     # Note that this exception is used from _json
     def __init__(self, msg, doc, pos):
         lineno = doc.count('\n', 0, pos) + 1
@@ -65,17 +64,18 @@ _CONSTANTS = {
 }
 
 
+HEXDIGITS = re.compile(r'[0-9A-Fa-f]{4}', FLAGS)
 STRINGCHUNK = re.compile(r'(.*?)(["\\\x00-\x1f])', FLAGS)
 BACKSLASH = {
     '"': '"', '\\': '\\', '/': '/',
     'b': '\b', 'f': '\f', 'n': '\n', 'r': '\r', 't': '\t',
 }
 
-def _decode_uXXXX(s, pos):
-    esc = s[pos + 1:pos + 5]
-    if len(esc) == 4 and esc[1] not in 'xX':
+def _decode_uXXXX(s, pos, _m=HEXDIGITS.match):
+    esc = _m(s, pos + 1)
+    if esc is not None:
         try:
-            return int(esc, 16)
+            return int(esc.group(), 16)
         except ValueError:
             pass
     msg = "Invalid \\uXXXX escape"
@@ -215,10 +215,13 @@ def JSONObject(s_and_end, strict, scan_once, object_hook, object_pairs_hook,
             break
         elif nextchar != ',':
             raise JSONDecodeError("Expecting ',' delimiter", s, end - 1)
+        comma_idx = end - 1
         end = _w(s, end).end()
         nextchar = s[end:end + 1]
         end += 1
         if nextchar != '"':
+            if nextchar == '}':
+                raise JSONDecodeError("Illegal trailing comma before end of object", s, comma_idx)
             raise JSONDecodeError(
                 "Expecting property name enclosed in double quotes", s, end - 1)
     if object_pairs_hook is not None:
@@ -255,19 +258,23 @@ def JSONArray(s_and_end, scan_once, _w=WHITESPACE.match, _ws=WHITESPACE_STR):
             break
         elif nextchar != ',':
             raise JSONDecodeError("Expecting ',' delimiter", s, end - 1)
+        comma_idx = end - 1
         try:
             if s[end] in _ws:
                 end += 1
                 if s[end] in _ws:
                     end = _w(s, end + 1).end()
+            nextchar = s[end:end + 1]
         except IndexError:
             pass
+        if nextchar == ']':
+            raise JSONDecodeError("Illegal trailing comma before end of array", s, comma_idx)
 
     return values, end
 
 
 class JSONDecoder(object):
-    """Simple JSON <http://json.org> decoder
+    """Simple JSON <https://json.org> decoder
 
     Performs the following translations in decoding by default:
 
