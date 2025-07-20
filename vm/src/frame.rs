@@ -2267,7 +2267,7 @@ impl ExecutingFrame<'_> {
                 let list = arg
                     .downcast::<PyList>()
                     .map_err(|_| vm.new_type_error("LIST_TO_TUPLE expects a list"))?;
-                Ok(vm.ctx.new_tuple(list.borrow_vec_mut().clone()).into())
+                Ok(vm.ctx.new_tuple(list.borrow_vec().to_vec()).into())
             }
         }
     }
