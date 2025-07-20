@@ -100,8 +100,7 @@ class BaseTest(unittest.TestCase):
         self._threading_key = threading_helper.threading_setup()
 
         logger_dict = logging.getLogger().manager.loggerDict
-        logging._acquireLock()
-        try:
+        with logging._lock:
             self.saved_handlers = logging._handlers.copy()
             self.saved_handler_list = logging._handlerList[:]
             self.saved_loggers = saved_loggers = logger_dict.copy()
@@ -111,8 +110,6 @@ class BaseTest(unittest.TestCase):
             for name in saved_loggers:
                 logger_states[name] = getattr(saved_loggers[name],
                                               'disabled', None)
-        finally:
-            logging._releaseLock()
 
         # Set two unused loggers
         self.logger1 = logging.getLogger("\xab\xd7\xbb")
@@ -146,8 +143,7 @@ class BaseTest(unittest.TestCase):
             self.root_logger.removeHandler(h)
             h.close()
         self.root_logger.setLevel(self.original_logging_level)
-        logging._acquireLock()
-        try:
+        with logging._lock:
             logging._levelToName.clear()
             logging._levelToName.update(self.saved_level_to_name)
             logging._nameToLevel.clear()
@@ -164,8 +160,6 @@ class BaseTest(unittest.TestCase):
             for name in self.logger_states:
                 if logger_states[name] is not None:
                     self.saved_loggers[name].disabled = logger_states[name]
-        finally:
-            logging._releaseLock()
 
         self.doCleanups()
         threading_helper.threading_cleanup(*self._threading_key)
@@ -182,7 +176,7 @@ class BaseTest(unittest.TestCase):
             match = pat.search(actual)
             if not match:
                 self.fail("Log line does not match expected pattern:\n" +
-                          actual)
+                            actual)
             self.assertEqual(tuple(match.groups()), expected)
         s = stream.read()
         if s:
@@ -588,7 +582,7 @@ class CustomLevelsAndFiltersTest(BaseTest):
                 ('Effusive', '17'),
                 ('Terse', '18'),
                 ('Silent', '20'),
-            ])
+        ])
         finally:
             if specific_filter:
                 self.root_logger.removeFilter(specific_filter)
@@ -613,7 +607,7 @@ class HandlerTest(BaseTest):
     def test_builtin_handlers(self):
         # We can't actually *use* too many handlers in the tests,
         # but we can try instantiating them with various options
-        if sys.platform in ('linux', 'darwin'):
+        if sys.platform in ('linux', 'android', 'darwin'):
             for existing in (True, False):
                 fn = make_temp_file()
                 if not existing:
@@ -673,11 +667,11 @@ class HandlerTest(BaseTest):
         os.unlink(fn)
         pfn = os_helper.FakePath(fn)
         cases = (
-            (logging.FileHandler, (pfn, 'w')),
-            (logging.handlers.RotatingFileHandler, (pfn, 'a')),
-            (logging.handlers.TimedRotatingFileHandler, (pfn, 'h')),
-        )
-        if sys.platform in ('linux', 'darwin'):
+                    (logging.FileHandler, (pfn, 'w')),
+                    (logging.handlers.RotatingFileHandler, (pfn, 'a')),
+                    (logging.handlers.TimedRotatingFileHandler, (pfn, 'h')),
+                )
+        if sys.platform in ('linux', 'android', 'darwin'):
             cases += ((logging.handlers.WatchedFileHandler, (pfn, 'w')),)
         for cls, args in cases:
             h = cls(*args, encoding="utf-8")
@@ -751,11 +745,8 @@ class HandlerTest(BaseTest):
                     stream=open('/dev/null', 'wt', encoding='utf-8'))
 
             def emit(self, record):
-                self.sub_handler.acquire()
-                try:
+                with self.sub_handler.lock:
                     self.sub_handler.emit(record)
-                finally:
-                    self.sub_handler.release()
 
         self.assertEqual(len(logging._handlers), 0)
         refed_h = _OurHandler()
@@ -771,33 +762,26 @@ class HandlerTest(BaseTest):
         fork_happened__release_locks_and_end_thread = threading.Event()
 
         def lock_holder_thread_fn():
-            logging._acquireLock()
-            try:
-                refed_h.acquire()
-                try:
-                    # Tell the main thread to do the fork.
-                    locks_held__ready_to_fork.set()
+            with logging._lock, refed_h.lock:
+                # Tell the main thread to do the fork.
+                locks_held__ready_to_fork.set()
 
-                    # If the deadlock bug exists, the fork will happen
-                    # without dealing with the locks we hold, deadlocking
-                    # the child.
+                # If the deadlock bug exists, the fork will happen
+                # without dealing with the locks we hold, deadlocking
+                # the child.
 
-                    # Wait for a successful fork or an unreasonable amount of
-                    # time before releasing our locks.  To avoid a timing based
-                    # test we'd need communication from os.fork() as to when it
-                    # has actually happened.  Given this is a regression test
-                    # for a fixed issue, potentially less reliably detecting
-                    # regression via timing is acceptable for simplicity.
-                    # The test will always take at least this long. :(
-                    fork_happened__release_locks_and_end_thread.wait(0.5)
-                finally:
-                    refed_h.release()
-            finally:
-                logging._releaseLock()
+                # Wait for a successful fork or an unreasonable amount of
+                # time before releasing our locks.  To avoid a timing based
+                # test we'd need communication from os.fork() as to when it
+                # has actually happened.  Given this is a regression test
+                # for a fixed issue, potentially less reliably detecting
+                # regression via timing is acceptable for simplicity.
+                # The test will always take at least this long. :(
+                fork_happened__release_locks_and_end_thread.wait(0.5)
 
         lock_holder_thread = threading.Thread(
-            target=lock_holder_thread_fn,
-            name='test_post_fork_child_no_deadlock lock holder')
+                target=lock_holder_thread_fn,
+                name='test_post_fork_child_no_deadlock lock holder')
         lock_holder_thread.start()
 
         locks_held__ready_to_fork.wait()
@@ -1132,7 +1116,7 @@ class SMTPHandlerTest(BaseTest):
     TIMEOUT = support.LONG_TIMEOUT
 
     # TODO: RUSTPYTHON
-    @unittest.skip(reason="Hangs RustPython")
+    @unittest.skip(reason="RUSTPYTHON hangs")
     def test_basic(self):
         sockmap = {}
         server = TestSMTPServer((socket_helper.HOST, 0), self.process_message, 0.001,
@@ -1657,7 +1641,7 @@ class ConfigFileTest(BaseTest):
                 logging.exception("just testing")
             sys.stdout.seek(0)
             self.assertEqual(output.getvalue(),
-                             "ERROR:root:just testing\nGot a [RuntimeError]\n")
+                "ERROR:root:just testing\nGot a [RuntimeError]\n")
             # Original logger output is empty
             self.assert_log_lines([])
 
@@ -2171,7 +2155,7 @@ class HTTPHandlerTest(BaseTest):
         self.handled.set()
 
     # TODO: RUSTPYTHON
-    @unittest.skip("RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     def test_output(self):
         # The log message sent to the HTTPHandler is properly received.
         logger = logging.getLogger("http")
@@ -2195,7 +2179,7 @@ class HTTPHandlerTest(BaseTest):
                 sslctx = None
                 context = None
             self.server = server = TestHTTPServer(addr, self.handle_request,
-                                                  0.01, sslctx=sslctx)
+                                                    0.01, sslctx=sslctx)
             server.start()
             server.ready.wait()
             host = 'localhost:%d' % server.server_port
@@ -2212,7 +2196,8 @@ class HTTPHandlerTest(BaseTest):
                 self.handled.clear()
                 msg = "sp\xe4m"
                 logger.error(msg)
-                self.handled.wait()
+                handled = self.handled.wait(support.SHORT_TIMEOUT)
+                self.assertTrue(handled, "HTTP request timed out")
                 self.assertEqual(self.log_data.path, '/frob')
                 self.assertEqual(self.command, method)
                 if method == 'GET':
@@ -2253,7 +2238,7 @@ class MemoryTest(BaseTest):
                 dead.append(repr_)
         if dead:
             self.fail("%d objects should have survived "
-                      "but have been destroyed: %s" % (len(dead), ", ".join(dead)))
+                "but have been destroyed: %s" % (len(dead), ", ".join(dead)))
 
     def test_persistent_loggers(self):
         # Logger objects are persistent and retain their configuration, even
@@ -2351,7 +2336,7 @@ class WarningsTest(BaseTest):
             s = a_file.getvalue()
             a_file.close()
             self.assertEqual(s,
-                             "dummy.py:42: UserWarning: Explicit\n  Dummy line\n")
+                "dummy.py:42: UserWarning: Explicit\n  Dummy line\n")
 
     def test_warnings_no_handlers(self):
         with warnings.catch_warnings():
@@ -2632,7 +2617,7 @@ class ConfigDictTest(BaseTest):
         },
         'root' : {
             'level' : 'NOTSET',
-            'handlers' : ['hand1'],
+                'handlers' : ['hand1'],
         },
     }
 
@@ -2666,7 +2651,7 @@ class ConfigDictTest(BaseTest):
         },
         'root' : {
             'level' : 'NOTSET',
-            'handlers' : ['hand1'],
+                'handlers' : ['hand1'],
         },
     }
 
@@ -3277,7 +3262,7 @@ class ConfigDictTest(BaseTest):
             'h1' : {
                 'class': 'logging.FileHandler',
             },
-            # key is before depended on handlers to test that deferred config works
+             # key is before depended on handlers to test that deferred config works
             'ah' : {
                 'class': 'logging.handlers.QueueHandler',
                 'handlers': ['h1']
@@ -3355,7 +3340,7 @@ class ConfigDictTest(BaseTest):
                 logging.exception("just testing")
             sys.stdout.seek(0)
             self.assertEqual(output.getvalue(),
-                             "ERROR:root:just testing\nGot a [RuntimeError]\n")
+                "ERROR:root:just testing\nGot a [RuntimeError]\n")
             # Original logger output is empty
             self.assert_log_lines([])
 
@@ -3370,7 +3355,7 @@ class ConfigDictTest(BaseTest):
                 logging.exception("just testing")
             sys.stdout.seek(0)
             self.assertEqual(output.getvalue(),
-                             "ERROR:root:just testing\nGot a [RuntimeError]\n")
+                "ERROR:root:just testing\nGot a [RuntimeError]\n")
             # Original logger output is empty
             self.assert_log_lines([])
 
@@ -3770,7 +3755,28 @@ class ConfigDictTest(BaseTest):
         d = {
             'atuple': (1, 2, 3),
             'alist': ['a', 'b', 'c'],
-            'adict': {'d': 'e', 'f': 3 },
+            'adict': {
+                'd': 'e', 'f': 3 ,
+                'alpha numeric 1 with spaces' : 5,
+                'alpha numeric 1 %( - © ©ß¯' : 9,
+                'alpha numeric ] 1 with spaces' : 15,
+                'alpha ]] numeric 1 %( - © ©ß¯]' : 19,
+                ' alpha [ numeric 1 %( - © ©ß¯] ' : 11,
+                ' alpha ' : 32,
+                '' : 10,
+                'nest4' : {
+                    'd': 'e', 'f': 3 ,
+                    'alpha numeric 1 with spaces' : 5,
+                    'alpha numeric 1 %( - © ©ß¯' : 9,
+                    '' : 10,
+                    'somelist' :  ('g', ('h', 'i'), 'j'),
+                    'somedict' : {
+                        'a' : 1,
+                        'a with 1 and space' : 3,
+                        'a with ( and space' : 4,
+                    }
+                }
+            },
             'nest1': ('g', ('h', 'i'), 'j'),
             'nest2': ['k', ['l', 'm'], 'n'],
             'nest3': ['o', 'cfg://alist', 'p'],
@@ -3782,11 +3788,36 @@ class ConfigDictTest(BaseTest):
         self.assertEqual(bc.convert('cfg://nest2[1][1]'), 'm')
         self.assertEqual(bc.convert('cfg://adict.d'), 'e')
         self.assertEqual(bc.convert('cfg://adict[f]'), 3)
+        self.assertEqual(bc.convert('cfg://adict[alpha numeric 1 with spaces]'), 5)
+        self.assertEqual(bc.convert('cfg://adict[alpha numeric 1 %( - © ©ß¯]'), 9)
+        self.assertEqual(bc.convert('cfg://adict[]'), 10)
+        self.assertEqual(bc.convert('cfg://adict.nest4.d'), 'e')
+        self.assertEqual(bc.convert('cfg://adict.nest4[d]'), 'e')
+        self.assertEqual(bc.convert('cfg://adict[nest4].d'), 'e')
+        self.assertEqual(bc.convert('cfg://adict[nest4][f]'), 3)
+        self.assertEqual(bc.convert('cfg://adict[nest4][alpha numeric 1 with spaces]'), 5)
+        self.assertEqual(bc.convert('cfg://adict[nest4][alpha numeric 1 %( - © ©ß¯]'), 9)
+        self.assertEqual(bc.convert('cfg://adict[nest4][]'), 10)
+        self.assertEqual(bc.convert('cfg://adict[nest4][somelist][0]'), 'g')
+        self.assertEqual(bc.convert('cfg://adict[nest4][somelist][1][0]'), 'h')
+        self.assertEqual(bc.convert('cfg://adict[nest4][somelist][1][1]'), 'i')
+        self.assertEqual(bc.convert('cfg://adict[nest4][somelist][2]'), 'j')
+        self.assertEqual(bc.convert('cfg://adict[nest4].somedict.a'), 1)
+        self.assertEqual(bc.convert('cfg://adict[nest4].somedict[a]'), 1)
+        self.assertEqual(bc.convert('cfg://adict[nest4].somedict[a with 1 and space]'), 3)
+        self.assertEqual(bc.convert('cfg://adict[nest4].somedict[a with ( and space]'), 4)
+        self.assertEqual(bc.convert('cfg://adict.nest4.somelist[1][1]'), 'i')
+        self.assertEqual(bc.convert('cfg://adict.nest4.somelist[2]'), 'j')
+        self.assertEqual(bc.convert('cfg://adict.nest4.somedict.a'), 1)
+        self.assertEqual(bc.convert('cfg://adict.nest4.somedict[a]'), 1)
         v = bc.convert('cfg://nest3')
         self.assertEqual(v.pop(1), ['a', 'b', 'c'])
         self.assertRaises(KeyError, bc.convert, 'cfg://nosuch')
         self.assertRaises(ValueError, bc.convert, 'cfg://!')
         self.assertRaises(KeyError, bc.convert, 'cfg://adict[2]')
+        self.assertRaises(KeyError, bc.convert, 'cfg://adict[alpha numeric ] 1 with spaces]')
+        self.assertRaises(ValueError, bc.convert, 'cfg://adict[ alpha ]] numeric 1 %( - © ©ß¯] ]')
+        self.assertRaises(ValueError, bc.convert, 'cfg://adict[ alpha [ numeric 1 %( - © ©ß¯] ]')
 
     def test_namedtuple(self):
         # see bpo-39142
@@ -3992,7 +4023,7 @@ class ConfigDictTest(BaseTest):
     @skip_if_tsan_fork
     @support.requires_subprocess()
     @unittest.skipUnless(support.Py_DEBUG, "requires a debug build for testing"
-                                           "assertions in multiprocessing")
+                                           " assertions in multiprocessing")
     def test_config_queue_handler_multiprocessing_context(self):
         # regression test for gh-121723
         if support.MS_WINDOWS:
@@ -4029,8 +4060,9 @@ class ConfigDictTest(BaseTest):
         # log a message (this creates a record put in the queue)
         logging.getLogger().info(message_to_log)
 
-    # TODO: RustPython
+    # TODO: RUSTPYTHON; ImportError: cannot import name 'SemLock'
     @unittest.expectedFailure
+    @skip_if_tsan_fork
     @support.requires_subprocess()
     def test_multiprocessing_queues(self):
         # See gh-119819
@@ -4089,7 +4121,7 @@ class ConfigDictTest(BaseTest):
         # Logger should be enabled, since explicitly mentioned
         self.assertFalse(logger.disabled)
 
-    # TODO: RustPython
+    # TODO: RUSTPYTHON; ImportError: cannot import name 'SemLock'
     @unittest.expectedFailure
     def test_111615(self):
         # See gh-111615
@@ -4139,6 +4171,91 @@ class ConfigDictTest(BaseTest):
         handler = logging.getHandlerByName('custom')
         self.assertEqual(handler.custom_kwargs, custom_kwargs)
 
+    # TODO: RUSTPYTHON; ImportError: cannot import name 'SemLock'
+    @unittest.expectedFailure
+    # See gh-91555 and gh-90321
+    @support.requires_subprocess()
+    def test_deadlock_in_queue(self):
+        queue = multiprocessing.Queue()
+        handler = logging.handlers.QueueHandler(queue)
+        logger = multiprocessing.get_logger()
+        level = logger.level
+        try:
+            logger.setLevel(logging.DEBUG)
+            logger.addHandler(handler)
+            logger.debug("deadlock")
+        finally:
+            logger.setLevel(level)
+            logger.removeHandler(handler)
+
+    def test_recursion_in_custom_handler(self):
+        class BadHandler(logging.Handler):
+            def __init__(self):
+                super().__init__()
+            def emit(self, record):
+                logger.debug("recurse")
+        logger = logging.getLogger("test_recursion_in_custom_handler")
+        logger.addHandler(BadHandler())
+        logger.setLevel(logging.DEBUG)
+        logger.debug("boom")
+
+    @threading_helper.requires_working_threading()
+    def test_thread_supression_noninterference(self):
+        lock = threading.Lock()
+        logger = logging.getLogger("test_thread_supression_noninterference")
+
+        # Block on the first call, allow others through
+        #
+        # NOTE: We need to bypass the base class's lock, otherwise that will
+        #       block multiple calls to the same handler itself.
+        class BlockOnceHandler(TestHandler):
+            def __init__(self, barrier):
+                super().__init__(support.Matcher())
+                self.barrier = barrier
+
+            def createLock(self):
+                self.lock = None
+
+            def handle(self, record):
+                self.emit(record)
+
+            def emit(self, record):
+                if self.barrier:
+                    barrier = self.barrier
+                    self.barrier = None
+                    barrier.wait()
+                    with lock:
+                        pass
+                super().emit(record)
+                logger.info("blow up if not supressed")
+
+        barrier = threading.Barrier(2)
+        handler = BlockOnceHandler(barrier)
+        logger.addHandler(handler)
+        logger.setLevel(logging.DEBUG)
+
+        t1 = threading.Thread(target=logger.debug, args=("1",))
+        with lock:
+
+            # Ensure first thread is blocked in the handler, hence supressing logging...
+            t1.start()
+            barrier.wait()
+
+            # ...but the second thread should still be able to log...
+            t2 = threading.Thread(target=logger.debug, args=("2",))
+            t2.start()
+            t2.join(timeout=3)
+
+            self.assertEqual(len(handler.buffer), 1)
+            self.assertTrue(handler.matches(levelno=logging.DEBUG, message='2'))
+
+            # The first thread should still be blocked here
+            self.assertTrue(t1.is_alive())
+
+        # Now the lock has been released the first thread should complete
+        t1.join()
+        self.assertEqual(len(handler.buffer), 2)
+        self.assertTrue(handler.matches(levelno=logging.DEBUG, message='1'))
 
 class ManagerTest(BaseTest):
     def test_manager_loggerclass(self):
@@ -4208,7 +4325,7 @@ class LogRecordFactoryTest(BaseTest):
                 t = type(record)
                 if t is not self.cls:
                     msg = 'Unexpected LogRecord type %s, expected %s' % (t,
-                                                                         self.cls)
+                            self.cls)
                     raise TypeError(msg)
                 return True
 
@@ -4228,7 +4345,7 @@ class LogRecordFactoryTest(BaseTest):
         logging.setLogRecordFactory(DerivedLogRecord)
         self.root_logger.error(self.next_message())
         self.assert_log_lines([
-            ('root', 'ERROR', '2'),
+           ('root', 'ERROR', '2'),
         ])
 
 
@@ -4276,8 +4393,6 @@ class QueueHandlerTest(BaseTest):
         self.assertEqual(formatted_msg, log_record.msg)
         self.assertEqual(formatted_msg, log_record.message)
 
-    @unittest.skipUnless(hasattr(logging.handlers, 'QueueListener'),
-                         'logging.handlers.QueueListener required for this test')
     def test_queue_listener(self):
         handler = TestHandler(support.Matcher())
         listener = logging.handlers.QueueListener(self.queue, handler)
@@ -4288,6 +4403,7 @@ class QueueHandlerTest(BaseTest):
             self.que_logger.critical(self.next_message())
         finally:
             listener.stop()
+            listener.stop()  # gh-114706 - ensure no crash if called again
         self.assertTrue(handler.matches(levelno=logging.WARNING, message='1'))
         self.assertTrue(handler.matches(levelno=logging.ERROR, message='2'))
         self.assertTrue(handler.matches(levelno=logging.CRITICAL, message='3'))
@@ -4311,8 +4427,18 @@ class QueueHandlerTest(BaseTest):
         self.assertTrue(handler.matches(levelno=logging.CRITICAL, message='6'))
         handler.close()
 
-    @unittest.skipUnless(hasattr(logging.handlers, 'QueueListener'),
-                         'logging.handlers.QueueListener required for this test')
+        # doesn't hurt to call stop() more than once.
+        listener.stop()
+        self.assertIsNone(listener._thread)
+
+    def test_queue_listener_multi_start(self):
+        handler = TestHandler(support.Matcher())
+        listener = logging.handlers.QueueListener(self.queue, handler)
+        listener.start()
+        self.assertRaises(RuntimeError, listener.start)
+        listener.stop()
+        self.assertIsNone(listener._thread)
+
     def test_queue_listener_with_StreamHandler(self):
         # Test that traceback and stack-info only appends once (bpo-34334, bpo-46755).
         listener = logging.handlers.QueueListener(self.queue, self.root_hdlr)
@@ -4327,8 +4453,6 @@ class QueueHandlerTest(BaseTest):
         self.assertEqual(self.stream.getvalue().strip().count('Traceback'), 1)
         self.assertEqual(self.stream.getvalue().strip().count('Stack'), 1)
 
-    @unittest.skipUnless(hasattr(logging.handlers, 'QueueListener'),
-                         'logging.handlers.QueueListener required for this test')
     def test_queue_listener_with_multiple_handlers(self):
         # Test that queue handler format doesn't affect other handler formats (bpo-35726).
         self.que_hdlr.setFormatter(self.root_formatter)
@@ -4344,6 +4468,7 @@ if hasattr(logging.handlers, 'QueueListener'):
     import multiprocessing
     from unittest.mock import patch
 
+    @skip_if_tsan_fork
     @threading_helper.requires_working_threading()
     class QueueListenerTest(BaseTest):
         """
@@ -4427,8 +4552,8 @@ if hasattr(logging.handlers, 'QueueListener'):
                 expected = [[], [logging.handlers.QueueListener._sentinel]]
                 self.assertIn(items, expected,
                               'Found unexpected messages in queue: %s' % (
-                                  [m.msg if isinstance(m, logging.LogRecord)
-                                   else m for m in items]))
+                                    [m.msg if isinstance(m, logging.LogRecord)
+                                     else m for m in items]))
 
         def test_calls_task_done_after_stop(self):
             # Issue 36813: Make sure queue.join does not deadlock.
@@ -4538,7 +4663,7 @@ class FormatterTest(unittest.TestCase, AssertErrorMessage):
         f = logging.Formatter('${asctime}--', style='$')
         self.assertTrue(f.usesTime())
 
-    # TODO: RustPython
+    # TODO: RUSTPYTHON; ValueError: Unexpected error parsing format string
     @unittest.expectedFailure
     def test_format_validate(self):
         # Check correct formatting
@@ -4713,7 +4838,7 @@ class FormatterTest(unittest.TestCase, AssertErrorMessage):
     def test_invalid_style(self):
         self.assertRaises(ValueError, logging.Formatter, None, None, 'x')
 
-    # TODO: RustPython
+    # TODO: RUSTPYTHON; AttributeError: 'struct_time' object has no attribute 'tm_gmtoff'
     @unittest.expectedFailure
     def test_time(self):
         r = self.get_record()
@@ -4729,7 +4854,7 @@ class FormatterTest(unittest.TestCase, AssertErrorMessage):
         f.format(r)
         self.assertEqual(r.asctime, '1993-04-21 08:03:00,123')
 
-    # TODO: RustPython
+    # TODO: RUSTPYTHON; AttributeError: 'struct_time' object has no attribute 'tm_gmtoff'
     @unittest.expectedFailure
     def test_default_msec_format_none(self):
         class NoMsecFormatter(logging.Formatter):
@@ -4750,6 +4875,77 @@ class FormatterTest(unittest.TestCase, AssertErrorMessage):
             r = logging.makeLogRecord({'msg': 'Message %d' % (i + 1)})
             s = f.format(r)
             self.assertNotIn('.1000', s)
+
+    def test_msecs_has_no_floating_point_precision_loss(self):
+        # See issue gh-102402
+        tests = (
+            # time_ns is approx. 2023-03-04 04:25:20 UTC
+            # (time_ns, expected_msecs_value)
+            (1_677_902_297_100_000_000, 100.0),  # exactly 100ms
+            (1_677_903_920_999_998_503, 999.0),  # check truncating doesn't round
+            (1_677_903_920_000_998_503, 0.0),  # check truncating doesn't round
+            (1_677_903_920_999_999_900, 0.0), # check rounding up
+        )
+        for ns, want in tests:
+            with patch('time.time_ns') as patched_ns:
+                patched_ns.return_value = ns
+                record = logging.makeLogRecord({'msg': 'test'})
+            with self.subTest(ns):
+                self.assertEqual(record.msecs, want)
+                self.assertEqual(record.created, ns / 1e9)
+                self.assertAlmostEqual(record.created - int(record.created),
+                                       record.msecs / 1e3,
+                                       delta=1e-3)
+
+    def test_relativeCreated_has_higher_precision(self):
+        # See issue gh-102402.
+        # Run the code in the subprocess, because the time module should
+        # be patched before the first import of the logging package.
+        # Temporary unloading and re-importing the logging package has
+        # side effects (including registering the atexit callback and
+        # references leak).
+        start_ns = 1_677_903_920_000_998_503  # approx. 2023-03-04 04:25:20 UTC
+        offsets_ns = (200, 500, 12_354, 99_999, 1_677_903_456_999_123_456)
+        code = textwrap.dedent(f"""
+            start_ns = {start_ns!r}
+            offsets_ns = {offsets_ns!r}
+            start_monotonic_ns = start_ns - 1
+
+            import time
+            # Only time.time_ns needs to be patched for the current
+            # implementation, but patch also other functions to make
+            # the test less implementation depending.
+            old_time_ns = time.time_ns
+            old_time = time.time
+            old_monotonic_ns = time.monotonic_ns
+            old_monotonic = time.monotonic
+            time_ns_result = start_ns
+            time.time_ns = lambda: time_ns_result
+            time.time = lambda: time.time_ns()/1e9
+            time.monotonic_ns = lambda: time_ns_result - start_monotonic_ns
+            time.monotonic = lambda: time.monotonic_ns()/1e9
+            try:
+                import logging
+
+                for offset_ns in offsets_ns:
+                    # mock for log record creation
+                    time_ns_result = start_ns + offset_ns
+                    record = logging.makeLogRecord({{'msg': 'test'}})
+                    print(record.created, record.relativeCreated)
+            finally:
+                time.time_ns = old_time_ns
+                time.time = old_time
+                time.monotonic_ns = old_monotonic_ns
+                time.monotonic = old_monotonic
+        """)
+        rc, out, err = assert_python_ok("-c", code)
+        out = out.decode()
+        for offset_ns, line in zip(offsets_ns, out.splitlines(), strict=True):
+            with self.subTest(offset_ns=offset_ns):
+                created, relativeCreated = map(float, line.split())
+                self.assertAlmostEqual(created, (start_ns + offset_ns) / 1e9, places=6)
+                # After PR gh-102412, precision (places) increases from 3 to 7
+                self.assertAlmostEqual(relativeCreated, offset_ns / 1e6, places=7)
 
 
 class TestBufferingFormatter(logging.BufferingFormatter):
@@ -4795,9 +4991,9 @@ class ExceptionTest(BaseTest):
         self.assertTrue(r.exc_text.endswith('\nRuntimeError: '
                                             'deliberate mistake'))
         self.assertTrue(r.stack_info.startswith('Stack (most recent '
-                                                'call last):\n'))
+                                              'call last):\n'))
         self.assertTrue(r.stack_info.endswith('logging.exception(\'failed\', '
-                                              'stack_info=True)'))
+                                            'stack_info=True)'))
 
 
 class LastResortTest(BaseTest):
@@ -5061,7 +5257,7 @@ class ModuleLevelMiscTest(BaseTest):
             h.close()
             logging.setLoggerClass(logging.Logger)
 
-    # TODO: RustPython
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_logging_at_shutdown(self):
         # bpo-20037: Doing text I/O late at interpreter shutdown must not crash
@@ -5082,7 +5278,7 @@ class ModuleLevelMiscTest(BaseTest):
         self.assertIn("exception in __del__", err)
         self.assertIn("ValueError: some error", err)
 
-    # TODO: RustPython
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_logging_at_shutdown_open(self):
         # bpo-26789: FileHandler keeps a reference to the builtin open()
@@ -5175,7 +5371,7 @@ class LogRecordTest(BaseTest):
             results = {'processName'  : name,
                        'r1.processName': r1.processName,
                        'r2.processName': r2.processName,
-                       }
+                      }
         finally:
             logging.logMultiprocessing = prev_logMultiprocessing
         if conn:
@@ -5183,6 +5379,7 @@ class LogRecordTest(BaseTest):
         else:
             return results
 
+    @skip_if_tsan_fork
     def test_multiprocessing(self):
         support.skip_if_broken_multiprocessing_synchronize()
         multiprocessing_imported = 'multiprocessing' in sys.modules
@@ -5333,7 +5530,7 @@ class BasicConfigTest(unittest.TestCase):
             logging.error("Log an error")
             sys.stdout.seek(0)
             self.assertEqual(output.getvalue().strip(),
-                             "ERROR:root:Log an error")
+                "ERROR:root:Log an error")
 
     def test_stringtemplatestyle(self):
         with support.captured_stdout() as output:
@@ -5341,7 +5538,7 @@ class BasicConfigTest(unittest.TestCase):
             logging.error("Log an error")
             sys.stdout.seek(0)
             self.assertEqual(output.getvalue().strip(),
-                             "ERROR:root:Log an error")
+                "ERROR:root:Log an error")
 
     def test_filename(self):
 
@@ -5418,11 +5615,11 @@ class BasicConfigTest(unittest.TestCase):
         handlers = [logging.StreamHandler()]
         stream = sys.stderr
         assertRaises(ValueError, logging.basicConfig, filename='test.log',
-                     stream=stream)
+                                                      stream=stream)
         assertRaises(ValueError, logging.basicConfig, filename='test.log',
-                     handlers=handlers)
+                                                      handlers=handlers)
         assertRaises(ValueError, logging.basicConfig, stream=stream,
-                     handlers=handlers)
+                                                      handlers=handlers)
         # Issue 23207: test for invalid kwargs
         assertRaises(ValueError, logging.basicConfig, loglevel=logging.INFO)
         # Should pop both filename and filemode even if filename is None
@@ -5803,6 +6000,30 @@ class LoggerAdapterTest(unittest.TestCase):
         record = self.recording.records[0]
         self.assertFalse(hasattr(record, 'foo'))
 
+    def test_extra_merged(self):
+        self.adapter = logging.LoggerAdapter(logger=self.logger,
+                                             extra={'foo': '1'},
+                                             merge_extra=True)
+
+        self.adapter.critical('foo and bar should be here', extra={'bar': '2'})
+        self.assertEqual(len(self.recording.records), 1)
+        record = self.recording.records[0]
+        self.assertTrue(hasattr(record, 'foo'))
+        self.assertTrue(hasattr(record, 'bar'))
+        self.assertEqual(record.foo, '1')
+        self.assertEqual(record.bar, '2')
+
+    def test_extra_merged_log_call_has_precedence(self):
+        self.adapter = logging.LoggerAdapter(logger=self.logger,
+                                             extra={'foo': '1'},
+                                             merge_extra=True)
+
+        self.adapter.critical('foo shall be min', extra={'foo': '2'})
+        self.assertEqual(len(self.recording.records), 1)
+        record = self.recording.records[0]
+        self.assertTrue(hasattr(record, 'foo'))
+        self.assertEqual(record.foo, '2')
+
 
 class PrefixAdapter(logging.LoggerAdapter):
     prefix = 'Adapter'
@@ -6112,14 +6333,14 @@ class RotatingFileHandlerTest(BaseFileTest):
 
         # If maxBytes is zero rollover never occurs
         rh = logging.handlers.RotatingFileHandler(
-            self.fn, encoding="utf-8", maxBytes=0)
+                self.fn, encoding="utf-8", maxBytes=0)
         self.assertFalse(rh.shouldRollover(None))
         rh.close()
 
         with open(self.fn, 'wb') as f:
             f.write(b'\n')
         rh = logging.handlers.RotatingFileHandler(
-            self.fn, encoding="utf-8", maxBytes=0)
+                self.fn, encoding="utf-8", maxBytes=0)
         self.assertFalse(rh.shouldRollover(None))
         rh.close()
 
@@ -6129,7 +6350,7 @@ class RotatingFileHandlerTest(BaseFileTest):
         # We set maxBytes to 1 so that rollover would normally happen, except
         # for the check for regular files
         rh = logging.handlers.RotatingFileHandler(
-            os.devnull, encoding="utf-8", maxBytes=1)
+                os.devnull, encoding="utf-8", maxBytes=1)
         self.assertFalse(rh.shouldRollover(self.next_rec()))
         rh.close()
 
@@ -6260,12 +6481,12 @@ class RotatingFileHandlerTest(BaseFileTest):
 
 class TimedRotatingFileHandlerTest(BaseFileTest):
     # TODO: RUSTPYTHON
-    @unittest.skip("OS dependent bug")
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipIf(support.is_wasi, "WASI does not have /dev/null.")
     def test_should_not_rollover(self):
         # See bpo-45401. Should only ever rollover regular files
         fh = logging.handlers.TimedRotatingFileHandler(
-            os.devnull, 'S', encoding="utf-8", backupCount=1)
+                os.devnull, 'S', encoding="utf-8", backupCount=1)
         time.sleep(1.1)    # a little over a second ...
         r = logging.makeLogRecord({'msg': 'testing - device file'})
         self.assertFalse(fh.shouldRollover(r))
@@ -6274,7 +6495,7 @@ class TimedRotatingFileHandlerTest(BaseFileTest):
     # other test methods added below
     def test_rollover(self):
         fh = logging.handlers.TimedRotatingFileHandler(
-            self.fn, 'S', encoding="utf-8", backupCount=1)
+                self.fn, 'S', encoding="utf-8", backupCount=1)
         fmt = logging.Formatter('%(asctime)s %(message)s')
         fh.setFormatter(fmt)
         r1 = logging.makeLogRecord({'msg': 'testing - initial'})
@@ -6314,8 +6535,8 @@ class TimedRotatingFileHandlerTest(BaseFileTest):
                     print(tf.read())
         self.assertTrue(found, msg=msg)
 
-    # TODO: RustPython
-    @unittest.skip("OS dependent bug")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_rollover_at_midnight(self, weekly=False):
         os_helper.unlink(self.fn)
         now = datetime.datetime.now()
@@ -6359,8 +6580,8 @@ class TimedRotatingFileHandlerTest(BaseFileTest):
             for i, line in enumerate(f):
                 self.assertIn(f'testing1 {i}', line)
 
-    # TODO: RustPython
-    @unittest.skip("OS dependent bug")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_rollover_at_weekday(self):
         self.test_rollover_at_midnight(weekly=True)
 
@@ -6944,7 +7165,7 @@ for when, exp in (('S', 1),
                   ('MIDNIGHT', 60 * 60 * 24),
                   # current time (epoch start) is a Thursday, W0 means Monday
                   ('W0', secs(days=4, hours=24)),
-                  ):
+                 ):
     for interval in 1, 3:
         def test_compute_rollover(self, when=when, interval=interval, exp=exp):
             rh = logging.handlers.TimedRotatingFileHandler(
@@ -6970,8 +7191,8 @@ for when, exp in (('S', 1),
                         currentSecond = t[5]
                         # r is the number of seconds left between now and midnight
                         r = logging.handlers._MIDNIGHT - ((currentHour * 60 +
-                                                           currentMinute) * 60 +
-                                                          currentSecond)
+                                                        currentMinute) * 60 +
+                                currentSecond)
                         result = currentTime + r
                         print('t: %s (%s)' % (t, rh.utc), file=sys.stderr)
                         print('currentHour: %s' % currentHour, file=sys.stderr)

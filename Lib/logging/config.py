@@ -83,15 +83,12 @@ def fileConfig(fname, defaults=None, disable_existing_loggers=True, encoding=Non
     formatters = _create_formatters(cp)
 
     # critical section
-    logging._acquireLock()
-    try:
+    with logging._lock:
         _clearExistingHandlers()
 
         # Handlers add themselves to logging._handlers
         handlers = _install_handlers(cp, formatters)
         _install_loggers(cp, handlers, disable_existing_loggers)
-    finally:
-        logging._releaseLock()
 
 
 def _resolve(name):
@@ -314,7 +311,7 @@ class ConvertingMixin(object):
             if replace:
                 self[key] = result
             if type(result) in (ConvertingDict, ConvertingList,
-                                ConvertingTuple):
+                               ConvertingTuple):
                 result.parent = self
                 result.key = key
         return result
@@ -323,7 +320,7 @@ class ConvertingMixin(object):
         result = self.configurator.convert(value)
         if value is not result:
             if type(result) in (ConvertingDict, ConvertingList,
-                                ConvertingTuple):
+                               ConvertingTuple):
                 result.parent = self
         return result
 
@@ -378,7 +375,7 @@ class BaseConfigurator(object):
 
     WORD_PATTERN = re.compile(r'^\s*(\w+)\s*')
     DOT_PATTERN = re.compile(r'^\.\s*(\w+)\s*')
-    INDEX_PATTERN = re.compile(r'^\[\s*(\w+)\s*\]\s*')
+    INDEX_PATTERN = re.compile(r'^\[([^\[\]]*)\]\s*')
     DIGIT_PATTERN = re.compile(r'^\d+$')
 
     value_converters = {
@@ -464,8 +461,8 @@ class BaseConfigurator(object):
         elif not isinstance(value, ConvertingList) and isinstance(value, list):
             value = ConvertingList(value)
             value.configurator = self
-        elif not isinstance(value, ConvertingTuple) and \
-                isinstance(value, tuple) and not hasattr(value, '_fields'):
+        elif not isinstance(value, ConvertingTuple) and\
+                 isinstance(value, tuple) and not hasattr(value, '_fields'):
             value = ConvertingTuple(value)
             value.configurator = self
         elif isinstance(value, str): # str for py3k
@@ -543,8 +540,7 @@ class DictConfigurator(BaseConfigurator):
             raise ValueError("Unsupported version: %s" % config['version'])
         incremental = config.pop('incremental', False)
         EMPTY_DICT = {}
-        logging._acquireLock()
-        try:
+        with logging._lock:
             if incremental:
                 handlers = config.get('handlers', EMPTY_DICT)
                 for name in handlers:
@@ -585,7 +581,7 @@ class DictConfigurator(BaseConfigurator):
                 for name in formatters:
                     try:
                         formatters[name] = self.configure_formatter(
-                            formatters[name])
+                                                            formatters[name])
                     except Exception as e:
                         raise ValueError('Unable to configure '
                                          'formatter %r' % name) from e
@@ -688,8 +684,6 @@ class DictConfigurator(BaseConfigurator):
                     except Exception as e:
                         raise ValueError('Unable to configure root '
                                          'logger') from e
-        finally:
-            logging._releaseLock()
 
     def configure_formatter(self, config):
         """Configure a formatter from a dictionary."""
@@ -700,10 +694,9 @@ class DictConfigurator(BaseConfigurator):
             except TypeError as te:
                 if "'format'" not in str(te):
                     raise
-                #Name of parameter changed from fmt to format.
-                #Retry with old name.
-                #This is so that code can be used with older Python versions
-                #(e.g. by Django)
+                # logging.Formatter and its subclasses expect the `fmt`
+                # parameter instead of `format`. Retry passing configuration
+                # with `fmt`.
                 config['fmt'] = config.pop('format')
                 config['()'] = factory
                 result = self.configure_custom(config)
@@ -812,7 +805,7 @@ class DictConfigurator(BaseConfigurator):
             elif issubclass(klass, logging.handlers.QueueHandler):
                 # Another special case for handler which refers to other handlers
                 # if 'handlers' not in config:
-                # raise ValueError('No handlers specified for a QueueHandler')
+                    # raise ValueError('No handlers specified for a QueueHandler')
                 if 'queue' in config:
                     qspec = config['queue']
 
@@ -836,8 +829,8 @@ class DictConfigurator(BaseConfigurator):
                     else:
                         if isinstance(lspec, str):
                             listener = self.resolve(lspec)
-                            if isinstance(listener, type) and \
-                                    not issubclass(listener, logging.handlers.QueueListener):
+                            if isinstance(listener, type) and\
+                                not issubclass(listener, logging.handlers.QueueListener):
                                 raise TypeError('Invalid listener specifier %r' % lspec)
                         elif isinstance(lspec, dict):
                             if '()' not in lspec:
@@ -861,11 +854,11 @@ class DictConfigurator(BaseConfigurator):
                     except Exception as e:
                         raise ValueError('Unable to set required handler %r' % hn) from e
                     config['handlers'] = hlist
-            elif issubclass(klass, logging.handlers.SMTPHandler) and \
-                    'mailhost' in config:
+            elif issubclass(klass, logging.handlers.SMTPHandler) and\
+                'mailhost' in config:
                 config['mailhost'] = self.as_tuple(config['mailhost'])
-            elif issubclass(klass, logging.handlers.SysLogHandler) and \
-                    'address' in config:
+            elif issubclass(klass, logging.handlers.SysLogHandler) and\
+                'address' in config:
                 config['address'] = self.as_tuple(config['address'])
             if issubclass(klass, logging.handlers.QueueHandler):
                 factory = functools.partial(self._configure_queue_handler, klass)
@@ -1018,9 +1011,8 @@ def listen(port=DEFAULT_LOGGING_CONFIG_PORT, verify=None):
         def __init__(self, host='localhost', port=DEFAULT_LOGGING_CONFIG_PORT,
                      handler=None, ready=None, verify=None):
             ThreadingTCPServer.__init__(self, (host, port), handler)
-            logging._acquireLock()
-            self.abort = 0
-            logging._releaseLock()
+            with logging._lock:
+                self.abort = 0
             self.timeout = 1
             self.ready = ready
             self.verify = verify
@@ -1034,9 +1026,8 @@ def listen(port=DEFAULT_LOGGING_CONFIG_PORT, verify=None):
                                            self.timeout)
                 if rd:
                     self.handle_request()
-                logging._acquireLock()
-                abort = self.abort
-                logging._releaseLock()
+                with logging._lock:
+                    abort = self.abort
             self.server_close()
 
     class Server(threading.Thread):
@@ -1057,9 +1048,8 @@ def listen(port=DEFAULT_LOGGING_CONFIG_PORT, verify=None):
                 self.port = server.server_address[1]
             self.ready.set()
             global _listener
-            logging._acquireLock()
-            _listener = server
-            logging._releaseLock()
+            with logging._lock:
+                _listener = server
             server.serve_until_stopped()
 
     return Server(ConfigSocketReceiver, ConfigStreamHandler, port, verify)
@@ -1069,10 +1059,7 @@ def stopListening():
     Stop the listening server which was created with a call to listen().
     """
     global _listener
-    logging._acquireLock()
-    try:
+    with logging._lock:
         if _listener:
             _listener.abort = 1
             _listener = None
-    finally:
-        logging._releaseLock()
