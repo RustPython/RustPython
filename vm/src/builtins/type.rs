@@ -1019,25 +1019,6 @@ impl Constructor for PyType {
             attributes.insert(identifier!(vm, __hash__), vm.ctx.none.clone().into());
         }
 
-        // All *classes* should have a dict. Exceptions are *instances* of
-        // classes that define __slots__ and instances of built-in classes
-        // (with exceptions, e.g function)
-        // Also, type subclasses don't need their own __dict__ descriptor
-        // since they inherit it from type
-        if !base_is_type {
-            let __dict__ = identifier!(vm, __dict__);
-            attributes.entry(__dict__).or_insert_with(|| {
-                vm.ctx
-                    .new_static_getset(
-                        "__dict__",
-                        vm.ctx.types.type_type,
-                        subtype_get_dict,
-                        subtype_set_dict,
-                    )
-                    .into()
-            });
-        }
-
         let heaptype_slots: Option<PyRef<PyTuple<PyStrRef>>> =
             if let Some(x) = attributes.get(identifier!(vm, __slots__)) {
                 let slots = if x.class().is(vm.ctx.types.str_type) {
@@ -1140,6 +1121,24 @@ impl Constructor for PyType {
             })?;
             cell.set(Some(typ.clone().into()));
         };
+
+        // All *classes* should have a dict. Exceptions are *instances* of
+        // classes that define __slots__ and instances of built-in classes
+        // (with exceptions, e.g function)
+        // Also, type subclasses don't need their own __dict__ descriptor
+        // since they inherit it from type
+
+        // Add __dict__ descriptor after type creation to ensure correct __objclass__
+        if !base_is_type {
+            unsafe {
+                let descriptor =
+                    vm.ctx
+                        .new_getset("__dict__", &typ, subtype_get_dict, subtype_set_dict);
+                typ.attributes
+                    .write()
+                    .insert(identifier!(vm, __dict__), descriptor.into());
+            }
+        }
 
         // avoid deadlock
         let attributes = typ
