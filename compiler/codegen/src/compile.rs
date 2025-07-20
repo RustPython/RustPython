@@ -1652,6 +1652,49 @@ impl Compiler<'_> {
         }
     }
 
+    /// Compile type parameter bound or default in a separate scope and return closure
+    fn compile_type_param_bound_or_default(
+        &mut self,
+        expr: &Expr,
+        name: &str,
+        allow_starred: bool,
+    ) -> CompileResult<()> {
+        // Push the next symbol table onto the stack
+        self.push_symbol_table();
+
+        // Get the current symbol table
+        let key = self.symbol_table_stack.len() - 1;
+        let lineno = expr.range().start().to_u32();
+
+        // Enter scope with the type parameter name
+        self.enter_scope(name, CompilerScope::TypeParams, key, lineno)?;
+
+        // Compile the expression
+        if allow_starred && matches!(expr, Expr::Starred(_)) {
+            if let Expr::Starred(starred) = expr {
+                self.compile_expression(&starred.value)?;
+                emit!(self, Instruction::UnpackSequence { size: 1 });
+            }
+        } else {
+            self.compile_expression(expr)?;
+        }
+
+        // Return value
+        emit!(self, Instruction::ReturnValue);
+
+        // Exit scope and create closure
+        let code = self.exit_scope();
+        // Note: exit_scope already calls pop_symbol_table, so we don't need to call it again
+
+        // Create type params function with closure
+        self.make_closure(code, bytecode::MakeFunctionFlags::empty())?;
+
+        // Call the function immediately
+        emit!(self, Instruction::CallFunctionPositional { nargs: 0 });
+
+        Ok(())
+    }
+
     /// Store each type parameter so it is accessible to the current scope, and leave a tuple of
     /// all the type parameters on the stack.
     fn compile_type_params(&mut self, type_params: &TypeParams) -> CompileResult<()> {
@@ -1664,21 +1707,25 @@ impl Compiler<'_> {
                     default,
                     ..
                 }) => {
+                    self.emit_load_const(ConstantData::Str {
+                        value: name.as_str().into(),
+                    });
+
                     if let Some(expr) = &bound {
-                        self.compile_expression(expr)?;
-                        self.emit_load_const(ConstantData::Str {
-                            value: name.as_str().into(),
-                        });
-                        emit!(
-                            self,
-                            Instruction::CallIntrinsic2 {
-                                func: bytecode::IntrinsicFunction2::TypeVarWithBound
-                            }
-                        );
+                        let scope_name = if expr.is_tuple_expr() {
+                            format!("<TypeVar constraint of {name}>")
+                        } else {
+                            format!("<TypeVar bound of {name}>")
+                        };
+                        self.compile_type_param_bound_or_default(expr, &scope_name, false)?;
+
+                        let intrinsic = if expr.is_tuple_expr() {
+                            bytecode::IntrinsicFunction2::TypeVarWithConstraint
+                        } else {
+                            bytecode::IntrinsicFunction2::TypeVarWithBound
+                        };
+                        emit!(self, Instruction::CallIntrinsic2 { func: intrinsic });
                     } else {
-                        self.emit_load_const(ConstantData::Str {
-                            value: name.as_str().into(),
-                        });
                         emit!(
                             self,
                             Instruction::CallIntrinsic1 {
@@ -1689,9 +1736,8 @@ impl Compiler<'_> {
 
                     // Handle default value if present (PEP 695)
                     if let Some(default_expr) = default {
-                        // Compile the default expression
-                        self.compile_expression(default_expr)?;
-
+                        let scope_name = format!("<TypeVar default of {name}>");
+                        self.compile_type_param_bound_or_default(default_expr, &scope_name, false)?;
                         emit!(
                             self,
                             Instruction::CallIntrinsic2 {
@@ -1716,9 +1762,8 @@ impl Compiler<'_> {
 
                     // Handle default value if present (PEP 695)
                     if let Some(default_expr) = default {
-                        // Compile the default expression
-                        self.compile_expression(default_expr)?;
-
+                        let scope_name = format!("<ParamSpec default of {name}>");
+                        self.compile_type_param_bound_or_default(default_expr, &scope_name, false)?;
                         emit!(
                             self,
                             Instruction::CallIntrinsic2 {
@@ -1743,10 +1788,9 @@ impl Compiler<'_> {
 
                     // Handle default value if present (PEP 695)
                     if let Some(default_expr) = default {
-                        // Compile the default expression
-                        self.compile_expression(default_expr)?;
-
-                        // Handle starred expression (*default)
+                        // TypeVarTuple allows starred expressions
+                        let scope_name = format!("<TypeVarTuple default of {name}>");
+                        self.compile_type_param_bound_or_default(default_expr, &scope_name, true)?;
                         emit!(
                             self,
                             Instruction::CallIntrinsic2 {
