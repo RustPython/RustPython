@@ -298,6 +298,8 @@ pub const PY_COMPILE_FLAG_AST_ONLY: i32 = 0x0400;
 // on their effect outside the standard library is **unsupported**.
 pub const PY_CF_DONT_IMPLY_DEDENT: i32 = 0x200;
 pub const PY_CF_ALLOW_INCOMPLETE_INPUT: i32 = 0x4000;
+pub const PY_CF_OPTIMIZED_AST: i32 = 0x8000 | PY_COMPILE_FLAG_AST_ONLY;
+pub const PY_CF_TYPE_COMMENTS: i32 = 0x1000;
 
 // __future__ flags - sync with Lib/__future__.py
 // TODO: These flags aren't being used in rust code
@@ -319,6 +321,8 @@ const CO_FUTURE_ANNOTATIONS: i32 = 0x1000000;
 pub const PY_COMPILE_FLAGS_MASK: i32 = PY_COMPILE_FLAG_AST_ONLY
     | PY_CF_DONT_IMPLY_DEDENT
     | PY_CF_ALLOW_INCOMPLETE_INPUT
+    | PY_CF_OPTIMIZED_AST
+    | PY_CF_TYPE_COMMENTS
     | CO_NESTED
     | CO_GENERATOR_ALLOWED
     | CO_FUTURE_DIVISION

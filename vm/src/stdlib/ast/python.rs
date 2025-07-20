@@ -1,4 +1,4 @@
-use super::PY_COMPILE_FLAG_AST_ONLY;
+use super::{PY_CF_OPTIMIZED_AST, PY_CF_TYPE_COMMENTS, PY_COMPILE_FLAG_AST_ONLY};
 
 #[pymodule]
 pub(crate) mod _ast {
@@ -54,4 +54,10 @@ pub(crate) mod _ast {
 
     #[pyattr(name = "PyCF_ONLY_AST")]
     use super::PY_COMPILE_FLAG_AST_ONLY;
+
+    #[pyattr(name = "PyCF_OPTIMIZED_AST")]
+    use super::PY_CF_OPTIMIZED_AST;
+
+    #[pyattr(name = "PyCF_TYPE_COMMENTS")]
+    use super::PY_CF_TYPE_COMMENTS;
 }
