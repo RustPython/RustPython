@@ -30,7 +30,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 #[pymodule(name = "_typing")]
 pub(crate) mod decl {
     use crate::{
-        PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyTupleRef, PyTypeRef, pystr::AsPyStr},
         function::{FuncArgs, IntoFuncArgs},
         types::{Constructor, Representable},
@@ -88,7 +88,7 @@ pub(crate) mod decl {
 
     impl Representable for NoDefault {
         #[inline(always)]
-        fn repr_str(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
             Ok("typing.NoDefault".to_owned())
         }
     }
@@ -104,7 +104,7 @@ pub(crate) mod decl {
         // compute_value: PyObjectRef,
         // module: PyObjectRef,
     }
-    #[pyclass(with(Constructor), flags(BASETYPE))]
+    #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
     impl TypeAliasType {
         pub const fn new(name: PyObjectRef, type_params: PyTupleRef, value: PyObjectRef) -> Self {
             Self {
@@ -127,12 +127,6 @@ pub(crate) mod decl {
         #[pygetset]
         fn __type_params__(&self) -> PyTupleRef {
             self.type_params.clone()
-        }
-
-        #[pymethod(name = "__repr__")]
-        fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-            let name = self.name.str(vm)?;
-            Ok(name.as_str().to_owned())
         }
     }
 
@@ -173,6 +167,13 @@ pub(crate) mod decl {
 
             let ta = TypeAliasType::new(name, type_params, value);
             ta.into_ref_with_type(vm, cls).map(Into::into)
+        }
+    }
+
+    impl Representable for TypeAliasType {
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let name = zelf.name.str(vm)?;
+            Ok(name.as_str().to_owned())
         }
     }
 
