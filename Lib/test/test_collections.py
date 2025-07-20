@@ -952,8 +952,6 @@ class TestOneTrickPonyABCs(ABCTestCase):
         self.validate_abstract_methods(AsyncIterable, '__aiter__')
         self.validate_isinstance(AsyncIterable, '__aiter__')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_AsyncIterator(self):
         class AI:
             def __aiter__(self):
@@ -1152,8 +1150,6 @@ class TestOneTrickPonyABCs(ABCTestCase):
         self.assertFalse(issubclass(NonCol, Collection))
         self.assertFalse(isinstance(NonCol(), Collection))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_Iterator(self):
         non_samples = [None, 42, 3.14, 1j, b"", "", (), [], {}, set()]
         for x in non_samples:
@@ -1850,8 +1846,6 @@ class TestCollectionABCs(ABCTestCase):
             fs = frozenset(s)
             self.assertEqual(hash(fs), Set._hash(fs), msg=s)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_Mapping(self):
         for sample in [dict]:
             self.assertIsInstance(sample(), Mapping)
@@ -1868,8 +1862,6 @@ class TestCollectionABCs(ABCTestCase):
         self.validate_comparison(MyMapping())
         self.assertRaises(TypeError, reversed, MyMapping())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_MutableMapping(self):
         for sample in [dict]:
             self.assertIsInstance(sample(), MutableMapping)
@@ -1904,8 +1896,6 @@ class TestCollectionABCs(ABCTestCase):
         mymap['blue'] = 7               # Shouldn't affect 'z'
         self.assertEqual(z, {('orange', 3), ('red', 5)})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_Sequence(self):
         for sample in [tuple, list, bytes, str]:
             self.assertIsInstance(sample(), Sequence)
@@ -1988,8 +1978,6 @@ class TestCollectionABCs(ABCTestCase):
             self.assertFalse(issubclass(sample, Buffer))
         self.validate_abstract_methods(Buffer, '__buffer__')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_MutableSequence(self):
         for sample in [tuple, str, bytes]:
             self.assertNotIsInstance(sample(), MutableSequence)

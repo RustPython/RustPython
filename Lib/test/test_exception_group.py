@@ -315,8 +315,6 @@ class ExceptionGroupSubgroupTests(ExceptionGroupTestBase):
         self.eg = create_simple_eg()
         self.eg_template = [ValueError(1), TypeError(int), ValueError(2)]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basics_subgroup_split__bad_arg_type(self):
         class C:
             pass
