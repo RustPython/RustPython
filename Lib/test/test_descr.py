@@ -5074,8 +5074,6 @@ order (MRO) for bases """
         gc.collect()
         self.assertEqual(Parent.__subclasses__(), [])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_attr_raise_through_property(self):
         # test case for gh-103272
         class A:

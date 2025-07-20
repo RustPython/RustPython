@@ -1228,8 +1228,6 @@ class UnpackTests(BaseTestCase):
         self.assertEqual(PartNew[Unpack[tuple[str]]].__args__, (int, str))
         self.assertEqual(PartNew[Unpack[Tuple[str]]].__args__, (int, str))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unpack_wrong_type(self):
         Ts = TypeVarTuple("Ts")
         class Gen[*Ts]: ...
