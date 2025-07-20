@@ -64,8 +64,7 @@ def get_logger():
     global _logger
     import logging
 
-    logging._acquireLock()
-    try:
+    with logging._lock:
         if not _logger:
 
             _logger = logging.getLogger(LOGGER_NAME)
@@ -78,9 +77,6 @@ def get_logger():
             else:
                 atexit._exithandlers.remove((_exit_function, (), {}))
                 atexit._exithandlers.append((_exit_function, (), {}))
-
-    finally:
-        logging._releaseLock()
 
     return _logger
 
@@ -106,11 +102,7 @@ def log_to_stderr(level=None):
 # Abstract socket support
 
 def _platform_supports_abstract_sockets():
-    if sys.platform == "linux":
-        return True
-    if hasattr(sys, 'getandroidapilevel'):
-        return True
-    return False
+    return sys.platform in ("linux", "android")
 
 
 def is_abstract_socket_namespace(address):
@@ -130,10 +122,7 @@ abstract_sockets_supported = _platform_supports_abstract_sockets()
 #
 
 def _remove_temp_dir(rmtree, tempdir):
-    def onerror(func, path, err_info):
-        if not issubclass(err_info[0], FileNotFoundError):
-            raise
-    rmtree(tempdir, onerror=onerror)
+    rmtree(tempdir)
 
     current_process = process.current_process()
     # current_process() can be None if the finalizer is called

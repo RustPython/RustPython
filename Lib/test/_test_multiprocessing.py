@@ -12,6 +12,7 @@ import itertools
 import sys
 import os
 import gc
+import importlib
 import errno
 import functools
 import signal
@@ -19,10 +20,11 @@ import array
 import socket
 import random
 import logging
+import shutil
 import subprocess
 import struct
+import tempfile
 import operator
-import pathlib
 import pickle
 import weakref
 import warnings
@@ -50,7 +52,7 @@ import multiprocessing.heap
 import multiprocessing.managers
 import multiprocessing.pool
 import multiprocessing.queues
-from multiprocessing.connection import wait, AuthenticationError
+from multiprocessing.connection import wait
 
 from multiprocessing import util
 
@@ -255,6 +257,9 @@ class TimingWrapper(object):
 class BaseTestCase(object):
 
     ALLOWED_TYPES = ('processes', 'manager', 'threads')
+    # If not empty, limit which start method suites run this class.
+    START_METHODS: set[str] = set()
+    start_method = None  # set by install_tests_in_module_dict()
 
     def assertTimingAlmostEqual(self, a, b):
         if CHECK_TIMINGS:
@@ -324,8 +329,9 @@ class _TestProcess(BaseTestCase):
             self.skipTest(f'test not appropriate for {self.TYPE}')
         paths = [
             sys.executable,               # str
-            sys.executable.encode(),      # bytes
-            pathlib.Path(sys.executable)  # os.PathLike
+            os.fsencode(sys.executable),  # bytes
+            os_helper.FakePath(sys.executable),  # os.PathLike
+            os_helper.FakePath(os.fsencode(sys.executable)),  # os.PathLike bytes
         ]
         for path in paths:
             self.set_executable(path)
@@ -506,6 +512,11 @@ class _TestProcess(BaseTestCase):
         time.sleep(100)
 
     @classmethod
+    def _sleep_some_event(cls, event):
+        event.set()
+        time.sleep(100)
+
+    @classmethod
     def _test_sleep(cls, delay):
         time.sleep(delay)
 
@@ -513,7 +524,8 @@ class _TestProcess(BaseTestCase):
         if self.TYPE == 'threads':
             self.skipTest('test not appropriate for {}'.format(self.TYPE))
 
-        p = self.Process(target=self._sleep_some)
+        event = self.Event()
+        p = self.Process(target=self._sleep_some_event, args=(event,))
         p.daemon = True
         p.start()
 
@@ -531,8 +543,11 @@ class _TestProcess(BaseTestCase):
         self.assertTimingAlmostEqual(join.elapsed, 0.0)
         self.assertEqual(p.is_alive(), True)
 
-        # XXX maybe terminating too soon causes the problems on Gentoo...
-        time.sleep(1)
+        timeout = support.SHORT_TIMEOUT
+        if not event.wait(timeout):
+            p.terminate()
+            p.join()
+            self.fail(f"event not signaled in {timeout} seconds")
 
         meth(p)
 
@@ -582,12 +597,16 @@ class _TestProcess(BaseTestCase):
     def test_active_children(self):
         self.assertEqual(type(self.active_children()), list)
 
-        p = self.Process(target=time.sleep, args=(DELTA,))
+        event = self.Event()
+        p = self.Process(target=event.wait, args=())
         self.assertNotIn(p, self.active_children())
 
-        p.daemon = True
-        p.start()
-        self.assertIn(p, self.active_children())
+        try:
+            p.daemon = True
+            p.start()
+            self.assertIn(p, self.active_children())
+        finally:
+            event.set()
 
         p.join()
         self.assertNotIn(p, self.active_children())
@@ -1332,6 +1351,23 @@ class _TestQueue(BaseTestCase):
         self.assertTrue(not_serializable_obj.reduce_was_called)
         self.assertTrue(not_serializable_obj.on_queue_feeder_error_was_called)
 
+    def test_closed_queue_empty_exceptions(self):
+        # Assert that checking the emptiness of an unused closed queue
+        # does not raise an OSError. The rationale is that q.close() is
+        # a no-op upon construction and becomes effective once the queue
+        # has been used (e.g., by calling q.put()).
+        for q in multiprocessing.Queue(), multiprocessing.JoinableQueue():
+            q.close()  # this is a no-op since the feeder thread is None
+            q.join_thread()  # this is also a no-op
+            self.assertTrue(q.empty())
+
+        for q in multiprocessing.Queue(), multiprocessing.JoinableQueue():
+            q.put('foo')  # make sure that the queue is 'used'
+            q.close()  # close the feeder thread
+            q.join_thread()  # make sure to join the feeder thread
+            with self.assertRaisesRegex(OSError, 'is closed'):
+                q.empty()
+
     def test_closed_queue_put_get_exceptions(self):
         for q in multiprocessing.Queue(), multiprocessing.JoinableQueue():
             q.close()
@@ -1345,12 +1381,134 @@ class _TestQueue(BaseTestCase):
 
 class _TestLock(BaseTestCase):
 
+    @staticmethod
+    def _acquire(lock, l=None):
+        lock.acquire()
+        if l is not None:
+            l.append(repr(lock))
+
+    @staticmethod
+    def _acquire_event(lock, event):
+        lock.acquire()
+        event.set()
+        time.sleep(1.0)
+
+    def test_repr_lock(self):
+        if self.TYPE != 'processes':
+            self.skipTest('test not appropriate for {}'.format(self.TYPE))
+
+        lock = self.Lock()
+        self.assertEqual(f'<Lock(owner=None)>', repr(lock))
+
+        lock.acquire()
+        self.assertEqual(f'<Lock(owner=MainProcess)>', repr(lock))
+        lock.release()
+
+        tname = 'T1'
+        l = []
+        t = threading.Thread(target=self._acquire,
+                             args=(lock, l),
+                             name=tname)
+        t.start()
+        time.sleep(0.1)
+        self.assertEqual(f'<Lock(owner=MainProcess|{tname})>', l[0])
+        lock.release()
+
+        t = threading.Thread(target=self._acquire,
+                             args=(lock,),
+                             name=tname)
+        t.start()
+        time.sleep(0.1)
+        self.assertEqual('<Lock(owner=SomeOtherThread)>', repr(lock))
+        lock.release()
+
+        pname = 'P1'
+        l = multiprocessing.Manager().list()
+        p = self.Process(target=self._acquire,
+                         args=(lock, l),
+                         name=pname)
+        p.start()
+        p.join()
+        self.assertEqual(f'<Lock(owner={pname})>', l[0])
+
+        lock = self.Lock()
+        event = self.Event()
+        p = self.Process(target=self._acquire_event,
+                         args=(lock, event),
+                         name='P2')
+        p.start()
+        event.wait()
+        self.assertEqual(f'<Lock(owner=SomeOtherProcess)>', repr(lock))
+        p.terminate()
+
     def test_lock(self):
         lock = self.Lock()
         self.assertEqual(lock.acquire(), True)
         self.assertEqual(lock.acquire(False), False)
         self.assertEqual(lock.release(), None)
         self.assertRaises((ValueError, threading.ThreadError), lock.release)
+
+    @staticmethod
+    def _acquire_release(lock, timeout, l=None, n=1):
+        for _ in range(n):
+            lock.acquire()
+        if l is not None:
+            l.append(repr(lock))
+        time.sleep(timeout)
+        for _ in range(n):
+            lock.release()
+
+    def test_repr_rlock(self):
+        if self.TYPE != 'processes':
+            self.skipTest('test not appropriate for {}'.format(self.TYPE))
+
+        lock = self.RLock()
+        self.assertEqual('<RLock(None, 0)>', repr(lock))
+
+        n = 3
+        for _ in range(n):
+            lock.acquire()
+        self.assertEqual(f'<RLock(MainProcess, {n})>', repr(lock))
+        for _ in range(n):
+            lock.release()
+
+        t, l = [], []
+        for i in range(n):
+            t.append(threading.Thread(target=self._acquire_release,
+                                      args=(lock, 0.1, l, i+1),
+                                      name=f'T{i+1}'))
+            t[-1].start()
+        for t_ in t:
+            t_.join()
+        for i in range(n):
+            self.assertIn(f'<RLock(MainProcess|T{i+1}, {i+1})>', l)
+
+
+        t = threading.Thread(target=self._acquire_release,
+                                 args=(lock, 0.2),
+                                 name=f'T1')
+        t.start()
+        time.sleep(0.1)
+        self.assertEqual('<RLock(SomeOtherThread, nonzero)>', repr(lock))
+        time.sleep(0.2)
+
+        pname = 'P1'
+        l = multiprocessing.Manager().list()
+        p = self.Process(target=self._acquire_release,
+                         args=(lock, 0.1, l),
+                         name=pname)
+        p.start()
+        p.join()
+        self.assertEqual(f'<RLock({pname}, 1)>', l[0])
+
+        event = self.Event()
+        lock = self.RLock()
+        p = self.Process(target=self._acquire_event,
+                         args=(lock, event))
+        p.start()
+        event.wait()
+        self.assertEqual('<RLock(SomeOtherProcess, nonzero)>', repr(lock))
+        p.join()
 
     def test_rlock(self):
         lock = self.RLock()
@@ -1432,14 +1590,13 @@ class _TestCondition(BaseTestCase):
         cond.release()
 
     def assertReachesEventually(self, func, value):
-        for i in range(10):
+        for _ in support.sleeping_retry(support.SHORT_TIMEOUT):
             try:
                 if func() == value:
                     break
             except NotImplementedError:
                 break
-            time.sleep(DELTA)
-        time.sleep(DELTA)
+
         self.assertReturnsIfImplemented(value, func)
 
     def check_invariant(self, cond):
@@ -1461,20 +1618,17 @@ class _TestCondition(BaseTestCase):
         p = self.Process(target=self.f, args=(cond, sleeping, woken))
         p.daemon = True
         p.start()
-        self.addCleanup(p.join)
 
-        p = threading.Thread(target=self.f, args=(cond, sleeping, woken))
-        p.daemon = True
-        p.start()
-        self.addCleanup(p.join)
+        t = threading.Thread(target=self.f, args=(cond, sleeping, woken))
+        t.daemon = True
+        t.start()
 
         # wait for both children to start sleeping
         sleeping.acquire()
         sleeping.acquire()
 
         # check no process/thread has woken up
-        time.sleep(DELTA)
-        self.assertReturnsIfImplemented(0, get_value, woken)
+        self.assertReachesEventually(lambda: get_value(woken), 0)
 
         # wake up one process/thread
         cond.acquire()
@@ -1482,8 +1636,7 @@ class _TestCondition(BaseTestCase):
         cond.release()
 
         # check one process/thread has woken up
-        time.sleep(DELTA)
-        self.assertReturnsIfImplemented(1, get_value, woken)
+        self.assertReachesEventually(lambda: get_value(woken), 1)
 
         # wake up another
         cond.acquire()
@@ -1491,12 +1644,13 @@ class _TestCondition(BaseTestCase):
         cond.release()
 
         # check other has woken up
-        time.sleep(DELTA)
-        self.assertReturnsIfImplemented(2, get_value, woken)
+        self.assertReachesEventually(lambda: get_value(woken), 2)
 
         # check state is not mucked up
         self.check_invariant(cond)
-        p.join()
+
+        threading_helper.join_thread(t)
+        join_process(p)
 
     def test_notify_all(self):
         cond = self.Condition()
@@ -1504,18 +1658,19 @@ class _TestCondition(BaseTestCase):
         woken = self.Semaphore(0)
 
         # start some threads/processes which will timeout
+        workers = []
         for i in range(3):
             p = self.Process(target=self.f,
                              args=(cond, sleeping, woken, TIMEOUT1))
             p.daemon = True
             p.start()
-            self.addCleanup(p.join)
+            workers.append(p)
 
             t = threading.Thread(target=self.f,
                                  args=(cond, sleeping, woken, TIMEOUT1))
             t.daemon = True
             t.start()
-            self.addCleanup(t.join)
+            workers.append(t)
 
         # wait for them all to sleep
         for i in range(6):
@@ -1534,12 +1689,12 @@ class _TestCondition(BaseTestCase):
             p = self.Process(target=self.f, args=(cond, sleeping, woken))
             p.daemon = True
             p.start()
-            self.addCleanup(p.join)
+            workers.append(p)
 
             t = threading.Thread(target=self.f, args=(cond, sleeping, woken))
             t.daemon = True
             t.start()
-            self.addCleanup(t.join)
+            workers.append(t)
 
         # wait for them to all sleep
         for i in range(6):
@@ -1555,10 +1710,16 @@ class _TestCondition(BaseTestCase):
         cond.release()
 
         # check they have all woken
-        self.assertReachesEventually(lambda: get_value(woken), 6)
+        for i in range(6):
+            woken.acquire()
+        self.assertReturnsIfImplemented(0, get_value, woken)
 
         # check state is not mucked up
         self.check_invariant(cond)
+
+        for w in workers:
+            # NOTE: join_process and join_thread are the same
+            threading_helper.join_thread(w)
 
     def test_notify_n(self):
         cond = self.Condition()
@@ -1566,16 +1727,17 @@ class _TestCondition(BaseTestCase):
         woken = self.Semaphore(0)
 
         # start some threads/processes
+        workers = []
         for i in range(3):
             p = self.Process(target=self.f, args=(cond, sleeping, woken))
             p.daemon = True
             p.start()
-            self.addCleanup(p.join)
+            workers.append(p)
 
             t = threading.Thread(target=self.f, args=(cond, sleeping, woken))
             t.daemon = True
             t.start()
-            self.addCleanup(t.join)
+            workers.append(t)
 
         # wait for them to all sleep
         for i in range(6):
@@ -1609,6 +1771,10 @@ class _TestCondition(BaseTestCase):
 
         # check state is not mucked up
         self.check_invariant(cond)
+
+        for w in workers:
+            # NOTE: join_process and join_thread are the same
+            threading_helper.join_thread(w)
 
     def test_timeout(self):
         cond = self.Condition()
@@ -2812,8 +2978,8 @@ class _TestPool(BaseTestCase):
         self.pool.map(identity, objs)
 
         del objs
-        gc.collect()  # For PyPy or other GCs.
         time.sleep(DELTA)  # let threaded cleanup code run
+        support.gc_collect()  # For PyPy or other GCs.
         self.assertEqual(set(wr() for wr in refs), {None})
         # With a process pool, copies of the objects are returned, check
         # they were released too.
@@ -3173,6 +3339,44 @@ class _TestManagerRestart(BaseTestCase):
                 shutdown_timeout=SHUTDOWN_TIMEOUT)
             if hasattr(manager, "shutdown"):
                 self.addCleanup(manager.shutdown)
+
+
+class FakeConnection:
+    def send(self, payload):
+        pass
+
+    def recv(self):
+        return '#ERROR', pyqueue.Empty()
+
+class TestManagerExceptions(unittest.TestCase):
+    # Issue 106558: Manager exceptions avoids creating cyclic references.
+    def setUp(self):
+        self.mgr = multiprocessing.Manager()
+
+    def tearDown(self):
+        self.mgr.shutdown()
+        self.mgr.join()
+
+    def test_queue_get(self):
+        queue = self.mgr.Queue()
+        if gc.isenabled():
+            gc.disable()
+            self.addCleanup(gc.enable)
+        try:
+            queue.get_nowait()
+        except pyqueue.Empty as e:
+            wr = weakref.ref(e)
+        self.assertEqual(wr(), None)
+
+    def test_dispatch(self):
+        if gc.isenabled():
+            gc.disable()
+            self.addCleanup(gc.enable)
+        try:
+            multiprocessing.managers.dispatch(FakeConnection(), None, None)
+        except pyqueue.Empty as e:
+            wr = weakref.ref(e)
+        self.assertEqual(wr(), None)
 
 #
 #
@@ -4462,6 +4666,59 @@ class _TestSharedMemory(BaseTestCase):
                     "resource_tracker: There appear to be 1 leaked "
                     "shared_memory objects to clean up at shutdown", err)
 
+    @unittest.skipIf(os.name != "posix", "resource_tracker is posix only")
+    def test_shared_memory_untracking(self):
+        # gh-82300: When a separate Python process accesses shared memory
+        # with track=False, it must not cause the memory to be deleted
+        # when terminating.
+        cmd = '''if 1:
+            import sys
+            from multiprocessing.shared_memory import SharedMemory
+            mem = SharedMemory(create=False, name=sys.argv[1], track=False)
+            mem.close()
+        '''
+        mem = shared_memory.SharedMemory(create=True, size=10)
+        # The resource tracker shares pipes with the subprocess, and so
+        # err existing means that the tracker process has terminated now.
+        try:
+            rc, out, err = script_helper.assert_python_ok("-c", cmd, mem.name)
+            self.assertNotIn(b"resource_tracker", err)
+            self.assertEqual(rc, 0)
+            mem2 = shared_memory.SharedMemory(create=False, name=mem.name)
+            mem2.close()
+        finally:
+            try:
+                mem.unlink()
+            except OSError:
+                pass
+            mem.close()
+
+    @unittest.skipIf(os.name != "posix", "resource_tracker is posix only")
+    def test_shared_memory_tracking(self):
+        # gh-82300: When a separate Python process accesses shared memory
+        # with track=True, it must cause the memory to be deleted when
+        # terminating.
+        cmd = '''if 1:
+            import sys
+            from multiprocessing.shared_memory import SharedMemory
+            mem = SharedMemory(create=False, name=sys.argv[1], track=True)
+            mem.close()
+        '''
+        mem = shared_memory.SharedMemory(create=True, size=10)
+        try:
+            rc, out, err = script_helper.assert_python_ok("-c", cmd, mem.name)
+            self.assertEqual(rc, 0)
+            self.assertIn(
+                b"resource_tracker: There appear to be 1 leaked "
+                b"shared_memory objects to clean up at shutdown", err)
+        finally:
+            try:
+                mem.unlink()
+            except OSError:
+                pass
+            resource_tracker.unregister(mem._name, "shared_memory")
+            mem.close()
+
 #
 # Test to verify that `Finalize` works.
 #
@@ -4571,7 +4828,7 @@ class _TestFinalize(BaseTestCase):
         old_interval = sys.getswitchinterval()
         old_threshold = gc.get_threshold()
         try:
-            sys.setswitchinterval(1e-6)
+            support.setswitchinterval(1e-6)
             gc.set_threshold(5, 5, 5)
             threads = [threading.Thread(target=run_finalizers),
                        threading.Thread(target=make_finalizers)]
@@ -5557,8 +5814,9 @@ class TestResourceTracker(unittest.TestCase):
         '''
         for rtype in resource_tracker._CLEANUP_FUNCS:
             with self.subTest(rtype=rtype):
-                if rtype == "noop":
+                if rtype in ("noop", "dummy"):
                     # Artefact resource type used by the resource_tracker
+                    # or tests
                     continue
                 r, w = os.pipe()
                 p = subprocess.Popen([sys.executable,
@@ -5638,6 +5896,8 @@ class TestResourceTracker(unittest.TestCase):
         # Catchable signal (ignored by semaphore tracker)
         self.check_resource_tracker_death(signal.SIGTERM, False)
 
+    @unittest.skipIf(sys.platform.startswith("netbsd"),
+                     "gh-125620: Skip on NetBSD due to long wait for SIGKILL process termination.")
     def test_resource_tracker_sigkill(self):
         # Uncatchable signal.
         self.check_resource_tracker_death(signal.SIGKILL, True)
@@ -5678,6 +5938,59 @@ class TestResourceTracker(unittest.TestCase):
         with self.assertRaises(ValueError):
             resource_tracker.register(too_long_name_resource, rtype)
 
+    def _test_resource_tracker_leak_resources(self, cleanup):
+        # We use a separate instance for testing, since the main global
+        # _resource_tracker may be used to watch test infrastructure.
+        from multiprocessing.resource_tracker import ResourceTracker
+        tracker = ResourceTracker()
+        tracker.ensure_running()
+        self.assertTrue(tracker._check_alive())
+
+        self.assertIsNone(tracker._exitcode)
+        tracker.register('somename', 'dummy')
+        if cleanup:
+            tracker.unregister('somename', 'dummy')
+            expected_exit_code = 0
+        else:
+            expected_exit_code = 1
+
+        self.assertTrue(tracker._check_alive())
+        self.assertIsNone(tracker._exitcode)
+        tracker._stop()
+        self.assertEqual(tracker._exitcode, expected_exit_code)
+
+    def test_resource_tracker_exit_code(self):
+        """
+        Test the exit code of the resource tracker.
+
+        If no leaked resources were found, exit code should be 0, otherwise 1
+        """
+        for cleanup in [True, False]:
+            with self.subTest(cleanup=cleanup):
+                self._test_resource_tracker_leak_resources(
+                    cleanup=cleanup,
+                )
+
+    @unittest.skipUnless(hasattr(signal, "pthread_sigmask"), "pthread_sigmask is not available")
+    def test_resource_tracker_blocked_signals(self):
+        #
+        # gh-127586: Check that resource_tracker does not override blocked signals of caller.
+        #
+        from multiprocessing.resource_tracker import ResourceTracker
+        orig_sigmask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+        signals = {signal.SIGTERM, signal.SIGINT, signal.SIGUSR1}
+
+        try:
+            for sig in signals:
+                signal.pthread_sigmask(signal.SIG_SETMASK, {sig})
+                self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, set()), {sig})
+                tracker = ResourceTracker()
+                tracker.ensure_running()
+                self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, set()), {sig})
+                tracker._stop()
+        finally:
+            # restore sigmask to what it was before executing test
+            signal.pthread_sigmask(signal.SIG_SETMASK, orig_sigmask)
 
 class TestSimpleQueue(unittest.TestCase):
 
@@ -5690,6 +6003,15 @@ class TestSimpleQueue(unittest.TestCase):
             queue.put(queue.empty())
         finally:
             parent_can_continue.set()
+
+    def test_empty_exceptions(self):
+        # Assert that checking emptiness of a closed queue raises
+        # an OSError, independently of whether the queue was used
+        # or not. This differs from Queue and JoinableQueue.
+        q = multiprocessing.SimpleQueue()
+        q.close()  # close the pipe
+        with self.assertRaisesRegex(OSError, 'is closed'):
+            q.empty()
 
     def test_empty(self):
         queue = multiprocessing.SimpleQueue()
@@ -6037,6 +6359,99 @@ class TestNamedResource(unittest.TestCase):
         self.assertFalse(err, msg=err.decode('utf-8'))
 
 
+class _TestAtExit(BaseTestCase):
+
+    ALLOWED_TYPES = ('processes',)
+
+    @classmethod
+    def _write_file_at_exit(self, output_path):
+        import atexit
+        def exit_handler():
+            with open(output_path, 'w') as f:
+                f.write("deadbeef")
+        atexit.register(exit_handler)
+
+    def test_atexit(self):
+        # gh-83856
+        with os_helper.temp_dir() as temp_dir:
+            output_path = os.path.join(temp_dir, 'output.txt')
+            p = self.Process(target=self._write_file_at_exit, args=(output_path,))
+            p.start()
+            p.join()
+            with open(output_path) as f:
+                self.assertEqual(f.read(), 'deadbeef')
+
+
+class _TestSpawnedSysPath(BaseTestCase):
+    """Test that sys.path is setup in forkserver and spawn processes."""
+
+    ALLOWED_TYPES = {'processes'}
+    # Not applicable to fork which inherits everything from the process as is.
+    START_METHODS = {"forkserver", "spawn"}
+
+    def setUp(self):
+        self._orig_sys_path = list(sys.path)
+        self._temp_dir = tempfile.mkdtemp(prefix="test_sys_path-")
+        self._mod_name = "unique_test_mod"
+        module_path = os.path.join(self._temp_dir, f"{self._mod_name}.py")
+        with open(module_path, "w", encoding="utf-8") as mod:
+            mod.write("# A simple test module\n")
+        sys.path[:] = [p for p in sys.path if p]  # remove any existing ""s
+        sys.path.insert(0, self._temp_dir)
+        sys.path.insert(0, "")  # Replaced with an abspath in child.
+        self.assertIn(self.start_method, self.START_METHODS)
+        self._ctx = multiprocessing.get_context(self.start_method)
+
+    def tearDown(self):
+        sys.path[:] = self._orig_sys_path
+        shutil.rmtree(self._temp_dir, ignore_errors=True)
+
+    @staticmethod
+    def enq_imported_module_names(queue):
+        queue.put(tuple(sys.modules))
+
+    def test_forkserver_preload_imports_sys_path(self):
+        if self._ctx.get_start_method() != "forkserver":
+            self.skipTest("forkserver specific test.")
+        self.assertNotIn(self._mod_name, sys.modules)
+        multiprocessing.forkserver._forkserver._stop()  # Must be fresh.
+        self._ctx.set_forkserver_preload(
+            ["test.test_multiprocessing_forkserver", self._mod_name])
+        q = self._ctx.Queue()
+        proc = self._ctx.Process(
+                target=self.enq_imported_module_names, args=(q,))
+        proc.start()
+        proc.join()
+        child_imported_modules = q.get()
+        q.close()
+        self.assertIn(self._mod_name, child_imported_modules)
+
+    @staticmethod
+    def enq_sys_path_and_import(queue, mod_name):
+        queue.put(sys.path)
+        try:
+            importlib.import_module(mod_name)
+        except ImportError as exc:
+            queue.put(exc)
+        else:
+            queue.put(None)
+
+    def test_child_sys_path(self):
+        q = self._ctx.Queue()
+        proc = self._ctx.Process(
+                target=self.enq_sys_path_and_import, args=(q, self._mod_name))
+        proc.start()
+        proc.join()
+        child_sys_path = q.get()
+        import_error = q.get()
+        q.close()
+        self.assertNotIn("", child_sys_path)  # replaced by an abspath
+        self.assertIn(self._temp_dir, child_sys_path)  # our addition
+        # ignore the first element, it is the absolute "" replacement
+        self.assertEqual(child_sys_path[1:], sys.path[1:])
+        self.assertIsNone(import_error, msg=f"child could not import {self._mod_name}")
+
+
 class MiscTestCase(unittest.TestCase):
     def test__all__(self):
         # Just make sure names in not_exported are excluded
@@ -6060,6 +6475,46 @@ class MiscTestCase(unittest.TestCase):
         )
         self.assertEqual(rc, 0)
         self.assertFalse(err, msg=err.decode('utf-8'))
+
+    def test_large_pool(self):
+        #
+        # gh-89240: Check that large pools are always okay
+        #
+        testfn = os_helper.TESTFN
+        self.addCleanup(os_helper.unlink, testfn)
+        with open(testfn, 'w', encoding='utf-8') as f:
+            f.write(textwrap.dedent('''\
+                import multiprocessing
+                def f(x): return x*x
+                if __name__ == '__main__':
+                    with multiprocessing.Pool(200) as p:
+                        print(sum(p.map(f, range(1000))))
+            '''))
+        rc, out, err = script_helper.assert_python_ok(testfn)
+        self.assertEqual("332833500", out.decode('utf-8').strip())
+        self.assertFalse(err, msg=err.decode('utf-8'))
+
+    def test_forked_thread_not_started(self):
+        # gh-134381: Ensure that a thread that has not been started yet in
+        # the parent process can be started within a forked child process.
+
+        if multiprocessing.get_start_method() != "fork":
+            self.skipTest("fork specific test")
+
+        q = multiprocessing.Queue()
+        t = threading.Thread(target=lambda: q.put("done"), daemon=True)
+
+        def child():
+            t.start()
+            t.join()
+
+        p = multiprocessing.Process(target=child)
+        p.start()
+        p.join(support.SHORT_TIMEOUT)
+
+        self.assertEqual(p.exitcode, 0)
+        self.assertEqual(q.get_nowait(), "done")
+        close_queue(q)
 
 
 #
@@ -6213,6 +6668,8 @@ def install_tests_in_module_dict(remote_globs, start_method,
             if base is BaseTestCase:
                 continue
             assert set(base.ALLOWED_TYPES) <= ALL_TYPES, base.ALLOWED_TYPES
+            if base.START_METHODS and start_method not in base.START_METHODS:
+                continue  # class not intended for this start method.
             for type_ in base.ALLOWED_TYPES:
                 if only_type and type_ != only_type:
                     continue
@@ -6226,6 +6683,7 @@ def install_tests_in_module_dict(remote_globs, start_method,
                     Temp = hashlib_helper.requires_hashdigest('sha256')(Temp)
                 Temp.__name__ = Temp.__qualname__ = newname
                 Temp.__module__ = __module__
+                Temp.start_method = start_method
                 remote_globs[newname] = Temp
         elif issubclass(base, unittest.TestCase):
             if only_type:
