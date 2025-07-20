@@ -242,8 +242,6 @@ class PropertySubSlots(property):
 
 class PropertySubclassTests(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_slots_docstring_copy_exception(self):
         try:
             class Foo(object):

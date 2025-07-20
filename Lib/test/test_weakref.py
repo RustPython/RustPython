@@ -1132,8 +1132,6 @@ class SubclassableWeakrefTestCase(TestBase):
         self.assertIn(r1, refs)
         self.assertIn(r2, refs)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subclass_refs_with_slots(self):
         class MyRef(weakref.ref):
             __slots__ = "slot1", "slot2"
