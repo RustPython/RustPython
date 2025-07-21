@@ -1211,10 +1211,16 @@ impl Constructor for PyType {
         let member_count: usize = base_member_count + heaptype_member_count;
 
         let mut flags = PyTypeFlags::heap_type_flags();
+
+        // Check if we may add dict
+        // We can only add a dict if the primary base class doesn't already have one
+        // In CPython, this checks tp_dictoffset == 0
+        let may_add_dict = !base.slots.flags.has_feature(PyTypeFlags::HAS_DICT);
+
         // Add HAS_DICT and MANAGED_DICT if:
-        // 1. __slots__ is not defined, OR
+        // 1. __slots__ is not defined AND base doesn't have dict, OR
         // 2. __dict__ is in __slots__
-        if heaptype_slots.is_none() || add_dict {
+        if (heaptype_slots.is_none() && may_add_dict) || add_dict {
             flags |= PyTypeFlags::HAS_DICT | PyTypeFlags::MANAGED_DICT;
         }
 
