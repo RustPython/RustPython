@@ -18,17 +18,15 @@ use crate::{
     compiler::core::bytecode::OpArgType,
     compiler::{CompileError, ParseError},
     convert::ToPyObject,
-    source::SourceCode,
-    source::SourceLocation,
 };
 use node::Node;
 use ruff_python_ast as ruff;
-use ruff_source_file::OneIndexed;
+use ruff_source_file::{LineIndex, OneIndexed, SourceFile, SourceFileBuilder, SourceLocation};
 use ruff_text_size::{Ranged, TextRange, TextSize};
-use rustpython_compiler_source::SourceCodeOwned;
 
 #[cfg(feature = "parser")]
 use ruff_python_parser as parser;
+
 #[cfg(feature = "codegen")]
 use rustpython_codegen as codegen;
 
@@ -126,12 +124,9 @@ impl Column {
     }
 }
 
-fn text_range_to_source_range(
-    source_code: &SourceCodeOwned,
-    text_range: TextRange,
-) -> PySourceRange {
-    let index = &source_code.index;
-    let source = &source_code.text;
+fn text_range_to_source_range(source_file: &SourceFile, text_range: TextRange) -> PySourceRange {
+    let index = LineIndex::from_source_text(source_file.clone().source_text());
+    let source = &source_file.source_text();
 
     if source.is_empty() {
         return PySourceRange {
@@ -165,7 +160,7 @@ fn text_range_to_source_range(
 
 fn range_from_object(
     vm: &VirtualMachine,
-    source_code: &SourceCodeOwned,
+    source_file: &SourceFile,
     object: PyObjectRef,
     name: &str,
 ) -> PyResult<TextRange> {
@@ -185,12 +180,12 @@ fn range_from_object(
         },
     };
 
-    Ok(source_range_to_text_range(source_code, location))
+    Ok(source_range_to_text_range(source_file, location))
 }
 
-fn source_range_to_text_range(source_code: &SourceCodeOwned, location: PySourceRange) -> TextRange {
-    let source = &source_code.text;
-    let index = &source_code.index;
+fn source_range_to_text_range(source_file: &SourceFile, location: PySourceRange) -> TextRange {
+    let index = LineIndex::from_source_text(source_file.clone().source_text());
+    let source = &source_file.source_text();
 
     if source.is_empty() {
         return TextRange::new(TextSize::new(0), TextSize::new(0));
@@ -214,9 +209,9 @@ fn node_add_location(
     dict: &Py<PyDict>,
     range: TextRange,
     vm: &VirtualMachine,
-    source_code: &SourceCodeOwned,
+    source_file: &SourceFile,
 ) {
-    let range = text_range_to_source_range(source_code, range);
+    let range = text_range_to_source_range(source_file, range);
     dict.set_item("lineno", vm.ctx.new_int(range.start.row.get()).into(), vm)
         .unwrap();
     dict.set_item(
@@ -241,12 +236,12 @@ pub(crate) fn parse(
     source: &str,
     mode: parser::Mode,
 ) -> Result<PyObjectRef, CompileError> {
-    let source_code = SourceCodeOwned::new("".to_owned(), source.to_owned());
+    let source_file = SourceFileBuilder::new("".to_owned(), source.to_owned()).finish();
     let top = parser::parse(source, mode.into())
         .map_err(|parse_error| ParseError {
             error: parse_error.error,
             raw_location: parse_error.location,
-            location: text_range_to_source_range(&source_code, parse_error.location)
+            location: text_range_to_source_range(&source_file, parse_error.location)
                 .start
                 .to_source_location(),
             source_path: "<unknown>".to_string(),
@@ -256,7 +251,7 @@ pub(crate) fn parse(
         ruff::Mod::Module(m) => Mod::Module(m),
         ruff::Mod::Expression(e) => Mod::Expression(e),
     };
-    Ok(top.ast_to_object(vm, &source_code))
+    Ok(top.ast_to_object(vm, &source_file))
 }
 
 #[cfg(feature = "codegen")]
@@ -272,8 +267,8 @@ pub(crate) fn compile(
         opts.optimize = optimize;
     }
 
-    let source_code = SourceCodeOwned::new(filename.to_owned(), "".to_owned());
-    let ast: Mod = Node::ast_from_object(vm, &source_code, object)?;
+    let source_file = SourceFileBuilder::new(filename.to_owned(), "".to_owned()).finish();
+    let ast: Mod = Node::ast_from_object(vm, &source_file, object)?;
     let ast = match ast {
         Mod::Module(m) => ruff::Mod::Module(m),
         Mod::Interactive(ModInteractive { range, body }) => {
@@ -284,8 +279,8 @@ pub(crate) fn compile(
     };
     // TODO: create a textual representation of the ast
     let text = "";
-    let source_code = SourceCode::new(filename, text);
-    let code = codegen::compile::compile_top(ast, source_code, mode, opts)
+    let source_file = SourceFileBuilder::new(filename, text).finish();
+    let code = codegen::compile::compile_top(ast, source_file, mode, opts)
         .map_err(|err| vm.new_syntax_error(&err.into(), None))?; // FIXME source
     Ok(vm.ctx.new_code(code).into())
 }

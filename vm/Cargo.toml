@@ -37,11 +37,7 @@ ruff_python_ast = { workspace = true, optional = true }
 ruff_python_parser = { workspace = true }
 ruff_text_size = { workspace = true, optional = true }
 ruff_source_file = { workspace = true, optional = true }
-# rustpython-ast = { workspace = true, optional = true }
-# rustpython-parser = { workspace = true, optional = true }
 rustpython-compiler-core = { workspace = true }
-rustpython-compiler-source = { workspace = true }
-# rustpython-parser-core = { workspace = true }
 rustpython-literal = { workspace = true }
 rustpython-sre_engine = { workspace = true }
 

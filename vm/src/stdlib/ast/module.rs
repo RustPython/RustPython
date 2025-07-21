@@ -1,5 +1,6 @@
 use super::*;
 use crate::stdlib::ast::type_ignore::TypeIgnore;
+use ruff_source_file::SourceFile;
 
 /// Represents the different types of Python module structures.
 ///
@@ -25,33 +26,33 @@ pub(super) enum Mod {
 
 // sum
 impl Node for Mod {
-    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         match self {
-            Self::Module(cons) => cons.ast_to_object(vm, source_code),
-            Self::Interactive(cons) => cons.ast_to_object(vm, source_code),
-            Self::Expression(cons) => cons.ast_to_object(vm, source_code),
-            Self::FunctionType(cons) => cons.ast_to_object(vm, source_code),
+            Self::Module(cons) => cons.ast_to_object(vm, source_file),
+            Self::Interactive(cons) => cons.ast_to_object(vm, source_file),
+            Self::Expression(cons) => cons.ast_to_object(vm, source_file),
+            Self::FunctionType(cons) => cons.ast_to_object(vm, source_file),
         }
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_code: &SourceCodeOwned,
+        source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let cls = object.class();
         Ok(if cls.is(pyast::NodeModModule::static_type()) {
-            Self::Module(ruff::ModModule::ast_from_object(vm, source_code, object)?)
+            Self::Module(ruff::ModModule::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeModInteractive::static_type()) {
-            Self::Interactive(ModInteractive::ast_from_object(vm, source_code, object)?)
+            Self::Interactive(ModInteractive::ast_from_object(vm, source_file, object)?)
         } else if cls.is(pyast::NodeModExpression::static_type()) {
             Self::Expression(ruff::ModExpression::ast_from_object(
                 vm,
-                source_code,
+                source_file,
                 object,
             )?)
         } else if cls.is(pyast::NodeModFunctionType::static_type()) {
-            Self::FunctionType(ModFunctionType::ast_from_object(vm, source_code, object)?)
+            Self::FunctionType(ModFunctionType::ast_from_object(vm, source_file, object)?)
         } else {
             return Err(vm.new_type_error(format!(
                 "expected some sort of mod, but got {}",
@@ -63,7 +64,7 @@ impl Node for Mod {
 
 // constructor
 impl Node for ruff::ModModule {
-    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             body,
             // type_ignores,
@@ -73,30 +74,30 @@ impl Node for ruff::ModModule {
             .into_ref_with_type(vm, pyast::NodeModModule::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("body", body.ast_to_object(vm, source_code), vm)
+        dict.set_item("body", body.ast_to_object(vm, source_file), vm)
             .unwrap();
         // TODO: Improve ruff API
         // ruff ignores type_ignore comments currently.
         let type_ignores: Vec<TypeIgnore> = vec![];
         dict.set_item(
             "type_ignores",
-            type_ignores.ast_to_object(vm, source_code),
+            type_ignores.ast_to_object(vm, source_file),
             vm,
         )
         .unwrap();
-        node_add_location(&dict, range, vm, source_code);
+        node_add_location(&dict, range, vm, source_file);
         node.into()
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_code: &SourceCodeOwned,
+        source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
             body: Node::ast_from_object(
                 vm,
-                source_code,
+                source_file,
                 get_node_field(vm, &object, "body", "Module")?,
             )?,
             // type_ignores: Node::ast_from_object(
@@ -115,27 +116,27 @@ pub(super) struct ModInteractive {
 
 // constructor
 impl Node for ModInteractive {
-    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self { body, range } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeModInteractive::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("body", body.ast_to_object(vm, source_code), vm)
+        dict.set_item("body", body.ast_to_object(vm, source_file), vm)
             .unwrap();
-        node_add_location(&dict, range, vm, source_code);
+        node_add_location(&dict, range, vm, source_file);
         node.into()
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_code: &SourceCodeOwned,
+        source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
             body: Node::ast_from_object(
                 vm,
-                source_code,
+                source_file,
                 get_node_field(vm, &object, "body", "Interactive")?,
             )?,
             range: Default::default(),
@@ -145,27 +146,27 @@ impl Node for ModInteractive {
 
 // constructor
 impl Node for ruff::ModExpression {
-    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self { body, range } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeModExpression::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("body", body.ast_to_object(vm, source_code), vm)
+        dict.set_item("body", body.ast_to_object(vm, source_file), vm)
             .unwrap();
-        node_add_location(&dict, range, vm, source_code);
+        node_add_location(&dict, range, vm, source_file);
         node.into()
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_code: &SourceCodeOwned,
+        source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
             body: Node::ast_from_object(
                 vm,
-                source_code,
+                source_file,
                 get_node_field(vm, &object, "body", "Expression")?,
             )?,
             range: Default::default(),
@@ -181,7 +182,7 @@ pub(super) struct ModFunctionType {
 
 // constructor
 impl Node for ModFunctionType {
-    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             argtypes,
             returns,
@@ -193,33 +194,33 @@ impl Node for ModFunctionType {
         let dict = node.as_object().dict().unwrap();
         dict.set_item(
             "argtypes",
-            BoxedSlice(argtypes).ast_to_object(vm, source_code),
+            BoxedSlice(argtypes).ast_to_object(vm, source_file),
             vm,
         )
         .unwrap();
-        dict.set_item("returns", returns.ast_to_object(vm, source_code), vm)
+        dict.set_item("returns", returns.ast_to_object(vm, source_file), vm)
             .unwrap();
-        node_add_location(&dict, range, vm, source_code);
+        node_add_location(&dict, range, vm, source_file);
         node.into()
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_code: &SourceCodeOwned,
+        source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
             argtypes: {
                 let argtypes: BoxedSlice<_> = Node::ast_from_object(
                     vm,
-                    source_code,
+                    source_file,
                     get_node_field(vm, &object, "argtypes", "FunctionType")?,
                 )?;
                 argtypes.0
             },
             returns: Node::ast_from_object(
                 vm,
-                source_code,
+                source_file,
                 get_node_field(vm, &object, "returns", "FunctionType")?,
             )?,
             range: Default::default(),

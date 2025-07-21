@@ -11,8 +11,6 @@ license.workspace = true
 [dependencies]
 rustpython-codegen = { workspace = true }
 rustpython-compiler-core = { workspace = true }
-rustpython-compiler-source = { workspace = true }
-# rustpython-parser = { workspace = true }
 ruff_python_parser = { workspace = true }
 ruff_python_ast = { workspace = true }
 ruff_source_file = { workspace = true }

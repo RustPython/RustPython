@@ -8,12 +8,8 @@ rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
 
-
 [dependencies]
-# rustpython-ast = { workspace = true, features=["unparse", "constant-optimization"] }
-# rustpython-parser-core = { workspace = true }
 rustpython-compiler-core = { workspace = true }
-rustpython-compiler-source = {workspace = true }
 rustpython-literal = {workspace = true }
 rustpython-wtf8 = { workspace = true }
 ruff_python_ast = { workspace = true }

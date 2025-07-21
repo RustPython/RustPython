@@ -1,15 +1,16 @@
 use super::*;
+use ruff_source_file::SourceFile;
 
 // sum
 impl Node for ruff::ExceptHandler {
-    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         match self {
-            Self::ExceptHandler(cons) => cons.ast_to_object(vm, source_code),
+            Self::ExceptHandler(cons) => cons.ast_to_object(vm, source_file),
         }
     }
     fn ast_from_object(
         _vm: &VirtualMachine,
-        source_code: &SourceCodeOwned,
+        source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         let _cls = _object.class();
@@ -17,7 +18,7 @@ impl Node for ruff::ExceptHandler {
             if _cls.is(pyast::NodeExceptHandlerExceptHandler::static_type()) {
                 Self::ExceptHandler(ruff::ExceptHandlerExceptHandler::ast_from_object(
                     _vm,
-                    source_code,
+                    source_file,
                     _object,
                 )?)
             } else {
@@ -29,9 +30,10 @@ impl Node for ruff::ExceptHandler {
         )
     }
 }
+
 // constructor
 impl Node for ruff::ExceptHandlerExceptHandler {
-    fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
+    fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             type_,
             name,
@@ -45,34 +47,34 @@ impl Node for ruff::ExceptHandlerExceptHandler {
             )
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("type", type_.ast_to_object(_vm, source_code), _vm)
+        dict.set_item("type", type_.ast_to_object(_vm, source_file), _vm)
             .unwrap();
-        dict.set_item("name", name.ast_to_object(_vm, source_code), _vm)
+        dict.set_item("name", name.ast_to_object(_vm, source_file), _vm)
             .unwrap();
-        dict.set_item("body", body.ast_to_object(_vm, source_code), _vm)
+        dict.set_item("body", body.ast_to_object(_vm, source_file), _vm)
             .unwrap();
-        node_add_location(&dict, _range, _vm, source_code);
+        node_add_location(&dict, _range, _vm, source_file);
         node.into()
     }
 
     fn ast_from_object(
         _vm: &VirtualMachine,
-        source_code: &SourceCodeOwned,
+        source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
             type_: get_node_field_opt(_vm, &_object, "type")?
-                .map(|obj| Node::ast_from_object(_vm, source_code, obj))
+                .map(|obj| Node::ast_from_object(_vm, source_file, obj))
                 .transpose()?,
             name: get_node_field_opt(_vm, &_object, "name")?
-                .map(|obj| Node::ast_from_object(_vm, source_code, obj))
+                .map(|obj| Node::ast_from_object(_vm, source_file, obj))
                 .transpose()?,
             body: Node::ast_from_object(
                 _vm,
-                source_code,
+                source_file,
                 get_node_field(_vm, &_object, "body", "ExceptHandler")?,
             )?,
-            range: range_from_object(_vm, source_code, _object, "ExceptHandler")?,
+            range: range_from_object(_vm, source_file, _object, "ExceptHandler")?,
         })
     }
 }

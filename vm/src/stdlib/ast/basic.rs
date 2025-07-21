@@ -1,16 +1,17 @@
+use ruff_source_file::SourceFile;
 use rustpython_codegen::compile::ruff_int_to_bigint;
 
 use super::*;
 
 impl Node for ruff::Identifier {
-    fn ast_to_object(self, vm: &VirtualMachine, _source_code: &SourceCodeOwned) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         let id = self.as_str();
         vm.ctx.new_str(id).into()
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        _source_code: &SourceCodeOwned,
+        _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let py_str = PyStrRef::try_from_object(vm, object)?;
@@ -19,13 +20,13 @@ impl Node for ruff::Identifier {
 }
 
 impl Node for ruff::Int {
-    fn ast_to_object(self, vm: &VirtualMachine, _source_code: &SourceCodeOwned) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         vm.ctx.new_int(ruff_int_to_bigint(&self).unwrap()).into()
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        _source_code: &SourceCodeOwned,
+        _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         // FIXME: performance
@@ -36,13 +37,13 @@ impl Node for ruff::Int {
 }
 
 impl Node for bool {
-    fn ast_to_object(self, vm: &VirtualMachine, _source_code: &SourceCodeOwned) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         vm.ctx.new_int(self as u8).into()
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        _source_code: &SourceCodeOwned,
+        _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         i32::try_from_object(vm, object).map(|i| i != 0)

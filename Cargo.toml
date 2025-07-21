@@ -117,8 +117,20 @@ template = "installer-config/installer.wxs"
 [workspace]
 resolver = "2"
 members = [
-    "compiler", "compiler/core", "compiler/codegen", "compiler/literal", "compiler/source",
-    ".", "common", "derive", "jit", "vm", "vm/sre_engine", "pylib", "stdlib", "derive-impl", "wtf8",
+    "compiler",
+    "compiler/core",
+    "compiler/codegen",
+    "compiler/literal",
+    ".",
+    "common",
+    "derive",
+    "jit",
+    "vm",
+    "vm/sre_engine",
+    "pylib",
+    "stdlib",
+    "derive-impl",
+    "wtf8",
     "wasm/lib",
 ]
 
@@ -131,7 +143,6 @@ repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 
 [workspace.dependencies]
-rustpython-compiler-source = { path = "compiler/source" }
 rustpython-compiler-core = { path = "compiler/core", version = "0.4.0" }
 rustpython-compiler = { path = "compiler", version = "0.4.0" }
 rustpython-codegen = { path = "compiler/codegen", version = "0.4.0" }

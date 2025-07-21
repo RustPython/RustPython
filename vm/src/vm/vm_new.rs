@@ -286,7 +286,7 @@ impl VirtualMachine {
         source: Option<&str>,
         allow_incomplete: bool,
     ) -> PyBaseExceptionRef {
-        use crate::source::SourceLocation;
+        use ruff_source_file::SourceLocation;
 
         let syntax_error_type = match &error {
             #[cfg(feature = "parser")]

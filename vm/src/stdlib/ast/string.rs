@@ -213,7 +213,7 @@ fn joined_str_part_to_ruff_fstring_element(part: JoinedStrPart) -> ruff::FString
 
 // constructor
 impl Node for JoinedStr {
-    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self { values, range } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprJoinedStr::static_type().to_owned())
@@ -221,26 +221,26 @@ impl Node for JoinedStr {
         let dict = node.as_object().dict().unwrap();
         dict.set_item(
             "values",
-            BoxedSlice(values).ast_to_object(vm, source_code),
+            BoxedSlice(values).ast_to_object(vm, source_file),
             vm,
         )
         .unwrap();
-        node_add_location(&dict, range, vm, source_code);
+        node_add_location(&dict, range, vm, source_file);
         node.into()
     }
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_code: &SourceCodeOwned,
+        source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let values: BoxedSlice<_> = Node::ast_from_object(
             vm,
-            source_code,
+            source_file,
             get_node_field(vm, &object, "values", "JoinedStr")?,
         )?;
         Ok(Self {
             values: values.0,
-            range: range_from_object(vm, source_code, object, "JoinedStr")?,
+            range: range_from_object(vm, source_file, object, "JoinedStr")?,
         })
     }
 }
@@ -253,28 +253,28 @@ pub(super) enum JoinedStrPart {
 
 // constructor
 impl Node for JoinedStrPart {
-    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         match self {
-            Self::FormattedValue(value) => value.ast_to_object(vm, source_code),
-            Self::Constant(value) => value.ast_to_object(vm, source_code),
+            Self::FormattedValue(value) => value.ast_to_object(vm, source_file),
+            Self::Constant(value) => value.ast_to_object(vm, source_file),
         }
     }
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_code: &SourceCodeOwned,
+        source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let cls = object.class();
         if cls.is(pyast::NodeExprFormattedValue::static_type()) {
             Ok(Self::FormattedValue(Node::ast_from_object(
                 vm,
-                source_code,
+                source_file,
                 object,
             )?))
         } else {
             Ok(Self::Constant(Node::ast_from_object(
                 vm,
-                source_code,
+                source_file,
                 object,
             )?))
         }
@@ -291,7 +291,7 @@ pub(super) struct FormattedValue {
 
 // constructor
 impl Node for FormattedValue {
-    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             value,
             conversion,
@@ -302,46 +302,46 @@ impl Node for FormattedValue {
             .into_ref_with_type(vm, pyast::NodeExprFormattedValue::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("value", value.ast_to_object(vm, source_code), vm)
+        dict.set_item("value", value.ast_to_object(vm, source_file), vm)
             .unwrap();
-        dict.set_item("conversion", conversion.ast_to_object(vm, source_code), vm)
+        dict.set_item("conversion", conversion.ast_to_object(vm, source_file), vm)
             .unwrap();
         dict.set_item(
             "format_spec",
-            format_spec.ast_to_object(vm, source_code),
+            format_spec.ast_to_object(vm, source_file),
             vm,
         )
         .unwrap();
-        node_add_location(&dict, range, vm, source_code);
+        node_add_location(&dict, range, vm, source_file);
         node.into()
     }
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_code: &SourceCodeOwned,
+        source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
             value: Node::ast_from_object(
                 vm,
-                source_code,
+                source_file,
                 get_node_field(vm, &object, "value", "FormattedValue")?,
             )?,
             conversion: Node::ast_from_object(
                 vm,
-                source_code,
+                source_file,
                 get_node_field(vm, &object, "conversion", "FormattedValue")?,
             )?,
             format_spec: get_node_field_opt(vm, &object, "format_spec")?
-                .map(|obj| Node::ast_from_object(vm, source_code, obj))
+                .map(|obj| Node::ast_from_object(vm, source_file, obj))
                 .transpose()?,
-            range: range_from_object(vm, source_code, object, "FormattedValue")?,
+            range: range_from_object(vm, source_file, object, "FormattedValue")?,
         })
     }
 }
 
 pub(super) fn fstring_to_object(
     vm: &VirtualMachine,
-    source_code: &SourceCodeOwned,
+    source_file: &SourceFile,
     expression: ruff::ExprFString,
 ) -> PyObjectRef {
     let ruff::ExprFString { range, value } = expression;
@@ -350,5 +350,5 @@ pub(super) fn fstring_to_object(
         .collect();
     let values = values.into_boxed_slice();
     let c = JoinedStr { range, values };
-    c.ast_to_object(vm, source_code)
+    c.ast_to_object(vm, source_file)
 }
