@@ -1163,6 +1163,7 @@ mod _sqlite {
             callable: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
+            name.ensure_valid_utf8(vm)?;
             let name = name.to_cstring(vm)?;
             let db = self.db_lock(vm)?;
             let Some(data) = CallbackData::new(callable.clone(), vm) else {
