@@ -8546,8 +8546,6 @@ class ParamSpecTests(BaseTestCase):
         self.assertEqual(C4.__args__, (P, T))
         self.assertEqual(C4.__parameters__, (P, T))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_args_kwargs(self):
         P = ParamSpec('P')
         P_2 = ParamSpec('P_2')
