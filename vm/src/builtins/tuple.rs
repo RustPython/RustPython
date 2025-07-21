@@ -1,4 +1,4 @@
-use super::{PositionIterInternal, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
+use super::{PositionIterInternal, PyGenericAlias, PyType, PyTypeRef, PyWtf8Str};
 use crate::common::{
     hash::{PyHash, PyUHash},
     lock::PyMutex,
@@ -450,7 +450,7 @@ impl Iterable for PyTuple {
 
 impl Representable for PyTuple {
     #[inline]
-    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
         let s = if zelf.is_empty() {
             vm.ctx.intern_str("()").to_owned()
         } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
@@ -463,7 +463,7 @@ impl Representable for PyTuple {
         } else {
             vm.ctx.intern_str("(...)").to_owned()
         };
-        Ok(s)
+        Ok(s.into_wtf8())
     }
 
     #[cold]

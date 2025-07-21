@@ -13,6 +13,7 @@ mod builtins {
         AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{
             PyByteArray, PyBytes, PyDictRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
+            PyWtf8StrRef,
             enumerate::PyReverseSequenceIterator,
             function::{PyCellRef, PyFunction},
             int::PyIntRef,
@@ -394,8 +395,8 @@ mod builtins {
         value: PyObjectRef,
         format_spec: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyStrRef> {
-        vm.format(&value, format_spec.unwrap_or(vm.ctx.new_str("")))
+    ) -> PyResult<PyWtf8StrRef> {
+        vm.format_wtf8(&value, format_spec.unwrap_or(vm.ctx.new_str("")))
     }
 
     #[pyfunction]

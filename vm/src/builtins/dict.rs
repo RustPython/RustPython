@@ -1,6 +1,6 @@
 use super::{
     IterStatus, PositionIterInternal, PyBaseExceptionRef, PyGenericAlias, PyMappingProxy, PySet,
-    PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, set::PySetInner,
+    PyStr, PyTupleRef, PyType, PyTypeRef, PyWtf8Str, set::PySetInner,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
@@ -506,7 +506,7 @@ impl Iterable for PyDict {
 
 impl Representable for PyDict {
     #[inline]
-    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
         let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let mut str_parts = Vec::with_capacity(zelf.__len__());
             for (key, value) in zelf {
@@ -519,7 +519,7 @@ impl Representable for PyDict {
         } else {
             vm.ctx.intern_str("{...}").to_owned()
         };
-        Ok(s)
+        Ok(s.into_wtf8())
     }
 
     #[cold]
@@ -812,7 +812,7 @@ macro_rules! dict_view {
 
         impl Representable for $name {
             #[inline]
-            fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
                 let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                     let mut str_parts = Vec::with_capacity(zelf.__len__());
                     for (key, value) in zelf.dict().clone() {
@@ -824,7 +824,7 @@ macro_rules! dict_view {
                 } else {
                     vm.ctx.intern_str("{...}").to_owned()
                 };
-                Ok(s)
+                Ok(s.into_wtf8())
             }
 
             #[cold]

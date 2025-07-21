@@ -9,9 +9,11 @@ use rustpython_common::{
 };
 
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
-    TryFromObject, VirtualMachine,
-    builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef},
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+    TryFromBorrowedObject, TryFromObject, VirtualMachine,
+    builtins::{
+        PyBaseExceptionRef, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyWtf8Str,
+    },
     common::{ascii, lock::PyRwLock},
     convert::ToPyObject,
     function::{ArgBytesLike, PyMethodDef},
@@ -326,7 +328,7 @@ impl CodecsRegistry {
         encoding: &str,
         errors: Option<PyStrRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyStrRef> {
+    ) -> PyResult<PyRef<PyWtf8Str>> {
         let codec = self._lookup_text_encoding(encoding, "codecs.decode()", vm)?;
         codec.decode(obj, errors, vm)?.downcast().map_err(|obj| {
             vm.new_type_error(format!(

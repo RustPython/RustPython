@@ -2036,14 +2036,14 @@ impl ExecutingFrame<'_> {
         use bytecode::ConversionFlag;
         let value = self.pop_value();
         let value = match conversion {
-            ConversionFlag::Str => value.str(vm)?.into(),
-            ConversionFlag::Repr => value.repr(vm)?.into(),
+            ConversionFlag::Str => value.str_wtf8(vm)?.into(),
+            ConversionFlag::Repr => value.repr_wtf8(vm)?.into(),
             ConversionFlag::Ascii => vm.ctx.new_str(builtins::ascii(value, vm)?).into(),
             ConversionFlag::None => value,
         };
 
         let spec = self.pop_value();
-        let formatted = vm.format(&value, spec.downcast::<PyStr>().unwrap())?;
+        let formatted = vm.format_wtf8(&value, spec.downcast::<PyStr>().unwrap())?;
         self.push_value(formatted.into());
         Ok(None)
     }

@@ -2,7 +2,7 @@
 
 */
 
-use super::{PyCode, PyDictRef, PyIntRef, PyStrRef};
+use super::{PyCode, PyDictRef, PyIntRef, PyWtf8Str};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -20,9 +20,9 @@ impl Unconstructible for Frame {}
 
 impl Representable for Frame {
     #[inline]
-    fn repr(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
         const REPR: &str = "<frame object at .. >";
-        Ok(vm.ctx.intern_str(REPR).to_owned())
+        Ok(vm.ctx.intern_str(REPR).to_owned().into_wtf8())
     }
 
     #[cold]

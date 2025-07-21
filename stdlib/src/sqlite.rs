@@ -2314,7 +2314,7 @@ mod _sqlite {
             sql: PyStrRef,
             vm: &VirtualMachine,
         ) -> PyResult<Option<Self>> {
-            let sql = sql.try_into_utf8(vm)?;
+            let _ = sql.try_to_str(vm)?;
             if sql.as_str().contains('\0') {
                 return Err(new_programming_error(
                     vm,

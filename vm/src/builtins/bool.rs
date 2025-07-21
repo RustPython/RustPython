@@ -1,8 +1,8 @@
-use super::{PyInt, PyStrRef, PyType, PyTypeRef};
+use super::{PyInt, PyStrRef, PyType, PyTypeRef, PyWtf8Str};
 use crate::common::format::FormatSpec;
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
-    VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+    TryFromBorrowedObject, VirtualMachine,
     class::PyClassImpl,
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::OptionalArg,
@@ -182,13 +182,13 @@ impl AsNumber for PyBool {
 
 impl Representable for PyBool {
     #[inline]
-    fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
         let name = if get_value(zelf.as_object()) {
             vm.ctx.names.True
         } else {
             vm.ctx.names.False
         };
-        Ok(name.to_owned())
+        Ok(name.to_owned().into_wtf8())
     }
 
     #[cold]

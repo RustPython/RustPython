@@ -1,6 +1,6 @@
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    builtins::{PyBaseExceptionRef, PyStrRef, PyTuple, PyTupleRef, PyType},
+    builtins::{PyBaseExceptionRef, PyTuple, PyTupleRef, PyType, PyWtf8Str},
     class::{PyClassImpl, StaticType},
     vm::Context,
 };
@@ -48,7 +48,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     }
 
     #[pyslot]
-    fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
         let zelf = zelf
             .downcast_ref::<PyTuple>()
             .ok_or_else(|| vm.new_type_error("unexpected payload for __repr__"))?;
@@ -75,11 +75,11 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
                 (String::new(), "...")
             };
         let repr_str = format!("{}({}{})", Self::TP_NAME, body, suffix);
-        Ok(vm.ctx.new_str(repr_str))
+        Ok(vm.ctx.new_str(repr_str).into_wtf8())
     }
 
     #[pymethod]
-    fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<PyWtf8Str>> {
         Self::slot_repr(&zelf, vm)
     }
 
