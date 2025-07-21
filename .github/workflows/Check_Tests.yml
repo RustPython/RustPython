@@ -4,8 +4,7 @@ description: "Continuous Integration workflow for GHI 5974."
 run-name: Prototyping integration tests ${{ github.ref_name }}
 #
 # Jobs included:
-# - BUILD: Ensures the project compiles correctly
-# - BOOTSTRAP: Tests installation across Python versions and locales
+# - TEST-5974: Tests installation across Python versions and locales
 #
 # Required Secrets:
 # NONE
@@ -67,6 +66,7 @@ jobs:
       bootstrap_status: ${{ steps.smoke_testing.outcome }}
     env:
       PYTHON_VERSION: ${{ matrix.python-version }}
+      
     steps:
       - name: Checkout RustPython repository
         id: rpython
@@ -85,7 +85,7 @@ jobs:
             printf "Now Building '%s'\n" ""
             # Execute the testing command in a subshell
             (
-              RUSTPYTHONPATH=Lib cargo run --release -- --version || printf "::error, title='build failure':: Could not pass build step for version check.\n" ;
+              RUSTPYTHONPATH=Lib cargo run --release -- --version || printf "::error title='build failure':: Could not pass build step for version check.\n" ;
             ) ;
           cd .. ;
       - id: cpython
@@ -119,14 +119,27 @@ jobs:
           fi
           cd .. ;
         if: ${{ success() }}
+      - name: "License"
+        id: show-cpython-license
+        shell: bash
+        if: ${{ !cancelled() }}
+        run: |
+          if [[ -r LICENSE ]] ; then
+            printf "\n\n"
+            cat <LICENSE ;
+            printf "\n\n"
+          else
+            printf "%s\n" "::warning title=UNLICENSED:: This is an UNLICENSED Build"
+          fi
         # this next part is WIP and needs to be updated with filtering for more control of what parts of the referance lib is used
       - name: "Integrate Cpython Test file"
         id: merge_theirs
         shell: bash
         if: ${{ !cancelled() }}
         run: |
+          printf "::group:: Copy Referance Implementation Tests"
           for referance_file in ${{ steps.reftestfiles.outputs.files }} ; do
-            cp -vf cpython/"${referance_file}" rustpython/"${referance_file}" || printf "::warning, file='%s',title='integration failure':: Could not integrate file.\n" "${referance_file}" ;
+            cp -vf cpython/"${referance_file}" rustpython/"${referance_file}" || printf "::warning file='%s',title='integration failure':: Could not integrate file.\n" "${referance_file}" ;
             # TODO: attempt test with rustpython/scripts/fix_test.py || revert by re-checkout
           done
       - id: output_python
@@ -157,13 +170,13 @@ jobs:
             # Execute the testing command in a subshell
             time (
               RUSTPYTHONPATH=Lib cargo run --release -- Lib/test/"${REF_FILE_NAME}" || RAW_COPY_OUTCOME='failing'
-              if [[ ( -z ${RAW_COPY_OUTCOME} ) ]] ; then
-                printf "::error, file='%s',title='testing-failure':: Could not copy and pass tests for file.\n" "${referance_file}" >2 ;
+              if [[ ( -n ${RAW_COPY_OUTCOME} ) ]] ; then
+                printf "::error file='%s',title='testing-failure':: Could not copy and pass tests for file.\n" "${referance_file}" >2 ;
                 (
                   RUSTPYTHONPATH=Lib cargo run --release -- ./scripts/fix_test.py --path ./Lib/test/"${REF_FILE_NAME}" || FIX_COPY_OUTCOME='unfixed' ;
                 ) ;
-                if [[ ( -z ${RAW_COPY_OUTCOME} ) ]] ; then
-                  printf "::error, file='%s',title='testing-failure':: Could not copy and auto-fix tests for file.\n" "${referance_file}" >2 ;
+                if [[ ( -n ${RAW_COPY_OUTCOME} ) ]] ; then
+                  printf "::error file='%s',title='testing-failure':: Could not copy and auto-fix tests for file.\n" "${referance_file}" >2 ;
                   # reset broken integration to last rustpython copy
                   git restore "${referance_file}" || : ;
                   git checkout -- "${referance_file}" || : ;
@@ -177,10 +190,11 @@ jobs:
                 RAW_COPY_OUTCOME="compatable"
               fi ;
               printf "\n---\n%s Outcome:\n\tDirectly:%s\n\tAuto-Fix:%s\n\n" "${REF_FILE_NAME}" "${RAW_COPY_OUTCOME}" "${FIX_COPY_OUTCOME}" ;
-              printf "RAW_COPY_%s_OUTCOME=%s\n" "${REF_FILE_NAME}" "${RAW_COPY_OUTCOME}" ;
+              wait ; # used to force boundry for std out read/write race in UI 
               printf "FIX_COPY_%s_OUTCOME=%s\n" "${REF_FILE_NAME}" "${FIX_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
               printf "RAW_COPY_%s_OUTCOME=%s\n" "${REF_FILE_NAME}" "${RAW_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
               # should dump a diff or something here
+              printf "\n\n"
             ) ;
             wait ;
             # cleanup temp env
