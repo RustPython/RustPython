@@ -833,11 +833,12 @@ impl Comparable for ParamSpecArgs {
         fn eq(
             zelf: &crate::Py<ParamSpecArgs>,
             other: PyObjectRef,
-            vm: &VirtualMachine,
+            _vm: &VirtualMachine,
         ) -> PyResult<bool> {
-            // Check if other has __origin__ attribute
-            if let Ok(other_origin) = other.get_attr("__origin__", vm) {
-                return Ok(zelf.__origin__.is(&other_origin));
+            // First check if other is also ParamSpecArgs
+            if let Ok(other_args) = other.downcast::<ParamSpecArgs>() {
+                // Check if they have the same origin
+                return Ok(zelf.__origin__.is(&other_args.__origin__));
             }
             Ok(false)
         }
@@ -911,11 +912,12 @@ impl Comparable for ParamSpecKwargs {
         fn eq(
             zelf: &crate::Py<ParamSpecKwargs>,
             other: PyObjectRef,
-            vm: &VirtualMachine,
+            _vm: &VirtualMachine,
         ) -> PyResult<bool> {
-            // Check if other has __origin__ attribute
-            if let Ok(other_origin) = other.get_attr("__origin__", vm) {
-                return Ok(zelf.__origin__.is(&other_origin));
+            // First check if other is also ParamSpecKwargs
+            if let Ok(other_kwargs) = other.downcast::<ParamSpecKwargs>() {
+                // Check if they have the same origin
+                return Ok(zelf.__origin__.is(&other_kwargs.__origin__));
             }
             Ok(false)
         }
