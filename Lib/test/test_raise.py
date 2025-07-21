@@ -233,8 +233,6 @@ class TestTracebackType(unittest.TestCase):
     def raiser(self):
         raise ValueError
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_attrs(self):
         try:
             self.raiser()
