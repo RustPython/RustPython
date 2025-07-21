@@ -96,7 +96,10 @@ pub fn compile(
     // TODO: do this less hacky; ruff's parser should translate a CRLF line
     //       break in a multiline string into just an LF in the parsed value
     #[cfg(windows)]
-    let source = &source.replace("\r\n", "\n");
+    let source = source.replace("\r\n", "\n");
+    #[cfg(windows)]
+    let source = source.as_str();
+
     let source_file = SourceFileBuilder::new(source_path, source).finish();
     _compile(source_file, mode, opts)
     // let index = LineIndex::from_source_text(source);
