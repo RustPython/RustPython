@@ -150,8 +150,6 @@ class RegressionTests(unittest.TestCase):
         with self.assertRaises(IndexError):
             con.execute("insert into foo(bar, baz) values (?, ?)", parameters)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_error_msg_decode_error(self):
         # When porting the module to Python 3.0, the error message about
         # decoding errors disappeared. This verifies they're back again.
