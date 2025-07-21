@@ -1832,8 +1832,15 @@ mod _sqlite {
                             let text_factory = zelf.connection.text_factory.to_owned();
 
                             if text_factory.is(PyStr::class(&vm.ctx)) {
-                                let text = String::from_utf8(text).map_err(|_| {
-                                    new_operational_error(vm, "not valid UTF-8".to_owned())
+                                let text = String::from_utf8(text).map_err(|err| {
+                                    let col_name = st.column_name(i);
+                                    let col_name_str = ptr_to_str(col_name, vm).unwrap_or("?");
+                                    let valid_up_to = err.utf8_error().valid_up_to();
+                                    let text_prefix = String::from_utf8_lossy(&err.as_bytes()[..valid_up_to]);
+                                    let msg = format!(
+                                        "Could not decode to UTF-8 column '{col_name_str}' with text '{text_prefix}'"
+                                    );
+                                    new_operational_error(vm, msg)
                                 })?;
                                 vm.ctx.new_str(text).into()
                             } else if text_factory.is(PyBytes::class(&vm.ctx)) {
