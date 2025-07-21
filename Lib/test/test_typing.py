@@ -2883,8 +2883,6 @@ class ProtocolTests(BaseTestCase):
 
         self.assertNotIsSubclass(NotImpl, Foo)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pep695_generics_can_be_runtime_checkable(self):
         @runtime_checkable
         class HasX(Protocol):
@@ -3332,8 +3330,6 @@ class ProtocolTests(BaseTestCase):
         with self.assertRaisesRegex(TypeError, non_callable_members_illegal):
             issubclass(D, PNonCall)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_weird_caching_with_issubclass_after_isinstance(self):
         @runtime_checkable
         class Spam(Protocol):
@@ -3400,8 +3396,6 @@ class ProtocolTests(BaseTestCase):
         ):
             issubclass(Eggs, Spam)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_weird_caching_with_issubclass_after_isinstance_pep695(self):
         @runtime_checkable
         class Spam[T](Protocol):
