@@ -30,7 +30,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 #[pymodule(name = "_typing")]
 pub(crate) mod decl {
     use crate::{
-        PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyTupleRef, PyTypeRef, pystr::AsPyStr},
         function::{FuncArgs, IntoFuncArgs},
         types::{Constructor, Representable},
@@ -88,7 +88,7 @@ pub(crate) mod decl {
 
     impl Representable for NoDefault {
         #[inline(always)]
-        fn repr_str(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
             Ok("typing.NoDefault".to_owned())
         }
     }
@@ -104,7 +104,7 @@ pub(crate) mod decl {
         // compute_value: PyObjectRef,
         // module: PyObjectRef,
     }
-    #[pyclass(flags(BASETYPE))]
+    #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
     impl TypeAliasType {
         pub const fn new(name: PyObjectRef, type_params: PyTupleRef, value: PyObjectRef) -> Self {
             Self {
@@ -128,10 +128,51 @@ pub(crate) mod decl {
         fn __type_params__(&self) -> PyTupleRef {
             self.type_params.clone()
         }
+    }
 
-        #[pymethod(name = "__repr__")]
-        fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-            let name = self.name.str(vm)?;
+    impl Constructor for TypeAliasType {
+        type Args = FuncArgs;
+
+        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            // TypeAliasType(name, value, *, type_params=None)
+            if args.args.len() < 2 {
+                return Err(vm.new_type_error(format!(
+                    "TypeAliasType() missing {} required positional argument{}: {}",
+                    2 - args.args.len(),
+                    if 2 - args.args.len() == 1 { "" } else { "s" },
+                    if args.args.is_empty() {
+                        "'name' and 'value'"
+                    } else {
+                        "'value'"
+                    }
+                )));
+            }
+            if args.args.len() > 2 {
+                return Err(vm.new_type_error(format!(
+                    "TypeAliasType() takes 2 positional arguments but {} were given",
+                    args.args.len()
+                )));
+            }
+
+            let name = args.args[0].clone();
+            let value = args.args[1].clone();
+
+            let type_params = if let Some(tp) = args.kwargs.get("type_params") {
+                tp.clone()
+                    .downcast::<crate::builtins::PyTuple>()
+                    .map_err(|_| vm.new_type_error("type_params must be a tuple".to_owned()))?
+            } else {
+                vm.ctx.empty_tuple.clone()
+            };
+
+            let ta = TypeAliasType::new(name, type_params, value);
+            ta.into_ref_with_type(vm, cls).map(Into::into)
+        }
+    }
+
+    impl Representable for TypeAliasType {
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let name = zelf.name.str(vm)?;
             Ok(name.as_str().to_owned())
         }
     }

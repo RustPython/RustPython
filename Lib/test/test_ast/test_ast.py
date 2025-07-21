@@ -706,6 +706,8 @@ class AST_Tests(unittest.TestCase):
         with assertNumDeprecated():
             self.assertNotIsInstance(Constant(S("42")), Num)
 
+    # TODO: RUSTPYTHON; will be removed in Python 3.14
+    @unittest.expectedFailure
     def test_constant_subclasses_deprecated(self):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", "", DeprecationWarning)

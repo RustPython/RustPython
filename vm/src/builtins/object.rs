@@ -31,7 +31,42 @@ impl PyPayload for PyBaseObject {
 impl Constructor for PyBaseObject {
     type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    // = object_new
+    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        if !args.args.is_empty() || !args.kwargs.is_empty() {
+            // Check if type's __new__ != object.__new__
+            let tp_new = cls.get_attr(identifier!(vm, __new__));
+            let object_new = vm.ctx.types.object_type.get_attr(identifier!(vm, __new__));
+
+            if let (Some(tp_new), Some(object_new)) = (tp_new, object_new) {
+                if !tp_new.is(&object_new) {
+                    // Type has its own __new__, so object.__new__ is being called
+                    // with excess args. This is the first error case in CPython
+                    return Err(vm.new_type_error(
+                        "object.__new__() takes exactly one argument (the type to instantiate)"
+                            .to_owned(),
+                    ));
+                }
+
+                // If we reach here, tp_new == object_new
+                // Now check if type's __init__ == object.__init__
+                let tp_init = cls.get_attr(identifier!(vm, __init__));
+                let object_init = vm.ctx.types.object_type.get_attr(identifier!(vm, __init__));
+
+                if let (Some(tp_init), Some(object_init)) = (tp_init, object_init) {
+                    if tp_init.is(&object_init) {
+                        // Both __new__ and __init__ are object's versions,
+                        // so the type accepts no arguments
+                        return Err(
+                            vm.new_type_error(format!("{}() takes no arguments", cls.name()))
+                        );
+                    }
+                }
+                // If tp_init != object_init, then the type has custom __init__
+                // which might accept arguments, so we allow it
+            }
+        }
+
         // more or less __new__ operator
         let dict = if cls.is(vm.ctx.types.object_type) {
             None
