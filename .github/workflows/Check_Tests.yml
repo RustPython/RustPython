@@ -127,6 +127,7 @@ jobs:
         run: |
           for referance_file in ${{ steps.reftestfiles.outputs.files }} ; do
             cp -vf cpython/"${referance_file}" rustpython/"${referance_file}" || printf "::warning, file='%s',title='integration failure':: Could not integrate file.\n" "${referance_file}" ;
+            # TODO: attempt test with rustpython/scripts/fix_test.py || revert by re-checkout
           done
       - id: output_python
         name: "bootstrap Python"
@@ -148,12 +149,45 @@ jobs:
           for referance_file in ${{ steps.reftestfiles.outputs.files }} ; do
             # TODO: RustPython workaround Windows timeout for hangs
             printf "Now Testing '%s'\n" "${referance_file}"
+            # vars for subshell but not for workflow
+            export REF_FILE_NAME=$(basename "${referance_file}") ;
+            printf "\n::group::%s\n" "${REF_FILE_NAME}" ;
+            # TODO: test with cpython first
+            # TODO: add to list of files that need additional prep due to hanging or unexpected failures that need to be removed
             # Execute the testing command in a subshell
-            (
-              RUSTPYTHONPATH=Lib cargo run --release -- Lib/test/$(basename "${referance_file}") || printf "::error, file='%s',title='testing-failure':: Could not pass tests for file.\n" "${referance_file}" >2 ;
+            time (
+              RUSTPYTHONPATH=Lib cargo run --release -- Lib/test/"${REF_FILE_NAME}" || RAW_COPY_OUTCOME='failing'
+              if [[ ( -z ${RAW_COPY_OUTCOME} ) ]] ; then
+                printf "::error, file='%s',title='testing-failure':: Could not copy and pass tests for file.\n" "${referance_file}" >2 ;
+                (
+                  RUSTPYTHONPATH=Lib cargo run --release -- ./scripts/fix_test.py --path ./Lib/test/"${REF_FILE_NAME}" || FIX_COPY_OUTCOME='unfixed' ;
+                ) ;
+                if [[ ( -z ${RAW_COPY_OUTCOME} ) ]] ; then
+                  printf "::error, file='%s',title='testing-failure':: Could not copy and auto-fix tests for file.\n" "${referance_file}" >2 ;
+                  # reset broken integration to last rustpython copy
+                  git restore "${referance_file}" || : ;
+                  git checkout -- "${referance_file}" || : ;
+                  # TODO: validate and set FIX_COPY_OUTCOME="reverted"
+                else
+                  FIX_COPY_OUTCOME="fixed"
+                  RAW_COPY_OUTCOME="incompatable"
+                fi ;
+              else
+                FIX_COPY_OUTCOME="skipped"
+                RAW_COPY_OUTCOME="compatable"
+              fi ;
+              printf "\n---\n%s Outcome:\n\tDirectly:%s\n\tAuto-Fix:%s\n\n" "${REF_FILE_NAME}" "${RAW_COPY_OUTCOME}" "${FIX_COPY_OUTCOME}" ;
+              printf "RAW_COPY_%s_OUTCOME=%s\n" "${REF_FILE_NAME}" "${RAW_COPY_OUTCOME}" ;
+              printf "FIX_COPY_%s_OUTCOME=%s\n" "${REF_FILE_NAME}" "${FIX_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
+              printf "RAW_COPY_%s_OUTCOME=%s\n" "${REF_FILE_NAME}" "${RAW_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
               # should dump a diff or something here
             ) ;
-            printf "\n---\n" ;
+            wait ;
+            # cleanup temp env
+            unset FIX_COPY_OUTCOME 2>/dev/null || : ;
+            unset RAW_COPY_OUTCOME 2>/dev/null || : ;
+            unset REF_FILE_NAME 2>/dev/null || : ;
+            printf "\n::endgroup::\n" ;
           done
           cd .. ;
       - name: Post-Clean
