@@ -263,8 +263,6 @@ class RegressionTests(unittest.TestCase):
         """
         self.assertRaises(TypeError, self.con, b"select 1")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_collation(self):
         def collation_cb(a, b):
             return 1
