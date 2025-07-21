@@ -1,10 +1,8 @@
 #[cfg(feature = "codegen")]
 pub use rustpython_codegen::CompileOpts;
+
 #[cfg(feature = "compiler")]
 pub use rustpython_compiler::*;
-
-#[cfg(not(feature = "compiler"))]
-pub use rustpython_compiler_source as source;
 
 #[cfg(not(feature = "compiler"))]
 pub use rustpython_compiler_core::Mode;
