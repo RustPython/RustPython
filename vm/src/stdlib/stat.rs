@@ -10,6 +10,7 @@ mod stat {
     #[cfg(not(any(unix, windows)))]
     type Mode = u32; // Fallback for unknown targets
 
+    // unix_libc_get
     cfg_if::cfg_if! {
         if #[cfg(unix)] {
             macro_rules! unix_libc_get {
@@ -19,6 +20,24 @@ mod stat {
             }
         } else {
             macro_rules! unix_libc_get {
+                ($name:ident, $val:expr) => {
+                    $val
+                };
+            }
+        }
+
+    }
+
+    // macos_libc_get
+    cfg_if::cfg_if! {
+        if #[cfg(target_os = "macos")] {
+            macro_rules! macos_libc_get {
+                ($name:ident, $val:expr) => {
+                    libc::$name
+                };
+            }
+        } else {
+            macro_rules! macos_libc_get {
                 ($name:ident, $val:expr) => {
                     $val
                 };
@@ -316,6 +335,7 @@ mod stat {
     }
 
     // Windows file attributes (if on Windows)
+
     #[cfg(windows)]
     #[pyattr]
     pub use windows_sys::Win32::Storage::FileSystem::{
@@ -328,71 +348,43 @@ mod stat {
     };
 
     // Unix file flags (if on Unix)
-    #[cfg(target_os = "macos")]
-    #[pyattr]
-    pub const UF_NODUMP: u32 = libc::UF_NODUMP;
-    #[cfg(not(target_os = "macos"))]
-    #[pyattr]
-    pub const UF_NODUMP: u32 = 0x00000001;
 
-    #[cfg(target_os = "macos")]
     #[pyattr]
-    pub const UF_IMMUTABLE: u32 = libc::UF_IMMUTABLE;
-    #[cfg(not(target_os = "macos"))]
-    #[pyattr]
-    pub const UF_IMMUTABLE: u32 = 0x00000002;
+    pub const UF_NODUMP: u32 = macos_libc_get!(UF_NODUMP, 0x00000001);
 
-    #[cfg(target_os = "macos")]
     #[pyattr]
-    pub const UF_APPEND: u32 = libc::UF_APPEND;
-    #[cfg(not(target_os = "macos"))]
-    #[pyattr]
-    pub const UF_APPEND: u32 = 0x00000004;
+    pub const UF_IMMUTABLE: u32 = macos_libc_get!(UF_IMMUTABLE, 0x00000002);
 
-    #[cfg(target_os = "macos")]
     #[pyattr]
-    pub const UF_OPAQUE: u32 = libc::UF_OPAQUE;
-    #[cfg(not(target_os = "macos"))]
+    pub const UF_APPEND: u32 = macos_libc_get!(UF_APPEND, 0x00000004);
+
     #[pyattr]
-    pub const UF_OPAQUE: u32 = 0x00000008;
+    pub const UF_OPAQUE: u32 = macos_libc_get!(UF_OPAQUE, 0x00000008);
+
+    #[pyattr]
+    pub const UF_COMPRESSED: u32 = macos_libc_get!(UF_COMPRESSED, 0x00000020);
+
+    #[pyattr]
+    pub const UF_HIDDEN: u32 = macos_libc_get!(UF_HIDDEN, 0x00008000);
+
+    #[pyattr]
+    pub const SF_ARCHIVED: u32 = macos_libc_get!(SF_ARCHIVED, 0x00010000);
+
+    #[pyattr]
+    pub const SF_IMMUTABLE: u32 = macos_libc_get!(SF_IMMUTABLE, 0x00020000);
+
+    #[pyattr]
+    pub const SF_APPEND: u32 = macos_libc_get!(SF_APPEND, 0x00040000);
+
+    #[pyattr]
+    pub const SF_SETTABLE: u32 = if cfg!(target_os = "macos") {
+        0x3fff0000
+    } else {
+        0xffff0000
+    };
 
     #[pyattr]
     pub const UF_NOUNLINK: u32 = 0x00000010;
-
-    #[cfg(target_os = "macos")]
-    #[pyattr]
-    pub const UF_COMPRESSED: u32 = libc::UF_COMPRESSED;
-    #[cfg(not(target_os = "macos"))]
-    #[pyattr]
-    pub const UF_COMPRESSED: u32 = 0x00000020;
-
-    #[cfg(target_os = "macos")]
-    #[pyattr]
-    pub const UF_HIDDEN: u32 = libc::UF_HIDDEN;
-    #[cfg(not(target_os = "macos"))]
-    #[pyattr]
-    pub const UF_HIDDEN: u32 = 0x00008000;
-
-    #[cfg(target_os = "macos")]
-    #[pyattr]
-    pub const SF_ARCHIVED: u32 = libc::SF_ARCHIVED;
-    #[cfg(not(target_os = "macos"))]
-    #[pyattr]
-    pub const SF_ARCHIVED: u32 = 0x00010000;
-
-    #[cfg(target_os = "macos")]
-    #[pyattr]
-    pub const SF_IMMUTABLE: u32 = libc::SF_IMMUTABLE;
-    #[cfg(not(target_os = "macos"))]
-    #[pyattr]
-    pub const SF_IMMUTABLE: u32 = 0x00020000;
-
-    #[cfg(target_os = "macos")]
-    #[pyattr]
-    pub const SF_APPEND: u32 = libc::SF_APPEND;
-    #[cfg(not(target_os = "macos"))]
-    #[pyattr]
-    pub const SF_APPEND: u32 = 0x00040000;
 
     #[pyattr]
     pub const SF_NOUNLINK: u32 = 0x00100000;
@@ -406,16 +398,11 @@ mod stat {
     #[pyattr]
     pub const SF_DATALESS: u32 = 0x40000000;
 
-    #[cfg(target_os = "macos")]
-    #[pyattr]
-    pub const SF_SUPPORTED: u32 = 0x009f0000;
+    // MacOS specific
 
     #[cfg(target_os = "macos")]
     #[pyattr]
-    pub const SF_SETTABLE: u32 = 0x3fff0000;
-    #[cfg(not(target_os = "macos"))]
-    #[pyattr]
-    pub const SF_SETTABLE: u32 = 0xffff0000;
+    pub const SF_SUPPORTED: u32 = 0x009f0000;
 
     #[cfg(target_os = "macos")]
     #[pyattr]
