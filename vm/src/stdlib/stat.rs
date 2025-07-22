@@ -157,6 +157,80 @@ mod stat {
         }
     };
 
+    // Windows file attributes (if on Windows)
+
+    #[cfg(windows)]
+    #[pyattr]
+    pub use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_COMPRESSED, FILE_ATTRIBUTE_DEVICE,
+        FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_ENCRYPTED, FILE_ATTRIBUTE_HIDDEN,
+        FILE_ATTRIBUTE_INTEGRITY_STREAM, FILE_ATTRIBUTE_NO_SCRUB_DATA, FILE_ATTRIBUTE_NORMAL,
+        FILE_ATTRIBUTE_NOT_CONTENT_INDEXED, FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_READONLY,
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_SPARSE_FILE, FILE_ATTRIBUTE_SYSTEM,
+        FILE_ATTRIBUTE_TEMPORARY, FILE_ATTRIBUTE_VIRTUAL,
+    };
+
+    // Unix file flags (if on Unix)
+
+    #[pyattr]
+    pub const UF_NODUMP: u32 = macos_libc_get!(UF_NODUMP, 0x00000001);
+
+    #[pyattr]
+    pub const UF_IMMUTABLE: u32 = macos_libc_get!(UF_IMMUTABLE, 0x00000002);
+
+    #[pyattr]
+    pub const UF_APPEND: u32 = macos_libc_get!(UF_APPEND, 0x00000004);
+
+    #[pyattr]
+    pub const UF_OPAQUE: u32 = macos_libc_get!(UF_OPAQUE, 0x00000008);
+
+    #[pyattr]
+    pub const UF_COMPRESSED: u32 = macos_libc_get!(UF_COMPRESSED, 0x00000020);
+
+    #[pyattr]
+    pub const UF_HIDDEN: u32 = macos_libc_get!(UF_HIDDEN, 0x00008000);
+
+    #[pyattr]
+    pub const SF_ARCHIVED: u32 = macos_libc_get!(SF_ARCHIVED, 0x00010000);
+
+    #[pyattr]
+    pub const SF_IMMUTABLE: u32 = macos_libc_get!(SF_IMMUTABLE, 0x00020000);
+
+    #[pyattr]
+    pub const SF_APPEND: u32 = macos_libc_get!(SF_APPEND, 0x00040000);
+
+    #[pyattr]
+    pub const SF_SETTABLE: u32 = if cfg!(target_os = "macos") {
+        0x3fff0000
+    } else {
+        0xffff0000
+    };
+
+    #[pyattr]
+    pub const UF_NOUNLINK: u32 = 0x00000010;
+
+    #[pyattr]
+    pub const SF_NOUNLINK: u32 = 0x00100000;
+
+    #[pyattr]
+    pub const SF_SNAPSHOT: u32 = 0x00200000;
+
+    #[pyattr]
+    pub const SF_FIRMLINK: u32 = 0x00800000;
+
+    #[pyattr]
+    pub const SF_DATALESS: u32 = 0x40000000;
+
+    // MacOS specific
+
+    #[cfg(target_os = "macos")]
+    #[pyattr]
+    pub const SF_SUPPORTED: u32 = 0x009f0000;
+
+    #[cfg(target_os = "macos")]
+    #[pyattr]
+    pub const SF_SYNTHETIC: u32 = 0xc0000000;
+
     // Stat result indices
 
     #[pyattr]
@@ -333,80 +407,6 @@ mod stat {
 
         result
     }
-
-    // Windows file attributes (if on Windows)
-
-    #[cfg(windows)]
-    #[pyattr]
-    pub use windows_sys::Win32::Storage::FileSystem::{
-        FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_COMPRESSED, FILE_ATTRIBUTE_DEVICE,
-        FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_ENCRYPTED, FILE_ATTRIBUTE_HIDDEN,
-        FILE_ATTRIBUTE_INTEGRITY_STREAM, FILE_ATTRIBUTE_NO_SCRUB_DATA, FILE_ATTRIBUTE_NORMAL,
-        FILE_ATTRIBUTE_NOT_CONTENT_INDEXED, FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_READONLY,
-        FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_SPARSE_FILE, FILE_ATTRIBUTE_SYSTEM,
-        FILE_ATTRIBUTE_TEMPORARY, FILE_ATTRIBUTE_VIRTUAL,
-    };
-
-    // Unix file flags (if on Unix)
-
-    #[pyattr]
-    pub const UF_NODUMP: u32 = macos_libc_get!(UF_NODUMP, 0x00000001);
-
-    #[pyattr]
-    pub const UF_IMMUTABLE: u32 = macos_libc_get!(UF_IMMUTABLE, 0x00000002);
-
-    #[pyattr]
-    pub const UF_APPEND: u32 = macos_libc_get!(UF_APPEND, 0x00000004);
-
-    #[pyattr]
-    pub const UF_OPAQUE: u32 = macos_libc_get!(UF_OPAQUE, 0x00000008);
-
-    #[pyattr]
-    pub const UF_COMPRESSED: u32 = macos_libc_get!(UF_COMPRESSED, 0x00000020);
-
-    #[pyattr]
-    pub const UF_HIDDEN: u32 = macos_libc_get!(UF_HIDDEN, 0x00008000);
-
-    #[pyattr]
-    pub const SF_ARCHIVED: u32 = macos_libc_get!(SF_ARCHIVED, 0x00010000);
-
-    #[pyattr]
-    pub const SF_IMMUTABLE: u32 = macos_libc_get!(SF_IMMUTABLE, 0x00020000);
-
-    #[pyattr]
-    pub const SF_APPEND: u32 = macos_libc_get!(SF_APPEND, 0x00040000);
-
-    #[pyattr]
-    pub const SF_SETTABLE: u32 = if cfg!(target_os = "macos") {
-        0x3fff0000
-    } else {
-        0xffff0000
-    };
-
-    #[pyattr]
-    pub const UF_NOUNLINK: u32 = 0x00000010;
-
-    #[pyattr]
-    pub const SF_NOUNLINK: u32 = 0x00100000;
-
-    #[pyattr]
-    pub const SF_SNAPSHOT: u32 = 0x00200000;
-
-    #[pyattr]
-    pub const SF_FIRMLINK: u32 = 0x00800000;
-
-    #[pyattr]
-    pub const SF_DATALESS: u32 = 0x40000000;
-
-    // MacOS specific
-
-    #[cfg(target_os = "macos")]
-    #[pyattr]
-    pub const SF_SUPPORTED: u32 = 0x009f0000;
-
-    #[cfg(target_os = "macos")]
-    #[pyattr]
-    pub const SF_SYNTHETIC: u32 = 0xc0000000;
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
