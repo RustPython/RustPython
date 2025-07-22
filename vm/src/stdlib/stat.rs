@@ -64,140 +64,82 @@ mod stat {
     };
 
     // Permission bits
-    #[cfg(unix)]
-    #[pyattr]
-    pub const S_ISUID: Mode = libc::S_ISUID;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_ISUID: Mode = 0o4000;
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_ISGID: Mode = libc::S_ISGID;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_ISGID: Mode = 0o2000;
+    pub const S_ISUID: Mode = unix_libc_get!(S_ISUID, 0o4000);
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_ENFMT: Mode = libc::S_ISGID;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_ENFMT: Mode = 0o2000;
+    pub const S_ISGID: Mode = unix_libc_get!(S_ISGID, 0o2000);
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_ISVTX: Mode = libc::S_ISVTX;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_ISVTX: Mode = 0o1000;
+    pub const S_ENFMT: Mode = unix_libc_get!(S_ISGID, 0o2000);
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_IRWXU: Mode = libc::S_IRWXU;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_IRWXU: Mode = 0o0700;
+    pub const S_ISVTX: Mode = unix_libc_get!(S_ISVTX, 0o1000);
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_IRUSR: Mode = libc::S_IRUSR;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_IRUSR: Mode = 0o0400;
+    pub const S_IRWXU: Mode = unix_libc_get!(S_IRWXU, 0o0700);
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_IREAD: Mode = libc::S_IRUSR;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_IREAD: Mode = 0o0400;
+    pub const S_IRUSR: Mode = unix_libc_get!(S_IRUSR, 0o0400);
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_IWUSR: Mode = libc::S_IWUSR;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_IWUSR: Mode = 0o0200;
+    pub const S_IREAD: Mode = unix_libc_get!(S_IRUSR, 0o0400);
 
-    #[cfg(all(unix, not(target_os = "android"), not(target_os = "redox")))]
     #[pyattr]
-    pub const S_IWRITE: Mode = libc::S_IWRITE;
-    #[cfg(any(not(unix), target_os = "android", target_os = "redox"))]
-    #[pyattr]
-    pub const S_IWRITE: Mode = 0o0200;
+    pub const S_IWUSR: Mode = unix_libc_get!(S_IWUSR, 0o0200);
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_IXUSR: Mode = libc::S_IXUSR;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_IXUSR: Mode = 0o0100;
+    pub const S_IXUSR: Mode = unix_libc_get!(S_IXUSR, 0o0100);
 
-    #[cfg(all(unix, not(target_os = "android"), not(target_os = "redox")))]
     #[pyattr]
-    pub const S_IEXEC: Mode = libc::S_IEXEC;
-    #[cfg(any(not(unix), target_os = "android", target_os = "redox"))]
-    #[pyattr]
-    pub const S_IEXEC: Mode = 0o0100;
+    pub const S_IRWXG: Mode = unix_libc_get!(S_IRWXG, 0o0070);
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_IRWXG: Mode = libc::S_IRWXG;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_IRWXG: Mode = 0o0070;
+    pub const S_IRGRP: Mode = unix_libc_get!(S_IRGRP, 0o0040);
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_IRGRP: Mode = libc::S_IRGRP;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_IRGRP: Mode = 0o0040;
+    pub const S_IWGRP: Mode = unix_libc_get!(S_IWGRP, 0o0020);
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_IWGRP: Mode = libc::S_IWGRP;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_IWGRP: Mode = 0o0020;
+    pub const S_IXGRP: Mode = unix_libc_get!(S_IXGRP, 0o0010);
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_IXGRP: Mode = libc::S_IXGRP;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_IXGRP: Mode = 0o0010;
+    pub const S_IRWXO: Mode = unix_libc_get!(S_IRWXO, 0o0007);
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_IRWXO: Mode = libc::S_IRWXO;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_IRWXO: Mode = 0o0007;
+    pub const S_IROTH: Mode = unix_libc_get!(S_IROTH, 0o0004);
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_IROTH: Mode = libc::S_IROTH;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_IROTH: Mode = 0o0004;
+    pub const S_IWOTH: Mode = unix_libc_get!(S_IWOTH, 0o0002);
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_IWOTH: Mode = libc::S_IWOTH;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_IWOTH: Mode = 0o0002;
+    pub const S_IXOTH: Mode = unix_libc_get!(S_IXOTH, 0o0001);
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_IXOTH: Mode = libc::S_IXOTH;
-    #[cfg(not(unix))]
+    pub const S_IWRITE: Mode = {
+        cfg_if::cfg_if! {
+            if #[cfg(all(unix, not(target_os = "android"), not(target_os = "redox")))] {
+                libc::S_IWRITE
+            } else {
+                0o0200
+            }
+        }
+    };
+
     #[pyattr]
-    pub const S_IXOTH: Mode = 0o0001;
+    pub const S_IEXEC: Mode = {
+        cfg_if::cfg_if! {
+            if #[cfg(all(unix, not(target_os = "android"), not(target_os = "redox")))] {
+                libc::S_IEXEC
+            } else {
+                0o0100
+            }
+        }
+    };
 
     // Stat result indices
+
     #[pyattr]
     pub const ST_MODE: u32 = 0;
 
