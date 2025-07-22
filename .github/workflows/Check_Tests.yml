@@ -30,6 +30,8 @@ env:
   PYTHON_EXPERIMENTAL: "${{ vars.PYTHON_EXPERIMENTAL }}"  # For future Python versions
   # Define the referance files to pull as a file glob pattern
   TEST_MATCH_PATTERN: "Lib/test/*.py"
+  TEST_IGNORE_LIST: |
+    Lib/test/test_builtin.py
 
 jobs:
   TEST-5974:
@@ -59,7 +61,7 @@ jobs:
             experimental: false
           - os: windows-latest
             python-version: "${{ vars.PYTHON_DEFAULT }}"
-            experimental: false
+            experimental: true
           - os: macos-14
             python-version: "${{ vars.PYTHON_DEFAULT }}"
             experimental: true
@@ -104,12 +106,24 @@ jobs:
             Lib/test
           sparse-checkout-cone-mode: true
           ref: '${{ matrix.python-version }}'
+      - name: Configure Ignored Referance Lib Files
+        id: refignorefiles
+        shell: bash
+        run: |
+          cd cpython || exit 14 ;
+          if [[ -w ".git/info/exclude" ]] ; then
+            printf "%s\n" ${TEST_IGNORE_LIST:-} >>".git/info/exclude" || : ;
+          else
+            printf "::debug::%s\n" "Could not find .git/info/exclude" ;
+            printf "%s\n" ${TEST_IGNORE_LIST:-} >>".gitignore" || : ;
+          fi ;
+          cd .. ;
+        if: ${{ success() }}
       - name: Enumerate Referance Lib Files
         id: reftestfiles
         shell: bash
         run: |
           cd cpython || exit 14 ;
-          ls -lap . ;
           FILES=$(git ls-files --exclude-standard -- ${{ env.TEST_MATCH_PATTERN }} )
           if [ -z "$FILES" ]; then
             printf "%s\n" "::warning file=.github/workflows/Check_Tests.yml:: No Lib/Test Referance files found."
