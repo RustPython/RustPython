@@ -1,4 +1,5 @@
 use super::*;
+use ruff_source_file::SourceFile;
 
 pub(super) struct PositionalArguments {
     pub range: TextRange,
@@ -6,17 +7,17 @@ pub(super) struct PositionalArguments {
 }
 
 impl Node for PositionalArguments {
-    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self { args, range: _ } = self;
-        BoxedSlice(args).ast_to_object(vm, source_code)
+        BoxedSlice(args).ast_to_object(vm, source_file)
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_code: &SourceCodeOwned,
+        source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let args: BoxedSlice<_> = Node::ast_from_object(vm, source_code, object)?;
+        let args: BoxedSlice<_> = Node::ast_from_object(vm, source_file, object)?;
         Ok(Self {
             args: args.0,
             range: TextRange::default(), // TODO
@@ -30,18 +31,18 @@ pub(super) struct KeywordArguments {
 }
 
 impl Node for KeywordArguments {
-    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self { keywords, range: _ } = self;
         // TODO: use range
-        BoxedSlice(keywords).ast_to_object(vm, source_code)
+        BoxedSlice(keywords).ast_to_object(vm, source_file)
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_code: &SourceCodeOwned,
+        source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let keywords: BoxedSlice<_> = Node::ast_from_object(vm, source_code, object)?;
+        let keywords: BoxedSlice<_> = Node::ast_from_object(vm, source_file, object)?;
         Ok(Self {
             keywords: keywords.0,
             range: TextRange::default(), // TODO

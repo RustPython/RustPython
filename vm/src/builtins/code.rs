@@ -11,11 +11,11 @@ use crate::{
     convert::ToPyObject,
     frozen,
     function::{FuncArgs, OptionalArg},
-    source::LineNumber,
     types::Representable,
 };
 use malachite_bigint::BigInt;
 use num_traits::Zero;
+use ruff_source_file::OneIndexed;
 use std::{borrow::Borrow, fmt, ops::Deref};
 
 #[derive(FromArgs)]
@@ -356,7 +356,7 @@ impl PyCode {
         };
 
         let first_line_number = match args.co_firstlineno {
-            OptionalArg::Present(first_line_number) => LineNumber::new(first_line_number as _),
+            OptionalArg::Present(first_line_number) => OneIndexed::new(first_line_number as _),
             OptionalArg::Missing => self.code.first_line_number,
         };
 

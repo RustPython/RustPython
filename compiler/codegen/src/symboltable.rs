@@ -18,8 +18,8 @@ use ruff_python_ast::{
     PatternMatchMapping, PatternMatchOr, PatternMatchSequence, PatternMatchStar, PatternMatchValue,
     Stmt, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams,
 };
+use ruff_source_file::{SourceFile, SourceLocation};
 use ruff_text_size::{Ranged, TextRange};
-use rustpython_compiler_source::{SourceCode, SourceLocation};
 // use rustpython_ast::{self as ast, located::Located};
 // use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
 use std::{borrow::Cow, fmt};
@@ -75,19 +75,20 @@ impl SymbolTable {
         }
     }
 
-    pub fn scan_program(
-        program: &ModModule,
-        source_code: SourceCode<'_>,
-    ) -> SymbolTableResult<Self> {
-        let mut builder = SymbolTableBuilder::new(source_code);
+    pub fn scan_program(program: &ModModule, source_file: SourceFile) -> SymbolTableResult<Self> {
+        let mut builder = SymbolTableBuilder::new(source_file);
         builder.scan_statements(program.body.as_ref())?;
         builder.finish()
     }
 
-    pub fn scan_expr(expr: &ModExpression, source_code: SourceCode<'_>) -> SymbolTableResult<Self> {
-        let mut builder = SymbolTableBuilder::new(source_code);
+    pub fn scan_expr(expr: &ModExpression, source_file: SourceFile) -> SymbolTableResult<Self> {
+        let mut builder = SymbolTableBuilder::new(source_file);
         builder.scan_expression(expr.body.as_ref(), ExpressionContext::Load)?;
         builder.finish()
+    }
+
+    pub fn lookup(&self, name: &str) -> Option<&Symbol> {
+        self.symbols.get(name)
     }
 }
 
@@ -215,12 +216,6 @@ impl SymbolTableError {
 }
 
 type SymbolTableResult<T = ()> = Result<T, SymbolTableError>;
-
-impl SymbolTable {
-    pub fn lookup(&self, name: &str) -> Option<&Symbol> {
-        self.symbols.get(name)
-    }
-}
 
 impl std::fmt::Debug for SymbolTable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -610,12 +605,12 @@ enum SymbolUsage {
     TypeParam,
 }
 
-struct SymbolTableBuilder<'src> {
+struct SymbolTableBuilder {
     class_name: Option<String>,
     // Scope stack.
     tables: Vec<SymbolTable>,
     future_annotations: bool,
-    source_code: SourceCode<'src>,
+    source_file: SourceFile,
     // Current scope's varnames being collected (temporary storage)
     current_varnames: Vec<String>,
 }
@@ -633,21 +628,19 @@ enum ExpressionContext {
     IterDefinitionExp,
 }
 
-impl<'src> SymbolTableBuilder<'src> {
-    fn new(source_code: SourceCode<'src>) -> Self {
+impl SymbolTableBuilder {
+    fn new(source_file: SourceFile) -> Self {
         let mut this = Self {
             class_name: None,
             tables: vec![],
             future_annotations: false,
-            source_code,
+            source_file,
             current_varnames: Vec::new(),
         };
         this.enter_scope("top", CompilerScope::Module, 0);
         this
     }
-}
 
-impl SymbolTableBuilder<'_> {
     fn finish(mut self) -> Result<SymbolTable, SymbolTableError> {
         assert_eq!(self.tables.len(), 1);
         let mut symbol_table = self.tables.pop().unwrap();
@@ -703,7 +696,10 @@ impl SymbolTableBuilder<'_> {
     }
 
     fn line_index_start(&self, range: TextRange) -> u32 {
-        self.source_code.line_index(range.start()).get() as _
+        self.source_file
+            .to_source_code()
+            .line_index(range.start())
+            .get() as _
     }
 
     fn scan_statements(&mut self, statements: &[Stmt]) -> SymbolTableResult {
@@ -1051,7 +1047,9 @@ impl SymbolTableBuilder<'_> {
                             "{keyword} expression cannot be used within a type parameter"
                         ),
                         location: Some(
-                            self.source_code.source_location(expression.range().start()),
+                            self.source_file
+                                .to_source_code()
+                                .source_location(expression.range().start()),
                         ),
                     });
                 }
@@ -1289,7 +1287,7 @@ impl SymbolTableBuilder<'_> {
                 if let ExpressionContext::IterDefinitionExp = context {
                     return Err(SymbolTableError {
                           error: "assignment expression cannot be used in a comprehension iterable expression".to_string(),
-                          location: Some(self.source_code.source_location(target.range().start())),
+                          location: Some(self.source_file.to_source_code().source_location(target.range().start())),
                       });
                 }
 
@@ -1569,7 +1567,10 @@ impl SymbolTableBuilder<'_> {
         role: SymbolUsage,
         range: TextRange,
     ) -> SymbolTableResult {
-        let location = self.source_code.source_location(range.start());
+        let location = self
+            .source_file
+            .to_source_code()
+            .source_location(range.start());
         let location = Some(location);
         let scope_depth = self.tables.len();
         let table = self.tables.last_mut().unwrap();

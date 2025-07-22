@@ -1,6 +1,6 @@
 use ruff_python_ast as ruff;
+use ruff_source_file::SourceFile;
 use ruff_text_size::Ranged;
-use rustpython_compiler_source::SourceCode;
 use rustpython_literal::escape::{AsciiEscape, UnicodeEscape};
 use std::fmt::{self, Display as _};
 
@@ -29,28 +29,33 @@ mod precedence {
 
 struct Unparser<'a, 'b, 'c> {
     f: &'b mut fmt::Formatter<'a>,
-    source: &'c SourceCode<'c>,
+    source: &'c SourceFile,
 }
+
 impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
-    const fn new(f: &'b mut fmt::Formatter<'a>, source: &'c SourceCode<'c>) -> Self {
+    const fn new(f: &'b mut fmt::Formatter<'a>, source: &'c SourceFile) -> Self {
         Unparser { f, source }
     }
 
     fn p(&mut self, s: &str) -> fmt::Result {
         self.f.write_str(s)
     }
+
     fn p_id(&mut self, s: &Identifier) -> fmt::Result {
         self.f.write_str(s.as_str())
     }
+
     fn p_if(&mut self, cond: bool, s: &str) -> fmt::Result {
         if cond {
             self.f.write_str(s)?;
         }
         Ok(())
     }
+
     fn p_delim(&mut self, first: &mut bool, s: &str) -> fmt::Result {
         self.p_if(!std::mem::take(first), s)
     }
+
     fn write_fmt(&mut self, f: fmt::Arguments<'_>) -> fmt::Result {
         self.f.write_fmt(f)
     }
@@ -525,7 +530,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         });
         if let Some(ruff::DebugText { leading, trailing }) = debug_text {
             self.p(leading)?;
-            self.p(self.source.get_range(val.range()))?;
+            self.p(self.source.slice(val.range()))?;
             self.p(trailing)?;
         }
         let brace = if buffered.starts_with('{') {
@@ -599,10 +604,10 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
 
 pub struct UnparseExpr<'a> {
     expr: &'a Expr,
-    source: &'a SourceCode<'a>,
+    source: &'a SourceFile,
 }
 
-pub const fn unparse_expr<'a>(expr: &'a Expr, source: &'a SourceCode<'a>) -> UnparseExpr<'a> {
+pub const fn unparse_expr<'a>(expr: &'a Expr, source: &'a SourceFile) -> UnparseExpr<'a> {
     UnparseExpr { expr, source }
 }
 

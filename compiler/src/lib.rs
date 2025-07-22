@@ -1,16 +1,14 @@
-use ruff_source_file::SourceLocation;
+use ruff_source_file::{SourceFile, SourceFileBuilder, SourceLocation};
 use rustpython_codegen::{compile, symboltable};
 
 pub use rustpython_codegen::compile::CompileOpts;
 pub use rustpython_compiler_core::{Mode, bytecode::CodeObject};
-use rustpython_compiler_source::SourceCode;
 
 // these modules are out of repository. re-exporting them here for convenience.
 pub use ruff_python_ast as ast;
 pub use ruff_python_parser as parser;
 pub use rustpython_codegen as codegen;
 pub use rustpython_compiler_core as core;
-pub use rustpython_compiler_source as source;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -45,13 +43,15 @@ pub enum CompileError {
 }
 
 impl CompileError {
-    pub fn from_ruff_parse_error(error: parser::ParseError, source_code: &SourceCode<'_>) -> Self {
-        let location = source_code.source_location(error.location.start());
+    pub fn from_ruff_parse_error(error: parser::ParseError, source_file: &SourceFile) -> Self {
+        let location = source_file
+            .to_source_code()
+            .source_location(error.location.start());
         Self::Parse(ParseError {
             error: error.error,
             raw_location: error.location,
             location,
-            source_path: source_code.path.to_owned(),
+            source_path: source_file.name().to_owned(),
         })
     }
 
@@ -96,9 +96,12 @@ pub fn compile(
     // TODO: do this less hacky; ruff's parser should translate a CRLF line
     //       break in a multiline string into just an LF in the parsed value
     #[cfg(windows)]
-    let source = &source.replace("\r\n", "\n");
-    let source_code = SourceCode::new(source_path, source);
-    _compile(source_code, mode, opts)
+    let source = source.replace("\r\n", "\n");
+    #[cfg(windows)]
+    let source = source.as_str();
+
+    let source_file = SourceFileBuilder::new(source_path, source).finish();
+    _compile(source_file, mode, opts)
     // let index = LineIndex::from_source_text(source);
     // let source_code = SourceCode::new(source, &index);
     // let mut locator = LinearLocator::new(source);
@@ -117,7 +120,7 @@ pub fn compile(
 }
 
 fn _compile(
-    source_code: SourceCode<'_>,
+    source_file: SourceFile,
     mode: Mode,
     opts: CompileOpts,
 ) -> Result<CodeObject, CompileError> {
@@ -128,10 +131,10 @@ fn _compile(
         // since these are only different in terms of compilation
         Mode::Single | Mode::BlockExpr => parser::Mode::Module,
     };
-    let parsed = parser::parse(source_code.text, parser_mode.into())
-        .map_err(|err| CompileError::from_ruff_parse_error(err, &source_code))?;
+    let parsed = parser::parse(source_file.source_text(), parser_mode.into())
+        .map_err(|err| CompileError::from_ruff_parse_error(err, &source_file))?;
     let ast = parsed.into_syntax();
-    compile::compile_top(ast, source_code, mode, opts).map_err(|e| e.into())
+    compile::compile_top(ast, source_file, mode, opts).map_err(|e| e.into())
 }
 
 pub fn compile_symtable(
@@ -139,30 +142,33 @@ pub fn compile_symtable(
     mode: Mode,
     source_path: &str,
 ) -> Result<symboltable::SymbolTable, CompileError> {
-    let source_code = SourceCode::new(source_path, source);
-    _compile_symtable(source_code, mode)
+    let source_file = SourceFileBuilder::new(source_path, source).finish();
+    _compile_symtable(source_file, mode)
 }
 
 pub fn _compile_symtable(
-    source_code: SourceCode<'_>,
+    source_file: SourceFile,
     mode: Mode,
 ) -> Result<symboltable::SymbolTable, CompileError> {
     let res = match mode {
         Mode::Exec | Mode::Single | Mode::BlockExpr => {
-            let ast = ruff_python_parser::parse_module(source_code.text)
-                .map_err(|e| CompileError::from_ruff_parse_error(e, &source_code))?;
-            symboltable::SymbolTable::scan_program(&ast.into_syntax(), source_code.clone())
+            let ast = ruff_python_parser::parse_module(source_file.source_text())
+                .map_err(|e| CompileError::from_ruff_parse_error(e, &source_file))?;
+            symboltable::SymbolTable::scan_program(&ast.into_syntax(), source_file.clone())
         }
         Mode::Eval => {
-            let ast = ruff_python_parser::parse(source_code.text, parser::Mode::Expression.into())
-                .map_err(|e| CompileError::from_ruff_parse_error(e, &source_code))?;
+            let ast = ruff_python_parser::parse(
+                source_file.source_text(),
+                parser::Mode::Expression.into(),
+            )
+            .map_err(|e| CompileError::from_ruff_parse_error(e, &source_file))?;
             symboltable::SymbolTable::scan_expr(
                 &ast.into_syntax().expect_expression(),
-                source_code.clone(),
+                source_file.clone(),
             )
         }
     };
-    res.map_err(|e| e.into_codegen_error(source_code.path.to_owned()).into())
+    res.map_err(|e| e.into_codegen_error(source_file.name().to_owned()).into())
 }
 
 #[test]

@@ -2278,7 +2278,6 @@ dependencies = [
  "ruff_source_file",
  "ruff_text_size",
  "rustpython-compiler-core",
- "rustpython-compiler-source",
  "rustpython-literal",
  "rustpython-wtf8",
  "thiserror 2.0.12",
@@ -2325,7 +2324,6 @@ dependencies = [
  "ruff_text_size",
  "rustpython-codegen",
  "rustpython-compiler-core",
- "rustpython-compiler-source",
  "thiserror 2.0.12",
 ]
 
@@ -2341,14 +2339,6 @@ dependencies = [
  "ruff_source_file",
  "rustpython-wtf8",
  "serde",
-]
-
-[[package]]
-name = "rustpython-compiler-source"
-version = "0.4.0"
-dependencies = [
- "ruff_source_file",
- "ruff_text_size",
 ]
 
 [[package]]
@@ -2561,7 +2551,6 @@ dependencies = [
  "rustpython-common",
  "rustpython-compiler",
  "rustpython-compiler-core",
- "rustpython-compiler-source",
  "rustpython-derive",
  "rustpython-jit",
  "rustpython-literal",

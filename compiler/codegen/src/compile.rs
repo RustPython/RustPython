@@ -11,11 +11,37 @@
 
 use crate::{
     IndexMap, IndexSet, ToPythonName,
-    error::{CodegenError, CodegenErrorType, PatternUnreachableReason},
+    error::{CodegenError, CodegenErrorType, InternalError, PatternUnreachableReason},
     ir::{self, BlockIdx},
     symboltable::{self, CompilerScope, SymbolFlags, SymbolScope, SymbolTable},
     unparse::unparse_expr,
 };
+use itertools::Itertools;
+use malachite_bigint::BigInt;
+use num_complex::Complex;
+use num_traits::{Num, ToPrimitive};
+use ruff_python_ast::{
+    Alias, Arguments, BoolOp, CmpOp, Comprehension, ConversionFlag, DebugText, Decorator, DictItem,
+    ExceptHandler, ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprContext,
+    ExprFString, ExprList, ExprName, ExprSlice, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp,
+    FString, FStringElement, FStringElements, FStringFlags, FStringPart, Identifier, Int, Keyword,
+    MatchCase, ModExpression, ModModule, Operator, Parameters, Pattern, PatternMatchAs,
+    PatternMatchClass, PatternMatchOr, PatternMatchSequence, PatternMatchSingleton,
+    PatternMatchStar, PatternMatchValue, Singleton, Stmt, StmtExpr, TypeParam, TypeParamParamSpec,
+    TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams, UnaryOp, WithItem,
+};
+use ruff_source_file::{OneIndexed, SourceFile};
+use ruff_text_size::{Ranged, TextRange};
+use rustpython_wtf8::Wtf8Buf;
+// use rustpython_ast::located::{self as located_ast, Located};
+use rustpython_compiler_core::{
+    Mode,
+    bytecode::{
+        self, Arg as OpArgMarker, BinaryOperator, CodeObject, ComparisonOperator, ConstantData,
+        Instruction, OpArg, OpArgType, UnpackExArgs,
+    },
+};
+use std::borrow::Cow;
 
 const MAXBLOCKS: usize = 20;
 
@@ -43,35 +69,6 @@ pub struct FBlockInfo {
     pub fb_exit: BlockIdx,
     // fb_datum is not needed in RustPython
 }
-use itertools::Itertools;
-use malachite_bigint::BigInt;
-use num_complex::Complex;
-use num_traits::{Num, ToPrimitive};
-use ruff_python_ast::{
-    Alias, Arguments, BoolOp, CmpOp, Comprehension, ConversionFlag, DebugText, Decorator, DictItem,
-    ExceptHandler, ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprContext,
-    ExprFString, ExprList, ExprName, ExprSlice, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp,
-    FString, FStringElement, FStringElements, FStringFlags, FStringPart, Identifier, Int, Keyword,
-    MatchCase, ModExpression, ModModule, Operator, Parameters, Pattern, PatternMatchAs,
-    PatternMatchClass, PatternMatchOr, PatternMatchSequence, PatternMatchSingleton,
-    PatternMatchStar, PatternMatchValue, Singleton, Stmt, StmtExpr, TypeParam, TypeParamParamSpec,
-    TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams, UnaryOp, WithItem,
-};
-use ruff_source_file::OneIndexed;
-use ruff_text_size::{Ranged, TextRange};
-use rustpython_wtf8::Wtf8Buf;
-// use rustpython_ast::located::{self as located_ast, Located};
-use rustpython_compiler_core::{
-    Mode,
-    bytecode::{
-        self, Arg as OpArgMarker, BinaryOperator, CodeObject, ComparisonOperator, ConstantData,
-        Instruction, OpArg, OpArgType, UnpackExArgs,
-    },
-};
-use rustpython_compiler_source::SourceCode;
-// use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
-use crate::error::InternalError;
-use std::borrow::Cow;
 
 pub(crate) type InternalResult<T> = Result<T, InternalError>;
 type CompileResult<T> = Result<T, CodegenError>;
@@ -97,10 +94,10 @@ fn is_forbidden_name(name: &str) -> bool {
 }
 
 /// Main structure holding the state of compilation.
-struct Compiler<'src> {
+struct Compiler {
     code_stack: Vec<ir::CodeInfo>,
     symbol_table_stack: Vec<SymbolTable>,
-    source_code: SourceCode<'src>,
+    source_file: SourceFile,
     // current_source_location: SourceLocation,
     current_source_range: TextRange,
     done_with_future_stmts: DoneWithFuture,
@@ -154,29 +151,29 @@ enum ComprehensionType {
 /// Compile an Mod produced from ruff parser
 pub fn compile_top(
     ast: ruff_python_ast::Mod,
-    source_code: SourceCode<'_>,
+    source_file: SourceFile,
     mode: Mode,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
     match ast {
         ruff_python_ast::Mod::Module(module) => match mode {
-            Mode::Exec | Mode::Eval => compile_program(&module, source_code, opts),
-            Mode::Single => compile_program_single(&module, source_code, opts),
-            Mode::BlockExpr => compile_block_expression(&module, source_code, opts),
+            Mode::Exec | Mode::Eval => compile_program(&module, source_file, opts),
+            Mode::Single => compile_program_single(&module, source_file, opts),
+            Mode::BlockExpr => compile_block_expression(&module, source_file, opts),
         },
-        ruff_python_ast::Mod::Expression(expr) => compile_expression(&expr, source_code, opts),
+        ruff_python_ast::Mod::Expression(expr) => compile_expression(&expr, source_file, opts),
     }
 }
 
 /// Compile a standard Python program to bytecode
 pub fn compile_program(
     ast: &ModModule,
-    source_code: SourceCode<'_>,
+    source_file: SourceFile,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    let symbol_table = SymbolTable::scan_program(ast, source_code.clone())
-        .map_err(|e| e.into_codegen_error(source_code.path.to_owned()))?;
-    let mut compiler = Compiler::new(opts, source_code, "<module>".to_owned());
+    let symbol_table = SymbolTable::scan_program(ast, source_file.clone())
+        .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))?;
+    let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
     compiler.compile_program(ast, symbol_table)?;
     let code = compiler.exit_scope();
     trace!("Compilation completed: {code:?}");
@@ -186,12 +183,12 @@ pub fn compile_program(
 /// Compile a Python program to bytecode for the context of a REPL
 pub fn compile_program_single(
     ast: &ModModule,
-    source_code: SourceCode<'_>,
+    source_file: SourceFile,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    let symbol_table = SymbolTable::scan_program(ast, source_code.clone())
-        .map_err(|e| e.into_codegen_error(source_code.path.to_owned()))?;
-    let mut compiler = Compiler::new(opts, source_code, "<module>".to_owned());
+    let symbol_table = SymbolTable::scan_program(ast, source_file.clone())
+        .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))?;
+    let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
     compiler.compile_program_single(&ast.body, symbol_table)?;
     let code = compiler.exit_scope();
     trace!("Compilation completed: {code:?}");
@@ -200,12 +197,12 @@ pub fn compile_program_single(
 
 pub fn compile_block_expression(
     ast: &ModModule,
-    source_code: SourceCode<'_>,
+    source_file: SourceFile,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    let symbol_table = SymbolTable::scan_program(ast, source_code.clone())
-        .map_err(|e| e.into_codegen_error(source_code.path.to_owned()))?;
-    let mut compiler = Compiler::new(opts, source_code, "<module>".to_owned());
+    let symbol_table = SymbolTable::scan_program(ast, source_file.clone())
+        .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))?;
+    let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
     compiler.compile_block_expr(&ast.body, symbol_table)?;
     let code = compiler.exit_scope();
     trace!("Compilation completed: {code:?}");
@@ -214,12 +211,12 @@ pub fn compile_block_expression(
 
 pub fn compile_expression(
     ast: &ModExpression,
-    source_code: SourceCode<'_>,
+    source_file: SourceFile,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    let symbol_table = SymbolTable::scan_expr(ast, source_code.clone())
-        .map_err(|e| e.into_codegen_error(source_code.path.to_owned()))?;
-    let mut compiler = Compiler::new(opts, source_code, "<module>".to_owned());
+    let symbol_table = SymbolTable::scan_expr(ast, source_file.clone())
+        .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))?;
+    let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
     compiler.compile_eval(ast, symbol_table)?;
     let code = compiler.exit_scope();
     Ok(code)
@@ -240,16 +237,18 @@ macro_rules! emit {
     };
 }
 
-fn eprint_location(zelf: &Compiler<'_>) {
+fn eprint_location(zelf: &Compiler) {
     let start = zelf
-        .source_code
+        .source_file
+        .to_source_code()
         .source_location(zelf.current_source_range.start());
     let end = zelf
-        .source_code
+        .source_file
+        .to_source_code()
         .source_location(zelf.current_source_range.end());
     eprintln!(
         "LOCATION: {} from {}:{} to {}:{}",
-        zelf.source_code.path.to_owned(),
+        zelf.source_file.name(),
         start.row,
         start.column,
         end.row,
@@ -259,7 +258,7 @@ fn eprint_location(zelf: &Compiler<'_>) {
 
 /// Better traceback for internal error
 #[track_caller]
-fn unwrap_internal<T>(zelf: &Compiler<'_>, r: InternalResult<T>) -> T {
+fn unwrap_internal<T>(zelf: &Compiler, r: InternalResult<T>) -> T {
     if let Err(ref r_err) = r {
         eprintln!("=== CODEGEN PANIC INFO ===");
         eprintln!("This IS an internal error: {r_err}");
@@ -269,7 +268,7 @@ fn unwrap_internal<T>(zelf: &Compiler<'_>, r: InternalResult<T>) -> T {
     r.unwrap()
 }
 
-fn compiler_unwrap_option<T>(zelf: &Compiler<'_>, o: Option<T>) -> T {
+fn compiler_unwrap_option<T>(zelf: &Compiler, o: Option<T>) -> T {
     if o.is_none() {
         eprintln!("=== CODEGEN PANIC INFO ===");
         eprintln!("This IS an internal error, an option was unwrapped during codegen");
@@ -279,7 +278,7 @@ fn compiler_unwrap_option<T>(zelf: &Compiler<'_>, o: Option<T>) -> T {
     o.unwrap()
 }
 
-// fn compiler_result_unwrap<T, E: std::fmt::Debug>(zelf: &Compiler<'_>, result: Result<T, E>) -> T {
+// fn compiler_result_unwrap<T, E: std::fmt::Debug>(zelf: &Compiler, result: Result<T, E>) -> T {
 //     if result.is_err() {
 //         eprintln!("=== CODEGEN PANIC INFO ===");
 //         eprintln!("This IS an internal error, an result was unwrapped during codegen");
@@ -328,11 +327,19 @@ enum JumpOp {
     PopJumpIfFalse,
 }
 
-impl<'src> Compiler<'src> {
-    fn new(opts: CompileOpts, source_code: SourceCode<'src>, code_name: String) -> Self {
+/// Type of collection to build in starunpack_helper
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum CollectionType {
+    Tuple,
+    List,
+    Set,
+}
+
+impl Compiler {
+    fn new(opts: CompileOpts, source_file: SourceFile, code_name: String) -> Self {
         let module_code = ir::CodeInfo {
             flags: bytecode::CodeFlags::NEW_LOCALS,
-            source_path: source_code.path.to_owned(),
+            source_path: source_file.name().to_owned(),
             private: None,
             blocks: vec![ir::Block::default()],
             current_block: ir::BlockIdx(0),
@@ -358,7 +365,7 @@ impl<'src> Compiler<'src> {
         Compiler {
             code_stack: vec![module_code],
             symbol_table_stack: Vec::new(),
-            source_code,
+            source_file,
             // current_source_location: SourceLocation::default(),
             current_source_range: TextRange::default(),
             done_with_future_stmts: DoneWithFuture::No,
@@ -372,17 +379,7 @@ impl<'src> Compiler<'src> {
             in_annotation: false,
         }
     }
-}
 
-/// Type of collection to build in starunpack_helper
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum CollectionType {
-    Tuple,
-    List,
-    Set,
-}
-
-impl Compiler<'_> {
     /// Check if the slice is a two-element slice (no step)
     // = is_two_element_slice
     fn is_two_element_slice(slice: &Expr) -> bool {
@@ -526,15 +523,20 @@ impl Compiler<'_> {
 
         Ok(())
     }
+
     fn error(&mut self, error: CodegenErrorType) -> CodegenError {
         self.error_ranged(error, self.current_source_range)
     }
+
     fn error_ranged(&mut self, error: CodegenErrorType, range: TextRange) -> CodegenError {
-        let location = self.source_code.source_location(range.start());
+        let location = self
+            .source_file
+            .to_source_code()
+            .source_location(range.start());
         CodegenError {
             error,
             location: Some(location),
-            source_path: self.source_code.path.to_owned(),
+            source_path: self.source_file.name().to_owned(),
         }
     }
 
@@ -637,7 +639,7 @@ impl Compiler<'_> {
         // Allocate a new compiler unit
 
         // In Rust, we'll create the structure directly
-        let source_path = self.source_code.path.to_owned();
+        let source_path = self.source_file.name().to_owned();
 
         // Lookup symbol table entry using key (_PySymtable_Lookup)
         let ste = if key < self.symbol_table_stack.len() {
@@ -4034,7 +4036,7 @@ impl Compiler<'_> {
     fn compile_annotation(&mut self, annotation: &Expr) -> CompileResult<()> {
         if self.future_annotations {
             self.emit_load_const(ConstantData::Str {
-                value: unparse_expr(annotation, &self.source_code)
+                value: unparse_expr(annotation, &self.source_file)
                     .to_string()
                     .into(),
             });
@@ -4777,7 +4779,7 @@ impl Compiler<'_> {
                         .value
                         .iter()
                         .map(|lit| {
-                            let source = self.source_code.get_range(lit.range);
+                            let source = self.source_file.slice(lit.range);
                             crate::string_parser::parse_string_literal(source, lit.flags.into())
                         })
                         .collect();
@@ -5220,7 +5222,10 @@ impl Compiler<'_> {
     // Low level helper functions:
     fn _emit(&mut self, instr: Instruction, arg: OpArg, target: ir::BlockIdx) {
         let range = self.current_source_range;
-        let location = self.source_code.source_location(range.start());
+        let location = self
+            .source_file
+            .to_source_code()
+            .source_location(range.start());
         // TODO: insert source filename
         self.current_block().instructions.push(ir::InstructionInfo {
             instr,
@@ -5311,7 +5316,8 @@ impl Compiler<'_> {
     }
 
     fn get_source_line_number(&mut self) -> OneIndexed {
-        self.source_code
+        self.source_file
+            .to_source_code()
             .line_index(self.current_source_range.start())
     }
 
@@ -5463,7 +5469,7 @@ impl Compiler<'_> {
             FStringPart::Literal(string) => {
                 if string.value.contains(char::REPLACEMENT_CHARACTER) {
                     // might have a surrogate literal; should reparse to be sure
-                    let source = self.source_code.get_range(string.range);
+                    let source = self.source_file.slice(string.range);
                     let value =
                         crate::string_parser::parse_string_literal(source, string.flags.into());
                     self.emit_load_const(ConstantData::Str {
@@ -5496,7 +5502,7 @@ impl Compiler<'_> {
                 FStringElement::Literal(string) => {
                     if string.value.contains(char::REPLACEMENT_CHARACTER) {
                         // might have a surrogate literal; should reparse to be sure
-                        let source = self.source_code.get_range(string.range);
+                        let source = self.source_file.slice(string.range);
                         let value = crate::string_parser::parse_fstring_literal_element(
                             source.into(),
                             flags.into(),
@@ -5515,7 +5521,7 @@ impl Compiler<'_> {
 
                     if let Some(DebugText { leading, trailing }) = &fstring_expr.debug_text {
                         let range = fstring_expr.expression.range();
-                        let source = self.source_code.get_range(range);
+                        let source = self.source_file.slice(range);
                         let text = [leading, source, trailing].concat();
 
                         self.emit_load_const(ConstantData::Str { value: text.into() });
@@ -5836,22 +5842,25 @@ mod ruff_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ruff_source_file::SourceFileBuilder;
 
     fn compile_exec(source: &str) -> CodeObject {
         let opts = CompileOpts::default();
-        let source_code = SourceCode::new("source_path", source);
-        let parsed =
-            ruff_python_parser::parse(source_code.text, ruff_python_parser::Mode::Module.into())
-                .unwrap();
+        let source_file = SourceFileBuilder::new("source_path", source).finish();
+        let parsed = ruff_python_parser::parse(
+            source_file.source_text(),
+            ruff_python_parser::Mode::Module.into(),
+        )
+        .unwrap();
         let ast = parsed.into_syntax();
         let ast = match ast {
             ruff_python_ast::Mod::Module(stmts) => stmts,
             _ => unreachable!(),
         };
-        let symbol_table = SymbolTable::scan_program(&ast, source_code.clone())
-            .map_err(|e| e.into_codegen_error(source_code.path.to_owned()))
+        let symbol_table = SymbolTable::scan_program(&ast, source_file.clone())
+            .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))
             .unwrap();
-        let mut compiler = Compiler::new(opts, source_code, "<module>".to_owned());
+        let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
         compiler.compile_program(&ast, symbol_table).unwrap();
         compiler.exit_scope()
     }

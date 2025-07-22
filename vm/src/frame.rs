@@ -16,12 +16,12 @@ use crate::{
     function::{ArgMapping, Either, FuncArgs},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
-    source::SourceLocation,
     stdlib::{builtins, typing},
     vm::{Context, PyMethod},
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
+use ruff_source_file::SourceLocation;
 use rustpython_common::wtf8::Wtf8Buf;
 #[cfg(feature = "threading")]
 use std::sync::atomic;
