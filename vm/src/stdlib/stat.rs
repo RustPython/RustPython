@@ -393,88 +393,14 @@ mod stat {
     // Windows file attributes (if on Windows)
     #[cfg(windows)]
     #[pyattr]
-    pub const FILE_ATTRIBUTE_ARCHIVE: u32 =
-        windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE;
-
-    #[cfg(windows)]
-    #[pyattr]
-    pub const FILE_ATTRIBUTE_COMPRESSED: u32 =
-        windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_COMPRESSED;
-
-    #[cfg(windows)]
-    #[pyattr]
-    pub const FILE_ATTRIBUTE_DEVICE: u32 =
-        windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_DEVICE;
-
-    #[cfg(windows)]
-    #[pyattr]
-    pub const FILE_ATTRIBUTE_DIRECTORY: u32 =
-        windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY;
-
-    #[cfg(windows)]
-    #[pyattr]
-    pub const FILE_ATTRIBUTE_ENCRYPTED: u32 =
-        windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_ENCRYPTED;
-
-    #[cfg(windows)]
-    #[pyattr]
-    pub const FILE_ATTRIBUTE_HIDDEN: u32 =
-        windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_HIDDEN;
-
-    #[cfg(windows)]
-    #[pyattr]
-    pub const FILE_ATTRIBUTE_INTEGRITY_STREAM: u32 =
-        windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_INTEGRITY_STREAM;
-
-    #[cfg(windows)]
-    #[pyattr]
-    pub const FILE_ATTRIBUTE_NORMAL: u32 =
-        windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL;
-
-    #[cfg(windows)]
-    #[pyattr]
-    pub const FILE_ATTRIBUTE_NOT_CONTENT_INDEXED: u32 =
-        windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NOT_CONTENT_INDEXED;
-
-    #[cfg(windows)]
-    #[pyattr]
-    pub const FILE_ATTRIBUTE_NO_SCRUB_DATA: u32 =
-        windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NO_SCRUB_DATA;
-
-    #[cfg(windows)]
-    #[pyattr]
-    pub const FILE_ATTRIBUTE_OFFLINE: u32 =
-        windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_OFFLINE;
-
-    #[cfg(windows)]
-    #[pyattr]
-    pub const FILE_ATTRIBUTE_READONLY: u32 =
-        windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_READONLY;
-
-    #[cfg(windows)]
-    #[pyattr]
-    pub const FILE_ATTRIBUTE_REPARSE_POINT: u32 =
-        windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
-
-    #[cfg(windows)]
-    #[pyattr]
-    pub const FILE_ATTRIBUTE_SPARSE_FILE: u32 =
-        windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_SPARSE_FILE;
-
-    #[cfg(windows)]
-    #[pyattr]
-    pub const FILE_ATTRIBUTE_SYSTEM: u32 =
-        windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_SYSTEM;
-
-    #[cfg(windows)]
-    #[pyattr]
-    pub const FILE_ATTRIBUTE_TEMPORARY: u32 =
-        windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_TEMPORARY;
-
-    #[cfg(windows)]
-    #[pyattr]
-    pub const FILE_ATTRIBUTE_VIRTUAL: u32 =
-        windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_VIRTUAL;
+    pub use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_COMPRESSED, FILE_ATTRIBUTE_DEVICE,
+        FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_ENCRYPTED, FILE_ATTRIBUTE_HIDDEN,
+        FILE_ATTRIBUTE_INTEGRITY_STREAM, FILE_ATTRIBUTE_NO_SCRUB_DATA, FILE_ATTRIBUTE_NORMAL,
+        FILE_ATTRIBUTE_NOT_CONTENT_INDEXED, FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_READONLY,
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_SPARSE_FILE, FILE_ATTRIBUTE_SYSTEM,
+        FILE_ATTRIBUTE_TEMPORARY, FILE_ATTRIBUTE_VIRTUAL,
+    };
 
     // Unix file flags (if on Unix)
     #[cfg(target_os = "macos")]
