@@ -1,4 +1,4 @@
-use ruff_source_file::SourceLocation;
+use rustpython_compiler_core::SourceLocation;
 use std::fmt::{self, Display};
 use thiserror::Error;
 

@@ -1,13 +1,11 @@
-use ruff_python_ast as ruff;
-use ruff_source_file::SourceFile;
+use ruff_python_ast::{
+    self as ruff, Arguments, BoolOp, Comprehension, ConversionFlag, Expr, Identifier, Operator,
+    Parameter, ParameterWithDefault, Parameters,
+};
 use ruff_text_size::Ranged;
+use rustpython_compiler_core::SourceFile;
 use rustpython_literal::escape::{AsciiEscape, UnicodeEscape};
 use std::fmt::{self, Display as _};
-
-use ruff::{
-    Arguments, BoolOp, Comprehension, ConversionFlag, Expr, Identifier, Operator, Parameter,
-    ParameterWithDefault, Parameters,
-};
 
 mod precedence {
     macro_rules! precedence {
