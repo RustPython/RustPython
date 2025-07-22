@@ -169,7 +169,7 @@ jobs:
             if [[ ( -f "${referance_file}" ) ]] ; then
               # See https://devguide.python.org/testing/run-write-tests
               # Heuristic: "if some module does not have unittest.main(), then most likely it does not support direct invocation."
-              if grep -qF "unittest.main()" "${referance_file}" 2>dev/null ; then
+              if grep -qF "unittest.main()" "${referance_file}" 2>/dev/null ; then
                 # TODO: RustPython workaround Windows timeout for hangs
                 printf "Now Testing '%s'\n" "${referance_file}"
                 # vars for subshell but not for workflow
