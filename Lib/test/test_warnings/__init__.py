@@ -1439,8 +1439,6 @@ class EnvironmentVariableTests(BaseTest):
              b'~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^',
              b"DeprecationWarning: Message"])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_default_filter_configuration(self):
         pure_python_api = self.module is py_warnings
         if support.Py_DEBUG:
@@ -1487,6 +1485,13 @@ class EnvironmentVariableTests(BaseTest):
 
 class CEnvironmentVariableTests(EnvironmentVariableTests, unittest.TestCase):
     module = c_warnings
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_default_filter_configuration(self):
+        # XXX: RUSTPYHTON; remove the entire function when fixed
+        super().test_default_filter_configuration()
+
 
 class PyEnvironmentVariableTests(EnvironmentVariableTests, unittest.TestCase):
     module = py_warnings
