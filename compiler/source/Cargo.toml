@@ -1,7 +1,7 @@
 [package]
 name = "rustpython-compiler-source"
-description = "RustPython Source and Index"
-version.workspace = true
+description = "(DEPRECATED) RustPython Source and Index"
+version = "0.5.0+deprecated"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
