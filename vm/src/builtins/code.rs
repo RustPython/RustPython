@@ -15,7 +15,7 @@ use crate::{
 };
 use malachite_bigint::BigInt;
 use num_traits::Zero;
-use ruff_source_file::OneIndexed;
+use rustpython_compiler_core::OneIndexed;
 use std::{borrow::Borrow, fmt, ops::Deref};
 
 #[derive(FromArgs)]

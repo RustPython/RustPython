@@ -3,8 +3,8 @@ use crate::{
     Context, Py, PyPayload, PyRef, PyResult, VirtualMachine, class::PyClassImpl, frame::FrameRef,
     types::Constructor,
 };
-use ruff_source_file::OneIndexed;
 use rustpython_common::lock::PyMutex;
+use rustpython_compiler_core::OneIndexed;
 
 #[pyclass(module = false, name = "traceback", traverse)]
 #[derive(Debug)]

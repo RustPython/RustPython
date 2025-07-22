@@ -4,7 +4,7 @@ use crate::stdlib::ast::{
     constant::Constant,
     string::JoinedStr,
 };
-use ruff_source_file::SourceFile;
+use rustpython_compiler_core::SourceFile;
 
 // sum
 impl Node for ruff::Expr {

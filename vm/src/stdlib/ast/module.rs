@@ -1,6 +1,6 @@
 use super::*;
 use crate::stdlib::ast::type_ignore::TypeIgnore;
-use ruff_source_file::SourceFile;
+use rustpython_compiler_core::SourceFile;
 
 /// Represents the different types of Python module structures.
 ///

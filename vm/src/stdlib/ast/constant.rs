@@ -1,7 +1,7 @@
 use super::*;
 use crate::builtins::{PyComplex, PyFrozenSet, PyTuple};
 use ruff::str_prefix::StringLiteralPrefix;
-use ruff_source_file::SourceFile;
+use rustpython_compiler_core::SourceFile;
 
 #[derive(Debug)]
 pub(super) struct Constant {

@@ -1,5 +1,5 @@
 use super::*;
-use ruff_source_file::SourceFile;
+use rustpython_compiler_core::SourceFile;
 
 impl Node for ruff::TypeParams {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {

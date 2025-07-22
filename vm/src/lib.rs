@@ -51,8 +51,10 @@ pub mod compiler;
 pub mod convert;
 mod coroutine;
 mod dict_inner;
+
 #[cfg(feature = "rustpython-compiler")]
 pub mod eval;
+
 pub mod exceptions;
 pub mod format;
 pub mod frame;
@@ -61,13 +63,17 @@ pub mod import;
 mod intern;
 pub mod iter;
 pub mod object;
+
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 pub mod ospath;
+
 pub mod prelude;
 pub mod protocol;
 pub mod py_io;
+
 #[cfg(feature = "serde")]
 pub mod py_serde;
+
 pub mod readline;
 pub mod recursion;
 pub mod scope;
@@ -81,6 +87,7 @@ pub mod utils;
 pub mod version;
 pub mod vm;
 pub mod warn;
+
 #[cfg(windows)]
 pub mod windows;
 

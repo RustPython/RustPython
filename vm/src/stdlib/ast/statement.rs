@@ -1,6 +1,6 @@
 use super::*;
 use crate::stdlib::ast::argument::{merge_class_def_args, split_class_def_args};
-use ruff_source_file::SourceFile;
+use rustpython_compiler_core::SourceFile;
 
 // sum
 impl Node for ruff::Stmt {

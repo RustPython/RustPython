@@ -1,7 +1,6 @@
 use super::*;
 use num_traits::ToPrimitive;
-use ruff_source_file::SourceFile;
-use rustpython_compiler_core::bytecode;
+use rustpython_compiler_core::{SourceFile, bytecode};
 
 impl Node for ruff::ConversionFlag {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
