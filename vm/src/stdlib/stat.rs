@@ -2,9 +2,6 @@ use crate::{PyRef, VirtualMachine, builtins::PyModule};
 
 #[pymodule]
 mod stat {
-    #[cfg(unix)]
-    use libc;
-
     // Use libc::mode_t for Mode to match the system's definition
     #[cfg(unix)]
     type Mode = libc::mode_t;
@@ -13,72 +10,58 @@ mod stat {
     #[cfg(not(any(unix, windows)))]
     type Mode = u32; // Fallback for unknown targets
 
-    #[cfg(unix)]
-    #[pyattr]
-    pub const S_IFDIR: Mode = libc::S_IFDIR;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_IFDIR: Mode = 0o040000;
+    cfg_if::cfg_if! {
+        if #[cfg(unix)] {
+            macro_rules! unix_libc_get {
+                ($name:ident, $val:expr) => {
+                    libc::$name
+                };
+            }
+        } else {
+            macro_rules! unix_libc_get {
+                ($name:ident, $val:expr) => {
+                    $val
+                };
+            }
+        }
+    }
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_IFCHR: Mode = libc::S_IFCHR;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_IFCHR: Mode = 0o020000;
+    pub const S_IFDIR: Mode = unix_libc_get!(S_IFDIR, 0o040000);
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_IFBLK: Mode = libc::S_IFBLK;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_IFBLK: Mode = 0o060000;
+    pub const S_IFCHR: Mode = unix_libc_get!(S_IFCHR, 0o020000);
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_IFREG: Mode = libc::S_IFREG;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_IFREG: Mode = 0o100000;
+    pub const S_IFBLK: Mode = unix_libc_get!(S_IFBLK, 0o060000);
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_IFIFO: Mode = libc::S_IFIFO;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_IFIFO: Mode = 0o010000;
+    pub const S_IFREG: Mode = unix_libc_get!(S_IFREG, 0o100000);
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_IFLNK: Mode = libc::S_IFLNK;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_IFLNK: Mode = 0o120000;
+    pub const S_IFIFO: Mode = unix_libc_get!(S_IFIFO, 0o010000);
 
-    #[cfg(unix)]
     #[pyattr]
-    pub const S_IFSOCK: Mode = libc::S_IFSOCK;
-    #[cfg(not(unix))]
-    #[pyattr]
-    pub const S_IFSOCK: Mode = 0o140000;
+    pub const S_IFLNK: Mode = unix_libc_get!(S_IFLNK, 0o120000);
 
-    // TODO: RUSTPYTHON Support Solaris
     #[pyattr]
-    pub const S_IFDOOR: Mode = 0;
+    pub const S_IFSOCK: Mode = unix_libc_get!(S_IFSOCK, 0o140000);
 
-    // TODO: RUSTPYTHON Support Solaris
     #[pyattr]
-    pub const S_IFPORT: Mode = 0;
+    pub const S_IFDOOR: Mode = 0; // TODO: RUSTPYTHON Support Solaris
+
+    #[pyattr]
+    pub const S_IFPORT: Mode = 0; // TODO: RUSTPYTHON Support Solaris
 
     // TODO: RUSTPYTHON Support BSD
     // https://man.freebsd.org/cgi/man.cgi?stat(2)
 
-    #[cfg(target_os = "macos")]
     #[pyattr]
-    pub const S_IFWHT: Mode = 0o160000;
-    #[cfg(not(target_os = "macos"))]
-    #[pyattr]
-    pub const S_IFWHT: Mode = 0;
+    pub const S_IFWHT: Mode = if cfg!(target_os = "macos") {
+        0o160000
+    } else {
+        0
+    };
 
     // Permission bits
     #[cfg(unix)]
