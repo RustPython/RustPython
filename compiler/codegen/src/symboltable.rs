@@ -18,10 +18,8 @@ use ruff_python_ast::{
     PatternMatchMapping, PatternMatchOr, PatternMatchSequence, PatternMatchStar, PatternMatchValue,
     Stmt, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams,
 };
-use ruff_source_file::{SourceFile, SourceLocation};
 use ruff_text_size::{Ranged, TextRange};
-// use rustpython_ast::{self as ast, located::Located};
-// use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
+use rustpython_compiler_core::{SourceFile, SourceLocation};
 use std::{borrow::Cow, fmt};
 
 /// Captures all symbols in the current scope, and has a list of sub-scopes in this scope.

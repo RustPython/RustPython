@@ -1,5 +1,5 @@
 use super::*;
-use ruff_source_file::SourceFile;
+use rustpython_compiler_core::SourceFile;
 
 pub(super) enum TypeIgnore {
     TypeIgnore(TypeIgnoreTypeIgnore),

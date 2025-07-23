@@ -21,8 +21,8 @@ use crate::{
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
-use ruff_source_file::SourceLocation;
 use rustpython_common::wtf8::Wtf8Buf;
+use rustpython_compiler_core::SourceLocation;
 #[cfg(feature = "threading")]
 use std::sync::atomic;
 use std::{fmt, iter::zip};

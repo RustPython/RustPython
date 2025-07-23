@@ -1,5 +1,5 @@
 use crate::{PyObjectRef, PyResult, VirtualMachine};
-use ruff_source_file::SourceFile;
+use rustpython_compiler_core::SourceFile;
 
 pub(crate) trait Node: Sized {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef;

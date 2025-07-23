@@ -30,17 +30,15 @@ use ruff_python_ast::{
     PatternMatchStar, PatternMatchValue, Singleton, Stmt, StmtExpr, TypeParam, TypeParamParamSpec,
     TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams, UnaryOp, WithItem,
 };
-use ruff_source_file::{OneIndexed, SourceFile};
 use ruff_text_size::{Ranged, TextRange};
-use rustpython_wtf8::Wtf8Buf;
-// use rustpython_ast::located::{self as located_ast, Located};
 use rustpython_compiler_core::{
-    Mode,
+    Mode, OneIndexed, SourceFile, SourceLocation,
     bytecode::{
         self, Arg as OpArgMarker, BinaryOperator, CodeObject, ComparisonOperator, ConstantData,
         Instruction, OpArg, OpArgType, UnpackExArgs,
     },
 };
+use rustpython_wtf8::Wtf8Buf;
 use std::borrow::Cow;
 
 const MAXBLOCKS: usize = 20;
@@ -631,7 +629,7 @@ impl Compiler {
         lineno: u32,
     ) -> CompileResult<()> {
         // Create location
-        let location = ruff_source_file::SourceLocation {
+        let location = SourceLocation {
             row: OneIndexed::new(lineno as usize).unwrap_or(OneIndexed::MIN),
             column: OneIndexed::new(1).unwrap(),
         };
@@ -769,7 +767,7 @@ impl Compiler {
         // Emit RESUME instruction
         let _resume_loc = if scope_type == CompilerScope::Module {
             // Module scope starts with lineno 0
-            ruff_source_file::SourceLocation {
+            SourceLocation {
                 row: OneIndexed::MIN,
                 column: OneIndexed::MIN,
             }
@@ -5842,7 +5840,7 @@ mod ruff_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ruff_source_file::SourceFileBuilder;
+    use rustpython_compiler_core::SourceFileBuilder;
 
     fn compile_exec(source: &str) -> CodeObject {
         let opts = CompileOpts::default();

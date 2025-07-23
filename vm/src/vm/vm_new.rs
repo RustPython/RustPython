@@ -12,6 +12,7 @@ use crate::{
     scope::Scope,
     vm::VirtualMachine,
 };
+use rustpython_compiler_core::SourceLocation;
 
 macro_rules! define_exception_fn {
     (
@@ -286,8 +287,6 @@ impl VirtualMachine {
         source: Option<&str>,
         allow_incomplete: bool,
     ) -> PyBaseExceptionRef {
-        use ruff_source_file::SourceLocation;
-
         let syntax_error_type = match &error {
             #[cfg(feature = "parser")]
             // FIXME: this condition will cause TabError even when the matching actual error is IndentationError

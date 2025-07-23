@@ -1,14 +1,13 @@
 //! Implement python as a virtual machine with bytecode. This module
 //! implements bytecode structure.
 
+use crate::{OneIndexed, SourceLocation};
 use bitflags::bitflags;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
-use ruff_source_file::{OneIndexed, SourceLocation};
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
-use std::marker::PhantomData;
-use std::{collections::BTreeSet, fmt, hash, mem};
+use std::{collections::BTreeSet, fmt, hash, marker::PhantomData, mem};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 #[repr(i8)]

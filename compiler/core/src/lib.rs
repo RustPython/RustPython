@@ -7,3 +7,5 @@ pub mod marshal;
 mod mode;
 
 pub use mode::Mode;
+
+pub use ruff_source_file::{LineIndex, OneIndexed, SourceFile, SourceFileBuilder, SourceLocation};

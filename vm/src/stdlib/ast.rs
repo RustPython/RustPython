@@ -21,8 +21,10 @@ use crate::{
 };
 use node::Node;
 use ruff_python_ast as ruff;
-use ruff_source_file::{LineIndex, OneIndexed, SourceFile, SourceFileBuilder, SourceLocation};
 use ruff_text_size::{Ranged, TextRange, TextSize};
+use rustpython_compiler_core::{
+    LineIndex, OneIndexed, SourceFile, SourceFileBuilder, SourceLocation,
+};
 
 #[cfg(feature = "parser")]
 use ruff_python_parser as parser;

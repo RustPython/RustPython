@@ -1,7 +1,6 @@
-use crate::bytecode::*;
+use crate::{OneIndexed, SourceLocation, bytecode::*};
 use malachite_bigint::{BigInt, Sign};
 use num_complex::Complex64;
-use ruff_source_file::{OneIndexed, SourceLocation};
 use rustpython_wtf8::Wtf8;
 use std::convert::Infallible;
 
