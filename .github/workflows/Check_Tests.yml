@@ -28,6 +28,8 @@ env:
   PYTHON_OLD_MIN: "${{ vars.PYTHON_OLD_MIN }}"  # For Oldest Python versions
   PYTHON_OLD_EXTRA: "${{ vars.PYTHON_OLD_EXTRA }}"  # For Older Python versions (Extra coverage)
   PYTHON_EXPERIMENTAL: "${{ vars.PYTHON_EXPERIMENTAL }}"  # For future Python versions
+  # define how mush time before assuming the test has hung in seconds (parsed by sleep)
+  SUBSHELL_TIMEOUT: 180
   # Define the referance files to pull as a file glob pattern
   TEST_MATCH_PATTERN: "Lib/test/*.py"
   TEST_IGNORE_LIST: |
@@ -178,33 +180,56 @@ jobs:
           OS: ${{ runner.os }}
         if: ${{ success() }}
         run: |
+          # Custom timeout function (GH-5974 - because ulimit is restricted and windows can't ulimit at all)
+          # TODO: clean this up
+          run_with_timeout() {
+              local timeout=$1
+              shift
+              "$@" &
+              local pid=$!
+              ( sleep "$timeout" && kill -HUP "$pid" 2>/dev/null ) &  # Send HUP signal after timeout
+              wait "$pid"
+              local status=$?
+              if [ $status -eq 0 ]; then
+                  printf "::debug::%s\n" "Command completed successfully."
+              elif [ $status -eq 143 ]; then
+                  printf "%s\n" "The command was terminated due to timeout."
+              else
+                  printf "%s\n" "The command failed with status $status."
+              fi
+          }
+
+          export -f run_with_timeout ;
+          # Usage
+          # run_with_timeout 360 your_command_here
           cd rustpython || exit 13 ;
           for referance_file in ${{ steps.reftestfiles.outputs.files }} ; do
             if [[ ( -f "${referance_file}" ) ]] ; then
               # See https://devguide.python.org/testing/run-write-tests
               # Heuristic: "if some module does not have unittest.main(), then most likely it does not support direct invocation."
               if grep -qF "unittest.main()" "${referance_file}" 2>/dev/null ; then
-                # TODO: RustPython workaround Windows timeout for hangs
                 printf "Now Testing '%s'\n" "${referance_file}"
                 # vars for subshell but not for workflow
                 export REF_FILE_NAME=$(basename "${referance_file}") ;
-                printf "\n::group::%s\n" "${REF_FILE_NAME}" ;
+                printf "::group::%s\n" "${REF_FILE_NAME}" ;
                 # TODO: test with cpython first for baseline
                 # TODO: add to list of files that need additional prep due to hanging or unexpected failures that need to be removed
                 # Execute the testing command in a subshell
                 time (
-                  RUSTPYTHONPATH=Lib cargo run --release -- Lib/test/"${REF_FILE_NAME}" || RAW_COPY_OUTCOME='failing'
+                  export RUSTPYTHONPATH=Lib ;
+                  run_with_timeout ${SUBSHELL_TIMEOUT} cargo run --release -- Lib/test/"${REF_FILE_NAME}" || RAW_COPY_OUTCOME='failing'
                   if [[ ( -n ${RAW_COPY_OUTCOME} ) ]] ; then
                     printf "::warning file='%s',title='test-warning':: Could not copy and pass tests for file.\n" "${referance_file}" ;
                     (
-                      RUSTPYTHONPATH=Lib cargo run --release -- ./scripts/fix_test.py --path ./Lib/test/"${REF_FILE_NAME}" || FIX_COPY_OUTCOME='unfixed' ;
+                      run_with_timeout ${SUBSHELL_TIMEOUT} cargo run --release -- ./scripts/fix_test.py --path ./Lib/test/"${REF_FILE_NAME}" || FIX_COPY_OUTCOME='unfixed' ;
                     ) ;
                     if [[ ( -n ${FIX_COPY_OUTCOME} ) ]] ; then
                       printf "::error file='%s',title='testing-failure':: Could not copy and auto-fix tests for file.\n" "${referance_file}" >>2 ;
                       # reset broken integration to last rustpython copy
                       git restore --ignore-unmerged --worktree --staged "${referance_file}" || : ;
                       git checkout -f --ignore-unmerged -- "${referance_file}" || : ;
-                      # TODO: validate and set FIX_COPY_OUTCOME="reverted"
+                      # TODO: validate and conditionally set
+                      FIX_COPY_OUTCOME="reverted"
                     else
                       FIX_COPY_OUTCOME="fixed"
                       RAW_COPY_OUTCOME="incompatable"
@@ -219,6 +244,7 @@ jobs:
                   printf "RAW_COPY_%s_OUTCOME=%s\n" "${REF_FILE_NAME}" "${RAW_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
                   # should dump a diff or something here
                   printf "\n\n" ;
+                  unset RUSTPYTHONPATH 2>/dev/null || : ;
                 ) ;
                 wait ;
                 # cleanup temp env
@@ -228,7 +254,56 @@ jobs:
                 printf "\n::endgroup::\n" ;
               else
                 # TODO: else can not be run directly and needs to be invoked with -m unittest -v test.
-                printf "\nNow Skipping '%s'\n\n" "${referance_file}" ;
+                # TODO: cleanup this regular expression for edge-cases
+                if grep -qE "^[^cC]*([cC]lass)\s*(.+)(Test)" "${referance_file}" 2>/dev/null ; then
+                  printf "Now Testing test-cases in '%s'\n" "${referance_file}"
+                  # vars for subshell but not for workflow
+                  export REF_TEST_NAME=$(basename -s "py" "${referance_file}") ;
+                  printf "%s\n" "Selected testcase test.${REF_TEST_NAME}"
+                  printf "::group::%s\n" "${REF_FILE_NAME}" ;
+                  # TODO: test with cpython first for baseline
+                  # TODO: add to list of files that need additional prep due to hanging or unexpected failures that need to be removed
+                  # Execute the testing command in a subshell
+                  time (
+                    export RUSTPYTHONPATH=Lib ;
+                    run_with_timeout ${SUBSHELL_TIMEOUT} cargo run --release -- -m unittest -v test.${REF_TEST_NAME} || RAW_COPY_OUTCOME='failing'
+                    if [[ ( -n ${RAW_COPY_OUTCOME} ) ]] ; then
+                      printf "::warning file='%s',title='test-warning':: Could not copy and pass tests for file.\n" "${referance_file}" ;
+                      (
+                        run_with_timeout ${SUBSHELL_TIMEOUT} cargo run --release -- ./scripts/fix_test.py --test test.${REF_TEST_NAME} --path ./Lib/test/"${REF_FILE_NAME}".py || FIX_COPY_OUTCOME='unfixed' ;
+                      ) ;
+                      if [[ ( -n ${FIX_COPY_OUTCOME} ) ]] ; then
+                        printf "::error file='%s',title='testing-failure':: Could not copy and auto-fix tests for file.\n" "${referance_file}" >>2 ;
+                        # reset broken integration to last rustpython copy
+                        git restore --ignore-unmerged --worktree --staged "${referance_file}" || : ;
+                        git checkout -f --ignore-unmerged -- "${referance_file}" || : ;
+                        # TODO: validate and conditionally set
+                        FIX_COPY_OUTCOME="reverted"
+                      else
+                        FIX_COPY_OUTCOME="fixed"
+                        RAW_COPY_OUTCOME="incompatable"
+                      fi ;
+                    else
+                      FIX_COPY_OUTCOME="skipped"
+                      RAW_COPY_OUTCOME="compatable"
+                    fi ;
+                    printf "\n---\n%s Outcome:\n\tDirectly:%s\n\tAuto-Fix:%s\n\n" "${REF_TEST_NAME}" "${RAW_COPY_OUTCOME}" "${FIX_COPY_OUTCOME}" ;
+                    wait ; # used to force boundry for std out read/write race in UI 
+                    printf "FIX_COPY_%s.py_OUTCOME=%s\n" "${REF_TEST_NAME}" "${FIX_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
+                    printf "RAW_COPY_%s.py_OUTCOME=%s\n" "${REF_TEST_NAME}" "${RAW_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
+                    # should dump a diff or something here
+                    printf "\n\n" ;
+                    unset RUSTPYTHONPATH 2>/dev/null || : ;
+                  ) ;
+                  wait ;
+                  # cleanup temp env
+                  unset FIX_COPY_OUTCOME 2>/dev/null || : ;
+                  unset RAW_COPY_OUTCOME 2>/dev/null || : ;
+                  unset REF_TEST_NAME 2>/dev/null || : ;
+                  printf "\n::endgroup::\n" ;
+                else
+                  printf "\nNow Skipping '%s'\n\n" "${referance_file}" ;
+                fi ;
               fi ; # TODO: else can not be run directly and needs to be invoked with -m unittest -v test.
             fi ;
           done
