@@ -35,6 +35,8 @@ env:
   TEST_IGNORE_LIST: |
     Lib/test/test_builtin.py
 
+# TODO: cordnate with @arihant2math - to really build out the migration logic
+
 jobs:
   TEST-5974:
     permissions:
@@ -89,17 +91,19 @@ jobs:
       - name: Pre-Test Build check
         id: build_testing
         shell: bash
+        env:
+          OS: ${{ runner.os }}
         if: ${{ !cancelled() }}
         run: |
           cd rustpython || exit 13 ;
             printf "Now Building '%s'\n" ""
             # Execute the testing command in a subshell
             (
-              RUSTPYTHONPATH=Lib cargo run --release -- --version || printf "::error title='build failure':: Could not pass build step for version check.\n" ;
+              RUSTPYTHONPATH=Lib cargo run --release -- --version || printf "::error title='build failure':: Could not pass build step for version check on ${OS}.\n" ;
             ) ;
           cd .. ;
       - id: cpython
-        name: Fetch Cpython
+        name: Fetch Referance Cpython ${{ matrix.python-version }} on ${{ matrix.os }}
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
@@ -114,6 +118,7 @@ jobs:
         id: refignorefiles
         shell: bash
         run: |
+          # TODO: include work from RustPython/scripts/notes.txt
           cd cpython || exit 14 ;
           if [[ -w ".git/info/exclude" ]] ; then
             printf "%s\n" ${TEST_IGNORE_LIST:-} >>".git/info/exclude" || : ;
