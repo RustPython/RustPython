@@ -49,6 +49,7 @@ jobs:
     timeout-minutes: 30
     continue-on-error: ${{ matrix.experimental }}
     strategy:
+      max-parallel: 3
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-14, macos-15, windows-latest]
@@ -81,6 +82,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
+          # repository: "RustPython/RustPython"
           path: rustpython
           # ref: 
           sparse-checkout-cone-mode: false
@@ -187,15 +189,19 @@ jobs:
               shift
               "$@" &
               local pid=$!
-              ( sleep "$timeout" && kill -HUP "$pid" 2>/dev/null ) &  # Send HUP signal after timeout
+              ( sleep "$timeout" && kill -HUP "$pid" 2>/dev/null ) & disown
+              # Send HUP signal after timeout
               wait "$pid"
               local status=$?
               if [ $status -eq 0 ]; then
                   printf "::debug::%s\n" "Command completed successfully."
+                  true ; # force success result
               elif [ $status -eq 143 ]; then
                   printf "%s\n" "The command was terminated due to timeout."
+                  false ;
               else
                   printf "%s\n" "The command failed with status $status."
+                  false ;
               fi
           }
 
@@ -239,19 +245,18 @@ jobs:
                     RAW_COPY_OUTCOME="compatable"
                   fi ;
                   printf "\n---\n%s Outcome:\n\tDirectly:%s\n\tAuto-Fix:%s\n\n" "${REF_FILE_NAME}" "${RAW_COPY_OUTCOME}" "${FIX_COPY_OUTCOME}" ;
-                  wait ; # used to force boundry for std out read/write race in UI 
                   printf "FIX_COPY_%s_OUTCOME=%s\n" "${REF_FILE_NAME}" "${FIX_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
                   printf "RAW_COPY_%s_OUTCOME=%s\n" "${REF_FILE_NAME}" "${RAW_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
                   # should dump a diff or something here
                   printf "\n\n" ;
                   unset RUSTPYTHONPATH 2>/dev/null || : ;
                 ) ;
-                wait ;
                 # cleanup temp env
                 unset FIX_COPY_OUTCOME 2>/dev/null || : ;
                 unset RAW_COPY_OUTCOME 2>/dev/null || : ;
                 unset REF_FILE_NAME 2>/dev/null || : ;
                 printf "\n::endgroup::\n" ;
+                wait ;
               else
                 # TODO: else can not be run directly and needs to be invoked with -m unittest -v test.
                 # TODO: cleanup this regular expression for edge-cases
@@ -295,12 +300,12 @@ jobs:
                     printf "\n\n" ;
                     unset RUSTPYTHONPATH 2>/dev/null || : ;
                   ) ;
-                  wait ;
                   # cleanup temp env
                   unset FIX_COPY_OUTCOME 2>/dev/null || : ;
                   unset RAW_COPY_OUTCOME 2>/dev/null || : ;
                   unset REF_TEST_NAME 2>/dev/null || : ;
                   printf "\n::endgroup::\n" ;
+                  wait ;
                 else
                   printf "\nNow Skipping '%s'\n\n" "${referance_file}" ;
                 fi ;
