@@ -31,9 +31,9 @@ env:
   # define how mush time before assuming the test has hung in seconds (parsed by sleep)
   SUBSHELL_TIMEOUT: 30
   # Define the referance files to pull as a file glob pattern
-  TEST_MATCH_PATTERN: "Lib/test/*.py"
+  TEST_MATCH_PATTERN: "Lib/test/*.py Lib/test/**/*.py"
   TEST_IGNORE_LIST: |
-    Lib/test/test_builtin.py
+    Lib/test/*.pyc
 
 # TODO: cordnate with @arihant2math - to really build out the migration logic
 
@@ -79,14 +79,14 @@ jobs:
       PYTHON_VERSION: ${{ matrix.python-version }}
     # TODO: move to seperate action
     steps:
-      - name: Checkout RustPython repository
+      - name: Checkout RustPython repository on ${{ matrix.os }}
         id: rpython
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
           # repository: "RustPython/RustPython"
           path: rustpython
-          # ref: 
+          # ref: main
           sparse-checkout-cone-mode: false
       - name: Pre-Test Build check
         id: build_testing
@@ -135,7 +135,7 @@ jobs:
           cd cpython || exit 14 ;
           FILES=$(git ls-files --exclude-standard -- ${{ env.TEST_MATCH_PATTERN }} )
           if [ -z "$FILES" ]; then
-            printf "%s\n" "::warning file=.github/workflows/Check_Tests.yml:: No Lib/Test Referance files found."
+            printf "%s\n" "::warning file=.github/workflows/Check_Tests.yml:: No Lib/Test Referance files found for Cpython ${{ matrix.python-version }} on ${{ matrix.os }}." ;
             printf "%s\n" "files=" >> "$GITHUB_OUTPUT"
           else
             printf "%s\n" "Lib/Test Referance files found:"
@@ -157,7 +157,7 @@ jobs:
             cat <LICENSE ;
             printf "\n\n"
           else
-            printf "%s\n" "::warning title=UNLICENSED:: This is an UNLICENSED Build"
+            printf "%s\n" "::warning title=UNLICENSED:: This is an UNLICENSED Build for Cpython ${{ matrix.python-version }} on ${{ matrix.os }}"
           fi
           cd .. ;
         # this next part is WIP and needs to be updated with filtering for more control of what parts of the referance lib is used
@@ -166,11 +166,11 @@ jobs:
         shell: bash
         if: ${{ !cancelled() }}
         run: |
-          printf "::group:: Copy Referance Implementation Tests"
+          printf "::group::%s\n" "Copy Referance Implementation Tests" ;
           for referance_file in ${{ steps.reftestfiles.outputs.files }} ; do
-            cp -vf cpython/"${referance_file}" rustpython/"${referance_file}" || printf "::warning file='%s',title='integration failure':: Could not integrate file.\n" "${referance_file}" ;
-            # TODO: attempt test with rustpython/scripts/fix_test.py || revert by re-checkout
+            cp -vf cpython/"${referance_file}" rustpython/"${referance_file}" || printf "::warning file='%s',title='integration failure':: Could not integrate file for Cpython %s on %s.\n" "${referance_file}" '${{ matrix.python-version }}' '${{ matrix.os }}' ;
           done
+          printf "\n::endgroup::\n\n" ;
       - id: output_python
         name: "bootstrap Python"
         if: ${{ !cancelled() }}
@@ -178,6 +178,7 @@ jobs:
         run: |
           printf "%s\n" "::group::bootstrap-python-env"
           printf "python-version=%s\n" "${{ matrix.python-version }}" >> "$GITHUB_OUTPUT"
+          printf "Configured Cpython %s on %s.\n" '${{ matrix.python-version }}' '${{ matrix.os }}' ;
           printf "PYTHON_VERSION=%s\n" "${{ matrix.python-version }}" >> "$GITHUB_ENV"
           printf "%s\n" "::endgroup::"
       - name: Try Smoke Testing
@@ -185,6 +186,7 @@ jobs:
         shell: bash
         env:
           OS: ${{ runner.os }}
+          CONTEXT_PHRASE: 'for Cpython ${{ matrix.python-version }} on ${{ matrix.os }}'
         if: ${{ success() }}
         run: |
           # Custom timeout function (GH-5974 - because ulimit is restricted and windows can't ulimit at all)
@@ -202,12 +204,12 @@ jobs:
                   printf "::debug::%s\n" "Command completed successfully."
                   true ; # force success result
               elif [ $status -eq 143 ]; then
-                  printf "%s\n" "The command was terminated due to timeout."
+                  printf "::warning title='Timeout'::%s\n" "The command \`$@\` ${CONTEXT_PHRASE} was terminated due to timeout."
                   false ;
               else
-                  printf "%s\n" "The command failed with status $status."
+                  printf "%s\n" "The command failed with status $status ${CONTEXT_PHRASE}."
                   false ;
-              fi
+              fi ;
           }
 
           export -f run_with_timeout ;
@@ -230,12 +232,12 @@ jobs:
                   export RUSTPYTHONPATH=Lib ;
                   run_with_timeout ${SUBSHELL_TIMEOUT} cargo run --release -- Lib/test/"${REF_FILE_NAME}" || RAW_COPY_OUTCOME='failing'
                   if [[ ( -n ${RAW_COPY_OUTCOME} ) ]] ; then
-                    printf "::warning file='%s',title='test-warning':: Could not copy and pass tests for file.\n" "${referance_file}" ;
+                    printf "::warning file='%s',title='test-warning':: Could not copy file %s unmodified, and pass tests %s.\n" "${referance_file}" "${referance_file}" "${CONTEXT_PHRASE}" ;
                     (
                       run_with_timeout ${SUBSHELL_TIMEOUT} cargo run --release -- ./scripts/fix_test.py --path ./Lib/test/"${REF_FILE_NAME}" || FIX_COPY_OUTCOME='unfixed' ;
                     ) ;
                     if [[ ( -n ${FIX_COPY_OUTCOME} ) ]] ; then
-                      printf "::error file='%s',title='testing-failure':: Could not copy and auto-fix tests for file.\n" "${referance_file}" >>2 ;
+                      printf "::error file='%s',title='testing-failure':: Could not copy and auto-fix tests %s.\n" "${referance_file}" "${CONTEXT_PHRASE}" >&2 ;
                       # reset broken integration to last rustpython copy
                       git restore --ignore-unmerged --worktree --staged "${referance_file}" || : ;
                       git checkout -f --ignore-unmerged -- "${referance_file}" || : ;
@@ -268,7 +270,7 @@ jobs:
                 if grep -qE "^[^cC]*([cC]lass)\s*(.+)(Test)" "${referance_file}" 2>/dev/null ; then
                   printf "Now Testing test-cases in '%s'\n" "${referance_file}"
                   # vars for subshell but not for workflow
-                  export REF_TEST_NAME=$(basename -s "py" "${referance_file}") ;
+                  export REF_TEST_NAME=$(basename -s ".py" "${referance_file}") ;
                   printf "%s\n" "Selected testcase test.${REF_TEST_NAME}"
                   printf "::group::%s\n" "${REF_FILE_NAME}" ;
                   # TODO: test with cpython first for baseline
@@ -278,12 +280,12 @@ jobs:
                     export RUSTPYTHONPATH=Lib ;
                     run_with_timeout ${SUBSHELL_TIMEOUT} cargo run --release -- -m unittest -v test.${REF_TEST_NAME} || RAW_COPY_OUTCOME='failing'
                     if [[ ( -n ${RAW_COPY_OUTCOME} ) ]] ; then
-                      printf "::warning file='%s',title='test-warning':: Could not copy and pass tests for file.\n" "${referance_file}" ;
+                      printf "::warning file='%s',title='test-warning':: Could not copy file %s unmodified, and pass tests %s.\n" "${referance_file}" "${referance_file}" "${CONTEXT_PHRASE}" ;
                       (
-                        run_with_timeout ${SUBSHELL_TIMEOUT} cargo run --release -- ./scripts/fix_test.py --test test.${REF_TEST_NAME} --path ./Lib/test/"${REF_FILE_NAME}".py || FIX_COPY_OUTCOME='unfixed' ;
+                        run_with_timeout ${SUBSHELL_TIMEOUT} cargo run --release -- ./scripts/fix_test.py --path ./Lib/test/"${REF_FILE_NAME}".py || FIX_COPY_OUTCOME='unfixed' ;
                       ) ;
                       if [[ ( -n ${FIX_COPY_OUTCOME} ) ]] ; then
-                        printf "::error file='%s',title='testing-failure':: Could not copy and auto-fix tests for file.\n" "${referance_file}" >>2 ;
+                        printf "::error file='%s',title='testing-failure':: Could not copy and auto-fix tests for file.\n" "${referance_file}" >&2 ;
                         # reset broken integration to last rustpython copy
                         git restore --ignore-unmerged --worktree --staged "${referance_file}" || : ;
                         git checkout -f --ignore-unmerged -- "${referance_file}" || : ;
@@ -298,7 +300,7 @@ jobs:
                       RAW_COPY_OUTCOME="compatable"
                     fi ;
                     printf "\n---\n%s Outcome:\n\tDirectly:%s\n\tAuto-Fix:%s\n\n" "${REF_TEST_NAME}" "${RAW_COPY_OUTCOME}" "${FIX_COPY_OUTCOME}" ;
-                    wait ; # used to force boundry for std out read/write race in UI 
+                    wait ; # used to force boundry for std out read/write race in UI
                     printf "FIX_COPY_%s.py_OUTCOME=%s\n" "${REF_TEST_NAME}" "${FIX_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
                     printf "RAW_COPY_%s.py_OUTCOME=%s\n" "${REF_TEST_NAME}" "${RAW_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
                     # should dump a diff or something here
@@ -313,6 +315,7 @@ jobs:
                   wait ;
                 else
                   printf "\nNow Skipping '%s'\n\n" "${referance_file}" ;
+                  # TODO: record this skip status too
                 fi ;
               fi ; # TODO: else can not be run directly and needs to be invoked with -m unittest -v test.
             fi ;
@@ -321,6 +324,6 @@ jobs:
       - name: Post-Clean
         id: post-bootstrap
         run: |
-          exit 0 ; # don't break on regression
+          exit 0 ; # don't break CI on regression
         if: ${{ always() }}
         shell: bash
