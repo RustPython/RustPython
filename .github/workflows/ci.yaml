@@ -349,19 +349,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      RUSTUP_TOOLCHAIN: nightly-2025-07-18 # TODO: Set to "nightly" once https://github.com/rust-lang/rust/issues/144168 is fixed
+      NIGHTLY_CHANNEL: nightly
     steps:
       - uses: actions/checkout@v4
+
       - uses: dtolnay/rust-toolchain@master
         with:
-            toolchain: ${{ env.RUSTUP_TOOLCHAIN }}
+            toolchain: ${{ env.NIGHTLY_CHANNEL }}
             components: miri
 
       - uses: Swatinem/rust-cache@v2
+
       - name: Run tests under miri
+        run: cargo +${{ env.NIGHTLY_CHANNEL }} miri test -p rustpython-vm -- miri_test
+        env:
         # miri-ignore-leaks because the type-object circular reference means that there will always be
         # a memory leak, at least until we have proper cyclic gc
-        run: MIRIFLAGS='-Zmiri-ignore-leaks' cargo +${{ env.RUSTUP_TOOLCHAIN }} miri test -p rustpython-vm -- miri_test
+          MIRIFLAGS: '-Zmiri-ignore-leaks'
 
   wasm:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
