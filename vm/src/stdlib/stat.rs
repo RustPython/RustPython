@@ -10,61 +10,68 @@ mod stat {
     #[cfg(not(any(unix, windows)))]
     type Mode = u32; // Fallback for unknown targets
 
-    // unix_libc_get
-    cfg_if::cfg_if! {
-        if #[cfg(unix)] {
-            macro_rules! unix_libc_get {
-                ($name:ident, $val:expr) => {
-                    libc::$name
-                };
+    // libc_const macro for conditional compilation
+    macro_rules! libc_const {
+        (#[cfg($cfg:meta)] $name:ident, $fallback:expr) => {{
+            #[cfg($cfg)]
+            {
+                libc::$name
             }
-        } else {
-            macro_rules! unix_libc_get {
-                ($name:ident, $val:expr) => {
-                    $val
-                };
+            #[cfg(not($cfg))]
+            {
+                $fallback
             }
-        }
-
-    }
-
-    // macos_libc_get
-    cfg_if::cfg_if! {
-        if #[cfg(target_os = "macos")] {
-            macro_rules! macos_libc_get {
-                ($name:ident, $val:expr) => {
-                    libc::$name
-                };
-            }
-        } else {
-            macro_rules! macos_libc_get {
-                ($name:ident, $val:expr) => {
-                    $val
-                };
-            }
-        }
+        }};
     }
 
     #[pyattr]
-    pub const S_IFDIR: Mode = unix_libc_get!(S_IFDIR, 0o040000);
+    pub const S_IFDIR: Mode = libc_const!(
+        #[cfg(unix)]
+        S_IFDIR,
+        0o040000
+    );
 
     #[pyattr]
-    pub const S_IFCHR: Mode = unix_libc_get!(S_IFCHR, 0o020000);
+    pub const S_IFCHR: Mode = libc_const!(
+        #[cfg(unix)]
+        S_IFCHR,
+        0o020000
+    );
 
     #[pyattr]
-    pub const S_IFBLK: Mode = unix_libc_get!(S_IFBLK, 0o060000);
+    pub const S_IFBLK: Mode = libc_const!(
+        #[cfg(unix)]
+        S_IFBLK,
+        0o060000
+    );
 
     #[pyattr]
-    pub const S_IFREG: Mode = unix_libc_get!(S_IFREG, 0o100000);
+    pub const S_IFREG: Mode = libc_const!(
+        #[cfg(unix)]
+        S_IFREG,
+        0o100000
+    );
 
     #[pyattr]
-    pub const S_IFIFO: Mode = unix_libc_get!(S_IFIFO, 0o010000);
+    pub const S_IFIFO: Mode = libc_const!(
+        #[cfg(unix)]
+        S_IFIFO,
+        0o010000
+    );
 
     #[pyattr]
-    pub const S_IFLNK: Mode = unix_libc_get!(S_IFLNK, 0o120000);
+    pub const S_IFLNK: Mode = libc_const!(
+        #[cfg(unix)]
+        S_IFLNK,
+        0o120000
+    );
 
     #[pyattr]
-    pub const S_IFSOCK: Mode = unix_libc_get!(S_IFSOCK, 0o140000);
+    pub const S_IFSOCK: Mode = libc_const!(
+        #[cfg(unix)]
+        S_IFSOCK,
+        0o140000
+    );
 
     #[pyattr]
     pub const S_IFDOOR: Mode = 0; // TODO: RUSTPYTHON Support Solaris
@@ -85,77 +92,137 @@ mod stat {
     // Permission bits
 
     #[pyattr]
-    pub const S_ISUID: Mode = unix_libc_get!(S_ISUID, 0o4000);
+    pub const S_ISUID: Mode = libc_const!(
+        #[cfg(unix)]
+        S_ISUID,
+        0o4000
+    );
 
     #[pyattr]
-    pub const S_ISGID: Mode = unix_libc_get!(S_ISGID, 0o2000);
+    pub const S_ISGID: Mode = libc_const!(
+        #[cfg(unix)]
+        S_ISGID,
+        0o2000
+    );
 
     #[pyattr]
-    pub const S_ENFMT: Mode = unix_libc_get!(S_ISGID, 0o2000);
+    pub const S_ENFMT: Mode = libc_const!(
+        #[cfg(unix)]
+        S_ISGID,
+        0o2000
+    );
 
     #[pyattr]
-    pub const S_ISVTX: Mode = unix_libc_get!(S_ISVTX, 0o1000);
+    pub const S_ISVTX: Mode = libc_const!(
+        #[cfg(unix)]
+        S_ISVTX,
+        0o1000
+    );
 
     #[pyattr]
-    pub const S_IRWXU: Mode = unix_libc_get!(S_IRWXU, 0o0700);
+    pub const S_IRWXU: Mode = libc_const!(
+        #[cfg(unix)]
+        S_IRWXU,
+        0o0700
+    );
 
     #[pyattr]
-    pub const S_IRUSR: Mode = unix_libc_get!(S_IRUSR, 0o0400);
+    pub const S_IRUSR: Mode = libc_const!(
+        #[cfg(unix)]
+        S_IRUSR,
+        0o0400
+    );
 
     #[pyattr]
-    pub const S_IREAD: Mode = unix_libc_get!(S_IRUSR, 0o0400);
+    pub const S_IREAD: Mode = libc_const!(
+        #[cfg(unix)]
+        S_IRUSR,
+        0o0400
+    );
 
     #[pyattr]
-    pub const S_IWUSR: Mode = unix_libc_get!(S_IWUSR, 0o0200);
+    pub const S_IWUSR: Mode = libc_const!(
+        #[cfg(unix)]
+        S_IWUSR,
+        0o0200
+    );
 
     #[pyattr]
-    pub const S_IXUSR: Mode = unix_libc_get!(S_IXUSR, 0o0100);
+    pub const S_IXUSR: Mode = libc_const!(
+        #[cfg(unix)]
+        S_IXUSR,
+        0o0100
+    );
 
     #[pyattr]
-    pub const S_IRWXG: Mode = unix_libc_get!(S_IRWXG, 0o0070);
+    pub const S_IRWXG: Mode = libc_const!(
+        #[cfg(unix)]
+        S_IRWXG,
+        0o0070
+    );
 
     #[pyattr]
-    pub const S_IRGRP: Mode = unix_libc_get!(S_IRGRP, 0o0040);
+    pub const S_IRGRP: Mode = libc_const!(
+        #[cfg(unix)]
+        S_IRGRP,
+        0o0040
+    );
 
     #[pyattr]
-    pub const S_IWGRP: Mode = unix_libc_get!(S_IWGRP, 0o0020);
+    pub const S_IWGRP: Mode = libc_const!(
+        #[cfg(unix)]
+        S_IWGRP,
+        0o0020
+    );
 
     #[pyattr]
-    pub const S_IXGRP: Mode = unix_libc_get!(S_IXGRP, 0o0010);
+    pub const S_IXGRP: Mode = libc_const!(
+        #[cfg(unix)]
+        S_IXGRP,
+        0o0010
+    );
 
     #[pyattr]
-    pub const S_IRWXO: Mode = unix_libc_get!(S_IRWXO, 0o0007);
+    pub const S_IRWXO: Mode = libc_const!(
+        #[cfg(unix)]
+        S_IRWXO,
+        0o0007
+    );
 
     #[pyattr]
-    pub const S_IROTH: Mode = unix_libc_get!(S_IROTH, 0o0004);
+    pub const S_IROTH: Mode = libc_const!(
+        #[cfg(unix)]
+        S_IROTH,
+        0o0004
+    );
 
     #[pyattr]
-    pub const S_IWOTH: Mode = unix_libc_get!(S_IWOTH, 0o0002);
+    pub const S_IWOTH: Mode = libc_const!(
+        #[cfg(unix)]
+        S_IWOTH,
+        0o0002
+    );
 
     #[pyattr]
-    pub const S_IXOTH: Mode = unix_libc_get!(S_IXOTH, 0o0001);
+    pub const S_IXOTH: Mode = libc_const!(
+        #[cfg(unix)]
+        S_IXOTH,
+        0o0001
+    );
 
     #[pyattr]
-    pub const S_IWRITE: Mode = {
-        cfg_if::cfg_if! {
-            if #[cfg(all(unix, not(target_os = "android"), not(target_os = "redox")))] {
-                libc::S_IWRITE
-            } else {
-                0o0200
-            }
-        }
-    };
+    pub const S_IWRITE: Mode = libc_const!(
+        #[cfg(all(unix, not(target_os = "android"), not(target_os = "redox")))]
+        S_IWRITE,
+        0o0200
+    );
 
     #[pyattr]
-    pub const S_IEXEC: Mode = {
-        cfg_if::cfg_if! {
-            if #[cfg(all(unix, not(target_os = "android"), not(target_os = "redox")))] {
-                libc::S_IEXEC
-            } else {
-                0o0100
-            }
-        }
-    };
+    pub const S_IEXEC: Mode = libc_const!(
+        #[cfg(all(unix, not(target_os = "android"), not(target_os = "redox")))]
+        S_IEXEC,
+        0o0100
+    );
 
     // Windows file attributes (if on Windows)
 
@@ -173,31 +240,67 @@ mod stat {
     // Unix file flags (if on Unix)
 
     #[pyattr]
-    pub const UF_NODUMP: u32 = macos_libc_get!(UF_NODUMP, 0x00000001);
+    pub const UF_NODUMP: u32 = libc_const!(
+        #[cfg(target_os = "macos")]
+        UF_NODUMP,
+        0x00000001
+    );
 
     #[pyattr]
-    pub const UF_IMMUTABLE: u32 = macos_libc_get!(UF_IMMUTABLE, 0x00000002);
+    pub const UF_IMMUTABLE: u32 = libc_const!(
+        #[cfg(target_os = "macos")]
+        UF_IMMUTABLE,
+        0x00000002
+    );
 
     #[pyattr]
-    pub const UF_APPEND: u32 = macos_libc_get!(UF_APPEND, 0x00000004);
+    pub const UF_APPEND: u32 = libc_const!(
+        #[cfg(target_os = "macos")]
+        UF_APPEND,
+        0x00000004
+    );
 
     #[pyattr]
-    pub const UF_OPAQUE: u32 = macos_libc_get!(UF_OPAQUE, 0x00000008);
+    pub const UF_OPAQUE: u32 = libc_const!(
+        #[cfg(target_os = "macos")]
+        UF_OPAQUE,
+        0x00000008
+    );
 
     #[pyattr]
-    pub const UF_COMPRESSED: u32 = macos_libc_get!(UF_COMPRESSED, 0x00000020);
+    pub const UF_COMPRESSED: u32 = libc_const!(
+        #[cfg(target_os = "macos")]
+        UF_COMPRESSED,
+        0x00000020
+    );
 
     #[pyattr]
-    pub const UF_HIDDEN: u32 = macos_libc_get!(UF_HIDDEN, 0x00008000);
+    pub const UF_HIDDEN: u32 = libc_const!(
+        #[cfg(target_os = "macos")]
+        UF_HIDDEN,
+        0x00008000
+    );
 
     #[pyattr]
-    pub const SF_ARCHIVED: u32 = macos_libc_get!(SF_ARCHIVED, 0x00010000);
+    pub const SF_ARCHIVED: u32 = libc_const!(
+        #[cfg(target_os = "macos")]
+        SF_ARCHIVED,
+        0x00010000
+    );
 
     #[pyattr]
-    pub const SF_IMMUTABLE: u32 = macos_libc_get!(SF_IMMUTABLE, 0x00020000);
+    pub const SF_IMMUTABLE: u32 = libc_const!(
+        #[cfg(target_os = "macos")]
+        SF_IMMUTABLE,
+        0x00020000
+    );
 
     #[pyattr]
-    pub const SF_APPEND: u32 = macos_libc_get!(SF_APPEND, 0x00040000);
+    pub const SF_APPEND: u32 = libc_const!(
+        #[cfg(target_os = "macos")]
+        SF_APPEND,
+        0x00040000
+    );
 
     #[pyattr]
     pub const SF_SETTABLE: u32 = if cfg!(target_os = "macos") {
