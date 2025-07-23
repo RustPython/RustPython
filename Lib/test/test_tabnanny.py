@@ -14,7 +14,7 @@ from test.support import (captured_stderr, captured_stdout, script_helper,
                           findfile)
 from test.support.os_helper import unlink
 
-import unittest  # XXX: RUSTPYTHON
+import unittest # TODO: RUSTPYTHON
 
 
 SOURCE_CODES = {
@@ -112,9 +112,10 @@ class TestErrPrint(TestCase):
 
         for args, expected in tests:
             with self.subTest(arguments=args, expected=expected):
-                with captured_stderr() as stderr:
-                    tabnanny.errprint(*args)
-                self.assertEqual(stderr.getvalue() , expected)
+                with self.assertRaises(SystemExit):
+                    with captured_stderr() as stderr:
+                        tabnanny.errprint(*args)
+                    self.assertEqual(stderr.getvalue() , expected)
 
 
 class TestNannyNag(TestCase):
@@ -199,23 +200,25 @@ class TestCheck(TestCase):
             with TemporaryPyFile(SOURCE_CODES["error_free"], directory=tmp_dir):
                 self.verify_tabnanny_check(tmp_dir)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_when_wrong_indented(self):
         """A python source code file eligible for raising `IndentationError`."""
         with TemporaryPyFile(SOURCE_CODES["wrong_indented"]) as file_path:
             err = ('unindent does not match any outer indentation level'
                 ' (<tokenize>, line 3)\n')
             err = f"{file_path!r}: Indentation Error: {err}"
-            self.verify_tabnanny_check(file_path, err=err)
+            with self.assertRaises(SystemExit):
+                self.verify_tabnanny_check(file_path, err=err)
 
     def test_when_tokenize_tokenerror(self):
         """A python source code file eligible for raising 'tokenize.TokenError'."""
         with TemporaryPyFile(SOURCE_CODES["incomplete_expression"]) as file_path:
             err = "('EOF in multi-line statement', (7, 0))\n"
             err = f"{file_path!r}: Token Error: {err}"
-            self.verify_tabnanny_check(file_path, err=err)
+            with self.assertRaises(SystemExit):
+                self.verify_tabnanny_check(file_path, err=err)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_when_nannynag_error_verbose(self):
         """A python source code file eligible for raising `tabnanny.NannyNag`.
 
@@ -223,29 +226,28 @@ class TestCheck(TestCase):
         """
         with TemporaryPyFile(SOURCE_CODES["nannynag_errored"]) as file_path:
             out = f"{file_path!r}: *** Line 3: trouble in tab city! ***\n"
-            out += "offending line: '\\tprint(\"world\")\\n'\n"
-            out += "indent not equal e.g. at tab size 1\n"
+            out += "offending line: '\\tprint(\"world\")'\n"
+            out += "inconsistent use of tabs and spaces in indentation\n"
 
             tabnanny.verbose = 1
             self.verify_tabnanny_check(file_path, out=out)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_when_nannynag_error(self):
         """A python source code file eligible for raising `tabnanny.NannyNag`."""
         with TemporaryPyFile(SOURCE_CODES["nannynag_errored"]) as file_path:
-            out = f"{file_path} 3 '\\tprint(\"world\")\\n'\n"
+            out = f"{file_path} 3 '\\tprint(\"world\")'\n"
             self.verify_tabnanny_check(file_path, out=out)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_when_no_file(self):
         """A python file which does not exist actually in system."""
         path = 'no_file.py'
         err = (f"{path!r}: I/O Error: [Errno {errno.ENOENT}] "
               f"{os.strerror(errno.ENOENT)}: {path!r}\n")
-        self.verify_tabnanny_check(path, err=err)
+        with self.assertRaises(SystemExit):
+            self.verify_tabnanny_check(path, err=err)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_errored_directory(self):
         """Directory containing wrongly indented python source code files."""
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -259,7 +261,8 @@ class TestCheck(TestCase):
                 err = ('unindent does not match any outer indentation level'
                             ' (<tokenize>, line 3)\n')
                 err = f"{e_file!r}: Indentation Error: {err}"
-                self.verify_tabnanny_check(tmp_dir, err=err)
+                with self.assertRaises(SystemExit):
+                    self.verify_tabnanny_check(tmp_dir, err=err)
 
 
 class TestProcessTokens(TestCase):
@@ -295,9 +298,12 @@ class TestProcessTokens(TestCase):
 class TestCommandLine(TestCase):
     """Tests command line interface of `tabnanny`."""
 
-    def validate_cmd(self, *args, stdout="", stderr="", partial=False):
+    def validate_cmd(self, *args, stdout="", stderr="", partial=False, expect_failure=False):
         """Common function to assert the behaviour of command line interface."""
-        _, out, err = script_helper.assert_python_ok('-m', 'tabnanny', *args)
+        if expect_failure:
+            _, out, err = script_helper.assert_python_failure('-m', 'tabnanny', *args)
+        else:
+            _, out, err = script_helper.assert_python_ok('-m', 'tabnanny', *args)
         # Note: The `splitlines()` will solve the problem of CRLF(\r) added
         # by OS Windows.
         out = os.fsdecode(out)
@@ -319,8 +325,8 @@ class TestCommandLine(TestCase):
         with TemporaryPyFile(SOURCE_CODES["wrong_indented"]) as file_path:
             stderr  = f"{file_path!r}: Indentation Error: "
             stderr += ('unindent does not match any outer indentation level'
-                    ' (<tokenize>, line 3)')
-            self.validate_cmd(file_path, stderr=stderr)
+                       ' (<string>, line 3)')
+            self.validate_cmd(file_path, stderr=stderr, expect_failure=True)
 
     def test_with_error_free_file(self):
         """Should not display anything if python file is correctly indented."""
@@ -331,7 +337,7 @@ class TestCommandLine(TestCase):
         """Should display usage on no arguments."""
         path = findfile('tabnanny.py')
         stderr = f"Usage: {path} [-v] file_or_directory ..."
-        self.validate_cmd(stderr=stderr)
+        self.validate_cmd(stderr=stderr, expect_failure=True)
 
     def test_quiet_flag(self):
         """Should display less when quite mode is on."""
@@ -339,18 +345,22 @@ class TestCommandLine(TestCase):
             stdout = f"{file_path}\n"
             self.validate_cmd("-q", file_path, stdout=stdout)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_verbose_mode(self):
         """Should display more error information if verbose mode is on."""
         with TemporaryPyFile(SOURCE_CODES["nannynag_errored"]) as path:
             stdout = textwrap.dedent(
-                "offending line: '\\tprint(\"world\")\\n'"
+                "offending line: '\\tprint(\"world\")'"
             ).strip()
             self.validate_cmd("-v", path, stdout=stdout, partial=True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_double_verbose_mode(self):
         """Should display detailed error information if double verbose is on."""
         with TemporaryPyFile(SOURCE_CODES["nannynag_errored"]) as path:
             stdout = textwrap.dedent(
-                "offending line: '\\tprint(\"world\")\\n'"
+                "offending line: '\\tprint(\"world\")'"
             ).strip()
             self.validate_cmd("-vv", path, stdout=stdout, partial=True)
