@@ -29,7 +29,7 @@ env:
   PYTHON_OLD_EXTRA: "${{ vars.PYTHON_OLD_EXTRA }}"  # For Older Python versions (Extra coverage)
   PYTHON_EXPERIMENTAL: "${{ vars.PYTHON_EXPERIMENTAL }}"  # For future Python versions
   # define how mush time before assuming the test has hung in seconds (parsed by sleep)
-  SUBSHELL_TIMEOUT: 180
+  SUBSHELL_TIMEOUT: 30
   # Define the referance files to pull as a file glob pattern
   TEST_MATCH_PATTERN: "Lib/test/*.py"
   TEST_IGNORE_LIST: |
