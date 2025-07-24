@@ -106,7 +106,7 @@ jobs:
         # this next part is WIP and needs to be updated with filtering for more control of what parts of the reference lib is used
       - name: "Integrate Cpython Test file"
         id: merge_theirs
-        shell: bash
+        uses: ./.github/actions/CI-5974-Integrate-CPython
         if: ${{ !cancelled() }}
         with:
           from-path: cpython
