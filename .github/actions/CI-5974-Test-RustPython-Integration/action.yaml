@@ -75,13 +75,13 @@ runs:
       shell: bash
       if: ${{ !cancelled() && inputs.test-files != '' }}
       env:
-        INPUT_FILES: ${{ inputs.files }}
+        INPUT_FILES: ${{ inputs.test-files }}
         OS: ${{ runner.os }}
         CONTEXT_PHRASE: 'for Cpython ${{ steps.output_python.output.python-version }} on ${{ runner.os }}'
         SUBSHELL_TIMEOUT: ${{ inputs.max-test-time }}
       run: |
-        # Custom timeout function (GH-5974 - because ulimit is restricted and windows can't ulimit at all)
         # TODO: clean this up
+        # Custom timeout function (GH-5974 - because ulimit is restricted and windows can't ulimit at all)
         run_with_timeout() {
             local timeout=$1
             shift
