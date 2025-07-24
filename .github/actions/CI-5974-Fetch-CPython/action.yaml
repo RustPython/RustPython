@@ -72,15 +72,29 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: "Setup Python"
+      id: output_python
+      env:
+        PYTHON_VERSION_INPUT: ${{ inputs.python-version }}
+      shell: bash
+      run: |
+        if [[ -n $PYTHON_VERSION_INPUT ]]; then
+          printf "python-version=%s\n" "${PYTHON_VERSION_INPUT}" >> "$GITHUB_OUTPUT"
+          PYTHON_VERSION=${PYTHON_VERSION_INPUT}
+        else
+          printf "python-version=%s\n" "${PYTHON_VERSION}" >> "$GITHUB_OUTPUT"
+        fi
+        printf "%s\n" "PYTHON_VERSION=${PYTHON_VERSION}" >> "$GITHUB_ENV"
     - name: Fetch Reference Cpython ${{ matrix.python-version }} on ${{ matrix.os }}
       id: cpython
       uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       with:
+        persist-credentials: false
         path: ${{ inputs.override-path }}
         fetch-tags: true
         sparse-checkout: |
           ${{ inputs.override-cpython-lib-path }}
-        ref: ${{ inputs.python-version }}
+        ref: ${{ steps.output_python.outputs.python-version }}
         repository: ${{ inputs.override-repository }}
         # fixed settings
         fetch-depth: 0

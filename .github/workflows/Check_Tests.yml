@@ -96,19 +96,19 @@ jobs:
         with:
           override-path: rustpython
           override-rustpython-path: Lib
-          # override-repository: "RustPython/RustPython"
-          # override-ref: main
+          override-repository: 'RustPython/RustPython'
+          override-ref: main
       - name: Fetch Referance Cpython ${{ matrix.python-version }} on ${{ matrix.os }}
         id: fetch-cpython
         uses: ./.github/actions/CI-5974-Fetch-CPython
         with:
           # Define the reference files to pull as a file glob pattern
           match: "Lib/test/*.py Lib/test/**/*.py"
-          python-version: ${{ env.PYTHON_VERSION }}
-          # override-path: cpython
+          python-version: ${{ matrix.python-version }}
+          override-path: cpython
           override-cpython-lib-path: 'Lib/test'
           # override-rustpython-path: ${{ steps.fetch-rpython.outputs.rustpython-lib-path }}
-          # override-repository: "python/cpython"
+          override-repository: 'python/cpython'
         # this next part is WIP and needs to be updated with filtering for more control of what parts of the reference lib is used
       - name: "Integrate Cpython Test file"
         id: merge_theirs
