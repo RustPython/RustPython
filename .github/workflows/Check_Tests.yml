@@ -83,7 +83,11 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-          sparse-checkout: '.github/actions/CI-5974-*'
+          sparse-checkout: |
+            '.github/actions/CI-5974-Fetch-RustPython'
+            '.github/actions/CI-5974-Fetch-CPython'
+            '.github/actions/CI-5974-Integrate-CPython'
+        # CI-5974-Test-RustPython-Integration WIP
       - name: Checkout RustPython repository on ${{ matrix.os }}
         id: fetch-rpython
         uses: ./.github/actions/CI-5974-Fetch-RustPython
