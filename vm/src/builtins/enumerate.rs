@@ -19,7 +19,7 @@ use num_traits::Zero;
 pub struct PyEnumerate {
     #[pytraverse(skip)]
     counter: PyRwLock<BigInt>,
-    iterator: PyIter,
+    iterable: PyIter,
 }
 
 impl PyPayload for PyEnumerate {
@@ -31,7 +31,8 @@ impl PyPayload for PyEnumerate {
 
 #[derive(FromArgs)]
 pub struct EnumerateArgs {
-    iterator: PyIter,
+    #[pyarg(any)]
+    iterable: PyIter,
     #[pyarg(any, optional)]
     start: OptionalArg<PyIntRef>,
 }
@@ -41,13 +42,13 @@ impl Constructor for PyEnumerate {
 
     fn py_new(
         cls: PyTypeRef,
-        Self::Args { iterator, start }: Self::Args,
+        Self::Args { iterable, start }: Self::Args,
         vm: &VirtualMachine,
     ) -> PyResult {
         let counter = start.map_or_else(BigInt::zero, |start| start.as_bigint().clone());
         Self {
             counter: PyRwLock::new(counter),
-            iterator,
+            iterable,
         }
         .into_ref_with_type(vm, cls)
         .map(Into::into)
@@ -68,7 +69,7 @@ impl Py<PyEnumerate> {
     fn __reduce__(&self) -> (PyTypeRef, (PyIter, BigInt)) {
         (
             self.class().to_owned(),
-            (self.iterator.clone(), self.counter.read().clone()),
+            (self.iterable.clone(), self.counter.read().clone()),
         )
     }
 }
@@ -77,7 +78,7 @@ impl SelfIter for PyEnumerate {}
 
 impl IterNext for PyEnumerate {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        let next_obj = raise_if_stop!(zelf.iterator.next(vm)?);
+        let next_obj = raise_if_stop!(zelf.iterable.next(vm)?);
         let mut counter = zelf.counter.write();
         let position = counter.clone();
         *counter += 1;
