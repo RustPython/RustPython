@@ -48,6 +48,6 @@ runs:
       run: |
         printf "::group::%s\n" "Copy Reference Implementation" ;
         for reference_file in ${{ inputs.files }} ; do
-          cp -vf ${{ inputs.from-path }}/"${reference_file}" ${{ inputs.to-path }}/"${reference_file}" || printf "::warning file='%s',title='integration failure':: Could not integrate file for Cpython %s on %s.\n" "${reference_file}" '${{ inputs.python-version }}' '${{ runner.os }}' ;
+          cp -vf ${{ inputs.from-path }}/"${reference_file}" ${{ inputs.into-path }}/"${reference_file}" || printf "::warning file='%s',title='integration failure':: Could not integrate file for Cpython %s on %s.\n" "${reference_file}" '${{ inputs.python-version }}' '${{ runner.os }}' ;
         done
         printf "\n::endgroup::\n\n" ;

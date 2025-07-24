@@ -116,7 +116,7 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           from-path: cpython
-          to-path: rustpython
+          into-path: rustpython
           files: |
             ${{ steps.fetch-cpython.outputs.files }}
           python-version: ${{ env.PYTHON_VERSION }}
