@@ -30,7 +30,7 @@ env:
   PYTHON_EXPERIMENTAL: "${{ vars.PYTHON_EXPERIMENTAL }}"  # For future Python versions
   # define how mush time before assuming the test has hung in seconds (parsed by sleep)
   SUBSHELL_TIMEOUT: 30
-  # Define the referance files to pull as a file glob pattern
+  # Define the reference files to pull as a file glob pattern
   TEST_MATCH_PATTERN: "Lib/test/*.py Lib/test/**/*.py"
   TEST_IGNORE_LIST: |
     Lib/test/*.pyc
@@ -79,98 +79,41 @@ jobs:
       PYTHON_VERSION: ${{ matrix.python-version }}
     # TODO: move to seperate action
     steps:
+      - name: pre-checkout repository for actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          sparse-checkout: '.github/actions/CI-5974-*'
       - name: Checkout RustPython repository on ${{ matrix.os }}
-        id: rpython
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        id: fetch-rpython
+        uses: ./.github/actions/CI-5974-Fetch-RustPython
         with:
-          persist-credentials: false
-          # repository: "RustPython/RustPython"
-          path: rustpython
-          # ref: main
-          sparse-checkout-cone-mode: false
-      - name: Pre-Test Build check
-        id: build_testing
-        shell: bash
-        env:
-          OS: ${{ runner.os }}
-        if: ${{ !cancelled() }}
-        run: |
-          cd rustpython || exit 13 ;
-            printf "Now Building '%s'\n" ""
-            # Execute the testing command in a subshell
-            (
-              RUSTPYTHONPATH=Lib cargo run --release -- --version || printf "::error title='build failure':: Could not pass build step for version check on ${OS}.\n" ;
-            ) ;
-          cd .. ;
-      - id: cpython
-        name: Fetch Referance Cpython ${{ matrix.python-version }} on ${{ matrix.os }}
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+          override-path: rustpython
+          override-rustpython-path: Lib
+          # override-repository: "RustPython/RustPython"
+          # override-ref: main
+      - name: Fetch Referance Cpython ${{ matrix.python-version }} on ${{ matrix.os }}
+        id: fetch-cpython
+        uses: ./.github/actions/CI-5974-Fetch-CPython
         with:
-          persist-credentials: false
-          fetch-tags: true
-          repository: "python/cpython"
-          path: cpython
-          sparse-checkout: |
-            Lib/test
-          sparse-checkout-cone-mode: true
-          ref: '${{ matrix.python-version }}'
-      - name: Configure Ignored Referance Lib Files
-        id: refignorefiles
-        shell: bash
-        run: |
-          # TODO: include work from RustPython/scripts/notes.txt
-          cd cpython || exit 14 ;
-          if [[ -w ".git/info/exclude" ]] ; then
-            printf "%s\n" ${TEST_IGNORE_LIST:-} >>".git/info/exclude" || : ;
-          else
-            printf "::debug::%s\n" "Could not find .git/info/exclude" ;
-            printf "%s\n" ${TEST_IGNORE_LIST:-} >>".gitignore" || : ;
-          fi ;
-          cd .. ;
-        if: ${{ success() }}
-      - name: Enumerate Referance Lib Files
-        id: reftestfiles
-        shell: bash
-        run: |
-          cd cpython || exit 14 ;
-          FILES=$(git ls-files --exclude-standard -- ${{ env.TEST_MATCH_PATTERN }} )
-          if [ -z "$FILES" ]; then
-            printf "%s\n" "::warning file=.github/workflows/Check_Tests.yml:: No Lib/Test Referance files found for Cpython ${{ matrix.python-version }} on ${{ matrix.os }}." ;
-            printf "%s\n" "files=" >> "$GITHUB_OUTPUT"
-          else
-            printf "%s\n" "Lib/Test Referance files found:"
-            printf "%s\n" "$FILES"
-            # Replace line breaks with commas for GitHub Action Output
-            FILES="${FILES//$'\n'/ }"
-            printf "%s\n" "files=$FILES" >> "$GITHUB_OUTPUT"
-          fi
-          cd .. ;
-        if: ${{ success() }}
-      - name: "License"
-        id: show-cpython-license
-        shell: bash
-        if: ${{ !cancelled() }}
-        run: |
-          cd cpython || exit 14 ;
-          if [[ -r LICENSE ]] ; then
-            printf "\n\n"
-            cat <LICENSE ;
-            printf "\n\n"
-          else
-            printf "%s\n" "::warning title=UNLICENSED:: This is an UNLICENSED Build for Cpython ${{ matrix.python-version }} on ${{ matrix.os }}"
-          fi
-          cd .. ;
-        # this next part is WIP and needs to be updated with filtering for more control of what parts of the referance lib is used
+          # Define the reference files to pull as a file glob pattern
+          match: "Lib/test/*.py Lib/test/**/*.py"
+          python-version: ${{ env.PYTHON_VERSION }}
+          # override-path: cpython
+          override-cpython-lib-path: 'Lib/test'
+          # override-rustpython-path: ${{ steps.fetch-rpython.outputs.rustpython-lib-path }}
+          # override-repository: "python/cpython"
+        # this next part is WIP and needs to be updated with filtering for more control of what parts of the reference lib is used
       - name: "Integrate Cpython Test file"
         id: merge_theirs
         shell: bash
         if: ${{ !cancelled() }}
-        run: |
-          printf "::group::%s\n" "Copy Referance Implementation Tests" ;
-          for referance_file in ${{ steps.reftestfiles.outputs.files }} ; do
-            cp -vf cpython/"${referance_file}" rustpython/"${referance_file}" || printf "::warning file='%s',title='integration failure':: Could not integrate file for Cpython %s on %s.\n" "${referance_file}" '${{ matrix.python-version }}' '${{ matrix.os }}' ;
-          done
-          printf "\n::endgroup::\n\n" ;
+        with:
+          from-path: cpython
+          to-path: rustpython
+          files: |
+            ${{ steps.fetch-cpython.outputs.files }}
+          python-version: ${{ env.PYTHON_VERSION }}
       - id: output_python
         name: "bootstrap Python"
         if: ${{ !cancelled() }}
@@ -216,7 +159,7 @@ jobs:
           # Usage
           # run_with_timeout 360 your_command_here
           cd rustpython || exit 13 ;
-          for referance_file in ${{ steps.reftestfiles.outputs.files }} ; do
+          for referance_file in ${{ steps.fetch-cpython.outputs.files }} ; do
             if [[ ( -f "${referance_file}" ) ]] ; then
               # See https://devguide.python.org/testing/run-write-tests
               # Heuristic: "if some module does not have unittest.main(), then most likely it does not support direct invocation."

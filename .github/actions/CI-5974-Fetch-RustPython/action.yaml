@@ -1,0 +1,112 @@
+---
+name: 'Checkout and Build RustPython'
+description: 'checks-out the given Rust-Python commit and builds RustPython'
+author: 'Mr. Walls'
+branding:
+  icon: 'download-cloud'
+  color: 'yellow'
+inputs:
+  override-ref:
+    description: |
+      The commit or git ref to checkout and build for. When running this action on github.com,
+      the default value is sufficient.
+    required: true
+    default: ${{ github.server_url == 'https://github.com' && github.sha || 'main' }}
+  override-repository:
+    description: |
+      The GitHub repository to clone RustPython from. When running this action on github.com,
+      the default value is sufficient. Useful for Forks.
+    required: true
+    default: ${{ github.server_url == 'https://github.com' && github.repository || 'RustPython/RustPython' }}
+  override-rustpython-path:
+    description: |
+      override value for path to the Python Lib. The default is to use the value of the environment
+      variable 'RUSTPYTHONPATH'. Most users will find the default 'Lib' sufficient.
+    required: true
+    default: ${{ github.server_url == 'https://github.com' && github.repository || 'Lib' }}
+  override-path:
+    description: |
+      Path to setup. When running this action on github.com, the default value
+      is sufficient. MUST be a path to a directory named 'rustpython'.
+    required: true
+    default: ${{ github.server_url == 'https://github.com' && github.workspace || 'rustpython' }}
+  github-token:
+    description: |
+      The token used to authenticate when fetching RustPython commits from
+      https://github.com/RustPython/RustPython.git. When running this action on github.com,
+      the default value is sufficient. When running on GHES, you can pass a personal access
+      token for github.com if you are experiencing rate limiting.
+    default: ${{ github.server_url == 'https://github.com' && github.token || '' }}
+    required: true
+outputs:
+  branch-name:
+    description: "The name of the branch that was checked-out."
+    value: ${{ steps.output_branch_name.outputs.branch-name || '' }}
+  sha:
+    description: "The SHA of the commit checked-out."
+    value: ${{ steps.output_sha.outputs.sha || 'HEAD' }}
+  rustpython-version:
+    description: "The python version that was used in the run."
+    value: '0.4'  # TODO: fix this
+  rustpython-lib-path:
+    description: "The python version that was used in the run."
+    value: ${{ steps.output_rpython_path.output.rustpython-lib-path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout repository
+      id: rpython
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      with:
+        path: ${{ inputs.override-path }}
+        persist-credentials: false
+        ref: ${{ inputs.override-ref }}
+        repository: ${{ inputs.override-repository }}
+        # fixed settings
+        fetch-depth: 0
+        sparse-checkout-cone-mode: false
+        submodules: true
+        token: ${{ inputs.github-token }}
+    - id: store_old_path
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: |
+        cd ${PWD:-.} ;
+        export OLD_PWD=$(pwd) ;  # only local use for bootstrap
+        printf "initial-path=%s\n" "${OLD_PWD}" >> "$GITHUB_OUTPUT"
+    - id: output_branch_name
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: |
+        cd ${{ inputs.override-path }} || exit 13 ;
+        printf "branch-name=%s\n" $(git name-rev --name-only HEAD | cut -d~ -f1-1) >> "$GITHUB_OUTPUT"
+        cd ${{ steps.store_old_path.outputs.initial-path }} || exit 15 ;
+    - id: output_sha
+      shell: bash
+      run: |
+        cd ${{ inputs.override-path }} || exit 13 ;
+        printf "sha=%s\n" $(git log -1 --format=%H) >> "$GITHUB_OUTPUT"
+        cd ${{ steps.store_old_path.outputs.initial-path }} || exit 15 ;
+    - name: Pre-Test Build check
+      id: build_rpython
+      shell: bash
+      env:
+        OS: ${{ runner.os }}
+      if: ${{ !cancelled() }}
+      run: |
+        cd ${{ inputs.override-path }} || exit 13 ;
+          printf "::debug::Now Building '%s'\n" "RustPython"
+          # Execute the testing command in a subshell
+          (
+            RUSTPYTHONPATH=${{ inputs.override-rustpython-path }} cargo run --release -- --version || printf "::error title='build failure':: Could not pass build step for version check on ${OS}.\n" ;
+          ) ;
+        cd ${{ steps.store_old_path.outputs.initial-path }} || exit 15 ;
+    - id: output_rpython_path
+      shell: bash
+      run: |
+        cd ${{ inputs.override-path }} || exit 13 ; # in case it is relative
+        cd ${{ inputs.override-rustpython-path }} || exit 13 ;
+        printf "RUSTPYTHONPATH=%s\n" $(pwd) >> "$GITHUB_ENV" ;
+        printf "rustpython-lib-path=%s\n" $(pwd) >> "$GITHUB_OUTPUT" ;
+        cd ${{ steps.store_old_path.outputs.initial-path }} || exit 15 ;

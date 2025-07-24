@@ -1,0 +1,160 @@
+---
+name: 'Checkout CPython'
+description: 'checks-out the given CPython version'
+author: 'Mr. Walls'
+branding:
+  icon: 'download-cloud'
+  color: 'blue'
+inputs:
+  override-repository:
+    description: |
+      The GitHub repository to clone CPython from. When running this action on github.com,
+      the default value is sufficient. Useful for Forks.
+    required: true
+    default: ${{ github.server_url == 'https://github.com' && github.repository || 'python/cpython' }}
+  override-rustpython-path:
+    description: |
+      override value for path to the Python Lib. The default is to use the value of the environment
+      variable 'RUSTPYTHONPATH'. Most users will find the default 'Lib' sufficient.
+    required: true
+    default: ${{ github.server_url == 'https://github.com' && github.repository || 'Lib' }}
+  override-path:
+    description: |
+      Path to setup. When running this action on github.com, the default value
+      is sufficient. MUST be a path to a directory named 'cpython'.
+    required: true
+    default: ${{ github.server_url == 'https://github.com' && github.workspace || 'cpython' }}
+  override-cpython-lib-path:
+    description: |
+      override value for path to the CPython Reference Lib. The default is to use the value of the
+      environment variable 'PYTHONPLATLIBDIR'. Most users will find the default 'Lib' sufficient.
+      See https://docs.python.org/3/using/cmdline.html#envvar-PYTHONPLATLIBDIR for more.
+    required: true
+    default: ${{ github.server_url == 'https://github.com' && github.repository || 'Lib' }}
+  match:
+    description: |
+      Glob-style pattern of files or directories to match and integrate.
+      Only works with git tracked files.
+    required: true
+    type: string
+    default: 'Lib/test/*.py Lib/test/**/*.py'
+  ignore:
+    description: |
+      List of Glob-style patterns of files or directories to ignore.
+      Only works with git tracked files.
+    required: false
+    type: string
+  github-token:
+    description: |
+      The token used to authenticate when fetching RustPython commits from
+      https://github.com/RustPython/RustPython.git. When running this action on github.com,
+      the default value is sufficient. When running on GHES, you can pass a personal access
+      token for github.com if you are experiencing rate limiting.
+    default: ${{ github.server_url == 'https://github.com' && github.token || '' }}
+    required: true
+  python-version:
+    description: |
+      The Cpython version (e.g., any valid release or tag, 3.11, 3.12, 3.13) to override setup.
+      The default is to use the value of the environment variable 'PYTHON_VERSION'.
+    default: '3.13'
+    required: true
+outputs:
+  branch-name:
+    description: "The name of the branch that was checked-out."
+    value: ${{ steps.output_branch_name.outputs.branch-name || '' }}
+  sha:
+    description: "The SHA of the commit checked-out."
+    value: ${{ steps.output_sha.outputs.sha || 'HEAD' }}
+  files:
+    description: "The downloaded artifact-files."
+    value: ${{ steps.output_cpython_files.outputs.files }}
+
+runs:
+  using: composite
+  steps:
+    - name: Fetch Reference Cpython ${{ matrix.python-version }} on ${{ matrix.os }}
+      id: cpython
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      with:
+        path: ${{ inputs.override-path }}
+        fetch-tags: true
+        sparse-checkout: |
+          ${{ inputs.override-cpython-lib-path }}
+        ref: ${{ inputs.python-version }}
+        repository: ${{ inputs.override-repository }}
+        # fixed settings
+        fetch-depth: 0
+        sparse-checkout-cone-mode: false
+        submodules: true
+        token: ${{ inputs.github-token }}
+    - id: store_old_path
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: |
+        cd ${PWD:-.} ;
+        export OLD_PWD=$(pwd) ;  # only local use for bootstrap
+        printf "initial-path=%s\n" "${OLD_PWD}" >> "$GITHUB_OUTPUT"
+    - id: output_branch_name
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: |
+        cd ${{ inputs.override-path }} || exit 14 ;
+        printf "branch-name=%s\n" $(git name-rev --name-only HEAD | cut -d~ -f1-1) >> "$GITHUB_OUTPUT"
+        cd ${{ steps.store_old_path.outputs.initial-path }} || exit 15 ;
+    - id: output_sha
+      shell: bash
+      run: |
+        cd ${{ inputs.override-path }} || exit 14 ;
+        printf "sha=%s\n" $(git log -1 --format=%H) >> "$GITHUB_OUTPUT"
+        cd ${{ steps.store_old_path.outputs.initial-path }} || exit 15 ;
+    - name: Configure Ignored Reference Lib Files
+      id: refignorefiles
+      shell: bash
+      env:
+        GIT_IGNORE_PATTERN: ${{ inputs.ignore || '' }}
+      run: |
+        # TODO: include work from RustPython/scripts/notes.txt
+        cd ${{ inputs.override-path }} || exit 14 ;
+        if [[ -w ".git/info/exclude" ]] ; then
+          printf "%s\n" ${GIT_IGNORE_PATTERN:-} >>".git/info/exclude" || : ;
+        else
+          printf "::debug::%s\n" "Could not find .git/info/exclude" ;
+          printf "%s\n" ${GIT_IGNORE_PATTERN:-} >>".gitignore" || : ;
+        fi ;
+        cd ${{ steps.store_old_path.outputs.initial-path }} || exit 15 ;
+      if: ${{ success() }}
+    - name: Enumerate Reference Lib Files
+      id: output_cpython_files
+      shell: bash
+      env:
+        TEST_MATCH_PATTERN: ${{ inputs.match || '' }}
+      run: |
+        cd ${{ inputs.override-path }} || exit 14 ;
+        FILES=$(git ls-files --exclude-standard -- ${{ env.TEST_MATCH_PATTERN }} )
+        if [ -z "$FILES" ]; then
+          printf "%s\n" "::warning file=.github/actions/:: No ${{ inputs.override-cpython-lib-path }} Reference files found for Cpython ${{ inputs.python-version }} on ${{ runner.os }}." ;
+          printf "%s\n" "files=" >> "$GITHUB_OUTPUT"
+        else
+          printf "%s\n" "Reference files found:"
+          printf "%s\n" "$FILES"
+          # Replace line breaks with commas for GitHub Action Output
+          FILES="${FILES//$'\n'/ }"
+          printf "%s\n" "files=$FILES" >> "$GITHUB_OUTPUT"
+        fi
+        cd ${{ steps.store_old_path.outputs.initial-path }} || exit 15 ;
+      if: ${{ success() }}
+    - name: "License"
+      id: show_cpython_license
+      shell: bash
+      if: ${{ !cancelled() }}
+      run: |
+        cd ${{ inputs.override-path }} || exit 14 ;
+        if [[ -r LICENSE ]] ; then
+          printf "\n\n"
+          cat <LICENSE ;
+          printf "\n\n"
+        else
+          printf "%s\n" "::warning title=UNLICENSED:: This is an UNLICENSED Build for Cpython ${{ inputs.python-version }} on ${{ runner.os }}"
+        fi
+        cd ${{ steps.store_old_path.outputs.initial-path }} || exit 15 ;
+

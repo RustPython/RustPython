@@ -1,0 +1,53 @@
+---
+name: 'Integrate Reference Implementation'
+description: 'Copy Reference Implementation'
+author: 'Mr. Walls'
+branding:
+  icon: 'bar-chart-2'
+  color: 'purple'
+inputs:
+  into-path:
+    description: |
+      Path to Destination. Default is 'rustpython'
+    required: true
+    default: ${{ github.server_url == 'https://github.com' && github.workspace || 'rustpython' }}
+  from-path:
+    description: |
+      Path to source. Default is 'cpython'
+    required: true
+    default: ${{ github.server_url == 'https://github.com' && github.workspace || 'cpython' }}
+  files:
+    description: |
+      List of paths to copy from source to destination. Default is 'Lib/**/*.py'
+    required: true
+    default: ${{ github.server_url == 'https://github.com' && 'Lib/**/*.py' || '' }}
+  python-version:
+    description: |
+      The Cpython version (e.g., any valid release or tag, 3.11, 3.12, 3.13) to override setup.
+      The default is to use the value of the environment variable 'PYTHON_VERSION'.
+    default: '3.13'
+    required: true
+
+# TODO: fix python version detection logic
+# TODO: add verification steps
+
+runs:
+  using: composite
+  steps:
+    - id: store_old_path
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: |
+        cd ${PWD:-.} ;
+        export OLD_PWD=$(pwd) ;  # only local use for bootstrap
+        printf "initial-path=%s\n" "${OLD_PWD}" >> "$GITHUB_OUTPUT"
+    - name: "Integrate Cpython Test files"
+      id: merge_theirs
+      shell: bash
+      if: ${{ !cancelled() }}
+      run: |
+        printf "::group::%s\n" "Copy Reference Implementation" ;
+        for reference_file in ${{ inputs.files }} ; do
+          cp -vf ${{ inputs.from-path }}/"${reference_file}" ${{ inputs.to-path }}/"${reference_file}" || printf "::warning file='%s',title='integration failure':: Could not integrate file for Cpython %s on %s.\n" "${reference_file}" '${{ inputs.python-version }}' '${{ runner.os }}' ;
+        done
+        printf "\n::endgroup::\n\n" ;
