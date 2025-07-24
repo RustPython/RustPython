@@ -1640,6 +1640,8 @@ mod _sqlite {
             script: PyStrRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
+            script.ensure_valid_utf8(vm)?;
+
             let db = zelf.connection.db_lock(vm)?;
 
             db.sql_limit(script.byte_len(), vm)?;
