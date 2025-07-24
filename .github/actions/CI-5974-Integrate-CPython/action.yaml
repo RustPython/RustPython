@@ -34,20 +34,15 @@ inputs:
 runs:
   using: composite
   steps:
-    - id: store_old_path
-      if: ${{ !cancelled() }}
-      shell: bash
-      run: |
-        cd ${PWD:-.} ;
-        export OLD_PWD=$(pwd) ;  # only local use for bootstrap
-        printf "initial-path=%s\n" "${OLD_PWD}" >> "$GITHUB_OUTPUT"
     - name: "Integrate Cpython Test files"
       id: merge_theirs
       shell: bash
-      if: ${{ !cancelled() }}
+      if: ${{ !cancelled() && inputs.files != '' }}
+      env:
+        INPUT_FILES: ${{ inputs.files }}
       run: |
         printf "::group::%s\n" "Copy Reference Implementation" ;
-        for reference_file in ${{ inputs.files }} ; do
+        for reference_file in ${INPUT_FILES}; do
           cp -vf ${{ inputs.from-path }}/"${reference_file}" ${{ inputs.into-path }}/"${reference_file}" || printf "::warning file='%s',title='integration failure':: Could not integrate file for Cpython %s on %s.\n" "${reference_file}" '${{ inputs.python-version }}' '${{ runner.os }}' ;
-        done
+        done ;
         printf "\n::endgroup::\n\n" ;
