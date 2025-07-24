@@ -2,6 +2,9 @@
 name: 'RustPython Smoke-Testing'
 description: 'Smoke-Test Integrated Reference Implementation tests'
 author: 'Mr. Walls'
+branding:
+  icon: 'check-circle'
+  color: 'black'
 inputs:
   override-working-dir:
     description: |
@@ -77,7 +80,7 @@ runs:
       env:
         INPUT_FILES: ${{ inputs.test-files }}
         OS: ${{ runner.os }}
-        CONTEXT_PHRASE: 'for Cpython ${{ steps.output_python.output.python-version }} on ${{ runner.os }}'
+        CONTEXT_PHRASE: 'for Cpython ${{ steps.output_python.outputs.python-version }} on ${{ runner.os }}'
         SUBSHELL_TIMEOUT: ${{ inputs.max-test-time }}
       run: |
         # TODO: clean this up

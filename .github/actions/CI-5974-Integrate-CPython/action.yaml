@@ -3,24 +3,24 @@ name: 'Integrate Reference Implementation'
 description: 'Copy Reference Implementation'
 author: 'Mr. Walls'
 branding:
-  icon: 'bar-chart-2'
+  icon: 'copy'
   color: 'purple'
 inputs:
   into-path:
     description: |
       Path to Destination. Default is 'rustpython'
     required: true
-    default: ${{ github.server_url == 'https://github.com' && github.workspace || 'rustpython' }}
+    default: 'rustpython'
   from-path:
     description: |
       Path to source. Default is 'cpython'
     required: true
-    default: ${{ github.server_url == 'https://github.com' && github.workspace || 'cpython' }}
+    default: 'cpython'
   files:
     description: |
       List of paths to copy from source to destination. Default is 'Lib/**/*.py'
     required: true
-    default: ${{ github.server_url == 'https://github.com' && 'Lib/**/*.py' || '' }}
+    default: 'Lib/**/*.py'
   python-version:
     description: |
       The Cpython version (e.g., any valid release or tag, 3.11, 3.12, 3.13) to override setup.
@@ -28,7 +28,7 @@ inputs:
     default: '3.13'
     required: true
 
-# TODO: fix python version detection logic
+# TODO: improve python version detection logic
 # TODO: add verification steps
 
 runs:
@@ -43,6 +43,7 @@ runs:
       run: |
         printf "::group::%s\n" "Copy Reference Implementation" ;
         for reference_file in ${INPUT_FILES}; do
+          [[ -d $(dirname ${{ inputs.into-path }}/"${reference_file}" ) ]] || mkdir -v -p -m 751 $(dirname ${{ inputs.into-path }}/"${reference_file}" ) ;
           cp -vf ${{ inputs.from-path }}/"${reference_file}" ${{ inputs.into-path }}/"${reference_file}" || printf "::warning file='%s',title='integration failure':: Could not integrate file for Cpython %s on %s.\n" "${reference_file}" '${{ inputs.python-version }}' '${{ runner.os }}' ;
         done ;
         printf "\n::endgroup::\n\n" ;
