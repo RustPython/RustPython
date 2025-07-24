@@ -128,7 +128,7 @@ jobs:
           printf "%s\n" "::endgroup::"
       - name: Try Smoke Testing
         id: smoke_testing
-        use: ./.github/actions/CI-5974-Test-RustPython-Integration
+        uses: ./.github/actions/CI-5974-Test-RustPython-Integration
         with:
           override-working-dir: rustpython
           # override-rustpython-path: 'Lib'
