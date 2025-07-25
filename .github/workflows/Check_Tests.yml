@@ -143,7 +143,7 @@ jobs:
           printf "%s\n\n%s\n\n" "# Results" "_With CPython ${PYTHON_VERSION}_" >> "$GITHUB_STEP_SUMMARY" ;
           for TEST_FILE_PATH in ${{ steps.fetch-cpython.outputs.files }}; do
             # unpack the variables
-            NAME_STUB=$(basename ${TEST_FILE_PATH}) ;
+            NAME_STUB=$(basename "${TEST_FILE_PATH}") ;
             # RAW_COPY_OUTCOME
             EVAL_VAR=$(printf "echo %s" "\${RAW_COPY_${NAME_STUB}_OUTCOME}") ;
             if [ -n $(bash -c "${EVAL_VAR}" ;) ]; then
