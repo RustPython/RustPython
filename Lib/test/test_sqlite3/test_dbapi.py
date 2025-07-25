@@ -1655,8 +1655,6 @@ class ExtensionTests(unittest.TestCase):
                 insert into a(i) values (5);
                 """)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_cursor_executescript_with_surrogates(self):
         con = sqlite.connect(":memory:")
         cur = con.cursor()
