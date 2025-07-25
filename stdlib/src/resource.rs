@@ -14,7 +14,8 @@ mod resource {
 
     cfg_if::cfg_if! {
         if #[cfg(target_os = "android")] {
-            use libc::RLIM_NLIMITS;
+            #[expect(deprecated)]
+            const RLIM_NLIMITS: i32 = libc::RLIM_NLIMITS;
         } else {
             // This constant isn't abi-stable across os versions, so we just
             // pick a high number so we don't get false positive ValueErrors and just bubble up the
