@@ -7,7 +7,7 @@ mod _statistics {
     // See https://github.com/python/cpython/blob/6846d6712a0894f8e1a91716c11dd79f42864216/Modules/_statisticsmodule.c#L28-L120
     #[allow(clippy::excessive_precision)]
     fn normal_dist_inv_cdf(p: f64, mu: f64, sigma: f64) -> Option<f64> {
-        if p <= 0.0 || p >= 1.0 || sigma <= 0.0 {
+        if p <= 0.0 || p >= 1.0 {
             return None;
         }
 
