@@ -140,15 +140,40 @@ jobs:
       - name: Post-Process
         id: summarize
         run: |
-          printf "%s\n\n" "# Results" >> "$GITHUB_STEP_SUMMARY" ;
+          printf "%s\n\n%s\n\n" "# Results" "_With CPython ${PYTHON_VERSION}_" >> "$GITHUB_STEP_SUMMARY" ;
           for TEST_FILE_PATH in ${{ steps.fetch-cpython.outputs.files }}; do
-            if [ -n ${!RAW_COPY_${TEST_FILE_PATH}_OUTCOME} ]; then
-              printf "%s\n" "* Directly copying the test file \`${TEST_FILE_PATH}\` is ${!RAW_COPY_${TEST_FILE_PATH}_OUTCOME}" >> "$GITHUB_STEP_SUMMARY" ;
-              if [ -n ${!FIX_COPY_${TEST_FILE_PATH}_OUTCOME} ]; then
-                printf "%s\n" "* Copying and Auto-fixing the test file \`${TEST_FILE_PATH}\` was ${!FIX_COPY_${TEST_FILE_PATH}_OUTCOME}" >> "$GITHUB_STEP_SUMMARY" ;
-              fi ;
+            # unpack the variable
+            # RAW_COPY_OUTCOME
+            EVAL_VAR=$(printf "echo %s" "\${RAW_COPY_${TEST_FILE_PATH}_OUTCOME}") ;
+            if [ -n $(bash -c "${EVAL_VAR}" ;) ]; then
+              RAW_COPY_OUTCOME=$(bash -c "${EVAL_VAR}" ;)
             fi ;
+            unset EVAL_VAR 2>/dev/null || : ;
+            # FIX_COPY_OUTCOME
+            EVAL_VAR=$(printf "echo %s" "\${FIX_COPY_${TEST_FILE_PATH}_OUTCOME}") ;
+            if [ -n $(bash -c "${EVAL_VAR}" ;) ]; then
+              FIX_COPY_OUTCOME=$(bash -c "${EVAL_VAR}" ;)
+            fi ;
+            unset EVAL_VAR 2>/dev/null || : ;
+            # Start of summary for loop
+            if [ -n ${RAW_COPY_OUTCOME} ]; then
+              if [[ "${RAW_COPY_OUTCOME}" == "compatible" ]] ; then
+                printf "%s\n" ":ballot_box_with_check: Directly copying the test file \`${TEST_FILE_PATH}\` is ${RAW_COPY_OUTCOME}" >> "$GITHUB_STEP_SUMMARY" ;
+              else
+                printf "%s\n" ":black_square_button: Directly copying the test file \`${TEST_FILE_PATH}\` is ${RAW_COPY_OUTCOME}" >> "$GITHUB_STEP_SUMMARY" ;
+              fi ;
+              if [ -n ${FIX_COPY_OUTCOME} ]; then
+                if [[ "${FIX_COPY_OUTCOME}" == "fixed" ]] ; then
+                  printf "%s\n" "  :ballot_box_with_check: Copying and Auto-fixing the test file \`${TEST_FILE_PATH}\` was successful" >> "$GITHUB_STEP_SUMMARY" ;
+                else
+                  printf "%s\n" "  :grey_exclamation: Copying and Auto-fixing the test file \`${TEST_FILE_PATH}\` was ${FIX_COPY_OUTCOME}" >> "$GITHUB_STEP_SUMMARY" ;
+                fi ;  # end auto-fix
+              fi ;
+            fi ; # end copy
+            unset RAW_COPY_OUTCOME 2>/dev/null || : ;
+            unset FIX_COPY_OUTCOME 2>/dev/null || : ;
           done ;
+          printf "\n\n---\n" >> "$GITHUB_STEP_SUMMARY" ;
           exit 0 ; # don't break CI on regression
         if: ${{ always() }}
         shell: bash
