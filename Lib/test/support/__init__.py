@@ -819,8 +819,12 @@ def gc_collect():
 
 @contextlib.contextmanager
 def disable_gc():
-    yield # TODO: RUSTPYTHON
-    return # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON; GC is not supported yet
+    try:
+        yield 
+    finally:
+        pass
+    return 
 
     import gc
     have_gc = gc.isenabled()
