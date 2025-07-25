@@ -1,11 +1,12 @@
 import os
 from pickle import dump
 import sys
-from test.support import captured_stdout
+from test.support import captured_stdout, requires_resource, requires_gil_enabled
 from test.support.os_helper import (TESTFN, rmtree, unlink)
 from test.support.script_helper import assert_python_ok, assert_python_failure
 import textwrap
 import unittest
+from types import FunctionType
 
 import trace
 from trace import Trace
@@ -197,9 +198,7 @@ class TestLineCounts(unittest.TestCase):
         firstlineno_called = get_firstlineno(traced_doubler)
         expected = {
             (self.my_py_filename, firstlineno_calling + 1): 1,
-            # List comprehensions work differently in 3.x, so the count
-            # below changed compared to 2.x.
-            (self.my_py_filename, firstlineno_calling + 2): 12,
+            (self.my_py_filename, firstlineno_calling + 2): 11,
             (self.my_py_filename, firstlineno_calling + 3): 1,
             (self.my_py_filename, firstlineno_called + 1): 10,
         }
@@ -251,7 +250,7 @@ class TestRunExecCounts(unittest.TestCase):
         self.my_py_filename = fix_ext_py(__file__)
         self.addCleanup(sys.settrace, sys.gettrace())
 
-    # TODO: RUSTPYTHON, KeyError: ('Lib/test/test_trace.py', 43)
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_exec_counts(self):
         self.tracer = Trace(count=1, trace=0, countfuncs=0, countcallers=0)
@@ -287,7 +286,7 @@ class TestFuncs(unittest.TestCase):
         if self._saved_tracefunc is not None:
             sys.settrace(self._saved_tracefunc)
 
-    # TODO: RUSTPYTHON, gc
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_simple_caller(self):
         self.tracer.runfunc(traced_func_simple_caller, 1)
@@ -306,7 +305,7 @@ class TestFuncs(unittest.TestCase):
         with self.assertRaises(TypeError):
             self.tracer.runfunc()
 
-    # TODO: RUSTPYTHON, gc
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_loop_caller_importing(self):
         self.tracer.runfunc(traced_func_importing_caller, 1)
@@ -320,10 +319,11 @@ class TestFuncs(unittest.TestCase):
         }
         self.assertEqual(self.tracer.results().calledfuncs, expected)
 
-    # TODO: RUSTPYTHON, gc
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                      'pre-existing trace function throws off measurements')
+    @requires_gil_enabled("gh-117783: immortalization of types affects traced method names")
     def test_inst_method_calling(self):
         obj = TracedClass(20)
         self.tracer.runfunc(obj.inst_method_calling, 1)
@@ -335,7 +335,7 @@ class TestFuncs(unittest.TestCase):
         }
         self.assertEqual(self.tracer.results().calledfuncs, expected)
 
-    # TODO: RUSTPYTHON, gc
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_traced_decorated_function(self):
         self.tracer.runfunc(traced_decorated_function)
@@ -357,9 +357,11 @@ class TestCallers(unittest.TestCase):
         self.tracer = Trace(count=0, trace=0, countcallers=1)
         self.filemod = my_file_and_modname()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                      'pre-existing trace function throws off measurements')
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @requires_gil_enabled("gh-117783: immortalization of types affects traced method names")
     def test_loop_caller_importing(self):
         self.tracer.runfunc(traced_func_importing_caller, 1)
 
@@ -387,15 +389,21 @@ class TestCoverage(unittest.TestCase):
         rmtree(TESTFN)
         unlink(TESTFN)
 
-    def _coverage(self, tracer,
-                  cmd='import test.support, test.test_pprint;'
-                      'test.support.run_unittest(test.test_pprint.QueryTestCase)'):
+    DEFAULT_SCRIPT = '''if True:
+        import unittest
+        from test.test_pprint import QueryTestCase
+        loader = unittest.TestLoader()
+        tests = loader.loadTestsFromTestCase(QueryTestCase)
+        tests(unittest.TestResult())
+        '''
+    def _coverage(self, tracer, cmd=DEFAULT_SCRIPT):
         tracer.run(cmd)
         r = tracer.results()
         r.write_results(show_missing=True, summary=True, coverdir=TESTFN)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @requires_resource('cpu')
     def test_coverage(self):
         tracer = trace.Trace(trace=0, count=1)
         with captured_stdout() as stdout:
@@ -412,7 +420,7 @@ class TestCoverage(unittest.TestCase):
         libpath = os.path.normpath(os.path.dirname(os.path.dirname(__file__)))
         # sys.prefix does not work when running from a checkout
         tracer = trace.Trace(ignoredirs=[sys.base_prefix, sys.base_exec_prefix,
-                             libpath], trace=0, count=1)
+                             libpath] + sys.path, trace=0, count=1)
         with captured_stdout() as stdout:
             self._coverage(tracer)
         if os.path.exists(TESTFN):
@@ -590,6 +598,32 @@ class TestCommandLine(unittest.TestCase):
     def test_run_as_module(self):
         assert_python_ok('-m', 'trace', '-l', '--module', 'timeit', '-n', '1')
         assert_python_failure('-m', 'trace', '-l', '--module', 'not_a_module_zzz')
+
+
+class TestTrace(unittest.TestCase):
+    def setUp(self):
+        self.addCleanup(sys.settrace, sys.gettrace())
+        self.tracer = Trace(count=0, trace=1)
+        self.filemod = my_file_and_modname()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_no_source_file(self):
+        filename = "<unknown>"
+        co = traced_func_linear.__code__
+        co = co.replace(co_filename=filename)
+        f = FunctionType(co, globals())
+
+        with captured_stdout() as out:
+            self.tracer.runfunc(f, 2, 3)
+
+        out = out.getvalue().splitlines()
+        firstlineno = get_firstlineno(f)
+        self.assertIn(f" --- modulename: {self.filemod[1]}, funcname: {f.__code__.co_name}", out[0])
+        self.assertIn(f"{filename}({firstlineno + 1})", out[1])
+        self.assertIn(f"{filename}({firstlineno + 2})", out[2])
+        self.assertIn(f"{filename}({firstlineno + 3})", out[3])
+        self.assertIn(f"{filename}({firstlineno + 4})", out[4])
 
 
 if __name__ == '__main__':
