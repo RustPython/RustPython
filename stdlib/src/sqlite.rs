@@ -2730,10 +2730,7 @@ mod _sqlite {
                     None => {
                         return Err(new_programming_error(
                             vm,
-                            format!(
-                                "You did not supply a value for binding parameter :{}.",
-                                name
-                            ),
+                            format!("You did not supply a value for binding parameter :{name}.",),
                         ));
                     }
                 };
