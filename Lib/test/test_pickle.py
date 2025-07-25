@@ -465,6 +465,8 @@ class PyIdPersPicklerTests(AbstractIdentityPersistentPicklerTests,
                 return pid
         check(PersUnpickler)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickler_super(self):
         class PersPickler(self.pickler):
             def persistent_id(subself, obj):
@@ -494,6 +496,8 @@ class PyIdPersPicklerTests(AbstractIdentityPersistentPicklerTests,
             self.assertEqual(unpickler.load(), 'abc')
             self.assertEqual(called, ['abc'])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickler_instance_attribute(self):
         def persistent_id(obj):
             called.append(obj)
@@ -528,6 +532,8 @@ class PyIdPersPicklerTests(AbstractIdentityPersistentPicklerTests,
             del unpickler.persistent_load
             self.assertEqual(unpickler.persistent_load, old_persistent_load)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickler_super_instance_attribute(self):
         class PersPickler(self.pickler):
             def persistent_id(subself, obj):
@@ -570,22 +576,6 @@ class PyIdPersPicklerTests(AbstractIdentityPersistentPicklerTests,
             self.assertEqual(called, ['abc'])
             del unpickler.persistent_load
             self.assertEqual(unpickler.persistent_load, old_persistent_load)
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_pickler_instance_attribute(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_pickler_instance_attribute()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_pickler_super(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_pickler_super()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_pickler_super_instance_attribute(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_pickler_super_instance_attribute()
-
 
 class PyPicklerUnpicklerObjectTests(AbstractPicklerUnpicklerObjectTests, unittest.TestCase):
 
@@ -923,6 +913,8 @@ class CompatPickleTests(unittest.TestCase):
                 module, name = mapping(module, name)
                 self.assertEqual((module, name), (module3, name3))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exceptions(self):
         self.assertEqual(mapping('exceptions', 'StandardError'),
                          ('builtins', 'Exception'))
@@ -971,12 +963,6 @@ class CompatPickleTests(unittest.TestCase):
                                  ('multiprocessing', name))
                 self.assertEqual(mapping('multiprocessing', name),
                                  ('multiprocessing.context', name))
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_exceptions(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_exceptions()
-
 
 def load_tests(loader, tests, pattern):
     tests.addTest(doctest.DocTestSuite(pickle))
