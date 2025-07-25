@@ -142,10 +142,10 @@ jobs:
         run: |
           printf "%s\n\n" "# Results" >> "$GITHUB_STEP_SUMMARY" ;
           for TEST_FILE_PATH in ${{ steps.fetch-cpython.outputs.files }}; do
-            if [ -n ${RAW_COPY_${TEST_FILE_PATH}_OUTCOME} ]; then
-              printf "%s\n" "* Directly copying the test file \`${TEST_FILE_PATH}\` is ${RAW_COPY_${TEST_FILE_PATH}_OUTCOME}" >> "$GITHUB_STEP_SUMMARY" ;
-              if [ -n ${FIX_COPY_${TEST_FILE_PATH}_OUTCOME} ]; then
-                printf "%s\n" "* Copying and Auto-fixing the test file \`${TEST_FILE_PATH}\` was ${FIX_COPY_${TEST_FILE_PATH}_OUTCOME}" >> "$GITHUB_STEP_SUMMARY" ;
+            if [ -n ${!RAW_COPY_${TEST_FILE_PATH}_OUTCOME} ]; then
+              printf "%s\n" "* Directly copying the test file \`${TEST_FILE_PATH}\` is ${!RAW_COPY_${TEST_FILE_PATH}_OUTCOME}" >> "$GITHUB_STEP_SUMMARY" ;
+              if [ -n ${!FIX_COPY_${TEST_FILE_PATH}_OUTCOME} ]; then
+                printf "%s\n" "* Copying and Auto-fixing the test file \`${TEST_FILE_PATH}\` was ${!FIX_COPY_${TEST_FILE_PATH}_OUTCOME}" >> "$GITHUB_STEP_SUMMARY" ;
               fi ;
             fi ;
           done ;
