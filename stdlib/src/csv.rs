@@ -8,6 +8,7 @@ mod _csv {
         builtins::{PyBaseExceptionRef, PyInt, PyNone, PyStr, PyType, PyTypeError, PyTypeRef},
         function::{ArgIterable, ArgumentError, FromArgs, FuncArgs, OptionalArg},
         protocol::{PyIter, PyIterReturn},
+        raise_if_stop,
         types::{Constructor, IterNext, Iterable, SelfIter},
     };
     use csv_core::Terminator;
@@ -923,10 +924,7 @@ mod _csv {
     impl SelfIter for Reader {}
     impl IterNext for Reader {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let string = match zelf.iter.next(vm)? {
-                PyIterReturn::Return(obj) => obj,
-                PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
-            };
+            let string = raise_if_stop!(zelf.iter.next(vm)?);
             let string = string.downcast::<PyStr>().map_err(|obj| {
                 new_csv_error(
                     vm,
