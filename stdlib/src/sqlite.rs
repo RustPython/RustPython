@@ -2725,7 +2725,15 @@ mod _sqlite {
                 let name = unsafe { name.add(1) };
                 let name = ptr_to_str(name, vm)?;
 
-                let val = dict.get_item(name, vm)?;
+                let val = match dict.get_item_opt(name, vm)? {
+                    Some(val) => val,
+                    None => {
+                        return Err(new_programming_error(
+                            vm,
+                            format!("You did not supply a value for binding parameter :{name}.",),
+                        ));
+                    }
+                };
 
                 self.bind_parameter(i, &val, vm)?;
             }
