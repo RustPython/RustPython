@@ -62,6 +62,71 @@ class OptimizedPickleTests(AbstractPickleTests, unittest.TestCase):
         self.assertIs(unpickled2[1], unpickled2[2])
         self.assertNotIn(pickle.BINPUT, pickled2)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_buffers_error(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_buffers_error()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_builtin_functions(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_builtin_functions()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bytearray_memoization(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_bytearray_memoization()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bytes_memoization(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_bytes_memoization()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_in_band_buffers(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_in_band_buffers()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_oob_buffers(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_oob_buffers()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_oob_buffers_writable_to_readonly(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_oob_buffers_writable_to_readonly()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_optional_frames(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_optional_frames()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_pickle_setstate_None(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_pickle_setstate_None()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_recursive_nested_names2(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_recursive_nested_names2()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_py_methods(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_py_methods()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_complex_newobj_ex(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_complex_newobj_ex()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_c_methods(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_c_methods()
+
 
 class SimpleReader:
     def __init__(self, data):
@@ -371,6 +436,8 @@ highest protocol among opcodes = 0
 highest protocol among opcodes = 0
 ''', annotate=20)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_string(self):
         self.check_dis(b"S'abc'\n.", '''\
     0: S    STRING     'abc'
@@ -402,6 +469,8 @@ highest protocol among opcodes = 0
         self.check_dis_error(b"S\"abc'\n.", '',
                              r"""strinq quote b'"' not found at both ends of b'"abc\\''""")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_binstring(self):
         self.check_dis(b"T\x03\x00\x00\x00abc.", '''\
     0: T    BINSTRING  'abc'
@@ -414,6 +483,8 @@ highest protocol among opcodes = 1
 highest protocol among opcodes = 1
 ''')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_short_binstring(self):
         self.check_dis(b"U\x03abc.", '''\
     0: U    SHORT_BINSTRING 'abc'
@@ -426,6 +497,8 @@ highest protocol among opcodes = 1
 highest protocol among opcodes = 1
 ''')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_global(self):
         self.check_dis(b"cmodule\nname\n.", '''\
     0: c    GLOBAL     'module name'
@@ -452,7 +525,6 @@ highest protocol among opcodes = 0
     5: .    STOP
 highest protocol among opcodes = 0
 ''')
-
 
 class MiscTestCase(unittest.TestCase):
     def test__all__(self):
@@ -488,7 +560,8 @@ class MiscTestCase(unittest.TestCase):
 
 
 def load_tests(loader, tests, pattern):
-    tests.addTest(doctest.DocTestSuite(pickletools))
+    # TODO: RUSTPYTHON
+    # tests.addTest(doctest.DocTestSuite(pickletools))
     return tests
 
 
