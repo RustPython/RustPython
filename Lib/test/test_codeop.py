@@ -227,6 +227,9 @@ class CodeopTests(unittest.TestCase):
         ai("(x for x in")
         ai("(x for x in (")
 
+        ai('a = f"""')
+        ai('a = \\')
+
     def test_invalid(self):
         ai = self.assertInvalid
         ai("a b")
@@ -300,12 +303,11 @@ class CodeopTests(unittest.TestCase):
             warnings.simplefilter('error', SyntaxWarning)
             compile_command(r"'\e'", symbol='exec')
 
-    # TODO: RUSTPYTHON
-    #def test_incomplete_warning(self):
-    #    with warnings.catch_warnings(record=True) as w:
-    #        warnings.simplefilter('always')
-    #        self.assertIncomplete("'\\e' + (")
-    #    self.assertEqual(w, [])
+    def test_incomplete_warning(self):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter('always')
+            self.assertIncomplete("'\\e' + (")
+        self.assertEqual(w, [])
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
