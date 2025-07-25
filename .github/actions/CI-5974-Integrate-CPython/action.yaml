@@ -28,12 +28,27 @@ inputs:
     default: '3.13'
     required: true
 
-# TODO: improve python version detection logic
 # TODO: add verification steps
 
 runs:
   using: composite
   steps:
+    - id: output_python
+      env:
+        PYTHON_VERSION_INPUT: ${{ inputs.python-version }}
+      name: "Detect Python"
+      if: ${{ inputs.files != '' }}
+      shell: bash
+      run: |
+        # check the python version
+        if [[ -n $PYTHON_VERSION_INPUT ]]; then
+          printf "python-version=%s\n" "${PYTHON_VERSION_INPUT}" >> "$GITHUB_OUTPUT"
+          PYTHON_VERSION=${PYTHON_VERSION_INPUT}
+        else
+          printf "python-version=%s\n" "${PYTHON_VERSION}" >> "$GITHUB_OUTPUT"
+        fi
+        printf "%s\n" "PYTHON_VERSION=${PYTHON_VERSION}" >> "$GITHUB_ENV"
+        if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$"ACTIONS_STEP_DEBUG" == "true" ]]; then printf "::debug::Targeting Cpython %s.\n" "${PYTHON_VERSION}" ; fi ;
     - name: "Integrate Cpython Test files"
       id: merge_theirs
       shell: bash
@@ -44,6 +59,6 @@ runs:
         printf "::group::%s\n" "Copy Reference Implementation" ;
         for reference_file in ${INPUT_FILES}; do
           [[ -d $(dirname ${{ inputs.into-path }}/"${reference_file}" ) ]] || mkdir -v -p -m 751 $(dirname ${{ inputs.into-path }}/"${reference_file}" ) ;
-          cp -vf ${{ inputs.from-path }}/"${reference_file}" ${{ inputs.into-path }}/"${reference_file}" || printf "::warning file='%s',title='integration failure':: Could not integrate file for Cpython %s on %s.\n" "${reference_file}" '${{ inputs.python-version }}' '${{ runner.os }}' ;
+          cp -vf ${{ inputs.from-path }}/"${reference_file}" ${{ inputs.into-path }}/"${reference_file}" || printf "::warning file='%s',title='integration failure':: Could not integrate file for Cpython %s on %s.\n" "${reference_file}" '${PYTHON_VERSION}' '${{ runner.os }}' ;
         done ;
         printf "\n::endgroup::\n\n" ;

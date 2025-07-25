@@ -74,7 +74,11 @@ runs:
       run: |
         cd ${PWD:-.} ;
         export OLD_PWD=$(pwd) ;  # only local use for bootstrap
-        printf "initial-path=%s\n" "${OLD_PWD}" >> "$GITHUB_OUTPUT"
+        printf "initial-path=%s\n" "${OLD_PWD}" >> "$GITHUB_OUTPUT" ;
+        if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$"ACTIONS_STEP_DEBUG" == "true" ]]; then
+          printf "::debug::Return directory now set to '%s'\n" "${OLD_PWD}" ;
+          printf "::debug::Working directory is set to '%s'\n" '${{ inputs.override-path }}' ;
+        fi ;
     - id: output_branch_name
       if: ${{ !cancelled() }}
       shell: bash
@@ -88,6 +92,18 @@ runs:
         cd ${{ inputs.override-path }} || exit 13 ;
         printf "sha=%s\n" $(git log -1 --format=%H) >> "$GITHUB_OUTPUT"
         cd ${{ steps.store_old_path.outputs.initial-path }} || exit 15 ;
+    - name: "Setup Cargo"
+      id: output_cargo_args
+      shell: bash
+      run: |
+        if [[ -n $CARGO_ARGS ]]; then
+          if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$"ACTIONS_STEP_DEBUG" == "true" ]]; then printf "::debug::CARGO_ARGS already set to '%s'\n" "${CARGO_ARGS}" ; fi ;
+          # e.g., CARGO_ARGS=${CARGO_ARGS}
+        else
+          CARGO_ARGS="--release" ;
+          if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$"ACTIONS_STEP_DEBUG" == "true" ]]; then printf "::debug::CARGO_ARGS initialized to '%s'\n" "${CARGO_ARGS}" ; fi ;
+        fi ;
+        printf "%s\n" "CARGO_ARGS=${CARGO_ARGS}" >> "$GITHUB_ENV" ;
     - name: Pre-Test Build check
       id: build_rpython
       shell: bash
@@ -96,11 +112,13 @@ runs:
       if: ${{ !cancelled() }}
       run: |
         cd ${{ inputs.override-path }} || exit 13 ;
-          printf "::debug::Now Building '%s'\n" "RustPython"
+        printf "::group::%s\n" "Cargo" >> "$GITHUB_ENV" ;
+        if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$"ACTIONS_STEP_DEBUG" == "true" ]]; then printf "::debug::Now Building '%s'\n" "RustPython" ; fi ;
           # Execute the testing command in a subshell
           (
-            RUSTPYTHONPATH=${{ inputs.override-rustpython-path }} cargo run --release -- --version || printf "::error title='build failure':: Could not pass build step for version check on ${OS}.\n" ;
+            RUSTPYTHONPATH=${{ inputs.override-rustpython-path }} cargo run $CARGO_ARGS -- --version || printf "::error title='build failure':: Could not pass build step for version check on ${OS}.\n" ;
           ) ;
+        printf "::endgroup::%s\n" >> "$GITHUB_ENV" ;
         cd ${{ steps.store_old_path.outputs.initial-path }} || exit 15 ;
     - id: output_rpython_path
       shell: bash
