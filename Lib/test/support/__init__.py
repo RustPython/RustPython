@@ -1898,7 +1898,9 @@ def _check_tracemalloc():
 
 
 def check_free_after_iterating(test, iter, cls, args=()):
-    return # TODO: RUSTPYTHON; GC is not supported yet
+    # TODO: RUSTPYTHON; GC is not supported yet
+    test.assertTrue(False)
+    return
 
     done = False
     def wrapper():
