@@ -2,7 +2,11 @@ import sys
 import time
 
 import unittest
-from unittest import mock
+# TODO: RUSTPYTHON
+# This is one of the tests that we run on wasi. `unittest.mock` requires `_socket`
+# which we don't have on wasi (yet). Also, every test here the needs `unittest.mock`
+# is cpython specifc, so this import is redundent anyway.
+# from unittest import mock
 from test import support
 from test.support.numbers import (
     VALID_UNDERSCORE_LITERALS,
@@ -889,7 +893,7 @@ class PyLongModuleTests(unittest.TestCase):
 
     @support.cpython_only  # tests implementation details of CPython.
     @unittest.skipUnless(_pylong, "_pylong module required")
-    @mock.patch.object(_pylong, "int_to_decimal_string")
+    # @mock.patch.object(_pylong, "int_to_decimal_string") # NOTE(RUSTPYTHON): See comment at top of file
     def test_pylong_misbehavior_error_path_to_str(
             self, mock_int_to_str):
         with support.adjust_int_max_str_digits(20_000):
@@ -905,7 +909,7 @@ class PyLongModuleTests(unittest.TestCase):
 
     @support.cpython_only  # tests implementation details of CPython.
     @unittest.skipUnless(_pylong, "_pylong module required")
-    @mock.patch.object(_pylong, "int_from_string")
+    # @mock.patch.object(_pylong, "int_from_string") # NOTE(RUSTPYTHON): See comment at top of file
     def test_pylong_misbehavior_error_path_from_str(
             self, mock_int_from_str):
         big_value = '7'*19_999
