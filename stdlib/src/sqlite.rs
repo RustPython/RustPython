@@ -2288,7 +2288,7 @@ mod _sqlite {
                     );
                     self.check(ret, vm)
                 } else {
-                    let span_len = (range.end - range.start) as usize;
+                    let span_len = range.end - range.start;
                     let mut temp_buf = vec![0u8; span_len];
 
                     let ret = inner.blob.read(
