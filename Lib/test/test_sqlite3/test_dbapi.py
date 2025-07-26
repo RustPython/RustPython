@@ -1322,8 +1322,6 @@ class BlobTests(unittest.TestCase):
         expected = b"This blob data string is exactly fifty bytes long."
         self.assertEqual(self.blob.read(), expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_blob_set_slice_buffer_object(self):
         from array import array
         self.blob[0:5] = memoryview(b"12345")
@@ -1351,22 +1349,16 @@ class BlobTests(unittest.TestCase):
     def test_blob_get_slice_with_skip(self):
         self.assertEqual(self.blob[0:10:2], b"ti lb")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_blob_set_slice(self):
         self.blob[0:5] = b"12345"
         expected = b"12345" + self.data[5:]
         actual = self.cx.execute("select b from test").fetchone()[0]
         self.assertEqual(actual, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_blob_set_empty_slice(self):
         self.blob[0:0] = b""
         self.assertEqual(self.blob[:], self.data)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_blob_set_slice_with_skip(self):
         self.blob[0:10:2] = b"12345"
         actual = self.cx.execute("select b from test").fetchone()[0]
@@ -1419,8 +1411,6 @@ class BlobTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must be in range"):
             self.blob[0] = 2**65
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_blob_set_slice_error(self):
         with self.assertRaisesRegex(IndexError, "wrong size"):
             self.blob[5:10] = b"a"
