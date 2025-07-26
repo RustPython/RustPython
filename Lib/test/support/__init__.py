@@ -821,10 +821,10 @@ def gc_collect():
 def disable_gc():
     # TODO: RUSTPYTHON; GC is not supported yet
     try:
-        yield 
+        yield
     finally:
         pass
-    return 
+    return
 
     import gc
     have_gc = gc.isenabled()
@@ -839,10 +839,10 @@ def disable_gc():
 def gc_threshold(*args):
     # TODO: RUSTPYTHON; GC is not supported yet
     try:
-        yield 
+        yield
     finally:
         pass
-    return 
+    return
 
     import gc
     old_threshold = gc.get_threshold()
