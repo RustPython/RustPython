@@ -127,6 +127,12 @@ mod decl {
         Ok(duration_since_system_now(vm)?.as_nanos() as u64)
     }
 
+    #[cfg(target_os = "wasi")]
+    #[pyfunction]
+    fn time_ns(_vm: &VirtualMachine) -> PyResult<u64> {
+        unimplemented!("time.time_ns is not implemented yet for wasi");
+    }
+
     #[pyfunction]
     pub fn time(vm: &VirtualMachine) -> PyResult<f64> {
         _time(vm)
