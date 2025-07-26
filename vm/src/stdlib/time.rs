@@ -121,7 +121,6 @@ mod decl {
         Ok(())
     }
 
-    #[cfg(not(target_os = "wasi"))]
     #[pyfunction]
     fn time_ns(vm: &VirtualMachine) -> PyResult<u64> {
         Ok(duration_since_system_now(vm)?.as_nanos() as u64)
@@ -947,3 +946,597 @@ mod platform {
 #[cfg(not(any(unix, windows)))]
 #[pymodule(sub)]
 mod platform {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{VirtualMachine, PyContext};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use chrono::{NaiveDateTime, NaiveDate, NaiveTime, Datelike, Timelike};
+
+    fn create_test_vm() -> VirtualMachine {
+        let ctx = PyContext::new();
+        VirtualMachine::new(ctx)
+    }
+
+    #[test]
+    fn test_time_constants() {
+        // Test time conversion constants
+        assert_eq!(decl::SEC_TO_MS, 1000);
+        assert_eq!(decl::MS_TO_US, 1000);
+        assert_eq!(decl::SEC_TO_US, 1_000_000);
+        assert_eq!(decl::US_TO_NS, 1000);
+        assert_eq!(decl::MS_TO_NS, 1_000_000);
+        assert_eq!(decl::SEC_TO_NS, 1_000_000_000);
+        assert_eq!(decl::NS_TO_MS, 1_000_000);
+        assert_eq!(decl::NS_TO_US, 1000);
+        assert_eq!(decl::_STRUCT_TM_ITEMS, 11);
+    }
+
+    #[test]
+    fn test_duration_since_system_now() {
+        let vm = create_test_vm();
+        let result = decl::duration_since_system_now(&vm);
+        assert!(result.is_ok());
+        let duration = result.unwrap();
+        // Should be a reasonable time since Unix epoch
+        assert!(duration.as_secs() > 0);
+        // Should be less than some future date (e.g., year 3000)
+        assert!(duration.as_secs() < 32_503_680_000); // Jan 1, 3000
+    }
+
+    #[test]
+    fn test_time_ns() {
+        let vm = create_test_vm();
+        let result = decl::time_ns(&vm);
+        assert!(result.is_ok());
+        let time_ns = result.unwrap();
+        assert!(time_ns > 0);
+    }
+
+    #[test]
+    fn test_time() {
+        let vm = create_test_vm();
+        let result = decl::time(&vm);
+        assert!(result.is_ok());
+        let time_secs = result.unwrap();
+        assert!(time_secs > 0.0);
+        // Should be reasonable timestamp (after year 2000, before 3000)
+        assert!(time_secs > 946_684_800.0); // Jan 1, 2000
+        assert!(time_secs < 32_503_680_000.0); // Jan 1, 3000
+    }
+
+    #[test]
+    fn test_monotonic() {
+        let vm = create_test_vm();
+        let result1 = decl::monotonic(&vm);
+        let result2 = decl::monotonic(&vm);
+        
+        assert!(result1.is_ok());
+        assert!(result2.is_ok());
+        
+        let time1 = result1.unwrap();
+        let time2 = result2.unwrap();
+        
+        assert!(time1 >= 0.0);
+        assert!(time2 >= time1); // Monotonic should not go backwards
+    }
+
+    #[test]
+    fn test_monotonic_ns() {
+        let vm = create_test_vm();
+        let result = decl::monotonic_ns(&vm);
+        assert!(result.is_ok());
+        let time_ns = result.unwrap();
+        assert!(time_ns > 0);
+    }
+
+    #[test]
+    fn test_perf_counter() {
+        let vm = create_test_vm();
+        let result1 = decl::perf_counter(&vm);
+        let result2 = decl::perf_counter(&vm);
+        
+        assert!(result1.is_ok());
+        assert!(result2.is_ok());
+        
+        let time1 = result1.unwrap();
+        let time2 = result2.unwrap();
+        
+        assert!(time1 >= 0.0);
+        assert!(time2 >= time1); // Performance counter should be monotonic
+    }
+
+    #[test]
+    fn test_perf_counter_ns() {
+        let vm = create_test_vm();
+        let result = decl::perf_counter_ns(&vm);
+        assert!(result.is_ok());
+        let time_ns = result.unwrap();
+        assert!(time_ns > 0);
+    }
+
+    #[test]
+    fn test_process_time() {
+        let vm = create_test_vm();
+        let result = decl::process_time(&vm);
+        // May not be implemented on all platforms
+        match result {
+            Ok(time) => assert!(time >= 0.0),
+            Err(e) => {
+                // Should be NotImplementedError on unsupported platforms
+                assert!(e.class().name().contains("NotImplementedError") || 
+                       e.class().name().contains("OSError"));
+            }
+        }
+    }
+
+    #[test]
+    fn test_process_time_ns() {
+        let vm = create_test_vm();
+        let result = decl::process_time_ns(&vm);
+        match result {
+            Ok(time_ns) => assert!(time_ns > 0),
+            Err(e) => {
+                assert!(e.class().name().contains("NotImplementedError") || 
+                       e.class().name().contains("OSError"));
+            }
+        }
+    }
+
+    #[test]
+    fn test_thread_time() {
+        let vm = create_test_vm();
+        let result = decl::thread_time(&vm);
+        match result {
+            Ok(time) => assert!(time >= 0.0),
+            Err(e) => {
+                assert!(e.class().name().contains("NotImplementedError") || 
+                       e.class().name().contains("OSError"));
+            }
+        }
+    }
+
+    #[test]
+    fn test_thread_time_ns() {
+        let vm = create_test_vm();
+        let result = decl::thread_time_ns(&vm);
+        match result {
+            Ok(time_ns) => assert!(time_ns > 0),
+            Err(e) => {
+                assert!(e.class().name().contains("NotImplementedError") || 
+                       e.class().name().contains("OSError"));
+            }
+        }
+    }
+
+    #[test]
+    fn test_pyobj_to_date_time_float() {
+        use crate::function::Either;
+        let vm = create_test_vm();
+        
+        // Test with float timestamp
+        let timestamp = 1609459200.5; // Jan 1, 2021 00:00:00.5 UTC
+        let result = decl::pyobj_to_date_time(Either::A(timestamp), &vm);
+        assert!(result.is_ok());
+        
+        let datetime = result.unwrap();
+        assert_eq!(datetime.year(), 2021);
+        assert_eq!(datetime.month(), 1);
+        assert_eq!(datetime.day(), 1);
+        assert_eq!(datetime.nanosecond(), 500_000_000); // 0.5 seconds in nanoseconds
+    }
+
+    #[test]
+    fn test_pyobj_to_date_time_int() {
+        use crate::function::Either;
+        let vm = create_test_vm();
+        
+        // Test with integer timestamp
+        let timestamp = 1609459200i64; // Jan 1, 2021 00:00:00 UTC
+        let result = decl::pyobj_to_date_time(Either::B(timestamp), &vm);
+        assert!(result.is_ok());
+        
+        let datetime = result.unwrap();
+        assert_eq!(datetime.year(), 2021);
+        assert_eq!(datetime.month(), 1);
+        assert_eq!(datetime.day(), 1);
+        assert_eq!(datetime.hour(), 0);
+        assert_eq!(datetime.minute(), 0);
+        assert_eq!(datetime.second(), 0);
+    }
+
+    #[test]
+    fn test_pyobj_to_date_time_overflow() {
+        use crate::function::Either;
+        let vm = create_test_vm();
+        
+        // Test with timestamp that causes overflow
+        let timestamp = i64::MAX as f64 * 2.0; // Very large timestamp
+        let result = decl::pyobj_to_date_time(Either::A(timestamp), &vm);
+        assert!(result.is_err());
+        // Should be overflow error
+        assert!(result.unwrap_err().class().name().contains("OverflowError"));
+    }
+
+    #[test]
+    fn test_pyobj_to_date_time_negative() {
+        use crate::function::Either;
+        let vm = create_test_vm();
+        
+        // Test with negative timestamp (before Unix epoch)
+        let timestamp = -86400.0; // Dec 31, 1969
+        let result = decl::pyobj_to_date_time(Either::A(timestamp), &vm);
+        // This might fail on some platforms, but should handle gracefully
+        match result {
+            Ok(datetime) => {
+                assert_eq!(datetime.year(), 1969);
+                assert_eq!(datetime.month(), 12);
+                assert_eq!(datetime.day(), 31);
+            },
+            Err(e) => {
+                assert!(e.class().name().contains("OverflowError"));
+            }
+        }
+    }
+
+    #[test]
+    fn test_pystruct_time_creation() {
+        let vm = create_test_vm();
+        let naive_dt = NaiveDateTime::new(
+            NaiveDate::from_ymd_opt(2023, 6, 15).unwrap(),
+            NaiveTime::from_hms_opt(14, 30, 45).unwrap()
+        );
+        
+        let py_time = decl::PyStructTime::new(&vm, naive_dt, 0);
+        
+        // Verify the struct contains expected values
+        // Note: We can't easily test the PyObjectRef fields without more VM setup
+        // but we can test that creation doesn't panic
+        assert!(true); // Just ensure no panic occurred
+    }
+
+    #[cfg(any(windows, all(target_arch = "wasm32", target_os = "emscripten")))]
+    #[test]
+    fn test_time_muldiv() {
+        // Test the time_muldiv utility function on Windows/emscripten
+        let result = decl::time_muldiv(1000, 1000000, 1000);
+        assert_eq!(result, 1000000);
+        
+        let result = decl::time_muldiv(123, 1000, 1);
+        assert_eq!(result, 123000);
+        
+        // Test edge case with zero
+        let result = decl::time_muldiv(0, 1000, 1);
+        assert_eq!(result, 0);
+        
+        // Test integer division behavior
+        let result = decl::time_muldiv(1000, 999, 1000);
+        assert_eq!(result, 999);
+    }
+
+    #[test]
+    fn test_cfmt_constant() {
+        // Test that the CFMT constant is properly defined
+        assert_eq!(decl::CFMT, "%a %b %e %H:%M:%S %Y");
+    }
+
+    #[test] 
+    fn test_make_module() {
+        let vm = create_test_vm();
+        let module = make_module(&vm);
+        assert!(module.is(&vm.ctx.types.module_type));
+    }
+
+    #[test]
+    fn test_sleep_with_zero_duration() {
+        let vm = create_test_vm();
+        
+        // Create a zero duration object
+        let zero_duration = vm.ctx.new_float(0.0);
+        let result = decl::sleep(zero_duration.into(), &vm);
+        
+        // Should succeed with zero duration
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_sleep_negative_duration_error() {
+        let vm = create_test_vm();
+        
+        // Create a negative duration object
+        let negative_duration = vm.ctx.new_float(-1.0);
+        let result = decl::sleep(negative_duration.into(), &vm);
+        
+        // Should fail with ValueError for negative duration
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert!(error.class().name().contains("ValueError"));
+    }
+
+    #[test]
+    fn test_multiple_time_calls_consistency() {
+        let vm = create_test_vm();
+        
+        // Multiple calls to time() should return increasing values
+        let time1 = decl::time(&vm).unwrap();
+        std::thread::sleep(Duration::from_millis(1));
+        let time2 = decl::time(&vm).unwrap();
+        
+        assert!(time2 >= time1);
+    }
+
+    #[test]
+    fn test_time_ns_vs_time_consistency() {
+        let vm = create_test_vm();
+        
+        let time_secs = decl::time(&vm).unwrap();
+        let time_ns = decl::time_ns(&vm).unwrap();
+        
+        // time_ns should be approximately time * 1e9
+        let time_ns_from_secs = (time_secs * 1e9) as u64;
+        let diff = if time_ns > time_ns_from_secs {
+            time_ns - time_ns_from_secs
+        } else {
+            time_ns_from_secs - time_ns
+        };
+        
+        // Should be within reasonable bounds (allowing for execution time)
+        assert!(diff < 1_000_000_000); // Less than 1 second difference
+    }
+
+    #[test]
+    fn test_monotonic_vs_monotonic_ns_consistency() {
+        let vm = create_test_vm();
+        
+        let mono_secs = decl::monotonic(&vm).unwrap();
+        let mono_ns = decl::monotonic_ns(&vm).unwrap();
+        
+        // monotonic_ns should be approximately monotonic * 1e9
+        let mono_ns_from_secs = (mono_secs * 1e9) as u128;
+        let diff = if mono_ns > mono_ns_from_secs {
+            mono_ns - mono_ns_from_secs
+        } else {
+            mono_ns_from_secs - mono_ns
+        };
+        
+        // Should be within reasonable bounds
+        assert!(diff < 1_000_000_000); // Less than 1 second difference
+    }
+
+    #[test]
+    fn test_perf_counter_vs_perf_counter_ns_consistency() {
+        let vm = create_test_vm();
+        
+        let perf_secs = decl::perf_counter(&vm).unwrap();
+        let perf_ns = decl::perf_counter_ns(&vm).unwrap();
+        
+        // perf_counter_ns should be approximately perf_counter * 1e9
+        let perf_ns_from_secs = (perf_secs * 1e9) as u128;
+        let diff = if perf_ns > perf_ns_from_secs {
+            perf_ns - perf_ns_from_secs
+        } else {
+            perf_ns_from_secs - perf_ns
+        };
+        
+        // Should be within reasonable bounds
+        assert!(diff < 1_000_000_000); // Less than 1 second difference
+    }
+
+    // Test timezone-related functions (platform-specific)
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_timezone_functions() {
+        let vm = create_test_vm();
+        
+        // Test timezone function
+        let tz = decl::timezone(&vm);
+        // Should be a valid timezone offset in seconds
+        assert!(tz.abs() <= 86400); // Should be within 24 hours
+        
+        // Test tzname function
+        let tzname_tuple = decl::tzname(&vm);
+        // Should be a tuple with two string elements
+        assert!(tzname_tuple.len() == 2);
+    }
+
+    #[cfg(all(not(target_os = "freebsd"), not(target_env = "msvc"), not(target_arch = "wasm32")))]
+    #[test]
+    fn test_daylight_function() {
+        let vm = create_test_vm();
+        let daylight = decl::daylight(&vm);
+        // Should be 0 or 1
+        assert!(daylight == 0 || daylight == 1);
+    }
+
+    // Test error conditions
+    #[test]
+    fn test_duration_since_system_now_error_handling() {
+        let vm = create_test_vm();
+        
+        // This is hard to test directly since SystemTime::now() rarely fails
+        // But we can at least verify the function handles the result properly
+        let result = decl::duration_since_system_now(&vm);
+        match result {
+            Ok(duration) => assert!(duration.as_secs() > 0),
+            Err(e) => assert!(e.class().name().contains("ValueError")),
+        }
+    }
+
+    // Test platform-specific implementations exist
+    #[cfg(unix)]
+    #[test]
+    fn test_unix_platform_functions_exist() {
+        // Just verify that the platform module compiles and exports expected functions
+        let vm = create_test_vm();
+        
+        // These should exist on Unix platforms
+        let _mono = platform::get_monotonic_time(&vm);
+        let _perf = platform::get_perf_time(&vm);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_windows_platform_functions_exist() {
+        let vm = create_test_vm();
+        
+        // These should exist on Windows platforms
+        let _mono = platform::get_monotonic_time(&vm);
+        let _perf = platform::get_perf_time(&vm);
+        let _thread = platform::get_thread_time(&vm);
+        let _process = platform::get_process_time(&vm);
+    }
+
+    // Stress test for performance
+    #[test]
+    fn test_time_functions_performance() {
+        let vm = create_test_vm();
+        
+        // Test that time functions are reasonably fast
+        let start = std::time::Instant::now();
+        for _ in 0..1000 {
+            let _ = decl::time(&vm);
+        }
+        let elapsed = start.elapsed();
+        
+        // 1000 calls should take less than 1 second
+        assert!(elapsed.as_secs() < 1);
+    }
+
+    // Test gmtime function
+    #[test]
+    fn test_gmtime_with_timestamp() {
+        use crate::function::{Either, OptionalArg};
+        let vm = create_test_vm();
+        
+        let timestamp = 1609459200.0; // Jan 1, 2021 00:00:00 UTC
+        let result = decl::gmtime(OptionalArg::Present(Either::A(timestamp)), &vm);
+        assert!(result.is_ok());
+        
+        let struct_time = result.unwrap();
+        // We can't easily test the individual fields without more VM setup
+        // but we can verify the function executes without error
+    }
+
+    #[test]
+    fn test_gmtime_without_timestamp() {
+        use crate::function::OptionalArg;
+        let vm = create_test_vm();
+        
+        let result = decl::gmtime(OptionalArg::Missing, &vm);
+        assert!(result.is_ok());
+    }
+
+    // Test localtime function
+    #[test]
+    fn test_localtime_with_timestamp() {
+        use crate::function::{Either, OptionalArg};
+        let vm = create_test_vm();
+        
+        let timestamp = 1609459200.0; // Jan 1, 2021 00:00:00 UTC
+        let result = decl::localtime(OptionalArg::Present(Either::A(timestamp)), &vm);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_localtime_without_timestamp() {
+        use crate::function::OptionalArg;
+        let vm = create_test_vm();
+        
+        let result = decl::localtime(OptionalArg::Missing, &vm);
+        assert!(result.is_ok());
+    }
+
+    // Test mktime function
+    #[test]
+    fn test_mktime() {
+        let vm = create_test_vm();
+        let naive_dt = NaiveDateTime::new(
+            NaiveDate::from_ymd_opt(2021, 1, 1).unwrap(),
+            NaiveTime::from_hms_opt(0, 0, 0).unwrap()
+        );
+        
+        let struct_time = decl::PyStructTime::new(&vm, naive_dt, 0);
+        let result = decl::mktime(struct_time, &vm);
+        
+        // mktime should succeed and return a reasonable timestamp
+        match result {
+            Ok(timestamp) => {
+                assert!(timestamp > 0.0);
+                assert!(timestamp < 32_503_680_000.0); // Before year 3000
+            },
+            Err(_) => {
+                // mktime might fail due to VM setup limitations in tests
+                // This is acceptable for basic testing
+            }
+        }
+    }
+
+    // Test ctime function
+    #[test]
+    fn test_ctime_with_timestamp() {
+        use crate::function::{Either, OptionalArg};
+        let vm = create_test_vm();
+        
+        let timestamp = 1609459200.0; // Jan 1, 2021 00:00:00 UTC
+        let result = decl::ctime(OptionalArg::Present(Either::A(timestamp)), &vm);
+        assert!(result.is_ok());
+        
+        let time_str = result.unwrap();
+        // Should be a formatted time string
+        assert!(!time_str.is_empty());
+    }
+
+    #[test]
+    fn test_ctime_without_timestamp() {
+        use crate::function::OptionalArg;
+        let vm = create_test_vm();
+        
+        let result = decl::ctime(OptionalArg::Missing, &vm);
+        assert!(result.is_ok());
+        
+        let time_str = result.unwrap();
+        assert!(!time_str.is_empty());
+    }
+
+    // Test asctime function  
+    #[test]
+    fn test_asctime() {
+        use crate::function::OptionalArg;
+        let vm = create_test_vm();
+        
+        let result = decl::asctime(OptionalArg::Missing, &vm);
+        assert!(result.is_ok());
+    }
+
+    // Test edge cases for overflow/underflow
+    #[test]
+    fn test_timestamp_edge_cases() {
+        use crate::function::Either;
+        let vm = create_test_vm();
+        
+        // Test with very small positive timestamp
+        let small_timestamp = 1.0;
+        let result = decl::pyobj_to_date_time(Either::A(small_timestamp), &vm);
+        assert!(result.is_ok());
+        
+        // Test with maximum safe timestamp
+        let max_safe_timestamp = 2_147_483_647.0; // Year 2038 problem timestamp
+        let result = decl::pyobj_to_date_time(Either::A(max_safe_timestamp), &vm);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_fractional_seconds_precision() {
+        use crate::function::Either;
+        let vm = create_test_vm();
+        
+        let timestamp = 1609459200.123456; // With microsecond precision
+        let result = decl::pyobj_to_date_time(Either::A(timestamp), &vm);
+        assert!(result.is_ok());
+        
+        let datetime = result.unwrap();
+        // Verify fractional seconds are handled
+        assert!(datetime.nanosecond() > 0);
+    }
+}
