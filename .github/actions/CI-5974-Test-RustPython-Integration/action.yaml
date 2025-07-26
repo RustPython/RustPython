@@ -34,7 +34,6 @@ inputs:
     default: '30'
     required: true
 
-# TODO: fix python version detection logic
 # TODO: add verification steps
 
 runs:
@@ -66,6 +65,24 @@ runs:
         printf "%s\n" "OVERRIDE_RUSTPYTHONPATH=${OVERRIDE_RUSTPYTHONPATH}" >> "$GITHUB_ENV"
         printf "Targeting Cpython %s on %s.\n" '${PYTHON_VERSION}' '${{ runner.os }}' ;
         printf "%s\n" "::endgroup::"
+    - name: "Check Cargo Setup"
+      id: output_cargo_args
+      shell: bash
+      run: |
+        if [[ -n $CARGO_ARGS ]]; then
+          if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$"ACTIONS_STEP_DEBUG" == "true" ]]; then printf "::debug::CARGO_ARGS already set to '%s'\n" "${CARGO_ARGS}" ; fi ;
+          # e.g., CARGO_ARGS=${CARGO_ARGS}
+        else
+          CARGO_ARGS="--release" ;
+          if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$"ACTIONS_STEP_DEBUG" == "true" ]]; then printf "::debug::CARGO_ARGS initialized to '%s'\n" "${CARGO_ARGS}" ; fi ;
+        fi ;
+        printf "%s\n" "CARGO_ARGS=${CARGO_ARGS}" >> "$GITHUB_ENV" ;
+    - name: "Prepare Artifact Name"
+      id: output_artifact_name
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: |
+        printf "%s\n" "TEST_STEP_SUMMARY=CPython-Summary-Artifact-${{ runner.os }}-${PYTHON_VERSION}.md" >> "$GITHUB_ENV"
     - id: store_old_path
       if: ${{ !cancelled() }}
       shell: bash
@@ -110,6 +127,7 @@ runs:
         # Usage
         # run_with_timeout 360 your_command_here
         cd ${{ inputs.override-working-dir }} || exit 13 ;
+        printf "%s\n\n" "# CPython ${PYTHON_VERSION} Results" > "${TEST_STEP_SUMMARY}" ;
         for reference_file in ${INPUT_FILES}; do
           if [[ ( -f "${reference_file}" ) ]] ; then
             # See https://devguide.python.org/testing/run-write-tests
@@ -124,11 +142,11 @@ runs:
               # Execute the testing command in a subshell
               time (
                 export RUSTPYTHONPATH=${OVERRIDE_RUSTPYTHONPATH:-Lib} ;
-                run_with_timeout ${SUBSHELL_TIMEOUT} cargo run --release -- ${RUSTPYTHONPATH:-Lib}/test/"${REF_FILE_NAME}" || RAW_COPY_OUTCOME='failing'
+                run_with_timeout ${SUBSHELL_TIMEOUT} cargo run $CARGO_ARGS -- ${RUSTPYTHONPATH:-Lib}/test/"${REF_FILE_NAME}" || RAW_COPY_OUTCOME='failing'
                 if [[ ( -n ${RAW_COPY_OUTCOME} ) ]] ; then
                   printf "::warning file='%s',title='test-warning':: Could not copy file %s unmodified, and pass tests %s.\n" "${reference_file}" "${reference_file}" "${CONTEXT_PHRASE}" ;
                   (
-                    run_with_timeout ${SUBSHELL_TIMEOUT} cargo run --release -- ./scripts/fix_test.py --path ${RUSTPYTHONPATH:-Lib}/test/"${REF_FILE_NAME}" || FIX_COPY_OUTCOME='unfixed' ;
+                    run_with_timeout ${SUBSHELL_TIMEOUT} cargo run $CARGO_ARGS -- ./scripts/fix_test.py --path ${RUSTPYTHONPATH:-Lib}/test/"${REF_FILE_NAME}" || FIX_COPY_OUTCOME='unfixed' ;
                   ) ;
                   if [[ ( -n ${FIX_COPY_OUTCOME} ) ]] ; then
                     printf "::error file='%s',title='testing-failure':: Could not copy and auto-fix tests %s.\n" "${reference_file}" "${CONTEXT_PHRASE}" >&2 ;
@@ -145,6 +163,22 @@ runs:
                   FIX_COPY_OUTCOME="skipped"
                   RAW_COPY_OUTCOME="compatible"
                 fi ;
+                if [ -n ${RAW_COPY_OUTCOME} ]; then
+                  if [[ "${RAW_COPY_OUTCOME}" == "compatible" ]] ; then
+                    printf "%s\n" ":ballot_box_with_check: Directly copying the test file \`${reference_file}\` is ${RAW_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                  else
+                    printf "%s\n" ":black_square_button: Directly copying the test file \`${reference_file}\` is ${RAW_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                  fi ;
+                  if [ -n ${FIX_COPY_OUTCOME} ]; then
+                    if [[ "${FIX_COPY_OUTCOME}" == "fixed" ]] ; then
+                      printf "%s\n\n" "  :ballot_box_with_check: Copying and Auto-fixing the test file \`${reference_file}\` was successful" >> "${TEST_STEP_SUMMARY}" ;
+                    else
+                      printf "%s\n\n" "  :grey_exclamation: Copying and Auto-fixing the test file \`${reference_file}\` was ${FIX_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                    fi ;  # end auto-fix
+                  else
+                    printf "\n" >> "${TEST_STEP_SUMMARY}" ;  # extra space
+                  fi ;
+                fi ; # end copy
                 printf "\n---\n%s Outcome:\n\tDirectly:%s\n\tAuto-Fix:%s\n\n" "${REF_FILE_NAME}" "${RAW_COPY_OUTCOME}" "${FIX_COPY_OUTCOME}" ;
                 printf "FIX_COPY_%s_OUTCOME=%s\n" "${REF_FILE_NAME}" "${FIX_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
                 printf "RAW_COPY_%s_OUTCOME=%s\n" "${REF_FILE_NAME}" "${RAW_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
@@ -172,11 +206,11 @@ runs:
                 # Execute the testing command in a subshell
                 time (
                   export RUSTPYTHONPATH=${OVERRIDE_RUSTPYTHONPATH:-Lib} ;
-                  run_with_timeout ${SUBSHELL_TIMEOUT} cargo run --release -- -m unittest -v test.${REF_TEST_NAME} || RAW_COPY_OUTCOME='failing'
+                  run_with_timeout ${SUBSHELL_TIMEOUT} cargo run $CARGO_ARGS -- -m unittest -v test.${REF_TEST_NAME} || RAW_COPY_OUTCOME='failing'
                   if [[ ( -n ${RAW_COPY_OUTCOME} ) ]] ; then
                     printf "::warning file='%s',title='test-warning':: Could not copy file %s unmodified, and pass tests %s.\n" "${reference_file}" "${reference_file}" "${CONTEXT_PHRASE}" ;
                     (
-                      run_with_timeout ${SUBSHELL_TIMEOUT} cargo run --release -- ./scripts/fix_test.py --path ${RUSTPYTHONPATH:-Lib}/test/"${REF_FILE_NAME}".py || FIX_COPY_OUTCOME='unfixed' ;
+                      run_with_timeout ${SUBSHELL_TIMEOUT} cargo run $CARGO_ARGS -- ./scripts/fix_test.py --path ${RUSTPYTHONPATH:-Lib}/test/"${REF_FILE_NAME}".py || FIX_COPY_OUTCOME='unfixed' ;
                     ) ;
                     if [[ ( -n ${FIX_COPY_OUTCOME} ) ]] ; then
                       printf "::error file='%s',title='testing-failure':: Could not copy and auto-fix tests for file.\n" "${reference_file}" >&2 ;
@@ -193,6 +227,22 @@ runs:
                     FIX_COPY_OUTCOME="skipped"
                     RAW_COPY_OUTCOME="compatible"
                   fi ;
+                  if [ -n ${RAW_COPY_OUTCOME} ]; then
+                    if [[ "${RAW_COPY_OUTCOME}" == "compatible" ]] ; then
+                      printf "%s\n" ":ballot_box_with_check: Directly copying the test file \`${reference_file}\` is ${RAW_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                    else
+                      printf "%s\n" ":black_square_button: Directly copying the test file \`${reference_file}\` is ${RAW_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                    fi ;
+                    if [ -n ${FIX_COPY_OUTCOME} ]; then
+                      if [[ "${FIX_COPY_OUTCOME}" == "fixed" ]] ; then
+                        printf "%s\n\n" "  :ballot_box_with_check: Copying and Auto-fixing the test file \`${reference_file}\` was successful" >> "${TEST_STEP_SUMMARY}" ;
+                      else
+                        printf "%s\n\n" "  :grey_exclamation: Copying and Auto-fixing the test file \`${reference_file}\` was ${FIX_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                      fi ;  # end auto-fix
+                    else
+                      printf "\n" >> "${TEST_STEP_SUMMARY}" ;  # extra space
+                    fi ;
+                  fi ; # end copy
                   printf "\n---\n%s Outcome:\n\tDirectly:%s\n\tAuto-Fix:%s\n\n" "${REF_TEST_NAME}" "${RAW_COPY_OUTCOME}" "${FIX_COPY_OUTCOME}" ;
                   wait ; # used to force boundry for std out read/write race in UI
                   printf "FIX_COPY_%s.py_OUTCOME=%s\n" "${REF_TEST_NAME}" "${FIX_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
@@ -209,11 +259,13 @@ runs:
                 wait ;
               else
                 printf "\nNow Skipping '%s'\n\n" "${reference_file}" ;
-                # TODO: record this skip status too
+                printf "%s\n" ":grey_exclamation: Directly copying the filepath \`${reference_file}\` was inconclusive (_testing and validation skipped_)." >> "${TEST_STEP_SUMMARY}" ;
+                printf "\n" >> "${TEST_STEP_SUMMARY}" ;  # extra space
               fi ;
             fi ; # TODO: else can not be run directly and needs to be invoked with -m unittest -v test.
           fi ;
         done
+        cat <"${TEST_STEP_SUMMARY}" >> "$GITHUB_STEP_SUMMARY" ;
         cd ${{ steps.store_old_path.outputs.initial-path }} || exit 15 ;
     - name: Post-Clean
       id: post-bootstrap

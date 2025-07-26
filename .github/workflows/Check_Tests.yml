@@ -14,14 +14,22 @@ run-name: Prototyping integration tests ${{ github.ref_name }}
 
 
 on:  # yamllint disable-line rule:truthy
+  workflow_dispatch:
   push:
-    branches: ["**"]  # matches any branch
-    tags: ["v*"]
+    paths:
+      - ".github/workflows/Check_Tests.yaml"
+      - ".github/actions/CI-5974*"
+    branches:
+      - "**"  # matches any branch
+    tags:
+      - "v*"
 
 # Declare default permissions as none.
 permissions: {}
 
 env:
+  #define cargo args like in cron
+  CARGO_ARGS: --no-default-features --features stdlib,importlib,encodings,ssl,jit
   # Define Python versions at the top level -- Expected format: X.Y (e.g., 3.13)
   PYTHON_DEFAULT: "${{ vars.PYTHON_DEFAULT || '3.13' }}"
   PYTHON_OLD_MIN: "${{ vars.PYTHON_OLD_MIN || '3.9' }}"  # For Oldest Python versions
@@ -29,6 +37,7 @@ env:
   PYTHON_EXPERIMENTAL: "${{ vars.PYTHON_EXPERIMENTAL || 'main' }}"  # For future Python versions
   # define how mush time before assuming the test has hung in seconds (parsed by sleep)
   SUBSHELL_TIMEOUT: 30
+
 
 # TODO: coordinate with @moreal - to support initial use-case See RustPython/RustPython#5974
 # TODO: coordinate with @arihant2math - to really build out the migration/Reporting logic
@@ -136,46 +145,9 @@ jobs:
             ${{ steps.fetch-cpython.outputs.files }}
           python-version: ${{ env.PYTHON_VERSION }}
           max-test-time: ${{ env.SUBSHELL_TIMEOUT }} # seconds
-        # this next part is WIP and needs to be updated with logic to summarize the results
       - name: Post-Process
         id: summarize
-        run: |
-          printf "%s\n\n%s\n\n" "# Results" "_With CPython ${PYTHON_VERSION}_" >> "$GITHUB_STEP_SUMMARY" ;
-          for TEST_FILE_PATH in ${{ steps.fetch-cpython.outputs.files }}; do
-            # unpack the variables
-            NAME_STUB=$(basename "${TEST_FILE_PATH}") ;
-            # RAW_COPY_OUTCOME
-            EVAL_VAR=$(printf "echo %s" "\${RAW_COPY_${NAME_STUB}_OUTCOME}") ;
-            if [ -n $(bash -c "${EVAL_VAR}" ;) ]; then
-              RAW_COPY_OUTCOME=$(bash -c "${EVAL_VAR}" ;)
-            fi ;
-            unset EVAL_VAR 2>/dev/null || : ;
-            # FIX_COPY_OUTCOME
-            EVAL_VAR=$(printf "echo %s" "\${FIX_COPY_${NAME_STUB}_OUTCOME}") ;
-            if [ -n $(bash -c "${EVAL_VAR}" ;) ]; then
-              FIX_COPY_OUTCOME=$(bash -c "${EVAL_VAR}" ;)
-            fi ;
-            unset EVAL_VAR 2>/dev/null || : ;
-            unset NAME_STUB 2>/dev/null || : ;
-            # Start of summary for loop
-            if [ -n ${RAW_COPY_OUTCOME} ]; then
-              if [[ "${RAW_COPY_OUTCOME}" == "compatible" ]] ; then
-                printf "%s\n" ":ballot_box_with_check: Directly copying the test file \`${TEST_FILE_PATH}\` is ${RAW_COPY_OUTCOME}" >> "$GITHUB_STEP_SUMMARY" ;
-              else
-                printf "%s\n" ":black_square_button: Directly copying the test file \`${TEST_FILE_PATH}\` is ${RAW_COPY_OUTCOME}" >> "$GITHUB_STEP_SUMMARY" ;
-              fi ;
-              if [ -n ${FIX_COPY_OUTCOME} ]; then
-                if [[ "${FIX_COPY_OUTCOME}" == "fixed" ]] ; then
-                  printf "%s\n" "  :ballot_box_with_check: Copying and Auto-fixing the test file \`${TEST_FILE_PATH}\` was successful" >> "$GITHUB_STEP_SUMMARY" ;
-                else
-                  printf "%s\n" "  :grey_exclamation: Copying and Auto-fixing the test file \`${TEST_FILE_PATH}\` was ${FIX_COPY_OUTCOME}" >> "$GITHUB_STEP_SUMMARY" ;
-                fi ;  # end auto-fix
-              fi ;
-            fi ; # end copy
-            unset RAW_COPY_OUTCOME 2>/dev/null || : ;
-            unset FIX_COPY_OUTCOME 2>/dev/null || : ;
-          done ;
-          printf "\n\n---\n" >> "$GITHUB_STEP_SUMMARY" ;
-          exit 0 ; # don't break CI on regression
         if: ${{ always() }}
         shell: bash
+        run: |
+          exit 0 ; # don't break CI on regression
