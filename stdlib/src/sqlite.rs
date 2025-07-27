@@ -2145,13 +2145,16 @@ mod _sqlite {
         }
 
         #[pymethod]
-        fn __enter__(zelf: PyRef<Self>) -> PyRef<Self> {
-            zelf
+        fn __enter__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+            let _ = zelf.inner(vm)?;
+            Ok(zelf)
         }
 
         #[pymethod]
-        fn __exit__(&self, _args: FuncArgs) {
-            self.close()
+        fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let _ = self.inner(vm)?;
+            self.close();
+            Ok(())
         }
 
         fn inner(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<'_, BlobInner>> {

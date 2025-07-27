@@ -1452,8 +1452,6 @@ class BlobTests(unittest.TestCase):
                 raise DummyException("reraised")
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_blob_closed(self):
         with memory_database() as cx:
             cx.execute("create table test(b blob)")
