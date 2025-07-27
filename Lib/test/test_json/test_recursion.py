@@ -1,6 +1,8 @@
 from test import support
 from test.test_json import PyTest, CTest
 
+import unittest # XXX: RUSTPYTHON; importing to be able to skip tests
+
 
 class JSONTestObject:
     pass
@@ -65,7 +67,8 @@ class TestRecursion:
         else:
             self.fail("didn't raise ValueError on default recursion")
 
-
+    # TODO: RUSTPYTHON
+    @unittest.skip("TODO: RUSTPYTHON; crashes")
     def test_highly_nested_objects_decoding(self):
         # test that loading highly-nested objects doesn't segfault when C
         # accelerations are used. See #12017

@@ -16,6 +16,7 @@ from test.support import import_helper
 
 from test.pickletester import AbstractHookTests
 from test.pickletester import AbstractUnpickleTests
+from test.pickletester import AbstractPicklingErrorTests
 from test.pickletester import AbstractPickleTests
 from test.pickletester import AbstractPickleModuleTests
 from test.pickletester import AbstractPersistentPicklerTests
@@ -40,15 +41,15 @@ class PyPickleTests(AbstractPickleModuleTests, unittest.TestCase):
     Pickler = pickle._Pickler
     Unpickler = pickle._Unpickler
 
-    # TODO: RUSTPYTHON, AttributeError: module 'pickle' has no attribute 'PickleBuffer'
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    def test_dump_load_oob_buffers(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_dump_load_oob_buffers() # TODO: RUSTPYTHON, remove when this passes
+    def test_dump_load_oob_buffers(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_dump_load_oob_buffers()
 
-    # TODO: RUSTPYTHON, AttributeError: module 'pickle' has no attribute 'PickleBuffer'
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    def test_dumps_loads_oob_buffers(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_dumps_loads_oob_buffers() # TODO: RUSTPYTHON, remove when this passes
+    def test_dumps_loads_oob_buffers(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_dumps_loads_oob_buffers()
 
 
 class PyUnpicklerTests(AbstractUnpickleTests, unittest.TestCase):
@@ -59,71 +60,68 @@ class PyUnpicklerTests(AbstractUnpickleTests, unittest.TestCase):
                         AttributeError, ValueError,
                         struct.error, IndexError, ImportError)
 
-    # TODO: RUSTPYTHON, AssertionError: ValueError not raised
-    @unittest.expectedFailure
-    def test_badly_escaped_string(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_badly_escaped_string() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, AssertionError
-    @unittest.expectedFailure
-    def test_correctly_quoted_string(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_correctly_quoted_string() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, AssertionError
-    @unittest.expectedFailure
-    def test_load_python2_str_as_bytes(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_load_python2_str_as_bytes() # TODO: RUSTPYTHON, remove when this passes
-
     def loads(self, buf, **kwds):
         f = io.BytesIO(buf)
         u = self.unpickler(f, **kwds)
         return u.load()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_badly_escaped_string(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_badly_escaped_string()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_correctly_quoted_string(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_correctly_quoted_string()
+    
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_load_python2_str_as_bytes(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_load_python2_str_as_bytes()
+
+
+class PyPicklingErrorTests(AbstractPicklingErrorTests, unittest.TestCase):
+
+    pickler = pickle._Pickler
+
+    def dumps(self, arg, proto=None, **kwargs):
+        f = io.BytesIO()
+        p = self.pickler(f, proto, **kwargs)
+        p.dump(arg)
+        f.seek(0)
+        return bytes(f.read())
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_picklebuffer_error(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_picklebuffer_error()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_reduce_ex_None(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_reduce_ex_None()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bad_getattr(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_bad_getattr()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_buffer_callback_error(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_buffer_callback_error()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_non_continuous_buffer(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_non_continuous_buffer()
 
 
 class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
 
     pickler = pickle._Pickler
     unpickler = pickle._Unpickler
-
-    # TODO: RUSTPYTHON, AttributeError: module 'pickle' has no attribute 'PickleBuffer'
-    @unittest.expectedFailure
-    def test_buffer_callback_error(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_buffer_callback_error() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, AttributeError: module 'pickle' has no attribute 'PickleBuffer'
-    @unittest.expectedFailure
-    def test_buffers_error(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_buffers_error() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, AssertionError
-    @unittest.expectedFailure
-    def test_complex_newobj_ex(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_complex_newobj_ex() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, TypeError: cannot pickle 'method' object
-    @unittest.expectedFailure
-    def test_in_band_buffers(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_in_band_buffers() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, AttributeError: module 'pickle' has no attribute 'PickleBuffer'
-    @unittest.expectedFailure
-    def test_oob_buffers(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_oob_buffers() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, AttributeError: module 'pickle' has no attribute 'PickleBuffer'
-    @unittest.expectedFailure
-    def test_oob_buffers_writable_to_readonly(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_oob_buffers_writable_to_readonly() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, TypeError: Expected type 'bytes', not 'bytearray'
-    @unittest.expectedFailure
-    def test_optional_frames(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_optional_frames() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, AttributeError: module 'pickle' has no attribute 'PickleBuffer'
-    @unittest.expectedFailure
-    def test_picklebuffer_error(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_picklebuffer_error() # TODO: RUSTPYTHON, remove when this passes
 
     def dumps(self, arg, proto=None, **kwargs):
         f = io.BytesIO()
@@ -137,6 +135,121 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
         u = self.unpickler(f, **kwds)
         return u.load()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_c_methods(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_c_methods()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_complex_newobj_ex(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_complex_newobj_ex()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_py_methods(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_py_methods()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_buffers_error(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_buffers_error()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_builtin_functions(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_builtin_functions()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bytearray_memoization(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_bytearray_memoization()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bytes_memoization(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_bytes_memoization()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_in_band_buffers(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_in_band_buffers()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_oob_buffers(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_oob_buffers()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_oob_buffers_writable_to_readonly(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_oob_buffers_writable_to_readonly()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_optional_frames(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_optional_frames()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_pickle_setstate_None(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_pickle_setstate_None()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_recursive_nested_names2(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_recursive_nested_names2()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_buffers_error(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_buffers_error()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_builtin_functions(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_builtin_functions()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bytearray_memoization(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_bytearray_memoization()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bytes_memoization(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_bytes_memoization()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_in_band_buffers(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_in_band_buffers()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_oob_buffers(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_oob_buffers()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_oob_buffers_writable_to_readonly(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_oob_buffers_writable_to_readonly()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_optional_frames(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_optional_frames()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_pickle_setstate_None(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_pickle_setstate_None()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_recursive_nested_names2(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_recursive_nested_names2()
+
 
 class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
                           BigmemPickleTests, unittest.TestCase):
@@ -146,61 +259,6 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
                         AttributeError, ValueError,
                         struct.error, IndexError, ImportError)
 
-    # TODO: RUSTPYTHON, AssertionError: ValueError not raised
-    @unittest.expectedFailure
-    def test_badly_escaped_string(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_badly_escaped_string() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, AttributeError: module 'pickle' has no attribute 'PickleBuffer'
-    @unittest.expectedFailure
-    def test_buffer_callback_error(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_buffer_callback_error() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, AttributeError: module 'pickle' has no attribute 'PickleBuffer'
-    @unittest.expectedFailure
-    def test_buffers_error(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_buffers_error() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, AssertionError
-    @unittest.expectedFailure
-    def test_complex_newobj_ex(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_complex_newobj_ex() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, AssertionError
-    @unittest.expectedFailure
-    def test_correctly_quoted_string(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_correctly_quoted_string() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, TypeError: cannot pickle 'method' object
-    @unittest.expectedFailure
-    def test_in_band_buffers(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_in_band_buffers() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, AssertionError
-    @unittest.expectedFailure
-    def test_load_python2_str_as_bytes(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_load_python2_str_as_bytes() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, AttributeError: module 'pickle' has no attribute 'PickleBuffer'
-    @unittest.expectedFailure
-    def test_oob_buffers(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_oob_buffers() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, AttributeError: module 'pickle' has no attribute 'PickleBuffer'
-    @unittest.expectedFailure
-    def test_oob_buffers_writable_to_readonly(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_oob_buffers_writable_to_readonly() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, TypeError: Expected type 'bytes', not 'bytearray'
-    @unittest.expectedFailure
-    def test_optional_frames(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_optional_frames() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, AttributeError: module 'pickle' has no attribute 'PickleBuffer'
-    @unittest.expectedFailure
-    def test_picklebuffer_error(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_picklebuffer_error() # TODO: RUSTPYTHON, remove when this passes
-
     def dumps(self, arg, protocol=None, **kwargs):
         return pickle.dumps(arg, protocol, **kwargs)
 
@@ -208,7 +266,88 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
         return pickle.loads(buf, **kwds)
 
     test_framed_write_sizes_with_delayed_writer = None
+    test_find_class = None
+    test_custom_find_class = None
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_c_methods(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_c_methods()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_complex_newobj_ex(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_complex_newobj_ex()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_badly_escaped_string(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_badly_escaped_string()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_correctly_quoted_string(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_correctly_quoted_string()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_load_python2_str_as_bytes(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_load_python2_str_as_bytes()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_py_methods(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_py_methods()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_recursive_nested_names2(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_recursive_nested_names2()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_oob_buffers_writable_to_readonly(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_oob_buffers_writable_to_readonly()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_buffers_error(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_buffers_error()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_builtin_functions(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_builtin_functions()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bytearray_memoization(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_bytearray_memoization()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_bytes_memoization(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_bytes_memoization()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_in_band_buffers(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_in_band_buffers()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_oob_buffers(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_oob_buffers()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_optional_frames(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_optional_frames()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_pickle_setstate_None(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_pickle_setstate_None()
 
 class PersistentPicklerUnpicklerMixin(object):
 
@@ -242,6 +381,7 @@ class PyIdPersPicklerTests(AbstractIdentityPersistentPicklerTests,
 
     pickler = pickle._Pickler
     unpickler = pickle._Unpickler
+    persistent_load_error = pickle.UnpicklingError
 
     @support.cpython_only
     def test_pickler_reference_cycle(self):
@@ -296,7 +436,6 @@ class PyIdPersPicklerTests(AbstractIdentityPersistentPicklerTests,
         support.gc_collect()
         self.assertIsNone(table_ref())
 
-
     @support.cpython_only
     def test_unpickler_reference_cycle(self):
         def check(Unpickler):
@@ -326,11 +465,127 @@ class PyIdPersPicklerTests(AbstractIdentityPersistentPicklerTests,
                 return pid
         check(PersUnpickler)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_pickler_super(self):
+        class PersPickler(self.pickler):
+            def persistent_id(subself, obj):
+                called.append(obj)
+                self.assertIsNone(super().persistent_id(obj))
+                return obj
+
+        for proto in range(pickle.HIGHEST_PROTOCOL + 1):
+            f = io.BytesIO()
+            pickler = PersPickler(f, proto)
+            called = []
+            pickler.dump('abc')
+            self.assertEqual(called, ['abc'])
+            self.assertEqual(self.loads(f.getvalue()), 'abc')
+
+    def test_unpickler_super(self):
+        class PersUnpickler(self.unpickler):
+            def persistent_load(subself, pid):
+                called.append(pid)
+                with self.assertRaises(self.persistent_load_error):
+                    super().persistent_load(pid)
+                return pid
+
+        for proto in range(pickle.HIGHEST_PROTOCOL + 1):
+            unpickler = PersUnpickler(io.BytesIO(self.dumps('abc', proto)))
+            called = []
+            self.assertEqual(unpickler.load(), 'abc')
+            self.assertEqual(called, ['abc'])
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_pickler_instance_attribute(self):
+        def persistent_id(obj):
+            called.append(obj)
+            return obj
+
+        for proto in range(pickle.HIGHEST_PROTOCOL + 1):
+            f = io.BytesIO()
+            pickler = self.pickler(f, proto)
+            called = []
+            old_persistent_id = pickler.persistent_id
+            pickler.persistent_id = persistent_id
+            self.assertEqual(pickler.persistent_id, persistent_id)
+            pickler.dump('abc')
+            self.assertEqual(called, ['abc'])
+            self.assertEqual(self.loads(f.getvalue()), 'abc')
+            del pickler.persistent_id
+            self.assertEqual(pickler.persistent_id, old_persistent_id)
+
+    def test_unpickler_instance_attribute(self):
+        def persistent_load(pid):
+            called.append(pid)
+            return pid
+
+        for proto in range(pickle.HIGHEST_PROTOCOL + 1):
+            unpickler = self.unpickler(io.BytesIO(self.dumps('abc', proto)))
+            called = []
+            old_persistent_load = unpickler.persistent_load
+            unpickler.persistent_load = persistent_load
+            self.assertEqual(unpickler.persistent_load, persistent_load)
+            self.assertEqual(unpickler.load(), 'abc')
+            self.assertEqual(called, ['abc'])
+            del unpickler.persistent_load
+            self.assertEqual(unpickler.persistent_load, old_persistent_load)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_pickler_super_instance_attribute(self):
+        class PersPickler(self.pickler):
+            def persistent_id(subself, obj):
+                raise AssertionError('should never be called')
+            def _persistent_id(subself, obj):
+                called.append(obj)
+                self.assertIsNone(super().persistent_id(obj))
+                return obj
+
+        for proto in range(pickle.HIGHEST_PROTOCOL + 1):
+            f = io.BytesIO()
+            pickler = PersPickler(f, proto)
+            called = []
+            old_persistent_id = pickler.persistent_id
+            pickler.persistent_id = pickler._persistent_id
+            self.assertEqual(pickler.persistent_id, pickler._persistent_id)
+            pickler.dump('abc')
+            self.assertEqual(called, ['abc'])
+            self.assertEqual(self.loads(f.getvalue()), 'abc')
+            del pickler.persistent_id
+            self.assertEqual(pickler.persistent_id, old_persistent_id)
+
+    def test_unpickler_super_instance_attribute(self):
+        class PersUnpickler(self.unpickler):
+            def persistent_load(subself, pid):
+                raise AssertionError('should never be called')
+            def _persistent_load(subself, pid):
+                called.append(pid)
+                with self.assertRaises(self.persistent_load_error):
+                    super().persistent_load(pid)
+                return pid
+
+        for proto in range(pickle.HIGHEST_PROTOCOL + 1):
+            unpickler = PersUnpickler(io.BytesIO(self.dumps('abc', proto)))
+            called = []
+            old_persistent_load = unpickler.persistent_load
+            unpickler.persistent_load = unpickler._persistent_load
+            self.assertEqual(unpickler.persistent_load, unpickler._persistent_load)
+            self.assertEqual(unpickler.load(), 'abc')
+            self.assertEqual(called, ['abc'])
+            del unpickler.persistent_load
+            self.assertEqual(unpickler.persistent_load, old_persistent_load)
 
 class PyPicklerUnpicklerObjectTests(AbstractPicklerUnpicklerObjectTests, unittest.TestCase):
 
     pickler_class = pickle._Pickler
     unpickler_class = pickle._Unpickler
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_pickle_invalid_reducer_override(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_pickle_invalid_reducer_override()
 
 
 class PyDispatchTableTests(AbstractDispatchTableTests, unittest.TestCase):
@@ -340,6 +595,11 @@ class PyDispatchTableTests(AbstractDispatchTableTests, unittest.TestCase):
     def get_dispatch_table(self):
         return pickle.dispatch_table.copy()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_dispatch_table_None_item(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_dispatch_table_None_item()
+
 
 class PyChainDispatchTableTests(AbstractDispatchTableTests, unittest.TestCase):
 
@@ -347,6 +607,11 @@ class PyChainDispatchTableTests(AbstractDispatchTableTests, unittest.TestCase):
 
     def get_dispatch_table(self):
         return collections.ChainMap({}, pickle.dispatch_table)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_dispatch_table_None_item(self): # TODO(RUSTPYTHON): Remove this test when it passes
+        return super().test_dispatch_table_None_item()
 
 
 class PyPicklerHookTests(AbstractHookTests, unittest.TestCase):
@@ -365,6 +630,9 @@ if has_c_implementation:
         bad_stack_errors = (pickle.UnpicklingError,)
         truncated_errors = (pickle.UnpicklingError,)
 
+    class CPicklingErrorTests(PyPicklingErrorTests):
+        pickler = _pickle.Pickler
+
     class CPicklerTests(PyPicklerTests):
         pickler = _pickle.Pickler
         unpickler = _pickle.Unpickler
@@ -376,6 +644,7 @@ if has_c_implementation:
     class CIdPersPicklerTests(PyIdPersPicklerTests):
         pickler = _pickle.Pickler
         unpickler = _pickle.Unpickler
+        persistent_load_error = _pickle.UnpicklingError
 
     class CDumpPickle_LoadPickle(PyPicklerTests):
         pickler = _pickle.Pickler
@@ -499,7 +768,9 @@ if has_c_implementation:
             check_unpickler(recurse(1), 32, 20)
             check_unpickler(recurse(20), 32, 20)
             check_unpickler(recurse(50), 64, 60)
-            check_unpickler(recurse(100), 128, 140)
+            if not (support.is_wasi and support.Py_DEBUG):
+                # stack depth too shallow in pydebug WASI.
+                check_unpickler(recurse(100), 128, 140)
 
             u = unpickler(io.BytesIO(pickle.dumps('a', 0)),
                           encoding='ASCII', errors='strict')
@@ -642,6 +913,8 @@ class CompatPickleTests(unittest.TestCase):
                 module, name = mapping(module, name)
                 self.assertEqual((module, name), (module3, name3))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exceptions(self):
         self.assertEqual(mapping('exceptions', 'StandardError'),
                          ('builtins', 'Exception'))
@@ -659,13 +932,12 @@ class CompatPickleTests(unittest.TestCase):
                 if exc in (BlockingIOError,
                            ResourceWarning,
                            StopAsyncIteration,
+                           PythonFinalizationError,
                            RecursionError,
                            EncodingWarning,
                            BaseExceptionGroup,
-                           ExceptionGroup):
-                    continue
-                # TODO: RUSTPYTHON: fix name mapping for _IncompleteInputError
-                if exc is _IncompleteInputError:
+                           ExceptionGroup,
+                           _IncompleteInputError):
                     continue
                 if exc is not OSError and issubclass(exc, OSError):
                     self.assertEqual(reverse_mapping('builtins', name),
@@ -692,9 +964,8 @@ class CompatPickleTests(unittest.TestCase):
                 self.assertEqual(mapping('multiprocessing', name),
                                  ('multiprocessing.context', name))
 
-
 def load_tests(loader, tests, pattern):
-    tests.addTest(doctest.DocTestSuite())
+    tests.addTest(doctest.DocTestSuite(pickle))
     return tests
 
 
