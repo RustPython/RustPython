@@ -14,15 +14,9 @@ run-name: Prototyping integration tests ${{ github.ref_name }}
 
 
 on:  # yamllint disable-line rule:truthy
-  workflow_dispatch:
   push:
-    paths:
-      - ".github/workflows/Check_Tests.yaml"
-      - ".github/actions/CI-5974*"
-    branches:
-      - "**"  # matches any branch
-    tags:
-      - "v*"
+    branches: ["**"]  # matches any branch
+    tags: ["v*"]
 
 # Declare default permissions as none.
 permissions: {}
