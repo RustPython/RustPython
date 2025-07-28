@@ -859,10 +859,13 @@ impl Representable for PyBoundMethod {
                 vm.get_attribute_opt(zelf.function.clone(), "__name__")?
             };
         let func_name: Option<PyStrRef> = func_name.and_then(|o| o.downcast().ok());
+        let formatted_func_name = match func_name {
+            Some(name) => name.to_string(),
+            None => "?".to_string(),
+        };
+        let object_repr = zelf.object.repr(vm)?;
         Ok(format!(
-            "<bound method {} of {}>",
-            func_name.as_ref().map_or("?", |s| s.as_str()),
-            &zelf.object.repr(vm)?.as_str(),
+            "<bound method {formatted_func_name} of {object_repr}>",
         ))
     }
 }
