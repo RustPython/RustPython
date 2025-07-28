@@ -108,7 +108,7 @@ pub fn get_module_inits() -> StdlibMap {
         // compiler related modules:
         #[cfg(feature = "compiler")]
         {
-            "symtable" => symtable::make_module,
+            "_symtable" => symtable::make_module,
         }
         #[cfg(any(unix, target_os = "wasi"))]
         {
