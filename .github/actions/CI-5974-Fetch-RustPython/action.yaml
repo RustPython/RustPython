@@ -75,7 +75,7 @@ runs:
         cd ${PWD:-.} ;
         export OLD_PWD=$(pwd) ;  # only local use for bootstrap
         printf "initial-path=%s\n" "${OLD_PWD}" >> "$GITHUB_OUTPUT" ;
-        if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$"ACTIONS_STEP_DEBUG" == "true" ]]; then
+        if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$ACTIONS_STEP_DEBUG" == "true" ]]; then
           printf "::debug::Return directory now set to '%s'\n" "${OLD_PWD}" ;
           printf "::debug::Working directory is set to '%s'\n" '${{ inputs.override-path }}' ;
         fi ;
@@ -97,11 +97,11 @@ runs:
       shell: bash
       run: |
         if [[ -n $CARGO_ARGS ]]; then
-          if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$"ACTIONS_STEP_DEBUG" == "true" ]]; then printf "::debug::CARGO_ARGS already set to '%s'\n" "${CARGO_ARGS}" ; fi ;
+          if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$ACTIONS_STEP_DEBUG" == "true" ]]; then printf "::debug::CARGO_ARGS already set to '%s'\n" "${CARGO_ARGS}" ; fi ;
           # e.g., CARGO_ARGS=${CARGO_ARGS}
         else
           CARGO_ARGS="--release" ;
-          if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$"ACTIONS_STEP_DEBUG" == "true" ]]; then printf "::debug::CARGO_ARGS initialized to '%s'\n" "${CARGO_ARGS}" ; fi ;
+          if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$ACTIONS_STEP_DEBUG" == "true" ]]; then printf "::debug::CARGO_ARGS initialized to '%s'\n" "${CARGO_ARGS}" ; fi ;
         fi ;
         printf "%s\n" "CARGO_ARGS=${CARGO_ARGS}" >> "$GITHUB_ENV" ;
     - name: Pre-Test Build check

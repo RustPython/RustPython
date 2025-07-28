@@ -70,11 +70,11 @@ runs:
       shell: bash
       run: |
         if [[ -n $CARGO_ARGS ]]; then
-          if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$"ACTIONS_STEP_DEBUG" == "true" ]]; then printf "::debug::CARGO_ARGS already set to '%s'\n" "${CARGO_ARGS}" ; fi ;
+          if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$ACTIONS_STEP_DEBUG" == "true" ]]; then printf "::debug::CARGO_ARGS already set to '%s'\n" "${CARGO_ARGS}" ; fi ;
           # e.g., CARGO_ARGS=${CARGO_ARGS}
         else
           CARGO_ARGS="--release" ;
-          if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$"ACTIONS_STEP_DEBUG" == "true" ]]; then printf "::debug::CARGO_ARGS initialized to '%s'\n" "${CARGO_ARGS}" ; fi ;
+          if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$ACTIONS_STEP_DEBUG" == "true" ]]; then printf "::debug::CARGO_ARGS initialized to '%s'\n" "${CARGO_ARGS}" ; fi ;
         fi ;
         printf "%s\n" "CARGO_ARGS=${CARGO_ARGS}" >> "$GITHUB_ENV" ;
     - name: "Prepare Artifact Name"
