@@ -112,13 +112,13 @@ runs:
       if: ${{ !cancelled() }}
       run: |
         cd ${{ inputs.override-path }} || exit 13 ;
-        printf "::group::%s\n" "Cargo" >> "$GITHUB_ENV" ;
+        printf "::group::%s\n" "Cargo" ;
         if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$"ACTIONS_STEP_DEBUG" == "true" ]]; then printf "::debug::Now Building '%s'\n" "RustPython" ; fi ;
           # Execute the testing command in a subshell
           (
             RUSTPYTHONPATH=${{ inputs.override-rustpython-path }} cargo run $CARGO_ARGS -- --version || printf "::error title='build failure':: Could not pass build step for version check on ${OS}.\n" ;
           ) ;
-        printf "::endgroup::%s\n" >> "$GITHUB_ENV" ;
+        printf "::endgroup::%s\n" ;
         cd ${{ steps.store_old_path.outputs.initial-path }} || exit 15 ;
     - id: output_rpython_path
       shell: bash
