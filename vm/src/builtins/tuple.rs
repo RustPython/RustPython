@@ -193,6 +193,7 @@ impl<R> PyTuple<R> {
 }
 
 impl PyTuple<PyObjectRef> {
+    // Do not deprecate this. empty_tuple must be checked.
     pub fn new_ref(elements: Vec<PyObjectRef>, ctx: &Context) -> PyRef<Self> {
         if elements.is_empty() {
             ctx.empty_tuple.clone()

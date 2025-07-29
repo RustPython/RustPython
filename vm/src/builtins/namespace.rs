@@ -26,16 +26,6 @@ impl PyPayload for PyNamespace {
 
 impl DefaultConstructor for PyNamespace {}
 
-impl PyNamespace {
-    pub fn new_ref(ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(
-            Self {},
-            ctx.types.namespace_type.to_owned(),
-            Some(ctx.new_dict()),
-        )
-    }
-}
-
 #[pyclass(
     flags(BASETYPE, HAS_DICT),
     with(Constructor, Initializer, Comparable, Representable)

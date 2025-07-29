@@ -99,8 +99,9 @@ impl Constructor for PyBytes {
 }
 
 impl PyBytes {
+    #[deprecated(note = "use PyBytes::from(...).into_ref() instead")]
     pub fn new_ref(data: Vec<u8>, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(Self::from(data), ctx.types.bytes_type.to_owned(), None)
+        Self::from(data).into_ref(ctx)
     }
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {

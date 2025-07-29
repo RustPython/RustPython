@@ -418,9 +418,10 @@ impl PyStr {
         unsafe { AsciiString::from_ascii_unchecked(bytes) }.into()
     }
 
+    #[deprecated(note = "use PyStr::from(...).into_ref() instead")]
     pub fn new_ref(zelf: impl Into<Self>, ctx: &Context) -> PyRef<Self> {
         let zelf = zelf.into();
-        PyRef::new_ref(zelf, ctx.types.str_type.to_owned(), None)
+        zelf.into_ref(ctx)
     }
 
     fn new_substr(&self, s: Wtf8Buf) -> Self {

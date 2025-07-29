@@ -14,7 +14,7 @@ mod decl {
         common::wtf8::Wtf8,
         convert::ToPyObject,
         function::{ArgBytesLike, OptionalArg},
-        object::AsObject,
+        object::{AsObject, PyPayload},
         protocol::PyBuffer,
     };
     use malachite_bigint::BigInt;
@@ -186,7 +186,7 @@ mod decl {
             it: impl Iterator<Item = Self::Value>,
         ) -> Result<Self::Value, marshal::MarshalError> {
             let vm = self.0;
-            let set = PySet::new_ref(&vm.ctx);
+            let set = PySet::default().into_ref(&vm.ctx);
             for elem in it {
                 set.add(elem, vm).unwrap()
             }

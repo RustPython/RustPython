@@ -773,12 +773,9 @@ impl PyBoundMethod {
         Self { object, function }
     }
 
+    #[deprecated(note = "Use `Self::new(object, function).into_ref(ctx)` instead")]
     pub fn new_ref(object: PyObjectRef, function: PyObjectRef, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(
-            Self::new(object, function),
-            ctx.types.bound_method_type.to_owned(),
-            None,
-        )
+        Self::new(object, function).into_ref(ctx)
     }
 }
 
