@@ -59,16 +59,16 @@ impl PyUnion {
                     .get_attribute_opt(obj.clone(), identifier!(vm, __args__))?
                     .is_some()
             {
-                return Ok(obj.repr(vm)?.as_str().to_string());
+                return Ok(obj.repr(vm)?.to_string());
             }
 
             match (
                 vm.get_attribute_opt(obj.clone(), identifier!(vm, __qualname__))?
-                    .and_then(|o| o.downcast_ref::<PyStr>().map(|n| n.as_str().to_string())),
+                    .and_then(|o| o.downcast_ref::<PyStr>().map(|n| n.to_string())),
                 vm.get_attribute_opt(obj.clone(), identifier!(vm, __module__))?
-                    .and_then(|o| o.downcast_ref::<PyStr>().map(|m| m.as_str().to_string())),
+                    .and_then(|o| o.downcast_ref::<PyStr>().map(|m| m.to_string())),
             ) {
-                (None, _) | (_, None) => Ok(obj.repr(vm)?.as_str().to_string()),
+                (None, _) | (_, None) => Ok(obj.repr(vm)?.to_string()),
                 (Some(qualname), Some(module)) => Ok(if module == "builtins" {
                     qualname
                 } else {

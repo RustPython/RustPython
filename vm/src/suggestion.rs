@@ -26,7 +26,7 @@ pub fn calculate_suggestions<'a>(
 
     for item in dir_iter {
         let item_name = item.downcast_ref::<PyStr>()?;
-        if name.as_str() == item_name.as_str() {
+        if name.as_bytes() == item_name.as_bytes() {
             continue;
         }
         // No more than 1/3 of the characters should need changed
@@ -35,7 +35,7 @@ pub fn calculate_suggestions<'a>(
             suggestion_distance - 1,
         );
         let current_distance =
-            levenshtein_distance(name.as_str(), item_name.as_str(), max_distance);
+            levenshtein_distance(name.as_bytes(), item_name.as_bytes(), max_distance);
         if current_distance > max_distance {
             continue;
         }
