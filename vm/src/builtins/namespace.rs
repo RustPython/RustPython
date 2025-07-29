@@ -61,7 +61,7 @@ impl Initializer for PyNamespace {
         if !args.args.is_empty() {
             return Err(vm.new_type_error("no positional arguments expected"));
         }
-        for (name, value) in args.kwargs.into_iter() {
+        for (name, value) in args.kwargs {
             let name = vm.ctx.new_str(name);
             zelf.as_object().set_attr(&name, value, vm)?;
         }

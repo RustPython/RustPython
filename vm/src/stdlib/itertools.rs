@@ -1381,7 +1381,7 @@ mod decl {
             }
 
             let mut pools: Vec<PyObjectRef> = Vec::new();
-            for element in zelf.pools.iter() {
+            for element in &zelf.pools {
                 pools.push(element.clone().into_pytuple(vm).into());
             }
 

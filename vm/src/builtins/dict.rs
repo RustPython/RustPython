@@ -279,7 +279,7 @@ impl PyDict {
         if let OptionalArg::Present(dict_obj) = dict_obj {
             self.merge_object(dict_obj, vm)?;
         }
-        for (key, value) in kwargs.into_iter() {
+        for (key, value) in kwargs {
             self.entries.insert(vm, &key, value)?;
         }
         Ok(())

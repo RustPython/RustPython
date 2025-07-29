@@ -26,8 +26,8 @@ impl FromStr for InstallPipMode {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "ensurepip" => Ok(InstallPipMode::Ensurepip),
-            "get-pip" => Ok(InstallPipMode::GetPip),
+            "ensurepip" => Ok(Self::Ensurepip),
+            "get-pip" => Ok(Self::GetPip),
             _ => Err("--install-pip takes ensurepip or get-pip as first argument"),
         }
     }

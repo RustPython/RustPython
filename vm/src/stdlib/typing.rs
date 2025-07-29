@@ -165,7 +165,7 @@ pub(crate) mod decl {
                 vm.ctx.empty_tuple.clone()
             };
 
-            let ta = TypeAliasType::new(name, type_params, value);
+            let ta = Self::new(name, type_params, value);
             ta.into_ref_with_type(vm, cls).map(Into::into)
         }
     }

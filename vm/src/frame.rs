@@ -341,7 +341,7 @@ impl ExecutingFrame<'_> {
     }
 
     #[inline(always)]
-    fn lasti(&self) -> u32 {
+    const fn lasti(&self) -> u32 {
         #[cfg(feature = "threading")]
         {
             self.state.lasti
@@ -1313,7 +1313,7 @@ impl ExecutingFrame<'_> {
                 // push a tuple of extracted attributes.
                 if subject.is_instance(cls.as_ref(), vm)? {
                     let mut extracted = vec![];
-                    for name in names.iter() {
+                    for name in names {
                         let name_str = name.downcast_ref::<PyStr>().unwrap();
                         let value = subject.get_attr(name_str, vm)?;
                         extracted.push(value);
@@ -2074,7 +2074,7 @@ impl ExecutingFrame<'_> {
             bytecode::TestOperator::NotIn => self._not_in(vm, &a, &b)?,
             bytecode::TestOperator::ExceptionMatch => {
                 if let Some(tuple_of_exceptions) = b.downcast_ref::<PyTuple>() {
-                    for exception in tuple_of_exceptions.iter() {
+                    for exception in tuple_of_exceptions {
                         if !exception
                             .is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)?
                         {

@@ -91,17 +91,17 @@ impl CodePoint {
     ///
     /// `value` must be less than or equal to 0x10FFFF.
     #[inline]
-    pub const unsafe fn from_u32_unchecked(value: u32) -> CodePoint {
-        CodePoint { value }
+    pub const unsafe fn from_u32_unchecked(value: u32) -> Self {
+        Self { value }
     }
 
     /// Creates a new `CodePoint` if the value is a valid code point.
     ///
     /// Returns `None` if `value` is above 0x10FFFF.
     #[inline]
-    pub const fn from_u32(value: u32) -> Option<CodePoint> {
+    pub const fn from_u32(value: u32) -> Option<Self> {
         match value {
-            0..=0x10FFFF => Some(CodePoint { value }),
+            0..=0x10FFFF => Some(Self { value }),
             _ => None,
         }
     }
@@ -110,8 +110,8 @@ impl CodePoint {
     ///
     /// Since all Unicode scalar values are code points, this always succeeds.
     #[inline]
-    pub const fn from_char(value: char) -> CodePoint {
-        CodePoint {
+    pub const fn from_char(value: char) -> Self {
+        Self {
             value: value as u32,
         }
     }
@@ -212,6 +212,7 @@ impl PartialEq<char> for CodePoint {
         self.to_u32() == *other as u32
     }
 }
+
 impl PartialEq<CodePoint> for char {
     fn eq(&self, other: &CodePoint) -> bool {
         *self as u32 == other.to_u32()
@@ -242,7 +243,7 @@ pub struct Wtf8Buf {
 impl ops::Deref for Wtf8Buf {
     type Target = Wtf8;
 
-    fn deref(&self) -> &Wtf8 {
+    fn deref(&self) -> &Self::Target {
         self.as_slice()
     }
 }
@@ -283,14 +284,14 @@ impl fmt::Display for Wtf8Buf {
 impl Wtf8Buf {
     /// Creates a new, empty WTF-8 string.
     #[inline]
-    pub fn new() -> Wtf8Buf {
-        Wtf8Buf::default()
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Creates a new, empty WTF-8 string with pre-allocated capacity for `capacity` bytes.
     #[inline]
-    pub fn with_capacity(capacity: usize) -> Wtf8Buf {
-        Wtf8Buf {
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
             bytes: Vec::with_capacity(capacity),
         }
     }
@@ -301,8 +302,8 @@ impl Wtf8Buf {
     ///
     /// `value` must contain valid WTF-8.
     #[inline]
-    pub const unsafe fn from_bytes_unchecked(value: Vec<u8>) -> Wtf8Buf {
-        Wtf8Buf { bytes: value }
+    pub const unsafe fn from_bytes_unchecked(value: Vec<u8>) -> Self {
+        Self { bytes: value }
     }
 
     /// Create a WTF-8 string from a WTF-8 byte vec.
@@ -319,8 +320,8 @@ impl Wtf8Buf {
     ///
     /// Since WTF-8 is a superset of UTF-8, this always succeeds.
     #[inline]
-    pub fn from_string(string: String) -> Wtf8Buf {
-        Wtf8Buf {
+    pub fn from_string(string: String) -> Self {
+        Self {
             bytes: string.into_bytes(),
         }
     }
@@ -333,8 +334,8 @@ impl Wtf8Buf {
     ///
     /// This is lossless: calling `.encode_wide()` on the resulting string
     /// will always return the original code units.
-    pub fn from_wide(v: &[u16]) -> Wtf8Buf {
-        let mut string = Wtf8Buf::with_capacity(v.len());
+    pub fn from_wide(v: &[u16]) -> Self {
+        let mut string = Self::with_capacity(v.len());
         for item in char::decode_utf16(v.iter().cloned()) {
             match item {
                 Ok(ch) => string.push_char(ch),
@@ -509,7 +510,7 @@ impl Wtf8Buf {
     /// If the contents are not well-formed UTF-8
     /// (that is, if the string contains surrogates),
     /// the original WTF-8 string is returned instead.
-    pub fn into_string(self) -> Result<String, Wtf8Buf> {
+    pub fn into_string(self) -> Result<String, Self> {
         if self.is_utf8() {
             Ok(unsafe { String::from_utf8_unchecked(self.bytes) })
         } else {
@@ -541,9 +542,9 @@ impl Wtf8Buf {
     }
 
     /// Converts a `Box<Wtf8>` into a `Wtf8Buf`.
-    pub fn from_box(boxed: Box<Wtf8>) -> Wtf8Buf {
+    pub fn from_box(boxed: Box<Wtf8>) -> Self {
         let bytes: Box<[u8]> = unsafe { mem::transmute(boxed) };
-        Wtf8Buf {
+        Self {
             bytes: bytes.into_vec(),
         }
     }
@@ -554,8 +555,8 @@ impl Wtf8Buf {
 /// This replaces surrogate code point pairs with supplementary code points,
 /// like concatenating ill-formed UTF-16 strings effectively would.
 impl FromIterator<CodePoint> for Wtf8Buf {
-    fn from_iter<T: IntoIterator<Item = CodePoint>>(iter: T) -> Wtf8Buf {
-        let mut string = Wtf8Buf::new();
+    fn from_iter<T: IntoIterator<Item = CodePoint>>(iter: T) -> Self {
+        let mut string = Self::new();
         string.extend(iter);
         string
     }
@@ -590,7 +591,7 @@ impl<W: AsRef<Wtf8>> Extend<W> for Wtf8Buf {
 
 impl<W: AsRef<Wtf8>> FromIterator<W> for Wtf8Buf {
     fn from_iter<T: IntoIterator<Item = W>>(iter: T) -> Self {
-        let mut buf = Wtf8Buf::new();
+        let mut buf = Self::new();
         iter.into_iter().for_each(|w| buf.push_wtf8(w.as_ref()));
         buf
     }
@@ -610,19 +611,19 @@ impl AsRef<Wtf8> for Wtf8Buf {
 
 impl From<String> for Wtf8Buf {
     fn from(s: String) -> Self {
-        Wtf8Buf::from_string(s)
+        Self::from_string(s)
     }
 }
 
 impl From<&str> for Wtf8Buf {
     fn from(s: &str) -> Self {
-        Wtf8Buf::from_string(s.to_owned())
+        Self::from_string(s.to_owned())
     }
 }
 
 impl From<ascii::AsciiString> for Wtf8Buf {
     fn from(s: ascii::AsciiString) -> Self {
-        Wtf8Buf::from_string(s.into())
+        Self::from_string(s.into())
     }
 }
 
@@ -635,8 +636,8 @@ pub struct Wtf8 {
     bytes: [u8],
 }
 
-impl AsRef<Wtf8> for Wtf8 {
-    fn as_ref(&self) -> &Wtf8 {
+impl AsRef<Self> for Wtf8 {
+    fn as_ref(&self) -> &Self {
         self
     }
 }
@@ -734,7 +735,7 @@ impl Wtf8 {
     ///
     /// Since WTF-8 is a superset of UTF-8, this always succeeds.
     #[inline]
-    pub fn new<S: AsRef<Wtf8> + ?Sized>(value: &S) -> &Wtf8 {
+    pub fn new<S: AsRef<Self> + ?Sized>(value: &S) -> &Self {
         value.as_ref()
     }
 
@@ -744,9 +745,9 @@ impl Wtf8 {
     ///
     /// `value` must contain valid WTF-8.
     #[inline]
-    pub const unsafe fn from_bytes_unchecked(value: &[u8]) -> &Wtf8 {
+    pub const unsafe fn from_bytes_unchecked(value: &[u8]) -> &Self {
         // SAFETY: start with &[u8], end with fancy &[u8]
-        unsafe { &*(value as *const [u8] as *const Wtf8) }
+        unsafe { &*(value as *const [u8] as *const Self) }
     }
 
     /// Creates a mutable WTF-8 slice from a mutable WTF-8 byte slice.
@@ -754,9 +755,9 @@ impl Wtf8 {
     /// Since the byte slice is not checked for valid WTF-8, this functions is
     /// marked unsafe.
     #[inline]
-    const unsafe fn from_mut_bytes_unchecked(value: &mut [u8]) -> &mut Wtf8 {
+    const unsafe fn from_mut_bytes_unchecked(value: &mut [u8]) -> &mut Self {
         // SAFETY: start with &mut [u8], end with fancy &mut [u8]
-        unsafe { &mut *(value as *mut [u8] as *mut Wtf8) }
+        unsafe { &mut *(value as *mut [u8] as *mut Self) }
     }
 
     /// Create a WTF-8 slice from a WTF-8 byte slice.
@@ -770,7 +771,7 @@ impl Wtf8 {
             let _ = Self::decode_surrogate(rest)?;
             rest = &rest[3..];
         }
-        Some(unsafe { Wtf8::from_bytes_unchecked(b) })
+        Some(unsafe { Self::from_bytes_unchecked(b) })
     }
 
     fn decode_surrogate(b: &[u8]) -> Option<CodePoint> {
@@ -939,24 +940,24 @@ impl Wtf8 {
 
     /// Boxes this `Wtf8`.
     #[inline]
-    pub fn into_box(&self) -> Box<Wtf8> {
+    pub fn into_box(&self) -> Box<Self> {
         let boxed: Box<[u8]> = self.bytes.into();
         unsafe { mem::transmute(boxed) }
     }
 
     /// Creates a boxed, empty `Wtf8`.
-    pub fn empty_box() -> Box<Wtf8> {
-        let boxed: Box<[u8]> = Default::default();
+    pub fn empty_box() -> Box<Self> {
+        let boxed: Box<[u8]> = Box::default();
         unsafe { mem::transmute(boxed) }
     }
 
     #[inline]
-    pub fn make_ascii_lowercase(&mut self) {
+    pub const fn make_ascii_lowercase(&mut self) {
         self.bytes.make_ascii_lowercase()
     }
 
     #[inline]
-    pub fn make_ascii_uppercase(&mut self) {
+    pub const fn make_ascii_uppercase(&mut self) {
         self.bytes.make_ascii_uppercase()
     }
 
@@ -989,43 +990,43 @@ impl Wtf8 {
         self.bytes.eq_ignore_ascii_case(&other.bytes)
     }
 
-    pub fn split(&self, pat: &Wtf8) -> impl Iterator<Item = &Self> {
+    pub fn split(&self, pat: &Self) -> impl Iterator<Item = &Self> {
         self.as_bytes()
             .split_str(pat)
-            .map(|w| unsafe { Wtf8::from_bytes_unchecked(w) })
+            .map(|w| unsafe { Self::from_bytes_unchecked(w) })
     }
 
-    pub fn splitn(&self, n: usize, pat: &Wtf8) -> impl Iterator<Item = &Self> {
+    pub fn splitn(&self, n: usize, pat: &Self) -> impl Iterator<Item = &Self> {
         self.as_bytes()
             .splitn_str(n, pat)
-            .map(|w| unsafe { Wtf8::from_bytes_unchecked(w) })
+            .map(|w| unsafe { Self::from_bytes_unchecked(w) })
     }
 
-    pub fn rsplit(&self, pat: &Wtf8) -> impl Iterator<Item = &Self> {
+    pub fn rsplit(&self, pat: &Self) -> impl Iterator<Item = &Self> {
         self.as_bytes()
             .rsplit_str(pat)
-            .map(|w| unsafe { Wtf8::from_bytes_unchecked(w) })
+            .map(|w| unsafe { Self::from_bytes_unchecked(w) })
     }
 
-    pub fn rsplitn(&self, n: usize, pat: &Wtf8) -> impl Iterator<Item = &Self> {
+    pub fn rsplitn(&self, n: usize, pat: &Self) -> impl Iterator<Item = &Self> {
         self.as_bytes()
             .rsplitn_str(n, pat)
-            .map(|w| unsafe { Wtf8::from_bytes_unchecked(w) })
+            .map(|w| unsafe { Self::from_bytes_unchecked(w) })
     }
 
     pub fn trim(&self) -> &Self {
         let w = self.bytes.trim();
-        unsafe { Wtf8::from_bytes_unchecked(w) }
+        unsafe { Self::from_bytes_unchecked(w) }
     }
 
     pub fn trim_start(&self) -> &Self {
         let w = self.bytes.trim_start();
-        unsafe { Wtf8::from_bytes_unchecked(w) }
+        unsafe { Self::from_bytes_unchecked(w) }
     }
 
     pub fn trim_end(&self) -> &Self {
         let w = self.bytes.trim_end();
-        unsafe { Wtf8::from_bytes_unchecked(w) }
+        unsafe { Self::from_bytes_unchecked(w) }
     }
 
     pub fn trim_start_matches(&self, f: impl Fn(CodePoint) -> bool) -> &Self {
@@ -1064,23 +1065,23 @@ impl Wtf8 {
         self.trim_start_matches(&f).trim_end_matches(&f)
     }
 
-    pub fn find(&self, pat: &Wtf8) -> Option<usize> {
+    pub fn find(&self, pat: &Self) -> Option<usize> {
         memchr::memmem::find(self.as_bytes(), pat.as_bytes())
     }
 
-    pub fn rfind(&self, pat: &Wtf8) -> Option<usize> {
+    pub fn rfind(&self, pat: &Self) -> Option<usize> {
         memchr::memmem::rfind(self.as_bytes(), pat.as_bytes())
     }
 
-    pub fn find_iter(&self, pat: &Wtf8) -> impl Iterator<Item = usize> {
+    pub fn find_iter(&self, pat: &Self) -> impl Iterator<Item = usize> {
         memchr::memmem::find_iter(self.as_bytes(), pat.as_bytes())
     }
 
-    pub fn rfind_iter(&self, pat: &Wtf8) -> impl Iterator<Item = usize> {
+    pub fn rfind_iter(&self, pat: &Self) -> impl Iterator<Item = usize> {
         memchr::memmem::rfind_iter(self.as_bytes(), pat.as_bytes())
     }
 
-    pub fn contains(&self, pat: &Wtf8) -> bool {
+    pub fn contains(&self, pat: &Self) -> bool {
         self.bytes.contains_str(pat)
     }
 
@@ -1109,32 +1110,32 @@ impl Wtf8 {
         }
     }
 
-    pub fn ends_with(&self, w: &Wtf8) -> bool {
+    pub fn ends_with(&self, w: &Self) -> bool {
         self.bytes.ends_with_str(w)
     }
 
-    pub fn starts_with(&self, w: &Wtf8) -> bool {
+    pub fn starts_with(&self, w: &Self) -> bool {
         self.bytes.starts_with_str(w)
     }
 
-    pub fn strip_prefix(&self, w: &Wtf8) -> Option<&Self> {
+    pub fn strip_prefix(&self, w: &Self) -> Option<&Self> {
         self.bytes
             .strip_prefix(w.as_bytes())
-            .map(|w| unsafe { Wtf8::from_bytes_unchecked(w) })
+            .map(|w| unsafe { Self::from_bytes_unchecked(w) })
     }
 
-    pub fn strip_suffix(&self, w: &Wtf8) -> Option<&Self> {
+    pub fn strip_suffix(&self, w: &Self) -> Option<&Self> {
         self.bytes
             .strip_suffix(w.as_bytes())
-            .map(|w| unsafe { Wtf8::from_bytes_unchecked(w) })
+            .map(|w| unsafe { Self::from_bytes_unchecked(w) })
     }
 
-    pub fn replace(&self, from: &Wtf8, to: &Wtf8) -> Wtf8Buf {
+    pub fn replace(&self, from: &Self, to: &Self) -> Wtf8Buf {
         let w = self.bytes.replace(from, to);
         unsafe { Wtf8Buf::from_bytes_unchecked(w) }
     }
 
-    pub fn replacen(&self, from: &Wtf8, to: &Wtf8, n: usize) -> Wtf8Buf {
+    pub fn replacen(&self, from: &Self, to: &Self, n: usize) -> Wtf8Buf {
         let w = self.bytes.replacen(from, to, n);
         unsafe { Wtf8Buf::from_bytes_unchecked(w) }
     }
@@ -1159,11 +1160,11 @@ impl AsRef<[u8]> for Wtf8 {
 /// Panics when `begin` and `end` do not point to code point boundaries,
 /// or point beyond the end of the string.
 impl ops::Index<ops::Range<usize>> for Wtf8 {
-    type Output = Wtf8;
+    type Output = Self;
 
     #[inline]
     #[track_caller]
-    fn index(&self, range: ops::Range<usize>) -> &Wtf8 {
+    fn index(&self, range: ops::Range<usize>) -> &Self {
         // is_code_point_boundary checks that the index is in [0, .len()]
         if range.start <= range.end
             && is_code_point_boundary(self, range.start)
@@ -1183,11 +1184,11 @@ impl ops::Index<ops::Range<usize>> for Wtf8 {
 /// Panics when `begin` is not at a code point boundary,
 /// or is beyond the end of the string.
 impl ops::Index<ops::RangeFrom<usize>> for Wtf8 {
-    type Output = Wtf8;
+    type Output = Self;
 
     #[inline]
     #[track_caller]
-    fn index(&self, range: ops::RangeFrom<usize>) -> &Wtf8 {
+    fn index(&self, range: ops::RangeFrom<usize>) -> &Self {
         // is_code_point_boundary checks that the index is in [0, .len()]
         if is_code_point_boundary(self, range.start) {
             unsafe { slice_unchecked(self, range.start, self.len()) }
@@ -1204,11 +1205,11 @@ impl ops::Index<ops::RangeFrom<usize>> for Wtf8 {
 /// Panics when `end` is not at a code point boundary,
 /// or is beyond the end of the string.
 impl ops::Index<ops::RangeTo<usize>> for Wtf8 {
-    type Output = Wtf8;
+    type Output = Self;
 
     #[inline]
     #[track_caller]
-    fn index(&self, range: ops::RangeTo<usize>) -> &Wtf8 {
+    fn index(&self, range: ops::RangeTo<usize>) -> &Self {
         // is_code_point_boundary checks that the index is in [0, .len()]
         if is_code_point_boundary(self, range.end) {
             unsafe { slice_unchecked(self, 0, range.end) }
@@ -1219,10 +1220,10 @@ impl ops::Index<ops::RangeTo<usize>> for Wtf8 {
 }
 
 impl ops::Index<ops::RangeFull> for Wtf8 {
-    type Output = Wtf8;
+    type Output = Self;
 
     #[inline]
-    fn index(&self, _range: ops::RangeFull) -> &Wtf8 {
+    fn index(&self, _range: ops::RangeFull) -> &Self {
         self
     }
 }
@@ -1535,7 +1536,7 @@ impl From<Box<ascii::AsciiStr>> for Box<Wtf8> {
 
 impl From<Box<Wtf8>> for Box<[u8]> {
     fn from(w: Box<Wtf8>) -> Self {
-        unsafe { Box::from_raw(Box::into_raw(w) as *mut [u8]) }
+        unsafe { Self::from_raw(Box::into_raw(w) as *mut [u8]) }
     }
 }
 
@@ -1547,7 +1548,7 @@ impl From<Wtf8Buf> for Box<Wtf8> {
 
 impl From<Box<Wtf8>> for Wtf8Buf {
     fn from(w: Box<Wtf8>) -> Self {
-        Wtf8Buf::from_box(w)
+        Self::from_box(w)
     }
 }
 

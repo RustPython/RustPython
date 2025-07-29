@@ -107,6 +107,7 @@ impl<'a> AsBag for &'a Context {
         PyObjBag(self)
     }
 }
+
 impl<'a> AsBag for &'a VirtualMachine {
     type Bag = PyObjBag<'a>;
     fn as_bag(self) -> PyObjBag<'a> {
@@ -123,28 +124,27 @@ impl ConstantBag for PyObjBag<'_> {
     fn make_constant<C: Constant>(&self, constant: BorrowedConstant<'_, C>) -> Self::Constant {
         let ctx = self.0;
         let obj = match constant {
-            bytecode::BorrowedConstant::Integer { value } => ctx.new_bigint(value).into(),
-            bytecode::BorrowedConstant::Float { value } => ctx.new_float(value).into(),
-            bytecode::BorrowedConstant::Complex { value } => ctx.new_complex(value).into(),
-            bytecode::BorrowedConstant::Str { value } if value.len() <= 20 => {
+            BorrowedConstant::Integer { value } => ctx.new_bigint(value).into(),
+            BorrowedConstant::Float { value } => ctx.new_float(value).into(),
+            BorrowedConstant::Complex { value } => ctx.new_complex(value).into(),
+            BorrowedConstant::Str { value } if value.len() <= 20 => {
                 ctx.intern_str(value).to_object()
             }
-            bytecode::BorrowedConstant::Str { value } => ctx.new_str(value).into(),
-            bytecode::BorrowedConstant::Bytes { value } => ctx.new_bytes(value.to_vec()).into(),
-            bytecode::BorrowedConstant::Boolean { value } => ctx.new_bool(value).into(),
-            bytecode::BorrowedConstant::Code { code } => {
-                ctx.new_code(code.map_clone_bag(self)).into()
-            }
-            bytecode::BorrowedConstant::Tuple { elements } => {
+            BorrowedConstant::Str { value } => ctx.new_str(value).into(),
+            BorrowedConstant::Bytes { value } => ctx.new_bytes(value.to_vec()).into(),
+            BorrowedConstant::Boolean { value } => ctx.new_bool(value).into(),
+            BorrowedConstant::Code { code } => ctx.new_code(code.map_clone_bag(self)).into(),
+            BorrowedConstant::Tuple { elements } => {
                 let elements = elements
                     .iter()
                     .map(|constant| self.make_constant(constant.borrow_constant()).0)
                     .collect();
                 ctx.new_tuple(elements).into()
             }
-            bytecode::BorrowedConstant::None => ctx.none(),
-            bytecode::BorrowedConstant::Ellipsis => ctx.ellipsis.clone().into(),
+            BorrowedConstant::None => ctx.none(),
+            BorrowedConstant::Ellipsis => ctx.ellipsis.clone().into(),
         };
+
         Literal(obj)
     }
 
@@ -172,7 +172,7 @@ pub trait IntoCodeObject {
 }
 
 impl IntoCodeObject for CodeObject {
-    fn into_code_object(self, _ctx: &Context) -> CodeObject {
+    fn into_code_object(self, _ctx: &Context) -> Self {
         self
     }
 }

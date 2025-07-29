@@ -69,13 +69,13 @@ impl PyTraceback {
 }
 
 impl Constructor for PyTraceback {
-    type Args = (Option<PyRef<PyTraceback>>, FrameRef, u32, usize);
+    type Args = (Option<PyRef<Self>>, FrameRef, u32, usize);
 
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
         let (next, frame, lasti, lineno) = args;
         let lineno = OneIndexed::new(lineno)
             .ok_or_else(|| vm.new_value_error("lineno must be positive".to_owned()))?;
-        let tb = PyTraceback::new(next, frame, lasti, lineno);
+        let tb = Self::new(next, frame, lasti, lineno);
         tb.into_ref_with_type(vm, cls).map(Into::into)
     }
 }

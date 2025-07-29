@@ -338,7 +338,7 @@ fn subs_tvars(
                             {
                                 // TypeVarTuple case - extend with tuple elements
                                 if let Ok(tuple) = substituted_arg.try_to_ref::<PyTuple>(vm) {
-                                    for elem in tuple.iter() {
+                                    for elem in tuple {
                                         sub_args.push(elem.clone());
                                     }
                                     continue;
@@ -387,7 +387,7 @@ fn unpack_args(item: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
 
                     if !has_ellipsis_at_end {
                         // Safe to unpack - add all elements's PyList_SetSlice
-                        for arg in tuple.iter() {
+                        for arg in tuple {
                             new_args.push(arg.clone());
                         }
                         continue;
@@ -484,7 +484,7 @@ pub fn subs_parameters(
         if unpack {
             // Handle unpacked TypeVarTuple's tuple_extend
             if let Ok(tuple) = substituted_arg.try_to_ref::<PyTuple>(vm) {
-                for elem in tuple.iter() {
+                for elem in tuple {
                     new_args.push(elem.clone());
                 }
             } else {
@@ -572,7 +572,7 @@ impl Hashable for PyGenericAlias {
 
 impl GetAttr for PyGenericAlias {
     fn getattro(zelf: &Py<Self>, attr: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-        for exc in ATTR_EXCEPTIONS.iter() {
+        for exc in &ATTR_EXCEPTIONS {
             if *(*exc) == attr.to_string() {
                 return zelf.as_object().generic_getattr(attr, vm);
             }

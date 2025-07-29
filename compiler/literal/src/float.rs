@@ -44,7 +44,7 @@ fn format_inf(case: Case) -> String {
     inf.to_string()
 }
 
-pub fn decimal_point_or_empty(precision: usize, alternate_form: bool) -> &'static str {
+pub const fn decimal_point_or_empty(precision: usize, alternate_form: bool) -> &'static str {
     match (precision, alternate_form) {
         (0, true) => ".",
         _ => "",

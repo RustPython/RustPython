@@ -69,7 +69,7 @@ mod symtable {
         }
 
         #[pymethod]
-        fn is_optimized(&self) -> bool {
+        const fn is_optimized(&self) -> bool {
             matches!(
                 self.symtable.typ,
                 CompilerScope::Function | CompilerScope::AsyncFunction

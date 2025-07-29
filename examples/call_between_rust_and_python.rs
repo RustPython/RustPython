@@ -89,7 +89,7 @@ python_person.name: {}",
     impl<'a> TryFromBorrowedObject<'a> for PythonPerson {
         fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
             let name = obj.get_attr("name", vm)?.try_into_value::<String>(vm)?;
-            Ok(PythonPerson { name })
+            Ok(Self { name })
         }
     }
 }

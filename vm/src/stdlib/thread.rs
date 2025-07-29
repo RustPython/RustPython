@@ -286,7 +286,7 @@ pub(crate) mod _thread {
     }
 
     #[pyfunction]
-    fn allocate_lock() -> Lock {
+    const fn allocate_lock() -> Lock {
         Lock { mu: RawMutex::INIT }
     }
 

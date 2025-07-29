@@ -95,7 +95,7 @@ fn do_count_chars(s: &Wtf8) -> usize {
 // false), and bytes which are non-continuation bytes are left as `0x01` (e.g.
 // true)
 #[inline]
-fn contains_non_continuation_byte(w: usize) -> usize {
+const fn contains_non_continuation_byte(w: usize) -> usize {
     const LSB: usize = usize_repeat_u8(0x01);
     ((!w >> 7) | (w >> 6)) & LSB
 }
@@ -103,7 +103,7 @@ fn contains_non_continuation_byte(w: usize) -> usize {
 // Morally equivalent to `values.to_ne_bytes().into_iter().sum::<usize>()`, but
 // more efficient.
 #[inline]
-fn sum_bytes_in_usize(values: usize) -> usize {
+const fn sum_bytes_in_usize(values: usize) -> usize {
     const LSB_SHORTS: usize = usize_repeat_u16(0x0001);
     const SKIP_BYTES: usize = usize_repeat_u16(0x00ff);
 

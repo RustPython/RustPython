@@ -464,7 +464,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         if let Some(vararg) = &args.vararg {
             self.unparse_arg(vararg)?;
         }
-        for kwarg in args.kwonlyargs.iter() {
+        for kwarg in &args.kwonlyargs {
             self.p_delim(&mut first, ", ")?;
             self.unparse_function_arg(kwarg)?;
         }

@@ -389,7 +389,7 @@ impl FormatSpec {
 
     fn insert_separator(mut magnitude_str: String, inter: i32, sep: char, sep_cnt: i32) -> String {
         let magnitude_len = magnitude_str.len() as i32;
-        for i in 1..sep_cnt + 1 {
+        for i in 1..=sep_cnt {
             magnitude_str.insert((magnitude_len - inter * i) as usize, sep);
         }
         magnitude_str
@@ -754,7 +754,7 @@ impl FormatSpec {
                 let inter = self.get_separator_interval().try_into().unwrap();
                 let len = magnitude_str.len() as i32;
                 let separated_magnitude =
-                    FormatSpec::add_magnitude_separators_for_char(magnitude_str, inter, sep, len);
+                    Self::add_magnitude_separators_for_char(magnitude_str, inter, sep, len);
                 Ok(separated_magnitude)
             }
             None => Ok(magnitude_str),

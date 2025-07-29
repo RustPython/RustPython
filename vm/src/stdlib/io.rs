@@ -3601,7 +3601,7 @@ mod _io {
         }
 
         #[pygetset]
-        fn line_buffering(&self) -> bool {
+        const fn line_buffering(&self) -> bool {
             false
         }
     }

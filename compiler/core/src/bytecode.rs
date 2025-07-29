@@ -42,8 +42,10 @@ pub trait Constant: Sized {
 
 impl Constant for ConstantData {
     type Name = String;
+
     fn borrow_constant(&self) -> BorrowedConstant<'_, Self> {
         use BorrowedConstant::*;
+
         match self {
             Self::Integer { value } => Integer { value },
             Self::Float { value } => Float { value: *value },
@@ -62,21 +64,28 @@ impl Constant for ConstantData {
 /// A Constant Bag
 pub trait ConstantBag: Sized + Copy {
     type Constant: Constant;
+
     fn make_constant<C: Constant>(&self, constant: BorrowedConstant<'_, C>) -> Self::Constant;
+
     fn make_int(&self, value: BigInt) -> Self::Constant;
+
     fn make_tuple(&self, elements: impl Iterator<Item = Self::Constant>) -> Self::Constant;
+
     fn make_code(&self, code: CodeObject<Self::Constant>) -> Self::Constant;
+
     fn make_name(&self, name: &str) -> <Self::Constant as Constant>::Name;
 }
 
 pub trait AsBag {
     type Bag: ConstantBag;
+
     #[allow(clippy::wrong_self_convention)]
     fn as_bag(self) -> Self::Bag;
 }
 
 impl<Bag: ConstantBag> AsBag for Bag {
     type Bag = Self;
+
     fn as_bag(self) -> Self {
         self
     }
@@ -87,22 +96,27 @@ pub struct BasicBag;
 
 impl ConstantBag for BasicBag {
     type Constant = ConstantData;
+
     fn make_constant<C: Constant>(&self, constant: BorrowedConstant<'_, C>) -> Self::Constant {
         constant.to_owned()
     }
+
     fn make_int(&self, value: BigInt) -> Self::Constant {
         ConstantData::Integer { value }
     }
+
     fn make_tuple(&self, elements: impl Iterator<Item = Self::Constant>) -> Self::Constant {
         ConstantData::Tuple {
             elements: elements.collect(),
         }
     }
+
     fn make_code(&self, code: CodeObject<Self::Constant>) -> Self::Constant {
         ConstantData::Code {
             code: Box::new(code),
         }
     }
+
     fn make_name(&self, name: &str) -> <Self::Constant as Constant>::Name {
         name.to_owned()
     }
@@ -163,11 +177,13 @@ impl CodeFlags {
 #[derive(Copy, Clone, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct OpArgByte(pub u8);
+
 impl OpArgByte {
     pub const fn null() -> Self {
         Self(0)
     }
 }
+
 impl fmt::Debug for OpArgByte {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
@@ -178,6 +194,7 @@ impl fmt::Debug for OpArgByte {
 #[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
 pub struct OpArg(pub u32);
+
 impl OpArg {
     pub const fn null() -> Self {
         Self(0)
@@ -185,7 +202,7 @@ impl OpArg {
 
     /// Returns how many CodeUnits a instruction with this op_arg will be encoded as
     #[inline]
-    pub fn instr_size(self) -> usize {
+    pub const fn instr_size(self) -> usize {
         (self.0 > 0xff) as usize + (self.0 > 0xff_ff) as usize + (self.0 > 0xff_ff_ff) as usize + 1
     }
 
@@ -219,19 +236,22 @@ impl OpArgState {
         }
         (ins.op, arg)
     }
+
     #[inline(always)]
     pub fn extend(&mut self, arg: OpArgByte) -> OpArg {
         self.state = (self.state << 8) | u32::from(arg.0);
         OpArg(self.state)
     }
+
     #[inline(always)]
-    pub fn reset(&mut self) {
+    pub const fn reset(&mut self) {
         self.state = 0
     }
 }
 
 pub trait OpArgType: Copy {
     fn from_op_arg(x: u32) -> Option<Self>;
+
     fn to_op_arg(self) -> u32;
 }
 
@@ -240,6 +260,7 @@ impl OpArgType for u32 {
     fn from_op_arg(x: u32) -> Option<Self> {
         Some(x)
     }
+
     #[inline(always)]
     fn to_op_arg(self) -> u32 {
         self
@@ -251,6 +272,7 @@ impl OpArgType for bool {
     fn from_op_arg(x: u32) -> Option<Self> {
         Some(x != 0)
     }
+
     #[inline(always)]
     fn to_op_arg(self) -> u32 {
         self as u32
@@ -263,6 +285,7 @@ macro_rules! op_arg_enum_impl {
             fn to_op_arg(self) -> u32 {
                 self as u32
             }
+
             fn from_op_arg(x: u32) -> Option<Self> {
                 Some(match u8::try_from(x).ok()? {
                     $($value => Self::$var,)*
@@ -291,13 +314,15 @@ pub struct Arg<T: OpArgType>(PhantomData<T>);
 
 impl<T: OpArgType> Arg<T> {
     #[inline]
-    pub fn marker() -> Self {
+    pub const fn marker() -> Self {
         Self(PhantomData)
     }
+
     #[inline]
     pub fn new(arg: T) -> (Self, OpArg) {
         (Self(PhantomData), OpArg(arg.to_op_arg()))
     }
+
     #[inline]
     pub fn new_single(arg: T) -> (Self, OpArgByte)
     where
@@ -305,17 +330,20 @@ impl<T: OpArgType> Arg<T> {
     {
         (Self(PhantomData), OpArgByte(arg.into()))
     }
+
     #[inline(always)]
     pub fn get(self, arg: OpArg) -> T {
         self.try_get(arg).unwrap()
     }
+
     #[inline(always)]
     pub fn try_get(self, arg: OpArg) -> Option<T> {
         T::from_op_arg(arg.0)
     }
-    #[inline(always)]
+
     /// # Safety
     /// T::from_op_arg(self) must succeed
+    #[inline(always)]
     pub unsafe fn get_unchecked(self, arg: OpArg) -> T {
         // SAFETY: requirements forwarded from caller
         unsafe { T::from_op_arg(arg.0).unwrap_unchecked() }
@@ -327,6 +355,7 @@ impl<T: OpArgType> PartialEq for Arg<T> {
         true
     }
 }
+
 impl<T: OpArgType> Eq for Arg<T> {}
 
 impl<T: OpArgType> fmt::Debug for Arg<T> {
@@ -346,6 +375,7 @@ impl OpArgType for Label {
     fn from_op_arg(x: u32) -> Option<Self> {
         Some(Self(x))
     }
+
     #[inline(always)]
     fn to_op_arg(self) -> u32 {
         self.0
@@ -369,6 +399,7 @@ impl OpArgType for ConversionFlag {
             _ => None,
         }
     }
+
     #[inline]
     fn to_op_arg(self) -> u32 {
         self as i8 as u8 as u32
@@ -681,8 +712,10 @@ pub enum Instruction {
     ExtendedArg,
     // If you add a new instruction here, be sure to keep LAST_INSTRUCTION updated
 }
+
 // This must be kept up to date to avoid marshaling errors
 const LAST_INSTRUCTION: Instruction = Instruction::ExtendedArg;
+
 const _: () = assert!(mem::size_of::<Instruction>() == 1);
 
 impl From<Instruction> for u8 {
@@ -716,7 +749,7 @@ pub struct CodeUnit {
 const _: () = assert!(mem::size_of::<CodeUnit>() == 2);
 
 impl CodeUnit {
-    pub fn new(op: Instruction, arg: OpArgByte) -> Self {
+    pub const fn new(op: Instruction, arg: OpArgByte) -> Self {
         Self { op, arg }
     }
 }
@@ -733,11 +766,13 @@ bitflags! {
         const TYPE_PARAMS = 0x10;
     }
 }
+
 impl OpArgType for MakeFunctionFlags {
     #[inline(always)]
     fn from_op_arg(x: u32) -> Option<Self> {
         Self::from_bits(x as u8)
     }
+
     #[inline(always)]
     fn to_op_arg(self) -> u32 {
         self.bits().into()
@@ -770,6 +805,7 @@ pub enum ConstantData {
 impl PartialEq for ConstantData {
     fn eq(&self, other: &Self) -> bool {
         use ConstantData::*;
+
         match (self, other) {
             (Integer { value: a }, Integer { value: b }) => a == b,
             // we want to compare floats *by actual value* - if we have the *exact same* float
@@ -795,6 +831,7 @@ impl Eq for ConstantData {}
 impl hash::Hash for ConstantData {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         use ConstantData::*;
+
         mem::discriminant(self).hash(state);
         match self {
             Integer { value } => value.hash(state),
@@ -829,6 +866,7 @@ pub enum BorrowedConstant<'a, C: Constant> {
 }
 
 impl<C: Constant> Copy for BorrowedConstant<'_, C> {}
+
 impl<C: Constant> Clone for BorrowedConstant<'_, C> {
     fn clone(&self) -> Self {
         *self
@@ -845,7 +883,7 @@ impl<C: Constant> BorrowedConstant<'_, C> {
                 write!(f, "{}", if *value { "True" } else { "False" })
             }
             BorrowedConstant::Str { value } => write!(f, "{value:?}"),
-            BorrowedConstant::Bytes { value } => write!(f, "b\"{}\"", value.escape_ascii()),
+            BorrowedConstant::Bytes { value } => write!(f, r#"b"{}""#, value.escape_ascii()),
             BorrowedConstant::Code { code } => write!(f, "{code:?}"),
             BorrowedConstant::Tuple { elements } => {
                 write!(f, "(")?;
@@ -864,8 +902,10 @@ impl<C: Constant> BorrowedConstant<'_, C> {
             BorrowedConstant::Ellipsis => write!(f, "..."),
         }
     }
+
     pub fn to_owned(self) -> ConstantData {
         use ConstantData::*;
+
         match self {
             BorrowedConstant::Integer { value } => Integer {
                 value: value.clone(),
@@ -975,11 +1015,13 @@ impl OpArgType for UnpackExArgs {
         let [before, after, ..] = x.to_le_bytes();
         Some(Self { before, after })
     }
+
     #[inline(always)]
     fn to_op_arg(self) -> u32 {
         u32::from_le_bytes([self.before, self.after, 0, 0])
     }
 }
+
 impl fmt::Display for UnpackExArgs {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "before: {}, after: {}", self.before, self.after)
@@ -1208,7 +1250,7 @@ impl<C: Constant> fmt::Display for CodeObject<C> {
 impl Instruction {
     /// Gets the label stored inside this instruction, if it exists
     #[inline]
-    pub fn label_arg(&self) -> Option<Arg<Label>> {
+    pub const fn label_arg(&self) -> Option<Arg<Label>> {
         match self {
             Jump { target: l }
             | JumpIfTrue { target: l }
@@ -1235,7 +1277,7 @@ impl Instruction {
     /// let jump_inst = Instruction::Jump { target: Arg::marker() };
     /// assert!(jump_inst.unconditional_branch())
     /// ```
-    pub fn unconditional_branch(&self) -> bool {
+    pub const fn unconditional_branch(&self) -> bool {
         matches!(
             self,
             Jump { .. }
@@ -1571,23 +1613,31 @@ impl Instruction {
 
 pub trait InstrDisplayContext {
     type Constant: Constant;
+
     fn get_constant(&self, i: usize) -> &Self::Constant;
+
     fn get_name(&self, i: usize) -> &str;
+
     fn get_varname(&self, i: usize) -> &str;
+
     fn get_cell_name(&self, i: usize) -> &str;
 }
 
 impl<C: Constant> InstrDisplayContext for CodeObject<C> {
     type Constant = C;
+
     fn get_constant(&self, i: usize) -> &C {
         &self.constants[i]
     }
+
     fn get_name(&self, i: usize) -> &str {
         self.names[i].as_ref()
     }
+
     fn get_varname(&self, i: usize) -> &str {
         self.varnames[i].as_ref()
     }
+
     fn get_cell_name(&self, i: usize) -> &str {
         self.cellvars
             .get(i)
