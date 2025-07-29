@@ -5,9 +5,7 @@ mod symtable {
     use crate::{
         PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, builtins::PyStrRef, compiler,
     };
-    use rustpython_codegen::symboltable::{
-        CompilerScope, Symbol, SymbolFlags, SymbolScope, SymbolTable,
-    };
+    use rustpython_codegen::symboltable::{Symbol, SymbolFlags, SymbolScope, SymbolTable};
     use std::fmt;
 
     // Consts as defined at
@@ -79,6 +77,30 @@ mod symtable {
     #[pyattr]
     pub const GENERATOR_EXPRESSION: i32 = 2;
 
+    #[pyattr]
+    pub const SCOPE_OFF: i32 = SCOPE_OFFSET;
+
+    #[pyattr]
+    pub const TYPE_FUNCTION: i32 = 0;
+
+    #[pyattr]
+    pub const TYPE_CLASS: i32 = 1;
+
+    #[pyattr]
+    pub const TYPE_MODULE: i32 = 2;
+
+    #[pyattr]
+    pub const TYPE_ANNOTATION: i32 = 3;
+
+    #[pyattr]
+    pub const TYPE_TYPE_VAR_BOUND: i32 = 4;
+
+    #[pyattr]
+    pub const TYPE_TYPE_ALIAS: i32 = 5;
+
+    #[pyattr]
+    pub const TYPE_TYPE_PARAM: i32 = 6;
+
     #[pyfunction]
     fn symtable(
         source: PyStrRef,
@@ -117,57 +139,39 @@ mod symtable {
 
     #[pyclass]
     impl PySymbolTable {
-        #[pymethod]
-        fn get_name(&self) -> String {
+        #[pygetset]
+        fn name(&self) -> String {
             self.symtable.name.clone()
         }
 
-        #[pymethod]
-        fn get_type(&self) -> String {
+        #[pygetset(name = "type")]
+        fn typ(&self) -> String {
             self.symtable.typ.to_string()
         }
 
-        #[pymethod]
-        const fn get_lineno(&self) -> u32 {
+        #[pygetset]
+        const fn lineno(&self) -> u32 {
             self.symtable.line_number
         }
 
-        #[pymethod]
-        const fn is_nested(&self) -> bool {
-            self.symtable.is_nested
+        #[pygetset]
+        fn children(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+            let children = self
+                .symtable
+                .sub_tables
+                .iter()
+                .map(|t| to_py_symbol_table(t.clone()).into_pyobject(vm))
+                .collect();
+            Ok(children)
         }
 
-        #[pymethod]
-        fn is_optimized(&self) -> bool {
-            matches!(
-                self.symtable.typ,
-                CompilerScope::Function | CompilerScope::AsyncFunction
-            )
+        #[pygetset]
+        fn id(&self) -> usize {
+            self as *const Self as *const std::ffi::c_void as usize
         }
 
-        #[pymethod]
-        fn lookup(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyRef<PySymbol>> {
-            let name = name.as_str();
-            if let Some(symbol) = self.symtable.symbols.get(name) {
-                Ok(PySymbol {
-                    symbol: symbol.clone(),
-                    namespaces: self
-                        .symtable
-                        .sub_tables
-                        .iter()
-                        .filter(|table| table.name == name)
-                        .cloned()
-                        .collect(),
-                    is_top_scope: self.symtable.name == "top",
-                }
-                .into_ref(&vm.ctx))
-            } else {
-                Err(vm.new_key_error(vm.ctx.new_str(format!("lookup {name} failed")).into()))
-            }
-        }
-
-        #[pymethod]
-        fn get_identifiers(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        #[pygetset]
+        fn identifiers(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
             let symbols = self
                 .symtable
                 .symbols
@@ -177,8 +181,8 @@ mod symtable {
             Ok(symbols)
         }
 
-        #[pymethod]
-        fn get_symbols(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        #[pygetset]
+        fn symbols(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
             let symbols = self
                 .symtable
                 .symbols
@@ -200,22 +204,6 @@ mod symtable {
                 })
                 .collect();
             Ok(symbols)
-        }
-
-        #[pymethod]
-        const fn has_children(&self) -> bool {
-            !self.symtable.sub_tables.is_empty()
-        }
-
-        #[pymethod]
-        fn get_children(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-            let children = self
-                .symtable
-                .sub_tables
-                .iter()
-                .map(|t| to_py_symbol_table(t.clone()).into_pyobject(vm))
-                .collect();
-            Ok(children)
         }
     }
 
