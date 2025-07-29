@@ -99,8 +99,9 @@ impl Constructor for PyBytes {
 }
 
 impl PyBytes {
+    #[deprecated(note = "use PyBytes::from(...).into_ref() instead")]
     pub fn new_ref(data: Vec<u8>, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(Self::from(data), ctx.types.bytes_type.to_owned(), None)
+        Self::from(data).into_ref(ctx)
     }
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
@@ -264,7 +265,7 @@ impl PyBytes {
 
     #[pyclassmethod]
     fn fromhex(cls: PyTypeRef, string: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let bytes = PyBytesInner::fromhex(string.as_str(), vm)?;
+        let bytes = PyBytesInner::fromhex(string.as_bytes(), vm)?;
         let bytes = vm.ctx.new_bytes(bytes).into();
         PyType::call(&cls, vec![bytes].into(), vm)
     }

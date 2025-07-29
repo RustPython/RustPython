@@ -61,14 +61,14 @@ impl Constructor for PyStaticMethod {
 }
 
 impl PyStaticMethod {
+    pub fn new(callable: PyObjectRef) -> Self {
+        Self {
+            callable: PyMutex::new(callable),
+        }
+    }
+    #[deprecated(note = "use PyStaticMethod::new(...).into_ref() instead")]
     pub fn new_ref(callable: PyObjectRef, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(
-            Self {
-                callable: PyMutex::new(callable),
-            },
-            ctx.types.staticmethod_type.to_owned(),
-            None,
-        )
+        Self::new(callable).into_ref(ctx)
     }
 }
 

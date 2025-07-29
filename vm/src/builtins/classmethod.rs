@@ -111,14 +111,9 @@ impl Initializer for PyClassMethod {
 }
 
 impl PyClassMethod {
+    #[deprecated(note = "use PyClassMethod::from(...).into_ref() instead")]
     pub fn new_ref(callable: PyObjectRef, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(
-            Self {
-                callable: PyMutex::new(callable),
-            },
-            ctx.types.classmethod_type.to_owned(),
-            None,
-        )
+        Self::from(callable).into_ref(ctx)
     }
 }
 

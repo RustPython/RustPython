@@ -51,8 +51,9 @@ impl PyPayload for PyDict {
 }
 
 impl PyDict {
+    #[deprecated(note = "use PyDict::default().into_ref() instead")]
     pub fn new_ref(ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(Self::default(), ctx.types.dict_type.to_owned(), None)
+        Self::default().into_ref(ctx)
     }
 
     /// escape hatch to access the underlying data structure directly. prefer adding a method on

@@ -459,11 +459,11 @@ impl PyBytesInner {
         bytes_to_hex(self.elements.as_slice(), sep, bytes_per_sep, vm)
     }
 
-    pub fn fromhex(string: &str, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        let mut iter = string.bytes().enumerate();
-        let mut bytes: Vec<u8> = Vec::with_capacity(string.len() / 2);
+    pub fn fromhex(bytes: &[u8], vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let mut iter = bytes.iter().enumerate();
+        let mut bytes: Vec<u8> = Vec::with_capacity(bytes.len() / 2);
         let i = loop {
-            let (i, b) = match iter.next() {
+            let (i, &b) = match iter.next() {
                 Some(val) => val,
                 None => {
                     return Ok(bytes);

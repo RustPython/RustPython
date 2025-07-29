@@ -487,7 +487,7 @@ pub mod levenshtein {
         if a == b { CASE_COST } else { MOVE_COST }
     }
 
-    pub fn levenshtein_distance(a: &str, b: &str, max_cost: usize) -> usize {
+    pub fn levenshtein_distance(a: &[u8], b: &[u8], max_cost: usize) -> usize {
         thread_local! {
             #[allow(clippy::declare_interior_mutable_const)]
             static BUFFER: RefCell<[usize; MAX_STRING_SIZE]> = const {
@@ -499,7 +499,7 @@ pub mod levenshtein {
             return 0;
         }
 
-        let (mut a_bytes, mut b_bytes) = (a.as_bytes(), b.as_bytes());
+        let (mut a_bytes, mut b_bytes) = (a, b);
         let (mut a_begin, mut a_end) = (0usize, a.len());
         let (mut b_begin, mut b_end) = (0usize, b.len());
 

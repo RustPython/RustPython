@@ -773,12 +773,9 @@ impl PyBoundMethod {
         Self { object, function }
     }
 
+    #[deprecated(note = "Use `Self::new(object, function).into_ref(ctx)` instead")]
     pub fn new_ref(object: PyObjectRef, function: PyObjectRef, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(
-            Self::new(object, function),
-            ctx.types.bound_method_type.to_owned(),
-            None,
-        )
+        Self::new(object, function).into_ref(ctx)
     }
 }
 
@@ -859,10 +856,13 @@ impl Representable for PyBoundMethod {
                 vm.get_attribute_opt(zelf.function.clone(), "__name__")?
             };
         let func_name: Option<PyStrRef> = func_name.and_then(|o| o.downcast().ok());
+        let formatted_func_name = match func_name {
+            Some(name) => name.to_string(),
+            None => "?".to_string(),
+        };
+        let object_repr = zelf.object.repr(vm)?;
         Ok(format!(
-            "<bound method {} of {}>",
-            func_name.as_ref().map_or("?", |s| s.as_str()),
-            &zelf.object.repr(vm)?.as_str(),
+            "<bound method {formatted_func_name} of {object_repr}>",
         ))
     }
 }

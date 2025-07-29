@@ -63,8 +63,9 @@ impl ToPyObject for Vec<PyObjectRef> {
 }
 
 impl PyList {
+    #[deprecated(note = "use PyList::from(...).into_ref() instead")]
     pub fn new_ref(elements: Vec<PyObjectRef>, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(Self::from(elements), ctx.types.list_type.to_owned(), None)
+        Self::from(elements).into_ref(ctx)
     }
 
     pub fn borrow_vec(&self) -> PyMappedRwLockReadGuard<'_, [PyObjectRef]> {

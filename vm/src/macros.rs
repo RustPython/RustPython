@@ -46,7 +46,7 @@ macro_rules! extend_class {
 macro_rules! py_namespace {
     ( $vm:expr, { $($name:expr => $value:expr),* $(,)* }) => {
         {
-            let namespace = $crate::builtins::PyNamespace::new_ref(&$vm.ctx);
+            let namespace = $crate::object::PyPayload::into_ref($crate::builtins::PyNamespace {}, &$vm.ctx);
             let obj = $crate::object::AsObject::as_object(&namespace);
             $(
                 obj.generic_setattr($vm.ctx.intern_str($name), $crate::function::PySetterValue::Assign($value.into()), $vm).unwrap();
