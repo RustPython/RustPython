@@ -1228,7 +1228,7 @@ pub mod module {
     }
 
     #[pyfunction]
-    const fn sync() {
+    fn sync() {
         #[cfg(not(any(target_os = "redox", target_os = "android")))]
         unsafe {
             libc::sync();
@@ -1603,32 +1603,32 @@ pub mod module {
     }
 
     #[pyfunction(name = "WIFSIGNALED")]
-    const fn wifsignaled(status: i32) -> bool {
+    fn wifsignaled(status: i32) -> bool {
         libc::WIFSIGNALED(status)
     }
 
     #[pyfunction(name = "WIFSTOPPED")]
-    const fn wifstopped(status: i32) -> bool {
+    fn wifstopped(status: i32) -> bool {
         libc::WIFSTOPPED(status)
     }
 
     #[pyfunction(name = "WIFEXITED")]
-    const fn wifexited(status: i32) -> bool {
+    fn wifexited(status: i32) -> bool {
         libc::WIFEXITED(status)
     }
 
     #[pyfunction(name = "WTERMSIG")]
-    const fn wtermsig(status: i32) -> i32 {
+    fn wtermsig(status: i32) -> i32 {
         libc::WTERMSIG(status)
     }
 
     #[pyfunction(name = "WSTOPSIG")]
-    const fn wstopsig(status: i32) -> i32 {
+    fn wstopsig(status: i32) -> i32 {
         libc::WSTOPSIG(status)
     }
 
     #[pyfunction(name = "WEXITSTATUS")]
-    const fn wexitstatus(status: i32) -> i32 {
+    fn wexitstatus(status: i32) -> i32 {
         libc::WEXITSTATUS(status)
     }
 
