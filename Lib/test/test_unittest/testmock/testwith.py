@@ -1,7 +1,7 @@
 import unittest
 from warnings import catch_warnings
 
-from unittest.test.testmock.support import is_instance
+from test.test_unittest.testmock.support import is_instance
 from unittest.mock import MagicMock, Mock, patch, sentinel, mock_open, call
 
 
@@ -158,7 +158,7 @@ class TestMockOpen(unittest.TestCase):
                 f.read()
 
         expected_calls = [call('foo'), call().__enter__(), call().read(),
-                          call().__exit__(None, None, None)]
+                          call().__exit__(None, None, None), call().close()]
         self.assertEqual(mock.mock_calls, expected_calls)
         self.assertIs(f, handle)
 
@@ -172,9 +172,9 @@ class TestMockOpen(unittest.TestCase):
 
         expected_calls = [
             call('foo'), call().__enter__(), call().read(),
-            call().__exit__(None, None, None),
+            call().__exit__(None, None, None), call().close(),
             call('bar'), call().__enter__(), call().read(),
-            call().__exit__(None, None, None)]
+            call().__exit__(None, None, None), call().close()]
         self.assertEqual(mock.mock_calls, expected_calls)
 
     def test_explicit_mock(self):

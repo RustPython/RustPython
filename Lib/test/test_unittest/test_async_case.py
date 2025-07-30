@@ -37,11 +37,9 @@ class LacksExit:
         pass
 
 
-# TODO: RUSTPYTHON; used by following test suite
-# VAR = contextvars.ContextVar('VAR', default=())
+VAR = contextvars.ContextVar('VAR', default=())
 
 
-@unittest.skip("TODO: RUSTPYTHON; requires sys.get_coroutine_origin_tracking_depth()")
 class TestAsyncCase(unittest.TestCase):
     maxDiff = None
 
@@ -485,6 +483,20 @@ class TestAsyncCase(unittest.TestCase):
         test = TestCase1('test_demo1')
         result = test.run()
         self.assertTrue(result.wasSuccessful())
+
+    def test_loop_factory(self):
+        asyncio.set_event_loop_policy(None)
+
+        class TestCase1(unittest.IsolatedAsyncioTestCase):
+            loop_factory = asyncio.EventLoop
+
+            async def test_demo1(self):
+                pass
+
+        test = TestCase1('test_demo1')
+        result = test.run()
+        self.assertTrue(result.wasSuccessful())
+        self.assertIsNone(support.maybe_get_event_loop_policy())
 
 if __name__ == "__main__":
     unittest.main()

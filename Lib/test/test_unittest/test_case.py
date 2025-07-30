@@ -15,7 +15,7 @@ from test import support
 
 import unittest
 
-from unittest.test.support import (
+from test.test_unittest.support import (
     TestEquality, TestHashing, LoggingResult, LegacyLoggingResult,
     ResultWithNoStartTestRunStopTestRun
 )
@@ -304,7 +304,8 @@ class Test_TestCase(unittest.TestCase, TestEquality, TestHashing):
             def test(self):
                 pass
 
-        Foo('test').run()
+        with self.assertWarns(RuntimeWarning):
+            Foo('test').run()
 
     def test_deprecation_of_return_val_from_test(self):
         # Issue 41322 - deprecate return of value that is not None from a test
@@ -708,36 +709,6 @@ class Test_TestCase(unittest.TestCase, TestEquality, TestHashing):
         self.assertRaises(self.failureException, self.assertNotIn, 1, [1, 2, 3])
         self.assertRaises(self.failureException, self.assertNotIn, 'cow',
                           animals)
-
-    def testAssertDictContainsSubset(self):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-
-            self.assertDictContainsSubset({}, {})
-            self.assertDictContainsSubset({}, {'a': 1})
-            self.assertDictContainsSubset({'a': 1}, {'a': 1})
-            self.assertDictContainsSubset({'a': 1}, {'a': 1, 'b': 2})
-            self.assertDictContainsSubset({'a': 1, 'b': 2}, {'a': 1, 'b': 2})
-
-            with self.assertRaises(self.failureException):
-                self.assertDictContainsSubset({1: "one"}, {})
-
-            with self.assertRaises(self.failureException):
-                self.assertDictContainsSubset({'a': 2}, {'a': 1})
-
-            with self.assertRaises(self.failureException):
-                self.assertDictContainsSubset({'c': 1}, {'a': 1})
-
-            with self.assertRaises(self.failureException):
-                self.assertDictContainsSubset({'a': 1, 'c': 1}, {'a': 1})
-
-            with self.assertRaises(self.failureException):
-                self.assertDictContainsSubset({'a': 1, 'c': 1}, {'a': 1})
-
-            one = ''.join(chr(i) for i in range(255))
-            # this used to cause a UnicodeDecodeError constructing the failure msg
-            with self.assertRaises(self.failureException):
-                self.assertDictContainsSubset({'foo': one}, {'foo': '\uFFFD'})
 
     def testAssertEqual(self):
         equal_pairs = [
@@ -1161,6 +1132,8 @@ test case
             # need to remove the first line of the error message
             error = str(e).split('\n', 1)[1]
             self.assertEqual(sample_text_error, error)
+        else:
+            self.fail(f'{self.failureException} not raised')
 
     def testAssertEqualSingleLine(self):
         sample_text = "laden swallows fly slowly"
@@ -1177,6 +1150,74 @@ test case
             # need to remove the first line of the error message
             error = str(e).split('\n', 1)[1]
             self.assertEqual(sample_text_error, error)
+        else:
+            self.fail(f'{self.failureException} not raised')
+
+    def testAssertEqualwithEmptyString(self):
+        '''Verify when there is an empty string involved, the diff output
+         does not treat the empty string as a single empty line. It should
+         instead be handled as a non-line.
+        '''
+        sample_text = ''
+        revised_sample_text = 'unladen swallows fly quickly'
+        sample_text_error = '''\
++ unladen swallows fly quickly
+'''
+        try:
+            self.assertEqual(sample_text, revised_sample_text)
+        except self.failureException as e:
+            # need to remove the first line of the error message
+            error = str(e).split('\n', 1)[1]
+            self.assertEqual(sample_text_error, error)
+        else:
+            self.fail(f'{self.failureException} not raised')
+
+    def testAssertEqualMultipleLinesMissingNewlineTerminator(self):
+        '''Verifying format of diff output from assertEqual involving strings
+         with multiple lines, but missing the terminating newline on both.
+        '''
+        sample_text = 'laden swallows\nfly sloely'
+        revised_sample_text = 'laden swallows\nfly slowly'
+        sample_text_error = '''\
+  laden swallows
+- fly sloely
+?        ^
++ fly slowly
+?        ^
+'''
+        try:
+            self.assertEqual(sample_text, revised_sample_text)
+        except self.failureException as e:
+            # need to remove the first line of the error message
+            error = str(e).split('\n', 1)[1]
+            self.assertEqual(sample_text_error, error)
+        else:
+            self.fail(f'{self.failureException} not raised')
+
+    def testAssertEqualMultipleLinesMismatchedNewlinesTerminators(self):
+        '''Verifying format of diff output from assertEqual involving strings
+         with multiple lines and mismatched newlines. The output should
+         include a - on it's own line to indicate the newline difference
+         between the two strings
+        '''
+        sample_text = 'laden swallows\nfly sloely\n'
+        revised_sample_text = 'laden swallows\nfly slowly'
+        sample_text_error = '''\
+  laden swallows
+- fly sloely
+?        ^
++ fly slowly
+?        ^
+-\x20
+'''
+        try:
+            self.assertEqual(sample_text, revised_sample_text)
+        except self.failureException as e:
+            # need to remove the first line of the error message
+            error = str(e).split('\n', 1)[1]
+            self.assertEqual(sample_text_error, error)
+        else:
+            self.fail(f'{self.failureException} not raised')
 
     def testEqualityBytesWarning(self):
         if sys.flags.bytes_warning:
@@ -1801,45 +1842,18 @@ test case
             pass
         self.assertIsNone(value)
 
-    def testDeprecatedMethodNames(self):
-        """
-        Test that the deprecated methods raise a DeprecationWarning. See #9424.
-        """
-        old = (
-            (self.failIfEqual, (3, 5)),
-            (self.assertNotEquals, (3, 5)),
-            (self.failUnlessEqual, (3, 3)),
-            (self.assertEquals, (3, 3)),
-            (self.failUnlessAlmostEqual, (2.0, 2.0)),
-            (self.assertAlmostEquals, (2.0, 2.0)),
-            (self.failIfAlmostEqual, (3.0, 5.0)),
-            (self.assertNotAlmostEquals, (3.0, 5.0)),
-            (self.failUnless, (True,)),
-            (self.assert_, (True,)),
-            (self.failUnlessRaises, (TypeError, lambda _: 3.14 + 'spam')),
-            (self.failIf, (False,)),
-            (self.assertDictContainsSubset, (dict(a=1, b=2), dict(a=1, b=2, c=3))),
-            (self.assertRaisesRegexp, (KeyError, 'foo', lambda: {}['foo'])),
-            (self.assertRegexpMatches, ('bar', 'bar')),
-        )
-        for meth, args in old:
-            with self.assertWarns(DeprecationWarning):
-                meth(*args)
-
-    # disable this test for now. When the version where the fail* methods will
-    # be removed is decided, re-enable it and update the version
-    def _testDeprecatedFailMethods(self):
-        """Test that the deprecated fail* methods get removed in 3.x"""
-        if sys.version_info[:2] < (3, 3):
-            return
+    def testDeprecatedFailMethods(self):
+        """Test that the deprecated fail* methods get removed in 3.12"""
         deprecated_names = [
             'failIfEqual', 'failUnlessEqual', 'failUnlessAlmostEqual',
             'failIfAlmostEqual', 'failUnless', 'failUnlessRaises', 'failIf',
-            'assertDictContainsSubset',
+            'assertNotEquals', 'assertEquals', 'assertAlmostEquals',
+            'assertNotAlmostEquals', 'assert_', 'assertDictContainsSubset',
+            'assertRaisesRegexp', 'assertRegexpMatches'
         ]
         for deprecated_name in deprecated_names:
             with self.assertRaises(AttributeError):
-                getattr(self, deprecated_name)  # remove these in 3.x
+                getattr(self, deprecated_name)
 
     def testDeepcopy(self):
         # Issue: 5660
@@ -1956,8 +1970,6 @@ test case
             del case
             self.assertFalse(wr())
 
-    # TODO: RUSTPYTHON; destructors
-    @unittest.expectedFailure
     def test_no_exception_leak(self):
         # Issue #19880: TestCase.run() should not keep a reference
         # to the exception

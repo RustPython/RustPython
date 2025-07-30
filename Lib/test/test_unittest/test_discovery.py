@@ -6,11 +6,10 @@ import types
 import pickle
 from test import support
 from test.support import import_helper
-import test.test_importlib.util
 
 import unittest
 import unittest.mock
-import unittest.test
+import test.test_unittest
 
 
 class TestableTestProgram(unittest.TestProgram):
@@ -407,9 +406,33 @@ class TestDiscovery(unittest.TestCase):
         top_level_dir = os.path.abspath('/foo/bar')
         start_dir = os.path.abspath('/foo/bar/baz')
         self.assertEqual(suite, "['tests']")
-        self.assertEqual(loader._top_level_dir, top_level_dir)
+        self.assertEqual(loader._top_level_dir, os.path.abspath('/foo'))
         self.assertEqual(_find_tests_args, [(start_dir, 'pattern')])
         self.assertIn(top_level_dir, sys.path)
+
+    def test_discover_should_not_persist_top_level_dir_between_calls(self):
+        original_isfile = os.path.isfile
+        original_isdir = os.path.isdir
+        original_sys_path = sys.path[:]
+        def restore():
+            os.path.isfile = original_isfile
+            os.path.isdir = original_isdir
+            sys.path[:] = original_sys_path
+        self.addCleanup(restore)
+
+        os.path.isfile = lambda path: True
+        os.path.isdir = lambda path: True
+        loader = unittest.TestLoader()
+        loader.suiteClass = str
+        dir = '/foo/bar'
+        top_level_dir = '/foo'
+
+        loader.discover(dir, top_level_dir=top_level_dir)
+        self.assertEqual(loader._top_level_dir, None)
+
+        loader._top_level_dir = dir2 = '/previous/dir'
+        loader.discover(dir, top_level_dir=top_level_dir)
+        self.assertEqual(loader._top_level_dir, dir2)
 
     def test_discover_start_dir_is_package_calls_package_load_tests(self):
         # This test verifies that the package load_tests in a package is indeed
@@ -789,7 +812,7 @@ class TestDiscovery(unittest.TestCase):
         loader = unittest.TestLoader()
 
         tests = [self]
-        expectedPath = os.path.abspath(os.path.dirname(unittest.test.__file__))
+        expectedPath = os.path.abspath(os.path.dirname(test.test_unittest.__file__))
 
         self.wasRun = False
         def _find_tests(start_dir, pattern):
@@ -797,7 +820,7 @@ class TestDiscovery(unittest.TestCase):
             self.assertEqual(start_dir, expectedPath)
             return tests
         loader._find_tests = _find_tests
-        suite = loader.discover('unittest.test')
+        suite = loader.discover('test.test_unittest')
         self.assertTrue(self.wasRun)
         self.assertEqual(suite._tests, tests)
 
@@ -826,6 +849,8 @@ class TestDiscovery(unittest.TestCase):
                          'as dotted module names')
 
     def test_discovery_failed_discovery(self):
+        from test.test_importlib import util
+
         loader = unittest.TestLoader()
         package = types.ModuleType('package')
 
@@ -837,7 +862,7 @@ class TestDiscovery(unittest.TestCase):
             # Since loader.discover() can modify sys.path, restore it when done.
             with import_helper.DirsOnSysPath():
                 # Make sure to remove 'package' from sys.modules when done.
-                with test.test_importlib.util.uncache('package'):
+                with util.uncache('package'):
                     with self.assertRaises(TypeError) as cm:
                         loader.discover('package')
                     self.assertEqual(str(cm.exception),
