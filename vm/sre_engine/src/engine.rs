@@ -68,7 +68,7 @@ impl Marks {
         }
     }
 
-    pub fn last_index(&self) -> isize {
+    pub const fn last_index(&self) -> isize {
         self.last_index
     }
 
@@ -1054,11 +1054,11 @@ impl MatchContext {
         &req.pattern_codes[self.code_position..]
     }
 
-    fn remaining_codes<S>(&self, req: &Request<'_, S>) -> usize {
+    const fn remaining_codes<S>(&self, req: &Request<'_, S>) -> usize {
         req.pattern_codes.len() - self.code_position
     }
 
-    fn remaining_chars<S>(&self, req: &Request<'_, S>) -> usize {
+    const fn remaining_chars<S>(&self, req: &Request<'_, S>) -> usize {
         req.end - self.cursor.position
     }
 
@@ -1097,7 +1097,7 @@ impl MatchContext {
         self.peek_code(req, peek).try_into()
     }
 
-    fn skip_code(&mut self, skip: usize) {
+    const fn skip_code(&mut self, skip: usize) {
         self.code_position += skip;
     }
 
@@ -1105,12 +1105,12 @@ impl MatchContext {
         self.skip_code(self.peek_code(req, peek) as usize + 1);
     }
 
-    fn at_beginning(&self) -> bool {
+    const fn at_beginning(&self) -> bool {
         // self.ctx().string_position == self.state().start
         self.cursor.position == 0
     }
 
-    fn at_end<S>(&self, req: &Request<'_, S>) -> bool {
+    const fn at_end<S>(&self, req: &Request<'_, S>) -> bool {
         self.cursor.position == req.end
     }
 
@@ -1144,7 +1144,7 @@ impl MatchContext {
         this == that
     }
 
-    fn can_success<S>(&self, req: &Request<'_, S>) -> bool {
+    const fn can_success<S>(&self, req: &Request<'_, S>) -> bool {
         if !self.toplevel {
             return true;
         }
@@ -1163,12 +1163,12 @@ impl MatchContext {
     }
 
     #[must_use]
-    fn next_offset(&mut self, offset: usize, jump: Jump) -> Self {
+    const fn next_offset(&mut self, offset: usize, jump: Jump) -> Self {
         self.next_at(self.code_position + offset, jump)
     }
 
     #[must_use]
-    fn next_at(&mut self, code_position: usize, jump: Jump) -> Self {
+    const fn next_at(&mut self, code_position: usize, jump: Jump) -> Self {
         self.jump = jump;
         Self {
             code_position,

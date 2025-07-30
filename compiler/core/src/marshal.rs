@@ -75,8 +75,10 @@ enum Type {
 
 impl TryFrom<u8> for Type {
     type Error = MarshalError;
+
     fn try_from(value: u8) -> Result<Self> {
         use Type::*;
+
         Ok(match value {
             // b'0' => Null,
             b'N' => None,
@@ -111,24 +113,31 @@ impl TryFrom<u8> for Type {
 
 pub trait Read {
     fn read_slice(&mut self, n: u32) -> Result<&[u8]>;
+
     fn read_array<const N: usize>(&mut self) -> Result<&[u8; N]> {
         self.read_slice(N as u32).map(|s| s.try_into().unwrap())
     }
+
     fn read_str(&mut self, len: u32) -> Result<&str> {
         Ok(std::str::from_utf8(self.read_slice(len)?)?)
     }
+
     fn read_wtf8(&mut self, len: u32) -> Result<&Wtf8> {
         Wtf8::from_bytes(self.read_slice(len)?).ok_or(MarshalError::InvalidUtf8)
     }
+
     fn read_u8(&mut self) -> Result<u8> {
         Ok(u8::from_le_bytes(*self.read_array()?))
     }
+
     fn read_u16(&mut self) -> Result<u16> {
         Ok(u16::from_le_bytes(*self.read_array()?))
     }
+
     fn read_u32(&mut self) -> Result<u32> {
         Ok(u32::from_le_bytes(*self.read_array()?))
     }
+
     fn read_u64(&mut self) -> Result<u64> {
         Ok(u64::from_le_bytes(*self.read_array()?))
     }
@@ -136,6 +145,7 @@ pub trait Read {
 
 pub(crate) trait ReadBorrowed<'a>: Read {
     fn read_slice_borrow(&mut self, n: u32) -> Result<&'a [u8]>;
+
     fn read_str_borrow(&mut self, len: u32) -> Result<&'a str> {
         Ok(std::str::from_utf8(self.read_slice_borrow(len)?)?)
     }
@@ -264,85 +274,117 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
 
 pub trait MarshalBag: Copy {
     type Value;
+    type ConstantBag: ConstantBag;
+
     fn make_bool(&self, value: bool) -> Self::Value;
+
     fn make_none(&self) -> Self::Value;
+
     fn make_ellipsis(&self) -> Self::Value;
+
     fn make_float(&self, value: f64) -> Self::Value;
+
     fn make_complex(&self, value: Complex64) -> Self::Value;
+
     fn make_str(&self, value: &Wtf8) -> Self::Value;
+
     fn make_bytes(&self, value: &[u8]) -> Self::Value;
+
     fn make_int(&self, value: BigInt) -> Self::Value;
+
     fn make_tuple(&self, elements: impl Iterator<Item = Self::Value>) -> Self::Value;
+
     fn make_code(
         &self,
         code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
     ) -> Self::Value;
+
     fn make_stop_iter(&self) -> Result<Self::Value>;
+
     fn make_list(&self, it: impl Iterator<Item = Self::Value>) -> Result<Self::Value>;
+
     fn make_set(&self, it: impl Iterator<Item = Self::Value>) -> Result<Self::Value>;
+
     fn make_frozenset(&self, it: impl Iterator<Item = Self::Value>) -> Result<Self::Value>;
+
     fn make_dict(
         &self,
         it: impl Iterator<Item = (Self::Value, Self::Value)>,
     ) -> Result<Self::Value>;
-    type ConstantBag: ConstantBag;
+
     fn constant_bag(self) -> Self::ConstantBag;
 }
 
 impl<Bag: ConstantBag> MarshalBag for Bag {
     type Value = Bag::Constant;
+    type ConstantBag = Self;
+
     fn make_bool(&self, value: bool) -> Self::Value {
         self.make_constant::<Bag::Constant>(BorrowedConstant::Boolean { value })
     }
+
     fn make_none(&self) -> Self::Value {
         self.make_constant::<Bag::Constant>(BorrowedConstant::None)
     }
+
     fn make_ellipsis(&self) -> Self::Value {
         self.make_constant::<Bag::Constant>(BorrowedConstant::Ellipsis)
     }
+
     fn make_float(&self, value: f64) -> Self::Value {
         self.make_constant::<Bag::Constant>(BorrowedConstant::Float { value })
     }
+
     fn make_complex(&self, value: Complex64) -> Self::Value {
         self.make_constant::<Bag::Constant>(BorrowedConstant::Complex { value })
     }
+
     fn make_str(&self, value: &Wtf8) -> Self::Value {
         self.make_constant::<Bag::Constant>(BorrowedConstant::Str { value })
     }
+
     fn make_bytes(&self, value: &[u8]) -> Self::Value {
         self.make_constant::<Bag::Constant>(BorrowedConstant::Bytes { value })
     }
+
     fn make_int(&self, value: BigInt) -> Self::Value {
         self.make_int(value)
     }
+
     fn make_tuple(&self, elements: impl Iterator<Item = Self::Value>) -> Self::Value {
         self.make_tuple(elements)
     }
+
     fn make_code(
         &self,
         code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
     ) -> Self::Value {
         self.make_code(code)
     }
+
     fn make_stop_iter(&self) -> Result<Self::Value> {
         Err(MarshalError::BadType)
     }
+
     fn make_list(&self, _: impl Iterator<Item = Self::Value>) -> Result<Self::Value> {
         Err(MarshalError::BadType)
     }
+
     fn make_set(&self, _: impl Iterator<Item = Self::Value>) -> Result<Self::Value> {
         Err(MarshalError::BadType)
     }
+
     fn make_frozenset(&self, _: impl Iterator<Item = Self::Value>) -> Result<Self::Value> {
         Err(MarshalError::BadType)
     }
+
     fn make_dict(
         &self,
         _: impl Iterator<Item = (Self::Value, Self::Value)>,
     ) -> Result<Self::Value> {
         Err(MarshalError::BadType)
     }
-    type ConstantBag = Self;
+
     fn constant_bag(self) -> Self::ConstantBag {
         self
     }
@@ -421,6 +463,7 @@ pub fn deserialize_value<R: Read, Bag: MarshalBag>(rdr: &mut R, bag: Bag) -> Res
 pub trait Dumpable: Sized {
     type Error;
     type Constant: Constant;
+
     fn with_dump<R>(&self, f: impl FnOnce(DumpableValue<'_, Self>) -> R) -> Result<R, Self::Error>;
 }
 
@@ -462,6 +505,7 @@ impl<'a, C: Constant> From<BorrowedConstant<'a, C>> for DumpableValue<'a, C> {
 impl<C: Constant> Dumpable for C {
     type Error = Infallible;
     type Constant = Self;
+
     #[inline(always)]
     fn with_dump<R>(&self, f: impl FnOnce(DumpableValue<'_, Self>) -> R) -> Result<R, Self::Error> {
         Ok(f(self.borrow_constant().into()))
@@ -470,15 +514,19 @@ impl<C: Constant> Dumpable for C {
 
 pub trait Write {
     fn write_slice(&mut self, slice: &[u8]);
+
     fn write_u8(&mut self, v: u8) {
         self.write_slice(&v.to_le_bytes())
     }
+
     fn write_u16(&mut self, v: u16) {
         self.write_slice(&v.to_le_bytes())
     }
+
     fn write_u32(&mut self, v: u32) {
         self.write_slice(&v.to_le_bytes())
     }
+
     fn write_u64(&mut self, v: u64) {
         self.write_slice(&v.to_le_bytes())
     }

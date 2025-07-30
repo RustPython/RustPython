@@ -228,7 +228,7 @@ impl Hashable for PySlice {
         };
 
         let mut acc = XXPRIME_5;
-        for part in [zelf.start_ref(vm), &zelf.stop, zelf.step_ref(vm)].iter() {
+        for part in &[zelf.start_ref(vm), &zelf.stop, zelf.step_ref(vm)] {
             let lane = part.hash(vm)? as PyUHash;
             if lane == u64::MAX as PyUHash {
                 return Ok(-1 as PyHash);

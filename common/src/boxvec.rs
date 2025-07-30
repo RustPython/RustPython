@@ -165,7 +165,7 @@ impl<T> BoxVec<T> {
         if index >= self.len() {
             None
         } else {
-            self.drain(index..index + 1).next()
+            self.drain(index..=index).next()
         }
     }
 

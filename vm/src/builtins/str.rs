@@ -1522,7 +1522,7 @@ impl PyStrRef {
 
     pub fn try_into_utf8(self, vm: &VirtualMachine) -> PyResult<PyRef<PyUtf8Str>> {
         self.ensure_valid_utf8(vm)?;
-        Ok(unsafe { mem::transmute::<PyRef<PyStr>, PyRef<PyUtf8Str>>(self) })
+        Ok(unsafe { mem::transmute::<Self, PyRef<PyUtf8Str>>(self) })
     }
 }
 

@@ -223,7 +223,7 @@ impl StrDrive for &Wtf8 {
 ///
 /// `bytes` must produce a valid UTF-8-like (UTF-8 or WTF-8) string
 #[inline]
-unsafe fn next_code_point(ptr: &mut *const u8) -> u32 {
+const unsafe fn next_code_point(ptr: &mut *const u8) -> u32 {
     // Decode UTF-8
     let x = unsafe { **ptr };
     *ptr = unsafe { ptr.offset(1) };
@@ -271,7 +271,7 @@ unsafe fn next_code_point(ptr: &mut *const u8) -> u32 {
 ///
 /// `bytes` must produce a valid UTF-8-like (UTF-8 or WTF-8) string
 #[inline]
-unsafe fn next_code_point_reverse(ptr: &mut *const u8) -> u32 {
+const unsafe fn next_code_point_reverse(ptr: &mut *const u8) -> u32 {
     // Decode UTF-8
     *ptr = unsafe { ptr.offset(-1) };
     let w = match unsafe { **ptr } {
@@ -367,7 +367,7 @@ pub(crate) fn is_loc_word(ch: u32) -> bool {
     ch == '_' as u32 || is_loc_alnum(ch)
 }
 #[inline]
-pub(crate) fn is_linebreak(ch: u32) -> bool {
+pub(crate) const fn is_linebreak(ch: u32) -> bool {
     ch == '\n' as u32
 }
 #[inline]
@@ -433,7 +433,7 @@ pub(crate) fn is_uni_space(ch: u32) -> bool {
         )
 }
 #[inline]
-pub(crate) fn is_uni_linebreak(ch: u32) -> bool {
+pub(crate) const fn is_uni_linebreak(ch: u32) -> bool {
     matches!(
         ch,
         0x000A | 0x000B | 0x000C | 0x000D | 0x001C | 0x001D | 0x001E | 0x0085 | 0x2028 | 0x2029

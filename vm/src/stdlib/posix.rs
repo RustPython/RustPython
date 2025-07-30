@@ -516,7 +516,7 @@ pub mod module {
             if reversed {
                 funcs.reverse();
             }
-            for func in funcs.into_iter() {
+            for func in funcs {
                 if let Err(e) = func.call((), vm) {
                     let exit = e.fast_isinstance(vm.ctx.exceptions.system_exit);
                     vm.run_unraisable(e, Some("Exception ignored in".to_owned()), func);

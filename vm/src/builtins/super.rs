@@ -174,7 +174,7 @@ impl GetAttr for PySuper {
                 .skip_while(|cls| !cls.is(&zelf.inner.read().typ))
                 .skip(1) // skip su->type (if any)
                 .collect();
-            for cls in mro.iter() {
+            for cls in &mro {
                 if let Some(descr) = cls.get_direct_attr(name) {
                     return vm
                         .call_get_descriptor_specific(
