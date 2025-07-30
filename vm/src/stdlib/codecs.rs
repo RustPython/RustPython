@@ -7,7 +7,7 @@ mod _codecs {
     use crate::common::wtf8::Wtf8Buf;
     use crate::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
-        builtins::PyStrRef,
+        builtins::{PyStrRef, PyUtf8StrRef},
         codecs,
         function::{ArgBytesLike, FuncArgs},
     };
@@ -23,10 +23,10 @@ mod _codecs {
     }
 
     #[pyfunction]
-    fn lookup(encoding: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    fn lookup(encoding: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
         vm.state
             .codec_registry
-            .lookup(encoding.try_to_str(vm)?, vm)
+            .lookup(encoding.as_str(), vm)
             .map(|codec| codec.into_tuple().into())
     }
 

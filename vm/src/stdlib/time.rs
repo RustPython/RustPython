@@ -35,7 +35,7 @@ unsafe extern "C" {
 mod decl {
     use crate::{
         AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-        builtins::{PyStrRef, PyTypeRef},
+        builtins::{PyStrRef, PyTypeRef, PyUtf8StrRef},
         function::{Either, FuncArgs, OptionalArg},
         types::PyStructSequence,
     };
@@ -344,7 +344,11 @@ mod decl {
     }
 
     #[pyfunction]
-    fn strftime(format: PyStrRef, t: OptionalArg<PyStructTime>, vm: &VirtualMachine) -> PyResult {
+    fn strftime(
+        format: PyUtf8StrRef,
+        t: OptionalArg<PyStructTime>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         use std::fmt::Write;
 
         let instant = t.naive_or_local(vm)?;
@@ -355,12 +359,8 @@ mod decl {
          * raises an error if unsupported format is supplied.
          * If error happens, we set result as input arg.
          */
-        write!(
-            &mut formatted_time,
-            "{}",
-            instant.format(format.try_to_str(vm)?)
-        )
-        .unwrap_or_else(|_| formatted_time = format.to_string());
+        write!(&mut formatted_time, "{}", instant.format(format.as_str()))
+            .unwrap_or_else(|_| formatted_time = format.to_string());
         Ok(vm.ctx.new_str(formatted_time).into())
     }
 

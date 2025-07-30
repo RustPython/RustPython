@@ -454,12 +454,6 @@ impl PyStr {
         }
     }
 
-    pub fn try_to_str(&self, vm: &VirtualMachine) -> PyResult<&str> {
-        self.ensure_valid_utf8(vm)?;
-        // SAFETY: ensure_valid_utf8 passed, so unwrap is safe.
-        Ok(unsafe { self.to_str().unwrap_unchecked() })
-    }
-
     pub fn to_string_lossy(&self) -> Cow<'_, str> {
         self.to_str()
             .map(Cow::Borrowed)
