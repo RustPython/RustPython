@@ -852,10 +852,14 @@ mod _sqlite {
     }
 
     impl Callable for Connection {
-        type Args = (PyUtf8StrRef,);
+        type Args = FuncArgs;
 
         fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            if let Some(stmt) = Statement::new(zelf, args.0, vm)? {
+            let _ = zelf.db_lock(vm)?;
+
+            let (sql,): (PyUtf8StrRef,) = args.bind(vm)?;
+
+            if let Some(stmt) = Statement::new(zelf, sql, vm)? {
                 Ok(stmt.into_ref(&vm.ctx).into())
             } else {
                 Ok(vm.ctx.none())
