@@ -313,15 +313,11 @@ class SymtableTest(unittest.TestCase):
         self.assertTrue(self.spam.lookup("internal").is_referenced())
         self.assertFalse(self.spam.lookup("x").is_referenced())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_parameters(self):
         for sym in ("a", "var", "kw"):
             self.assertTrue(self.spam.lookup(sym).is_parameter())
         self.assertFalse(self.spam.lookup("x").is_parameter())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_symbol_lookup(self):
         self.assertEqual(len(self.top.get_identifiers()),
                          len(self.top.get_symbols()))
@@ -347,8 +343,6 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(len(ns_test_2.get_namespaces()), 0)
         self.assertRaises(ValueError, ns_test_2.get_namespace)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_assigned(self):
         self.assertTrue(self.spam.lookup("x").is_assigned())
         self.assertTrue(self.spam.lookup("bar").is_assigned())
@@ -388,8 +382,6 @@ class SymtableTest(unittest.TestCase):
     def test_imported(self):
         self.assertTrue(self.top.lookup("sys").is_imported())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_name(self):
         self.assertEqual(self.top.get_name(), "top")
         self.assertEqual(self.spam.get_name(), "spam")

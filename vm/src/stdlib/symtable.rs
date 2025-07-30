@@ -3,7 +3,9 @@ pub(crate) use symtable::make_module;
 #[pymodule]
 mod symtable {
     use crate::{
-        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, builtins::PyStrRef, compiler,
+        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        builtins::{PyDictRef, PyStrRef},
+        compiler,
     };
     use rustpython_codegen::symboltable::{Symbol, SymbolFlags, SymbolScope, SymbolTable};
     use std::fmt;
@@ -182,28 +184,13 @@ mod symtable {
         }
 
         #[pygetset]
-        fn symbols(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-            let symbols = self
-                .symtable
-                .symbols
-                .values()
-                .map(|s| {
-                    (PySymbol {
-                        symbol: s.clone(),
-                        namespaces: self
-                            .symtable
-                            .sub_tables
-                            .iter()
-                            .filter(|&table| table.name == s.name)
-                            .cloned()
-                            .collect(),
-                        is_top_scope: self.symtable.name == "top",
-                    })
-                    .into_ref(&vm.ctx)
-                    .into()
-                })
-                .collect();
-            Ok(symbols)
+        fn symbols(&self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+            let dict = vm.ctx.new_dict();
+            for (name, symbol) in &self.symtable.symbols {
+                dict.set_item(name, vm.new_pyobj(symbol.flags.bits()), vm)
+                    .unwrap();
+            }
+            Ok(dict)
         }
     }
 
