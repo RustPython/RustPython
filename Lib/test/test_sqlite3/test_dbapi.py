@@ -1744,8 +1744,6 @@ class ClosedConTests(unittest.TestCase):
         with self.assertRaises(sqlite.ProgrammingError):
             con.set_progress_handler(progress, 100)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_closed_call(self):
         con = sqlite.connect(":memory:")
         con.close()

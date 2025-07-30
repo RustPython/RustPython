@@ -8,26 +8,26 @@ pub enum Quote {
 
 impl Quote {
     #[inline]
-    pub const fn swap(self) -> Quote {
+    pub const fn swap(self) -> Self {
         match self {
-            Quote::Single => Quote::Double,
-            Quote::Double => Quote::Single,
+            Self::Single => Self::Double,
+            Self::Double => Self::Single,
         }
     }
 
     #[inline]
     pub const fn to_byte(&self) -> u8 {
         match self {
-            Quote::Single => b'\'',
-            Quote::Double => b'"',
+            Self::Single => b'\'',
+            Self::Double => b'"',
         }
     }
 
     #[inline]
     pub const fn to_char(&self) -> char {
         match self {
-            Quote::Single => '\'',
-            Quote::Double => '"',
+            Self::Single => '\'',
+            Self::Double => '"',
         }
     }
 }
@@ -95,7 +95,7 @@ pub struct UnicodeEscape<'a> {
 
 impl<'a> UnicodeEscape<'a> {
     #[inline]
-    pub fn with_forced_quote(source: &'a Wtf8, quote: Quote) -> Self {
+    pub const fn with_forced_quote(source: &'a Wtf8, quote: Quote) -> Self {
         let layout = EscapeLayout { quote, len: None };
         Self { source, layout }
     }
@@ -109,7 +109,7 @@ impl<'a> UnicodeEscape<'a> {
         Self::with_preferred_quote(source, Quote::Single)
     }
     #[inline]
-    pub fn str_repr<'r>(&'a self) -> StrRepr<'r, 'a> {
+    pub const fn str_repr<'r>(&'a self) -> StrRepr<'r, 'a> {
         StrRepr(self)
     }
 }
@@ -169,7 +169,7 @@ impl UnicodeEscape<'_> {
             };
             let Some(new_len) = length_add(out_len, incr) else {
                 #[cold]
-                fn stop(
+                const fn stop(
                     single_count: usize,
                     double_count: usize,
                     preferred_quote: Quote,
@@ -283,11 +283,11 @@ pub struct AsciiEscape<'a> {
 
 impl<'a> AsciiEscape<'a> {
     #[inline]
-    pub fn new(source: &'a [u8], layout: EscapeLayout) -> Self {
+    pub const fn new(source: &'a [u8], layout: EscapeLayout) -> Self {
         Self { source, layout }
     }
     #[inline]
-    pub fn with_forced_quote(source: &'a [u8], quote: Quote) -> Self {
+    pub const fn with_forced_quote(source: &'a [u8], quote: Quote) -> Self {
         let layout = EscapeLayout { quote, len: None };
         Self { source, layout }
     }
@@ -301,7 +301,7 @@ impl<'a> AsciiEscape<'a> {
         Self::with_preferred_quote(source, Quote::Single)
     }
     #[inline]
-    pub fn bytes_repr<'r>(&'a self) -> BytesRepr<'r, 'a> {
+    pub const fn bytes_repr<'r>(&'a self) -> BytesRepr<'r, 'a> {
         BytesRepr(self)
     }
 }
@@ -329,7 +329,7 @@ impl AsciiEscape<'_> {
         let mut single_count = 0;
         let mut double_count = 0;
 
-        for ch in source.iter() {
+        for ch in source {
             let incr = match ch {
                 b'\'' => {
                     single_count += 1;
@@ -343,7 +343,7 @@ impl AsciiEscape<'_> {
             };
             let Some(new_len) = length_add(out_len, incr) else {
                 #[cold]
-                fn stop(
+                const fn stop(
                     single_count: usize,
                     double_count: usize,
                     preferred_quote: Quote,
@@ -370,7 +370,7 @@ impl AsciiEscape<'_> {
         }
     }
 
-    fn escaped_char_len(ch: u8) -> usize {
+    const fn escaped_char_len(ch: u8) -> usize {
         match ch {
             b'\\' | b'\t' | b'\r' | b'\n' => 2,
             0x20..=0x7e => 1,
@@ -413,7 +413,7 @@ unsafe impl Escape for AsciiEscape<'_> {
 
     #[cold]
     fn write_body_slow(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
-        for ch in self.source.iter() {
+        for ch in self.source {
             Self::write_char(*ch, self.layout().quote, formatter)?;
         }
         Ok(())

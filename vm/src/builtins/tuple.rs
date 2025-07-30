@@ -232,13 +232,13 @@ impl PyTuple<PyObjectRef> {
 }
 
 impl<T> PyTuple<PyRef<T>> {
-    pub fn new_ref_typed(elements: Vec<PyRef<T>>, ctx: &Context) -> PyRef<PyTuple<PyRef<T>>> {
+    pub fn new_ref_typed(elements: Vec<PyRef<T>>, ctx: &Context) -> PyRef<Self> {
         // SAFETY: PyRef<T> has the same layout as PyObjectRef
         unsafe {
             let elements: Vec<PyObjectRef> =
                 std::mem::transmute::<Vec<PyRef<T>>, Vec<PyObjectRef>>(elements);
             let tuple = PyTuple::<PyObjectRef>::new_ref(elements, ctx);
-            std::mem::transmute::<PyRef<PyTuple>, PyRef<PyTuple<PyRef<T>>>>(tuple)
+            std::mem::transmute::<PyRef<PyTuple>, PyRef<Self>>(tuple)
         }
     }
 }
@@ -339,7 +339,7 @@ impl PyTuple {
     }
 
     fn _contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        for element in self.elements.iter() {
+        for element in &self.elements {
             if vm.identical_or_equal(element, needle)? {
                 return Ok(true);
             }
@@ -483,21 +483,21 @@ impl PyRef<PyTuple<PyObjectRef>> {
             <PyRef<T> as TransmuteFromObject>::check(vm, elem)?;
         }
         // SAFETY: We just verified all elements are of type T
-        Ok(unsafe { std::mem::transmute::<PyRef<PyTuple>, PyRef<PyTuple<PyRef<T>>>>(self) })
+        Ok(unsafe { std::mem::transmute::<Self, PyRef<PyTuple<PyRef<T>>>>(self) })
     }
 }
 
 impl<T: PyPayload> PyRef<PyTuple<PyRef<T>>> {
     pub fn into_untyped(self) -> PyRef<PyTuple> {
         // SAFETY: PyTuple<PyRef<T>> has the same layout as PyTuple
-        unsafe { std::mem::transmute::<PyRef<PyTuple<PyRef<T>>>, PyRef<PyTuple>>(self) }
+        unsafe { std::mem::transmute::<Self, PyRef<PyTuple>>(self) }
     }
 }
 
 impl<T: PyPayload> Py<PyTuple<PyRef<T>>> {
     pub fn as_untyped(&self) -> &Py<PyTuple> {
         // SAFETY: PyTuple<PyRef<T>> has the same layout as PyTuple
-        unsafe { std::mem::transmute::<&Py<PyTuple<PyRef<T>>>, &Py<PyTuple>>(self) }
+        unsafe { std::mem::transmute::<&Self, &Py<PyTuple>>(self) }
     }
 }
 

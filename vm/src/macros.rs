@@ -186,6 +186,15 @@ macro_rules! identifier(
     };
 );
 
+#[macro_export]
+macro_rules! identifier_utf8(
+    ($as_ctx:expr, $name:ident) => {
+        // Safety: All known identifiers are ascii strings.
+        #[allow(clippy::macro_metavars_in_unsafe)]
+        unsafe { $as_ctx.as_ref().names.$name.as_object().downcast_unchecked_ref::<$crate::builtins::PyUtf8Str>() }
+    };
+);
+
 /// Super detailed logging. Might soon overflow your log buffers
 /// Default, this logging is discarded, except when a the `vm-tracing-logging`
 /// build feature is enabled.

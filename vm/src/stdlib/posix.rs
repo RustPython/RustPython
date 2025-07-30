@@ -24,7 +24,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 pub mod module {
     use crate::{
         AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
+        builtins::{PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyTypeRef, PyUtf8StrRef},
         convert::{IntoPyException, ToPyObject, TryFromObject},
         function::{Either, KwArgs, OptionalArg},
         ospath::{IOErrorBuilder, OsPath, OsPathOrFd},
@@ -516,7 +516,7 @@ pub mod module {
             if reversed {
                 funcs.reverse();
             }
-            for func in funcs.into_iter() {
+            for func in funcs {
                 if let Err(e) = func.call((), vm) {
                     let exit = e.fast_isinstance(vm.ctx.exceptions.system_exit);
                     vm.run_unraisable(e, Some("Exception ignored in".to_owned()), func);
@@ -2242,7 +2242,7 @@ pub mod module {
             let i = match obj.downcast::<PyInt>() {
                 Ok(int) => int.try_to_primitive(vm)?,
                 Err(obj) => {
-                    let s = PyStrRef::try_from_object(vm, obj)?;
+                    let s = PyUtf8StrRef::try_from_object(vm, obj)?;
                     s.as_str().parse::<SysconfVar>().or_else(|_| {
                         if s.as_str() == "SC_PAGESIZE" {
                             Ok(SysconfVar::SC_PAGESIZE)

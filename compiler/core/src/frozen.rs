@@ -57,6 +57,7 @@ impl<B: AsRef<[u8]> + ?Sized> FrozenLib<B> {
 impl<'a, B: AsRef<[u8]> + ?Sized> IntoIterator for &'a FrozenLib<B> {
     type Item = (&'a str, FrozenModule<&'a [u8]>);
     type IntoIter = FrozenModulesIter<'a>;
+
     fn into_iter(self) -> Self::IntoIter {
         self.decode()
     }
@@ -84,6 +85,7 @@ impl<'a> Iterator for FrozenModulesIter<'a> {
         (self.remaining as usize, Some(self.remaining as usize))
     }
 }
+
 impl ExactSizeIterator for FrozenModulesIter<'_> {}
 
 fn read_entry<'a>(

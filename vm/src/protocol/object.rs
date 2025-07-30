@@ -2,10 +2,10 @@
 //! <https://docs.python.org/3/c-api/object.html>
 
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
-        PyAsyncGen, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyStrRef,
-        PyTuple, PyTupleRef, PyType, PyTypeRef, pystr::AsPyStr,
+        PyAsyncGen, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyTuple,
+        PyTupleRef, PyType, PyTypeRef, PyUtf8Str, pystr::AsPyStr,
     },
     bytes_inner::ByteInnerNewOptions,
     common::{hash::PyHash, str::to_ascii},
@@ -328,7 +328,11 @@ impl PyObject {
         }
     }
 
-    pub fn repr(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    pub fn repr_utf8(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyUtf8Str>> {
+        self.repr(vm)?.try_into_utf8(vm)
+    }
+
+    pub fn repr(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
         vm.with_recursion("while getting the repr of an object", || {
             // TODO: RustPython does not implement type slots inheritance yet
             self.class()
@@ -346,13 +350,15 @@ impl PyObject {
     }
 
     pub fn ascii(&self, vm: &VirtualMachine) -> PyResult<ascii::AsciiString> {
-        let repr = self.repr(vm)?;
+        let repr = self.repr_utf8(vm)?;
         let ascii = to_ascii(repr.as_str());
         Ok(ascii)
     }
 
-    // Container of the virtual machine state:
-    pub fn str(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    pub fn str_utf8(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyUtf8Str>> {
+        self.str(vm)?.try_into_utf8(vm)
+    }
+    pub fn str(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
         let obj = match self.to_owned().downcast_exact::<PyStr>(vm) {
             Ok(s) => return Ok(s.into_pyref()),
             Err(obj) => obj,

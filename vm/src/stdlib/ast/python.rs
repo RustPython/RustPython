@@ -71,7 +71,7 @@ pub(crate) mod _ast {
             let zelf = vm.ctx.new_base_object(cls, dict);
 
             // Initialize the instance with the provided arguments
-            NodeAst::__init__(zelf.clone(), args, vm)?;
+            Self::__init__(zelf.clone(), args, vm)?;
 
             Ok(zelf)
         }

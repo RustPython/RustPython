@@ -120,7 +120,7 @@ mod _io {
         TryFromBorrowedObject, TryFromObject,
         builtins::{
             PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyMemoryView, PyStr,
-            PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
+            PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef,
         },
         class::StaticType,
         common::lock::{
@@ -1579,7 +1579,7 @@ mod _io {
         }
 
         #[pyslot]
-        fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
             let name_repr = repr_file_obj_name(zelf, vm)?;
             let cls = zelf.class();
             let slot_name = cls.slot_name();
@@ -1592,7 +1592,7 @@ mod _io {
         }
 
         #[pymethod]
-        fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
             Self::slot_repr(&zelf, vm)
         }
 
@@ -1945,7 +1945,7 @@ mod _io {
     #[derive(FromArgs)]
     struct TextIOWrapperArgs {
         #[pyarg(any, default)]
-        encoding: Option<PyStrRef>,
+        encoding: Option<PyUtf8StrRef>,
         #[pyarg(any, default)]
         errors: Option<PyStrRef>,
         #[pyarg(any, default)]
@@ -2108,7 +2108,7 @@ mod _io {
         buffer: PyObjectRef,
         encoder: Option<(PyObjectRef, Option<EncodeFunc>)>,
         decoder: Option<PyObjectRef>,
-        encoding: PyStrRef,
+        encoding: PyUtf8StrRef,
         errors: PyStrRef,
         newline: Newlines,
         line_buffering: bool,
@@ -2294,8 +2294,8 @@ mod _io {
             *data = None;
 
             let encoding = match args.encoding {
-                None if vm.state.settings.utf8_mode > 0 => identifier!(vm, utf_8).to_owned(),
-                Some(enc) if enc.as_wtf8() != "locale" => enc,
+                None if vm.state.settings.utf8_mode > 0 => identifier_utf8!(vm, utf_8).to_owned(),
+                Some(enc) if enc.as_str() != "locale" => enc,
                 _ => {
                     // None without utf8_mode or "locale" encoding
                     vm.import("locale", 0)?
@@ -2314,7 +2314,7 @@ mod _io {
 
             let newline = args.newline.unwrap_or_default();
             let (encoder, decoder) =
-                Self::find_coder(&buffer, encoding.try_to_str(vm)?, &errors, newline, vm)?;
+                Self::find_coder(&buffer, encoding.as_str(), &errors, newline, vm)?;
 
             *data = Some(TextIOData {
                 buffer,
@@ -2414,7 +2414,7 @@ mod _io {
                 if let Some(encoding) = args.encoding {
                     let (encoder, decoder) = Self::find_coder(
                         &data.buffer,
-                        encoding.try_to_str(vm)?,
+                        encoding.as_str(),
                         &data.errors,
                         data.newline,
                         vm,
@@ -2739,7 +2739,7 @@ mod _io {
         }
 
         #[pygetset]
-        fn encoding(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        fn encoding(&self, vm: &VirtualMachine) -> PyResult<PyUtf8StrRef> {
             Ok(self.lock(vm)?.encoding.clone())
         }
 
@@ -3601,7 +3601,7 @@ mod _io {
         }
 
         #[pygetset]
-        fn line_buffering(&self) -> bool {
+        const fn line_buffering(&self) -> bool {
             false
         }
     }
@@ -3892,7 +3892,7 @@ mod _io {
     struct IoOpenArgs {
         file: PyObjectRef,
         #[pyarg(any, optional)]
-        mode: OptionalArg<PyStrRef>,
+        mode: OptionalArg<PyUtf8StrRef>,
         #[pyarg(flatten)]
         opts: OpenArgs,
     }
@@ -3918,7 +3918,7 @@ mod _io {
         #[pyarg(any, default = -1)]
         pub buffering: isize,
         #[pyarg(any, default)]
-        pub encoding: Option<PyStrRef>,
+        pub encoding: Option<PyUtf8StrRef>,
         #[pyarg(any, default)]
         pub errors: Option<PyStrRef>,
         #[pyarg(any, default)]
@@ -4130,7 +4130,7 @@ mod fileio {
     use super::{_io::*, Offset};
     use crate::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyStr, PyStrRef},
+        builtins::{PyBaseExceptionRef, PyUtf8Str, PyUtf8StrRef},
         common::crt_fd::Fd,
         convert::ToPyException,
         function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg, OptionalOption},
@@ -4257,7 +4257,7 @@ mod fileio {
         #[pyarg(positional)]
         name: PyObjectRef,
         #[pyarg(any, default)]
-        mode: Option<PyStrRef>,
+        mode: Option<PyUtf8StrRef>,
         #[pyarg(any, default = true)]
         closefd: bool,
         #[pyarg(any, default)]
@@ -4295,7 +4295,7 @@ mod fileio {
 
             let mode_obj = args
                 .mode
-                .unwrap_or_else(|| PyStr::from("rb").into_ref(&vm.ctx));
+                .unwrap_or_else(|| PyUtf8Str::from("rb").into_ref(&vm.ctx));
             let mode_str = mode_obj.as_str();
             let (mode, flags) =
                 compute_mode(mode_str).map_err(|e| vm.new_value_error(e.error_msg(mode_str)))?;

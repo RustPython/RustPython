@@ -2,7 +2,7 @@ use rustpython_common::wtf8::Wtf8;
 
 use crate::{
     PyObjectRef, PyResult, VirtualMachine,
-    builtins::PyStr,
+    builtins::{PyStr, PyUtf8Str},
     convert::{ToPyException, ToPyObject},
     exceptions::cstring_error,
 };
@@ -35,6 +35,7 @@ pub trait ToCString: AsRef<Wtf8> {
 
 impl ToCString for &str {}
 impl ToCString for PyStr {}
+impl ToCString for PyUtf8Str {}
 
 pub(crate) fn collection_repr<'a, I>(
     class_name: Option<&str>,

@@ -104,7 +104,7 @@ impl Initializer for PySuper {
 
             let mut typ = None;
             for (i, var) in frame.code.freevars.iter().enumerate() {
-                if var.as_str() == "__class__" {
+                if var.as_bytes() == b"__class__" {
                     let i = frame.code.cellvars.len() + i;
                     let class = frame.cells_frees[i]
                         .get()
@@ -162,7 +162,7 @@ impl GetAttr for PySuper {
         // We want __class__ to return the class of the super object
         // (i.e. super, or a subclass), not the class of su->obj.
 
-        if name.as_str() == "__class__" {
+        if name.as_bytes() == b"__class__" {
             return skip(zelf, name);
         }
 
@@ -174,7 +174,7 @@ impl GetAttr for PySuper {
                 .skip_while(|cls| !cls.is(&zelf.inner.read().typ))
                 .skip(1) // skip su->type (if any)
                 .collect();
-            for cls in mro.iter() {
+            for cls in &mro {
                 if let Some(descr) = cls.get_direct_attr(name) {
                     return vm
                         .call_get_descriptor_specific(

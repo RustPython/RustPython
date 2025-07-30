@@ -360,7 +360,7 @@ impl Compiler {
             fblock: Vec::with_capacity(MAXBLOCKS),
             symbol_table_index: 0, // Module is always the first symbol table
         };
-        Compiler {
+        Self {
             code_stack: vec![module_code],
             symbol_table_stack: Vec::new(),
             source_file,
@@ -380,7 +380,7 @@ impl Compiler {
 
     /// Check if the slice is a two-element slice (no step)
     // = is_two_element_slice
-    fn is_two_element_slice(slice: &Expr) -> bool {
+    const fn is_two_element_slice(slice: &Expr) -> bool {
         matches!(slice, Expr::Slice(s) if s.step.is_none())
     }
 
@@ -882,7 +882,7 @@ impl Compiler {
         self._name_inner(name, |i| &mut i.metadata.names)
     }
     fn varname(&mut self, name: &str) -> CompileResult<bytecode::NameIdx> {
-        if Compiler::is_forbidden_arg_name(name) {
+        if Self::is_forbidden_arg_name(name) {
             return Err(self.error(CodegenErrorType::SyntaxError(format!(
                 "cannot assign to {name}",
             ))));
@@ -3435,7 +3435,7 @@ impl Compiler {
 
         // Create a new tuple of attribute names.
         let mut attr_names = vec![];
-        for name in kwd_attrs.iter() {
+        for name in &kwd_attrs {
             // Py_NewRef(name) is emulated by cloning the name into a PyObject.
             attr_names.push(ConstantData::Str {
                 value: name.as_str().to_string().into(),
@@ -3667,7 +3667,7 @@ impl Compiler {
                                 pc.stores.insert(insert_pos + j, elem);
                             }
                             // Also perform the same rotation on the evaluation stack.
-                            for _ in 0..(i_stores + 1) {
+                            for _ in 0..=i_stores {
                                 self.pattern_helper_rotate(i_control + 1)?;
                             }
                         }
@@ -4547,7 +4547,7 @@ impl Compiler {
             }) => {
                 let prev_ctx = self.ctx;
                 let name = "<lambda>".to_owned();
-                let default_params = Default::default();
+                let default_params = Parameters::default();
                 let params = parameters.as_deref().unwrap_or(&default_params);
 
                 // Prepare defaults before entering function
@@ -4577,7 +4577,7 @@ impl Compiler {
                 let have_kwdefaults = !kw_with_defaults.is_empty();
                 if have_kwdefaults {
                     let default_kw_count = kw_with_defaults.len();
-                    for (arg, default) in kw_with_defaults.iter() {
+                    for (arg, default) in &kw_with_defaults {
                         self.emit_load_const(ConstantData::Str {
                             value: arg.name.as_str().into(),
                         });

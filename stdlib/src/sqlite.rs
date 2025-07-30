@@ -59,6 +59,7 @@ mod _sqlite {
         builtins::{
             PyBaseException, PyBaseExceptionRef, PyByteArray, PyBytes, PyDict, PyDictRef, PyFloat,
             PyInt, PyIntRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
+            PyUtf8Str, PyUtf8StrRef,
         },
         convert::IntoObject,
         function::{
@@ -851,10 +852,14 @@ mod _sqlite {
     }
 
     impl Callable for Connection {
-        type Args = (PyStrRef,);
+        type Args = FuncArgs;
 
         fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            if let Some(stmt) = Statement::new(zelf, args.0, vm)? {
+            let _ = zelf.db_lock(vm)?;
+
+            let (sql,): (PyUtf8StrRef,) = args.bind(vm)?;
+
+            if let Some(stmt) = Statement::new(zelf, sql, vm)? {
                 Ok(stmt.into_ref(&vm.ctx).into())
             } else {
                 Ok(vm.ctx.none())
@@ -986,7 +991,7 @@ mod _sqlite {
         #[pymethod]
         fn execute(
             zelf: PyRef<Self>,
-            sql: PyStrRef,
+            sql: PyUtf8StrRef,
             parameters: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
@@ -998,7 +1003,7 @@ mod _sqlite {
         #[pymethod]
         fn executemany(
             zelf: PyRef<Self>,
-            sql: PyStrRef,
+            sql: PyUtf8StrRef,
             seq_of_params: ArgIterable,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
@@ -1010,7 +1015,7 @@ mod _sqlite {
         #[pymethod]
         fn executescript(
             zelf: PyRef<Self>,
-            script: PyStrRef,
+            script: PyUtf8StrRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
             let row_factory = zelf.row_factory.to_owned();
@@ -1159,11 +1164,10 @@ mod _sqlite {
         #[pymethod]
         fn create_collation(
             &self,
-            name: PyStrRef,
+            name: PyUtf8StrRef,
             callable: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            name.ensure_valid_utf8(vm)?;
             let name = name.to_cstring(vm)?;
             let db = self.db_lock(vm)?;
             let Some(data) = CallbackData::new(callable.clone(), vm) else {
@@ -1491,7 +1495,7 @@ mod _sqlite {
         #[pymethod]
         fn execute(
             zelf: PyRef<Self>,
-            sql: PyStrRef,
+            sql: PyUtf8StrRef,
             parameters: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
@@ -1563,7 +1567,7 @@ mod _sqlite {
         #[pymethod]
         fn executemany(
             zelf: PyRef<Self>,
-            sql: PyStrRef,
+            sql: PyUtf8StrRef,
             seq_of_params: ArgIterable,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
@@ -1637,11 +1641,9 @@ mod _sqlite {
         #[pymethod]
         fn executescript(
             zelf: PyRef<Self>,
-            script: PyStrRef,
+            script: PyUtf8StrRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            script.ensure_valid_utf8(vm)?;
-
             let db = zelf.connection.db_lock(vm)?;
 
             db.sql_limit(script.byte_len(), vm)?;
@@ -2375,10 +2377,9 @@ mod _sqlite {
     impl Statement {
         fn new(
             connection: &Connection,
-            sql: PyStrRef,
+            sql: PyUtf8StrRef,
             vm: &VirtualMachine,
         ) -> PyResult<Option<Self>> {
-            let sql = sql.try_into_utf8(vm)?;
             if sql.as_str().contains('\0') {
                 return Err(new_programming_error(
                     vm,
@@ -2731,6 +2732,7 @@ mod _sqlite {
                 let val = val.to_f64();
                 unsafe { sqlite3_bind_double(self.st, pos, val) }
             } else if let Some(val) = obj.downcast_ref::<PyStr>() {
+                let val = val.try_as_utf8(vm)?;
                 let (ptr, len) = str_to_ptr_len(val, vm)?;
                 unsafe { sqlite3_bind_text(self.st, pos, ptr, len, SQLITE_TRANSIENT()) }
             } else if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, obj) {
@@ -2990,6 +2992,7 @@ mod _sqlite {
                 } else if let Some(val) = val.downcast_ref::<PyFloat>() {
                     sqlite3_result_double(self.ctx, val.to_f64())
                 } else if let Some(val) = val.downcast_ref::<PyStr>() {
+                    let val = val.try_as_utf8(vm)?;
                     let (ptr, len) = str_to_ptr_len(val, vm)?;
                     sqlite3_result_text(self.ctx, ptr, len, SQLITE_TRANSIENT())
                 } else if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, val) {
@@ -3070,8 +3073,8 @@ mod _sqlite {
         }
     }
 
-    fn str_to_ptr_len(s: &PyStr, vm: &VirtualMachine) -> PyResult<(*const libc::c_char, i32)> {
-        let s_str = s.try_to_str(vm)?;
+    fn str_to_ptr_len(s: &PyUtf8Str, vm: &VirtualMachine) -> PyResult<(*const libc::c_char, i32)> {
+        let s_str = s.as_str();
         let len = c_int::try_from(s_str.len())
             .map_err(|_| vm.new_overflow_error("TEXT longer than INT_MAX bytes"))?;
         let ptr = s_str.as_ptr().cast();

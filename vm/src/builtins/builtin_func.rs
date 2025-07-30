@@ -2,6 +2,7 @@ use super::{PyStrInterned, PyStrRef, PyType, type_};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
+    common::wtf8::Wtf8,
     convert::TryFromObject,
     function::{FuncArgs, PyComparisonValue, PyMethodDef, PyMethodFlags, PyNativeFn},
     types::{Callable, Comparable, PyComparisonOp, Representable, Unconstructible},
@@ -27,7 +28,7 @@ impl fmt::Debug for PyNativeFunction {
         write!(
             f,
             "builtin function {}.{} ({:?}) self as instance of {:?}",
-            self.module.map_or("<unknown>", |m| m.as_str()),
+            self.module.map_or(Wtf8::new("<unknown>"), |m| m.as_wtf8()),
             self.value.name,
             self.value.flags,
             self.zelf.as_ref().map(|z| z.class().name().to_owned())

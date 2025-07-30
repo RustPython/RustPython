@@ -228,7 +228,7 @@ impl Hashable for PySlice {
         };
 
         let mut acc = XXPRIME_5;
-        for part in [zelf.start_ref(vm), &zelf.stop, zelf.step_ref(vm)].iter() {
+        for part in &[zelf.start_ref(vm), &zelf.stop, zelf.step_ref(vm)] {
             let lane = part.hash(vm)? as PyUHash;
             if lane == u64::MAX as PyUHash {
                 return Ok(-1 as PyHash);
@@ -292,15 +292,10 @@ impl Representable for PySlice {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let start_repr = zelf.start_ref(vm).repr(vm)?;
-        let stop_repr = &zelf.stop.repr(vm)?;
+        let stop_repr = zelf.stop.repr(vm)?;
         let step_repr = zelf.step_ref(vm).repr(vm)?;
 
-        Ok(format!(
-            "slice({}, {}, {})",
-            start_repr.as_str(),
-            stop_repr.as_str(),
-            step_repr.as_str()
-        ))
+        Ok(format!("slice({start_repr}, {stop_repr}, {step_repr})"))
     }
 }
 

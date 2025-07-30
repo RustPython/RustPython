@@ -24,9 +24,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
         "east_asian_width",
         "normalize",
         "mirrored",
-    ]
-    .into_iter()
-    {
+    ] {
         crate::vm::extend_module!(vm, &module, {
             attr => ucd.get_attr(attr, vm).unwrap(),
         });

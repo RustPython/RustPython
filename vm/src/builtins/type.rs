@@ -340,13 +340,13 @@ impl PyType {
                 if name == identifier!(ctx, __new__) {
                     continue;
                 }
-                if name.as_str().starts_with("__") && name.as_str().ends_with("__") {
+                if name.as_bytes().starts_with(b"__") && name.as_bytes().ends_with(b"__") {
                     slot_name_set.insert(name);
                 }
             }
         }
         for &name in self.attributes.read().keys() {
-            if name.as_str().starts_with("__") && name.as_str().ends_with("__") {
+            if name.as_bytes().starts_with(b"__") && name.as_bytes().ends_with(b"__") {
                 slot_name_set.insert(name);
             }
         }

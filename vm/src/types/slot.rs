@@ -169,7 +169,7 @@ impl Default for PyTypeFlags {
 pub(crate) type GenericMethod = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type HashFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
-pub(crate) type StringifyFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyStrRef>;
+pub(crate) type StringifyFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyRef<PyStr>>;
 pub(crate) type GetattroFunc = fn(&PyObject, &Py<PyStr>, &VirtualMachine) -> PyResult;
 pub(crate) type SetattroFunc =
     fn(&PyObject, &Py<PyStr>, PySetterValue, &VirtualMachine) -> PyResult<()>;
@@ -250,7 +250,7 @@ fn setitem_wrapper<K: ToPyObject>(
     .map(drop)
 }
 
-fn repr_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+fn repr_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
     let ret = vm.call_special_method(zelf, identifier!(vm, __repr__), ())?;
     ret.downcast::<PyStr>().map_err(|obj| {
         vm.new_type_error(format!(
@@ -977,7 +977,7 @@ pub trait Hashable: PyPayload {
 pub trait Representable: PyPayload {
     #[inline]
     #[pyslot]
-    fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
         let zelf = zelf
             .downcast_ref()
             .ok_or_else(|| vm.new_type_error("unexpected payload for __repr__"))?;
@@ -986,12 +986,12 @@ pub trait Representable: PyPayload {
 
     #[inline]
     #[pymethod]
-    fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
         Self::slot_repr(&zelf, vm)
     }
 
     #[inline]
-    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
         let repr = Self::repr_str(zelf, vm)?;
         Ok(vm.ctx.new_str(repr))
     }

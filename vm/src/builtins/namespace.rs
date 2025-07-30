@@ -51,7 +51,7 @@ impl Initializer for PyNamespace {
         if !args.args.is_empty() {
             return Err(vm.new_type_error("no positional arguments expected"));
         }
-        for (name, value) in args.kwargs.into_iter() {
+        for (name, value) in args.kwargs {
             let name = vm.ctx.new_str(name);
             zelf.as_object().set_attr(&name, value, vm)?;
         }
@@ -89,8 +89,8 @@ impl Representable for PyNamespace {
             let dict = zelf.as_object().dict().unwrap();
             let mut parts = Vec::with_capacity(dict.__len__());
             for (key, value) in dict {
-                let k = &key.repr(vm)?;
-                let key_str = k.as_str();
+                let k = key.repr(vm)?;
+                let key_str = k.as_wtf8();
                 let value_repr = value.repr(vm)?;
                 parts.push(format!("{}={}", &key_str[1..key_str.len() - 1], value_repr));
             }
