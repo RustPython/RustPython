@@ -6,7 +6,7 @@ pub(crate) use pwd::make_module;
 mod pwd {
     use crate::{
         PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyIntRef, PyStrRef},
+        builtins::{PyIntRef, PyUtf8StrRef},
         convert::{IntoPyException, ToPyObject},
         exceptions,
         types::PyStructSequence,
@@ -54,7 +54,7 @@ mod pwd {
     }
 
     #[pyfunction]
-    fn getpwnam(name: PyStrRef, vm: &VirtualMachine) -> PyResult<Passwd> {
+    fn getpwnam(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Passwd> {
         let pw_name = name.as_str();
         if pw_name.contains('\0') {
             return Err(exceptions::cstring_error(vm));

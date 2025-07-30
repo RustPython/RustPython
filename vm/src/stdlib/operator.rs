@@ -5,8 +5,8 @@ mod _operator {
     use crate::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyInt, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef},
-        function::Either,
-        function::{ArgBytesLike, FuncArgs, KwArgs, OptionalArg},
+        common::wtf8::Wtf8,
+        function::{ArgBytesLike, Either, FuncArgs, KwArgs, OptionalArg},
         identifier,
         protocol::PyIter,
         recursion::ReprGuard,
@@ -324,7 +324,7 @@ mod _operator {
     ) -> PyResult<bool> {
         let res = match (a, b) {
             (Either::A(a), Either::A(b)) => {
-                if !a.as_str().is_ascii() || !b.as_str().is_ascii() {
+                if !a.is_ascii() || !b.is_ascii() {
                     return Err(vm.new_type_error(
                         "comparing strings with non-ASCII characters is not supported",
                     ));
@@ -371,13 +371,14 @@ mod _operator {
             attr: &Py<PyStr>,
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
-            let attr_str = attr.as_str();
-            let parts = attr_str.split('.').collect::<Vec<_>>();
+            let attr_str = attr.as_bytes();
+            let parts = attr_str.split(|&b| b == b'.').collect::<Vec<_>>();
             if parts.len() == 1 {
                 return obj.get_attr(attr, vm);
             }
             let mut obj = obj;
             for part in parts {
+                let part = Wtf8::from_bytes(part).expect("originally valid WTF-8");
                 obj = obj.get_attr(&vm.ctx.new_str(part), vm)?;
             }
             Ok(obj)

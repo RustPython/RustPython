@@ -112,7 +112,7 @@ fn format_internal(
 
                 // FIXME: compiler can intern specs using parser tree. Then this call can be interned_str
                 pystr = vm.format(&argument, vm.ctx.new_str(format_spec))?;
-                pystr.as_ref()
+                pystr.as_wtf8()
             }
             FormatPart::Literal(literal) => literal,
         };

@@ -1,7 +1,8 @@
 use super::VirtualMachine;
 use crate::stdlib::warnings;
 use crate::{
-    builtins::{PyInt, PyIntRef, PyStr, PyStrRef},
+    PyRef,
+    builtins::{PyInt, PyIntRef, PyStr, PyStrRef, PyUtf8Str},
     object::{AsObject, PyObject, PyObjectRef, PyResult},
     protocol::{PyIterReturn, PyNumberBinaryOp, PyNumberTernaryOp, PySequence},
     types::PyComparisonOp,
@@ -516,6 +517,9 @@ impl VirtualMachine {
                 &result.class().name()
             ))
         })
+    }
+    pub fn format_utf8(&self, obj: &PyObject, format_spec: PyStrRef) -> PyResult<PyRef<PyUtf8Str>> {
+        self.format(obj, format_spec)?.try_into_utf8(self)
     }
 
     // https://docs.python.org/3/reference/expressions.html#membership-test-operations

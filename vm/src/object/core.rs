@@ -448,7 +448,7 @@ impl<T: PyObjectPayload> PyInner<T> {
         let member_count = typ.slots.member_count;
         Box::new(Self {
             ref_count: RefCount::new(),
-            typeid: TypeId::of::<T>(),
+            typeid: T::payload_type_id(),
             vtable: PyObjVTable::of::<T>(),
             typ: PyAtomicRef::from(typ),
             dict: dict.map(InstanceDict::new),
@@ -539,6 +539,11 @@ impl PyObjectRef {
         } else {
             Err(self)
         }
+    }
+
+    pub fn try_downcast<T: PyObjectPayload>(self, vm: &VirtualMachine) -> PyResult<PyRef<T>> {
+        T::try_downcast_from(&self, vm)?;
+        Ok(unsafe { self.downcast_unchecked() })
     }
 
     /// Force to downcast this reference to a subclass.
@@ -720,10 +725,24 @@ impl PyObject {
         }
     }
 
+    #[inline]
+    pub(crate) fn typeid(&self) -> TypeId {
+        self.0.typeid
+    }
+
     /// Check if this object can be downcast to T.
     #[inline(always)]
     pub fn downcastable<T: PyObjectPayload>(&self) -> bool {
-        self.0.typeid == T::payload_type_id()
+        T::downcastable_from(self)
+    }
+
+    /// Attempt to downcast this reference to a subclass.
+    pub fn try_downcast_ref<'a, T: PyObjectPayload>(
+        &'a self,
+        vm: &VirtualMachine,
+    ) -> PyResult<&'a Py<T>> {
+        T::try_downcast_from(self, vm)?;
+        Ok(unsafe { self.downcast_unchecked_ref::<T>() })
     }
 
     /// Attempt to downcast this reference to a subclass.

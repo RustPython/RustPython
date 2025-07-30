@@ -292,15 +292,10 @@ impl Representable for PySlice {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let start_repr = zelf.start_ref(vm).repr(vm)?;
-        let stop_repr = &zelf.stop.repr(vm)?;
+        let stop_repr = zelf.stop.repr(vm)?;
         let step_repr = zelf.step_ref(vm).repr(vm)?;
 
-        Ok(format!(
-            "slice({}, {}, {})",
-            start_repr.as_str(),
-            stop_repr.as_str(),
-            step_repr.as_str()
-        ))
+        Ok(format!("slice({start_repr}, {stop_repr}, {step_repr})"))
     }
 }
 

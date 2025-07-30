@@ -1,6 +1,6 @@
 use crate::object::{MaybeTraverse, Py, PyObjectRef, PyRef, PyResult};
 use crate::{
-    PyRefExact,
+    PyObject, PyRefExact,
     builtins::{PyBaseExceptionRef, PyType, PyTypeRef},
     types::PyTypeFlags,
     vm::{Context, VirtualMachine},
@@ -23,6 +23,31 @@ pub trait PyPayload:
     fn payload_type_id() -> std::any::TypeId {
         std::any::TypeId::of::<Self>()
     }
+
+    /// # Safety: this function should only be called if `payload_type_id` matches the type of `obj`.
+    #[inline]
+    fn downcastable_from(obj: &PyObject) -> bool {
+        obj.typeid() == Self::payload_type_id()
+    }
+
+    fn try_downcast_from(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        if Self::downcastable_from(obj) {
+            return Ok(());
+        }
+
+        #[cold]
+        fn raise_downcast_type_error(
+            vm: &VirtualMachine,
+            class: &Py<PyType>,
+            obj: &PyObject,
+        ) -> PyBaseExceptionRef {
+            vm.new_downcast_type_error(class, obj)
+        }
+
+        let class = Self::class(&vm.ctx);
+        Err(raise_downcast_type_error(vm, class, obj))
+    }
+
     fn class(ctx: &Context) -> &'static Py<PyType>;
 
     #[inline]
