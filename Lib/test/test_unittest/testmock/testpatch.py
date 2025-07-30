@@ -659,7 +659,7 @@ class PatchTest(unittest.TestCase):
 
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailureIfWindows
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_patch_dict_with_string(self):
         @patch.dict('os.environ', {'konrad_delong': 'some value'})
         def test():
