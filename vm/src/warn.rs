@@ -122,7 +122,7 @@ fn get_filter(
 
         /* Python code: action, msg, cat, mod, ln = item */
         let action = if let Some(action) = tmp_item.first() {
-            action.str(vm).map(|action| action.into_object())
+            action.str_utf8(vm).map(|action| action.into_object())
         } else {
             Err(vm.new_type_error("action must be a string"))
         };
@@ -201,8 +201,8 @@ fn already_warned(
 fn normalize_module(filename: &Py<PyStr>, vm: &VirtualMachine) -> Option<PyObjectRef> {
     let obj = match filename.char_len() {
         0 => vm.new_pyobj("<unknown>"),
-        len if len >= 3 && filename.as_str().ends_with(".py") => {
-            vm.new_pyobj(&filename.as_str()[..len - 3])
+        len if len >= 3 && filename.as_bytes().ends_with(b".py") => {
+            vm.new_pyobj(&filename.as_wtf8()[..len - 3])
         }
         _ => filename.as_object().to_owned(),
     };
@@ -232,7 +232,7 @@ fn warn_explicit(
     };
 
     // Normalize message.
-    let text = message.as_str();
+    let text = message.as_wtf8();
 
     let category = if let Some(category) = category {
         if !category.fast_issubclass(vm.ctx.exceptions.warning) {
@@ -278,11 +278,11 @@ fn warn_explicit(
         vm,
     )?;
 
-    if action.str(vm)?.as_str().eq("error") {
+    if action.str_utf8(vm)?.as_str().eq("error") {
         return Err(vm.new_type_error(message.to_string()));
     }
 
-    if action.str(vm)?.as_str().eq("ignore") {
+    if action.str_utf8(vm)?.as_str().eq("ignore") {
         return Ok(());
     }
 
@@ -345,7 +345,7 @@ fn show_warning(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     let stderr = crate::stdlib::sys::PyStderr(vm);
-    writeln!(stderr, "{}: {}", category.name(), text.as_str(),);
+    writeln!(stderr, "{}: {}", category.name(), text);
     Ok(())
 }
 

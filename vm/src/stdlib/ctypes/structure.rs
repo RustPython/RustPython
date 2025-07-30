@@ -39,7 +39,7 @@ impl Constructor for PyCStructure {
                 .downcast_ref::<PyStr>()
                 .ok_or_else(|| vm.new_type_error("Field name must be a string"))?;
             let typ = field.get(1).unwrap().clone();
-            field_data.insert(name.as_str().to_string(), typ);
+            field_data.insert(name.to_string(), typ);
         }
         todo!("Implement PyCStructure::py_new")
     }

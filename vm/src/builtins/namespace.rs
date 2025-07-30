@@ -89,8 +89,8 @@ impl Representable for PyNamespace {
             let dict = zelf.as_object().dict().unwrap();
             let mut parts = Vec::with_capacity(dict.__len__());
             for (key, value) in dict {
-                let k = &key.repr(vm)?;
-                let key_str = k.as_str();
+                let k = key.repr(vm)?;
+                let key_str = k.as_wtf8();
                 let value_repr = value.repr(vm)?;
                 parts.push(format!("{}={}", &key_str[1..key_str.len() - 1], value_repr));
             }

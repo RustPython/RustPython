@@ -472,7 +472,7 @@ impl VirtualMachine {
             object,
         };
         if let Err(e) = unraisablehook.call((args,), self) {
-            println!("{}", e.as_object().repr(self).unwrap().as_str());
+            println!("{}", e.as_object().repr(self).unwrap());
         }
     }
 

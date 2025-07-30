@@ -1579,7 +1579,7 @@ mod _io {
         }
 
         #[pyslot]
-        fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
             let name_repr = repr_file_obj_name(zelf, vm)?;
             let cls = zelf.class();
             let slot_name = cls.slot_name();
@@ -1592,7 +1592,7 @@ mod _io {
         }
 
         #[pymethod]
-        fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
             Self::slot_repr(&zelf, vm)
         }
 

@@ -712,7 +712,7 @@ mod sys {
         if !vm.is_none(&unraisable.exc_value) {
             write!(stderr, "{}: ", unraisable.exc_type);
             if let Ok(str) = unraisable.exc_value.str(vm) {
-                write!(stderr, "{}", str.as_str());
+                write!(stderr, "{}", str.to_str().unwrap_or("<str with surrogate>"));
             } else {
                 write!(stderr, "<exception str() failed>");
             }
@@ -734,7 +734,6 @@ mod sys {
                 e.as_object()
                     .repr(vm)
                     .unwrap_or_else(|_| vm.ctx.empty_str.to_owned())
-                    .as_str()
             );
         }
     }
