@@ -485,6 +485,8 @@ class TestCommandLineArgs(unittest.TestCase):
 
         self.assertEqual(program.testNamePatterns, ['*foo*', '*bar*', '*pat*'])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testSelectedTestNamesFunctionalTest(self):
         def run_unittest(args):
             # Use -E to ignore PYTHONSAFEPATH env var

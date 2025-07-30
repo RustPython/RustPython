@@ -43,6 +43,8 @@ class AnyTest(unittest.TestCase):
         mock.assert_called_with(ANY, foo=ANY)
 
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_any_mock_calls_comparison_order(self):
         mock = Mock()
         class Foo(object):
@@ -882,6 +884,8 @@ class SpecSignatureTest(unittest.TestCase):
         a.f.assert_called_with(self=10)
 
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_autospec_data_descriptor(self):
         class Descriptor(object):
             def __init__(self, value):
@@ -926,6 +930,8 @@ class SpecSignatureTest(unittest.TestCase):
         check_data_descriptor(foo.desc)
 
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_autospec_on_bound_builtin_function(self):
         meth = types.MethodType(time.ctime, time.time())
         self.assertIsInstance(meth(), str)

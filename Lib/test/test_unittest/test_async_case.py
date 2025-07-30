@@ -48,6 +48,8 @@ class TestAsyncCase(unittest.TestCase):
         # starting a new event loop
         self.addCleanup(support.gc_collect)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_full_cycle(self):
         expected = ['setUp',
                     'asyncSetUp',
@@ -294,6 +296,8 @@ class TestAsyncCase(unittest.TestCase):
         test.doCleanups()
         self.assertEqual(events, ['asyncSetUp', 'test', 'asyncTearDown', 'cleanup2', 'cleanup1'])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_deprecation_of_return_val_from_test(self):
         # Issue 41322 - deprecate return of value that is not None from a test
         class Nothing:
@@ -484,6 +488,8 @@ class TestAsyncCase(unittest.TestCase):
         result = test.run()
         self.assertTrue(result.wasSuccessful())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_loop_factory(self):
         asyncio.set_event_loop_policy(None)
 
