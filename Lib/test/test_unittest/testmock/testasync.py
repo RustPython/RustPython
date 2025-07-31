@@ -218,10 +218,6 @@ class AsyncAutospecTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             create_autospec(async_func, instance=True)
 
-    @unittest.skip('Broken test from https://bugs.python.org/issue37251')
-    def test_create_autospec_awaitable_class(self):
-        self.assertIsInstance(create_autospec(AwaitableClass), AsyncMock)
-
     def test_create_autospec(self):
         spec = create_autospec(async_func_args)
         awaitable = spec(1, 2, c=3)
@@ -236,7 +232,9 @@ class AsyncAutospecTest(unittest.TestCase):
         run(main())
 
         self.assertTrue(iscoroutinefunction(spec))
+        self.assertTrue(inspect.iscoroutinefunction(spec))
         self.assertTrue(asyncio.iscoroutine(awaitable))
+        self.assertTrue(inspect.iscoroutine(awaitable))
         self.assertEqual(spec.await_count, 1)
         self.assertEqual(spec.await_args, call(1, 2, c=3))
         self.assertEqual(spec.await_args_list, [call(1, 2, c=3)])
@@ -248,6 +246,25 @@ class AsyncAutospecTest(unittest.TestCase):
         with self.assertRaises(AssertionError):
             spec.assert_any_await(e=1)
 
+    def test_autospec_checks_signature(self):
+        spec = create_autospec(async_func_args)
+        # signature is not checked when called
+        awaitable = spec()
+        self.assertListEqual(spec.mock_calls, [])
+
+        async def main():
+            await awaitable
+
+        # but it is checked when awaited
+        with self.assertRaises(TypeError):
+            run(main())
+
+        # _checksig_ raises before running or awaiting the mock
+        self.assertListEqual(spec.mock_calls, [])
+        self.assertEqual(spec.await_count, 0)
+        self.assertIsNone(spec.await_args)
+        self.assertEqual(spec.await_args_list, [])
+        spec.assert_not_awaited()
 
     def test_patch_with_autospec(self):
 
@@ -257,7 +274,9 @@ class AsyncAutospecTest(unittest.TestCase):
                 self.assertIsInstance(mock_method.mock, AsyncMock)
 
                 self.assertTrue(iscoroutinefunction(mock_method))
+                self.assertTrue(inspect.iscoroutinefunction(mock_method))
                 self.assertTrue(asyncio.iscoroutine(awaitable))
+                self.assertTrue(inspect.iscoroutine(awaitable))
                 self.assertTrue(inspect.isawaitable(awaitable))
 
                 # Verify the default values during mock setup
@@ -308,6 +327,21 @@ class AsyncSpecTest(unittest.TestCase):
         with self.assertRaises(AttributeError):
             mock.async_method
 
+    def test_spec_async_attributes_instance(self):
+        async_instance = AsyncClass()
+        async_instance.async_func_attr = async_func
+        async_instance.later_async_func_attr = normal_func
+
+        mock_async_instance = Mock(spec_set=async_instance)
+
+        async_instance.later_async_func_attr = async_func
+
+        self.assertIsInstance(mock_async_instance.async_func_attr, AsyncMock)
+        # only the shape of the spec at the time of mock construction matters
+        self.assertNotIsInstance(mock_async_instance.later_async_func_attr, AsyncMock)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_spec_mock_type_kw(self):
         def inner_test(mock_type):
             async_mock = mock_type(spec=async_func)
@@ -322,6 +356,8 @@ class AsyncSpecTest(unittest.TestCase):
             with self.subTest(f"test spec kwarg with {mock_type}"):
                 inner_test(mock_type)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_spec_mock_type_positional(self):
         def inner_test(mock_type):
             async_mock = mock_type(async_func)
@@ -427,9 +463,10 @@ class AsyncArguments(IsolatedAsyncioTestCase):
         self.assertEqual(output, 10)
 
     async def test_add_side_effect_exception(self):
+        class CustomError(Exception): pass
         async def addition(var): pass
-        mock = AsyncMock(addition, side_effect=Exception('err'))
-        with self.assertRaises(Exception):
+        mock = AsyncMock(addition, side_effect=CustomError('side-effect'))
+        with self.assertRaisesRegex(CustomError, 'side-effect'):
             await mock(5)
 
     async def test_add_side_effect_coroutine(self):
@@ -699,8 +736,8 @@ class AsyncIteratorTest(unittest.TestCase):
 
         async def __anext__(self): pass
 
-    # TODO: RUSTPYTHON; async for
-    """
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_aiter_set_return_value(self):
         mock_iter = AsyncMock(name="tester")
         mock_iter.__aiter__.return_value = [1, 2, 3]
@@ -708,7 +745,6 @@ class AsyncIteratorTest(unittest.TestCase):
             return [i async for i in mock_iter]
         result = run(main())
         self.assertEqual(result, [1, 2, 3])
-    """
 
     def test_mock_aiter_and_anext_asyncmock(self):
         def inner_test(mock_type):
@@ -726,8 +762,9 @@ class AsyncIteratorTest(unittest.TestCase):
             with self.subTest(f"test aiter and anext corourtine with {mock_type}"):
                 inner_test(mock_type)
 
-    # TODO: RUSTPYTHON; async for
-    """
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_mock_async_for(self):
         async def iterate(iterator):
             accumulator = []
@@ -761,7 +798,7 @@ class AsyncIteratorTest(unittest.TestCase):
 
             with self.subTest(f"set return_value iterator with {mock_type}"):
                 test_set_return_value_iter(mock_type)
-    """
+
 
 class AsyncMockAssert(unittest.TestCase):
     def setUp(self):
@@ -773,6 +810,8 @@ class AsyncMockAssert(unittest.TestCase):
     async def _await_coroutine(self, coroutine):
         return await coroutine
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_assert_called_but_not_awaited(self):
         mock = AsyncMock(AsyncClass)
         with assertNeverAwaited(self):
@@ -813,6 +852,8 @@ class AsyncMockAssert(unittest.TestCase):
         self.mock.assert_called_once()
         self.mock.assert_awaited_once()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_assert_called_twice_and_awaited_once(self):
         mock = AsyncMock(AsyncClass)
         coroutine = mock.async_method()
@@ -827,6 +868,8 @@ class AsyncMockAssert(unittest.TestCase):
         mock.async_method.assert_awaited()
         mock.async_method.assert_awaited_once()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_assert_called_once_and_awaited_twice(self):
         mock = AsyncMock(AsyncClass)
         coroutine = mock.async_method()
@@ -851,6 +894,8 @@ class AsyncMockAssert(unittest.TestCase):
         with self.assertRaises(AssertionError):
             self.mock.assert_called()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_assert_has_calls_not_awaits(self):
         kalls = [call('foo')]
         with assertNeverAwaited(self):
@@ -859,6 +904,8 @@ class AsyncMockAssert(unittest.TestCase):
         with self.assertRaises(AssertionError):
             self.mock.assert_has_awaits(kalls)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_assert_has_mock_calls_on_async_mock_no_spec(self):
         with assertNeverAwaited(self):
             self.mock()
@@ -872,6 +919,8 @@ class AsyncMockAssert(unittest.TestCase):
         mock_kalls = ([call(), call('foo'), call('baz')])
         self.assertEqual(self.mock.mock_calls, mock_kalls)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_assert_has_mock_calls_on_async_mock_with_spec(self):
         a_class_mock = AsyncMock(AsyncClass)
         with assertNeverAwaited(self):
@@ -887,6 +936,8 @@ class AsyncMockAssert(unittest.TestCase):
         self.assertEqual(a_class_mock.async_method.mock_calls, method_kalls)
         self.assertEqual(a_class_mock.mock_calls, mock_kalls)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_async_method_calls_recorded(self):
         with assertNeverAwaited(self):
             self.mock.something(3, fish=None)
@@ -902,6 +953,8 @@ class AsyncMockAssert(unittest.TestCase):
                          [("something", (6,), {'cake': sentinel.Cake})],
                          "method calls not recorded correctly")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_async_arg_lists(self):
         def assert_attrs(mock):
             names = ('call_args_list', 'method_calls', 'mock_calls')
