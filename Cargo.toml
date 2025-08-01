@@ -165,7 +165,7 @@ ruff_source_file = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.
 
 ahash = "0.8.11"
 ascii = "1.1"
-bitflags = "2.4.2"
+bitflags = "2.9.1"
 bstr = "1"
 cfg-if = "1.0"
 chrono = "0.4.39"
@@ -176,7 +176,7 @@ flame = "0.2.2"
 getrandom = { version = "0.3", features = ["std"] }
 glob = "0.3"
 hex = "0.4.3"
-indexmap = { version = "2.2.6", features = ["std"] }
+indexmap = { version = "2.10.0", features = ["std"] }
 insta = "1.42"
 itertools = "0.14.0"
 is-macro = "0.3.7"
@@ -222,7 +222,7 @@ unic-ucd-category = "0.9.0"
 unic-ucd-ident = "0.9.0"
 unicode_names2 = "1.3.0"
 unicode-bidi-mirroring = "0.2"
-widestring = "1.1.0"
+widestring = "1.2.0"
 windows-sys = "0.59.0"
 wasm-bindgen = "0.2.100"
 
