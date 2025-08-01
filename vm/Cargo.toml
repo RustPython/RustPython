@@ -98,7 +98,7 @@ uname = "0.1.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rustyline = { workspace = true }
-which = "7"
+which = "8"
 errno = "0.3"
 widestring = { workspace = true }
 
@@ -107,7 +107,7 @@ libffi = { workspace = true, features = ["system"] }
 libloading = "0.8"
 
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
-num_cpus = "1.13.1"
+num_cpus = "1.17.0"
 
 [target.'cfg(windows)'.dependencies]
 junction = { workspace = true }
