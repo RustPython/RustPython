@@ -192,6 +192,11 @@ mod symtable {
             }
             Ok(dict)
         }
+
+        #[pygetset]
+        const fn nested(&self) -> bool {
+            self.symtable.is_nested
+        }
     }
 
     #[pyattr]

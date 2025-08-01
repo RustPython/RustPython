@@ -243,8 +243,6 @@ class SymtableTest(unittest.TestCase):
 
         self.assertTrue(self.spam.is_optimized())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nested(self):
         self.assertFalse(self.top.is_nested())
         self.assertFalse(self.Mine.is_nested())
