@@ -7,7 +7,9 @@ mod symtable {
         builtins::{PyDictRef, PyStrRef},
         compiler,
     };
-    use rustpython_codegen::symboltable::{Symbol, SymbolFlags, SymbolScope, SymbolTable};
+    use rustpython_codegen::symboltable::{
+        CompilerScope, Symbol, SymbolFlags, SymbolScope, SymbolTable,
+    };
     use std::fmt;
 
     // Consts as defined at
@@ -101,7 +103,10 @@ mod symtable {
     pub const TYPE_TYPE_ALIAS: i32 = 5;
 
     #[pyattr]
-    pub const TYPE_TYPE_PARAM: i32 = 6;
+    pub const TYPE_TYPE_PARAMETERS: i32 = 6;
+
+    #[pyattr]
+    pub const TYPE_TYPE_VARIABLE: i32 = 7;
 
     #[pyfunction]
     fn symtable(
@@ -147,8 +152,14 @@ mod symtable {
         }
 
         #[pygetset(name = "type")]
-        fn typ(&self) -> String {
-            self.symtable.typ.to_string()
+        fn typ(&self) -> i32 {
+            match self.symtable.typ {
+                CompilerScope::Function => TYPE_FUNCTION,
+                CompilerScope::Class => TYPE_CLASS,
+                CompilerScope::Module => TYPE_MODULE,
+                CompilerScope::TypeParams => TYPE_TYPE_PARAMETERS,
+                _ => -1, // TODO: missing types from the C implementation
+            }
         }
 
         #[pygetset]

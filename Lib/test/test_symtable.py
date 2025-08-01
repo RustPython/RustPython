@@ -236,8 +236,6 @@ class SymtableTest(unittest.TestCase):
         self.assertGreater(self.generic_spam.get_id(), 0)
         self.assertGreater(self.GenericMine.get_id(), 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_optimized(self):
         self.assertFalse(self.top.is_optimized())
 
@@ -505,8 +503,6 @@ class SymtableTest(unittest.TestCase):
         top = symtable.symtable(code, "?", "exec")
         self.assertIsNotNone(find_block(top, "\u017d"))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_symtable_repr(self):
         self.assertEqual(str(self.top), "<SymbolTable for module ?>")
         self.assertEqual(str(self.spam), "<Function SymbolTable for spam in ?>")
@@ -558,8 +554,6 @@ class CommandLineTest(unittest.TestCase):
         self.assertIn("    local symbol 'spam': def_local", lines)
         self.assertIn("    symbol table for function 'spam':", lines)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_stdin(self):
         with support.captured_stdin() as stdin:
             stdin.write(TEST_CODE)
