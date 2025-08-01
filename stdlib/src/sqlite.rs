@@ -71,7 +71,7 @@ mod _sqlite {
         sliceable::{SaturatedSliceIter, SliceableSequenceOp},
         types::{
             AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext, Iterable,
-            PyComparisonOp, SelfIter,
+            PyComparisonOp, SelfIter, Unconstructible,
         },
         utils::ToCString,
     };
@@ -2044,13 +2044,7 @@ mod _sqlite {
         inner: PyMutex<Option<BlobInner>>,
     }
 
-    impl Constructor for Blob {
-        type Args = FuncArgs;
-
-        fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("cannot create 'sqlite3.Blob' instances"))
-        }
-    }
+    impl Unconstructible for Blob {}
 
     #[derive(Debug)]
     struct BlobInner {
@@ -2064,7 +2058,7 @@ mod _sqlite {
         }
     }
 
-    #[pyclass(with(AsMapping, Constructor))]
+    #[pyclass(with(AsMapping, Unconstructible))]
     impl Blob {
         #[pymethod]
         fn close(&self) {
@@ -2381,15 +2375,9 @@ mod _sqlite {
         }
     }
 
-    impl Constructor for Statement {
-        type Args = FuncArgs;
+    impl Unconstructible for Statement {}
 
-        fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("cannot create 'sqlite3.Statement' instances"))
-        }
-    }
-
-    #[pyclass(with(Constructor))]
+    #[pyclass(with(Unconstructible))]
     impl Statement {
         fn new(
             connection: &Connection,
