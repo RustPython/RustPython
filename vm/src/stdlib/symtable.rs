@@ -3,12 +3,110 @@ pub(crate) use symtable::make_module;
 #[pymodule]
 mod symtable {
     use crate::{
-        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, builtins::PyStrRef, compiler,
+        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        builtins::{PyDictRef, PyStrRef},
+        compiler,
     };
     use rustpython_codegen::symboltable::{
         CompilerScope, Symbol, SymbolFlags, SymbolScope, SymbolTable,
     };
     use std::fmt;
+
+    // Consts as defined at
+    // https://github.com/python/cpython/blob/6cb20a219a860eaf687b2d968b41c480c7461909/Include/internal/pycore_symtable.h#L156
+
+    #[pyattr]
+    pub const DEF_GLOBAL: i32 = 1;
+
+    #[pyattr]
+    pub const DEF_LOCAL: i32 = 2;
+
+    #[pyattr]
+    pub const DEF_PARAM: i32 = 2 << 1;
+
+    #[pyattr]
+    pub const DEF_NONLOCAL: i32 = 2 << 2;
+
+    #[pyattr]
+    pub const USE: i32 = 2 << 3;
+
+    #[pyattr]
+    pub const DEF_FREE: i32 = 2 << 4;
+
+    #[pyattr]
+    pub const DEF_FREE_CLASS: i32 = 2 << 5;
+
+    #[pyattr]
+    pub const DEF_IMPORT: i32 = 2 << 6;
+
+    #[pyattr]
+    pub const DEF_ANNOT: i32 = 2 << 7;
+
+    #[pyattr]
+    pub const DEF_COMP_ITER: i32 = 2 << 8;
+
+    #[pyattr]
+    pub const DEF_TYPE_PARAM: i32 = 2 << 9;
+
+    #[pyattr]
+    pub const DEF_COMP_CELL: i32 = 2 << 10;
+
+    #[pyattr]
+    pub const DEF_BOUND: i32 = DEF_LOCAL | DEF_PARAM | DEF_IMPORT;
+
+    #[pyattr]
+    pub const SCOPE_OFFSET: i32 = 12;
+
+    #[pyattr]
+    pub const SCOPE_MASK: i32 = DEF_GLOBAL | DEF_LOCAL | DEF_PARAM | DEF_NONLOCAL;
+
+    #[pyattr]
+    pub const LOCAL: i32 = 1;
+
+    #[pyattr]
+    pub const GLOBAL_EXPLICIT: i32 = 2;
+
+    #[pyattr]
+    pub const GLOBAL_IMPLICIT: i32 = 3;
+
+    #[pyattr]
+    pub const FREE: i32 = 4;
+
+    #[pyattr]
+    pub const CELL: i32 = 5;
+
+    #[pyattr]
+    pub const GENERATOR: i32 = 1;
+
+    #[pyattr]
+    pub const GENERATOR_EXPRESSION: i32 = 2;
+
+    #[pyattr]
+    pub const SCOPE_OFF: i32 = SCOPE_OFFSET;
+
+    #[pyattr]
+    pub const TYPE_FUNCTION: i32 = 0;
+
+    #[pyattr]
+    pub const TYPE_CLASS: i32 = 1;
+
+    #[pyattr]
+    pub const TYPE_MODULE: i32 = 2;
+
+    #[pyattr]
+    pub const TYPE_ANNOTATION: i32 = 3;
+
+    #[pyattr]
+    pub const TYPE_TYPE_VAR_BOUND: i32 = 4;
+
+    #[pyattr]
+    pub const TYPE_TYPE_ALIAS: i32 = 5;
+
+    #[pyattr]
+    pub const TYPE_TYPE_PARAMETERS: i32 = 6;
+
+    #[pyattr]
+    pub const TYPE_TYPE_VARIABLE: i32 = 7;
 
     #[pyfunction]
     fn symtable(
@@ -48,57 +146,45 @@ mod symtable {
 
     #[pyclass]
     impl PySymbolTable {
-        #[pymethod]
-        fn get_name(&self) -> String {
+        #[pygetset]
+        fn name(&self) -> String {
             self.symtable.name.clone()
         }
 
-        #[pymethod]
-        fn get_type(&self) -> String {
-            self.symtable.typ.to_string()
-        }
-
-        #[pymethod]
-        const fn get_lineno(&self) -> u32 {
-            self.symtable.line_number
-        }
-
-        #[pymethod]
-        const fn is_nested(&self) -> bool {
-            self.symtable.is_nested
-        }
-
-        #[pymethod]
-        const fn is_optimized(&self) -> bool {
-            matches!(
-                self.symtable.typ,
-                CompilerScope::Function | CompilerScope::AsyncFunction
-            )
-        }
-
-        #[pymethod]
-        fn lookup(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyRef<PySymbol>> {
-            let name = name.as_str();
-            if let Some(symbol) = self.symtable.symbols.get(name) {
-                Ok(PySymbol {
-                    symbol: symbol.clone(),
-                    namespaces: self
-                        .symtable
-                        .sub_tables
-                        .iter()
-                        .filter(|table| table.name == name)
-                        .cloned()
-                        .collect(),
-                    is_top_scope: self.symtable.name == "top",
-                }
-                .into_ref(&vm.ctx))
-            } else {
-                Err(vm.new_key_error(vm.ctx.new_str(format!("lookup {name} failed")).into()))
+        #[pygetset(name = "type")]
+        fn typ(&self) -> i32 {
+            match self.symtable.typ {
+                CompilerScope::Function => TYPE_FUNCTION,
+                CompilerScope::Class => TYPE_CLASS,
+                CompilerScope::Module => TYPE_MODULE,
+                CompilerScope::TypeParams => TYPE_TYPE_PARAMETERS,
+                _ => -1, // TODO: missing types from the C implementation
             }
         }
 
-        #[pymethod]
-        fn get_identifiers(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        #[pygetset]
+        const fn lineno(&self) -> u32 {
+            self.symtable.line_number
+        }
+
+        #[pygetset]
+        fn children(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+            let children = self
+                .symtable
+                .sub_tables
+                .iter()
+                .map(|t| to_py_symbol_table(t.clone()).into_pyobject(vm))
+                .collect();
+            Ok(children)
+        }
+
+        #[pygetset]
+        fn id(&self) -> usize {
+            self as *const Self as *const std::ffi::c_void as usize
+        }
+
+        #[pygetset]
+        fn identifiers(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
             let symbols = self
                 .symtable
                 .symbols
@@ -108,45 +194,19 @@ mod symtable {
             Ok(symbols)
         }
 
-        #[pymethod]
-        fn get_symbols(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-            let symbols = self
-                .symtable
-                .symbols
-                .values()
-                .map(|s| {
-                    (PySymbol {
-                        symbol: s.clone(),
-                        namespaces: self
-                            .symtable
-                            .sub_tables
-                            .iter()
-                            .filter(|&table| table.name == s.name)
-                            .cloned()
-                            .collect(),
-                        is_top_scope: self.symtable.name == "top",
-                    })
-                    .into_ref(&vm.ctx)
-                    .into()
-                })
-                .collect();
-            Ok(symbols)
+        #[pygetset]
+        fn symbols(&self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+            let dict = vm.ctx.new_dict();
+            for (name, symbol) in &self.symtable.symbols {
+                dict.set_item(name, vm.new_pyobj(symbol.flags.bits()), vm)
+                    .unwrap();
+            }
+            Ok(dict)
         }
 
-        #[pymethod]
-        const fn has_children(&self) -> bool {
-            !self.symtable.sub_tables.is_empty()
-        }
-
-        #[pymethod]
-        fn get_children(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-            let children = self
-                .symtable
-                .sub_tables
-                .iter()
-                .map(|t| to_py_symbol_table(t.clone()).into_pyobject(vm))
-                .collect();
-            Ok(children)
+        #[pygetset]
+        const fn nested(&self) -> bool {
+            self.symtable.is_nested
         }
     }
 
