@@ -2036,12 +2036,20 @@ mod _sqlite {
     }
 
     #[pyattr]
-    #[pyclass(name, traverse)]
+    #[pyclass(module = "sqlite3", name = "Blob", traverse)]
     #[derive(Debug, PyPayload)]
     struct Blob {
         connection: PyRef<Connection>,
         #[pytraverse(skip)]
         inner: PyMutex<Option<BlobInner>>,
+    }
+
+    impl Constructor for Blob {
+        type Args = FuncArgs;
+
+        fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("cannot create 'sqlite3.Blob' instances"))
+        }
     }
 
     #[derive(Debug)]
@@ -2056,7 +2064,7 @@ mod _sqlite {
         }
     }
 
-    #[pyclass(with(AsMapping))]
+    #[pyclass(with(AsMapping, Constructor))]
     impl Blob {
         #[pymethod]
         fn close(&self) {
@@ -2356,7 +2364,7 @@ mod _sqlite {
     impl PrepareProtocol {}
 
     #[pyattr]
-    #[pyclass(name)]
+    #[pyclass(module = "sqlite3", name = "Statement")]
     #[derive(PyPayload)]
     struct Statement {
         st: PyMutex<SqliteStatement>,
@@ -2373,7 +2381,15 @@ mod _sqlite {
         }
     }
 
-    #[pyclass()]
+    impl Constructor for Statement {
+        type Args = FuncArgs;
+
+        fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("cannot create 'sqlite3.Statement' instances"))
+        }
+    }
+
+    #[pyclass(with(Constructor))]
     impl Statement {
         fn new(
             connection: &Connection,
