@@ -71,7 +71,7 @@ mod _sqlite {
         sliceable::{SaturatedSliceIter, SliceableSequenceOp},
         types::{
             AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext, Iterable,
-            PyComparisonOp, SelfIter,
+            PyComparisonOp, SelfIter, Unconstructible,
         },
         utils::ToCString,
     };
@@ -2036,13 +2036,15 @@ mod _sqlite {
     }
 
     #[pyattr]
-    #[pyclass(name, traverse)]
+    #[pyclass(module = "sqlite3", name = "Blob", traverse)]
     #[derive(Debug, PyPayload)]
     struct Blob {
         connection: PyRef<Connection>,
         #[pytraverse(skip)]
         inner: PyMutex<Option<BlobInner>>,
     }
+
+    impl Unconstructible for Blob {}
 
     #[derive(Debug)]
     struct BlobInner {
@@ -2056,7 +2058,7 @@ mod _sqlite {
         }
     }
 
-    #[pyclass(with(AsMapping))]
+    #[pyclass(with(AsMapping, Unconstructible))]
     impl Blob {
         #[pymethod]
         fn close(&self) {
@@ -2356,7 +2358,7 @@ mod _sqlite {
     impl PrepareProtocol {}
 
     #[pyattr]
-    #[pyclass(name)]
+    #[pyclass(module = "sqlite3", name = "Statement")]
     #[derive(PyPayload)]
     struct Statement {
         st: PyMutex<SqliteStatement>,
@@ -2373,7 +2375,9 @@ mod _sqlite {
         }
     }
 
-    #[pyclass()]
+    impl Unconstructible for Statement {}
+
+    #[pyclass(with(Unconstructible))]
     impl Statement {
         fn new(
             connection: &Connection,

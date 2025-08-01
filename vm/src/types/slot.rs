@@ -802,7 +802,7 @@ pub trait DefaultConstructor: PyPayload + Default {
 pub trait Unconstructible: PyPayload {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_type_error(format!("cannot create {} instances", cls.slot_name())))
+        Err(vm.new_type_error(format!("cannot create '{}' instances", cls.slot_name())))
     }
 }
 
