@@ -104,16 +104,6 @@ class OptimizedPickleTests(AbstractPickleTests, unittest.TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    def test_pickle_setstate_None(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_pickle_setstate_None()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_recursive_nested_names2(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_recursive_nested_names2()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_py_methods(self): # TODO(RUSTPYTHON): Remove this test when it passes
         return super().test_py_methods()
 
@@ -436,8 +426,6 @@ highest protocol among opcodes = 0
 highest protocol among opcodes = 0
 ''', annotate=20)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_string(self):
         self.check_dis(b"S'abc'\n.", '''\
     0: S    STRING     'abc'
@@ -469,8 +457,6 @@ highest protocol among opcodes = 0
         self.check_dis_error(b"S\"abc'\n.", '',
                              r"""strinq quote b'"' not found at both ends of b'"abc\\''""")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_binstring(self):
         self.check_dis(b"T\x03\x00\x00\x00abc.", '''\
     0: T    BINSTRING  'abc'
@@ -483,8 +469,6 @@ highest protocol among opcodes = 1
 highest protocol among opcodes = 1
 ''')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_short_binstring(self):
         self.check_dis(b"U\x03abc.", '''\
     0: U    SHORT_BINSTRING 'abc'
@@ -497,8 +481,6 @@ highest protocol among opcodes = 1
 highest protocol among opcodes = 1
 ''')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_global(self):
         self.check_dis(b"cmodule\nname\n.", '''\
     0: c    GLOBAL     'module name'
