@@ -1,4 +1,3 @@
-use rustpython::vm::*;
 use rustpython_vm as vm;
 use rustpython_vm::builtins::PyModule;
 
