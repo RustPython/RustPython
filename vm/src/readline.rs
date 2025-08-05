@@ -117,7 +117,7 @@ mod rustyline_readline {
                     Err(ReadlineError::Interrupted) => ReadlineResult::Interrupt,
                     Err(ReadlineError::Eof) => ReadlineResult::Eof,
                     Err(ReadlineError::Io(e)) => ReadlineResult::Io(e),
-                    Err(ReadlineError::WindowResized) => continue,
+                    Err(ReadlineError::Signal(_)) => continue,
                     Err(e) => ReadlineResult::Other(e.into()),
                 };
             }

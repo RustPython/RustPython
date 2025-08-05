@@ -204,7 +204,7 @@ radium = "1.1.1"
 rand = "0.9"
 rand_core = { version = "0.9", features = ["os_rng"] }
 rustix = { version = "1.0", features = ["event"] }
-rustyline = "15.0.0"
+rustyline = "17.0.0"
 serde = { version = "1.0.133", default-features = false }
 schannel = "0.1.27"
 static_assertions = "1.1"
