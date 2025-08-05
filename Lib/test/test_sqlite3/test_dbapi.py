@@ -1421,8 +1421,6 @@ class BlobTests(unittest.TestCase):
         with self.assertRaises(BufferError):
             self.blob[5:10] = memoryview(b"abcde")[::2]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_blob_sequence_not_supported(self):
         with self.assertRaisesRegex(TypeError, "unsupported operand"):
             self.blob + self.blob
