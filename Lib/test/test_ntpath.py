@@ -130,6 +130,8 @@ class TestNtpath(NtpathTestCase):
         tester('ntpath.splitdrive("//?/UNC/server/share/dir")',
                ("//?/UNC/server/share", "/dir"))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_splitdrive_invalid_paths(self):
         splitdrive = ntpath.splitdrive
         self.assertEqual(splitdrive('\\\\ser\x00ver\\sha\x00re\\di\x00r'),
@@ -236,6 +238,8 @@ class TestNtpath(NtpathTestCase):
         tester('ntpath.splitroot(" :/foo")', (" :", "/", "foo"))
         tester('ntpath.splitroot("/:/foo")', ("", "/", ":/foo"))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_splitroot_invalid_paths(self):
         splitroot = ntpath.splitroot
         self.assertEqual(splitroot('\\\\ser\x00ver\\sha\x00re\\di\x00r'),
@@ -264,6 +268,8 @@ class TestNtpath(NtpathTestCase):
         tester('ntpath.split("c:/")', ('c:/', ''))
         tester('ntpath.split("//conky/mountpoint/")', ('//conky/mountpoint/', ''))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_split_invalid_paths(self):
         split = ntpath.split
         self.assertEqual(split('c:\\fo\x00o\\ba\x00r'),
@@ -386,6 +392,8 @@ class TestNtpath(NtpathTestCase):
         tester("ntpath.join('D:a', './c:b')", 'D:a\\.\\c:b')
         tester("ntpath.join('D:/a', './c:b')", 'D:\\a\\.\\c:b')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_normcase(self):
         normcase = ntpath.normcase
         self.assertEqual(normcase(''), '')
@@ -401,6 +409,8 @@ class TestNtpath(NtpathTestCase):
             self.assertEqual(normcase('\u03a9\u2126'.encode()),
                              expected.encode())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_normcase_invalid_paths(self):
         normcase = ntpath.normcase
         self.assertEqual(normcase('abc\x00def'), 'abc\x00def')
@@ -458,6 +468,8 @@ class TestNtpath(NtpathTestCase):
         tester("ntpath.normpath('\\\\')", '\\\\')
         tester("ntpath.normpath('//?/UNC/server/share/..')", '\\\\?\\UNC\\server\\share\\')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_normpath_invalid_paths(self):
         normpath = ntpath.normpath
         self.assertEqual(normpath('fo\x00o'), 'fo\x00o')
@@ -650,6 +662,8 @@ class TestNtpath(NtpathTestCase):
         os.symlink(ABSTFN, ntpath.relpath(ABSTFN + "1"))
         self.assertPathEqual(ntpath.realpath(ABSTFN + "1", **kwargs), ABSTFN)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @os_helper.skip_unless_symlink
     @unittest.skipUnless(HAVE_GETFINALPATHNAME, 'need _getfinalpathname')
     def test_realpath_broken_symlinks(self):
@@ -976,6 +990,8 @@ class TestNtpath(NtpathTestCase):
 
         self.assertPathEqual(test_file, ntpath.realpath(test_file_short))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; ValueError: illegal environment variable name")
     def test_expandvars(self):
         with os_helper.EnvironmentVarGuard() as env:
             env.clear()
@@ -1002,6 +1018,8 @@ class TestNtpath(NtpathTestCase):
             tester('ntpath.expandvars("\'%foo%\'%bar")', "\'%foo%\'%bar")
             tester('ntpath.expandvars("bar\'%foo%")', "bar\'%foo%")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; ValueError: illegal environment variable name")
     @unittest.skipUnless(os_helper.FS_NONASCII, 'need os_helper.FS_NONASCII')
     def test_expandvars_nonascii(self):
         def check(value, expected):
@@ -1022,6 +1040,8 @@ class TestNtpath(NtpathTestCase):
             check('%spam%bar', '%sbar' % nonascii)
             check('%{}%bar'.format(nonascii), 'ham%sbar' % nonascii)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_expanduser(self):
         tester('ntpath.expanduser("test")', 'test')
 
@@ -1116,6 +1136,8 @@ class TestNtpath(NtpathTestCase):
             drive, _ = ntpath.splitdrive(cwd_dir)
             tester('ntpath.abspath("/abc/")', drive + "\\abc")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_abspath_invalid_paths(self):
         abspath = ntpath.abspath
         if sys.platform == 'win32':
@@ -1279,6 +1301,8 @@ class TestNtpath(NtpathTestCase):
             self.assertTrue(ntpath.ismount(b"\\\\localhost\\c$"))
             self.assertTrue(ntpath.ismount(b"\\\\localhost\\c$\\"))
 
+    # TODO: RUSTPYTHON
+    @unittest.skipIf(sys.platform == 'win32', "TODO: RUSTPYTHON; crash")
     def test_ismount_invalid_paths(self):
         ismount = ntpath.ismount
         self.assertFalse(ismount("c:\\\udfff"))
@@ -1420,6 +1444,8 @@ class TestNtpath(NtpathTestCase):
             os.close(pr)
             os.close(pw)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipIf(sys.platform != 'win32', "windows only")
     def test_isfile_named_pipe(self):
         import _winapi
@@ -1432,6 +1458,8 @@ class TestNtpath(NtpathTestCase):
         finally:
             _winapi.CloseHandle(h)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(sys.platform != 'win32', "windows only")
     def test_con_device(self):
         self.assertFalse(os.path.isfile(r"\\.\CON"))
@@ -1462,6 +1490,8 @@ class TestNtpath(NtpathTestCase):
         self.assertTrue(os.path.lexists is nt._path_lexists)
         self.assertFalse(inspect.isfunction(os.path.lexists))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(os.name != 'nt', "Dev Drives only exist on Win32")
     def test_isdevdrive(self):
         # Result may be True or False, but shouldn't raise
@@ -1486,6 +1516,16 @@ class TestNtpath(NtpathTestCase):
 class NtCommonTest(test_genericpath.CommonTest, unittest.TestCase):
     pathmodule = ntpath
     attributes = ['relpath']
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; ValueError: illegal environment variable name")
+    def test_expandvars(self):
+        return super().test_expandvars()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; ValueError: illegal environment variable name")
+    def test_expandvars_nonascii(self):
+        return super().test_expandvars_nonascii()
 
 
 class PathLikeTests(NtpathTestCase):
