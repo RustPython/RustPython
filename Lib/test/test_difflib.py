@@ -186,6 +186,7 @@ just fits in two lineS yup!!
 the end"""
 
 class TestSFpatches(unittest.TestCase):
+
     def test_html_diff(self):
         # Check SF patch 914575 for generating HTML differences
         f1a = ((patch914575_from1 + '123\n'*10)*3)
