@@ -1,4 +1,4 @@
-use rustpython_vm as vm;
+use rustpython::vm::*;
 use rustpython_vm::builtins::PyModule;
 
 /// A global fn called from Python which extracts the id from the injected module and returns / prints it to the console.
@@ -14,7 +14,7 @@ fn get_id(vm: &vm::VirtualMachine) -> PyResult<i32> {
     Ok(id)
 }
 
-fn main() -> vm::PyResult<()> {
+fn main() -> PyResult<()> {
     vm::Interpreter::without_stdlib(Default::default()).enter(|vm| {
         let scope = vm.new_scope_with_builtins();
 
@@ -37,7 +37,7 @@ fn main() -> vm::PyResult<()> {
         // Execute the code
         let source = r#"get_id()"#;
         let code_obj = vm
-            .compile(source, vm::compiler::Mode::Exec, "<embedded>".to_owned())
+            .compile(source, compiler::Mode::Exec, "<embedded>".to_owned())
             .map_err(|err| vm.new_syntax_error(&err, Some(source)))?;
 
         vm.run_code_obj(code_obj, scope)?;
