@@ -20,6 +20,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 
 #[pymodule]
 mod _sqlite {
+    use crossbeam_utils::atomic::AtomicCell;
     use libsqlite3_sys::{
         SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL,
         SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT, SQLITE_TRACE_STMT,
@@ -67,11 +68,14 @@ mod _sqlite {
             PySetterValue,
         },
         object::{Traverse, TraverseFn},
-        protocol::{PyBuffer, PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
+        protocol::{
+            PyBuffer, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequence,
+            PySequenceMethods,
+        },
         sliceable::{SaturatedSliceIter, SliceableSequenceOp},
         types::{
-            AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext, Iterable,
-            PyComparisonOp, SelfIter, Unconstructible,
+            AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
+            Iterable, PyComparisonOp, SelfIter, Unconstructible,
         },
         utils::ToCString,
     };
@@ -2058,7 +2062,7 @@ mod _sqlite {
         }
     }
 
-    #[pyclass(with(AsMapping, Unconstructible))]
+    #[pyclass(with(AsMapping, Unconstructible, AsNumber, AsSequence))]
     impl Blob {
         #[pymethod]
         fn close(&self) {
@@ -2346,6 +2350,50 @@ mod _sqlite {
                 }),
             };
             &AS_MAPPING
+        }
+    }
+
+    impl AsNumber for Blob {
+        fn as_number() -> &'static PyNumberMethods {
+            static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+                add: Some(|a, b, vm| {
+                    Err(vm.new_type_error(format!(
+                        "unsupported operand type(s) for +: '{}' and '{}'",
+                        a.class().name(),
+                        b.class().name()
+                    )))
+                }),
+                multiply: Some(|a, b, vm| {
+                    Err(vm.new_type_error(format!(
+                        "unsupported operand type(s) for *: '{}' and '{}'",
+                        a.class().name(),
+                        b.class().name()
+                    )))
+                }),
+                ..PyNumberMethods::NOT_IMPLEMENTED
+            };
+            &AS_NUMBER
+        }
+    }
+
+    impl AsSequence for Blob {
+        fn as_sequence() -> &'static PySequenceMethods {
+            static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+                length: AtomicCell::new(None),
+                concat: AtomicCell::new(None),
+                repeat: AtomicCell::new(None),
+                item: AtomicCell::new(None),
+                ass_item: AtomicCell::new(None),
+                contains: atomic_func!(|seq, _needle, vm| {
+                    Err(vm.new_type_error(format!(
+                        "argument of type '{}' is not iterable",
+                        seq.obj.class().name(),
+                    )))
+                }),
+                inplace_concat: AtomicCell::new(None),
+                inplace_repeat: AtomicCell::new(None),
+            };
+            &AS_SEQUENCE
         }
     }
 
