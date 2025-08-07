@@ -923,8 +923,6 @@ impl ExceptionZoo {
 
         extend_exception!(PyImportError, ctx, excs.import_error, {
             "msg" => ctx.new_readonly_getset("msg", excs.import_error, make_arg_getter(0)),
-            "name" => ctx.none(),
-            "path" => ctx.none(),
         });
         extend_exception!(PyModuleNotFoundError, ctx, excs.module_not_found_error);
 
@@ -1364,8 +1362,9 @@ pub(super) mod types {
                 )));
             }
 
-            zelf.set_attr("name", vm.unwrap_or_none(name), vm)?;
-            zelf.set_attr("path", vm.unwrap_or_none(path), vm)?;
+            let dict = zelf.dict().unwrap();
+            dict.set_item("name", vm.unwrap_or_none(name), vm)?;
+            dict.set_item("path", vm.unwrap_or_none(path), vm)?;
             PyBaseException::slot_init(zelf, args, vm)
         }
         #[pymethod]
