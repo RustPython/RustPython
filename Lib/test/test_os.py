@@ -2557,14 +2557,13 @@ class LinkTests(unittest.TestCase):
         self.file2 = self.file1 + "2"
         self._test_link(self.file1, self.file2)
 
+
 @unittest.skipIf(sys.platform == "win32", "Posix specific tests")
 class PosixUidGidTests(unittest.TestCase):
     # uid_t and gid_t are 32-bit unsigned integers on Linux
     UID_OVERFLOW = (1 << 32)
     GID_OVERFLOW = (1 << 32)
 
-    # TODO:RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON; crash")
     @unittest.skipUnless(hasattr(os, 'setuid'), 'test needs os.setuid()')
     def test_setuid(self):
         if os.getuid() != 0:
@@ -2572,8 +2571,6 @@ class PosixUidGidTests(unittest.TestCase):
         self.assertRaises(TypeError, os.setuid, 'not an int')
         self.assertRaises(OverflowError, os.setuid, self.UID_OVERFLOW)
 
-    # TODO:RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON; crash")
     @unittest.skipUnless(hasattr(os, 'setgid'), 'test needs os.setgid()')
     def test_setgid(self):
         if os.getuid() != 0 and not HAVE_WHEEL_GROUP:
@@ -2581,8 +2578,6 @@ class PosixUidGidTests(unittest.TestCase):
         self.assertRaises(TypeError, os.setgid, 'not an int')
         self.assertRaises(OverflowError, os.setgid, self.GID_OVERFLOW)
 
-    # TODO:RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON; crash")
     @unittest.skipUnless(hasattr(os, 'seteuid'), 'test needs os.seteuid()')
     def test_seteuid(self):
         if os.getuid() != 0:
@@ -2590,8 +2585,6 @@ class PosixUidGidTests(unittest.TestCase):
         self.assertRaises(TypeError, os.setegid, 'not an int')
         self.assertRaises(OverflowError, os.seteuid, self.UID_OVERFLOW)
 
-    # TODO:RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON; crash")
     @unittest.skipUnless(hasattr(os, 'setegid'), 'test needs os.setegid()')
     def test_setegid(self):
         if os.getuid() != 0 and not HAVE_WHEEL_GROUP:
@@ -2599,8 +2592,6 @@ class PosixUidGidTests(unittest.TestCase):
         self.assertRaises(TypeError, os.setegid, 'not an int')
         self.assertRaises(OverflowError, os.setegid, self.GID_OVERFLOW)
 
-    # TODO:RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON; crash")
     @unittest.skipUnless(hasattr(os, 'setreuid'), 'test needs os.setreuid()')
     def test_setreuid(self):
         if os.getuid() != 0:
