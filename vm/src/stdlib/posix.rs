@@ -1123,16 +1123,13 @@ pub mod module {
         vm.ctx.new_int(euid).into()
     }
 
-    #[cfg(all(unix, not(any(target_os = "wasi", target_os = "android"))))]
+    #[cfg(not(any(target_os = "wasi", target_os = "android")))]
     #[pyfunction]
     fn setgid(gid: Gid, vm: &VirtualMachine) -> PyResult<()> {
         unistd::setgid(gid).map_err(|err| err.into_pyexception(vm))
     }
 
-    #[cfg(all(
-        unix,
-        not(any(target_os = "wasi", target_os = "android", target_os = "redox"))
-    ))]
+    #[cfg(not(any(target_os = "wasi", target_os = "android", target_os = "redox")))]
     #[pyfunction]
     fn setegid(egid: Gid, vm: &VirtualMachine) -> PyResult<()> {
         unistd::setegid(egid).map_err(|err| err.into_pyexception(vm))
@@ -1144,7 +1141,7 @@ pub mod module {
             .map_err(|err| err.into_pyexception(vm))
     }
 
-    #[cfg(all(unix, not(any(target_os = "wasi", target_os = "redox"))))]
+    #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyfunction]
     fn setsid(vm: &VirtualMachine) -> PyResult<()> {
         unistd::setsid()
@@ -1190,34 +1187,31 @@ pub mod module {
         }
     }
 
-    #[cfg(all(unix, not(any(target_os = "wasi", target_os = "android"))))]
+    #[cfg(not(any(target_os = "wasi", target_os = "android")))]
     #[pyfunction]
     fn setuid(uid: Uid) -> nix::Result<()> {
         unistd::setuid(uid)
     }
 
-    #[cfg(all(
-        unix,
-        not(any(target_os = "wasi", target_os = "android", target_os = "redox"))
-    ))]
+    #[cfg(not(any(target_os = "wasi", target_os = "android", target_os = "redox")))]
     #[pyfunction]
     fn seteuid(euid: Uid) -> nix::Result<()> {
         unistd::seteuid(euid)
     }
 
-    #[cfg(all(
-        unix,
-        not(any(target_os = "wasi", target_os = "android", target_os = "redox"))
-    ))]
+    #[cfg(not(any(target_os = "wasi", target_os = "android", target_os = "redox")))]
     #[pyfunction]
     fn setreuid(ruid: Uid, euid: Uid) -> nix::Result<()> {
         let ret = unsafe { libc::setreuid(ruid.as_raw(), euid.as_raw()) };
         nix::Error::result(ret).map(drop)
     }
 
-    #[cfg(all(
-        unix,
-        not(any(target_os = "wasi", target_os = "android", target_os = "redox"))
+    // cfg from nix
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "openbsd"
     ))]
     #[pyfunction]
     fn setresuid(ruid: Uid, euid: Uid, suid: Uid) -> nix::Result<()> {
@@ -1303,17 +1297,20 @@ pub mod module {
         unistd::setresgid(rgid, egid, sgid).map_err(|err| err.into_pyexception(vm))
     }
 
-    #[cfg(all(
-        unix,
-        not(any(target_os = "wasi", target_os = "android", target_os = "redox"))
-    ))]
+    #[cfg(not(any(target_os = "wasi", target_os = "android", target_os = "redox")))]
     #[pyfunction]
     fn setregid(rgid: Gid, egid: Gid) -> nix::Result<()> {
         let ret = unsafe { libc::setregid(rgid.as_raw(), egid.as_raw()) };
         nix::Error::result(ret).map(drop)
     }
 
-    #[cfg(all(unix, not(any(target_os = "wasi", target_os = "android"))))]
+    // cfg from nix
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
     #[pyfunction]
     fn initgroups(user_name: PyStrRef, gid: Gid, vm: &VirtualMachine) -> PyResult<()> {
         let user = user_name.to_cstring(vm)?;
