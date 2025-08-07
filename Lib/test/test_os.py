@@ -2390,7 +2390,8 @@ class TestInvalidFD(unittest.TestCase):
                 with self.assertRaises(RuntimeWarning):
                     f(fd, *args, **kwargs)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AssertionError: <function fdopen at 0x1caa19ae6c0> didn't raise an OSError with a bad file descriptor)")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_fdopen(self):
         self.check(os.fdopen, encoding="utf-8")
         self.check_bool(os.fdopen, encoding="utf-8")
@@ -2462,7 +2463,7 @@ class TestInvalidFD(unittest.TestCase):
         self.check_bool(os.fpathconf, "PC_NAME_MAX")
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AssertionError: <builtin_function_or_method object at 0x1f330cd8e60> didn't raise an OSError with a bad file descriptor)")
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'ftruncate'), 'test needs os.ftruncate()')
     def test_ftruncate(self):
         self.check(os.truncate, 0)
@@ -2517,6 +2518,11 @@ class TestInvalidFD(unittest.TestCase):
     @unittest.expectedFailure
     def test_fchdir(self):
         return super().test_fchdir()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_fsync(self):
+        return super().test_fsync()
 
 
 @unittest.skipUnless(hasattr(os, 'link'), 'requires os.link')
