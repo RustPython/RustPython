@@ -1,5 +1,6 @@
 use crate::common::{boxvec::BoxVec, lock::PyMutex};
 use crate::protocol::PyMapping;
+use crate::types::PyTypeFlags;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
@@ -701,10 +702,19 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::Swap { index } => {
                 let len = self.state.stack.len();
+                if len == 0 {
+                    return Err(vm.new_runtime_error("stack underflow in SWAP".to_string()));
+                }
                 let i = len - 1; // TOS index
                 let index_val = index.get(arg) as usize;
                 // CPython: SWAP(n) swaps TOS with PEEK(n) where PEEK(n) = stack_pointer[-n]
                 // This means swap TOS with the element at index (len - n)
+                if index_val > len {
+                    return Err(vm.new_runtime_error(format!(
+                        "SWAP index {} exceeds stack size {}",
+                        index_val, len
+                    )));
+                }
                 let j = len - index_val;
                 self.state.stack.swap(i, j);
                 Ok(None)
@@ -1296,7 +1306,10 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::MatchMapping => {
                 // Pop and push back the subject to keep it on stack
                 let subject = self.pop_value();
-                let is_mapping = PyMapping::check(&subject);
+
+                // Check if the type has the MAPPING flag
+                let is_mapping = subject.class().slots.flags.contains(PyTypeFlags::MAPPING);
+
                 self.push_value(subject);
                 self.push_value(vm.ctx.new_bool(is_mapping).into());
                 Ok(None)
@@ -1304,18 +1317,18 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::MatchSequence => {
                 // Pop and push back the subject to keep it on stack
                 let subject = self.pop_value();
-                let is_sequence = subject.to_sequence().check();
+
+                // Check if the type has the SEQUENCE flag
+                let is_sequence = subject.class().slots.flags.contains(PyTypeFlags::SEQUENCE);
+
                 self.push_value(subject);
                 self.push_value(vm.ctx.new_bool(is_sequence).into());
                 Ok(None)
             }
             bytecode::Instruction::MatchKeys => {
-                // Pop keys tuple and subject
-                let keys_tuple = self.pop_value();
-                let subject = self.pop_value();
-
-                // Push the subject back first
-                self.push_value(subject.clone());
+                // MATCH_KEYS doesn't pop subject and keys, only reads them
+                let keys_tuple = self.top_value(); // stack[-1]
+                let subject = self.nth_value(1); // stack[-2]
 
                 // Check if subject is a mapping and extract values for keys
                 if PyMapping::check(&subject) {
@@ -1334,42 +1347,139 @@ impl ExecutingFrame<'_> {
                     }
 
                     if all_match {
-                        // Push keys_or_none (the original keys) and values_or_none
-                        // Keys should remain as they were for potential **rest handling
-                        self.push_value(keys_tuple); // keys_or_none
-                        self.push_value(vm.ctx.new_tuple(values).into()); // values_or_none
+                        // Push values tuple on successful match
+                        self.push_value(vm.ctx.new_tuple(values).into());
                     } else {
-                        // No match - push None twice
-                        self.push_value(vm.ctx.none());
+                        // No match - push None
                         self.push_value(vm.ctx.none());
                     }
                 } else {
-                    // Not a mapping - push None twice
-                    self.push_value(vm.ctx.none());
+                    // Not a mapping - push None
                     self.push_value(vm.ctx.none());
                 }
                 Ok(None)
             }
-            bytecode::Instruction::MatchClass(_arg) => {
+            bytecode::Instruction::MatchClass(nargs) => {
                 // STACK[-1] is a tuple of keyword attribute names, STACK[-2] is the class being matched against, and STACK[-3] is the match subject.
-                // count is the number of positional sub-patterns.
-                // Pop STACK[-1], STACK[-2], and STACK[-3].
-                let names = self.pop_value();
-                let names = names.downcast_ref::<PyTuple>().unwrap();
+                // nargs is the number of positional sub-patterns.
+                let kwd_attrs = self.pop_value();
+                let kwd_attrs = kwd_attrs.downcast_ref::<PyTuple>().unwrap();
                 let cls = self.pop_value();
                 let subject = self.pop_value();
-                // If STACK[-3] is an instance of STACK[-2] and has the positional and keyword attributes required by count and STACK[-1],
-                // push a tuple of extracted attributes.
+                let nargs_val = nargs.get(arg) as usize;
+
+                // Check if subject is an instance of cls
                 if subject.is_instance(cls.as_ref(), vm)? {
                     let mut extracted = vec![];
-                    for name in names {
-                        let name_str = name.downcast_ref::<PyStr>().unwrap();
-                        let value = subject.get_attr(name_str, vm)?;
-                        extracted.push(value);
+
+                    // Get __match_args__ for positional arguments if nargs > 0
+                    if nargs_val > 0 {
+                        // Get __match_args__ from the class
+                        let match_args =
+                            vm.get_attribute_opt(cls.clone(), identifier!(vm, __match_args__))?;
+
+                        if let Some(match_args) = match_args {
+                            // Convert to tuple
+                            let match_args = match match_args.downcast_exact::<PyTuple>(vm) {
+                                Ok(tuple) => tuple,
+                                Err(match_args) => {
+                                    // __match_args__ must be a tuple
+                                    // Get type names for error message
+                                    let type_name = cls
+                                        .downcast::<crate::builtins::PyType>()
+                                        .map(|t| t.__name__(vm).as_str().to_owned())
+                                        .unwrap_or_else(|_| String::from("?"));
+                                    let match_args_type_name = match_args.class().__name__(vm);
+                                    return Err(vm.new_type_error(format!(
+                                        "{}.__match_args__ must be a tuple (got {})",
+                                        type_name, match_args_type_name
+                                    )));
+                                }
+                            };
+
+                            // Check if we have enough match args
+                            if match_args.len() < nargs_val {
+                                return Err(vm.new_type_error(format!(
+                                    "class pattern accepts at most {} positional sub-patterns ({} given)",
+                                    match_args.len(),
+                                    nargs_val
+                                )));
+                            }
+
+                            // Extract positional attributes
+                            for i in 0..nargs_val {
+                                let attr_name = &match_args[i];
+                                let attr_name_str = match attr_name.downcast_ref::<PyStr>() {
+                                    Some(s) => s,
+                                    None => {
+                                        return Err(vm.new_type_error(
+                                            "__match_args__ elements must be strings".to_string(),
+                                        ));
+                                    }
+                                };
+                                match subject.get_attr(attr_name_str, vm) {
+                                    Ok(value) => extracted.push(value),
+                                    Err(e)
+                                        if e.fast_isinstance(vm.ctx.exceptions.attribute_error) =>
+                                    {
+                                        // Missing attribute → non-match
+                                        self.push_value(vm.ctx.none());
+                                        return Ok(None);
+                                    }
+                                    Err(e) => return Err(e),
+                                }
+                            }
+                        } else {
+                            // No __match_args__, check if this is a type with MATCH_SELF behavior
+                            // For built-in types like bool, int, str, list, tuple, dict, etc.
+                            // they match the subject itself as the single positional argument
+                            let is_match_self_type = cls.is(vm.ctx.types.bool_type)
+                                || cls.is(vm.ctx.types.int_type)
+                                || cls.is(vm.ctx.types.float_type)
+                                || cls.is(vm.ctx.types.str_type)
+                                || cls.is(vm.ctx.types.bytes_type)
+                                || cls.is(vm.ctx.types.bytearray_type)
+                                || cls.is(vm.ctx.types.list_type)
+                                || cls.is(vm.ctx.types.tuple_type)
+                                || cls.is(vm.ctx.types.dict_type)
+                                || cls.is(vm.ctx.types.set_type)
+                                || cls.is(vm.ctx.types.frozenset_type);
+
+                            if is_match_self_type {
+                                if nargs_val == 1 {
+                                    // Match the subject itself as the single positional argument
+                                    extracted.push(subject.clone());
+                                } else if nargs_val > 1 {
+                                    // Too many positional arguments for MATCH_SELF
+                                    self.push_value(vm.ctx.none());
+                                    return Ok(None);
+                                }
+                            } else {
+                                // No __match_args__ and not a MATCH_SELF type
+                                if nargs_val > 0 {
+                                    self.push_value(vm.ctx.none());
+                                    return Ok(None);
+                                }
+                            }
+                        }
                     }
+
+                    // Extract keyword attributes
+                    for name in kwd_attrs {
+                        let name_str = name.downcast_ref::<PyStr>().unwrap();
+                        match subject.get_attr(name_str, vm) {
+                            Ok(value) => extracted.push(value),
+                            Err(_) => {
+                                // Attribute doesn't exist
+                                self.push_value(vm.ctx.none());
+                                return Ok(None);
+                            }
+                        }
+                    }
+
                     self.push_value(vm.ctx.new_tuple(extracted).into());
                 } else {
-                    // Otherwise, push None.
+                    // Not an instance, push None
                     self.push_value(vm.ctx.none());
                 }
                 Ok(None)
