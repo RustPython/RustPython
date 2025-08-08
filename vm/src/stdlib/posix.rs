@@ -62,11 +62,14 @@ pub mod module {
     #[cfg(not(any(target_os = "redox", target_os = "freebsd")))]
     #[pyattr]
     use libc::O_DSYNC;
+
     #[pyattr]
     use libc::{O_CLOEXEC, O_NONBLOCK, WNOHANG};
+
     #[cfg(target_os = "macos")]
     #[pyattr]
     use libc::{O_EVTONLY, O_FSYNC, O_NOFOLLOW_ANY, O_SYMLINK};
+
     #[cfg(not(target_os = "redox"))]
     #[pyattr]
     use libc::{O_NDELAY, O_NOCTTY};
@@ -80,34 +83,49 @@ pub mod module {
 
     #[pyattr]
     const EX_OK: i8 = exitcode::OK as i8;
+
     #[pyattr]
     const EX_USAGE: i8 = exitcode::USAGE as i8;
+
     #[pyattr]
     const EX_DATAERR: i8 = exitcode::DATAERR as i8;
+
     #[pyattr]
     const EX_NOINPUT: i8 = exitcode::NOINPUT as i8;
+
     #[pyattr]
     const EX_NOUSER: i8 = exitcode::NOUSER as i8;
+
     #[pyattr]
     const EX_NOHOST: i8 = exitcode::NOHOST as i8;
+
     #[pyattr]
     const EX_UNAVAILABLE: i8 = exitcode::UNAVAILABLE as i8;
+
     #[pyattr]
     const EX_SOFTWARE: i8 = exitcode::SOFTWARE as i8;
+
     #[pyattr]
     const EX_OSERR: i8 = exitcode::OSERR as i8;
+
     #[pyattr]
     const EX_OSFILE: i8 = exitcode::OSFILE as i8;
+
     #[pyattr]
     const EX_CANTCREAT: i8 = exitcode::CANTCREAT as i8;
+
     #[pyattr]
     const EX_IOERR: i8 = exitcode::IOERR as i8;
+
     #[pyattr]
     const EX_TEMPFAIL: i8 = exitcode::TEMPFAIL as i8;
+
     #[pyattr]
     const EX_PROTOCOL: i8 = exitcode::PROTOCOL as i8;
+
     #[pyattr]
     const EX_NOPERM: i8 = exitcode::NOPERM as i8;
+
     #[pyattr]
     const EX_CONFIG: i8 = exitcode::CONFIG as i8;
 
@@ -122,6 +140,7 @@ pub mod module {
     ))]
     #[pyattr]
     const SCHED_RR: i32 = libc::SCHED_RR;
+
     #[cfg(any(
         target_os = "macos",
         target_os = "linux",
@@ -133,6 +152,7 @@ pub mod module {
     ))]
     #[pyattr]
     const SCHED_FIFO: i32 = libc::SCHED_FIFO;
+
     #[cfg(any(
         target_os = "macos",
         target_os = "linux",
@@ -143,9 +163,11 @@ pub mod module {
     ))]
     #[pyattr]
     const SCHED_OTHER: i32 = libc::SCHED_OTHER;
+
     #[cfg(any(target_os = "linux", target_os = "android"))]
     #[pyattr]
     const SCHED_IDLE: i32 = libc::SCHED_IDLE;
+
     #[cfg(any(target_os = "linux", target_os = "android"))]
     #[pyattr]
     const SCHED_BATCH: i32 = libc::SCHED_BATCH;
@@ -153,9 +175,11 @@ pub mod module {
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     #[pyattr]
     const POSIX_SPAWN_OPEN: i32 = PosixSpawnFileActionIdentifier::Open as i32;
+
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     #[pyattr]
     const POSIX_SPAWN_CLOSE: i32 = PosixSpawnFileActionIdentifier::Close as i32;
+
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     #[pyattr]
     const POSIX_SPAWN_DUP2: i32 = PosixSpawnFileActionIdentifier::Dup2 as i32;
@@ -1099,12 +1123,13 @@ pub mod module {
         vm.ctx.new_int(euid).into()
     }
 
+    #[cfg(not(any(target_os = "wasi", target_os = "android")))]
     #[pyfunction]
     fn setgid(gid: Gid, vm: &VirtualMachine) -> PyResult<()> {
         unistd::setgid(gid).map_err(|err| err.into_pyexception(vm))
     }
 
-    #[cfg(not(target_os = "redox"))]
+    #[cfg(not(any(target_os = "wasi", target_os = "android", target_os = "redox")))]
     #[pyfunction]
     fn setegid(egid: Gid, vm: &VirtualMachine) -> PyResult<()> {
         unistd::setegid(egid).map_err(|err| err.into_pyexception(vm))
@@ -1116,7 +1141,7 @@ pub mod module {
             .map_err(|err| err.into_pyexception(vm))
     }
 
-    #[cfg(not(target_os = "redox"))]
+    #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyfunction]
     fn setsid(vm: &VirtualMachine) -> PyResult<()> {
         unistd::setsid()
@@ -1162,18 +1187,19 @@ pub mod module {
         }
     }
 
+    #[cfg(not(any(target_os = "wasi", target_os = "android")))]
     #[pyfunction]
     fn setuid(uid: Uid) -> nix::Result<()> {
         unistd::setuid(uid)
     }
 
-    #[cfg(not(target_os = "redox"))]
+    #[cfg(not(any(target_os = "wasi", target_os = "android", target_os = "redox")))]
     #[pyfunction]
     fn seteuid(euid: Uid) -> nix::Result<()> {
         unistd::seteuid(euid)
     }
 
-    #[cfg(not(target_os = "redox"))]
+    #[cfg(not(any(target_os = "wasi", target_os = "android", target_os = "redox")))]
     #[pyfunction]
     fn setreuid(ruid: Uid, euid: Uid) -> nix::Result<()> {
         let ret = unsafe { libc::setreuid(ruid.as_raw(), euid.as_raw()) };
@@ -1271,7 +1297,7 @@ pub mod module {
         unistd::setresgid(rgid, egid, sgid).map_err(|err| err.into_pyexception(vm))
     }
 
-    #[cfg(not(target_os = "redox"))]
+    #[cfg(not(any(target_os = "wasi", target_os = "android", target_os = "redox")))]
     #[pyfunction]
     fn setregid(rgid: Gid, egid: Gid) -> nix::Result<()> {
         let ret = unsafe { libc::setregid(rgid.as_raw(), egid.as_raw()) };
@@ -1602,9 +1628,14 @@ pub mod module {
         args.spawn(true, vm)
     }
 
-    #[pyfunction(name = "WIFSIGNALED")]
-    fn wifsignaled(status: i32) -> bool {
-        libc::WIFSIGNALED(status)
+    #[pyfunction(name = "WCOREDUMP")]
+    fn wcoredump(status: i32) -> bool {
+        libc::WCOREDUMP(status)
+    }
+
+    #[pyfunction(name = "WIFCONTINUED")]
+    fn wifcontinued(status: i32) -> bool {
+        libc::WIFCONTINUED(status)
     }
 
     #[pyfunction(name = "WIFSTOPPED")]
@@ -1612,14 +1643,19 @@ pub mod module {
         libc::WIFSTOPPED(status)
     }
 
+    #[pyfunction(name = "WIFSIGNALED")]
+    fn wifsignaled(status: i32) -> bool {
+        libc::WIFSIGNALED(status)
+    }
+
     #[pyfunction(name = "WIFEXITED")]
     fn wifexited(status: i32) -> bool {
         libc::WIFEXITED(status)
     }
 
-    #[pyfunction(name = "WTERMSIG")]
-    fn wtermsig(status: i32) -> i32 {
-        libc::WTERMSIG(status)
+    #[pyfunction(name = "WEXITSTATUS")]
+    fn wexitstatus(status: i32) -> i32 {
+        libc::WEXITSTATUS(status)
     }
 
     #[pyfunction(name = "WSTOPSIG")]
@@ -1627,9 +1663,9 @@ pub mod module {
         libc::WSTOPSIG(status)
     }
 
-    #[pyfunction(name = "WEXITSTATUS")]
-    fn wexitstatus(status: i32) -> i32 {
-        libc::WEXITSTATUS(status)
+    #[pyfunction(name = "WTERMSIG")]
+    fn wtermsig(status: i32) -> i32 {
+        libc::WTERMSIG(status)
     }
 
     #[pyfunction]
