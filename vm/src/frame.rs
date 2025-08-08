@@ -800,26 +800,40 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::BuildMapForCall { size } => {
                 self.execute_build_map_for_call(vm, size.get(arg))
             }
-            bytecode::Instruction::DictUpdate => {
-                let other = self.pop_value();
-                let dict = self
-                    .top_value()
-                    .downcast_ref::<PyDict>()
-                    .expect("exact dict expected");
+            bytecode::Instruction::DictUpdate { index } => {
+                // Stack before: [..., dict, ..., source]  (source at TOS)
+                // Stack after:  [..., dict, ...]  (source consumed)
+                // The dict to update is at position TOS-i (before popping source)
+
+                let idx = index.get(arg);
+
+                // Pop the source from TOS
+                let source = self.pop_value();
+
+                // Get the dict to update (it's now at TOS-(i-1) after popping source)
+                let dict = if idx <= 1 {
+                    // DICT_UPDATE 0 or 1: dict is at TOS (after popping source)
+                    self.top_value()
+                } else {
+                    // DICT_UPDATE n: dict is at TOS-(n-1)
+                    self.nth_value(idx - 1)
+                };
+
+                let dict = dict.downcast_ref::<PyDict>().expect("exact dict expected");
 
                 // For dictionary unpacking {**x}, x must be a mapping
                 // Check if the object has the mapping protocol (keys method)
                 if vm
-                    .get_method(other.clone(), vm.ctx.intern_str("keys"))
+                    .get_method(source.clone(), vm.ctx.intern_str("keys"))
                     .is_none()
                 {
                     return Err(vm.new_type_error(format!(
                         "'{}' object is not a mapping",
-                        other.class().name()
+                        source.class().name()
                     )));
                 }
 
-                dict.merge_object(other, vm)?;
+                dict.merge_object(source, vm)?;
                 Ok(None)
             }
             bytecode::Instruction::BuildSlice { step } => {

@@ -667,7 +667,9 @@ pub enum Instruction {
     BuildMapForCall {
         size: Arg<u32>,
     },
-    DictUpdate,
+    DictUpdate {
+        index: Arg<u32>,
+    },
     BuildSlice {
         /// whether build a slice with a third step argument
         step: Arg<bool>,
@@ -1397,7 +1399,7 @@ impl Instruction {
                 let nargs = size.get(arg);
                 -(nargs as i32) + 1
             }
-            DictUpdate => -1,
+            DictUpdate { .. } => -1,
             BuildSlice { step } => -2 - (step.get(arg) as i32) + 1,
             ListAppend { .. } | SetAdd { .. } => -1,
             MapAdd { .. } => -2,
@@ -1586,7 +1588,7 @@ impl Instruction {
             BuildSetFromTuples { size } => w!(BuildSetFromTuples, size),
             BuildMap { size } => w!(BuildMap, size),
             BuildMapForCall { size } => w!(BuildMapForCall, size),
-            DictUpdate => w!(DictUpdate),
+            DictUpdate { index } => w!(DictUpdate, index),
             BuildSlice { step } => w!(BuildSlice, step),
             ListAppend { i } => w!(ListAppend, i),
             SetAdd { i } => w!(SetAdd, i),
