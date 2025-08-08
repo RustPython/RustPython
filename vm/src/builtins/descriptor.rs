@@ -274,6 +274,16 @@ impl PyMemberDescriptor {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let zelf = Self::_as_pyref(zelf, vm)?;
+
+        if !obj.class().fast_issubclass(&zelf.common.typ) {
+            return Err(vm.new_type_error(format!(
+                "descriptor '{}' for '{}' objects doesn't apply to a '{}' object",
+                zelf.common.name,
+                zelf.common.typ.name(),
+                obj.class().name()
+            )));
+        }
+
         zelf.member.set(obj, value, vm)
     }
 }

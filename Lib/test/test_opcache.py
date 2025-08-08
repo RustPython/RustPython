@@ -197,8 +197,6 @@ class TestLoadAttrCache(unittest.TestCase):
             with self.assertRaises(TypeError):
                 f(o)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_store_shadowing_slot_should_raise_type_error(self):
         class Class:
             __slots__ = ("slot",)
