@@ -4398,7 +4398,7 @@ impl Compiler {
 
         for item in unpacked {
             self.compile_expression(&item.value)?;
-            emit!(self, Instruction::DictUpdate);
+            emit!(self, Instruction::DictUpdate { index: 1 });
         }
 
         Ok(())
