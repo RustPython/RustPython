@@ -3517,24 +3517,21 @@ impl Compiler {
 
         // Step 1: Check if subject is a mapping
         // Stack: [subject]
-        // pc.on_top = 0 initially
+        // We need to keep the subject on top during the mapping and length checks
+        pc.on_top += 1;
 
         emit!(self, Instruction::MatchMapping);
         // Stack: [subject, bool]
 
-        // The bool will be consumed by PopJumpIfFalse
-        // Don't change pc.on_top because the bool is temporary
-
         // If not a mapping, fail (jump and pop subject)
         self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
         // Stack: [subject] (on success)
-        // pc.on_top remains 0
 
         // Step 2: If empty pattern with no star, consume subject
         if size == 0 && star_target.is_none() {
-            // Pattern matches, consume subject
+            // If the pattern is just "{}", we're done! Pop the subject:
+            pc.on_top -= 1;
             emit!(self, Instruction::Pop);
-            pc.on_top = 0;
             return Ok(());
         }
 
@@ -3566,8 +3563,9 @@ impl Compiler {
         }
 
         // Validate and compile keys
-        use std::collections::HashSet;
-        let mut seen = HashSet::new();
+        // NOTE: RustPython difference - using HashSet<String> for duplicate checking
+        // CPython uses PySet with actual Python objects
+        let mut seen = std::collections::HashSet::new();
 
         for key in keys.iter() {
             // Validate key
@@ -3613,13 +3611,8 @@ impl Compiler {
         // Step 5: Extract values using MATCH_KEYS
         emit!(self, Instruction::MatchKeys);
         // Stack: [subject, keys_or_none, values_or_none]
-        // Note: MatchKeys pops subject and keys_tuple, then pushes back subject, keys_or_none, values_or_none
-
-        // Step 6: Check if match succeeded (values_or_none is not None)
-        // We need to keep track of what's on the stack for cleanup
-        // Stack: [subject, keys_or_none, values_or_none]
-        // On failure, we need to clean up keys_or_none and values_or_none but keep subject
-        pc.on_top = 2; // keys_or_none and values_or_none are temporary
+        // There's now a tuple of keys and a tuple of values on top of the subject
+        pc.on_top += 2;
 
         emit!(self, Instruction::CopyItem { index: 1_u32 }); // Copy values_or_none (TOS)
         // Stack: [subject, keys_or_none, values_or_none, values_or_none]
@@ -3649,138 +3642,35 @@ impl Compiler {
                 }
             );
             // Stack: [subject, keys_or_none, value_n, ..., value_1]
-            // UnpackSequence pushes in reverse order, so value_1 is on top
+            // After UNPACK_SEQUENCE, we have size values on the stack
+            pc.on_top += size - 1;
 
-            // For single capture pattern, use simplified approach
-            if size == 1 {
-                if let Pattern::MatchAs(p) = &patterns[0] {
-                    if p.pattern.is_none() && p.name.is_some() {
-                        // Simple capture: rearrange stack
-                        // Current: [subject, keys_or_none, value1]
-                        // Target: [value1] (after cleanup)
-
-                        // SWAP 3: swap value1 with subject
-                        emit!(self, Instruction::Swap { index: 3 });
-                        // Stack: [value1, keys_or_none, subject]
-
-                        // Pop keys_or_none
-                        emit!(self, Instruction::Pop);
-                        // Stack: [value1, subject]
-
-                        // Pop subject
-                        emit!(self, Instruction::Pop);
-                        // Stack: [value1]
-
-                        // Record the capture for compile_match_inner
-                        pc.stores.push(p.name.as_ref().unwrap().to_string());
-                        pc.on_top = 0;
-                        return Ok(());
-                    }
-                }
-            }
-
-            // For multiple captures, handle them directly like CPython
-            // UnpackSequence pushed values in reverse: [subject, keys_or_none, v_n, ..., v_1]
-            // We need to rearrange to get [v_1, v_2, ..., v_n] for storage
-
-            // First, check if all patterns are simple captures
-            let all_simple_captures = patterns.iter().all(
-                |p| matches!(p, Pattern::MatchAs(m) if m.pattern.is_none() && m.name.is_some()),
-            );
-
-            if all_simple_captures {
-                // Use direct SWAP sequences to rearrange stack
-                // Goal: move values to correct positions and clean up subject/keys
-
-                // Current: [subject, keys_or_none, v_n, ..., v_1]
-                // We need: [v_1, v_2, ..., v_n]
-
-                // Complex SWAP sequence for 2 values (most common case)
-                if size == 2 {
-                    // [subject, keys_or_none, v2, v1]
-                    // We need [v1, v2] at the end
-
-                    // After UnpackSequence: [subject, keys_or_none, v2, v1]
-                    // v1 = values[0] = 1, v2 = values[1] = 2
-                    // Goal: [v1, v2] for storing to x, y
-
-                    // Apply exact SWAP sequence
-                    // Current after UNPACK_SEQUENCE 2: [subject, keys_or_none, v2, v1]
-                    // Target: [v2, v1] so that x=v1, y=v2 when stored
-
-                    // Apply SWAP sequence
-                    emit!(self, Instruction::Swap { index: 2 }); // v1 <-> v2
-                    // [subject, keys_or_none, v1, v2]
-
-                    emit!(self, Instruction::Swap { index: 4 }); // v2 <-> subject
-                    // [v2, keys_or_none, v1, subject]
-
-                    emit!(self, Instruction::Swap { index: 2 }); // subject <-> v1
-                    // [v2, keys_or_none, subject, v1]
-
-                    emit!(self, Instruction::Swap { index: 3 }); // v1 <-> keys_or_none
-                    // [v2, v1, subject, keys_or_none]
-
-                    // Step 3: Clean up
-                    emit!(self, Instruction::Pop); // remove keys_or_none
-                    emit!(self, Instruction::Pop); // remove subject
-                    // [v2, v1]
-
-                    // Record captures in order
-                    for pattern in patterns.iter() {
-                        if let Pattern::MatchAs(p) = pattern {
-                            if let Some(name) = &p.name {
-                                pc.stores.push(name.to_string());
-                            }
-                        }
-                    }
-                    pc.on_top = 0;
-                    return Ok(());
-                }
-
-                // For other sizes, fall back to general approach
-            }
-
-            // General approach using pattern_helper_store_name
+            // Process each pattern with compile_pattern_subpattern
             for pattern in patterns.iter() {
-                // Calculate position correctly
-                // After UnpackSequence: values are in reverse order
-                // pattern[0] should match v1 (which is at top after unpack)
-                // pattern[1] should match v2 (which is below v1)
-
-                // Current value is at top, others below
-                pc.on_top = 0; // Value to process is at top
-
-                // Process this pattern
+                pc.on_top -= 1;
                 self.compile_pattern_subpattern(pattern, pc)?;
             }
-
-            // After all patterns processed
-            // Stack: [subject, keys_or_none] plus any captured values rotated to bottom
         }
+
+        // After all patterns processed, adjust on_top for subject and keys_or_none
+        pc.on_top -= 2;
 
         // Step 8: Clean up
-        // After pattern processing:
-        // - If patterns captured values, they've been rotated to bottom of stack
-        // - Stack: [captured..., subject, keys_or_none]
-        // We need to clean up keys_or_none and subject
+        // If we get this far, it's a match! Whatever happens next should consume
+        // the tuple of keys and the subject
 
-        // Pop keys_or_none
-        emit!(self, Instruction::Pop);
-        // Stack: [captured..., subject]
-
-        // Pop subject (it will be consumed by this pattern match)
-        emit!(self, Instruction::Pop);
-        // Stack: [captured...]
-
-        if let Some(star_target) = star_target {
-            // subject is on top of stack
-            pc.on_top = 0;
-            self.pattern_helper_store_name(Some(star_target), pc)?;
+        if let Some(_star_target) = star_target {
+            // TODO: Implement **rest pattern support
+            // This would involve BUILD_MAP, DICT_UPDATE, etc.
+            return Err(self.error(CodegenErrorType::SyntaxError(
+                "**rest pattern in mapping not yet implemented".to_string(),
+            )));
+        } else {
+            // Pop the tuple of keys
+            emit!(self, Instruction::Pop);
+            // Pop the subject
+            emit!(self, Instruction::Pop);
         }
-
-        // Final state: only captured values on stack
-        pc.on_top = 0;
         Ok(())
     }
 

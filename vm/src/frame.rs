@@ -680,8 +680,8 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::StoreSubscript => self.execute_store_subscript(vm),
             bytecode::Instruction::DeleteSubscript => self.execute_delete_subscript(vm),
             bytecode::Instruction::CopyItem { index } => {
-                // CopyItem { index: 1 } copies TOS (like Python's COPY 1)
-                // CopyItem { index: 2 } copies second from top (like Python's COPY 2)
+                // CopyItem { index: 1 } copies TOS
+                // CopyItem { index: 2 } copies second from top
                 // This is 1-indexed to match CPython
                 let idx = index.get(arg) as usize;
                 let value = self
@@ -705,7 +705,7 @@ impl ExecutingFrame<'_> {
                 let index_val = index.get(arg) as usize;
                 // CPython: SWAP(n) swaps TOS with PEEK(n) where PEEK(n) = stack_pointer[-n]
                 // This means swap TOS with the element at index (len - n)
-                let j = len.saturating_sub(index_val);
+                let j = len - index_val;
                 self.state.stack.swap(i, j);
                 Ok(None)
             }
