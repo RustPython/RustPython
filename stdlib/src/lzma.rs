@@ -214,7 +214,6 @@ mod _lzma {
     }
 
     impl CompressStatusKind for Status {
-        const OK: Self = Status::Ok;
         const EOF: Self = Status::StreamEnd;
 
         fn to_usize(self) -> usize {

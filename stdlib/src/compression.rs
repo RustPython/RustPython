@@ -204,7 +204,6 @@ pub trait CompressFlushKind: Copy {
 }
 
 pub trait CompressStatusKind: Copy {
-    const OK: Self;
     const EOF: Self;
 
     fn to_usize(self) -> usize;

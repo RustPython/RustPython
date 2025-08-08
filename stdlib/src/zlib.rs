@@ -422,7 +422,6 @@ mod zlib {
     }
 
     impl CompressStatusKind for Status {
-        const OK: Self = Self::Ok;
         const EOF: Self = Self::StreamEnd;
 
         fn to_usize(self) -> usize {
