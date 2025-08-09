@@ -26,9 +26,10 @@ use ruff_python_ast::{
     ExprFString, ExprList, ExprName, ExprSlice, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp,
     FString, FStringElement, FStringElements, FStringFlags, FStringPart, Identifier, Int, Keyword,
     MatchCase, ModExpression, ModModule, Operator, Parameters, Pattern, PatternMatchAs,
-    PatternMatchClass, PatternMatchOr, PatternMatchSequence, PatternMatchSingleton,
-    PatternMatchStar, PatternMatchValue, Singleton, Stmt, StmtExpr, TypeParam, TypeParamParamSpec,
-    TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams, UnaryOp, WithItem,
+    PatternMatchClass, PatternMatchMapping, PatternMatchOr, PatternMatchSequence,
+    PatternMatchSingleton, PatternMatchStar, PatternMatchValue, Singleton, Stmt, StmtExpr,
+    TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams, UnaryOp,
+    WithItem,
 };
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_core::{
@@ -3149,6 +3150,11 @@ impl Compiler {
 
     /// Duplicate the effect of Python 3.10's ROT_* instructions using SWAPs.
     fn pattern_helper_rotate(&mut self, mut count: usize) -> CompileResult<()> {
+        // Rotate TOS (top of stack) to position `count` down
+        // This is done by a series of swaps
+        // For count=1, no rotation needed (already at top)
+        // For count=2, swap TOS with item 1 position down
+        // For count=3, swap TOS with item 2 positions down, then with item 1 position down
         while count > 1 {
             // Emit a SWAP instruction with the current count.
             emit!(
@@ -3442,8 +3448,6 @@ impl Compiler {
             });
         }
 
-        use bytecode::TestOperator::*;
-
         // Emit instructions:
         // 1. Load the new tuple of attribute names.
         self.emit_load_const(ConstantData::Tuple {
@@ -3456,7 +3460,12 @@ impl Compiler {
         // 4. Load None.
         self.emit_load_const(ConstantData::None);
         // 5. Compare with IS_OP 1.
-        emit!(self, Instruction::TestOperation { op: IsNot });
+        emit!(
+            self,
+            Instruction::TestOperation {
+                op: bytecode::TestOperator::IsNot
+            }
+        );
 
         // At this point the TOS is a tuple of (nargs + n_attrs) attributes (or None).
         pc.on_top += 1;
@@ -3487,123 +3496,183 @@ impl Compiler {
         Ok(())
     }
 
-    // fn compile_pattern_mapping(&mut self, p: &PatternMatchMapping, pc: &mut PatternContext) -> CompileResult<()> {
-    //     // Ensure the pattern is a mapping pattern.
-    //     let mapping = p; // Extract MatchMapping-specific data.
-    //     let keys = &mapping.keys;
-    //     let patterns = &mapping.patterns;
-    //     let size = keys.len();
-    //     let n_patterns = patterns.len();
+    fn compile_pattern_mapping(
+        &mut self,
+        p: &PatternMatchMapping,
+        pc: &mut PatternContext,
+    ) -> CompileResult<()> {
+        let mapping = p;
+        let keys = &mapping.keys;
+        let patterns = &mapping.patterns;
+        let size = keys.len();
+        let n_patterns = patterns.len();
 
-    //     if size != n_patterns {
-    //         panic!("keys ({}) / patterns ({}) length mismatch in mapping pattern", size, n_patterns);
-    //         // return self.compiler_error(
-    //             // &format!("keys ({}) / patterns ({}) length mismatch in mapping pattern", size, n_patterns)
-    //         // );
-    //     }
+        if size != n_patterns {
+            return Err(self.error(CodegenErrorType::SyntaxError(format!(
+                "keys ({size}) / patterns ({n_patterns}) length mismatch in mapping pattern"
+            ))));
+        }
 
-    //     // A double-star target is present if `rest` is set.
-    //     let star_target = mapping.rest;
+        let star_target = &mapping.rest;
 
-    //     // Keep the subject on top during the mapping and length checks.
-    //     pc.on_top += 1;
-    //     emit!(self, Instruction::MatchMapping);
-    //     self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+        // Step 1: Check if subject is a mapping
+        // Stack: [subject]
+        // We need to keep the subject on top during the mapping and length checks
+        pc.on_top += 1;
 
-    //     // If the pattern is just "{}" (empty mapping) and there's no star target,
-    //     // we're done—pop the subject.
-    //     if size == 0 && star_target.is_none() {
-    //         pc.on_top -= 1;
-    //         emit!(self, Instruction::Pop);
-    //         return Ok(());
-    //     }
+        emit!(self, Instruction::MatchMapping);
+        // Stack: [subject, bool]
 
-    //     // If there are any keys, perform a length check.
-    //     if size != 0 {
-    //         emit!(self, Instruction::GetLen);
-    //         self.emit_load_const(ConstantData::Integer { value: size.into() });
-    //         emit!(self, Instruction::CompareOperation { op: ComparisonOperator::GreaterOrEqual });
-    //         self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
-    //     }
+        // If not a mapping, fail (jump and pop subject)
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+        // Stack: [subject] (on success)
 
-    //     // Check that the number of sub-patterns is not absurd.
-    //     if size.saturating_sub(1) > (i32::MAX as usize) {
-    //         panic!("too many sub-patterns in mapping pattern");
-    //         // return self.compiler_error("too many sub-patterns in mapping pattern");
-    //     }
+        // Step 2: If empty pattern with no star, consume subject
+        if size == 0 && star_target.is_none() {
+            // If the pattern is just "{}", we're done! Pop the subject:
+            pc.on_top -= 1;
+            emit!(self, Instruction::Pop);
+            return Ok(());
+        }
 
-    //     // Collect all keys into a set for duplicate checking.
-    //     let mut seen = HashSet::new();
+        // Step 3: Check mapping has enough keys
+        if size != 0 {
+            // Stack: [subject]
+            emit!(self, Instruction::GetLen);
+            // Stack: [subject, len]
+            self.emit_load_const(ConstantData::Integer { value: size.into() });
+            // Stack: [subject, len, size]
+            emit!(
+                self,
+                Instruction::CompareOperation {
+                    op: ComparisonOperator::GreaterOrEqual
+                }
+            );
+            // Stack: [subject, bool]
 
-    //     // For each key, validate it and check for duplicates.
-    //     for (i, key) in keys.iter().enumerate() {
-    //         if let Some(key_val) = key.as_literal_expr() {
-    //             let in_seen = seen.contains(&key_val);
-    //             if in_seen {
-    //                 panic!("mapping pattern checks duplicate key: {:?}", key_val);
-    //                 // return self.compiler_error(format!("mapping pattern checks duplicate key: {:?}", key_val));
-    //             }
-    //             seen.insert(key_val);
-    //         } else if !key.is_attribute_expr() {
-    //             panic!("mapping pattern keys may only match literals and attribute lookups");
-    //             // return self.compiler_error("mapping pattern keys may only match literals and attribute lookups");
-    //         }
+            // If not enough keys, fail
+            self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+            // Stack: [subject]
+        }
 
-    //         // Visit the key expression.
-    //         self.compile_expression(key)?;
-    //     }
-    //     // Drop the set (its resources will be freed automatically).
+        // Step 4: Build keys tuple
+        if size.saturating_sub(1) > (i32::MAX as usize) {
+            return Err(self.error(CodegenErrorType::SyntaxError(
+                "too many sub-patterns in mapping pattern".to_string(),
+            )));
+        }
 
-    //     // Build a tuple of keys and emit MATCH_KEYS.
-    //     emit!(self, Instruction::BuildTuple { size: size as u32 });
-    //     emit!(self, Instruction::MatchKeys);
-    //     // Now, on top of the subject there are two new tuples: one of keys and one of values.
-    //     pc.on_top += 2;
+        // Validate and compile keys
+        // NOTE: RustPython difference - using HashSet<String> for duplicate checking
+        // CPython uses PySet with actual Python objects
+        let mut seen = std::collections::HashSet::new();
 
-    //     // Prepare for matching the values.
-    //     emit!(self, Instruction::CopyItem { index: 1_u32 });
-    //     self.emit_load_const(ConstantData::None);
-    //     // TODO: should be is
-    //     emit!(self, Instruction::TestOperation::IsNot);
-    //     self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+        for key in keys.iter() {
+            // Validate key
+            let is_constant = matches!(
+                key,
+                Expr::NumberLiteral(_)
+                    | Expr::StringLiteral(_)
+                    | Expr::BytesLiteral(_)
+                    | Expr::BooleanLiteral(_)
+                    | Expr::NoneLiteral(_)
+            );
+            let is_attribute = matches!(key, Expr::Attribute(_));
 
-    //     // Unpack the tuple of values.
-    //     emit!(self, Instruction::UnpackSequence { size: size as u32 });
-    //     pc.on_top += size.saturating_sub(1);
+            if is_constant {
+                let key_repr = format!("{key:?}");
+                if seen.contains(&key_repr) {
+                    return Err(self.error(CodegenErrorType::SyntaxError(format!(
+                        "mapping pattern checks duplicate key: {key_repr:?}"
+                    ))));
+                }
+                seen.insert(key_repr);
+            } else if !is_attribute {
+                return Err(self.error(CodegenErrorType::SyntaxError(
+                    "mapping pattern keys may only match literals and attribute lookups"
+                        .to_string(),
+                )));
+            }
 
-    //     // Compile each subpattern in "subpattern" mode.
-    //     for pattern in patterns {
-    //         pc.on_top = pc.on_top.saturating_sub(1);
-    //         self.compile_pattern_subpattern(pattern, pc)?;
-    //     }
+            // Compile key expression
+            self.compile_expression(key)?;
+        }
+        // Stack: [subject, key1, key2, ...]
 
-    //     // Consume the tuple of keys and the subject.
-    //     pc.on_top = pc.on_top.saturating_sub(2);
-    //     if let Some(star_target) = star_target {
-    //         // If we have a starred name, bind a dict of remaining items to it.
-    //         // This sequence of instructions performs:
-    //         //   rest = dict(subject)
-    //         //   for key in keys: del rest[key]
-    //         emit!(self, Instruction::BuildMap { size: 0 });           // Build an empty dict.
-    //         emit!(self, Instruction::Swap(3));                        // Rearrange stack: [empty, keys, subject]
-    //         emit!(self, Instruction::DictUpdate { size: 2 });         // Update dict with subject.
-    //         emit!(self, Instruction::UnpackSequence { size: size as u32 }); // Unpack keys.
-    //         let mut remaining = size;
-    //         while remaining > 0 {
-    //             emit!(self, Instruction::CopyItem { index: 1 + remaining as u32 }); // Duplicate subject copy.
-    //             emit!(self, Instruction::Swap { index: 2_u32 });                    // Bring key to top.
-    //             emit!(self, Instruction::DeleteSubscript);              // Delete key from dict.
-    //             remaining -= 1;
-    //         }
-    //         // Bind the dict to the starred target.
-    //         self.pattern_helper_store_name(Some(&star_target), pc)?;
-    //     } else {
-    //         // No starred target: just pop the tuple of keys and the subject.
-    //         emit!(self, Instruction::Pop);
-    //         emit!(self, Instruction::Pop);
-    //     }
-    //     Ok(())
-    // }
+        // Build tuple of keys
+        emit!(
+            self,
+            Instruction::BuildTuple {
+                size: u32::try_from(size).expect("too many keys in mapping pattern")
+            }
+        );
+        // Stack: [subject, keys_tuple]
+
+        // Step 5: Extract values using MATCH_KEYS
+        emit!(self, Instruction::MatchKeys);
+        // Stack: [subject, keys_or_none, values_or_none]
+        // There's now a tuple of keys and a tuple of values on top of the subject
+        pc.on_top += 2;
+
+        emit!(self, Instruction::CopyItem { index: 1_u32 }); // Copy values_or_none (TOS)
+        // Stack: [subject, keys_or_none, values_or_none, values_or_none]
+
+        self.emit_load_const(ConstantData::None);
+        // Stack: [subject, keys_or_none, values_or_none, values_or_none, None]
+
+        emit!(
+            self,
+            Instruction::TestOperation {
+                op: bytecode::TestOperator::IsNot
+            }
+        );
+        // Stack: [subject, keys_or_none, values_or_none, bool]
+
+        // If values_or_none is None, fail (need to clean up 3 items: values_or_none, keys_or_none, subject)
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+        // Stack: [subject, keys_or_none, values_or_none] (on success)
+
+        // Step 7: Process patterns
+        if size > 0 {
+            // Unpack values tuple
+            emit!(
+                self,
+                Instruction::UnpackSequence {
+                    size: u32::try_from(size).expect("too many values in mapping pattern")
+                }
+            );
+            // Stack: [subject, keys_or_none, value_n, ..., value_1]
+            // After UNPACK_SEQUENCE, we have size values on the stack
+            pc.on_top += size - 1;
+
+            // Process each pattern with compile_pattern_subpattern
+            for pattern in patterns.iter() {
+                pc.on_top -= 1;
+                self.compile_pattern_subpattern(pattern, pc)?;
+            }
+        }
+
+        // After all patterns processed, adjust on_top for subject and keys_or_none
+        pc.on_top -= 2;
+
+        // Step 8: Clean up
+        // If we get this far, it's a match! Whatever happens next should consume
+        // the tuple of keys and the subject
+
+        if let Some(_star_target) = star_target {
+            // TODO: Implement **rest pattern support
+            // This would involve BUILD_MAP, DICT_UPDATE, etc.
+            return Err(self.error(CodegenErrorType::SyntaxError(
+                "**rest pattern in mapping not yet implemented".to_string(),
+            )));
+        } else {
+            // Pop the tuple of keys
+            emit!(self, Instruction::Pop);
+            // Pop the subject
+            emit!(self, Instruction::Pop);
+        }
+        Ok(())
+    }
 
     fn compile_pattern_or(
         &mut self,
@@ -3848,7 +3917,9 @@ impl Compiler {
             Pattern::MatchSequence(pattern_type) => {
                 self.compile_pattern_sequence(pattern_type, pattern_context)
             }
-            // Pattern::MatchMapping(pattern_type) => self.compile_pattern_mapping(pattern_type, pattern_context),
+            Pattern::MatchMapping(pattern_type) => {
+                self.compile_pattern_mapping(pattern_type, pattern_context)
+            }
             Pattern::MatchClass(pattern_type) => {
                 self.compile_pattern_class(pattern_type, pattern_context)
             }
@@ -3860,11 +3931,6 @@ impl Compiler {
             }
             Pattern::MatchOr(pattern_type) => {
                 self.compile_pattern_or(pattern_type, pattern_context)
-            }
-            _ => {
-                // The eprintln gives context as to which pattern type is not implemented.
-                eprintln!("not implemented pattern type: {pattern_type:?}");
-                Err(self.error(CodegenErrorType::NotImplementedYet))
             }
         }
     }

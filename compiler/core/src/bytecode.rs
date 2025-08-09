@@ -1425,8 +1425,8 @@ impl Instruction {
             GetAIter => 0,
             GetANext => 1,
             EndAsyncFor => -2,
-            MatchMapping | MatchSequence => 0,
-            MatchKeys => -1,
+            MatchMapping | MatchSequence => 1, // Push bool result
+            MatchKeys => 1, // Pop 2 (subject, keys), push 3 (subject, keys_or_none, values_or_none)
             MatchClass(_) => -2,
             ExtendedArg => 0,
         }
