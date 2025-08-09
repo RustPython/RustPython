@@ -2,6 +2,7 @@
 
 pub(crate) use pwd::make_module;
 
+#[allow(unused)]
 #[pymodule]
 mod pwd {
     use crate::{
@@ -26,6 +27,7 @@ mod pwd {
         pw_dir: String,
         pw_shell: String,
     }
+
     #[pyclass(with(PyStructSequence))]
     impl Passwd {}
 
@@ -91,6 +93,7 @@ mod pwd {
     }
 
     // TODO: maybe merge this functionality into nix?
+    #[cfg(not(target_os = "android"))]
     #[pyfunction]
     fn getpwall(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         // setpwent, getpwent, etc are not thread safe. Could use fgetpwent_r, but this is easier
