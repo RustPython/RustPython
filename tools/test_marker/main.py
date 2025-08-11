@@ -119,14 +119,6 @@ def iter_patches(tree: ast.Module, conf: Conf) -> "Iterator[tuple[int, str]]":
             if not isinstance(cls_node, ast.ClassDef):
                 continue
 
-            """
-            print(dir(cls_node))
-            print(cls_node)
-            print(cls_node.lineno)
-            print(cls_node.end_lineno)
-            exit()
-            """
-
             if not (cls_conf := conf.get(cls_node.name)):
                 continue
 
