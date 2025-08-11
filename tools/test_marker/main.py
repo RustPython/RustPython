@@ -135,6 +135,7 @@ def iter_patches(tree: ast.Module, conf: Conf) -> "Iterator[tuple[int, str]]":
                     if isinstance(dec_node, (ast.Attribute, ast.Call))
                 ):
                     continue
+
                 lineno = min(
                     (dec_node.lineno for dec_node in fn_node.decorator_list),
                     default=fn_node.lineno,
