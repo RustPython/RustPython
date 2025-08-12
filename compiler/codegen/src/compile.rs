@@ -2254,15 +2254,6 @@ impl Compiler {
     ) -> CompileResult<u32> {
         let mut num_annotations = 0;
 
-        // Handle return annotation first
-        if let Some(annotation) = returns {
-            self.emit_load_const(ConstantData::Str {
-                value: "return".into(),
-            });
-            self.compile_annotation(annotation)?;
-            num_annotations += 1;
-        }
-
         // Handle parameter annotations
         let parameters_iter = std::iter::empty()
             .chain(&parameters.posonlyargs)
@@ -2280,6 +2271,15 @@ impl Compiler {
                 self.compile_annotation(annotation)?;
                 num_annotations += 1;
             }
+        }
+
+        // Handle return annotation last
+        if let Some(annotation) = returns {
+            self.emit_load_const(ConstantData::Str {
+                value: "return".into(),
+            });
+            self.compile_annotation(annotation)?;
+            num_annotations += 1;
         }
 
         Ok(num_annotations)
@@ -4398,7 +4398,7 @@ impl Compiler {
 
         for item in unpacked {
             self.compile_expression(&item.value)?;
-            emit!(self, Instruction::DictUpdate);
+            emit!(self, Instruction::DictUpdate { index: 1 });
         }
 
         Ok(())
