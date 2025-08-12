@@ -46,8 +46,13 @@ pub mod posix;
 mod ctypes;
 #[cfg(windows)]
 pub(crate) mod msvcrt;
-#[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
+
+#[cfg(all(
+    unix,
+    not(any(target_os = "ios", target_os = "wasi", target_os = "redox"))
+))]
 mod pwd;
+
 pub(crate) mod signal;
 pub mod sys;
 #[cfg(windows)]
@@ -120,7 +125,10 @@ pub fn get_module_inits() -> StdlibMap {
             "_thread" => thread::make_module,
         }
         // Unix-only
-        #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
+        #[cfg(all(
+            unix,
+            not(any(target_os = "ios", target_os = "wasi", target_os = "redox"))
+        ))]
         {
             "pwd" => pwd::make_module,
         }
