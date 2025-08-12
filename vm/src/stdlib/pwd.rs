@@ -2,7 +2,7 @@
 
 pub(crate) use pwd::make_module;
 
-#[allow(unused)]
+#[cfg_attr(target_os = "android", allow(unused_imports))]
 #[pymodule]
 mod pwd {
     use crate::{
