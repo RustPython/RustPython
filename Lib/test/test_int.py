@@ -761,8 +761,6 @@ class IntStrDigitLimitsTests(unittest.TestCase):
                 assert maxdigits < 100_000
                 self.int_class('1' * 100_000, base)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_underscores_ignored(self):
         maxdigits = sys.get_int_max_str_digits()
 
