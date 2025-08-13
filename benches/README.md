@@ -18,7 +18,7 @@ To view Python tracebacks during benchmarks, run `RUST_BACKTRACE=1 cargo bench`.
 specific installed Python version by running:
 
 ```shell
-PYTHON_SYS_EXECUTABLE=python3.7 cargo bench
+PYTHON_SYS_EXECUTABLE=python3.13 cargo bench
 ```
 
 ### Adding a benchmark
