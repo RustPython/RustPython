@@ -31,8 +31,10 @@ mod sha3;
 mod sha512;
 
 mod json;
-#[cfg(not(any(target_os = "ios", target_os = "android", target_arch = "wasm32")))]
+
+#[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
 mod locale;
+
 mod math;
 #[cfg(unix)]
 mod mmap;
@@ -198,7 +200,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         {
             "_uuid" => uuid::make_module,
         }
-        #[cfg(not(any(target_os = "ios", target_os = "android", target_arch = "wasm32")))]
+        #[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
         {
             "_locale" => locale::make_module,
         }
