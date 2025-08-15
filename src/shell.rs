@@ -86,11 +86,7 @@ fn shell_exec(
                             continuing_block
                         } // && p.location.is_some()
                         ParseErrorType::OtherError(msg) => {
-                            if msg.starts_with("Expected an indented block") {
-                                continuing_block
-                            } else {
-                                true
-                            }
+                            !msg.starts_with("Expected an indented block")
                         }
                         _ => true, // !matches!(p, ParseErrorType::UnrecognizedToken(Tok::Dedent, _))
                     }
