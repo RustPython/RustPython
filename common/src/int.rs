@@ -29,6 +29,7 @@ pub fn float_to_ratio(value: f64) -> Option<(BigInt, BigInt)> {
     })
 }
 
+#[derive(Debug, Eq, PartialEq)]
 pub enum BytesToIntError {
     InvalidLiteral { base: u32 },
     InvalidBase,
@@ -40,7 +41,7 @@ pub enum BytesToIntError {
 pub fn bytes_to_int(
     buf: &[u8],
     mut base: u32,
-    max_str_digits: usize,
+    digit_limit: usize,
 ) -> Result<BigInt, BytesToIntError> {
     if base != 0 && !(2..=36).contains(&base) {
         return Err(BytesToIntError::InvalidBase);
@@ -132,10 +133,10 @@ pub fn bytes_to_int(
         return Err(BytesToIntError::InvalidLiteral { base });
     }
 
-    if !base.is_power_of_two() && max_str_digits > 0 && digits > max_str_digits {
+    if digit_limit > 0 && !base.is_power_of_two() && digits > digit_limit {
         return Err(BytesToIntError::DigitLimit {
             got: digits,
-            limit: max_str_digits,
+            limit: digit_limit,
         });
     }
 
@@ -149,17 +150,59 @@ pub fn bigint_to_finite_float(int: &BigInt) -> Option<f64> {
     int.to_f64().filter(|f| f.is_finite())
 }
 
-/*
-#[test]
-fn test_bytes_to_int() {
-    assert_eq!(bytes_to_int(&*b"0b101", 2).unwrap(), BigInt::from(5));
-    assert_eq!(bytes_to_int(&*b"0x_10", 16).unwrap(), BigInt::from(16));
-    assert_eq!(bytes_to_int(&*b"0b", 16).unwrap(), BigInt::from(11));
-    assert_eq!(bytes_to_int(&*b"+0b101", 2).unwrap(), BigInt::from(5));
-    assert_eq!(bytes_to_int(&*b"0_0_0", 10).unwrap(), BigInt::from(0));
-    assert_eq!(bytes_to_int(&*b"09_99", 0), None);
-    assert_eq!(bytes_to_int(&*b"000", 0).unwrap(), BigInt::from(0));
-    assert_eq!(bytes_to_int(&*b"0_", 0), None);
-    assert_eq!(bytes_to_int(&*b"0_100", 10).unwrap(), BigInt::from(100));
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DIGIT_LIMIT: usize = 4300; // Default of Cpython
+
+    #[test]
+    fn bytes_to_int_valid() {
+        for ((buf, base), expected) in [
+            (("0b101", 2), BigInt::from(5)),
+            (("0x_10", 16), BigInt::from(16)),
+            (("0b", 16), BigInt::from(11)),
+            (("+0b101", 2), BigInt::from(5)),
+            (("0_0_0", 10), BigInt::from(0)),
+            (("000", 0), BigInt::from(0)),
+            (("0_100", 10), BigInt::from(100)),
+        ] {
+            assert_eq!(
+                bytes_to_int(&buf.as_bytes(), base, DIGIT_LIMIT),
+                Ok(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn bytes_to_int_invalid_literal() {
+        for ((buf, base), expected) in [
+            (("09_99", 0), BytesToIntError::InvalidLiteral { base: 10 }),
+            (("0_", 0), BytesToIntError::InvalidLiteral { base: 10 }),
+            (("0_", 2), BytesToIntError::InvalidLiteral { base: 2 }),
+        ] {
+            assert_eq!(
+                bytes_to_int(&buf.as_bytes(), base, DIGIT_LIMIT),
+                Err(expected)
+            )
+        }
+    }
+
+    #[test]
+    fn bytes_to_int_invalid_base() {
+        for base in [1, 37] {
+            assert_eq!(
+                bytes_to_int(&*b"012345", base, DIGIT_LIMIT),
+                Err(BytesToIntError::InvalidBase)
+            )
+        }
+    }
+
+    #[test]
+    fn bytes_to_int_digit_limit() {
+        assert_eq!(
+            bytes_to_int(&*b"012345", 10, 5),
+            Err(BytesToIntError::DigitLimit { got: 6, limit: 5 })
+        );
+    }
 }
-*/
