@@ -833,16 +833,16 @@ fn try_int_radix(obj: &PyObject, base: u32, vm: &VirtualMachine) -> PyResult<Big
         string @ PyStr => {
             let s = string.as_wtf8().trim();
             bytes_to_int(s.as_bytes(), base, vm.state.int_max_str_digits.load())
-                .map_err(|e| handle_bytes_to_int_err(e, obj, &vm))
+                .map_err(|e| handle_bytes_to_int_err(e, obj, vm))
         }
         bytes @ PyBytes => {
             bytes_to_int(bytes.as_bytes(), base, vm.state.int_max_str_digits.load())
-                .map_err(|e| handle_bytes_to_int_err(e, obj, &vm))
+                .map_err(|e| handle_bytes_to_int_err(e, obj, vm))
         }
         bytearray @ PyByteArray => {
             let inner = bytearray.borrow_buf();
             bytes_to_int(&inner, base, vm.state.int_max_str_digits.load())
-                .map_err(|e| handle_bytes_to_int_err(e, obj, &vm))
+                .map_err(|e| handle_bytes_to_int_err(e, obj, vm))
         }
         _ => Err(vm.new_type_error("int() can't convert non-string with explicit base")),
     })

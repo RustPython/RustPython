@@ -168,7 +168,7 @@ mod tests {
             (("0_100", 10), BigInt::from(100)),
         ] {
             assert_eq!(
-                bytes_to_int(&buf.as_bytes(), base, DIGIT_LIMIT),
+                bytes_to_int(buf.as_bytes(), base, DIGIT_LIMIT),
                 Ok(expected)
             );
         }
@@ -182,7 +182,7 @@ mod tests {
             (("0_", 2), BytesToIntError::InvalidLiteral { base: 2 }),
         ] {
             assert_eq!(
-                bytes_to_int(&buf.as_bytes(), base, DIGIT_LIMIT),
+                bytes_to_int(buf.as_bytes(), base, DIGIT_LIMIT),
                 Err(expected)
             )
         }
@@ -192,7 +192,7 @@ mod tests {
     fn bytes_to_int_invalid_base() {
         for base in [1, 37] {
             assert_eq!(
-                bytes_to_int(&*b"012345", base, DIGIT_LIMIT),
+                bytes_to_int("012345".as_bytes(), base, DIGIT_LIMIT),
                 Err(BytesToIntError::InvalidBase)
             )
         }
@@ -201,7 +201,7 @@ mod tests {
     #[test]
     fn bytes_to_int_digit_limit() {
         assert_eq!(
-            bytes_to_int(&*b"012345", 10, 5),
+            bytes_to_int("012345".as_bytes(), 10, 5),
             Err(BytesToIntError::DigitLimit { got: 6, limit: 5 })
         );
     }

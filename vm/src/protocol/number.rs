@@ -50,7 +50,7 @@ impl PyObject {
             let digit_limit = vm.state.int_max_str_digits.load();
 
             let i = bytes_to_int(lit, base, digit_limit)
-                .map_err(|e| handle_bytes_to_int_err(e, obj, &vm))?;
+                .map_err(|e| handle_bytes_to_int_err(e, obj, vm))?;
             Ok(PyInt::from(i).into_ref(&vm.ctx))
         }
 
