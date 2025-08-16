@@ -517,11 +517,9 @@ fn do_sort(
         PyComparisonOp::Gt
     };
     let cmp = |a: &PyObjectRef, b: &PyObjectRef| {
-        let res = a.rich_compare_bool(b, op, vm).unwrap();
-        if res {
-            Ordering::Greater
-        } else {
-            Ordering::Less
+        match a.rich_compare_bool(b, op, vm) {
+            Ok(res) => if res { Ordering::Greater } else { Ordering::Less },
+            Err(_) => Ordering::Equal,
         }
     };
 
