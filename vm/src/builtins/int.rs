@@ -15,7 +15,7 @@ use crate::{
         ArgByteOrder, ArgIntoBool, OptionalArg, OptionalOption, PyArithmeticValue,
         PyComparisonValue,
     },
-    protocol::PyNumberMethods,
+    protocol::{PyNumberMethods, handle_bytes_to_int_err},
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
 use malachite_bigint::{BigInt, Sign};
@@ -829,33 +829,23 @@ struct IntToByteArgs {
 }
 
 fn try_int_radix(obj: &PyObject, base: u32, vm: &VirtualMachine) -> PyResult<BigInt> {
-    debug_assert!(base == 0 || (2..=36).contains(&base));
-
-    let opt = match_class!(match obj.to_owned() {
+    match_class!(match obj.to_owned() {
         string @ PyStr => {
             let s = string.as_wtf8().trim();
-            bytes_to_int(s.as_bytes(), base)
+            bytes_to_int(s.as_bytes(), base, vm.state.int_max_str_digits.load())
+                .map_err(|e| handle_bytes_to_int_err(e, obj, vm))
         }
         bytes @ PyBytes => {
-            let bytes = bytes.as_bytes();
-            bytes_to_int(bytes, base)
+            bytes_to_int(bytes.as_bytes(), base, vm.state.int_max_str_digits.load())
+                .map_err(|e| handle_bytes_to_int_err(e, obj, vm))
         }
         bytearray @ PyByteArray => {
             let inner = bytearray.borrow_buf();
-            bytes_to_int(&inner, base)
+            bytes_to_int(&inner, base, vm.state.int_max_str_digits.load())
+                .map_err(|e| handle_bytes_to_int_err(e, obj, vm))
         }
-        _ => {
-            return Err(vm.new_type_error("int() can't convert non-string with explicit base"));
-        }
-    });
-    match opt {
-        Some(int) => Ok(int),
-        None => Err(vm.new_value_error(format!(
-            "invalid literal for int() with base {}: {}",
-            base,
-            obj.repr(vm)?,
-        ))),
-    }
+        _ => Err(vm.new_type_error("int() can't convert non-string with explicit base")),
+    })
 }
 
 // Retrieve inner int value:
