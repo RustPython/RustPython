@@ -1,8 +1,4 @@
-/* Pyexpat builtin module
-*
-*
-*/
-
+/// Pyexpat builtin module
 use crate::vm::{PyRef, VirtualMachine, builtins::PyModule, extend_module};
 
 pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
@@ -33,14 +29,24 @@ macro_rules! create_property {
 mod _pyexpat {
     use crate::vm::{
         Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
-        builtins::{PyStr, PyStrRef, PyType},
+        builtins::{PyInt, PyStr, PyStrRef, PyTupleRef, PyType},
         function::ArgBytesLike,
         function::{IntoFuncArgs, OptionalArg},
     };
     use rustpython_common::lock::PyRwLock;
     use std::io::Cursor;
     use xml::reader::XmlEvent;
+
     type MutableObject = PyRwLock<PyObjectRef>;
+
+    #[pyattr]
+    pub fn version_info(vm: &VirtualMachine) -> PyTupleRef {
+        vm.ctx.new_tuple(vec![
+            PyInt::from(2).into_pyobject(vm),
+            PyInt::from(7).into_pyobject(vm),
+            PyInt::from(1).into_pyobject(vm),
+        ])
+    }
 
     #[pyattr]
     #[pyclass(name = "xmlparser", module = false, traverse)]
