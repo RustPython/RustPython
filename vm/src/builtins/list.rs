@@ -543,7 +543,7 @@ fn do_sort(
         items.sort_unstable_by(|a, b| cmp(&a.1, &b.1));
         *values = items.into_iter().map(|(val, _)| val).collect();
     } else {
-        values.sort_unstable_by(cmp(a, b));
+        values.sort_unstable_by(cmp);
     }
 
     // After the sort is done, check if an error was captured.
