@@ -504,8 +504,8 @@ impl Representable for PyList {
     }
 }
 
-use std::cmp::Ordering;
 use crate::exceptions::types::PyBaseExceptionRef;
+use std::cmp::Ordering;
 fn do_sort(
     vm: &VirtualMachine,
     values: &mut Vec<PyObjectRef>,
@@ -520,13 +520,17 @@ fn do_sort(
 
     // If a PyException is encountered stop swapping elements and store the error.
     let mut error_slot: Option<PyBaseExceptionRef> = None;
-    let mut cmp = |a: &PyObjectRef, b: &PyObjectRef| {
-        match a.rich_compare_bool(b, op, vm) {
-            Ok(res) => if res { Ordering::Greater } else { Ordering::Less },
-            Err(e) => {
-                error_slot = Some(e);
-                Ordering::Equal
-            },
+    let mut cmp = |a: &PyObjectRef, b: &PyObjectRef| match a.rich_compare_bool(b, op, vm) {
+        Ok(res) => {
+            if res {
+                Ordering::Greater
+            } else {
+                Ordering::Less
+            }
+        }
+        Err(e) => {
+            error_slot = Some(e);
+            Ordering::Equal
         }
     };
 
