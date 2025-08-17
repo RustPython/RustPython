@@ -730,6 +730,8 @@ class FormatTestCase(unittest.TestCase):
     @support.requires_IEEE_754
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @unittest.skipUnless(sys.float_repr_style == 'short',
+                         "applies only when using short float repr style")
     def test_format_testfile(self):
         with open(format_testfile, encoding="utf-8") as testfile:
             for line in testfile:
