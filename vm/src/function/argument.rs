@@ -55,6 +55,80 @@ into_func_args_from_tuple!((v1, T1), (v2, T2), (v3, T3));
 into_func_args_from_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4));
 into_func_args_from_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4), (v5, T5));
 into_func_args_from_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4), (v5, T5), (v6, T6));
+into_func_args_from_tuple!(
+    (v1, T1),
+    (v2, T2),
+    (v3, T3),
+    (v4, T4),
+    (v5, T5),
+    (v6, T6),
+    (v7, T7)
+);
+
+into_func_args_from_tuple!(
+    (v1, T1),
+    (v2, T2),
+    (v3, T3),
+    (v4, T4),
+    (v5, T5),
+    (v6, T6),
+    (v7, T7),
+    (v8, T8)
+);
+
+into_func_args_from_tuple!(
+    (v1, T1),
+    (v2, T2),
+    (v3, T3),
+    (v4, T4),
+    (v5, T5),
+    (v6, T6),
+    (v7, T7),
+    (v8, T8),
+    (v9, T9)
+);
+
+into_func_args_from_tuple!(
+    (v1, T1),
+    (v2, T2),
+    (v3, T3),
+    (v4, T4),
+    (v5, T5),
+    (v6, T6),
+    (v7, T7),
+    (v8, T8),
+    (v9, T9),
+    (v10, T10)
+);
+
+into_func_args_from_tuple!(
+    (v1, T1),
+    (v2, T2),
+    (v3, T3),
+    (v4, T4),
+    (v5, T5),
+    (v6, T6),
+    (v7, T7),
+    (v8, T8),
+    (v9, T9),
+    (v10, T10),
+    (v11, T11)
+);
+
+into_func_args_from_tuple!(
+    (v1, T1),
+    (v2, T2),
+    (v3, T3),
+    (v4, T4),
+    (v5, T5),
+    (v6, T6),
+    (v7, T7),
+    (v8, T8),
+    (v9, T9),
+    (v10, T10),
+    (v11, T11),
+    (v12, T12)
+);
 
 /// The `FuncArgs` struct is one of the most used structs then creating
 /// a rust function that can be called from python. It holds both positional
@@ -578,8 +652,8 @@ macro_rules! tuple_from_py_func_args {
     };
 }
 
-// Implement `FromArgs` for up to 7-tuples, allowing built-in functions to bind
-// up to 7 top-level parameters (note that `PosArgs`, `KwArgs`, nested tuples, etc.
+// Implement `FromArgs` for up to 12-tuples, allowing built-in functions to bind
+// up to 12 top-level parameters (note that `PosArgs`, `KwArgs`, nested tuples, etc.
 // count as 1, so this should actually be more than enough).
 tuple_from_py_func_args!(A);
 tuple_from_py_func_args!(A, B);
@@ -589,3 +663,7 @@ tuple_from_py_func_args!(A, B, C, D, E);
 tuple_from_py_func_args!(A, B, C, D, E, F);
 tuple_from_py_func_args!(A, B, C, D, E, F, G);
 tuple_from_py_func_args!(A, B, C, D, E, F, G, H);
+tuple_from_py_func_args!(A, B, C, D, E, F, G, H, I);
+tuple_from_py_func_args!(A, B, C, D, E, F, G, H, I, J);
+tuple_from_py_func_args!(A, B, C, D, E, F, G, H, I, J, K);
+tuple_from_py_func_args!(A, B, C, D, E, F, G, H, I, J, K, L);
