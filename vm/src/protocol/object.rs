@@ -642,6 +642,11 @@ impl PyObject {
     }
 
     pub fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
+        // __hash__ function in str cannot be overwritten
+        if let Some(pystr) = self.downcast_ref_if_exact::<PyStr>(vm) {
+            return Ok(pystr.hash(vm));
+        }
+
         let hash = self.get_class_attr(identifier!(vm, __hash__)).unwrap();
         if vm.is_none(&hash) {
             return Err(vm.new_exception_msg(
