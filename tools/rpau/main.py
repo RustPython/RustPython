@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 COL_OFFSET = 4
 INDENT1 = " " * COL_OFFSET
-INDENT2 = " " * COL_OFFSET * 2
+INDENT2 = INDENT1 * 2
 COMMENT = "TODO: RUSTPYTHON"
 
 ROOT_DIR = pathlib.Path(__file__).parents[2]

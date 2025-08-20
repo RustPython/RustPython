@@ -1,3 +1,4 @@
+# upstream_version: v3.13.7
 # As a test suite for the os module, this is woefully inadequate, but this
 # does add tests for a few functions which have been determined to be more
 # portable than they had been thought to be.
@@ -829,9 +830,7 @@ class UtimeTests(unittest.TestCase):
         # Convert a number of nanosecond (int) to a number of seconds (float).
         # Round towards infinity by adding 0.5 nanosecond to avoid rounding
         # issue, os.utime() rounds towards minus infinity.
-        # XXX: RUSTPYTHON os.utime() use `[Duration::from_secs_f64](https://doc.rust-lang.org/std/time/struct.Duration.html#method.try_from_secs_f64)`
-        # return (ns * 1e-9) + 0.5e-9
-        return (ns * 1e-9)
+        return (ns * 1e-9) + 0.5e-9
 
     def test_utime_by_indexed(self):
         # pass times as floating-point seconds as the second indexed parameter
