@@ -29,7 +29,7 @@ macro_rules! create_property {
 mod _pyexpat {
     use crate::vm::{
         Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
-        builtins::{PyInt, PyStr, PyStrRef, PyTupleRef, PyType},
+        builtins::{PyStr, PyStrRef, PyType},
         function::ArgBytesLike,
         function::{IntoFuncArgs, OptionalArg},
     };
