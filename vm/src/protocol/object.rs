@@ -642,25 +642,14 @@ impl PyObject {
     }
 
     pub fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
-        // __hash__ function in str cannot be overwritten
-        if let Some(pystr) = self.downcast_ref_if_exact::<PyStr>(vm) {
-            return Ok(pystr.hash(vm));
+        if let Some(hash) = self.class().mro_find_map(|cls| cls.slots.hash.load()) {
+            return hash(self, vm);
         }
 
-        let hash = self.get_class_attr(identifier!(vm, __hash__)).unwrap();
-        if vm.is_none(&hash) {
-            return Err(vm.new_exception_msg(
-                vm.ctx.exceptions.type_error.to_owned(),
-                format!("unhashable type: '{}'", self.class().name()),
-            ));
-        }
-
-        let hash = self
-            .class()
-            .mro_find_map(|cls| cls.slots.hash.load())
-            .unwrap();
-
-        hash(self, vm)
+        return Err(vm.new_exception_msg(
+            vm.ctx.exceptions.type_error.to_owned(),
+            format!("unhashable type: '{}'", self.class().name()),
+        ));
     }
 
     // type protocol
