@@ -836,15 +836,11 @@ class CursorTests(unittest.TestCase):
         with self.assertRaises(sqlite.ProgrammingError):
             self.cu.execute("insert into test(id) values (?)", (17, "Egon"))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_execute_wrong_no_of_args2(self):
         # too little parameters
         with self.assertRaises(sqlite.ProgrammingError):
             self.cu.execute("insert into test(id) values (?)")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_execute_wrong_no_of_args3(self):
         # no parameters, parameters are needed
         with self.assertRaises(sqlite.ProgrammingError):
@@ -911,8 +907,6 @@ class CursorTests(unittest.TestCase):
         with self.assertRaises(sqlite.ProgrammingError):
             self.cu.execute("select name from test where name=:name and id=:id", {"name": "foo"})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_execute_dict_mapping_no_args(self):
         self.cu.execute("insert into test(name) values ('foo')")
         with self.assertRaises(sqlite.ProgrammingError):
