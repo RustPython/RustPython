@@ -851,7 +851,7 @@ mod array {
         }
 
         fn _from_bytes(&self, b: &[u8], itemsize: usize, vm: &VirtualMachine) -> PyResult<()> {
-            if b.len() % itemsize != 0 {
+            if !b.len().is_multiple_of(itemsize) {
                 return Err(vm.new_value_error("bytes length not a multiple of item size"));
             }
             if b.len() / itemsize > 0 {
@@ -1473,7 +1473,7 @@ mod array {
         type Error = u8;
 
         fn try_from(code: u8) -> Result<Self, Self::Error> {
-            let big_endian = code % 2 != 0;
+            let big_endian = !code.is_multiple_of(2);
             let signed = match code {
                 0 | 1 => code != 0,
                 2..=13 => (code - 2) % 4 >= 2,
@@ -1615,7 +1615,7 @@ mod array {
         let mut array = check_type_code(args.typecode, vm)?;
         let format = args.mformat_code;
         let bytes = args.items.as_bytes();
-        if bytes.len() % format.item_size() != 0 {
+        if !bytes.len().is_multiple_of(format.item_size()) {
             return Err(vm.new_value_error("bytes length not a multiple of item size"));
         }
         if MachineFormatCode::from_typecode(array.typecode()) == Some(format) {

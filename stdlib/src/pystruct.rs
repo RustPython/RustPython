@@ -171,7 +171,7 @@ pub(crate) mod _struct {
                     vm,
                     "cannot iteratively unpack with a struct of length 0".to_owned(),
                 ))
-            } else if buffer.len() % format_spec.size != 0 {
+            } else if !buffer.len().is_multiple_of(format_spec.size) {
                 Err(new_struct_error(
                     vm,
                     format!(

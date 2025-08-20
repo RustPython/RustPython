@@ -743,7 +743,7 @@ impl PyMemoryView {
     fn cast_to_1d(&self, format: PyStrRef, vm: &VirtualMachine) -> PyResult<Self> {
         let format_spec = Self::parse_format(format.as_str(), vm)?;
         let itemsize = format_spec.size();
-        if self.desc.len % itemsize != 0 {
+        if !self.desc.len.is_multiple_of(itemsize) {
             return Err(vm.new_type_error("memoryview: length is not a multiple of itemsize"));
         }
 
