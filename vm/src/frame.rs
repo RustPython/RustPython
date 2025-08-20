@@ -680,11 +680,15 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::StoreSubscript => self.execute_store_subscript(vm),
             bytecode::Instruction::DeleteSubscript => self.execute_delete_subscript(vm),
             bytecode::Instruction::CopyItem { index } => {
+                // CopyItem { index: 1 } copies TOS
+                // CopyItem { index: 2 } copies second from top
+                // This is 1-indexed to match CPython
+                let idx = index.get(arg) as usize;
                 let value = self
                     .state
                     .stack
                     .len()
-                    .checked_sub(index.get(arg) as usize)
+                    .checked_sub(idx)
                     .map(|i| &self.state.stack[i])
                     .unwrap();
                 self.push_value(value.clone());
@@ -699,8 +703,8 @@ impl ExecutingFrame<'_> {
                 let len = self.state.stack.len();
                 let i = len - 1; // TOS index
                 let index_val = index.get(arg) as usize;
-                // SWAP(i) swaps TOS with element i positions down from TOS
-                // So the target index is len - index_val
+                // CPython: SWAP(n) swaps TOS with PEEK(n) where PEEK(n) = stack_pointer[-n]
+                // This means swap TOS with the element at index (len - n)
                 let j = len - index_val;
                 self.state.stack.swap(i, j);
                 Ok(None)
@@ -1282,36 +1286,59 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::MatchMapping => {
-                // Pop the subject from stack
+                // Pop and push back the subject to keep it on stack
                 let subject = self.pop_value();
-
-                // Decide if it's a mapping, push True/False or handle error
                 let is_mapping = PyMapping::check(&subject);
+                self.push_value(subject);
                 self.push_value(vm.ctx.new_bool(is_mapping).into());
                 Ok(None)
             }
             bytecode::Instruction::MatchSequence => {
-                // Pop the subject from stack
+                // Pop and push back the subject to keep it on stack
                 let subject = self.pop_value();
-
-                // Decide if it's a sequence (but not a mapping)
                 let is_sequence = subject.to_sequence().check();
+                self.push_value(subject);
                 self.push_value(vm.ctx.new_bool(is_sequence).into());
                 Ok(None)
             }
             bytecode::Instruction::MatchKeys => {
-                // Typically we pop a sequence of keys first
-                let _keys = self.pop_value();
+                // Pop keys tuple and subject
+                let keys_tuple = self.pop_value();
                 let subject = self.pop_value();
 
-                // Check if subject is a dict (or mapping) and all keys match
-                if let Ok(_dict) = subject.downcast::<PyDict>() {
-                    // Example: gather the values corresponding to keys
-                    // If keys match, push the matched values & success
-                    self.push_value(vm.ctx.new_bool(true).into());
+                // Push the subject back first
+                self.push_value(subject.clone());
+
+                // Check if subject is a mapping and extract values for keys
+                if PyMapping::check(&subject) {
+                    let keys = keys_tuple.downcast_ref::<PyTuple>().unwrap();
+                    let mut values = Vec::new();
+                    let mut all_match = true;
+
+                    for key in keys {
+                        match subject.get_item(key.as_object(), vm) {
+                            Ok(value) => values.push(value),
+                            Err(_) => {
+                                all_match = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    if all_match {
+                        // Push keys_or_none (the original keys) and values_or_none
+                        // Keys should remain as they were for potential **rest handling
+                        self.push_value(keys_tuple); // keys_or_none
+                        self.push_value(vm.ctx.new_tuple(values).into()); // values_or_none
+                    } else {
+                        // No match - push None twice
+                        self.push_value(vm.ctx.none());
+                        self.push_value(vm.ctx.none());
+                    }
                 } else {
-                    // Push a placeholder to indicate no match
-                    self.push_value(vm.ctx.new_bool(false).into());
+                    // Not a mapping - push None twice
+                    self.push_value(vm.ctx.none());
+                    self.push_value(vm.ctx.none());
                 }
                 Ok(None)
             }
