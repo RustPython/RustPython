@@ -39,14 +39,8 @@ mod _pyexpat {
 
     type MutableObject = PyRwLock<PyObjectRef>;
 
-    #[pyattr]
-    pub fn version_info(vm: &VirtualMachine) -> PyTupleRef {
-        vm.ctx.new_tuple(vec![
-            PyInt::from(2).into_pyobject(vm),
-            PyInt::from(7).into_pyobject(vm),
-            PyInt::from(1).into_pyobject(vm),
-        ])
-    }
+    #[pyattr(name = "version_info")]
+    pub const VERSION_INFO: (u32, u32, u32) = (2, 7, 1);
 
     #[pyattr]
     #[pyclass(name = "xmlparser", module = false, traverse)]
