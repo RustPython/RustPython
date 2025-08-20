@@ -646,10 +646,10 @@ impl PyObject {
             return hash(self, vm);
         }
 
-        return Err(vm.new_exception_msg(
+        Err(vm.new_exception_msg(
             vm.ctx.exceptions.type_error.to_owned(),
             format!("unhashable type: '{}'", self.class().name()),
-        ));
+        ))
     }
 
     // type protocol
