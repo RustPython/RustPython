@@ -728,8 +728,8 @@ class FormatTestCase(unittest.TestCase):
         self.assertEqual(format(INF, 'F'), 'INF')
 
     @support.requires_IEEE_754
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skipUnless(sys.float_repr_style == 'short',
+                         "applies only when using short float repr style")
     def test_format_testfile(self):
         with open(format_testfile, encoding="utf-8") as testfile:
             for line in testfile:
@@ -774,8 +774,6 @@ class FormatTestCase(unittest.TestCase):
         self.assertEqual(format(-123.34, '00.10g'), '-123.34')
 
 class ReprTestCase(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_repr(self):
         with open(os.path.join(os.path.split(__file__)[0],
                   'mathdata',
