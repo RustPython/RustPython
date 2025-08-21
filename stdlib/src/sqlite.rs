@@ -1533,8 +1533,16 @@ mod _sqlite {
             }
 
             let st = stmt.lock();
+            let params_needed = st.bind_parameter_count();
+
             if let OptionalArg::Present(parameters) = parameters {
                 st.bind_parameters(&parameters, vm)?;
+            } else if params_needed > 0 {
+                let msg = format!(
+                    "Incorrect number of bindings supplied. The current statement uses {}, and 0 were supplied.",
+                    params_needed
+                );
+                return Err(new_programming_error(vm, msg));
             }
 
             let ret = st.step();
@@ -2848,16 +2856,25 @@ mod _sqlite {
             Ok(())
         }
 
+        fn bind_parameter_count(self) -> c_int {
+            unsafe { sqlite3_bind_parameter_count(self.st) }
+        }
+
         fn bind_parameters_sequence(
             self,
             seq: PySequence<'_>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let num_needed = unsafe { sqlite3_bind_parameter_count(self.st) };
-            if seq.length(vm)? != num_needed as usize {
+            let num_needed = self.bind_parameter_count();
+            let num_supplied = seq.length(vm)?;
+
+            if num_supplied != num_needed as usize {
                 return Err(new_programming_error(
                     vm,
-                    "Incorrect number of binding supplied".to_owned(),
+                    format!(
+                        "Incorrect number of bindings supplied. The current statement uses {}, and {} were supplied.",
+                        num_needed, num_supplied
+                    ),
                 ));
             }
 
