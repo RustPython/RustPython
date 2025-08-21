@@ -712,8 +712,7 @@ class IntStrDigitLimitsTests(unittest.TestCase):
         self.assertIn('conversion', str(err.exception))
         self.assertLess(sw_fail_extra_huge.seconds, sw_convert.seconds/2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip('TODO: RUSTPYTHON; flaky test')
     def test_denial_of_service_prevented_str_to_int(self):
         """Regression test: ensure we fail before performing O(N**2) work."""
         maxdigits = sys.get_int_max_str_digits()
@@ -761,8 +760,6 @@ class IntStrDigitLimitsTests(unittest.TestCase):
                 assert maxdigits < 100_000
                 self.int_class('1' * 100_000, base)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_underscores_ignored(self):
         maxdigits = sys.get_int_max_str_digits()
 

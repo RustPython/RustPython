@@ -127,8 +127,6 @@ class TestDecode:
         d = self.json.JSONDecoder()
         self.assertRaises(ValueError, d.raw_decode, 'a'*42, -50000)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_limit_int(self):
         maxdigits = 5000
         with support.adjust_int_max_str_digits(maxdigits):
@@ -144,3 +142,8 @@ class TestCDecode(TestDecode, CTest):
     @unittest.expectedFailure
     def test_keys_reuse(self):
         return super().test_keys_reuse()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_limit_int(self):
+        return super().test_limit_int()

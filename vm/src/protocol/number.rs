@@ -5,8 +5,10 @@ use crossbeam_utils::atomic::AtomicCell;
 use crate::{
     AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
     VirtualMachine,
-    builtins::{PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr, int},
-    common::int::bytes_to_int,
+    builtins::{
+        PyBaseExceptionRef, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr, int,
+    },
+    common::int::{BytesToIntError, bytes_to_int},
     function::ArgBytesLike,
     object::{Traverse, TraverseFn},
     stdlib::warnings,
@@ -45,15 +47,10 @@ impl PyObject {
     pub fn try_int(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
         fn try_convert(obj: &PyObject, lit: &[u8], vm: &VirtualMachine) -> PyResult<PyIntRef> {
             let base = 10;
-            let i = bytes_to_int(lit, base).ok_or_else(|| {
-                let repr = match obj.repr(vm) {
-                    Ok(repr) => repr,
-                    Err(err) => return err,
-                };
-                vm.new_value_error(format!(
-                    "invalid literal for int() with base {base}: {repr}",
-                ))
-            })?;
+            let digit_limit = vm.state.int_max_str_digits.load();
+
+            let i = bytes_to_int(lit, base, digit_limit)
+                .map_err(|e| handle_bytes_to_int_err(e, obj, vm))?;
             Ok(PyInt::from(i).into_ref(&vm.ctx))
         }
 
@@ -557,5 +554,27 @@ impl PyNumber<'_> {
                 )))
             }
         })
+    }
+}
+
+pub fn handle_bytes_to_int_err(
+    e: BytesToIntError,
+    obj: &PyObject,
+    vm: &VirtualMachine,
+) -> PyBaseExceptionRef {
+    match e {
+        BytesToIntError::InvalidLiteral { base } => vm.new_value_error(format!(
+            "invalid literal for int() with base {base}: {}",
+            match obj.repr(vm) {
+                Ok(v) => v,
+                Err(err) => return err,
+            },
+        )),
+        BytesToIntError::InvalidBase => {
+            vm.new_value_error("int() base must be >= 2 and <= 36, or 0")
+        }
+        BytesToIntError::DigitLimit { got, limit } => vm.new_value_error(format!(
+"Exceeds the limit ({limit} digits) for integer string conversion: value has {got} digits; use sys.set_int_max_str_digits() to increase the limit"
+                )),
     }
 }
