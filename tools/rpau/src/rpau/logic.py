@@ -17,6 +17,7 @@ type Conf = dict[str, Patch]
 
 logger = get_logger(__name__)
 
+
 def fetch_upstream(*, base_url: str, path: str, version: str) -> str:
     upstream_url = "/".join((base_url, version, path))
     logger.debug(f"{upstream_url=}")
@@ -43,6 +44,7 @@ def get_upstream_contents(
         return contents
     else:
         return fetch()
+
 
 def format_patch(patch_conf: Patch) -> str:
     """
@@ -79,6 +81,7 @@ def format_patch(patch_conf: Patch) -> str:
             res = f'{prefix}({cond}, "{COMMENT}; {reason}")'
 
     return res.strip().rstrip(";").strip()
+
 
 def iter_patches(tree: ast.Module, conf: Conf) -> "Iterator[tuple[int, str]]":
     """
@@ -117,14 +120,14 @@ def iter_patches(tree: ast.Module, conf: Conf) -> "Iterator[tuple[int, str]]":
                 if not (patch_conf := cls_conf.pop(fn_node.name, None)):
                     continue
 
-                '''
+                """
                 if any(
                     is_patch_present(dec_node, patch_conf)
                     for dec_node in fn_node.decorator_list
                     if isinstance(dec_node, (ast.Attribute, ast.Call))
                 ):
                     continue
-                '''
+                """
 
                 lineno = min(
                     (dec_node.lineno for dec_node in fn_node.decorator_list),
@@ -158,6 +161,7 @@ def iter_patches(tree: ast.Module, conf: Conf) -> "Iterator[tuple[int, str]]":
 """.rstrip(),
                 )
 
+
 def apply_conf(contents: str, conf: dict) -> str:
     """
     Patch a given source code based on the conf.
@@ -184,6 +188,7 @@ def apply_conf(contents: str, conf: dict) -> str:
 
     return "\n".join(lines)
 
+
 def run(
     conf: dict,
     path: str,
@@ -196,7 +201,7 @@ def run(
         path=path, version=version, base_url=base_upstream_url, cache_dir=cache_dir
     )
 
-    patched_contents=apply_conf(contents, conf)
+    patched_contents = apply_conf(contents, conf)
     new_contents = f"# upstream_version: {version}\n{patched_contents}"
 
     output_file = output_dir / path
