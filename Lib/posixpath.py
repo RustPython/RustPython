@@ -1,3 +1,4 @@
+# upstream_version: v3.13.7
 """Common operations on Posix pathnames.
 
 Instead of importing this module directly, import os and refer to

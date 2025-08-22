@@ -1,3 +1,4 @@
+# upstream_version: v3.13.7
 # Copyright (c) 2004 Python Software Foundation.
 # All rights reserved.
 
@@ -6083,7 +6084,7 @@ _parse_format_specifier_regex = re.compile(r"""\A
 (?P<alt>\#)?
 (?P<zeropad>0)?
 (?P<minimumwidth>(?!0)\d+)?
-(?P<thousands_sep>,)?
+(?P<thousands_sep>[,_])?
 (?:\.(?P<precision>0|(?!0)\d+))?
 (?P<type>[eEfFgGn%])?
 \Z
