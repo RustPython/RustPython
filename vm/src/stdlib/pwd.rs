@@ -103,7 +103,7 @@ mod pwd {
         let mut list = Vec::new();
 
         unsafe { libc::setpwent() };
-        while let Some(ptr) = str::ptr::NonNull::new(unsafe { libc::getpwent() }) {
+        while let Some(ptr) = std::ptr::NonNull::new(unsafe { libc::getpwent() }) {
             let user = User::from(unsafe { ptr.as_ref() });
             let passwd = Passwd::from(user).to_pyobject(vm);
             list.push(passwd);
