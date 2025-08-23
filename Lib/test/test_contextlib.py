@@ -1336,8 +1336,6 @@ class TestChdir(unittest.TestCase):
             *parts,
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_simple(self):
         old_cwd = os.getcwd()
         target = self.make_relative_path('data')
@@ -1347,8 +1345,6 @@ class TestChdir(unittest.TestCase):
             self.assertEqual(os.getcwd(), target)
         self.assertEqual(os.getcwd(), old_cwd)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reentrant(self):
         old_cwd = os.getcwd()
         target1 = self.make_relative_path('data')
@@ -1366,8 +1362,6 @@ class TestChdir(unittest.TestCase):
             self.assertEqual(os.getcwd(), target1)
         self.assertEqual(os.getcwd(), old_cwd)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception(self):
         old_cwd = os.getcwd()
         target = self.make_relative_path('data')

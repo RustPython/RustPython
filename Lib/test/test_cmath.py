@@ -228,7 +228,6 @@ class CMathTests(ComplexesAreIdenticalMixin, unittest.TestCase):
             for arg in ["a", "long_string", "0", "1j", ""]:
                 self.assertRaises(TypeError, f, arg)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_cmath_matches_math(self):
         # check that corresponding cmath and math functions are equal
         # for floats in the appropriate range
