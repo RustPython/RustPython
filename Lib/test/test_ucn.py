@@ -10,6 +10,7 @@ Modified for Python 2.0 by Fredrik Lundh (fredrik@pythonware.com)
 import ast
 import unittest
 import unicodedata
+import urllib.error
 
 from test import support
 from http.client import HTTPException
@@ -115,8 +116,7 @@ class UnicodeNamesTest(unittest.TestCase):
         self.checkletter("HALFWIDTH KATAKANA SEMI-VOICED SOUND MARK", "\uFF9F")
         self.checkletter("FULLWIDTH LATIN SMALL LETTER A", "\uFF41")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_aliases(self):
         # Check that the aliases defined in the NameAliases.txt file work.
         # This should be updated when new aliases are added or the file
@@ -143,8 +143,6 @@ class UnicodeNamesTest(unittest.TestCase):
             with self.assertRaises(KeyError):
                 unicodedata.ucd_3_2_0.lookup(alias)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_aliases_names_in_pua_range(self):
         # We are storing aliases in the PUA 15, but their names shouldn't leak
         for cp in range(0xf0000, 0xf0100):
@@ -152,8 +150,6 @@ class UnicodeNamesTest(unittest.TestCase):
                 unicodedata.name(chr(cp))
             self.assertEqual(str(cm.exception), 'no such name')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_named_sequences_names_in_pua_range(self):
         # We are storing named seq in the PUA 15, but their names shouldn't leak
         for cp in range(0xf0100, 0xf0fff):
@@ -161,8 +157,7 @@ class UnicodeNamesTest(unittest.TestCase):
                 unicodedata.name(chr(cp))
             self.assertEqual(str(cm.exception), 'no such name')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_named_sequences_sample(self):
         # Check a few named sequences.  See #12753.
         sequences = [
@@ -179,6 +174,7 @@ class UnicodeNamesTest(unittest.TestCase):
             with self.assertRaises(KeyError):
                 unicodedata.ucd_3_2_0.lookup(seqname)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_named_sequences_full(self):
         # Check all the named sequences
         def check_version(testfile):
@@ -189,23 +185,25 @@ class UnicodeNamesTest(unittest.TestCase):
         try:
             testdata = support.open_urlresource(url, encoding="utf-8",
                                                 check=check_version)
-        except (OSError, HTTPException):
-            self.skipTest("Could not retrieve " + url)
-        self.addCleanup(testdata.close)
-        for line in testdata:
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            seqname, codepoints = line.split(';')
-            codepoints = ''.join(chr(int(cp, 16)) for cp in codepoints.split())
-            self.assertEqual(unicodedata.lookup(seqname), codepoints)
-            with self.assertRaises(SyntaxError):
-                self.checkletter(seqname, None)
-            with self.assertRaises(KeyError):
-                unicodedata.ucd_3_2_0.lookup(seqname)
+        except urllib.error.HTTPError as exc:
+            exc.close()
+            self.skipTest(f"Could not retrieve {url}: {exc!r}")
+        except (OSError, HTTPException) as exc:
+            self.skipTest(f"Could not retrieve {url}: {exc!r}")
+        with testdata:
+            for line in testdata:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                seqname, codepoints = line.split(';')
+                codepoints = ''.join(chr(int(cp, 16)) for cp in codepoints.split())
+                self.assertEqual(unicodedata.lookup(seqname), codepoints)
+                with self.assertRaises(SyntaxError):
+                    self.checkletter(seqname, None)
+                with self.assertRaises(KeyError):
+                    unicodedata.ucd_3_2_0.lookup(seqname)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_errors(self):
         self.assertRaises(TypeError, unicodedata.name)
         self.assertRaises(TypeError, unicodedata.name, 'xx')

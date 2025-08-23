@@ -145,7 +145,7 @@ mod unicodedata {
                     }
                 }
             }
-            default.ok_or_else(|| vm.new_value_error("character name not found!"))
+            default.ok_or_else(|| vm.new_value_error("no such name"))
         }
 
         #[pymethod]
