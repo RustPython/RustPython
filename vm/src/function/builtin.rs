@@ -215,6 +215,56 @@ into_py_native_fn_tuple!(
     (v7, T7)
 );
 
+into_py_native_fn_tuple!(
+    (v1, T1),
+    (v2, T2),
+    (v3, T3),
+    (v4, T4),
+    (v5, T5),
+    (v6, T6),
+    (v7, T7),
+    (v8, T8)
+);
+
+into_py_native_fn_tuple!(
+    (v1, T1),
+    (v2, T2),
+    (v3, T3),
+    (v4, T4),
+    (v5, T5),
+    (v6, T6),
+    (v7, T7),
+    (v8, T8),
+    (v9, T9)
+);
+
+into_py_native_fn_tuple!(
+    (v1, T1),
+    (v2, T2),
+    (v3, T3),
+    (v4, T4),
+    (v5, T5),
+    (v6, T6),
+    (v7, T7),
+    (v8, T8),
+    (v9, T9),
+    (v10, T10)
+);
+
+into_py_native_fn_tuple!(
+    (v1, T1),
+    (v2, T2),
+    (v3, T3),
+    (v4, T4),
+    (v5, T5),
+    (v6, T6),
+    (v7, T7),
+    (v8, T8),
+    (v9, T9),
+    (v10, T10),
+    (v11, T11)
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;
