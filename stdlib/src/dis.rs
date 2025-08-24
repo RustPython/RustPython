@@ -2,14 +2,24 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "dis")]
 mod decl {
-    use crate::vm::{
+    use rustpython_vm::{
         PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyCode, PyDictRef, PyStrRef},
         bytecode::CodeFlags,
+        function::OptionalArg,
     };
 
+    #[derive(FromArgs)]
+    struct DisArgs {
+        #[pyarg(positional)]
+        obj: PyObjectRef,
+        #[pyarg(any, optional)]
+        file: OptionalArg<PyObjectRef>,
+    }
+
     #[pyfunction]
-    fn dis(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn dis(args: DisArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let DisArgs { obj, file } = args;
         let co = if let Ok(co) = obj.get_attr("__code__", vm) {
             // Method or function:
             PyRef::try_from_object(vm, co)?
@@ -33,12 +43,41 @@ mod decl {
         } else {
             PyRef::try_from_object(vm, obj)?
         };
-        disassemble(co)
+        disassemble_to_file(co, file.into_option(), vm)
     }
 
     #[pyfunction]
-    fn disassemble(co: PyRef<PyCode>) -> PyResult<()> {
-        print!("{}", &co.code);
+    fn disassemble(
+        co: PyRef<PyCode>,
+        file: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        disassemble_to_file(co, file.into_option(), vm)
+    }
+
+    fn disassemble_to_file(
+        co: PyRef<PyCode>,
+        file: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let output = format!("{}", &co.code);
+
+        match file {
+            Some(file_obj) => {
+                // Write to the provided file object
+                if let Ok(write_method) = file_obj.get_attr("write", vm) {
+                    write_method.call((output,), vm)?;
+                } else {
+                    return Err(
+                        vm.new_type_error("file argument must have a write method".to_owned())
+                    );
+                }
+            }
+            None => {
+                // Write to stdout
+                print!("{output}");
+            }
+        }
         Ok(())
     }
 
