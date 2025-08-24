@@ -878,8 +878,6 @@ class UTF16LETest(ReadTest, unittest.TestCase):
     encoding = "utf-16-le"
     ill_formed_sequence = b"\x80\xdc"
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_partial(self):
         self.check_partial(
             "\x00\xff\u0100\uffff\U00010000",
@@ -922,10 +920,6 @@ class UTF16LETest(ReadTest, unittest.TestCase):
         self.assertEqual(b'\x00\xd8\x03\xde'.decode(self.encoding),
                          "\U00010203")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_incremental_surrogatepass(self):
-        super().test_incremental_surrogatepass()
 
 class UTF16BETest(ReadTest, unittest.TestCase):
     encoding = "utf-16-be"
