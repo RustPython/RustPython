@@ -53,18 +53,19 @@ impl GetDescriptor for PyGetSet {
         _cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let (zelf, obj) = match Self::_check(&zelf, obj, vm) {
-            Some(obj) => obj,
-            None => return Ok(zelf),
-        };
-        if let Some(ref f) = zelf.getter {
-            f(vm, obj)
+        if let Some(obj) = obj {
+            let (zelf, obj) = Self::_check(&zelf, obj, vm)?;
+            if let Some(ref f) = zelf.getter {
+                f(vm, obj)
+            } else {
+                Err(vm.new_attribute_error(format!(
+                    "attribute '{}' of '{}' objects is not readable",
+                    zelf.name,
+                    Self::class(&vm.ctx).name()
+                )))
+            }
         } else {
-            Err(vm.new_attribute_error(format!(
-                "attribute '{}' of '{}' objects is not readable",
-                zelf.name,
-                Self::class(&vm.ctx).name()
-            )))
+            Ok(zelf)
         }
     }
 }
