@@ -1,3 +1,4 @@
+# upstream_version: v3.13.7
 """Heap queue algorithm (a.k.a. priority queue).
 
 Heaps are arrays for which a[k] <= a[2*k+1] and a[k] <= a[2*k+2] for

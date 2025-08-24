@@ -1,3 +1,4 @@
+# upstream_version: v3.13.7
 from __future__ import annotations
 import io
 import os
