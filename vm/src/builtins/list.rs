@@ -109,7 +109,7 @@ pub type PyListRef = PyRef<PyList>;
         AsSequence,
         Representable
     ),
-    flags(BASETYPE)
+    flags(BASETYPE, SEQUENCE)
 )]
 impl PyList {
     #[pymethod]
