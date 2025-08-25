@@ -176,7 +176,7 @@ impl PyDict {
         AsMapping,
         Representable
     ),
-    flags(BASETYPE)
+    flags(BASETYPE, MAPPING)
 )]
 impl PyDict {
     #[pyclassmethod]

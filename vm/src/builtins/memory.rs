@@ -538,17 +538,20 @@ impl Py<PyMemoryView> {
     }
 }
 
-#[pyclass(with(
-    Py,
-    Hashable,
-    Comparable,
-    AsBuffer,
-    AsMapping,
-    AsSequence,
-    Constructor,
-    Iterable,
-    Representable
-))]
+#[pyclass(
+    with(
+        Py,
+        Hashable,
+        Comparable,
+        AsBuffer,
+        AsMapping,
+        AsSequence,
+        Constructor,
+        Iterable,
+        Representable
+    ),
+    flags(SEQUENCE)
+)]
 impl PyMemoryView {
     // TODO: Uncomment when Python adds __class_getitem__ to memoryview
     // #[pyclassmethod]
