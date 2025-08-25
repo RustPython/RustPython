@@ -35,7 +35,7 @@ env:
 
 # TODO: coordinate with @moreal - to support initial use-case See RustPython/RustPython#5974
 # TODO: coordinate with @arihant2math - to really build out the migration/Reporting logic
-# TODO: coordinate with @ShaharNaveh - to really build out the test migration logic
+# TODO: coordinate with @ShaharNaveh - see PR #6089 with RPAU
 
 jobs:
   TEST-5974:
@@ -89,14 +89,15 @@ jobs:
             .github/actions/CI-5974-Fetch-CPython
             .github/actions/CI-5974-Integrate-CPython
             .github/actions/CI-5974-Test-RustPython-Integration
+            .github/actions/CI-6089-Test-RustPython-rapu
       - name: Checkout RustPython repository on ${{ matrix.os }}
         id: fetch-rpython
         uses: ./.github/actions/CI-5974-Fetch-RustPython
         with:
           override-path: rustpython
           override-rustpython-path: Lib
-          override-repository: 'RustPython/RustPython'
-          override-ref: main  # Hint: could be changed to ${{ github.ref }}
+          override-repository: 'ShaharNaveh/RustPython'
+          override-ref: auto-updater  # Hint: could be changed to ${{ github.ref }}
       - name: Fetch Reference Cpython ${{ matrix.python-version }} on ${{ matrix.os }}
         id: fetch-cpython
         uses: ./.github/actions/CI-5974-Fetch-CPython
@@ -131,10 +132,12 @@ jobs:
           printf "%s\n" "::endgroup::"
       - name: Try Smoke Testing
         id: smoke_testing
-        uses: ./.github/actions/CI-5974-Test-RustPython-Integration
+        uses: ./.github/actions/CI-6089-Test-RustPython-rapu
         with:
           override-working-dir: rustpython
           # override-rustpython-path: 'Lib'
+          override-rpau-workers: 1
+          override-rpau-base-url: 'https://raw.githubusercontent.com/python/cpython/refs/heads'
           test-files: |
             ${{ steps.fetch-cpython.outputs.files }}
           python-version: ${{ env.PYTHON_VERSION }}

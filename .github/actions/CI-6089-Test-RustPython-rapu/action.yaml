@@ -1,0 +1,342 @@
+---
+name: 'RustPython Auto Patching'
+description: 'R.ust P.ython A.utomated U.pdater Integration'
+author: 'Mr. Walls & RustPython Team'
+branding:
+  icon: 'check-circle'
+  color: 'red'
+inputs:
+  override-working-dir:
+    description: |
+      Path to integrated RustPython clone to smoke test and auto-patch. Default is 'rustpython'
+    required: true
+    default: ${{ github.server_url == 'https://github.com' && 'rustpython' || '' }}
+  override-rustpython-path:
+    description: |
+      override value for path to the Python Lib. The default is to use the value of the environment
+      variable 'RUSTPYTHONPATH'. Most users will find the default 'Lib' sufficient.
+    required: true
+  override-rpau-workers:
+    description: |
+      override value for number of workers for rpau to use. Must be an integer ≥1.
+    required: true
+    default: '1'
+  override-rpau-base-url:
+    description: |
+      override value for where to base auto-patches on. Default is
+      'https://raw.githubusercontent.com/python/cpython/refs/heads'
+    required: true
+    default: 'https://raw.githubusercontent.com/python/cpython/refs/heads'
+  test-files:
+    description: |
+      List of paths to CPython Test files from source to destination. Default is 'Lib/test/*.py'
+    required: true
+    default: 'Lib/test/*.py'
+  python-version:
+    description: |
+      The Cpython version (e.g., any valid release or tag, 3.11, 3.12, 3.13) to override. Note
+      Python 3.12+ is required for R.P.A.U. function.
+      The default is to use the value of the environment variable 'PYTHON_VERSION'.
+    default: '3.13'
+    required: true
+  max-test-time:
+    description: |
+      The max time in seconds per test module file run before aborting a test attempt. The default
+      is deliberately short at a value of 30 seconds to keep total run-time down.
+    default: '30'
+    required: true
+
+# TODO: add verification steps
+
+runs:
+  using: composite
+  steps:
+    - id: output_python
+      env:
+        PYTHON_VERSION_INPUT: ${{ inputs.python-version }}
+        OVERRIDE_RUSTPYTHONPATH_INPUT: ${{ inputs.override-rustpython-path }}
+      name: "Detect Python"
+      if: ${{ !cancelled() && inputs.test-files != '' }}
+      shell: bash
+      run: |
+        printf "%s\n" "::group::detect-python-env"
+        if [[ -n $PYTHON_VERSION_INPUT ]]; then
+          printf "python-version=%s\n" "${PYTHON_VERSION_INPUT}" >> "$GITHUB_OUTPUT"
+          PYTHON_VERSION=${PYTHON_VERSION_INPUT}
+        else
+          printf "python-version=%s\n" "${PYTHON_VERSION}" >> "$GITHUB_OUTPUT"
+        fi
+        if [[ -n $OVERRIDE_RUSTPYTHONPATH_INPUT ]]; then
+          printf "override-rustpython-path=%s\n" "${OVERRIDE_RUSTPYTHONPATH_INPUT}" >> "$GITHUB_OUTPUT"
+          OVERRIDE_RUSTPYTHONPATH=${RUSTPYTHONPATH}
+        else
+          printf "override-rustpython-path=%s\n" "${RUSTPYTHONPATH:-Lib}" >> "$GITHUB_OUTPUT"
+          OVERRIDE_RUSTPYTHONPATH="${RUSTPYTHONPATH:-Lib}"
+        fi
+        printf "%s\n" "PYTHON_VERSION=${PYTHON_VERSION}" >> "$GITHUB_ENV"
+        printf "%s\n" "OVERRIDE_RUSTPYTHONPATH=${OVERRIDE_RUSTPYTHONPATH}" >> "$GITHUB_ENV"
+        printf "Targeting Cpython %s on %s.\n" '${PYTHON_VERSION}' '${{ runner.os }}' ;
+        printf "%s\n" "::endgroup::"
+    - name: "Check Cargo Setup"
+      id: output_cargo_args
+      shell: bash
+      run: |
+        if [[ -n $CARGO_ARGS ]]; then
+          if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$ACTIONS_STEP_DEBUG" == "true" ]]; then printf "::debug::CARGO_ARGS already set to '%s'\n" "${CARGO_ARGS}" ; fi ;
+          # e.g., CARGO_ARGS=${CARGO_ARGS}
+        else
+          CARGO_ARGS="--release" ;
+          if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$ACTIONS_STEP_DEBUG" == "true" ]]; then printf "::debug::CARGO_ARGS initialized to '%s'\n" "${CARGO_ARGS}" ; fi ;
+        fi ;
+        printf "%s\n" "CARGO_ARGS=${CARGO_ARGS}" >> "$GITHUB_ENV" ;
+    - name: "Prepare Artifact Name"
+      id: output_artifact_name
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: |
+        printf "%s\n" "TEST_STEP_SUMMARY=CPython-Summary-Artifact-${{ runner.os }}-${PYTHON_VERSION}.md" >> "$GITHUB_ENV"
+    - id: store_old_path
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: |
+        cd ${PWD:-.} ;
+        export OLD_PWD=$(pwd) ;  # only local use for bootstrap
+        printf "initial-path=%s\n" "${OLD_PWD}" >> "$GITHUB_OUTPUT"
+    - name: "Try Smoke Testing"
+      id: smoke_test
+      shell: bash
+      if: ${{ !cancelled() && inputs.test-files != '' }}
+      env:
+        INPUT_FILES: ${{ inputs.test-files }}
+        WORKER_COUNT: ${{ inputs.workers }}
+        BASE_REF_URL: ${{ inputs.override-rpau-base-url }}
+        OS: ${{ runner.os }}
+        CONTEXT_PHRASE: 'for Cpython ${{ steps.output_python.outputs.python-version }} on ${{ runner.os }}'
+        SUBSHELL_TIMEOUT: ${{ inputs.max-test-time }}
+      run: |
+        # TODO: clean this up
+        # Custom timeout function (GH-5974 - because ulimit is restricted and windows can't ulimit at all)
+        run_with_timeout() {
+            local timeout=$1
+            shift
+            "$@" &
+            local pid=$!
+            ( sleep "$timeout" && kill -HUP "$pid" 2>/dev/null ) & disown
+            # Send HUP signal after timeout
+            wait "$pid"
+            local status=$?
+            if [ $status -eq 0 ]; then
+                printf "::debug::%s\n" "Command completed successfully."
+                true ; # force success result
+            elif [ $status -eq 143 ]; then
+                printf "::warning title='Timeout'::%s\n" "The command \`$@\` ${CONTEXT_PHRASE} was terminated due to timeout."
+                false ;
+            else
+                printf "%s\n" "The command failed with status $status ${CONTEXT_PHRASE}."
+                false ;
+            fi ;
+        }
+
+        export -f run_with_timeout ;
+        # Usage
+        # run_with_timeout 360 your_command_here
+        cd ${{ inputs.override-working-dir }} || exit 13 ;
+        mkdir -p Lib-rpau/test || exit 15 ;
+        printf "%s\n\n" "# CPython ${PYTHON_VERSION} Results" > "${TEST_STEP_SUMMARY}" ;
+        for reference_file in ${INPUT_FILES}; do
+          if [[ ( -f "${reference_file}" ) ]] ; then
+            # See https://devguide.python.org/testing/run-write-tests
+            # Heuristic: "if some module does not have unittest.main(), then most likely it does not support direct invocation."
+            if grep -qF "unittest.main()" "${reference_file}" 2>/dev/null ; then
+              printf "Now Testing '%s'\n" "${reference_file}"
+              # vars for subshell but not for workflow
+              export REF_FILE_NAME=$(basename "${reference_file}") ;
+              printf "::group::%s\n" "${REF_FILE_NAME}" ;
+              # TODO: test with cpython first for baseline
+              # Execute the testing command in a subshell
+              time (
+                export RUSTPYTHONPATH=${OVERRIDE_RUSTPYTHONPATH:-Lib} ;
+                run_with_timeout ${SUBSHELL_TIMEOUT} cargo run $CARGO_ARGS -- ${RUSTPYTHONPATH:-Lib}/test/"${REF_FILE_NAME}" || RAW_COPY_OUTCOME='failing'
+                if [[ ( -n ${RAW_COPY_OUTCOME} ) ]] ; then
+                  printf "::warning file='%s',title='test-warning':: Could not copy file %s unmodified, and pass tests %s.\n" "${reference_file}" "${reference_file}" "${CONTEXT_PHRASE}" ;
+                  printf "::debug:: Will now attempt Rust Python Auto Patch with file %s, and pass re-tests %s.\n" "${reference_file}" "${CONTEXT_PHRASE}" ;
+                  (
+                  ‎  run_with_timeout ${SUBSHELL_TIMEOUT} cargo run $CARGO_ARGS -- -m tools/rpau/src/rpau --workers ${WORKER_COUNT} --default-version "${PYTHON_VERSION}" --base-upstream-url "${BASE_REF_URL}" --include ${RUSTPYTHONPATH:-Lib}/test/"${REF_FILE_NAME}" --output-dir "Lib-rpau/test" || PATCH_COPY_OUTCOME='unpatchable' ;
+                  ) ;
+                  if [[ ( -n ${PATCH_COPY_OUTCOME} ) ]] ; then
+                    printf "::error file='%s',title='testing-failure':: Could not copy and auto-fix tests %s.\n" "${reference_file}" "${CONTEXT_PHRASE}" >&2 ;
+                    printf "::debug:: Will now attempt Auto Suppress Patch with file %s, and pass re-tests %s.\n" "${reference_file}" "${CONTEXT_PHRASE}" ;
+                    (
+                      run_with_timeout ${SUBSHELL_TIMEOUT} cargo run $CARGO_ARGS -- ./scripts/fix_test.py --path ${RUSTPYTHONPATH:-Lib}/test/"${REF_FILE_NAME}" || FIX_COPY_OUTCOME='unfixed' ;
+                    ) ;
+                    if [[ ( -n ${FIX_COPY_OUTCOME} ) ]] ; then
+                      printf "::error file='%s',title='testing-failure':: Could not copy and auto-fix tests %s.\n" "${reference_file}" "${CONTEXT_PHRASE}" >&2 ;
+                      # reset broken integration to last rustpython copy
+                      git restore --ignore-unmerged --worktree --staged "${reference_file}" || : ;
+                      git checkout -f --ignore-unmerged -- "${reference_file}" || : ;
+                      # TODO: validate and conditionally set
+                      FIX_COPY_OUTCOME="reverted"
+                    else
+                      PATCH_COPY_OUTCOME="unpatchable"
+                      FIX_COPY_OUTCOME="fixed"
+                      RAW_COPY_OUTCOME="incompatible"
+                    fi ;
+                  else
+                    PATCH_COPY_OUTCOME="patched"
+                    FIX_COPY_OUTCOME="skipped"
+                    RAW_COPY_OUTCOME="incompatible"
+                  fi ;
+                else
+                  FIX_COPY_OUTCOME="skipped"
+                  PATCH_COPY_OUTCOME="skipped"
+                  RAW_COPY_OUTCOME="compatible"
+                fi ;
+                if [ -n ${RAW_COPY_OUTCOME} ]; then
+                  if [[ "${RAW_COPY_OUTCOME}" == "compatible" ]] ; then
+                    printf "%s\n" ":ballot_box_with_check: Directly copying the test file \`${reference_file}\` is ${RAW_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                  else
+                    printf "%s\n" ":black_square_button: Directly copying the test file \`${reference_file}\` is ${RAW_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                  fi ;
+                  if [ -n ${PATCH_COPY_OUTCOME} ]; then
+                    if [[ "${PATCH_COPY_OUTCOME}" == "patched" ]] ; then
+                      printf "%s\n\n" "  :ballot_box_with_check: Copying and RustPython Auto-Patching the test file \`${reference_file}\` was successful" >> "${TEST_STEP_SUMMARY}" ;
+                    else
+                      printf "%s\n\n" "  :grey_exclamation: Copying and RustPython Auto-Patching the test file \`${reference_file}\` was ${FIX_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                    fi ;
+                  fi ; # end rpau
+                  if [ -n ${FIX_COPY_OUTCOME} ]; then
+                    if [[ "${FIX_COPY_OUTCOME}" == "fixed" ]] ; then
+                      printf "%s\n\n" "  :ballot_box_with_check: Copying and Auto-fixing the test file \`${reference_file}\` was successful" >> "${TEST_STEP_SUMMARY}" ;
+                    else
+                      printf "%s\n\n" "  :grey_exclamation: Copying and Auto-fixing the test file \`${reference_file}\` was ${FIX_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                    fi ;  # end auto-fix
+                  else
+                    printf "\n" >> "${TEST_STEP_SUMMARY}" ;  # extra space
+                  fi ;
+                fi ; # end copy
+                printf "\n---\n%s Outcome:\n\tDirectly:%s\n\tAuto-Patch:%s\n\tAuto-Fix:%s\n\n" "${REF_FILE_NAME}" "${RAW_COPY_OUTCOME}" "${PACTH_COPY_OUTCOME}" "${FIX_COPY_OUTCOME}" ;
+                printf "FIX_COPY_%s_OUTCOME=%s\n" "${REF_FILE_NAME}" "${FIX_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
+                printf "RAW_COPY_%s_OUTCOME=%s\n" "${REF_FILE_NAME}" "${RAW_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
+                printf "PATCH_COPY_%s_OUTCOME=%s\n" "${REF_FILE_NAME}" "${PATCH_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
+                # should dump a diff or something here
+                printf "\n\n" ;
+                unset RUSTPYTHONPATH 2>/dev/null || : ;
+              ) ;
+              # cleanup temp env
+              unset FIX_COPY_OUTCOME 2>/dev/null || : ;
+              unset PATCH_COPY_OUTCOME 2>/dev/null || : ;
+              unset RAW_COPY_OUTCOME 2>/dev/null || : ;
+              unset REF_FILE_NAME 2>/dev/null || : ;
+              printf "\n::endgroup::\n" ;
+              wait ;
+            else
+              # TODO: else can not be run directly and needs to be invoked with -m unittest -v test.
+              # TODO: cleanup this regular expression for edge-cases
+              if grep -qE "^[^cC]*([cC]lass)\s*(.+)(Test)" "${reference_file}" 2>/dev/null ; then
+                printf "Now Testing test-cases in '%s'\n" "${reference_file}"
+                # vars for subshell but not for workflow
+                export REF_TEST_NAME=$(basename -s ".py" "${reference_file}") ;
+                printf "%s\n" "Selected testcase test.${REF_TEST_NAME}"
+                printf "::group::%s\n" "${REF_FILE_NAME}" ;
+                # TODO: test with cpython first for baseline
+                # TODO: add to list of files that need additional prep due to hanging or unexpected failures that need to be removed
+                # Execute the testing command in a subshell
+                time (
+                  export RUSTPYTHONPATH=${OVERRIDE_RUSTPYTHONPATH:-Lib} ;
+                  run_with_timeout ${SUBSHELL_TIMEOUT} cargo run $CARGO_ARGS -- -m unittest -v test.${REF_TEST_NAME} || RAW_COPY_OUTCOME='failing'
+                  if [[ ( -n ${RAW_COPY_OUTCOME} ) ]] ; then
+                    printf "::warning file='%s',title='test-warning':: Could not copy file %s unmodified, and pass tests %s.\n" "${reference_file}" "${reference_file}" "${CONTEXT_PHRASE}" ;
+                    printf "::debug:: Will now attempt Rust Python Auto Patch with file %s, and pass re-tests %s.\n" "${reference_file}" "${CONTEXT_PHRASE}" ;
+                    (
+                    ‎  run_with_timeout ${SUBSHELL_TIMEOUT} cargo run $CARGO_ARGS -- -m tools/rpau/src/rpau --workers ${WORKER_COUNT} --default-version "${PYTHON_VERSION}" --base-upstream-url "${BASE_REF_URL}" --include ${RUSTPYTHONPATH:-Lib}/test/"${REF_FILE_NAME}".py --output-dir "Lib-rpau/test" || PATCH_COPY_OUTCOME='unpatchable' ;
+                    ) ;
+                    if [[ ( -n ${PATCH_COPY_OUTCOME} ) ]] ; then
+                      (
+                        run_with_timeout ${SUBSHELL_TIMEOUT} cargo run $CARGO_ARGS -- ./scripts/fix_test.py --path ${RUSTPYTHONPATH:-Lib}/test/"${REF_FILE_NAME}".py || FIX_COPY_OUTCOME='unfixed' ;
+                      ) ;
+                      if [[ ( -n ${FIX_COPY_OUTCOME} ) ]] ; then
+                        printf "::error file='%s',title='testing-failure':: Could not copy and auto-fix tests for file.\n" "${reference_file}" >&2 ;
+                        # reset broken integration to last rustpython copy
+                        git restore --ignore-unmerged --worktree --staged "${reference_file}" || : ;
+                        git checkout -f --ignore-unmerged -- "${reference_file}" || : ;
+                        # TODO: validate and conditionally set
+                        FIX_COPY_OUTCOME="reverted"
+                      else
+                        PATCH_COPY_OUTCOME="unpatchable"
+                        FIX_COPY_OUTCOME="fixed"
+                        RAW_COPY_OUTCOME="incompatible"
+                      fi ;
+                    else
+                      PATCH_COPY_OUTCOME="patched"
+                      FIX_COPY_OUTCOME="skipped"
+                      RAW_COPY_OUTCOME="incompatible"
+                    fi ;
+                  else
+                    FIX_COPY_OUTCOME="skipped"
+                    PATCH_COPY_OUTCOME="skipped"
+                    RAW_COPY_OUTCOME="compatible"
+                  fi ;
+                  if [ -n ${RAW_COPY_OUTCOME} ]; then
+                    if [[ "${RAW_COPY_OUTCOME}" == "compatible" ]] ; then
+                      printf "%s\n" ":ballot_box_with_check: Directly copying the test file \`${reference_file}\` is ${RAW_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                    else
+                      printf "%s\n" ":black_square_button: Directly copying the test file \`${reference_file}\` is ${RAW_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                    fi ;
+                    if [ -n ${PATCH_COPY_OUTCOME} ]; then
+                      if [[ "${PATCH_COPY_OUTCOME}" == "patched" ]] ; then
+                        printf "%s\n\n" "  :ballot_box_with_check: Copying and RustPython Auto-Patching the test file \`${reference_file}\` was successful" >> "${TEST_STEP_SUMMARY}" ;
+                      else
+                        printf "%s\n\n" "  :grey_exclamation: Copying and RustPython Auto-Patching the test file \`${reference_file}\` was ${FIX_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                      fi ;
+                    fi ; # end rpau
+                    if [ -n ${FIX_COPY_OUTCOME} ]; then
+                      if [[ "${FIX_COPY_OUTCOME}" == "fixed" ]] ; then
+                        printf "%s\n\n" "  :ballot_box_with_check: Copying and Auto-fixing the test file \`${reference_file}\` was successful" >> "${TEST_STEP_SUMMARY}" ;
+                      else
+                        printf "%s\n\n" "  :grey_exclamation: Copying and Auto-fixing the test file \`${reference_file}\` was ${FIX_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                      fi ;  # end auto-fix
+                    else
+                      printf "\n" >> "${TEST_STEP_SUMMARY}" ;  # extra space
+                    fi ;
+                  fi ; # end copy
+                  printf "\n---\n%s Outcome:\n\tDirectly:%s\n\tAuto-Patch:%s\n\tAuto-Fix:%s\n\n" "${REF_FILE_NAME}" "${RAW_COPY_OUTCOME}" "${PACTH_COPY_OUTCOME}" "${FIX_COPY_OUTCOME}" ;
+                  printf "FIX_COPY_%s_OUTCOME=%s\n" "${REF_FILE_NAME}" "${FIX_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
+                  printf "RAW_COPY_%s_OUTCOME=%s\n" "${REF_FILE_NAME}" "${RAW_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
+                  printf "PATCH_COPY_%s_OUTCOME=%s\n" "${REF_FILE_NAME}" "${PATCH_COPY_OUTCOME}" >> "$GITHUB_ENV" ;
+                  # should dump a diff or something here
+                  printf "\n\n" ;
+                  unset RUSTPYTHONPATH 2>/dev/null || : ;
+                ) ;
+                # cleanup temp env
+                unset FIX_COPY_OUTCOME 2>/dev/null || : ;
+                unset PATCH_COPY_OUTCOME 2>/dev/null || : ;
+                unset RAW_COPY_OUTCOME 2>/dev/null || : ;
+                unset REF_FILE_NAME 2>/dev/null || : ;
+                printf "\n::endgroup::\n" ;
+                wait ;
+              else
+                printf "\nNow Skipping '%s'\n\n" "${reference_file}" ;
+                printf "%s\n" ":grey_exclamation: Directly copying the filepath \`${reference_file}\` was inconclusive (_testing and validation skipped_)." >> "${TEST_STEP_SUMMARY}" ;
+                printf "\n" >> "${TEST_STEP_SUMMARY}" ;  # extra space
+              fi ;
+            fi ; # TODO: else can not be run directly and needs to be invoked with -m unittest -v test.
+          fi ;
+        done
+        cat <"${TEST_STEP_SUMMARY}" >> "$GITHUB_STEP_SUMMARY" ;
+        cd ${{ steps.store_old_path.outputs.initial-path }} || exit 15 ;
+    - id: upload-rpau
+      name: "Upload Lib-rpau"
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        path: ${{ steps.output_python.override-rustpython-path }}/Lib-rpau
+        name: Lib-rpau-${{ github.sha }}-${{ runner.os }}-${{ steps.output_python.outputs.python-version }}
+        if-no-files-found: ignore
+        compression-level: 6
+        overwrite: true
+    - name: Post-Clean
+      id: post-bootstrap
+      run: |
+        exit 0 ; # don't break CI on regression
+      if: ${{ always() }}
+      shell: bash
