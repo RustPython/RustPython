@@ -1,4 +1,5 @@
 from test.support import requires_IEEE_754, cpython_only, import_helper
+from test.support.testcase import ComplexesAreIdenticalMixin
 from test.test_math import parse_testfile, test_file
 import test.test_math as test_math
 import unittest
@@ -49,7 +50,7 @@ complex_nans = [complex(x, y) for x, y in [
         (INF, NAN)
         ]]
 
-class CMathTests(unittest.TestCase):
+class CMathTests(ComplexesAreIdenticalMixin, unittest.TestCase):
     # list of all functions in cmath
     test_functions = [getattr(cmath, fname) for fname in [
             'acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh',
@@ -64,39 +65,6 @@ class CMathTests(unittest.TestCase):
 
     def tearDown(self):
         self.test_values.close()
-
-    def assertFloatIdentical(self, x, y):
-        """Fail unless floats x and y are identical, in the sense that:
-        (1) both x and y are nans, or
-        (2) both x and y are infinities, with the same sign, or
-        (3) both x and y are zeros, with the same sign, or
-        (4) x and y are both finite and nonzero, and x == y
-
-        """
-        msg = 'floats {!r} and {!r} are not identical'
-
-        if math.isnan(x) or math.isnan(y):
-            if math.isnan(x) and math.isnan(y):
-                return
-        elif x == y:
-            if x != 0.0:
-                return
-            # both zero; check that signs match
-            elif math.copysign(1.0, x) == math.copysign(1.0, y):
-                return
-            else:
-                msg += ': zeros have different signs'
-        self.fail(msg.format(x, y))
-
-    def assertComplexIdentical(self, x, y):
-        """Fail unless complex numbers x and y have equal values and signs.
-
-        In particular, if x and y both have real (or imaginary) part
-        zero, but the zeros have different signs, this test will fail.
-
-        """
-        self.assertFloatIdentical(x.real, y.real)
-        self.assertFloatIdentical(x.imag, y.imag)
 
     def rAssertAlmostEqual(self, a, b, rel_err = 2e-15, abs_err = 5e-323,
                            msg=None):
@@ -299,12 +267,6 @@ class CMathTests(unittest.TestCase):
             for v in values:
                 z = complex_fn(v)
                 self.rAssertAlmostEqual(float_fn(v), z.real)
-                # TODO: RUSTPYTHON
-                # This line currently fails for acos and asin.
-                # cmath.asin/acos(0.2) should produce a real number,
-                # but imaginary part is 1.1102230246251565e-16 for both.
-                if fn in {"asin", "acos"}:
-                    continue
                 self.assertEqual(0., z.imag)
 
         # test two-argument version of log with various bases
@@ -314,8 +276,7 @@ class CMathTests(unittest.TestCase):
                 self.rAssertAlmostEqual(math.log(v, base), z.real)
                 self.assertEqual(0., z.imag)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     @requires_IEEE_754
     def test_specific_values(self):
         # Some tests need to be skipped on ancient OS X versions.
@@ -563,25 +524,23 @@ class CMathTests(unittest.TestCase):
     @requires_IEEE_754
     def testTanhSign(self):
         for z in complex_zeros:
-            self.assertComplexIdentical(cmath.tanh(z), z)
+            self.assertComplexesAreIdentical(cmath.tanh(z), z)
 
     # The algorithm used for atan and atanh makes use of the system
     # log1p function; If that system function doesn't respect the sign
     # of zero, then atan and atanh will also have difficulties with
     # the sign of complex zeros.
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     @requires_IEEE_754
     def testAtanSign(self):
         for z in complex_zeros:
-            self.assertComplexIdentical(cmath.atan(z), z)
+            self.assertComplexesAreIdentical(cmath.atan(z), z)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     @requires_IEEE_754
     def testAtanhSign(self):
         for z in complex_zeros:
-            self.assertComplexIdentical(cmath.atanh(z), z)
+            self.assertComplexesAreIdentical(cmath.atanh(z), z)
 
 
 class IsCloseTests(test_math.IsCloseTests):
@@ -624,8 +583,7 @@ class IsCloseTests(test_math.IsCloseTests):
         self.assertIsClose(0.001-0.001j, 0.001+0.001j, abs_tol=2e-03)
         self.assertIsNotClose(0.001-0.001j, 0.001+0.001j, abs_tol=1e-03)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_complex_special(self):
         self.assertIsNotClose(INF, INF*1j)
         self.assertIsNotClose(INF*1j, INF)

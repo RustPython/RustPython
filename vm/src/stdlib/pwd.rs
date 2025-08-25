@@ -5,14 +5,16 @@ pub(crate) use pwd::make_module;
 #[pymodule]
 mod pwd {
     use crate::{
-        PyObjectRef, PyResult, VirtualMachine,
+        PyResult, VirtualMachine,
         builtins::{PyIntRef, PyUtf8StrRef},
-        convert::{IntoPyException, ToPyObject},
+        convert::IntoPyException,
         exceptions,
         types::PyStructSequence,
     };
     use nix::unistd::{self, User};
-    use std::ptr::NonNull;
+
+    #[cfg(not(target_os = "android"))]
+    use crate::{PyObjectRef, convert::ToPyObject};
 
     #[pyattr]
     #[pyclass(module = "pwd", name = "struct_passwd")]
@@ -101,7 +103,7 @@ mod pwd {
         let mut list = Vec::new();
 
         unsafe { libc::setpwent() };
-        while let Some(ptr) = NonNull::new(unsafe { libc::getpwent() }) {
+        while let Some(ptr) = std::ptr::NonNull::new(unsafe { libc::getpwent() }) {
             let user = User::from(unsafe { ptr.as_ref() });
             let passwd = Passwd::from(user).to_pyobject(vm);
             list.push(passwd);

@@ -686,8 +686,11 @@ impl PyInt {
     }
 
     #[pymethod]
-    /// Returns the number of ones 1 an int. When the number is < 0,
-    /// then it returns the number of ones of the absolute value.
+    const fn is_integer(&self) -> bool {
+        true
+    }
+
+    #[pymethod]
     fn bit_count(&self) -> u32 {
         self.value.iter_u32_digits().map(|n| n.count_ones()).sum()
     }
