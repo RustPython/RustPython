@@ -3206,7 +3206,6 @@ class TestSyntaxErrors(unittest.TestCase):
                 pass
         """)
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_mapping_pattern_duplicate_key(self):
         self.assert_syntax_error("""
         match ...:

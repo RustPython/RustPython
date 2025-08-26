@@ -3484,9 +3484,6 @@ impl Compiler {
 
         // Process each sub-pattern.
         for subpattern in patterns.iter().chain(kwd_patterns.iter()) {
-            // Decrement the on_top counter before processing each sub-pattern
-            pc.on_top -= 1;
-
             // Check if this is a true wildcard (underscore pattern without name binding)
             let is_true_wildcard = match subpattern {
                 Pattern::MatchAs(match_as) => {
@@ -3495,6 +3492,9 @@ impl Compiler {
                 }
                 _ => subpattern.is_wildcard(),
             };
+
+            // Decrement the on_top counter for each sub-pattern
+            pc.on_top -= 1;
 
             if is_true_wildcard {
                 emit!(self, Instruction::Pop);
@@ -3583,11 +3583,16 @@ impl Compiler {
             let mut seen = std::collections::HashSet::new();
             for key in keys {
                 let is_attribute = matches!(key, Expr::Attribute(_));
-                let key_repr = if let Expr::NumberLiteral(_)
-                | Expr::StringLiteral(_)
-                | Expr::BooleanLiteral(_) = key
-                {
-                    format!("{:?}", key)
+                let is_literal = matches!(
+                    key,
+                    Expr::NumberLiteral(_)
+                        | Expr::StringLiteral(_)
+                        | Expr::BytesLiteral(_)
+                        | Expr::BooleanLiteral(_)
+                        | Expr::NoneLiteral(_)
+                );
+                let key_repr = if is_literal {
+                    unparse_expr(key, &self.source_file).to_string()
                 } else if is_attribute {
                     String::new()
                 } else {

@@ -1,6 +1,3 @@
-use crate::common::{boxvec::BoxVec, lock::PyMutex};
-use crate::protocol::PyMapping;
-use crate::types::PyTypeFlags;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
@@ -18,11 +15,12 @@ use crate::{
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
     stdlib::{builtins, typing},
+    types::PyTypeFlags,
     vm::{Context, PyMethod},
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
-use rustpython_common::wtf8::Wtf8Buf;
+use rustpython_common::{boxvec::BoxVec, lock::PyMutex, wtf8::Wtf8Buf};
 use rustpython_compiler_core::SourceLocation;
 #[cfg(feature = "threading")]
 use std::sync::atomic;
@@ -1329,7 +1327,7 @@ impl ExecutingFrame<'_> {
                 let subject = self.nth_value(1); // stack[-2]
 
                 // Check if subject is a mapping and extract values for keys
-                if PyMapping::check(&subject) {
+                if subject.class().slots.flags.contains(PyTypeFlags::MAPPING) {
                     let keys = keys_tuple.downcast_ref::<PyTuple>().unwrap();
                     let mut values = Vec::new();
                     let mut all_match = true;
@@ -1337,10 +1335,11 @@ impl ExecutingFrame<'_> {
                     for key in keys {
                         match subject.get_item(key.as_object(), vm) {
                             Ok(value) => values.push(value),
-                            Err(_) => {
+                            Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
                                 all_match = false;
                                 break;
                             }
+                            Err(e) => return Err(e),
                         }
                     }
 
