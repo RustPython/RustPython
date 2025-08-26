@@ -31,6 +31,7 @@ use crate::{
 };
 use indexmap::{IndexMap, map::Entry};
 use itertools::Itertools;
+use num_traits::ToPrimitive;
 use std::{borrow::Borrow, collections::HashSet, ops::Deref, pin::Pin, ptr::NonNull};
 
 #[pyclass(module = false, name = "type", traverse = "manual")]
@@ -231,6 +232,58 @@ impl PyType {
         linearise_mro(mros)
     }
 
+    /// Inherit SEQUENCE and MAPPING flags from base class (CPython: inherit_patma_flags)
+    fn inherit_patma_flags(slots: &mut PyTypeSlots, base: &PyRef<Self>) {
+        const COLLECTION_FLAGS: PyTypeFlags = PyTypeFlags::from_bits_truncate(
+            PyTypeFlags::SEQUENCE.bits() | PyTypeFlags::MAPPING.bits(),
+        );
+        if !slots.flags.intersects(COLLECTION_FLAGS) {
+            slots.flags |= base.slots.flags & COLLECTION_FLAGS;
+        }
+    }
+
+    /// Check for __abc_tpflags__ and set the appropriate flags
+    /// This checks in attrs and all base classes for __abc_tpflags__
+    fn check_abc_tpflags(
+        slots: &mut PyTypeSlots,
+        attrs: &PyAttributes,
+        bases: &[PyRef<Self>],
+        ctx: &Context,
+    ) {
+        const COLLECTION_FLAGS: PyTypeFlags = PyTypeFlags::from_bits_truncate(
+            PyTypeFlags::SEQUENCE.bits() | PyTypeFlags::MAPPING.bits(),
+        );
+
+        // Don't override if flags are already set
+        if slots.flags.intersects(COLLECTION_FLAGS) {
+            return;
+        }
+
+        // First check in our own attributes
+        let abc_tpflags_name = ctx.intern_str("__abc_tpflags__");
+        if let Some(abc_tpflags_obj) = attrs.get(abc_tpflags_name) {
+            if let Some(int_obj) = abc_tpflags_obj.downcast_ref::<crate::builtins::int::PyInt>() {
+                let flags_val = int_obj.as_bigint().to_i64().unwrap_or(0);
+                let abc_flags = PyTypeFlags::from_bits_truncate(flags_val as u64);
+                slots.flags |= abc_flags & COLLECTION_FLAGS;
+                return;
+            }
+        }
+
+        // Then check in base classes
+        for base in bases {
+            if let Some(abc_tpflags_obj) = base.find_name_in_mro(abc_tpflags_name) {
+                if let Some(int_obj) = abc_tpflags_obj.downcast_ref::<crate::builtins::int::PyInt>()
+                {
+                    let flags_val = int_obj.as_bigint().to_i64().unwrap_or(0);
+                    let abc_flags = PyTypeFlags::from_bits_truncate(flags_val as u64);
+                    slots.flags |= abc_flags & COLLECTION_FLAGS;
+                    return;
+                }
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn new_heap_inner(
         base: PyRef<Self>,
@@ -246,6 +299,13 @@ impl PyType {
         if base.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
             slots.flags |= PyTypeFlags::HAS_DICT
         }
+
+        // Inherit SEQUENCE and MAPPING flags from base class
+        Self::inherit_patma_flags(&mut slots, &base);
+
+        // Check for __abc_tpflags__ from ABCMeta (for collections.abc.Sequence, Mapping, etc.)
+        Self::check_abc_tpflags(&mut slots, &attrs, &bases, ctx);
+
         if slots.basicsize == 0 {
             slots.basicsize = base.slots.basicsize;
         }
@@ -297,6 +357,10 @@ impl PyType {
         if base.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
             slots.flags |= PyTypeFlags::HAS_DICT
         }
+
+        // Inherit SEQUENCE and MAPPING flags from base class
+        Self::inherit_patma_flags(&mut slots, &base);
+
         if slots.basicsize == 0 {
             slots.basicsize = base.slots.basicsize;
         }
