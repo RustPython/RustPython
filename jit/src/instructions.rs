@@ -275,7 +275,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     ) -> Result<(), JitCompileError> {
         match instruction {
             Instruction::ExtendedArg => Ok(()),
-            Instruction::JumpIfFalse { target } => {
+            Instruction::PopJumpIfFalse { target } => {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let val = self.boolean_val(cond)?;
                 let then_block = self.get_or_create_block(target.get(arg));
@@ -288,7 +288,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
                 Ok(())
             }
-            Instruction::JumpIfTrue { target } => {
+            Instruction::PopJumpIfTrue { target } => {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let val = self.boolean_val(cond)?;
                 let then_block = self.get_or_create_block(target.get(arg));

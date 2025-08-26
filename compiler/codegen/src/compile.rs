@@ -2027,7 +2027,7 @@ impl Compiler {
                 // We cannot handle this exception type:
                 emit!(
                     self,
-                    Instruction::JumpIfFalse {
+                    Instruction::PopJumpIfFalse {
                         target: next_handler,
                     }
                 );
@@ -3117,7 +3117,7 @@ impl Compiler {
             JumpOp::PopJumpIfFalse => {
                 emit!(
                     self,
-                    Instruction::JumpIfFalse {
+                    Instruction::PopJumpIfFalse {
                         target: pc.fail_pop[pops]
                     }
                 );
@@ -4398,14 +4398,14 @@ impl Compiler {
                 if condition {
                     emit!(
                         self,
-                        Instruction::JumpIfTrue {
+                        Instruction::PopJumpIfTrue {
                             target: target_block,
                         }
                     );
                 } else {
                     emit!(
                         self,
-                        Instruction::JumpIfFalse {
+                        Instruction::PopJumpIfFalse {
                             target: target_block,
                         }
                     );

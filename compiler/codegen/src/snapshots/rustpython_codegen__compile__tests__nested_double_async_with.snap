@@ -53,7 +53,7 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
 
   6          43 LoadNameAny          (7, Exception)
              44 TestOperation        (ExceptionMatch)
-             45 JumpIfFalse          (58)
+             45 PopJumpIfFalse       (58)
              46 StoreLocal           (8, ex)
 
   7          47 LoadNameAny          (3, self)
