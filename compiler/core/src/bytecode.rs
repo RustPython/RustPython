@@ -548,11 +548,11 @@ pub enum Instruction {
         target: Arg<Label>,
     },
     /// Pop the top of the stack, and jump if this value is true.
-    JumpIfTrue {
+    PopJumpIfTrue {
         target: Arg<Label>,
     },
     /// Pop the top of the stack, and jump if this value is false.
-    JumpIfFalse {
+    PopJumpIfFalse {
         target: Arg<Label>,
     },
     /// Peek at the top of the stack, and jump if this value is true.
@@ -1255,8 +1255,8 @@ impl Instruction {
     pub const fn label_arg(&self) -> Option<Arg<Label>> {
         match self {
             Jump { target: l }
-            | JumpIfTrue { target: l }
-            | JumpIfFalse { target: l }
+            | PopJumpIfTrue { target: l }
+            | PopJumpIfFalse { target: l }
             | JumpIfTrueOrPop { target: l }
             | JumpIfFalseOrPop { target: l }
             | ForIter { target: l }
@@ -1341,7 +1341,7 @@ impl Instruction {
             Continue { .. } => 0,
             Break { .. } => 0,
             Jump { .. } => 0,
-            JumpIfTrue { .. } | JumpIfFalse { .. } => -1,
+            PopJumpIfTrue { .. } | PopJumpIfFalse { .. } => -1,
             JumpIfTrueOrPop { .. } | JumpIfFalseOrPop { .. } => {
                 if jump {
                     0
@@ -1546,8 +1546,8 @@ impl Instruction {
             Continue { target } => w!(Continue, target),
             Break { target } => w!(Break, target),
             Jump { target } => w!(Jump, target),
-            JumpIfTrue { target } => w!(JumpIfTrue, target),
-            JumpIfFalse { target } => w!(JumpIfFalse, target),
+            PopJumpIfTrue { target } => w!(PopJumpIfTrue, target),
+            PopJumpIfFalse { target } => w!(PopJumpIfFalse, target),
             JumpIfTrueOrPop { target } => w!(JumpIfTrueOrPop, target),
             JumpIfFalseOrPop { target } => w!(JumpIfFalseOrPop, target),
             MakeFunction => w!(MakeFunction),

@@ -3,13 +3,13 @@ source: compiler/src/compile.rs
 expression: "compile_exec(\"\\\nif (True and False) or (False and True):\n    pass\n\")"
 ---
   1           0 LoadConst            (True)
-              1 JumpIfFalse          (4)
+              1 PopJumpIfFalse       (4)
               2 LoadConst            (False)
-              3 JumpIfTrue           (8)
+              3 PopJumpIfTrue        (8)
         >>    4 LoadConst            (False)
-              5 JumpIfFalse          (8)
+              5 PopJumpIfFalse       (8)
               6 LoadConst            (True)
-              7 JumpIfFalse          (8)
+              7 PopJumpIfFalse       (8)
 
   2     >>    8 LoadConst            (None)
               9 ReturnValue

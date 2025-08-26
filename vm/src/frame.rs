@@ -1233,9 +1233,11 @@ impl ExecutingFrame<'_> {
                 self.jump(target.get(arg));
                 Ok(None)
             }
-            bytecode::Instruction::JumpIfTrue { target } => self.jump_if(vm, target.get(arg), true),
-            bytecode::Instruction::JumpIfFalse { target } => {
-                self.jump_if(vm, target.get(arg), false)
+            bytecode::Instruction::PopJumpIfTrue { target } => {
+                self.pop_jump_if(vm, target.get(arg), true)
+            }
+            bytecode::Instruction::PopJumpIfFalse { target } => {
+                self.pop_jump_if(vm, target.get(arg), false)
             }
             bytecode::Instruction::JumpIfTrueOrPop { target } => {
                 self.jump_if_or_pop(vm, target.get(arg), true)
@@ -1845,7 +1847,12 @@ impl ExecutingFrame<'_> {
     }
 
     #[inline]
-    fn jump_if(&mut self, vm: &VirtualMachine, target: bytecode::Label, flag: bool) -> FrameResult {
+    fn pop_jump_if(
+        &mut self,
+        vm: &VirtualMachine,
+        target: bytecode::Label,
+        flag: bool,
+    ) -> FrameResult {
         let obj = self.pop_value();
         let value = obj.try_to_bool(vm)?;
         if value == flag {
