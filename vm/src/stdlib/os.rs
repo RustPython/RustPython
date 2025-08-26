@@ -295,17 +295,25 @@ pub(super) mod _os {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let mode = mode.unwrap_or(0o777);
-        let path = path.into_cstring(vm)?;
+        let c_path = path.clone().into_cstring(vm)?;
         #[cfg(not(target_os = "redox"))]
         if let Some(fd) = dir_fd.get_opt() {
-            let res = unsafe { libc::mkdirat(fd, path.as_ptr(), mode as _) };
-            let res = if res < 0 { Err(errno_err(vm)) } else { Ok(()) };
-            return res;
+            let res = unsafe { libc::mkdirat(fd, c_path.as_ptr(), mode as _) };
+            return if res < 0 {
+                let err = crate::common::os::last_os_error();
+                Err(IOErrorBuilder::with_filename(&err, path, vm))
+            } else {
+                Ok(())
+            };
         }
         #[cfg(target_os = "redox")]
         let [] = dir_fd.0;
-        let res = unsafe { libc::mkdir(path.as_ptr(), mode as _) };
-        if res < 0 { Err(errno_err(vm)) } else { Ok(()) }
+        let res = unsafe { libc::mkdir(c_path.as_ptr(), mode as _) };
+        if res < 0 {
+            let err = crate::common::os::last_os_error();
+            return Err(IOErrorBuilder::with_filename(&err, path, vm));
+        }
+        Ok(())
     }
 
     #[pyfunction]
