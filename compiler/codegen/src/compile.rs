@@ -4011,10 +4011,10 @@ impl Compiler {
                 self.ensure_fail_pop(pattern_context, 0)?;
                 // Compile the guard expression
                 self.compile_expression(guard)?;
-                // If guard is false, jump to fail_pop[0]
+                emit!(self, Instruction::ToBool);
                 emit!(
                     self,
-                    Instruction::JumpIfFalseOrPop {
+                    Instruction::PopJumpIfFalse {
                         target: pattern_context.fail_pop[0]
                     }
                 );

@@ -1440,14 +1440,18 @@ impl ExecutingFrame<'_> {
                                     extracted.push(subject.clone());
                                 } else if nargs_val > 1 {
                                     // Too many positional arguments for MATCH_SELF
-                                    self.push_value(vm.ctx.none());
-                                    return Ok(None);
+                                    return Err(vm.new_type_error(
+                                        "class pattern accepts at most 1 positional sub-pattern for MATCH_SELF types"
+                                            .to_string(),
+                                    ));
                                 }
                             } else {
                                 // No __match_args__ and not a MATCH_SELF type
                                 if nargs_val > 0 {
-                                    self.push_value(vm.ctx.none());
-                                    return Ok(None);
+                                    return Err(vm.new_type_error(
+                                        "class pattern defines no positional sub-patterns (__match_args__ missing)"
+                                            .to_string(),
+                                    ));
                                 }
                             }
                         }
@@ -1458,11 +1462,11 @@ impl ExecutingFrame<'_> {
                         let name_str = name.downcast_ref::<PyStr>().unwrap();
                         match subject.get_attr(name_str, vm) {
                             Ok(value) => extracted.push(value),
-                            Err(_) => {
-                                // Attribute doesn't exist
+                            Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {
                                 self.push_value(vm.ctx.none());
                                 return Ok(None);
                             }
+                            Err(e) => return Err(e),
                         }
                     }
 

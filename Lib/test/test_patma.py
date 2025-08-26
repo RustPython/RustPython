@@ -586,7 +586,6 @@ class TestPatma(unittest.TestCase):
         self.assertEqual(y, 1)
         self.assertEqual(z, 0)
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_patma_052(self):
         x = [1, 0]
         match x:
@@ -1904,7 +1903,6 @@ class TestPatma(unittest.TestCase):
         self.assertEqual(whereis([Point(0, 0), Point(0, 0), Point(0, 0)]), "Something else")
         self.assertEqual(whereis([Point(0, 1), Point(0, 1), Point(0, 1)]), "Something else")
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_patma_183(self):
         def whereis(point):
             match point:
@@ -2695,7 +2693,6 @@ class TestPatma(unittest.TestCase):
         setattr(c, "__attr", "spam")  # setattr is needed because we're in a class scope
         self.assertEqual(Outer().f(c), "spam")
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_patma_250(self):
         def f(x):
             match x:
@@ -2707,7 +2704,6 @@ class TestPatma(unittest.TestCase):
         self.assertIs(f({"foo": 1}), True)
         self.assertIs(f({"foo": -1}), False)
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_patma_251(self):
         def f(v, x):
             match v:
@@ -2726,7 +2722,6 @@ class TestPatma(unittest.TestCase):
         self.assertIs(f(-1, X(-1)), False)
         self.assertIs(f(1, X(-1)), None)
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_patma_252(self):
         # Side effects must be possible in guards:
         effects = []
@@ -2764,7 +2759,6 @@ class TestPatma(unittest.TestCase):
         self.assertEqual(f(1), 1)
         self.assertEqual(f({"x": 1}), 1)
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_patma_255(self):
         x = []
         match x:
@@ -3259,7 +3253,6 @@ class TestTypeErrors(unittest.TestCase):
         self.assertIs(y, None)
         self.assertIs(z, None)
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_accepts_positional_subpatterns_1(self):
         x = range(10)
         y = None
