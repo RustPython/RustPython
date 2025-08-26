@@ -1337,7 +1337,6 @@ class TestPatma(unittest.TestCase):
         self.assertEqual(x, [0, 1, 2])
         self.assertEqual(y, 0)
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_patma_133(self):
         x = collections.defaultdict(int, {0: 1})
         match x:
@@ -1350,7 +1349,6 @@ class TestPatma(unittest.TestCase):
         self.assertEqual(x, {0: 1})
         self.assertEqual(y, 2)
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_patma_134(self):
         x = collections.defaultdict(int, {0: 1})
         match x:
@@ -1364,7 +1362,6 @@ class TestPatma(unittest.TestCase):
         self.assertEqual(y, 2)
         self.assertEqual(z, {0: 1})
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_patma_135(self):
         x = collections.defaultdict(int, {0: 1})
         match x:

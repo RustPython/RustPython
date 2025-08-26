@@ -1332,14 +1332,47 @@ impl ExecutingFrame<'_> {
                     let mut values = Vec::new();
                     let mut all_match = true;
 
-                    for key in keys {
-                        match subject.get_item(key.as_object(), vm) {
-                            Ok(value) => values.push(value),
-                            Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
-                                all_match = false;
-                                break;
+                    // We use the two argument form of map.get(key, default) for two reasons:
+                    // - Atomically check for a key and get its value without error handling.
+                    // - Don't cause key creation or resizing in dict subclasses like
+                    //   collections.defaultdict that define __missing__ (or similar).
+                    // See CPython's _PyEval_MatchKeys
+
+                    if let Some(get_method) = vm
+                        .get_method(subject.to_owned(), vm.ctx.intern_str("get"))
+                        .transpose()?
+                    {
+                        // dummy = object()
+                        // CPython: dummy = _PyObject_CallNoArgs((PyObject *)&PyBaseObject_Type);
+                        let dummy = vm
+                            .ctx
+                            .new_base_object(vm.ctx.types.object_type.to_owned(), None);
+
+                        for key in keys {
+                            // value = map.get(key, dummy)
+                            match get_method.call((key.as_object(), dummy.clone()), vm) {
+                                Ok(value) => {
+                                    // if value == dummy: key not in map!
+                                    if value.is(&dummy) {
+                                        all_match = false;
+                                        break;
+                                    }
+                                    values.push(value);
+                                }
+                                Err(e) => return Err(e),
                             }
-                            Err(e) => return Err(e),
+                        }
+                    } else {
+                        // Fallback if .get() method is not available (shouldn't happen for mappings)
+                        for key in keys {
+                            match subject.get_item(key.as_object(), vm) {
+                                Ok(value) => values.push(value),
+                                Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
+                                    all_match = false;
+                                    break;
+                                }
+                                Err(e) => return Err(e),
+                            }
                         }
                     }
 
