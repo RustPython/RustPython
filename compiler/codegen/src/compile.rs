@@ -36,7 +36,7 @@ use rustpython_compiler_core::{
     Mode, OneIndexed, SourceFile, SourceLocation,
     bytecode::{
         self, Arg as OpArgMarker, BinaryOperator, CodeObject, ComparisonOperator, ConstantData,
-        Instruction, OpArg, OpArgType, TestOperator, UnpackExArgs,
+        Instruction, OpArg, OpArgType, UnpackExArgs,
     },
 };
 use rustpython_wtf8::Wtf8Buf;
@@ -3484,7 +3484,7 @@ impl Compiler {
 
         // Process each sub-pattern.
         for subpattern in patterns.iter().chain(kwd_patterns.iter()) {
-            // Decrement the on_top counter BEFORE processing each sub-pattern
+            // Decrement the on_top counter before processing each sub-pattern
             pc.on_top -= 1;
 
             // Check if this is a true wildcard (underscore pattern without name binding)
@@ -3557,6 +3557,7 @@ impl Compiler {
             // Check if the mapping has at least 'size' keys
             emit!(self, Instruction::GetLen);
             self.emit_load_const(ConstantData::Integer { value: size.into() });
+            // Stack: [subject, len, size]
             emit!(
                 self,
                 Instruction::CompareOperation {
@@ -3564,6 +3565,7 @@ impl Compiler {
                 }
             );
             self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+            // Stack: [subject]
         }
 
         // Check for overflow (INT_MAX < size - 1)
@@ -3606,9 +3608,8 @@ impl Compiler {
 
                 self.compile_expression(key)?;
             }
-            // Stack: [subject, key1, key2, ..., keyn]
         }
-        // Stack: [subject] if size==0, or [subject, key1, ..., keyn] if size>0
+        // Stack: [subject, key1, key2, ..., key_n]
 
         // Build tuple of keys (empty tuple if size==0)
         emit!(self, Instruction::BuildTuple { size });
@@ -3628,7 +3629,7 @@ impl Compiler {
         emit!(
             self,
             Instruction::TestOperation {
-                op: TestOperator::IsNot
+                op: bytecode::TestOperator::IsNot
             }
         );
         // Stack: [subject, keys_tuple, values_tuple, bool]
@@ -3924,8 +3925,7 @@ impl Compiler {
             Singleton::False => ConstantData::Boolean { value: false },
             Singleton::True => ConstantData::Boolean { value: true },
         });
-        // Compare using the "Is" operator (identity check, not equality).
-        // This is important: False should not match 0, even though False == 0
+        // Compare using the "Is" operator.
         emit!(
             self,
             Instruction::TestOperation {

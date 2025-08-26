@@ -702,19 +702,17 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::Swap { index } => {
                 let len = self.state.stack.len();
-                if len == 0 {
-                    return Err(vm.new_runtime_error("stack underflow in SWAP".to_string()));
-                }
+                debug_assert!(len > 0, "stack underflow in SWAP");
                 let i = len - 1; // TOS index
                 let index_val = index.get(arg) as usize;
                 // CPython: SWAP(n) swaps TOS with PEEK(n) where PEEK(n) = stack_pointer[-n]
                 // This means swap TOS with the element at index (len - n)
-                if index_val > len {
-                    return Err(vm.new_runtime_error(format!(
-                        "SWAP index {} exceeds stack size {}",
-                        index_val, len
-                    )));
-                }
+                debug_assert!(
+                    index_val <= len,
+                    "SWAP index {} exceeds stack size {}",
+                    index_val,
+                    len
+                );
                 let j = len - index_val;
                 self.state.stack.swap(i, j);
                 Ok(None)
@@ -1433,17 +1431,9 @@ impl ExecutingFrame<'_> {
                             // No __match_args__, check if this is a type with MATCH_SELF behavior
                             // For built-in types like bool, int, str, list, tuple, dict, etc.
                             // they match the subject itself as the single positional argument
-                            let is_match_self_type = cls.is(vm.ctx.types.bool_type)
-                                || cls.is(vm.ctx.types.int_type)
-                                || cls.is(vm.ctx.types.float_type)
-                                || cls.is(vm.ctx.types.str_type)
-                                || cls.is(vm.ctx.types.bytes_type)
-                                || cls.is(vm.ctx.types.bytearray_type)
-                                || cls.is(vm.ctx.types.list_type)
-                                || cls.is(vm.ctx.types.tuple_type)
-                                || cls.is(vm.ctx.types.dict_type)
-                                || cls.is(vm.ctx.types.set_type)
-                                || cls.is(vm.ctx.types.frozenset_type);
+                            let is_match_self_type = cls
+                                .downcast::<PyType>()
+                                .is_ok_and(|t| t.slots.flags.contains(PyTypeFlags::_MATCH_SELF));
 
                             if is_match_self_type {
                                 if nargs_val == 1 {

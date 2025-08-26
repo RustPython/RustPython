@@ -317,7 +317,7 @@ impl PyInt {
 }
 
 #[pyclass(
-    flags(BASETYPE),
+    flags(BASETYPE, _MATCH_SELF),
     with(PyRef, Comparable, Hashable, Constructor, AsNumber, Representable)
 )]
 impl PyInt {

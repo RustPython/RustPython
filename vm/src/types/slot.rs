@@ -129,6 +129,10 @@ bitflags! {
         const HEAPTYPE = 1 << 9;
         const BASETYPE = 1 << 10;
         const METHOD_DESCRIPTOR = 1 << 17;
+        // For built-in types that match the subject itself in pattern matching
+        // (bool, int, float, str, bytes, bytearray, list, tuple, dict, set, frozenset)
+        // This is not a stable API
+        const _MATCH_SELF = 1 << 22;
         const HAS_DICT = 1 << 40;
 
         #[cfg(debug_assertions)]
