@@ -42,7 +42,6 @@ class TestInheritance(unittest.TestCase):
             case [*_]:
                 return "seq"
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_multiple_inheritance_mapping(self):
         class C:
             pass
@@ -63,7 +62,6 @@ class TestInheritance(unittest.TestCase):
         self.assertEqual(self.check_mapping_then_sequence(M3()), "map")
         self.assertEqual(self.check_mapping_then_sequence(M4()), "map")
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_multiple_inheritance_sequence(self):
         class C:
             pass
