@@ -773,7 +773,7 @@ impl PyInt {
         negative: Some(|num, vm| (&Self::number_downcast(num).value).neg().to_pyresult(vm)),
         positive: Some(|num, vm| Ok(Self::number_downcast_exact(num, vm).into())),
         absolute: Some(|num, vm| Self::number_downcast(num).value.abs().to_pyresult(vm)),
-        boolean: Some(|num, _vm| Ok(Self::number_downcast(num).value.is_zero())),
+        boolean: Some(|num, _vm| Ok(!Self::number_downcast(num).value.is_zero())),
         invert: Some(|num, vm| (&Self::number_downcast(num).value).not().to_pyresult(vm)),
         lshift: Some(|a, b, vm| Self::number_op(a, b, inner_lshift, vm)),
         rshift: Some(|a, b, vm| Self::number_op(a, b, inner_rshift, vm)),
