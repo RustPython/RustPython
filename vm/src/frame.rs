@@ -1083,6 +1083,12 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_int(len).into());
                 Ok(None)
             }
+            bytecode::Instruction::ToBool => {
+                let obj = self.pop_value();
+                let bool_val = obj.try_to_bool(vm)?;
+                self.push_value(vm.ctx.new_bool(bool_val).into());
+                Ok(None)
+            }
             bytecode::Instruction::CallIntrinsic1 { func } => {
                 let value = self.pop_value();
                 let result = self.call_intrinsic_1(func.get(arg), value, vm)?;
