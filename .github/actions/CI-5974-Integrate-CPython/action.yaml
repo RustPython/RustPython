@@ -49,6 +49,20 @@ runs:
         fi
         printf "%s\n" "PYTHON_VERSION=${PYTHON_VERSION}" >> "$GITHUB_ENV"
         if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$ACTIONS_STEP_DEBUG" == "true" ]]; then printf "::debug::Targeting Cpython %s.\n" "${PYTHON_VERSION}" ; fi ;
+    - id: setup_mkdir_option
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: |
+        # set mkdir options per platform
+        if [[ ${{ runner.os }} != 'Windows' ]] ; then
+          printf "mkdir-args=%s\n" "-v -p -m 751" >> "$GITHUB_OUTPUT"
+          printf "MKDIR_ARGS=%s\n" "-v -p -m 751" >> "$GITHUB_ENV"
+        else
+          printf "mkdir-args=%s\n" "-v -p" >> "$GITHUB_OUTPUT"
+          printf "MKDIR_ARGS=%s\n" "-v -p" >> "$GITHUB_ENV"
+        fi
+      shell: bash
+      if: ${{ !cancelled() && runner.os == 'Windows' }}
     - name: "Integrate Cpython Test files"
       id: merge_theirs
       shell: bash
@@ -58,7 +72,7 @@ runs:
       run: |
         printf "::group::%s\n" "Copy Reference Implementation" ;
         for reference_file in ${INPUT_FILES}; do
-          [[ -d $(dirname ${{ inputs.into-path }}/"${reference_file}" ) ]] || mkdir -v -p -m 751 $(dirname ${{ inputs.into-path }}/"${reference_file}" ) ;
+          [[ -d $(dirname ${{ inputs.into-path }}/"${reference_file}" ) ]] || mkdir $MKDIR_ARGS $(dirname ${{ inputs.into-path }}/"${reference_file}" ) ;
           cp -vf ${{ inputs.from-path }}/"${reference_file}" ${{ inputs.into-path }}/"${reference_file}" || printf "::warning file='%s',title='integration failure':: Could not integrate file for Cpython %s on %s.\n" "${reference_file}" '${PYTHON_VERSION}' '${{ runner.os }}' ;
         done ;
         printf "\n::endgroup::\n\n" ;
