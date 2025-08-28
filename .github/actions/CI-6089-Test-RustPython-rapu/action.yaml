@@ -102,6 +102,14 @@ runs:
         cd ${PWD:-.} ;
         export OLD_PWD=$(pwd) ;  # only local use for bootstrap
         printf "initial-path=%s\n" "${OLD_PWD}" >> "$GITHUB_OUTPUT"
+    - id: setup_output_dir
+      name: Setup Output
+      if: ${{ !cancelled() && inputs.override-working-dir != '' }}
+      shell: bash
+      run: |
+        cd ${{ inputs.override-working-dir }} || exit 13 ;
+        mkdir -v -p "${OVERRIDE_RUSTPYTHONPATH:-Lib}-rpau"/test || exit 19 ;
+        cd ${{ steps.store_old_path.outputs.initial-path }} || exit 15 ;
     - name: "Try Smoke Testing"
       id: smoke_test
       shell: bash
@@ -141,7 +149,6 @@ runs:
         # Usage
         # run_with_timeout 360 your_command_here
         cd ${{ inputs.override-working-dir }} || exit 13 ;
-        mkdir -p Lib-rpau/test || exit 15 ;
         printf "%s\n\n" "# CPython ${PYTHON_VERSION} Results" > "${TEST_STEP_SUMMARY}" ;
         for reference_file in ${INPUT_FILES}; do
           if [[ ( -f "${reference_file}" ) ]] ; then
@@ -161,7 +168,7 @@ runs:
                   printf "::warning file='%s',title='test-warning':: Could not copy file %s unmodified, and pass tests %s.\n" "${reference_file}" "${reference_file}" "${CONTEXT_PHRASE}" ;
                   printf "::debug:: Will now attempt Rust Python Auto Patch with file %s, and pass re-tests %s.\n" "${reference_file}" "${CONTEXT_PHRASE}" ;
                   (
-                  ‎  run_with_timeout ${SUBSHELL_TIMEOUT} cargo run $CARGO_ARGS -- -c "import sys; import os; sys.path.insert(1, os.path.abspath('tools/rpau/src')); import rpau; rpau.main()" --workers ${WORKER_COUNT} --default-version "${PYTHON_VERSION}" --base-upstream-url "${BASE_REF_URL}" --include ${RUSTPYTHONPATH:-Lib}/test/"${REF_FILE_NAME}" --output-dir "Lib-rpau/test" || PATCH_COPY_OUTCOME='unpatchable' ;
+                  ‎  run_with_timeout ${SUBSHELL_TIMEOUT} cargo run $CARGO_ARGS -- -c "import sys; import os; sys.path.insert(1, os.path.abspath('tools/rpau/src')); import rpau; rpau.main()" --workers ${WORKER_COUNT} --default-version "${PYTHON_VERSION}" --base-upstream-url "${BASE_REF_URL}" --include ${RUSTPYTHONPATH:-Lib}/test/"${REF_FILE_NAME}" --output-dir "${RUSTPYTHONPATH:-Lib}-rpau/test" || PATCH_COPY_OUTCOME='unpatchable' ;
                   ) ;
                   if [[ ( -n ${PATCH_COPY_OUTCOME} ) ]] ; then
                     printf "::error file='%s',title='testing-failure':: Could not copy and auto-fix tests %s.\n" "${reference_file}" "${CONTEXT_PHRASE}" >&2 ;
@@ -325,12 +332,30 @@ runs:
         done
         cat <"${TEST_STEP_SUMMARY}" >> "$GITHUB_STEP_SUMMARY" ;
         cd ${{ steps.store_old_path.outputs.initial-path }} || exit 15 ;
+    - name: Enumerate Patched Lib Files
+      id: output_patched_files
+      shell: bash
+      env:
+        TEST_MATCH_PATTERN: '**/Lib-rpau/'
+      run: |
+        FILES=$(find . -type d -ipath ${{ env.TEST_MATCH_PATTERN }} -print 2>/dev/null ; )
+        if [ -z "$FILES" ]; then
+          printf "%s\n" "::warning file=.github/actions/:: No Patched files found." ;
+          printf "%s\n" "files=" >> "$GITHUB_OUTPUT"
+        else
+          printf "%s\n" "Reference files found:"
+          printf "%s\n" "$FILES"
+          # Replace line breaks with commas for GitHub Action Output
+          FILES="${FILES//$'\n'/ }"
+          printf "%s\n" "files=$FILES" >> "$GITHUB_OUTPUT"
+        fi
+      if: ${{ success() }}
     - id: upload-rpau
       name: "Upload Lib-rpau"
       if: ${{ !cancelled() }}
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
-        path: '${{ inputs.override-working-dir }}/Lib-rpau'
+        path: '${{ steps.output_patched_files.outputs.files }}'
         name: Lib-rpau-${{ github.sha }}-${{ runner.os }}-${{ steps.output_python.outputs.python-version }}
         if-no-files-found: ignore
         compression-level: 6
