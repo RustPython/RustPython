@@ -61,8 +61,6 @@ runs:
           printf "mkdir-args=%s\n" "-v -p" >> "$GITHUB_OUTPUT"
           printf "MKDIR_ARGS=%s\n" "-v -p" >> "$GITHUB_ENV"
         fi
-      shell: bash
-      if: ${{ !cancelled() && runner.os == 'Windows' }}
     - name: "Integrate Cpython Test files"
       id: merge_theirs
       shell: bash
