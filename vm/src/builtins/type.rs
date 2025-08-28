@@ -232,13 +232,25 @@ impl PyType {
         linearise_mro(mros)
     }
 
-    /// Inherit SEQUENCE and MAPPING flags from base class (CPython: inherit_patma_flags)
-    fn inherit_patma_flags(slots: &mut PyTypeSlots, base: &PyRef<Self>) {
+    /// Inherit SEQUENCE and MAPPING flags from base classes
+    /// Check all bases in order and inherit the first SEQUENCE or MAPPING flag found
+    fn inherit_patma_flags(slots: &mut PyTypeSlots, bases: &[PyRef<Self>]) {
         const COLLECTION_FLAGS: PyTypeFlags = PyTypeFlags::from_bits_truncate(
             PyTypeFlags::SEQUENCE.bits() | PyTypeFlags::MAPPING.bits(),
         );
-        if !slots.flags.intersects(COLLECTION_FLAGS) {
-            slots.flags |= base.slots.flags & COLLECTION_FLAGS;
+
+        // If flags are already set, don't override
+        if slots.flags.intersects(COLLECTION_FLAGS) {
+            return;
+        }
+
+        // Check each base in order and inherit the first collection flag found
+        for base in bases {
+            let base_flags = base.slots.flags & COLLECTION_FLAGS;
+            if !base_flags.is_empty() {
+                slots.flags |= base_flags;
+                return;
+            }
         }
     }
 
@@ -300,8 +312,8 @@ impl PyType {
             slots.flags |= PyTypeFlags::HAS_DICT
         }
 
-        // Inherit SEQUENCE and MAPPING flags from base class
-        Self::inherit_patma_flags(&mut slots, &base);
+        // Inherit SEQUENCE and MAPPING flags from base classes
+        Self::inherit_patma_flags(&mut slots, &bases);
 
         // Check for __abc_tpflags__ from ABCMeta (for collections.abc.Sequence, Mapping, etc.)
         Self::check_abc_tpflags(&mut slots, &attrs, &bases, ctx);
@@ -359,7 +371,8 @@ impl PyType {
         }
 
         // Inherit SEQUENCE and MAPPING flags from base class
-        Self::inherit_patma_flags(&mut slots, &base);
+        // For static types, we only have a single base
+        Self::inherit_patma_flags(&mut slots, std::slice::from_ref(&base));
 
         if slots.basicsize == 0 {
             slots.basicsize = base.slots.basicsize;

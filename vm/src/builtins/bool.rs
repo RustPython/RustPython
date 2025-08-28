@@ -109,7 +109,7 @@ impl Constructor for PyBool {
     }
 }
 
-#[pyclass(with(Constructor, AsNumber, Representable))]
+#[pyclass(with(Constructor, AsNumber, Representable), flags(_MATCH_SELF))]
 impl PyBool {
     #[pymethod]
     fn __format__(obj: PyObjectRef, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {

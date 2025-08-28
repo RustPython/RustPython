@@ -529,7 +529,7 @@ fn reduce_set(
         AsNumber,
         Representable
     ),
-    flags(BASETYPE)
+    flags(BASETYPE, _MATCH_SELF)
 )]
 impl PySet {
     #[pymethod]
@@ -946,7 +946,7 @@ impl Constructor for PyFrozenSet {
 }
 
 #[pyclass(
-    flags(BASETYPE),
+    flags(BASETYPE, _MATCH_SELF),
     with(
         Constructor,
         AsSequence,
