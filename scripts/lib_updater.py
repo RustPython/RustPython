@@ -23,15 +23,18 @@ class ProgName(enum.StrEnum):
 @enum.unique
 class UtMethod(enum.StrEnum):
     """
-    UnitTest Method
+    UnitTest Method.
     """
 
-    ExpectedFailure = "expectedFailure"
-    ExpectedFailureIf = "expectedFailureIf"
-    ExpectedFailureIfWindows = "expectedFailureIfWindows"
-    SkipUnless = "skipUnless"
+    def _generate_next_value_(name, start, count, last_values) -> str:
+        return name[0].lower() + name[1:]
+
+    ExpectedFailure = enum.auto()
+    ExpectedFailureIf = enum.auto()
+    ExpectedFailureIfWindows = enum.auto()
     Skip = enum.auto()
-    SkipIf = "skipIf"
+    SkipIf = enum.auto()
+    SkipUnless = enum.auto()
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
