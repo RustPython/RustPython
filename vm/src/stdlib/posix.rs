@@ -355,22 +355,22 @@ pub mod module {
     }
 
     #[derive(FromArgs)]
-    pub(super) struct SymlinkArgs {
+    pub(super) struct SymlinkArgs<'fd> {
         src: OsPath,
         dst: OsPath,
         #[pyarg(flatten)]
         _target_is_directory: TargetIsDirectory,
         #[pyarg(flatten)]
-        dir_fd: DirFd<{ _os::SYMLINK_DIR_FD as usize }>,
+        dir_fd: DirFd<'fd, { _os::SYMLINK_DIR_FD as usize }>,
     }
 
     #[pyfunction]
-    pub(super) fn symlink(args: SymlinkArgs, vm: &VirtualMachine) -> PyResult<()> {
+    pub(super) fn symlink(args: SymlinkArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
         let src = args.src.into_cstring(vm)?;
         let dst = args.dst.into_cstring(vm)?;
         #[cfg(not(target_os = "redox"))]
         {
-            nix::unistd::symlinkat(&*src, args.dir_fd.get_opt(), &*dst)
+            nix::unistd::symlinkat(&*src, args.dir_fd.raw_opt(), &*dst)
                 .map_err(|err| err.into_pyexception(vm))
         }
         #[cfg(target_os = "redox")]
@@ -403,10 +403,10 @@ pub mod module {
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn chown(
-        path: OsPathOrFd,
+        path: OsPathOrFd<'_>,
         uid: isize,
         gid: isize,
-        dir_fd: DirFd<1>,
+        dir_fd: DirFd<'_, 1>,
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -432,12 +432,12 @@ pub mod module {
             nix::fcntl::AtFlags::AT_SYMLINK_NOFOLLOW
         };
 
-        let dir_fd = dir_fd.get_opt();
+        let dir_fd = dir_fd.raw_opt();
         match path {
             OsPathOrFd::Path(ref p) => {
                 nix::unistd::fchownat(dir_fd, p.path.as_os_str(), uid, gid, flag)
             }
-            OsPathOrFd::Fd(fd) => nix::unistd::fchown(fd, uid, gid),
+            OsPathOrFd::Fd(fd) => nix::unistd::fchown(fd.as_raw(), uid, gid),
         }
         .map_err(|err| {
             // Use `From<nix::Error> for io::Error` when it is available
@@ -461,9 +461,9 @@ pub mod module {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn fchown(fd: i32, uid: isize, gid: isize, vm: &VirtualMachine) -> PyResult<()> {
+    fn fchown(fd: BorrowedFd<'_>, uid: isize, gid: isize, vm: &VirtualMachine) -> PyResult<()> {
         chown(
-            OsPathOrFd::Fd(fd),
+            OsPathOrFd::Fd(fd.into()),
             uid,
             gid,
             DirFd::default(),
@@ -590,7 +590,7 @@ pub mod module {
 
     #[cfg(not(target_os = "redox"))]
     #[derive(FromArgs)]
-    struct MknodArgs {
+    struct MknodArgs<'fd> {
         #[pyarg(any)]
         path: OsPath,
         #[pyarg(any)]
@@ -598,11 +598,11 @@ pub mod module {
         #[pyarg(any)]
         device: libc::dev_t,
         #[pyarg(flatten)]
-        dir_fd: DirFd<{ MKNOD_DIR_FD as usize }>,
+        dir_fd: DirFd<'fd, { MKNOD_DIR_FD as usize }>,
     }
 
     #[cfg(not(target_os = "redox"))]
-    impl MknodArgs {
+    impl MknodArgs<'_> {
         fn _mknod(self, vm: &VirtualMachine) -> PyResult<i32> {
             Ok(unsafe {
                 libc::mknod(
@@ -615,7 +615,7 @@ pub mod module {
 
         #[cfg(not(target_vendor = "apple"))]
         fn mknod(self, vm: &VirtualMachine) -> PyResult<()> {
-            let ret = match self.dir_fd.get_opt() {
+            let ret = match self.dir_fd.raw_opt() {
                 None => self._mknod(vm)?,
                 Some(non_default_fd) => unsafe {
                     libc::mknodat(
@@ -639,7 +639,7 @@ pub mod module {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn mknod(args: MknodArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn mknod(args: MknodArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
         args.mknod(vm)
     }
 
@@ -920,7 +920,7 @@ pub mod module {
 
     fn _chmod(
         path: OsPath,
-        dir_fd: DirFd<0>,
+        dir_fd: DirFd<'_, 0>,
         mode: u32,
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
@@ -938,9 +938,9 @@ pub mod module {
     }
 
     #[cfg(not(target_os = "redox"))]
-    fn _fchmod(fd: RawFd, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
+    fn _fchmod(fd: BorrowedFd<'_>, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
         nix::sys::stat::fchmod(
-            fd,
+            fd.as_raw_fd(),
             nix::sys::stat::Mode::from_bits(mode as libc::mode_t).unwrap(),
         )
         .map_err(|err| err.into_pyexception(vm))
@@ -949,8 +949,8 @@ pub mod module {
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn chmod(
-        path: OsPathOrFd,
-        dir_fd: DirFd<0>,
+        path: OsPathOrFd<'_>,
+        dir_fd: DirFd<'_, 0>,
         mode: u32,
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
@@ -963,7 +963,7 @@ pub mod module {
                 }
                 _chmod(path, dir_fd, mode, follow_symlinks, vm)
             }
-            OsPathOrFd::Fd(fd) => _fchmod(fd, mode, vm),
+            OsPathOrFd::Fd(fd) => _fchmod(fd.into(), mode, vm),
         }
     }
 
@@ -981,7 +981,7 @@ pub mod module {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn fchmod(fd: RawFd, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
+    fn fchmod(fd: BorrowedFd<'_>, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
         _fchmod(fd, mode, vm)
     }
 
@@ -2065,7 +2065,7 @@ pub mod module {
     #[cfg(unix)]
     #[pyfunction]
     fn pathconf(
-        path: OsPathOrFd,
+        path: OsPathOrFd<'_>,
         PathconfName(name): PathconfName,
         vm: &VirtualMachine,
     ) -> PyResult<Option<libc::c_long>> {
@@ -2078,7 +2078,7 @@ pub mod module {
                 let path = path.clone().into_cstring(vm)?;
                 unsafe { libc::pathconf(path.as_ptr(), name) }
             }
-            OsPathOrFd::Fd(fd) => unsafe { libc::fpathconf(*fd, name) },
+            OsPathOrFd::Fd(fd) => unsafe { libc::fpathconf(fd.as_raw(), name) },
         };
 
         if raw == -1 {
@@ -2098,11 +2098,11 @@ pub mod module {
 
     #[pyfunction]
     fn fpathconf(
-        fd: i32,
+        fd: BorrowedFd<'_>,
         name: PathconfName,
         vm: &VirtualMachine,
     ) -> PyResult<Option<libc::c_long>> {
-        pathconf(OsPathOrFd::Fd(fd), name, vm)
+        pathconf(OsPathOrFd::Fd(fd.into()), name, vm)
     }
 
     #[pyattr]

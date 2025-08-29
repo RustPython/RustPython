@@ -3972,7 +3972,7 @@ mod _io {
         // check file descriptor validity
         #[cfg(unix)]
         if let Ok(crate::ospath::OsPathOrFd::Fd(fd)) = file.clone().try_into_value(vm) {
-            nix::fcntl::fcntl(fd, nix::fcntl::F_GETFD)
+            nix::fcntl::fcntl(fd.as_raw(), nix::fcntl::F_GETFD)
                 .map_err(|_| crate::stdlib::os::errno_err(vm))?;
         }
 
@@ -4131,8 +4131,8 @@ mod fileio {
     use crate::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyUtf8Str, PyUtf8StrRef},
-        common::crt_fd::Fd,
-        convert::ToPyException,
+        common::crt_fd,
+        convert::{IntoPyException, ToPyException},
         function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg, OptionalOption},
         ospath::{IOErrorBuilder, OsPath, OsPathOrFd},
         stdlib::os,
@@ -4303,7 +4303,7 @@ mod fileio {
 
             let (fd, filename) = if let Some(fd) = arg_fd {
                 zelf.closefd.store(args.closefd);
-                (fd, OsPathOrFd::Fd(fd))
+                (fd, None)
             } else {
                 zelf.closefd.store(true);
                 if !args.closefd {
@@ -4319,24 +4319,23 @@ mod fileio {
                     if fd < 0 {
                         return Err(vm.new_value_error(format!("opener returned {fd}")));
                     }
-                    (
-                        fd,
-                        OsPathOrFd::try_from_object(vm, name.clone()).unwrap_or(OsPathOrFd::Fd(fd)),
-                    )
+                    (fd, None)
                 } else {
                     let path = OsPath::try_from_object(vm, name.clone())?;
                     #[cfg(any(unix, target_os = "wasi"))]
-                    let fd = Fd::open(&path.clone().into_cstring(vm)?, flags, 0o666);
+                    let fd = crt_fd::open(&path.clone().into_cstring(vm)?, flags, 0o666);
                     #[cfg(windows)]
-                    let fd = Fd::wopen(&path.to_wide_cstring(vm)?, flags, 0o666);
+                    let fd = crt_fd::wopen(&path.to_wide_cstring(vm)?, flags, 0o666);
                     let filename = OsPathOrFd::Path(path);
                     match fd {
-                        Ok(fd) => (fd.0, filename),
+                        Ok(fd) => (fd.into_raw(), Some(filename)),
                         Err(e) => return Err(IOErrorBuilder::with_filename(&e, filename, vm)),
                     }
                 }
             };
             zelf.fd.store(fd);
+            let fd = unsafe { crt_fd::Borrowed::borrow_raw(fd) };
+            let filename = filename.unwrap_or(OsPathOrFd::Fd(fd));
 
             // TODO: _Py_set_inheritable
 
@@ -4370,7 +4369,7 @@ mod fileio {
             zelf.as_object().set_attr("name", name, vm)?;
 
             if mode.contains(Mode::APPENDING) {
-                let _ = os::lseek(fd as _, 0, libc::SEEK_END, vm);
+                let _ = os::lseek(fd, 0, libc::SEEK_END, vm);
             }
 
             Ok(())
@@ -4435,8 +4434,9 @@ mod fileio {
             }
         }
 
-        fn get_fd(&self, vm: &VirtualMachine) -> PyResult<Fd> {
-            self.fileno(vm).map(Fd)
+        fn get_fd(&self, vm: &VirtualMachine) -> PyResult<crt_fd::Borrowed<'_>> {
+            self.fileno(vm)
+                .map(|fd| unsafe { crt_fd::Borrowed::borrow_raw(fd) })
         }
 
         #[pymethod]
@@ -4554,8 +4554,7 @@ mod fileio {
             }
             let fd = zelf.fd.swap(-1);
             if fd >= 0 {
-                Fd(fd)
-                    .close()
+                crt_fd::close(unsafe { crt_fd::Owned::from_raw(fd) })
                     .map_err(|err| Self::io_error(zelf, err, vm))?;
             }
             res
@@ -4563,7 +4562,7 @@ mod fileio {
 
         #[pymethod]
         fn seekable(&self, vm: &VirtualMachine) -> PyResult<bool> {
-            let fd = self.fileno(vm)?;
+            let fd = self.get_fd(vm)?;
             Ok(self.seekable.load().unwrap_or_else(|| {
                 let seekable = os::lseek(fd, 0, libc::SEEK_CUR, vm).is_ok();
                 self.seekable.store(Some(seekable));
@@ -4579,7 +4578,7 @@ mod fileio {
             vm: &VirtualMachine,
         ) -> PyResult<Offset> {
             let how = how.unwrap_or(0);
-            let fd = self.fileno(vm)?;
+            let fd = self.get_fd(vm)?;
             let offset = get_offset(offset, vm)?;
 
             os::lseek(fd, offset, how, vm)
@@ -4587,18 +4586,18 @@ mod fileio {
 
         #[pymethod]
         fn tell(&self, vm: &VirtualMachine) -> PyResult<Offset> {
-            let fd = self.fileno(vm)?;
+            let fd = self.get_fd(vm)?;
             os::lseek(fd, 0, libc::SEEK_CUR, vm)
         }
 
         #[pymethod]
         fn truncate(&self, len: OptionalOption, vm: &VirtualMachine) -> PyResult<Offset> {
-            let fd = self.fileno(vm)?;
+            let fd = self.get_fd(vm)?;
             let len = match len.flatten() {
                 Some(l) => get_offset(l, vm)?,
                 None => os::lseek(fd, 0, libc::SEEK_CUR, vm)?,
             };
-            os::ftruncate(fd, len, vm)?;
+            os::ftruncate(fd, len).map_err(|e| e.into_pyexception(vm))?;
             Ok(len)
         }
 

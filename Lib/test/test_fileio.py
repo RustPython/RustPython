@@ -356,18 +356,6 @@ class CAutoFileTests(AutoFileTests, unittest.TestCase):
     # TODO: RUSTPYTHON
     if sys.platform == "win32":
         @unittest.expectedFailure
-        def testErrnoOnClosedSeek(self):
-            super().testErrnoOnClosedSeek()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testErrnoOnClosedTell(self):
-            super().testErrnoOnClosedTell()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
         def testErrnoOnClosedTruncate(self):
             super().testErrnoOnClosedTruncate()
 

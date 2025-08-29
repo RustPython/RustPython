@@ -1,10 +1,10 @@
 // spell-checker:disable
 
 use crate::{
-    AsObject, Py, PyPayload, PyResult, VirtualMachine,
+    AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyModule, PySet},
-    common::crt_fd::Fd,
-    convert::ToPyException,
+    common::crt_fd,
+    convert::{IntoPyException, ToPyException, ToPyObject},
     function::{ArgumentError, FromArgs, FuncArgs},
 };
 use std::{ffi, fs, io, path::Path};
@@ -54,13 +54,13 @@ cfg_if::cfg_if! {
         const AT_FDCWD: i32 = -100;
     }
 }
-const DEFAULT_DIR_FD: Fd = Fd(AT_FDCWD);
+const DEFAULT_DIR_FD: crt_fd::Borrowed<'static> = unsafe { crt_fd::Borrowed::borrow_raw(AT_FDCWD) };
 
 // XXX: AVAILABLE should be a bool, but we can't yet have it as a bool and just cast it to usize
 #[derive(Copy, Clone, PartialEq, Eq)]
-pub struct DirFd<const AVAILABLE: usize>(pub(crate) [Fd; AVAILABLE]);
+pub struct DirFd<'fd, const AVAILABLE: usize>(pub(crate) [crt_fd::Borrowed<'fd>; AVAILABLE]);
 
-impl<const AVAILABLE: usize> Default for DirFd<AVAILABLE> {
+impl<const AVAILABLE: usize> Default for DirFd<'_, AVAILABLE> {
     fn default() -> Self {
         Self([DEFAULT_DIR_FD; AVAILABLE])
     }
@@ -68,33 +68,30 @@ impl<const AVAILABLE: usize> Default for DirFd<AVAILABLE> {
 
 // not used on all platforms
 #[allow(unused)]
-impl DirFd<1> {
+impl<'fd> DirFd<'fd, 1> {
     #[inline(always)]
-    pub(crate) fn fd_opt(&self) -> Option<Fd> {
-        self.get_opt().map(Fd)
+    pub(crate) fn get_opt(self) -> Option<crt_fd::Borrowed<'fd>> {
+        let [fd] = self.0;
+        (fd != DEFAULT_DIR_FD).then_some(fd)
     }
 
     #[inline]
-    pub(crate) fn get_opt(&self) -> Option<i32> {
-        let fd = self.fd();
-        if fd == DEFAULT_DIR_FD {
-            None
-        } else {
-            Some(fd.0)
-        }
+    pub(crate) fn raw_opt(self) -> Option<i32> {
+        self.get_opt().map(|fd| fd.as_raw())
     }
 
     #[inline(always)]
-    pub(crate) const fn fd(&self) -> Fd {
-        self.0[0]
+    pub(crate) const fn get(self) -> crt_fd::Borrowed<'fd> {
+        let [fd] = self.0;
+        fd
     }
 }
 
-impl<const AVAILABLE: usize> FromArgs for DirFd<AVAILABLE> {
+impl<const AVAILABLE: usize> FromArgs for DirFd<'_, AVAILABLE> {
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let fd = match args.take_keyword("dir_fd") {
-            Some(o) if vm.is_none(&o) => DEFAULT_DIR_FD,
-            None => DEFAULT_DIR_FD,
+            Some(o) if vm.is_none(&o) => Ok(DEFAULT_DIR_FD),
+            None => Ok(DEFAULT_DIR_FD),
             Some(o) => {
                 let fd = o.try_index_opt(vm).unwrap_or_else(|| {
                     Err(vm.new_type_error(format!(
@@ -103,14 +100,15 @@ impl<const AVAILABLE: usize> FromArgs for DirFd<AVAILABLE> {
                     )))
                 })?;
                 let fd = fd.try_to_primitive(vm)?;
-                Fd(fd)
+                unsafe { crt_fd::Borrowed::try_borrow_raw(fd) }
             }
         };
-        if AVAILABLE == 0 && fd != DEFAULT_DIR_FD {
+        if AVAILABLE == 0 && fd.as_ref().is_ok_and(|&fd| fd != DEFAULT_DIR_FD) {
             return Err(vm
                 .new_not_implemented_error("dir_fd unavailable on this platform")
                 .into());
         }
+        let fd = fd.map_err(|e| e.to_pyexception(vm))?;
         Ok(Self([fd; AVAILABLE]))
     }
 }
@@ -125,6 +123,32 @@ fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::Os
         .map_err(|_| vm.new_unicode_decode_error("can't decode path for utf-8"))
 }
 
+impl TryFromObject for crt_fd::Owned {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        let fd = crt_fd::Raw::try_from_object(vm, obj)?;
+        unsafe { crt_fd::Owned::try_from_raw(fd) }.map_err(|e| e.into_pyexception(vm))
+    }
+}
+
+impl TryFromObject for crt_fd::Borrowed<'_> {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        let fd = crt_fd::Raw::try_from_object(vm, obj)?;
+        unsafe { crt_fd::Borrowed::try_borrow_raw(fd) }.map_err(|e| e.into_pyexception(vm))
+    }
+}
+
+impl ToPyObject for crt_fd::Owned {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        self.into_raw().to_pyobject(vm)
+    }
+}
+
+impl ToPyObject for crt_fd::Borrowed<'_> {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        self.as_raw().to_pyobject(vm)
+    }
+}
+
 #[pymodule(sub)]
 pub(super) mod _os {
     use super::{DirFd, FollowSymlinks, SupportFunc, errno_err};
@@ -134,7 +158,7 @@ pub(super) mod _os {
             PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
         },
         common::{
-            crt_fd::{Fd, Offset},
+            crt_fd,
             fileutils::StatStruct,
             lock::{OnceCell, PyRwLock},
             suppress_iph,
@@ -153,7 +177,7 @@ pub(super) mod _os {
     use std::{
         env, ffi, fs,
         fs::OpenOptions,
-        io::{self, Read, Write},
+        io,
         path::PathBuf,
         time::{Duration, SystemTime},
     };
@@ -180,30 +204,32 @@ pub(super) mod _os {
     pub(crate) const X_OK: u8 = 1 << 0;
 
     #[pyfunction]
-    fn close(fileno: i32, vm: &VirtualMachine) -> PyResult<()> {
-        Fd(fileno).close().map_err(|e| e.into_pyexception(vm))
+    fn close(fileno: crt_fd::Owned) -> io::Result<()> {
+        crt_fd::close(fileno)
     }
 
     #[pyfunction]
     fn closerange(fd_low: i32, fd_high: i32) {
         for fileno in fd_low..fd_high {
-            let _ = Fd(fileno).close();
+            if let Ok(fd) = unsafe { crt_fd::Owned::try_from_raw(fileno) } {
+                drop(fd);
+            }
         }
     }
 
     #[cfg(any(unix, windows, target_os = "wasi"))]
     #[derive(FromArgs)]
-    struct OpenArgs {
+    struct OpenArgs<'fd> {
         path: OsPath,
         flags: i32,
         #[pyarg(any, default)]
         mode: Option<i32>,
         #[pyarg(flatten)]
-        dir_fd: DirFd<{ OPEN_DIR_FD as usize }>,
+        dir_fd: DirFd<'fd, { OPEN_DIR_FD as usize }>,
     }
 
     #[pyfunction]
-    fn open(args: OpenArgs, vm: &VirtualMachine) -> PyResult<i32> {
+    fn open(args: OpenArgs<'_>, vm: &VirtualMachine) -> PyResult<crt_fd::Owned> {
         os_open(args.path, args.flags, args.mode, args.dir_fd, vm)
     }
 
@@ -212,16 +238,16 @@ pub(super) mod _os {
         name: OsPath,
         flags: i32,
         mode: Option<i32>,
-        dir_fd: DirFd<{ OPEN_DIR_FD as usize }>,
+        dir_fd: DirFd<'_, { OPEN_DIR_FD as usize }>,
         vm: &VirtualMachine,
-    ) -> PyResult<i32> {
+    ) -> PyResult<crt_fd::Owned> {
         let mode = mode.unwrap_or(0o777);
         #[cfg(windows)]
         let fd = {
             let [] = dir_fd.0;
             let name = name.to_wide_cstring(vm)?;
             let flags = flags | libc::O_NOINHERIT;
-            Fd::wopen(&name, flags, mode)
+            crt_fd::wopen(&name, flags, mode)
         };
         #[cfg(not(windows))]
         let fd = {
@@ -229,51 +255,42 @@ pub(super) mod _os {
             #[cfg(not(target_os = "wasi"))]
             let flags = flags | libc::O_CLOEXEC;
             #[cfg(not(target_os = "redox"))]
-            if let Some(dir_fd) = dir_fd.fd_opt() {
-                dir_fd.openat(&name, flags, mode)
+            if let Some(dir_fd) = dir_fd.get_opt() {
+                crt_fd::openat(dir_fd, &name, flags, mode)
             } else {
-                Fd::open(&name, flags, mode)
+                crt_fd::open(&name, flags, mode)
             }
             #[cfg(target_os = "redox")]
             {
                 let [] = dir_fd.0;
-                Fd::open(&name, flags, mode)
+                crt_fd::open(&name, flags, mode)
             }
         };
-        fd.map(|fd| fd.0)
-            .map_err(|err| IOErrorBuilder::with_filename(&err, name, vm))
+        fd.map_err(|err| IOErrorBuilder::with_filename(&err, name, vm))
     }
 
     #[pyfunction]
-    fn fsync(fd: i32, vm: &VirtualMachine) -> PyResult<()> {
-        Fd(fd).fsync().map_err(|err| err.into_pyexception(vm))
+    fn fsync(fd: crt_fd::Borrowed<'_>) -> io::Result<()> {
+        crt_fd::fsync(fd)
     }
 
     #[pyfunction]
-    fn read(fd: i32, n: usize, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+    fn read(fd: crt_fd::Borrowed<'_>, n: usize, vm: &VirtualMachine) -> io::Result<PyBytesRef> {
         let mut buffer = vec![0u8; n];
-        let mut file = Fd(fd);
-        let n = file
-            .read(&mut buffer)
-            .map_err(|err| err.into_pyexception(vm))?;
+        let n = crt_fd::read(fd, &mut buffer)?;
         buffer.truncate(n);
 
         Ok(vm.ctx.new_bytes(buffer))
     }
 
     #[pyfunction]
-    fn write(fd: i32, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult {
-        let mut file = Fd(fd);
-        let written = data
-            .with_ref(|b| file.write(b))
-            .map_err(|err| err.into_pyexception(vm))?;
-
-        Ok(vm.ctx.new_int(written).into())
+    fn write(fd: crt_fd::Borrowed<'_>, data: ArgBytesLike) -> io::Result<usize> {
+        data.with_ref(|b| crt_fd::write(fd, b))
     }
 
     #[pyfunction]
     #[pyfunction(name = "unlink")]
-    fn remove(path: OsPath, dir_fd: DirFd<0>, vm: &VirtualMachine) -> PyResult<()> {
+    fn remove(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult<()> {
         let [] = dir_fd.0;
         let is_junction = cfg!(windows)
             && fs::metadata(&path).is_ok_and(|meta| meta.file_type().is_dir())
@@ -291,13 +308,13 @@ pub(super) mod _os {
     fn mkdir(
         path: OsPath,
         mode: OptionalArg<i32>,
-        dir_fd: DirFd<{ MKDIR_DIR_FD as usize }>,
+        dir_fd: DirFd<'_, { MKDIR_DIR_FD as usize }>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let mode = mode.unwrap_or(0o777);
         let c_path = path.clone().into_cstring(vm)?;
         #[cfg(not(target_os = "redox"))]
-        if let Some(fd) = dir_fd.get_opt() {
+        if let Some(fd) = dir_fd.raw_opt() {
             let res = unsafe { libc::mkdirat(fd, c_path.as_ptr(), mode as _) };
             return if res < 0 {
                 let err = crate::common::os::last_os_error();
@@ -322,7 +339,7 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn rmdir(path: OsPath, dir_fd: DirFd<0>, vm: &VirtualMachine) -> PyResult<()> {
+    fn rmdir(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult<()> {
         let [] = dir_fd.0;
         fs::remove_dir(&path).map_err(|err| IOErrorBuilder::with_filename(&err, path, vm))
     }
@@ -330,7 +347,10 @@ pub(super) mod _os {
     const LISTDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
 
     #[pyfunction]
-    fn listdir(path: OptionalArg<OsPathOrFd>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+    fn listdir(
+        path: OptionalArg<OsPathOrFd<'_>>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<PyObjectRef>> {
         let path = path.unwrap_or_else(|| OsPathOrFd::Path(OsPath::new_str(".")));
         let list = match path {
             OsPathOrFd::Path(path) => {
@@ -358,7 +378,8 @@ pub(super) mod _os {
                 #[cfg(all(unix, not(target_os = "redox")))]
                 {
                     use rustpython_common::os::ffi::OsStrExt;
-                    let new_fd = nix::unistd::dup(fno).map_err(|e| e.into_pyexception(vm))?;
+                    let new_fd =
+                        nix::unistd::dup(fno.as_raw()).map_err(|e| e.into_pyexception(vm))?;
                     let mut dir =
                         nix::dir::Dir::from_fd(new_fd).map_err(|e| e.into_pyexception(vm))?;
                     dir.iter()
@@ -430,7 +451,7 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn readlink(path: OsPath, dir_fd: DirFd<0>, vm: &VirtualMachine) -> PyResult {
+    fn readlink(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult {
         let mode = path.mode;
         let [] = dir_fd.0;
         let path =
@@ -515,7 +536,7 @@ pub(super) mod _os {
         #[pymethod]
         fn stat(
             &self,
-            dir_fd: DirFd<{ STAT_DIR_FD as usize }>,
+            dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,
             follow_symlinks: FollowSymlinks,
             vm: &VirtualMachine,
         ) -> PyResult {
@@ -832,8 +853,8 @@ pub(super) mod _os {
 
     #[cfg(windows)]
     fn stat_inner(
-        file: OsPathOrFd,
-        dir_fd: DirFd<{ STAT_DIR_FD as usize }>,
+        file: OsPathOrFd<'_>,
+        dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,
         follow_symlinks: FollowSymlinks,
     ) -> io::Result<Option<StatStruct>> {
         // TODO: replicate CPython's win32_xstat
@@ -847,8 +868,8 @@ pub(super) mod _os {
 
     #[cfg(not(windows))]
     fn stat_inner(
-        file: OsPathOrFd,
-        dir_fd: DirFd<{ STAT_DIR_FD as usize }>,
+        file: OsPathOrFd<'_>,
+        dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,
         follow_symlinks: FollowSymlinks,
     ) -> io::Result<Option<StatStruct>> {
         let mut stat = std::mem::MaybeUninit::uninit();
@@ -862,7 +883,7 @@ pub(super) mod _os {
                 };
 
                 #[cfg(not(target_os = "redox"))]
-                let fstatat_ret = dir_fd.get_opt().map(|dir_fd| {
+                let fstatat_ret = dir_fd.raw_opt().map(|dir_fd| {
                     let flags = if follow_symlinks.0 {
                         0
                     } else {
@@ -881,7 +902,7 @@ pub(super) mod _os {
                     }
                 })
             }
-            OsPathOrFd::Fd(fd) => unsafe { libc::fstat(fd, stat.as_mut_ptr()) },
+            OsPathOrFd::Fd(fd) => unsafe { libc::fstat(fd.as_raw(), stat.as_mut_ptr()) },
         };
         if ret < 0 {
             return Err(io::Error::last_os_error());
@@ -892,8 +913,8 @@ pub(super) mod _os {
     #[pyfunction]
     #[pyfunction(name = "fstat")]
     fn stat(
-        file: OsPathOrFd,
-        dir_fd: DirFd<{ STAT_DIR_FD as usize }>,
+        file: OsPathOrFd<'_>,
+        dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -905,8 +926,8 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn lstat(
-        file: OsPathOrFd,
-        dir_fd: DirFd<{ STAT_DIR_FD as usize }>,
+        file: OsPathOrFd<'_>,
+        dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,
         vm: &VirtualMachine,
     ) -> PyResult {
         stat(file, dir_fd, FollowSymlinks(false), vm)
@@ -996,16 +1017,22 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    pub fn lseek(fd: i32, position: Offset, how: i32, vm: &VirtualMachine) -> PyResult<Offset> {
+    pub fn lseek(
+        fd: crt_fd::Borrowed<'_>,
+        position: crt_fd::Offset,
+        how: i32,
+        vm: &VirtualMachine,
+    ) -> PyResult<crt_fd::Offset> {
         #[cfg(not(windows))]
-        let res = unsafe { suppress_iph!(libc::lseek(fd, position, how)) };
+        let res = unsafe { suppress_iph!(libc::lseek(fd.as_raw(), position, how)) };
         #[cfg(windows)]
         let res = unsafe {
+            use std::os::windows::io::AsRawHandle;
             use windows_sys::Win32::Storage::FileSystem;
-            let handle = Fd(fd).to_raw_handle().map_err(|e| e.into_pyexception(vm))?;
+            let handle = crt_fd::as_handle(fd).map_err(|e| e.into_pyexception(vm))?;
             let mut distance_to_move: [i32; 2] = std::mem::transmute(position);
             let ret = FileSystem::SetFilePointer(
-                handle as _,
+                handle.as_raw_handle(),
                 distance_to_move[0],
                 &mut distance_to_move[1],
                 how as _,
@@ -1039,20 +1066,20 @@ pub(super) mod _os {
     }
 
     #[derive(FromArgs)]
-    struct UtimeArgs {
+    struct UtimeArgs<'fd> {
         path: OsPath,
         #[pyarg(any, default)]
         times: Option<PyTupleRef>,
         #[pyarg(named, default)]
         ns: Option<PyTupleRef>,
         #[pyarg(flatten)]
-        dir_fd: DirFd<{ UTIME_DIR_FD as usize }>,
+        dir_fd: DirFd<'fd, { UTIME_DIR_FD as usize }>,
         #[pyarg(flatten)]
         follow_symlinks: FollowSymlinks,
     }
 
     #[pyfunction]
-    fn utime(args: UtimeArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn utime(args: UtimeArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
         let parse_tup = |tup: &Py<PyTuple>| -> Option<(PyObjectRef, PyObjectRef)> {
             if tup.len() != 2 {
                 None
@@ -1108,7 +1135,7 @@ pub(super) mod _os {
         path: OsPath,
         acc: Duration,
         modif: Duration,
-        dir_fd: DirFd<{ UTIME_DIR_FD as usize }>,
+        dir_fd: DirFd<'_, { UTIME_DIR_FD as usize }>,
         _follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -1126,7 +1153,7 @@ pub(super) mod _os {
 
                 let ret = unsafe {
                     libc::utimensat(
-                        dir_fd.fd().0,
+                        dir_fd.get().as_raw(),
                         path.as_ptr(),
                         times.as_ptr(),
                         if _follow_symlinks.0 {
@@ -1273,22 +1300,22 @@ pub(super) mod _os {
 
     #[cfg(target_os = "linux")]
     #[derive(FromArgs)]
-    struct CopyFileRangeArgs {
+    struct CopyFileRangeArgs<'fd> {
         #[pyarg(positional)]
-        src: i32,
+        src: crt_fd::Borrowed<'fd>,
         #[pyarg(positional)]
-        dst: i32,
+        dst: crt_fd::Borrowed<'fd>,
         #[pyarg(positional)]
         count: i64,
         #[pyarg(any, default)]
-        offset_src: Option<Offset>,
+        offset_src: Option<crt_fd::Offset>,
         #[pyarg(any, default)]
-        offset_dst: Option<Offset>,
+        offset_dst: Option<crt_fd::Offset>,
     }
 
     #[cfg(target_os = "linux")]
     #[pyfunction]
-    fn copy_file_range(args: CopyFileRangeArgs, vm: &VirtualMachine) -> PyResult<usize> {
+    fn copy_file_range(args: CopyFileRangeArgs<'_>, vm: &VirtualMachine) -> PyResult<usize> {
         let p_offset_src = args.offset_src.as_ref().map_or_else(std::ptr::null, |x| x);
         let p_offset_dst = args.offset_dst.as_ref().map_or_else(std::ptr::null, |x| x);
         let count: usize = args
@@ -1328,14 +1355,14 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    pub fn ftruncate(fd: i32, length: Offset, vm: &VirtualMachine) -> PyResult<()> {
-        Fd(fd).ftruncate(length).map_err(|e| e.into_pyexception(vm))
+    pub fn ftruncate(fd: crt_fd::Borrowed<'_>, length: crt_fd::Offset) -> io::Result<()> {
+        crt_fd::ftruncate(fd, length)
     }
 
     #[pyfunction]
-    fn truncate(path: PyObjectRef, length: Offset, vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(fd) = path.try_to_value(vm) {
-            return ftruncate(fd, length, vm);
+    fn truncate(path: PyObjectRef, length: crt_fd::Offset, vm: &VirtualMachine) -> PyResult<()> {
+        if let Ok(fd) = path.clone().try_into_value(vm) {
+            return ftruncate(fd, length).map_err(|e| e.into_pyexception(vm));
         }
 
         #[cold]
