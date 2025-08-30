@@ -57,7 +57,7 @@ class PatchSpec(typing.NamedTuple):
     reason: str = ""
 
     def fmt(self) -> str:
-        prefix = prefix = f"@unittest.{self.ut_method}"
+        prefix = f"@unittest.{self.ut_method}"
         match self.ut_method:
             case UtMethod.ExpectedFailure:
                 line = f"{prefix} # {COMMENT}; {self.reason}"
