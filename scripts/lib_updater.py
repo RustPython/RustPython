@@ -112,7 +112,10 @@ class PatchEntry(typing.NamedTuple):
 
                 match ut_method:
                     case UtMethod.ExpectedFailure:
-                        for line in lines[dec_node.lineno - 2 : dec_node.lineno + 1]:
+                        # Search first on decorator line, then in the line before
+                        for line in lines[
+                            dec_node.lineno - 3 : dec_node.lineno - 1 : -1
+                        ]:
                             if COMMENT not in line:
                                 continue
                             reason = "".join(re.findall(rf"{COMMENT} (.*)", line))
