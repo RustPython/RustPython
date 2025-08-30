@@ -112,7 +112,7 @@ class PatchEntry(typing.NamedTuple):
 
                 match ut_method:
                     case UtMethod.ExpectedFailure:
-                        for line in lines[dec_node.lineno - 2 : dec_node.lineno]:
+                        for line in lines[dec_node.lineno - 2 : dec_node.lineno + 1]:
                             if COMMENT not in line:
                                 continue
                             reason = "".join(re.findall(rf"{COMMENT} (.*)", line))
@@ -231,32 +231,31 @@ def build_argparse() -> argparse.ArgumentParser:
         description="Helper tool for updating files under Lib/"
     )
 
-    parser.add_argument(
-        "orig_file", help="File to gather patches from", type=pathlib.Path
+    patches_group = parser.add_mutually_exclusive_group(required=True)
+    patches_group.add_argument(
+        "-p",
+        "--patches",
+        help="File path to file containing patches in a JSON format",
+        type=pathlib.Path,
+    )
+    patches_group.add_argument(
+        "--from",
+        help="File to gather patches from",
+        dest="gather_from",
+        type=pathlib.Path,
     )
 
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
-        "remote_file",
-        nargs="?",
+        "--to",
         help="File to apply patches to",
         type=pathlib.Path,
     )
     group.add_argument(
         "--show-patches", action="store_true", help="Show the patches and exit"
     )
-    parser.add_argument(
-        "-p",
-        "--patches",
-        help="File path to file containing patches in a JSON format",
-        type=pathlib.Path,
-    )
-    parser.add_argument(
-        "--inplace",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Whether write the changes",
-    )
+
+    parser.add_argument("-o", "--output", help="Output file", type=pathlib.Path)
 
     return parser
 
@@ -265,7 +264,6 @@ if __name__ == "__main__":
     parser = build_argparse()
     args = parser.parse_args()
 
-    contents = args.orig_file.read_text()
     if args.patches:
         patches = {
             cls_name: {
@@ -275,7 +273,7 @@ if __name__ == "__main__":
             for cls_name, tests in json.loads(args.patches.read_text()).items()
         }
     else:
-        patches = build_patch_dict(iter_patches(contents))
+        patches = build_patch_dict(iter_patches(args.gather_from.read_text()))
 
     if args.show_patches:
         patches = {
@@ -285,13 +283,15 @@ if __name__ == "__main__":
             }
             for cls_name, tests in patches.items()
         }
-        output = json.dumps(patches, indent=4)
-        sys.stdout.write(f"{output}\n")
+        output = json.dumps(patches, indent=4) + "\n"
+        if args.output:
+            args.output.write_text(output)
+        else:
+            sys.stdout.write(f"{output}\n")
         sys.exit(0)
 
-    patched = apply_patches(args.remote_file.read_text(), patches)
-
-    if args.inplace:
-        args.orig_file.write_text(patched)
+    patched = apply_patches(args.to.read_text(), patches)
+    if args.output:
+        args.output.write_text(patched)
     else:
         sys.stdout.write(patched)
