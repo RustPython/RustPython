@@ -7,14 +7,13 @@ mod msvcrt {
     use crate::{
         PyRef, PyResult, VirtualMachine,
         builtins::{PyBytes, PyStrRef},
-        common::suppress_iph,
+        common::{crt_fd, suppress_iph},
+        convert::IntoPyException,
         stdlib::os::errno_err,
     };
     use itertools::Itertools;
-    use windows_sys::Win32::{
-        Foundation::{HANDLE, INVALID_HANDLE_VALUE},
-        System::Diagnostics::Debug,
-    };
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::System::Diagnostics::Debug;
 
     #[pyattr]
     use windows_sys::Win32::System::Diagnostics::Debug::{
@@ -22,7 +21,7 @@ mod msvcrt {
         SEM_NOOPENFILEERRORBOX,
     };
 
-    pub fn setmode_binary(fd: i32) {
+    pub fn setmode_binary(fd: crt_fd::Borrowed<'_>) {
         unsafe { suppress_iph!(_setmode(fd, libc::O_BINARY)) };
     }
 
@@ -76,11 +75,11 @@ mod msvcrt {
     }
 
     unsafe extern "C" {
-        fn _setmode(fd: i32, flags: i32) -> i32;
+        fn _setmode(fd: crt_fd::Borrowed<'_>, flags: i32) -> i32;
     }
 
     #[pyfunction]
-    fn setmode(fd: i32, flags: i32, vm: &VirtualMachine) -> PyResult<i32> {
+    fn setmode(fd: crt_fd::Borrowed<'_>, flags: i32, vm: &VirtualMachine) -> PyResult<i32> {
         let flags = unsafe { suppress_iph!(_setmode(fd, flags)) };
         if flags == -1 {
             Err(errno_err(vm))
@@ -91,7 +90,6 @@ mod msvcrt {
 
     unsafe extern "C" {
         fn _open_osfhandle(osfhandle: isize, flags: i32) -> i32;
-        fn _get_osfhandle(fd: i32) -> libc::intptr_t;
     }
 
     #[pyfunction]
@@ -105,13 +103,10 @@ mod msvcrt {
     }
 
     #[pyfunction]
-    fn get_osfhandle(fd: i32, vm: &VirtualMachine) -> PyResult<isize> {
-        let ret = unsafe { suppress_iph!(_get_osfhandle(fd)) };
-        if ret as HANDLE == INVALID_HANDLE_VALUE {
-            Err(errno_err(vm))
-        } else {
-            Ok(ret)
-        }
+    fn get_osfhandle(fd: crt_fd::Borrowed<'_>, vm: &VirtualMachine) -> PyResult<isize> {
+        crt_fd::as_handle(fd)
+            .map(|h| h.as_raw_handle() as _)
+            .map_err(|e| e.into_pyexception(vm))
     }
 
     #[allow(non_snake_case)]

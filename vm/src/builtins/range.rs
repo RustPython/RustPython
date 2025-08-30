@@ -174,15 +174,18 @@ pub fn init(context: &Context) {
     PyRangeIterator::extend_class(context, context.types.range_iterator_type);
 }
 
-#[pyclass(with(
-    Py,
-    AsMapping,
-    AsSequence,
-    Hashable,
-    Comparable,
-    Iterable,
-    Representable
-))]
+#[pyclass(
+    with(
+        Py,
+        AsMapping,
+        AsSequence,
+        Hashable,
+        Comparable,
+        Iterable,
+        Representable
+    ),
+    flags(SEQUENCE)
+)]
 impl PyRange {
     fn new(cls: PyTypeRef, stop: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         Self {

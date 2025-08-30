@@ -244,7 +244,7 @@ impl<T> PyTuple<PyRef<T>> {
 }
 
 #[pyclass(
-    flags(BASETYPE),
+    flags(BASETYPE, SEQUENCE, _MATCH_SELF),
     with(
         AsMapping,
         AsSequence,

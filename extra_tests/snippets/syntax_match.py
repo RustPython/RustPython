@@ -64,18 +64,46 @@ match data:
 
 match data:
     case {"a": x, "b": y}:
-        assert x == 1
-        assert y == 2
+        assert x == 1, x
+        assert y == 2, y
     case _:
         assert False
 
-# test mapping with rest (TODO: implement **rest pattern)
-# match data:
-#     case {"a": x, **rest}:
-#         assert x == 1
-#         assert rest == {"b": 2}
-#     case _:
-#         assert False
+# test mapping with rest
+match data:
+    case {"a": x, **rest}:
+        assert x == 1
+        assert rest == {"b": 2}
+    case _:
+        assert False
+
+# test empty rest
+data2 = {"a": 1}
+match data2:
+    case {"a": x, **rest}:
+        assert x == 1
+        assert rest == {}
+    case _:
+        assert False
+
+# test rest with multiple keys
+data3 = {"a": 1, "b": 2, "c": 3, "d": 4}
+match data3:
+    case {"a": x, "b": y, **rest}:
+        assert x == 1
+        assert y == 2
+        assert rest == {"c": 3, "d": 4}
+    case _:
+        assert False
+
+match data3:
+    case {"a": x, "b": y, "c": z, **rest}:
+        assert x == 1
+        assert y == 2
+        assert z == 3
+        assert rest == {"d": 4}
+    case _:
+        assert False
 
 # test mapping pattern with wildcard fallback (reproduces wheelinfo.py issue)
 test_dict = {"sha256": "abc123"}
@@ -118,7 +146,6 @@ def test_mapping_comprehensive():
             cap_x = cap_y = None
     assert cap_x == 1, f"Expected x=1, got {cap_x}"
     assert cap_y == 2, f"Expected y=2, got {cap_y}"
-    print("Comprehensive mapping tests passed!")
 
 
 test_mapping_comprehensive()

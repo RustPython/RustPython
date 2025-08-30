@@ -492,7 +492,7 @@ impl AsNumber for PyComplex {
                 let value = PyComplex::number_downcast(number).value;
                 value.norm().to_pyresult(vm)
             }),
-            boolean: Some(|number, _vm| Ok(PyComplex::number_downcast(number).value.is_zero())),
+            boolean: Some(|number, _vm| Ok(!PyComplex::number_downcast(number).value.is_zero())),
             true_divide: Some(|a, b, vm| PyComplex::number_op(a, b, inner_div, vm)),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };

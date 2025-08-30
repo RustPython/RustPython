@@ -170,7 +170,7 @@ impl PyByteArray {
 }
 
 #[pyclass(
-    flags(BASETYPE),
+    flags(BASETYPE, _MATCH_SELF),
     with(
         Py,
         PyRef,

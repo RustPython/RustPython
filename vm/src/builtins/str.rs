@@ -521,7 +521,7 @@ impl Py<PyStr> {
 }
 
 #[pyclass(
-    flags(BASETYPE),
+    flags(BASETYPE, _MATCH_SELF),
     with(
         PyRef,
         AsMapping,

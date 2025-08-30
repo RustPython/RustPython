@@ -201,7 +201,7 @@ fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
 }
 
 #[pyclass(
-    flags(BASETYPE),
+    flags(BASETYPE, _MATCH_SELF),
     with(Comparable, Hashable, Constructor, AsNumber, Representable)
 )]
 impl PyFloat {
@@ -590,7 +590,7 @@ impl AsNumber for PyFloat {
                 let value = PyFloat::number_downcast(num).value;
                 value.abs().to_pyresult(vm)
             }),
-            boolean: Some(|num, _vm| Ok(PyFloat::number_downcast(num).value.is_zero())),
+            boolean: Some(|num, _vm| Ok(!PyFloat::number_downcast(num).value.is_zero())),
             int: Some(|num, vm| {
                 let value = PyFloat::number_downcast(num).value;
                 try_to_bigint(value, vm).map(|x| PyInt::from(x).into_pyobject(vm))
