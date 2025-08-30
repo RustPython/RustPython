@@ -197,7 +197,10 @@ def iter_patch_lines(tree: ast.Module, patches: Patches) -> "Iterator[tuple[int,
 
     # Phase 2: Iterate and mark inhereted tests
     for cls_name, tests in patches.items():
-        lineno = cache[cls_name]
+        lineno = cache.get(cls_name)
+        if not lineno:
+            print(f"WARNING: {cls_name} does not exist in remote file")
+            continue
         for test_name, specs in tests.items():
             patch_lines = "\n".join(f"{INDENT1}{spec.fmt()}" for spec in specs)
             yield (
