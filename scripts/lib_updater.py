@@ -199,7 +199,7 @@ def iter_patch_lines(tree: ast.Module, patches: Patches) -> "Iterator[tuple[int,
     for cls_name, tests in patches.items():
         lineno = cache.get(cls_name)
         if not lineno:
-            print(f"WARNING: {cls_name} does not exist in remote file")
+            print(f"WARNING: {cls_name} does not exist in remote file", file=sys.stderr)
             continue
         for test_name, specs in tests.items():
             patch_lines = "\n".join(f"{INDENT1}{spec.fmt()}" for spec in specs)
@@ -287,11 +287,11 @@ if __name__ == "__main__":
         if args.output:
             args.output.write_text(output)
         else:
-            sys.stdout.write(f"{output}\n")
+            print(output, end="")
         sys.exit(0)
 
     patched = apply_patches(args.to.read_text(), patches)
     if args.output:
         args.output.write_text(patched)
     else:
-        sys.stdout.write(patched)
+        print(patched, end="")
