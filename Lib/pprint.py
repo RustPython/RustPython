@@ -1,4 +1,3 @@
-# upstream_version: v3.13.7
 #  Author:      Fred L. Drake, Jr.
 #               fdrake@acm.org
 #

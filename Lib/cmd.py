@@ -1,4 +1,3 @@
-# upstream_version: v3.13.7
 """A generic class to build line-oriented command interpreters.
 
 Interpreters constructed with this class obey the following conventions:

@@ -1,4 +1,3 @@
-# upstream_version: v3.13.7
 """Decimal fixed-point and floating-point arithmetic.
 
 This is an implementation of decimal floating-point arithmetic based on

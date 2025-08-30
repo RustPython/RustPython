@@ -1,4 +1,3 @@
-# upstream_version: v3.13.7
 """Shared OS X support functions."""
 
 import os

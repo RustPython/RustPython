@@ -1,4 +1,3 @@
-# upstream_version: v3.13.7
 import sys
 try:
     from ctypes import cdll, c_void_p, c_char_p, util

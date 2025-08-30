@@ -1,4 +1,3 @@
-# upstream_version: v3.13.7
 """Cache lines from Python source files.
 
 This is intended to read lines from modules imported -- hence if a filename

@@ -1,4 +1,3 @@
-# upstream_version: v3.13.7
 # Copyright 2007 Google Inc.
 #  Licensed to PSF under a Contributor Agreement.
 

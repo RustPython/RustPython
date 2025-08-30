@@ -1,4 +1,3 @@
-# upstream_version: v3.13.7
 # Copyright 2007 Google, Inc. All Rights Reserved.
 # Licensed to PSF under a Contributor Agreement.
 
@@ -291,27 +290,18 @@ Real.register(float)
 
 
 class Rational(Real):
-    """To Real, Rational adds numerator and denominator properties.
-
-    The numerator and denominator values should be in lowest terms,
-    with a positive denominator.
-    """
+    """.numerator and .denominator should be in lowest terms."""
 
     __slots__ = ()
 
     @property
     @abstractmethod
     def numerator(self):
-        """The numerator of a rational number in lowest terms."""
         raise NotImplementedError
 
     @property
     @abstractmethod
     def denominator(self):
-        """The denominator of a rational number in lowest terms.
-
-        This denominator should be positive.
-        """
         raise NotImplementedError
 
     # Concrete implementation of Real's conversion to float.

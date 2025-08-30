@@ -1,4 +1,3 @@
-# upstream_version: v3.13.7
 """Calendar printing functions
 
 Note when comparing these calendars to the ones printed by cal(1): By

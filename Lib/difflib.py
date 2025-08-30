@@ -1,4 +1,3 @@
-# upstream_version: v3.13.7
 """
 Module difflib -- helpers for computing deltas between objects.
 
@@ -79,8 +78,8 @@ class SequenceMatcher:
     sequences.  As a rule of thumb, a .ratio() value over 0.6 means the
     sequences are close matches:
 
-    >>> print(round(s.ratio(), 2))
-    0.87
+    >>> print(round(s.ratio(), 3))
+    0.866
     >>>
 
     If you're only interested in where the sequences match,

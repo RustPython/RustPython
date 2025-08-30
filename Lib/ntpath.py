@@ -1,4 +1,3 @@
-# upstream_version: v3.13.7
 # Module 'ntpath' -- common operations on WinNT/Win95 pathnames
 """Common pathname manipulations, WindowsNT/95 version.
 

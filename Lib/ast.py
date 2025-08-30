@@ -1,4 +1,3 @@
-# upstream_version: v3.13.7
 """
 The `ast` module helps Python applications to process trees of the Python
 abstract syntax grammar.  The abstract syntax itself might change with
