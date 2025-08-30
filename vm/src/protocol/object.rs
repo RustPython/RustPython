@@ -642,20 +642,14 @@ impl PyObject {
     }
 
     pub fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
-        let hash = self.get_class_attr(identifier!(vm, __hash__)).unwrap();
-        if vm.is_none(&hash) {
-            return Err(vm.new_exception_msg(
-                vm.ctx.exceptions.type_error.to_owned(),
-                format!("unhashable type: '{}'", self.class().name()),
-            ));
+        if let Some(hash) = self.class().mro_find_map(|cls| cls.slots.hash.load()) {
+            return hash(self, vm);
         }
 
-        let hash = self
-            .class()
-            .mro_find_map(|cls| cls.slots.hash.load())
-            .unwrap();
-
-        hash(self, vm)
+        Err(vm.new_exception_msg(
+            vm.ctx.exceptions.type_error.to_owned(),
+            format!("unhashable type: '{}'", self.class().name()),
+        ))
     }
 
     // type protocol
