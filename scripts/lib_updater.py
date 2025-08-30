@@ -1,23 +1,23 @@
 #!/usr/bin/env python
 import argparse
 import ast
-import dataclasses
+import collections
 import enum
 import json
+import pathlib
 import re
 import sys
-from typing import TYPE_CHECKING, Self
+import typing
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from collections.abc import Iterator
 
+type Patches = dict[str, dict[str, list["PatchSpec"]]]
+
+COL_OFFSET = 4
+INDENT1 = " " * COL_OFFSET
+INDENT2 = INDENT1 * 2
 COMMENT = "TODO: RUSTPYTHON"
-
-
-@enum.unique
-class ProgName(enum.StrEnum):
-    Gen = enum.auto()
-    Patch = enum.auto()
 
 
 @enum.unique
@@ -29,6 +29,9 @@ class UtMethod(enum.StrEnum):
     def _generate_next_value_(name, start, count, last_values) -> str:
         return name[0].lower() + name[1:]
 
+    def has_cond(self) -> bool:
+        return self.endswith(("If", "Unless"))
+
     ExpectedFailure = enum.auto()
     ExpectedFailureIf = enum.auto()
     ExpectedFailureIfWindows = enum.auto()
@@ -37,8 +40,36 @@ class UtMethod(enum.StrEnum):
     SkipUnless = enum.auto()
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
-class PatchEntry:
+class PatchSpec(typing.NamedTuple):
+    """
+    Attributes
+    ----------
+    ut_method : UtMethod
+        unittest method.
+    cond : str, optional
+        `ut_method` condition. Relevant only for some of `ut_method` types.
+    reason : str, optional
+        Reason for why the test is patched in this way.
+    """
+
+    ut_method: UtMethod
+    cond: str | None = None
+    reason: str = ""
+
+    def fmt(self) -> str:
+        prefix = prefix = f"@unittest.{self.ut_method}"
+        match self.ut_method:
+            case UtMethod.ExpectedFailure:
+                line = f"{prefix} # {COMMENT}; {self.reason}"
+            case UtMethod.ExpectedFailureIfWindows | UtMethod.Skip:
+                line = f'{prefix}("{COMMENT}; {self.reason}")'
+            case UtMethod.SkipIf | UtMethod.SkipUnless | UtMethod.ExpectedFailureIf:
+                line = f'{prefix}({self.cond}, "{COMMENT}; {self.reason}")'
+
+        return line.strip().rstrip(";").strip()
+
+
+class PatchEntry(typing.NamedTuple):
     """
     Stores patch metadata.
 
@@ -48,22 +79,18 @@ class PatchEntry:
         Parent class of test.
     test_name : str
         Test name.
-    ut_method : UtMethod
-        unittest method.
-    cond : str, optional
-        `ut_method` condition. Relevant only for UtMethod.{expectedFailureIf,skipIf}.
-    reason : str, optional
-        Reason for why the test is patched in this way.
+    spec : PatchSpec
+        Patch spec.
     """
 
     parent_class: str
     test_name: str
-    ut_method: UtMethod
-    cond: str | None = None
-    reason: str = ""
+    spec: PatchSpec
 
     @classmethod
-    def iter_patch_entires(cls, tree: ast.Module, lines: list[str]) -> "Iterator[Self]":
+    def iter_patch_entires(
+        cls, tree: ast.Module, lines: list[str]
+    ) -> "Iterator[typing.Self]":
         for cls_node, fn_node in iter_tests(tree):
             parent_class = cls_node.name
             for dec_node in fn_node.decorator_list:
@@ -78,7 +105,12 @@ class PatchEntry:
                     continue
 
                 cond = None
-                match attr_node.attr:
+                try:
+                    ut_method = UtMethod(attr_node.attr)
+                except ValueError:
+                    continue
+
+                match ut_method:
                     case UtMethod.ExpectedFailure:
                         for line in lines[dec_node.lineno - 2 : dec_node.lineno]:
                             if COMMENT not in line:
@@ -87,42 +119,31 @@ class PatchEntry:
                             break
                         else:
                             continue
-                    case (
-                        UtMethod.Skip
-                        | UtMethod.SkipIf
-                        | UtMethod.ExpectedFailureIf
-                        | UtMethod.ExpectedFailureIfWindows
-                    ):
+                    case _:
                         reason = next(
                             (
                                 node.value
                                 for node in ast.walk(dec_node)
                                 if isinstance(node, ast.Constant)
                                 and isinstance(node.value, str)
-                                and node.value.startswith(COMMENT)
+                                and COMMENT in node.value
                             ),
                             None,
                         )
 
-                        # If we didn't find a constant with the COMMENT, then we didn't put this decorator
+                        # If we didn't find a constant containing <COMMENT>,
+                        # then we didn't put this decorator
                         if not reason:
                             continue
 
-                        if attr_node.attr not in (
-                            UtMethod.Skip,
-                            UtMethod.ExpectedFailureIfWindows,
-                        ):
+                        if ut_method.has_cond():
                             cond = ast.unparse(dec_node.args[0])
-                    case _:
-                        continue
 
-                yield cls(
-                    parent_class,
-                    fn_node.name,
-                    UtMethod(attr_node.attr),
-                    cond,
-                    reason.replace(COMMENT, "").strip().lstrip(";").lstrip(":").strip(),
+                reason = (
+                    reason.replace(COMMENT, "").strip().lstrip(";").lstrip(":").strip()
                 )
+                spec = PatchSpec(ut_method, cond, reason)
+                yield cls(parent_class, fn_node.name, spec)
 
 
 def iter_tests(
@@ -149,12 +170,57 @@ def iter_patches(contents: str) -> "Iterator[PatchEntry]":
     yield from PatchEntry.iter_patch_entires(tree, lines)
 
 
-def read_infile(infile: str) -> str:
-    if infile == "-":
-        return sys.stdin.read()
+def build_patch_dict(it: "Iterator[PatchEntry]") -> Patches:
+    patches = collections.defaultdict(lambda: collections.defaultdict(list))
+    for entry in it:
+        patches[entry.parent_class][entry.test_name].append(entry.spec)
 
-    with open(infile, mode="r", encoding="utf-8") as fd:
-        return fd.read()
+    return {k: dict(v) for k, v in patches.items()}
+
+
+def iter_patch_lines(tree: ast.Module, patches: Patches) -> "Iterator[tuple[int, str]]":
+    cache = {}  # Used in phase 2
+
+    # Phase 1: Iterate and mark existing tests
+    for cls_node, fn_node in iter_tests(tree):
+        cache[cls_node.name] = cls_node.end_lineno
+        specs = patches.get(cls_node.name, {}).pop(fn_node.name, None)
+        if not specs:
+            continue
+
+        lineno = min(
+            (dec_node.lineno for dec_node in fn_node.decorator_list),
+            default=fn_node.lineno,
+        )
+        indent = " " * fn_node.col_offset
+        yield (lineno - 1, "\n".join(f"{indent}{spec.fmt()}" for spec in specs))
+
+    # Phase 2: Iterate and mark inhereted tests
+    for cls_name, tests in patches.items():
+        lineno = cache[cls_name]
+        for test_name, specs in tests.items():
+            patch_lines = "\n".join(f"{INDENT1}{spec.fmt()}" for spec in specs)
+            yield (
+                lineno,
+                f"""
+{patch_lines}
+{INDENT1}def {test_name}(self):
+{INDENT2}return super().{test_name}()
+""".rstrip(),
+            )
+
+
+def apply_patches(contents: str, patches: Patches) -> str:
+    tree = ast.parse(contents)
+    lines = contents.splitlines()
+
+    modifications = list(iter_patch_lines(tree, patches))
+    # Going in reverse to not distrupt the line offset
+    for lineno, patch in sorted(modifications, reverse=True):
+        lines.insert(lineno, patch)
+
+    joined = "\n".join(lines)
+    return f"{joined}\n"
 
 
 def build_argparse() -> argparse.ArgumentParser:
@@ -162,25 +228,31 @@ def build_argparse() -> argparse.ArgumentParser:
         description="Helper tool for updating files under Lib/"
     )
 
-    subparsers = parser.add_subparsers(dest="pname", required=True)
-
-    # Gen
-    parser_gen = subparsers.add_parser(ProgName.Gen)
-    parser_gen.add_argument(
-        "infile",
-        default="-",
-        help="File path to generate patches from, can get from stdin",
-        nargs="?",
+    parser.add_argument(
+        "orig_file", help="File to gather patches from", type=pathlib.Path
     )
 
-    # Patch
-    parser_patch = subparsers.add_parser(ProgName.Patch)
-    parser_patch.add_argument("src", help="File path to apply patches for")
-    parser_patch.add_argument(
-        "infile",
-        default="-",
-        help="File path containing patches, can get from stdin",
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "remote_file",
         nargs="?",
+        help="File to apply patches to",
+        type=pathlib.Path,
+    )
+    group.add_argument(
+        "--show-patches", action="store_true", help="Show the patches and exit"
+    )
+    parser.add_argument(
+        "-p",
+        "--patches",
+        help="File path to file containing patches in a JSON format",
+        type=pathlib.Path,
+    )
+    parser.add_argument(
+        "--inplace",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Whether write the changes",
     )
 
     return parser
@@ -190,13 +262,33 @@ if __name__ == "__main__":
     parser = build_argparse()
     args = parser.parse_args()
 
-    contents = read_infile(args.infile)
-    match args.pname:
-        case ProgName.Gen:
-            patches = list(map(dataclasses.asdict, iter_patches(contents)))
-            output = json.dumps(patches, indent=4)
-        case ProgName.Patch:
-            pass  # TODO
+    contents = args.orig_file.read_text()
+    if args.patches:
+        patches = {
+            cls_name: {
+                test_name: [PatchSpec(**spec) for spec in specs]
+                for test_name, specs in tests.items()
+            }
+            for cls_name, tests in json.loads(args.patches.read_text()).items()
+        }
+    else:
+        patches = build_patch_dict(iter_patches(contents))
 
-    sys.stdout.write(f"{output}\n")
-    sys.stdout.flush()
+    if args.show_patches:
+        patches = {
+            cls_name: {
+                test_name: [spec._asdict() for spec in specs]
+                for test_name, specs in tests.items()
+            }
+            for cls_name, tests in patches.items()
+        }
+        output = json.dumps(patches, indent=4)
+        sys.stdout.write(f"{output}\n")
+        sys.exit(0)
+
+    patched = apply_patches(args.remote_file.read_text(), patches)
+
+    if args.inplace:
+        args.orig_file.write_text(patched)
+    else:
+        sys.stdout.write(patched)
