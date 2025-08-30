@@ -48,7 +48,7 @@ jobs:
 #            target: aarch64-pc-windows-msvc
       fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: cargo-bins/cargo-binstall@main
 
@@ -89,7 +89,7 @@ jobs:
   build-wasm:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-wasip1
@@ -139,7 +139,7 @@ jobs:
     needs: [build, build-wasm]
     steps:
       - name: Download Binary Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: bin
           pattern: rustpython-*
