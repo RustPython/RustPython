@@ -114,7 +114,7 @@ class PatchEntry(typing.NamedTuple):
                     case UtMethod.ExpectedFailure:
                         # Search first on decorator line, then in the line before
                         for line in lines[
-                            dec_node.lineno - 3 : dec_node.lineno - 1 : -1
+                            dec_node.lineno - 1 : dec_node.lineno - 3 : -1
                         ]:
                             if COMMENT not in line:
                                 continue
