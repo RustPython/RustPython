@@ -28,7 +28,6 @@ EXCLUDE = frozenset(
         "SEEK_CUR",
         "SEEK_END",
         "SEEK_SET",
-        "WNOHANG",
         # Functions, not consts
         "WCOREDUMP",
         "WIFCONTINUED",
@@ -63,6 +62,7 @@ TARGET_OS = {
     "openbsd": "openbsd",
     "redox": "redox",
     # solaris?
+    "unix": "unix",
 }
 
 
@@ -78,7 +78,10 @@ def format_groups(groups: dict) -> "Iterator[tuple[str, str]]":
     for targets, consts in sorted(
         groups.items(), key=lambda t: (len(t[0]), sorted(t[0]))
     ):
-        cond = ", ".join(f'target_os = "{target_os}"' for target_os in sorted(targets))
+        cond = ", ".join(
+            f'target_os = "{target_os}"' if target_os != "unix" else target_os
+            for target_os in sorted(targets)
+        )
         if len(targets) > 1:
             cond = f"any({cond})"
         cfg = f"#[cfg({cond})]"

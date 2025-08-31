@@ -47,13 +47,6 @@ pub mod module {
     };
     use strum_macros::{EnumIter, EnumString};
 
-    #[cfg(target_os = "android")]
-    #[pyattr]
-    use libc::{
-        F_OK, O_CLOEXEC, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK, PRIO_PGRP, PRIO_PROCESS, PRIO_USER,
-        R_OK, RTLD_GLOBAL, RTLD_LAZY, RTLD_LOCAL, RTLD_NOW, W_OK, WCONTINUED, WUNTRACED, X_OK,
-    };
-
     #[cfg(target_os = "freebsd")]
     #[pyattr]
     use libc::{MFD_HUGE_MASK, SF_MNOWAIT, SF_NOCACHE, SF_NODISKIO, SF_SYNC};
@@ -77,6 +70,14 @@ pub mod module {
         CLONE_VM, EFD_CLOEXEC, EFD_NONBLOCK, EFD_SEMAPHORE, O_NOATIME, O_TMPFILE, P_PIDFD,
         SCHED_BATCH, SCHED_IDLE, SCHED_RESET_ON_FORK, SPLICE_F_MORE, SPLICE_F_MOVE,
         SPLICE_F_NONBLOCK,
+    };
+
+    #[cfg(any(target_os = "android", unix))]
+    #[pyattr]
+    use libc::{
+        F_OK, O_CLOEXEC, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK, PRIO_PGRP, PRIO_PROCESS, PRIO_USER,
+        R_OK, RTLD_GLOBAL, RTLD_LAZY, RTLD_LOCAL, RTLD_NOW, W_OK, WCONTINUED, WNOHANG, WUNTRACED,
+        X_OK,
     };
 
     #[cfg(any(target_os = "macos", target_os = "redox"))]
@@ -217,10 +218,6 @@ pub mod module {
     ))]
     #[pyattr]
     use libc::{O_ASYNC, WEXITED, WNOWAIT, WSTOPPED};
-
-    #[pyattr]
-    use libc::WNOHANG;
-
     #[pyattr]
     const EX_OK: i8 = exitcode::OK as i8;
 
