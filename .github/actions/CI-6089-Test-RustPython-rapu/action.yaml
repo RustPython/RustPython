@@ -109,6 +109,7 @@ runs:
       run: |
         cd ${{ inputs.override-working-dir }} || exit 13 ;
         mkdir -v -p "${OVERRIDE_RUSTPYTHONPATH:-Lib}-rpau"/test || exit 19 ;
+        mkdir -v -p "${OVERRIDE_RUSTPYTHONPATH:-Lib}-rpau"/JSON || exit 20 ;
         cd ${{ steps.store_old_path.outputs.initial-path }} || exit 15 ;
     - name: "Try Smoke Testing"
       id: smoke_test
