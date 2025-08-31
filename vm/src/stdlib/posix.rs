@@ -51,8 +51,7 @@ pub mod module {
     #[pyattr]
     use libc::{
         F_OK, O_CLOEXEC, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK, PRIO_PGRP, PRIO_PROCESS, PRIO_USER,
-        R_OK, RTLD_GLOBAL, RTLD_LAZY, RTLD_LOCAL, RTLD_NOW, W_OK, WCONTINUED, WNOHANG, WUNTRACED,
-        X_OK,
+        R_OK, RTLD_GLOBAL, RTLD_LAZY, RTLD_LOCAL, RTLD_NOW, W_OK, WCONTINUED, WUNTRACED, X_OK,
     };
 
     #[cfg(target_os = "freebsd")]
@@ -218,6 +217,9 @@ pub mod module {
     ))]
     #[pyattr]
     use libc::{O_ASYNC, WEXITED, WNOWAIT, WSTOPPED};
+
+    #[pyattr]
+    use libc::WNOHANG;
 
     #[pyattr]
     const EX_OK: i8 = exitcode::OK as i8;

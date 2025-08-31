@@ -28,6 +28,7 @@ EXCLUDE = frozenset(
         "SEEK_CUR",
         "SEEK_END",
         "SEEK_SET",
+        "WNOHANG",
         # Functions, not consts
         "WCOREDUMP",
         "WIFCONTINUED",
