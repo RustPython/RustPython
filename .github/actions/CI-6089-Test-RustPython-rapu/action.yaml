@@ -168,7 +168,7 @@ runs:
                   printf "::warning file='%s',title='test-warning':: Could not copy file %s unmodified, and pass tests %s.\n" "${reference_file}" "${reference_file}" "${CONTEXT_PHRASE}" ;
                   printf "::debug:: Will now attempt Rust Python Auto Patch with file %s, and pass re-tests %s.\n" "${reference_file}" "${CONTEXT_PHRASE}" ;
                   (
-                  ‎  run_with_timeout ${SUBSHELL_TIMEOUT} cargo run $CARGO_ARGS -- -c "import sys; import os; sys.path.insert(1, os.path.abspath('tools/rpau/src')); import rpau; rpau.main()" --workers ${WORKER_COUNT} --default-version "${PYTHON_VERSION}" --base-upstream-url "${BASE_REF_URL}" --include ${RUSTPYTHONPATH:-Lib}/test/"${REF_FILE_NAME}" --output-dir "${RUSTPYTHONPATH:-Lib}-rpau/test" || PATCH_COPY_OUTCOME='unpatchable' ;
+                  ‎  run_with_timeout ${SUBSHELL_TIMEOUT} cargo run $CARGO_ARGS -- ./scripts/lib_updater.py --from ${RUSTPYTHONPATH:-Lib}/test/"${REF_FILE_NAME}" --show-patches --output "${RUSTPYTHONPATH:-Lib}-rpau/test/${REF_FILE_NAME}" >> "${RUSTPYTHONPATH:-Lib}-rpau/JSON/${REF_FILE_NAME}.json" || PATCH_COPY_OUTCOME='unpatchable' ;
                   ) ;
                   if [[ ( -n ${PATCH_COPY_OUTCOME} ) ]] ; then
                     printf "::error file='%s',title='testing-failure':: Could not copy and auto-fix tests %s.\n" "${reference_file}" "${CONTEXT_PHRASE}" >&2 ;
@@ -256,7 +256,7 @@ runs:
                     printf "::warning file='%s',title='test-warning':: Could not copy file %s unmodified, and pass tests %s.\n" "${reference_file}" "${reference_file}" "${CONTEXT_PHRASE}" ;
                     printf "::debug:: Will now attempt Rust Python Auto Patch with file %s, and pass re-tests %s.\n" "${reference_file}" "${CONTEXT_PHRASE}" ;
                     (
-                    ‎  run_with_timeout ${SUBSHELL_TIMEOUT} cargo run $CARGO_ARGS -- -c "import sys; import os; sys.path.insert(1, os.path.abspath('tools/rpau/src')); import rpau; rpau.main()" --workers ${WORKER_COUNT} --default-version "${PYTHON_VERSION}" --base-upstream-url "${BASE_REF_URL}" --include ${RUSTPYTHONPATH:-Lib}/test/"${REF_FILE_NAME}".py --output-dir "Lib-rpau/test" || PATCH_COPY_OUTCOME='unpatchable' ;
+                      run_with_timeout ${SUBSHELL_TIMEOUT} cargo run $CARGO_ARGS -- ./scripts/lib_updater.py --from ${RUSTPYTHONPATH:-Lib}/test/"${REF_FILE_NAME}" --show-patches --output "${RUSTPYTHONPATH:-Lib}-rpau/test/${REF_FILE_NAME}" >> "${RUSTPYTHONPATH:-Lib}-rpau/JSON/test.${REF_TEST_NAME}.json" || PATCH_COPY_OUTCOME='unpatchable' ;
                     ) ;
                     if [[ ( -n ${PATCH_COPY_OUTCOME} ) ]] ; then
                       (
