@@ -66,8 +66,8 @@ pub mod module {
     #[cfg(target_os = "macos")]
     #[pyattr]
     use libc::{
-        O_EVTONLY, O_NOFOLLOW_ANY, PRIO_DARWIN_BG, PRIO_DARWIN_NONUI, PRIO_DARWIN_PROCESS,
-        PRIO_DARWIN_THREAD,
+        COPYFILE_DATA as _COPYFILE_DATA, O_EVTONLY, O_NOFOLLOW_ANY, PRIO_DARWIN_BG,
+        PRIO_DARWIN_NONUI, PRIO_DARWIN_PROCESS, PRIO_DARWIN_THREAD,
     };
 
     #[cfg(any(target_os = "android", target_os = "linux"))]
