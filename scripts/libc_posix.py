@@ -42,6 +42,11 @@ EXCLUDE = frozenset(
     }
 )
 
+EXTRAS = {
+    frozenset({"macos"}): {"COPYFILE_DATA"},
+}
+RENAMES = {"COPYFILE_DATA": "_COPYFILE_DATA"}
+
 
 def build_url(fname: str) -> str:
     return f"https://raw.githubusercontent.com/rust-lang/libc/refs/tags/{LIBC_VERSION}/libc-test/semver/{fname}.txt"
@@ -77,7 +82,10 @@ def format_groups(groups: dict) -> "Iterator[tuple[str, str]]":
             cond = f"any({cond})"
         cfg = f"#[cfg({cond})]"
 
-        imports = ", ".join(sorted(consts))
+        imports = ", ".join(
+            const if const not in RENAMES else f"{const} as {RENAMES[const]}"
+            for const in sorted(consts)
+        )
         use = f"use libc::{{{imports}}};"
         yield cfg, use
 
@@ -101,7 +109,7 @@ def main():
             continue
 
         group_consts[target_oses].add(const)
-    group_consts = dict(group_consts)
+    group_consts = {grp: v | EXTRAS.get(grp, set()) for grp, v in group_consts.items()}
 
     code = "\n\n".join(
         f"""
