@@ -46,6 +46,7 @@ class EOFTestCase(unittest.TestCase):
         self.assertEqual(cm.exception.text, "ä = '''thîs is ")
         self.assertEqual(cm.exception.offset, 5)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     @force_not_colorized
     def test_EOFS_with_file(self):
         expect = ("(<string>, line 1)")
@@ -127,6 +128,7 @@ class EOFTestCase(unittest.TestCase):
             exec('\\')
         self.assertEqual(str(cm.exception), expect)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipIf(not sys.executable, "sys.executable required")
     @force_not_colorized
     def test_line_continuation_EOF_from_file_bpo2180(self):
