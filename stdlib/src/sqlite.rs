@@ -1461,6 +1461,12 @@ mod _sqlite {
         statement: Option<PyRef<Statement>>,
     }
 
+    #[derive(FromArgs)]
+    struct FetchManyArgs {
+        #[pyarg(any, name = "size", optional)]
+        size: Option<c_int>,
+    }
+
     #[pyclass(with(Constructor, IterNext, Iterable), flags(BASETYPE))]
     impl Cursor {
         fn new(
@@ -1684,38 +1690,15 @@ mod _sqlite {
         #[pymethod]
         fn fetchmany(
             zelf: &Py<Self>,
-            mut args: FuncArgs,
+            args: FetchManyArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Vec<PyObjectRef>> {
-            let size_posarg = args.take_positional();
-            let size_kwarg = args.take_keyword("size");
-
-            if !args.args.is_empty() {
-                return Err(vm.new_type_error(format!(
-                    "fetchmany() takes from 0 to 1 positional arguments but {} were given",
-                    args.args.len() + 1
-                )));
-            }
-
-            if let Some((name_str, _)) = args.kwargs.into_iter().next() {
-                return Err(vm.new_type_error(format!(
-                    "fetchmany() got an unexpected keyword argument {name_str}",
-                )));
-            }
-
-            let max_rows: c_int = match (size_posarg, size_kwarg) {
-                (Some(pos), None) => pos.try_into_value(vm)?,
-                (None, Some(kw)) => kw.try_into_value(vm)?,
-                (None, None) => zelf.arraysize.load(Ordering::Relaxed),
-                (Some(_), Some(_)) => {
-                    return Err(vm.new_type_error(
-                        "fetchmany() got multiple values for argument 'size'".to_owned(),
-                    ));
-                }
-            };
+            let max_rows = args
+                .size
+                .unwrap_or_else(|| zelf.arraysize.load(Ordering::Relaxed));
 
             let mut list = vec![];
-            while let PyIterReturn::Return(row) = Self::next(zelf, vm)? {
+            while let PyIterReturn::Return(row) = Cursor::next(zelf, vm)? {
                 list.push(row);
                 if max_rows > 0 && list.len() as c_int >= max_rows {
                     break;
