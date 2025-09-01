@@ -2497,7 +2497,7 @@ dependencies = [
  "uuid",
  "widestring",
  "windows-sys 0.59.0",
- "xml-rs",
+ "xml",
  "xz2",
 ]
 
@@ -3742,10 +3742,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "052283831dbae3d879dc7f51f3d92703a316ca49f91540417d38591826127814"
 
 [[package]]
-name = "xml-rs"
-version = "0.8.27"
+name = "xml"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fd8403733700263c6eb89f192880191f1b83e332f7a20371ddcf421c4a337c7"
+checksum = "72e6e0a83ae73d886ab66fc2f82b598fbbb8f373357d5f2f9f783e50e4d06435"
 
 [[package]]
 name = "xz2"
