@@ -1461,6 +1461,12 @@ mod _sqlite {
         statement: Option<PyRef<Statement>>,
     }
 
+    #[derive(FromArgs)]
+    struct FetchManyArgs {
+        #[pyarg(any, name = "size", optional)]
+        size: Option<c_int>,
+    }
+
     #[pyclass(with(Constructor, IterNext, Iterable), flags(BASETYPE))]
     impl Cursor {
         fn new(
@@ -1684,14 +1690,17 @@ mod _sqlite {
         #[pymethod]
         fn fetchmany(
             zelf: &Py<Self>,
-            max_rows: OptionalArg<c_int>,
+            args: FetchManyArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Vec<PyObjectRef>> {
-            let max_rows = max_rows.unwrap_or_else(|| zelf.arraysize.load(Ordering::Relaxed));
+            let max_rows = args
+                .size
+                .unwrap_or_else(|| zelf.arraysize.load(Ordering::Relaxed));
+
             let mut list = vec![];
-            while let PyIterReturn::Return(row) = Self::next(zelf, vm)? {
+            while let PyIterReturn::Return(row) = Cursor::next(zelf, vm)? {
                 list.push(row);
-                if list.len() as c_int >= max_rows {
+                if max_rows > 0 && list.len() as c_int >= max_rows {
                     break;
                 }
             }
