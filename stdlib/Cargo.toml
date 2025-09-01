@@ -46,7 +46,7 @@ base64 = "0.22"
 csv-core = "0.1.11"
 dyn-clone = "1.0.10"
 pymath = { workspace = true }
-xml-rs = "0.8.14"
+xml = "1.0"
 
 # random
 rand_core = { workspace = true }
@@ -105,7 +105,7 @@ rustix = { workspace = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gethostname = "1.0.2"
 socket2 = { version = "0.6.0", features = ["all"] }
-dns-lookup = "2.1"
+dns-lookup = "3.0"
 openssl = { version = "0.10.72", optional = true }
 openssl-sys = { version = "0.9.80", optional = true }
 openssl-probe = { version = "0.1.5", optional = true }
