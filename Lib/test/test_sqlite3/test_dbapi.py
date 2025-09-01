@@ -1069,8 +1069,6 @@ class CursorTests(unittest.TestCase):
         res = self.cu.fetchmany(100)
         self.assertEqual(res, [])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_fetchmany_kw_arg(self):
         """Checks if fetchmany works with keyword arguments"""
         self.cu.execute("select name from test")
