@@ -1,4 +1,29 @@
 #!/usr/bin/env python
+__doc__ = """
+This tool helps with updating test files from CPython.
+
+Examples
+--------
+To move the patches found in `Lib/test/foo.py` to ` ~/cpython/Lib/test/foo.py` then write the contents back to `Lib/test/foo.py`
+
+>>> ./{fname} --from Lib/test/foo.py --to ~/cpython/Lib/test/foo.py -o Lib/test/foo.py
+
+You can run the same command without `-o` to print the output to stdout:
+
+>>> ./{fname} --from Lib/test/foo.py --to ~/cpython/Lib/test/foo.py
+
+To get a baseline of patches, you can alter the patches file with your favorite tool/script/etc and then reapply it with:
+
+>>> ./{fname} --from Lib/test/foo.py --show-patches -o my_patches.json
+
+(omit the `-o` flag to print to stdout instead).
+
+When you want to apply your own patches:
+
+>>> ./{fname} -p my_patches.json --to Lib/test/foo.py
+""".format(fname=__import__("os").path.basename(__file__))
+
+
 import argparse
 import ast
 import collections
@@ -231,7 +256,7 @@ def apply_patches(contents: str, patches: Patches) -> str:
 
 def build_argparse() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Helper tool for updating files under Lib/"
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
 
     patches_group = parser.add_mutually_exclusive_group(required=True)
