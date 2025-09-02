@@ -32,7 +32,7 @@ struct Unparser<'a, 'b, 'c> {
 
 impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
     const fn new(f: &'b mut fmt::Formatter<'a>, source: &'c SourceFile) -> Self {
-        Unparser { f, source }
+        Self { f, source }
     }
 
     fn p(&mut self, s: &str) -> fmt::Result {
@@ -169,7 +169,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                     } else {
                         self.p("lambda")?;
                     }
-                    write!(self, ": {}", unparse_expr(body, self.source))?;
+                    write!(self, ": {}", UnparseExpr::new(body, self.source))?;
                 })
             }
             Expr::If(ruff::ExprIf {
@@ -195,7 +195,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 for item in items {
                     self.p_delim(&mut first, ", ")?;
                     if let Some(k) = &item.key {
-                        write!(self, "{}: ", unparse_expr(k, self.source))?;
+                        write!(self, "{}: ", UnparseExpr::new(k, self.source))?;
                     } else {
                         self.p("**")?;
                     }
@@ -273,7 +273,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 range: _range,
             }) => {
                 if let Some(value) = value {
-                    write!(self, "(yield {})", unparse_expr(value, self.source))?;
+                    write!(self, "(yield {})", UnparseExpr::new(value, self.source))?;
                 } else {
                     self.p("(yield)")?;
                 }
@@ -282,7 +282,11 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 value,
                 range: _range,
             }) => {
-                write!(self, "(yield from {})", unparse_expr(value, self.source))?;
+                write!(
+                    self,
+                    "(yield from {})",
+                    UnparseExpr::new(value, self.source)
+                )?;
             }
             Expr::Compare(ruff::ExprCompare {
                 left,
@@ -478,7 +482,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
     fn unparse_function_arg(&mut self, arg: &ParameterWithDefault) -> fmt::Result {
         self.unparse_arg(&arg.parameter)?;
         if let Some(default) = &arg.default {
-            write!(self, "={}", unparse_expr(default, self.source))?;
+            write!(self, "={}", UnparseExpr::new(default, self.source))?;
         }
         Ok(())
     }
@@ -486,7 +490,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
     fn unparse_arg(&mut self, arg: &Parameter) -> fmt::Result {
         self.p_id(&arg.name)?;
         if let Some(ann) = &arg.annotation {
-            write!(self, ": {}", unparse_expr(ann, self.source))?;
+            write!(self, ": {}", UnparseExpr::new(ann, self.source))?;
         }
         Ok(())
     }
@@ -605,8 +609,10 @@ pub struct UnparseExpr<'a> {
     source: &'a SourceFile,
 }
 
-pub const fn unparse_expr<'a>(expr: &'a Expr, source: &'a SourceFile) -> UnparseExpr<'a> {
-    UnparseExpr { expr, source }
+impl<'a> UnparseExpr<'a> {
+    pub const fn new(expr: &'a Expr, source: &'a SourceFile) -> Self {
+        Self { expr, source }
+    }
 }
 
 impl fmt::Display for UnparseExpr<'_> {

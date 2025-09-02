@@ -238,10 +238,10 @@ mod decl {
 
     #[derive(FromArgs)]
     struct CountNewArgs {
-        #[pyarg(positional, optional)]
+        #[pyarg(any, optional)]
         start: OptionalArg<PyObjectRef>,
 
-        #[pyarg(positional, optional)]
+        #[pyarg(any, optional)]
         step: OptionalArg<PyObjectRef>,
     }
 
@@ -1945,6 +1945,7 @@ mod decl {
         exhausted: AtomicCell<bool>,
         iterable: PyIter,
         n: AtomicCell<usize>,
+        strict: AtomicCell<bool>,
     }
 
     #[derive(FromArgs)]
@@ -1953,6 +1954,8 @@ mod decl {
         iterable_ref: PyObjectRef,
         #[pyarg(positional)]
         n: PyIntRef,
+        #[pyarg(named, default = false)]
+        strict: bool,
     }
 
     impl Constructor for PyItertoolsBatched {
@@ -1960,7 +1963,11 @@ mod decl {
 
         fn py_new(
             cls: PyTypeRef,
-            Self::Args { iterable_ref, n }: Self::Args,
+            Self::Args {
+                iterable_ref,
+                n,
+                strict,
+            }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
             let n = n.as_bigint();
@@ -1976,6 +1983,7 @@ mod decl {
                 iterable,
                 n: AtomicCell::new(n),
                 exhausted: AtomicCell::new(false),
+                strict: AtomicCell::new(strict),
             }
             .into_ref_with_type(vm, cls)
             .map(Into::into)
@@ -2005,9 +2013,16 @@ mod decl {
                     }
                 }
             }
-            match result.len() {
+            let res_len = result.len();
+            match res_len {
                 0 => Ok(PyIterReturn::StopIteration(None)),
-                _ => Ok(PyIterReturn::Return(vm.ctx.new_tuple(result).into())),
+                _ => {
+                    if zelf.strict.load() && res_len != n {
+                        Err(vm.new_value_error("batched(): incomplete batch"))
+                    } else {
+                        Ok(PyIterReturn::Return(vm.ctx.new_tuple(result).into()))
+                    }
+                }
             }
         }
     }
