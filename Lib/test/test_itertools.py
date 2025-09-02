@@ -602,7 +602,7 @@ class TestBasicOps(unittest.TestCase):
                     next(testIntermediate)
                     self.assertEqual(list(op(testIntermediate)), list(result2))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: DeprecationWarning not triggered
     @pickle_deprecated
     def test_count(self):
         self.assertEqual(lzip('abc',count()), [('a', 0), ('b', 1), ('c', 2)])
