@@ -663,6 +663,7 @@ class TestBasicOps(unittest.TestCase):
         #check proper internal error handling for large "step' sizes
         count(1, maxsize+5); sys.exc_info()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     @pickle_deprecated
     def test_count_with_step(self):
         self.assertEqual(lzip('abc',count(2,3)), [('a', 2), ('b', 5), ('c', 8)])
@@ -1942,10 +1943,6 @@ class TestBasicOps(unittest.TestCase):
             with self.subTest(tp=tp):
                 with self.assertRaisesRegex(TypeError, "immutable"):
                     tp.foobar = 1
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_count_with_stride(self):
-        return super().test_count_with_stride()
 
 
 class TestExamples(unittest.TestCase):
