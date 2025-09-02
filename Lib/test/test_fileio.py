@@ -10,10 +10,14 @@ from weakref import proxy
 from functools import wraps
 
 from test.support import (
-    cpython_only, swap_attr, gc_collect, is_emscripten, is_wasi
+    cpython_only, swap_attr, gc_collect, is_emscripten, is_wasi,
+    infinite_recursion,
 )
-from test.support.os_helper import (TESTFN, TESTFN_UNICODE, make_bad_fd)
+from test.support.os_helper import (
+    TESTFN, TESTFN_ASCII, TESTFN_UNICODE, make_bad_fd,
+    )
 from test.support.warnings_helper import check_warnings
+from test.support.import_helper import import_module
 from collections import UserList
 
 import _io  # C implementation of io
@@ -171,6 +175,16 @@ class AutoFileTests:
         self.assertEqual(repr(self.f),
                          "<%s.FileIO [closed]>" % (self.modulename,))
 
+    def test_subclass_repr(self):
+        class TestSubclass(self.FileIO):
+            pass
+
+        f = TestSubclass(TESTFN)
+        with f:
+            self.assertIn(TestSubclass.__name__, repr(f))
+
+        self.assertIn(TestSubclass.__name__, repr(f))
+
     def testReprNoCloseFD(self):
         fd = os.open(TESTFN, os.O_RDONLY)
         try:
@@ -181,6 +195,7 @@ class AutoFileTests:
         finally:
             os.close(fd)
 
+    @infinite_recursion(25)
     def testRecursiveRepr(self):
         # Issue #25455
         with swap_attr(self.f, 'name', self.f):
@@ -348,40 +363,34 @@ class CAutoFileTests(AutoFileTests, unittest.TestCase):
     FileIO = _io.FileIO
     modulename = '_io'
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testBlksize(self):
-        super().testBlksize()
+        return super().testBlksize()
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def testErrnoOnClosedTruncate(self):
-            super().testErrnoOnClosedTruncate()
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
+    def testErrnoOnClosedTruncate(self):
+        return super().testErrnoOnClosedTruncate()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testMethods(self):
-        super().testMethods()
-    
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def testOpenDirFD(self):
-        super().testOpenDirFD()
+        return super().testMethods()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def testOpenDirFD(self):
+        return super().testOpenDirFD()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_subclass_repr(self):
+        return super().test_subclass_repr()
 
 @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, test setUp errors on Windows")
 class PyAutoFileTests(AutoFileTests, unittest.TestCase):
     FileIO = _pyio.FileIO
     modulename = '_pyio'
 
-    def testOpendir(self):
-        super().testOpendir()
-
 
 class OtherFileTests:
 
-    @unittest.skip("TODO: non-deterministic failures, FileIO.seekable()?")
     def testAbles(self):
         try:
             f = self.FileIO(TESTFN, "w")
@@ -458,18 +467,15 @@ class OtherFileTests:
 
     def testBytesOpen(self):
         # Opening a bytes filename
-        try:
-            fn = TESTFN.encode("ascii")
-        except UnicodeEncodeError:
-            self.skipTest('could not encode %r to ascii' % TESTFN)
+        fn = TESTFN_ASCII.encode("ascii")
         f = self.FileIO(fn, "w")
         try:
             f.write(b"abc")
             f.close()
-            with open(TESTFN, "rb") as f:
+            with self.open(TESTFN_ASCII, "rb") as f:
                 self.assertEqual(f.read(), b"abc")
         finally:
-            os.unlink(TESTFN)
+            os.unlink(TESTFN_ASCII)
 
     @unittest.skipIf(sys.getfilesystemencoding() != 'utf-8',
                      "test only works for utf-8 filesystems")
@@ -483,7 +489,7 @@ class OtherFileTests:
         try:
             f.write(b"abc")
             f.close()
-            with open(TESTFN_UNICODE, "rb") as f:
+            with self.open(TESTFN_UNICODE, "rb") as f:
                 self.assertEqual(f.read(), b"abc")
         finally:
             os.unlink(TESTFN_UNICODE)
@@ -499,6 +505,15 @@ class OtherFileTests:
         if sys.platform == 'win32':
             import msvcrt
             self.assertRaises(OSError, msvcrt.get_osfhandle, make_bad_fd())
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def testBooleanFd(self):
+        for fd in False, True:
+            with self.assertWarnsRegex(RuntimeWarning,
+                    'bool is used as a file descriptor') as cm:
+                f = self.FileIO(fd, closefd=False)
+            f.close()
+            self.assertEqual(cm.filename, __file__)
 
     def testBadModeArgument(self):
         # verify that we get a sensible error message for bad mode argument
@@ -530,7 +545,7 @@ class OtherFileTests:
 
     def testTruncateOnWindows(self):
         def bug801631():
-            # SF bug <http://www.python.org/sf/801631>
+            # SF bug <https://bugs.python.org/issue801631>
             # "file.truncate fault on windows"
             f = self.FileIO(TESTFN, 'w')
             f.write(bytes(range(11)))
@@ -559,13 +574,13 @@ class OtherFileTests:
 
     def testAppend(self):
         try:
-            f = open(TESTFN, 'wb')
+            f = self.FileIO(TESTFN, 'wb')
             f.write(b'spam')
             f.close()
-            f = open(TESTFN, 'ab')
+            f = self.FileIO(TESTFN, 'ab')
             f.write(b'eggs')
             f.close()
-            f = open(TESTFN, 'rb')
+            f = self.FileIO(TESTFN, 'rb')
             d = f.read()
             f.close()
             self.assertEqual(d, b'spameggs')
@@ -601,16 +616,12 @@ class OtherFileTests:
 class COtherFileTests(OtherFileTests, unittest.TestCase):
     FileIO = _io.FileIO
     modulename = '_io'
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def testUnclosedFDOnException(self):
-        super().testUnclosedFDOnException()
+    open = _io.open
 
     @cpython_only
     def testInvalidFd_overflow(self):
         # Issue 15989
-        import _testcapi
+        _testcapi = import_module("_testcapi")
         self.assertRaises(TypeError, self.FileIO, _testcapi.INT_MAX + 1)
         self.assertRaises(TypeError, self.FileIO, _testcapi.INT_MIN - 1)
 
@@ -623,10 +634,15 @@ class COtherFileTests(OtherFileTests, unittest.TestCase):
             actual = f.read()
         self.assertEqual(expected, actual)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def testUnclosedFDOnException(self):
+        return super().testUnclosedFDOnException()
+
 
 class PyOtherFileTests(OtherFileTests, unittest.TestCase):
     FileIO = _pyio.FileIO
     modulename = '_pyio'
+    open = _pyio.open
 
     def test_open_code(self):
         # Check that the default behaviour of open_code matches
