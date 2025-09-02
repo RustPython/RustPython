@@ -14,7 +14,7 @@ use crate::{
     error::{CodegenError, CodegenErrorType, InternalError, PatternUnreachableReason},
     ir::{self, BlockIdx},
     symboltable::{self, CompilerScope, SymbolFlags, SymbolScope, SymbolTable},
-    unparse::unparse_expr,
+    unparse::UnparseExpr,
 };
 use itertools::Itertools;
 use malachite_bigint::BigInt;
@@ -3592,7 +3592,7 @@ impl Compiler {
                         | Expr::NoneLiteral(_)
                 );
                 let key_repr = if is_literal {
-                    unparse_expr(key, &self.source_file).to_string()
+                    UnparseExpr::new(key, &self.source_file).to_string()
                 } else if is_attribute {
                     String::new()
                 } else {
@@ -4146,7 +4146,7 @@ impl Compiler {
     fn compile_annotation(&mut self, annotation: &Expr) -> CompileResult<()> {
         if self.future_annotations {
             self.emit_load_const(ConstantData::Str {
-                value: unparse_expr(annotation, &self.source_file)
+                value: UnparseExpr::new(annotation, &self.source_file)
                     .to_string()
                     .into(),
             });
