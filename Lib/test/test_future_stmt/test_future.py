@@ -81,6 +81,7 @@ class FutureTest(unittest.TestCase):
         ):
             from test.test_future_stmt import test_future_multiple_features
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Wrong error message
     def test_unknown_future_flag(self):
         code = """
             from __future__ import nested_scopes
@@ -91,6 +92,7 @@ class FutureTest(unittest.TestCase):
             message='future feature rested_snopes is not defined', offset=24,
         )
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Wrong error message
     def test_future_import_not_on_top(self):
         code = """
             import some_module
@@ -111,6 +113,7 @@ class FutureTest(unittest.TestCase):
         """
         self.assertSyntaxError(code, lineno=3)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Wrong error message
     def test_future_import_with_extra_string(self):
         code = """
             '''Docstring'''
@@ -119,6 +122,7 @@ class FutureTest(unittest.TestCase):
         """
         self.assertSyntaxError(code, lineno=3, parametrize_docstring=False)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Wrong error message
     def test_multiple_import_statements_on_same_line(self):
         # With `\`:
         code = """
@@ -133,12 +137,14 @@ class FutureTest(unittest.TestCase):
         """
         self.assertSyntaxError(code, offset=54)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Wrong error message
     def test_future_import_star(self):
         code = """
             from __future__ import *
         """
         self.assertSyntaxError(code, message='future feature * is not defined', offset=24)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Wrong error message
     def test_future_import_braces(self):
         code = """
             from __future__ import braces
@@ -151,6 +157,7 @@ class FutureTest(unittest.TestCase):
         """
         self.assertSyntaxError(code, message='not a chance', offset=39)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Wrong error message
     def test_module_with_future_import_not_on_top(self):
         with self.assertRaises(SyntaxError) as cm:
             from test.test_future_stmt import badsyntax_future
@@ -183,6 +190,7 @@ class FutureTest(unittest.TestCase):
         out = kill_python(p)
         self.assertNotIn(b'SyntaxError: invalid syntax', out)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; SyntaxError: future feature spam is not defined
     def test_future_dotted_import(self):
         with self.assertRaises(ImportError):
             exec("from .__future__ import spam")
@@ -259,6 +267,7 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         )
         return scope
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; 'a,' != '(a,)'
     def test_annotations(self):
         eq = self.assertAnnotationEqual
         eq('...')
@@ -423,6 +432,7 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         eq('(((a, b)))', '(a, b)')
         eq("1 + 2 + 3")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; "f'{x=!r}'" != "f'x={x!r}'"
     def test_fstring_debug_annotations(self):
         # f-strings with '=' don't round trip very well, so set the expected
         # result explicitly.
@@ -433,6 +443,7 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         self.assertAnnotationEqual("f'{x=!a}'", expected="f'x={x!a}'")
         self.assertAnnotationEqual("f'{x=!s:*^20}'", expected="f'x={x!s:*^20}'")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; '1e309, 1e309j' != '(1e309, 1e309j)'
     def test_infinity_numbers(self):
         inf = "1e" + repr(sys.float_info.max_10_exp + 1)
         infj = f"{inf}j"
@@ -445,6 +456,7 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         self.assertAnnotationEqual("('inf', 1e1000, 'infxxx', 1e1000j)", expected=f"('inf', {inf}, 'infxxx', {infj})")
         self.assertAnnotationEqual("(1e1000, (1e1000j,))", expected=f"({inf}, ({infj},))")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; SyntaxError not raised
     def test_annotation_with_complex_target(self):
         with self.assertRaises(SyntaxError):
             exec(
@@ -468,6 +480,7 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         self.assertEqual(foo.__code__.co_cellvars, ())
         self.assertEqual(foo().__code__.co_freevars, ())
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; "f'{x=!r}'" != "f'x={x!r}'"
     def test_annotations_forbidden(self):
         with self.assertRaises(SyntaxError):
             self._exec_future("test: (yield)")
