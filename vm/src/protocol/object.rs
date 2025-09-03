@@ -220,14 +220,13 @@ impl PyObject {
             Some(descr) => {
                 let descr_cls = descr.class();
                 let descr_get = descr_cls.mro_find_map(|cls| cls.slots.descr_get.load());
-                if let Some(descr_get) = descr_get {
-                    if descr_cls
+                if let Some(descr_get) = descr_get
+                    && descr_cls
                         .mro_find_map(|cls| cls.slots.descr_set.load())
                         .is_some()
-                    {
-                        let cls = obj_cls.to_owned().into();
-                        return descr_get(descr, Some(self.to_owned()), Some(cls), vm).map(Some);
-                    }
+                {
+                    let cls = obj_cls.to_owned().into();
+                    return descr_get(descr, Some(self.to_owned()), Some(cls), vm).map(Some);
                 }
                 Some((descr, descr_get))
             }
@@ -556,12 +555,10 @@ impl PyObject {
                 // Check __class__ attribute, only masking AttributeError
                 if let Some(i_cls) =
                     vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class__))?
+                    && let Ok(i_cls_type) = PyTypeRef::try_from_object(vm, i_cls)
+                    && !i_cls_type.is(self.class())
                 {
-                    if let Ok(i_cls_type) = PyTypeRef::try_from_object(vm, i_cls) {
-                        if !i_cls_type.is(self.class()) {
-                            retval = i_cls_type.is_subtype(cls);
-                        }
-                    }
+                    retval = i_cls_type.is_subtype(cls);
                 }
             }
             Ok(retval)

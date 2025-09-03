@@ -378,12 +378,11 @@ mod _contextvars {
                 let ctx = ctxs.last()?;
                 let cached_ptr = zelf.cached.as_ptr();
                 debug_assert!(!cached_ptr.is_null());
-                if let Some(cached) = unsafe { &*cached_ptr } {
-                    if zelf.cached_id.load(Ordering::SeqCst) == ctx.get_id()
-                        && cached.idx + 1 == ctxs.len()
-                    {
-                        return Some(cached.object.clone());
-                    }
+                if let Some(cached) = unsafe { &*cached_ptr }
+                    && zelf.cached_id.load(Ordering::SeqCst) == ctx.get_id()
+                    && cached.idx + 1 == ctxs.len()
+                {
+                    return Some(cached.object.clone());
                 }
                 let vars = ctx.borrow_vars();
                 let obj = vars.get(zelf)?;

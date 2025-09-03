@@ -183,16 +183,16 @@ mod sys {
         let ctx = &vm.ctx;
         #[cfg(not(target_arch = "wasm32"))]
         {
-            if let Some(exec_path) = env::args_os().next() {
-                if let Ok(path) = which::which(exec_path) {
-                    return ctx
-                        .new_str(
-                            path.into_os_string()
-                                .into_string()
-                                .unwrap_or_else(|p| p.to_string_lossy().into_owned()),
-                        )
-                        .into();
-                }
+            if let Some(exec_path) = env::args_os().next()
+                && let Ok(path) = which::which(exec_path)
+            {
+                return ctx
+                    .new_str(
+                        path.into_os_string()
+                            .into_string()
+                            .unwrap_or_else(|p| p.to_string_lossy().into_owned()),
+                    )
+                    .into();
             }
         }
         if let Some(exec_path) = env::args().next() {
@@ -203,16 +203,16 @@ mod sys {
             if path.is_absolute() {
                 return ctx.new_str(exec_path).into();
             }
-            if let Ok(dir) = env::current_dir() {
-                if let Ok(dir) = dir.into_os_string().into_string() {
-                    return ctx
-                        .new_str(format!(
-                            "{}/{}",
-                            dir,
-                            exec_path.strip_prefix("./").unwrap_or(&exec_path)
-                        ))
-                        .into();
-                }
+            if let Ok(dir) = env::current_dir()
+                && let Ok(dir) = dir.into_os_string().into_string()
+            {
+                return ctx
+                    .new_str(format!(
+                        "{}/{}",
+                        dir,
+                        exec_path.strip_prefix("./").unwrap_or(&exec_path)
+                    ))
+                    .into();
             }
         }
         ctx.none()
@@ -868,22 +868,22 @@ mod sys {
 
     #[pyfunction]
     fn set_asyncgen_hooks(args: SetAsyncgenHooksArgs, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(Some(finalizer)) = args.finalizer.as_option() {
-            if !finalizer.is_callable() {
-                return Err(vm.new_type_error(format!(
-                    "callable finalizer expected, got {:.50}",
-                    finalizer.class().name()
-                )));
-            }
+        if let Some(Some(finalizer)) = args.finalizer.as_option()
+            && !finalizer.is_callable()
+        {
+            return Err(vm.new_type_error(format!(
+                "callable finalizer expected, got {:.50}",
+                finalizer.class().name()
+            )));
         }
 
-        if let Some(Some(firstiter)) = args.firstiter.as_option() {
-            if !firstiter.is_callable() {
-                return Err(vm.new_type_error(format!(
-                    "callable firstiter expected, got {:.50}",
-                    firstiter.class().name()
-                )));
-            }
+        if let Some(Some(firstiter)) = args.firstiter.as_option()
+            && !firstiter.is_callable()
+        {
+            return Err(vm.new_type_error(format!(
+                "callable firstiter expected, got {:.50}",
+                firstiter.class().name()
+            )));
         }
 
         if let Some(finalizer) = args.finalizer.into_option() {

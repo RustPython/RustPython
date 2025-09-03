@@ -175,10 +175,11 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let target_block = self.get_or_create_block(label);
 
                 // If the current block isn't terminated, jump:
-                if let Some(cur) = self.builder.current_block() {
-                    if cur != target_block && self.builder.func.layout.last_inst(cur).is_none() {
-                        self.builder.ins().jump(target_block, &[]);
-                    }
+                if let Some(cur) = self.builder.current_block()
+                    && cur != target_block
+                    && self.builder.func.layout.last_inst(cur).is_none()
+                {
+                    self.builder.ins().jump(target_block, &[]);
                 }
                 // Switch to the target block
                 if self.builder.current_block() != Some(target_block) {
@@ -207,10 +208,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         }
 
         // After processing, if the current block is unterminated, insert a trap or fallthrough
-        if let Some(cur) = self.builder.current_block() {
-            if self.builder.func.layout.last_inst(cur).is_none() {
-                self.builder.ins().trap(TrapCode::user(0).unwrap());
-            }
+        if let Some(cur) = self.builder.current_block()
+            && self.builder.func.layout.last_inst(cur).is_none()
+        {
+            self.builder.ins().trap(TrapCode::user(0).unwrap());
         }
         Ok(())
     }

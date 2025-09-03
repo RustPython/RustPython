@@ -347,10 +347,11 @@ impl VirtualMachine {
                     if let Some(source) = source {
                         let loc = raw_location.start().to_usize();
                         let mut iter = source.chars();
-                        if let Some(quote) = iter.nth(loc) {
-                            if iter.next() == Some(quote) && iter.next() == Some(quote) {
-                                is_incomplete = true;
-                            }
+                        if let Some(quote) = iter.nth(loc)
+                            && iter.next() == Some(quote)
+                            && iter.next() == Some(quote)
+                        {
+                            is_incomplete = true;
                         }
                     }
 

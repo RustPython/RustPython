@@ -9,15 +9,15 @@ fn main() {
         process_python_libs("./Lib/**/*");
     }
 
-    if cfg!(windows) {
-        if let Ok(real_path) = std::fs::read_to_string("Lib") {
-            let canonicalized_path = std::fs::canonicalize(real_path)
-                .expect("failed to resolve RUSTPYTHONPATH during build time");
-            println!(
-                "cargo:rustc-env=win_lib_path={}",
-                canonicalized_path.to_str().unwrap()
-            );
-        }
+    if cfg!(windows)
+        && let Ok(real_path) = std::fs::read_to_string("Lib")
+    {
+        let canonicalized_path = std::fs::canonicalize(real_path)
+            .expect("failed to resolve RUSTPYTHONPATH during build time");
+        println!(
+            "cargo:rustc-env=win_lib_path={}",
+            canonicalized_path.to_str().unwrap()
+        );
     }
 }
 

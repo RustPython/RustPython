@@ -121,10 +121,10 @@ mod unicodedata {
 
         #[pymethod]
         fn lookup(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-            if let Some(character) = unicode_names2::character(name.as_str()) {
-                if self.check_age(character.into()) {
-                    return Ok(character.to_string());
-                }
+            if let Some(character) = unicode_names2::character(name.as_str())
+                && self.check_age(character.into())
+            {
+                return Ok(character.to_string());
             }
             Err(vm.new_lookup_error(format!("undefined character name '{name}'")))
         }
@@ -138,12 +138,11 @@ mod unicodedata {
         ) -> PyResult {
             let c = self.extract_char(character, vm)?;
 
-            if let Some(c) = c {
-                if self.check_age(c) {
-                    if let Some(name) = c.to_char().and_then(unicode_names2::name) {
-                        return Ok(vm.ctx.new_str(name.to_string()).into());
-                    }
-                }
+            if let Some(c) = c
+                && self.check_age(c)
+                && let Some(name) = c.to_char().and_then(unicode_names2::name)
+            {
+                return Ok(vm.ctx.new_str(name.to_string()).into());
             }
             default.ok_or_else(|| vm.new_value_error("no such name"))
         }

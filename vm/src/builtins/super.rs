@@ -239,19 +239,20 @@ impl Representable for PySuper {
 }
 
 fn super_check(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTypeRef> {
-    if let Ok(cls) = obj.clone().downcast::<PyType>() {
-        if cls.fast_issubclass(&ty) {
-            return Ok(cls);
-        }
+    if let Ok(cls) = obj.clone().downcast::<PyType>()
+        && cls.fast_issubclass(&ty)
+    {
+        return Ok(cls);
     }
     if obj.fast_isinstance(&ty) {
         return Ok(obj.class().to_owned());
     }
     let class_attr = obj.get_attr("__class__", vm)?;
-    if let Ok(cls) = class_attr.downcast::<PyType>() {
-        if !cls.is(&ty) && cls.fast_issubclass(&ty) {
-            return Ok(cls);
-        }
+    if let Ok(cls) = class_attr.downcast::<PyType>()
+        && !cls.is(&ty)
+        && cls.fast_issubclass(&ty)
+    {
+        return Ok(cls);
     }
     Err(vm.new_type_error("super(type, obj): obj must be an instance or subtype of type"))
 }

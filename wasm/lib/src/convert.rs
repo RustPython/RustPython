@@ -80,63 +80,63 @@ pub fn js_err_to_py_err(vm: &VirtualMachine, js_err: &JsValue) -> PyBaseExceptio
 }
 
 pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
-    if let Some(ref wasm_id) = vm.wasm_id {
-        if py_obj.fast_isinstance(vm.ctx.types.function_type) {
-            let wasm_vm = WASMVirtualMachine {
-                id: wasm_id.clone(),
-            };
-            let weak_py_obj = wasm_vm.push_held_rc(py_obj).unwrap().unwrap();
+    if let Some(ref wasm_id) = vm.wasm_id
+        && py_obj.fast_isinstance(vm.ctx.types.function_type)
+    {
+        let wasm_vm = WASMVirtualMachine {
+            id: wasm_id.clone(),
+        };
+        let weak_py_obj = wasm_vm.push_held_rc(py_obj).unwrap().unwrap();
 
-            let closure = move |args: Option<Box<[JsValue]>>,
-                                kwargs: Option<Object>|
-                  -> Result<JsValue, JsValue> {
-                let py_obj = match wasm_vm.assert_valid() {
-                    Ok(_) => weak_py_obj
-                        .upgrade()
-                        .expect("weak_py_obj to be valid if VM is valid"),
-                    Err(err) => {
-                        return Err(err);
-                    }
+        let closure = move |args: Option<Box<[JsValue]>>,
+                            kwargs: Option<Object>|
+              -> Result<JsValue, JsValue> {
+            let py_obj = match wasm_vm.assert_valid() {
+                Ok(_) => weak_py_obj
+                    .upgrade()
+                    .expect("weak_py_obj to be valid if VM is valid"),
+                Err(err) => {
+                    return Err(err);
+                }
+            };
+            stored_vm_from_wasm(&wasm_vm).interp.enter(move |vm| {
+                let args = match args {
+                    Some(args) => Vec::from(args)
+                        .into_iter()
+                        .map(|arg| js_to_py(vm, arg))
+                        .collect::<Vec<_>>(),
+                    None => Vec::new(),
                 };
-                stored_vm_from_wasm(&wasm_vm).interp.enter(move |vm| {
-                    let args = match args {
-                        Some(args) => Vec::from(args)
-                            .into_iter()
-                            .map(|arg| js_to_py(vm, arg))
-                            .collect::<Vec<_>>(),
-                        None => Vec::new(),
-                    };
-                    let mut py_func_args = FuncArgs::from(args);
-                    if let Some(ref kwargs) = kwargs {
-                        for pair in object_entries(kwargs) {
-                            let (key, val) = pair?;
-                            py_func_args
-                                .kwargs
-                                .insert(js_sys::JsString::from(key).into(), js_to_py(vm, val));
-                        }
+                let mut py_func_args = FuncArgs::from(args);
+                if let Some(ref kwargs) = kwargs {
+                    for pair in object_entries(kwargs) {
+                        let (key, val) = pair?;
+                        py_func_args
+                            .kwargs
+                            .insert(js_sys::JsString::from(key).into(), js_to_py(vm, val));
                     }
-                    let result = py_obj.call(py_func_args, vm);
-                    pyresult_to_js_result(vm, result)
-                })
-            };
-            let closure = Closure::wrap(Box::new(closure)
-                as Box<
-                    dyn FnMut(Option<Box<[JsValue]>>, Option<Object>) -> Result<JsValue, JsValue>,
-                >);
-            let func = closure.as_ref().clone();
+                }
+                let result = py_obj.call(py_func_args, vm);
+                pyresult_to_js_result(vm, result)
+            })
+        };
+        let closure = Closure::wrap(Box::new(closure)
+            as Box<
+                dyn FnMut(Option<Box<[JsValue]>>, Option<Object>) -> Result<JsValue, JsValue>,
+            >);
+        let func = closure.as_ref().clone();
 
-            // stores pretty much nothing, it's fine to leak this because if it gets dropped
-            // the error message is worse
-            closure.forget();
+        // stores pretty much nothing, it's fine to leak this because if it gets dropped
+        // the error message is worse
+        closure.forget();
 
-            return func;
-        }
+        return func;
     }
     // the browser module might not be injected
-    if vm.try_class("_js", "Promise").is_ok() {
-        if let Some(py_prom) = py_obj.downcast_ref::<js_module::PyPromise>() {
-            return py_prom.as_js(vm).into();
-        }
+    if vm.try_class("_js", "Promise").is_ok()
+        && let Some(py_prom) = py_obj.downcast_ref::<js_module::PyPromise>()
+    {
+        return py_prom.as_js(vm).into();
     }
 
     if let Ok(bytes) = ArgBytesLike::try_from_borrowed_object(vm, &py_obj) {

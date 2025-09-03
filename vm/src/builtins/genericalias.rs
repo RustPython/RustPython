@@ -269,22 +269,22 @@ pub(crate) fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupl
                 parameters[iparam] = arg.clone();
                 iparam += 1;
             }
-        } else if let Ok(subparams) = arg.get_attr(identifier!(vm, __parameters__), vm) {
-            if let Ok(sub_params) = subparams.try_to_ref::<PyTuple>(vm) {
-                let len2 = sub_params.len();
-                // Resize if needed
-                if iparam + len2 > parameters.len() {
-                    parameters.resize(iparam + len2, vm.ctx.none());
-                }
-                for sub_param in sub_params {
-                    // Use tuple_add equivalent logic
-                    if tuple_index(&parameters[..iparam], sub_param).is_none() {
-                        if iparam >= parameters.len() {
-                            parameters.resize(iparam + 1, vm.ctx.none());
-                        }
-                        parameters[iparam] = sub_param.clone();
-                        iparam += 1;
+        } else if let Ok(subparams) = arg.get_attr(identifier!(vm, __parameters__), vm)
+            && let Ok(sub_params) = subparams.try_to_ref::<PyTuple>(vm)
+        {
+            let len2 = sub_params.len();
+            // Resize if needed
+            if iparam + len2 > parameters.len() {
+                parameters.resize(iparam + len2, vm.ctx.none());
+            }
+            for sub_param in sub_params {
+                // Use tuple_add equivalent logic
+                if tuple_index(&parameters[..iparam], sub_param).is_none() {
+                    if iparam >= parameters.len() {
+                        parameters.resize(iparam + 1, vm.ctx.none());
                     }
+                    parameters[iparam] = sub_param.clone();
+                    iparam += 1;
                 }
             }
         }
@@ -376,23 +376,22 @@ fn unpack_args(item: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         }
 
         // Try to get __typing_unpacked_tuple_args__
-        if let Ok(sub_args) = item.get_attr(identifier!(vm, __typing_unpacked_tuple_args__), vm) {
-            if !sub_args.is(&vm.ctx.none) {
-                if let Ok(tuple) = sub_args.try_to_ref::<PyTuple>(vm) {
-                    // Check for ellipsis at the end
-                    let has_ellipsis_at_end = tuple
-                        .as_slice()
-                        .last()
-                        .is_some_and(|item| item.is(&vm.ctx.ellipsis));
+        if let Ok(sub_args) = item.get_attr(identifier!(vm, __typing_unpacked_tuple_args__), vm)
+            && !sub_args.is(&vm.ctx.none)
+            && let Ok(tuple) = sub_args.try_to_ref::<PyTuple>(vm)
+        {
+            // Check for ellipsis at the end
+            let has_ellipsis_at_end = tuple
+                .as_slice()
+                .last()
+                .is_some_and(|item| item.is(&vm.ctx.ellipsis));
 
-                    if !has_ellipsis_at_end {
-                        // Safe to unpack - add all elements's PyList_SetSlice
-                        for arg in tuple {
-                            new_args.push(arg.clone());
-                        }
-                        continue;
-                    }
+            if !has_ellipsis_at_end {
+                // Safe to unpack - add all elements's PyList_SetSlice
+                for arg in tuple {
+                    new_args.push(arg.clone());
                 }
+                continue;
             }
         }
 
@@ -421,17 +420,17 @@ pub fn subs_parameters(
 
     // Step 2: Call __typing_prepare_subst__ on each parameter
     for param in parameters.iter() {
-        if let Ok(prepare) = param.get_attr(identifier!(vm, __typing_prepare_subst__), vm) {
-            if !prepare.is(&vm.ctx.none) {
-                // Call prepare(self, item)
-                item = if item.try_to_ref::<PyTuple>(vm).is_ok() {
-                    prepare.call((alias.clone(), item.clone()), vm)?
-                } else {
-                    // Create a tuple with the single item's "O(O)" format
-                    let tuple_args = PyTuple::new_ref(vec![item.clone()], &vm.ctx);
-                    prepare.call((alias.clone(), tuple_args.to_pyobject(vm)), vm)?
-                };
-            }
+        if let Ok(prepare) = param.get_attr(identifier!(vm, __typing_prepare_subst__), vm)
+            && !prepare.is(&vm.ctx.none)
+        {
+            // Call prepare(self, item)
+            item = if item.try_to_ref::<PyTuple>(vm).is_ok() {
+                prepare.call((alias.clone(), item.clone()), vm)?
+            } else {
+                // Create a tuple with the single item's "O(O)" format
+                let tuple_args = PyTuple::new_ref(vec![item.clone()], &vm.ctx);
+                prepare.call((alias.clone(), tuple_args.to_pyobject(vm)), vm)?
+            };
         }
     }
 
@@ -526,12 +525,11 @@ impl Callable for PyGenericAlias {
     type Args = FuncArgs;
     fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PyType::call(&zelf.origin, args, vm).map(|obj| {
-            if let Err(exc) = obj.set_attr(identifier!(vm, __orig_class__), zelf.to_owned(), vm) {
-                if !exc.fast_isinstance(vm.ctx.exceptions.attribute_error)
-                    && !exc.fast_isinstance(vm.ctx.exceptions.type_error)
-                {
-                    return Err(exc);
-                }
+            if let Err(exc) = obj.set_attr(identifier!(vm, __orig_class__), zelf.to_owned(), vm)
+                && !exc.fast_isinstance(vm.ctx.exceptions.attribute_error)
+                && !exc.fast_isinstance(vm.ctx.exceptions.type_error)
+            {
+                return Err(exc);
             }
             Ok(obj)
         })?

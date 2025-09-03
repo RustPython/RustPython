@@ -363,20 +363,20 @@ pub(crate) mod module {
             return Ok((total, free));
         }
         let err = io::Error::last_os_error();
-        if err.raw_os_error() == Some(Foundation::ERROR_DIRECTORY as i32) {
-            if let Some(parent) = path.as_ref().parent() {
-                let parent = widestring::WideCString::from_os_str(parent).unwrap();
+        if err.raw_os_error() == Some(Foundation::ERROR_DIRECTORY as i32)
+            && let Some(parent) = path.as_ref().parent()
+        {
+            let parent = widestring::WideCString::from_os_str(parent).unwrap();
 
-                let ret = unsafe {
-                    GetDiskFreeSpaceExW(parent.as_ptr(), &mut _free_to_me, &mut total, &mut free)
-                };
+            let ret = unsafe {
+                GetDiskFreeSpaceExW(parent.as_ptr(), &mut _free_to_me, &mut total, &mut free)
+            };
 
-                return if ret == 0 {
-                    Err(errno_err(vm))
-                } else {
-                    Ok((total, free))
-                };
-            }
+            return if ret == 0 {
+                Err(errno_err(vm))
+            } else {
+                Ok((total, free))
+            };
         }
         Err(err.to_pyexception(vm))
     }

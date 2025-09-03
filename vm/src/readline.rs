@@ -95,10 +95,10 @@ mod rustyline_readline {
         }
 
         pub fn save_history(&mut self, path: &Path) -> OtherResult<()> {
-            if !path.exists() {
-                if let Some(parent) = path.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
+            if !path.exists()
+                && let Some(parent) = path.parent()
+            {
+                std::fs::create_dir_all(parent)?;
             }
             self.repl.save_history(path)?;
             Ok(())

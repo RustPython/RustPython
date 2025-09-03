@@ -35,12 +35,11 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
     let signal_handlers = vm.signal_handlers.as_ref().unwrap().borrow();
     for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
         let triggered = trigger.swap(false, Ordering::Relaxed);
-        if triggered {
-            if let Some(handler) = &signal_handlers[signum] {
-                if let Some(callable) = handler.to_callable() {
-                    callable.invoke((signum, vm.ctx.none()), vm)?;
-                }
-            }
+        if triggered
+            && let Some(handler) = &signal_handlers[signum]
+            && let Some(callable) = handler.to_callable()
+        {
+            callable.invoke((signum, vm.ctx.none()), vm)?;
         }
     }
     if let Some(signal_rx) = &vm.signal_rx {

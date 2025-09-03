@@ -192,12 +192,10 @@ impl WeakRefList {
             }))
         });
         let mut inner = unsafe { inner_ptr.as_ref().lock() };
-        if is_generic {
-            if let Some(generic_weakref) = inner.generic_weakref {
-                let generic_weakref = unsafe { generic_weakref.as_ref() };
-                if generic_weakref.0.ref_count.get() != 0 {
-                    return generic_weakref.to_owned();
-                }
+        if is_generic && let Some(generic_weakref) = inner.generic_weakref {
+            let generic_weakref = unsafe { generic_weakref.as_ref() };
+            if generic_weakref.0.ref_count.get() != 0 {
+                return generic_weakref.to_owned();
             }
         }
         let obj = PyWeak {
