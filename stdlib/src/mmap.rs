@@ -338,8 +338,8 @@ mod mmap {
                 }
             };
 
-            let fd = unsafe { crt_fd::Borrowed::try_borrow_raw(fd) }.ok();
-            if let Some(fd) = fd {
+            let fd = unsafe { crt_fd::Borrowed::try_borrow_raw(fd) };
+            if let Ok(fd) = fd {
                 let metadata = fstat(fd)
                     .map_err(|err| io::Error::from_raw_os_error(err as i32).to_pyexception(vm))?;
                 let file_len = metadata.st_size;
@@ -365,7 +365,7 @@ mod mmap {
             let mmap_opt = mmap_opt.offset(offset.try_into().unwrap()).len(map_size);
 
             let (fd, mmap) = || -> std::io::Result<_> {
-                if let Some(fd) = fd {
+                if let Ok(fd) = fd {
                     let new_fd: crt_fd::Owned = unistd::dup(fd)?.into();
                     let mmap = match access {
                         AccessMode::Default | AccessMode::Write => {

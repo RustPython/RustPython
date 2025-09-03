@@ -127,7 +127,7 @@ impl TryFromObject for Fd {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         match MaybeFd::try_from_object(vm, obj)? {
             MaybeFd::Valid(fd) => Ok(fd),
-            MaybeFd::Invalid => Err(vm.new_value_error("invalid fd".to_owned())),
+            MaybeFd::Invalid => Err(vm.new_value_error("invalid fd")),
         }
     }
 }
