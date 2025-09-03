@@ -830,13 +830,13 @@ mod sys {
         if depth < 0 {
             return Err(vm.new_value_error("depth must be >= 0"));
         }
-        crate::vm::thread::COROUTINE_ORIGIN_TRACKING_DEPTH.with(|cell| cell.set(depth as _));
+        crate::vm::thread::COROUTINE_ORIGIN_TRACKING_DEPTH.set(depth as u32);
         Ok(())
     }
 
     #[pyfunction]
     fn get_coroutine_origin_tracking_depth() -> i32 {
-        crate::vm::thread::COROUTINE_ORIGIN_TRACKING_DEPTH.with(|cell| cell.get()) as _
+        crate::vm::thread::COROUTINE_ORIGIN_TRACKING_DEPTH.get() as i32
     }
 
     #[pyfunction]
@@ -887,14 +887,10 @@ mod sys {
         }
 
         if let Some(finalizer) = args.finalizer.into_option() {
-            crate::vm::thread::ASYNC_GEN_FINALIZER.with(|cell| {
-                cell.replace(finalizer);
-            });
+            crate::vm::thread::ASYNC_GEN_FINALIZER.set(finalizer);
         }
         if let Some(firstiter) = args.firstiter.into_option() {
-            crate::vm::thread::ASYNC_GEN_FIRSTITER.with(|cell| {
-                cell.replace(firstiter);
-            });
+            crate::vm::thread::ASYNC_GEN_FIRSTITER.set(firstiter);
         }
 
         Ok(())
@@ -914,9 +910,11 @@ mod sys {
     fn get_asyncgen_hooks(vm: &VirtualMachine) -> PyAsyncgenHooks {
         PyAsyncgenHooks {
             firstiter: crate::vm::thread::ASYNC_GEN_FIRSTITER
-                .with(|cell| cell.borrow().clone().to_pyobject(vm)),
+                .with_borrow(Clone::clone)
+                .to_pyobject(vm),
             finalizer: crate::vm::thread::ASYNC_GEN_FINALIZER
-                .with(|cell| cell.borrow().clone().to_pyobject(vm)),
+                .with_borrow(Clone::clone)
+                .to_pyobject(vm),
         }
     }
 

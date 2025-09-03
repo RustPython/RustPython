@@ -107,8 +107,7 @@ mod _contextvars {
                 return Err(vm.new_runtime_error(msg));
             }
 
-            super::CONTEXTS.with(|ctxs| {
-                let mut ctxs = ctxs.borrow_mut();
+            super::CONTEXTS.with_borrow_mut(|ctxs| {
                 zelf.inner.idx.set(ctxs.len());
                 ctxs.push(zelf.to_owned());
             });
@@ -126,18 +125,12 @@ mod _contextvars {
                 return Err(vm.new_runtime_error(msg));
             }
 
-            super::CONTEXTS.with(|ctxs| {
-                let mut ctxs = ctxs.borrow_mut();
-                // TODO: use Vec::pop_if once stabilized
-                if ctxs.last().is_some_and(|ctx| ctx.get_id() == zelf.get_id()) {
-                    let _ = ctxs.pop();
-                    Ok(())
-                } else {
-                    let msg =
-                        "cannot exit context: thread state references a different context object"
-                            .to_owned();
-                    Err(vm.new_runtime_error(msg))
-                }
+            super::CONTEXTS.with_borrow_mut(|ctxs| {
+                let err_msg =
+                    "cannot exit context: thread state references a different context object";
+                ctxs.pop_if(|ctx| ctx.get_id() == zelf.get_id())
+                    .map(drop)
+                    .ok_or_else(|| vm.new_runtime_error(err_msg))
             })?;
             zelf.inner.entered.set(false);
 
@@ -145,8 +138,7 @@ mod _contextvars {
         }
 
         fn current(vm: &VirtualMachine) -> PyRef<Self> {
-            super::CONTEXTS.with(|ctxs| {
-                let mut ctxs = ctxs.borrow_mut();
+            super::CONTEXTS.with_borrow_mut(|ctxs| {
                 if let Some(ctx) = ctxs.last() {
                     ctx.clone()
                 } else {
@@ -382,8 +374,7 @@ mod _contextvars {
             default: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyObjectRef>> {
-            let found = super::CONTEXTS.with(|ctxs| {
-                let ctxs = ctxs.borrow();
+            let found = super::CONTEXTS.with_borrow(|ctxs| {
                 let ctx = ctxs.last()?;
                 let cached_ptr = zelf.cached.as_ptr();
                 debug_assert!(!cached_ptr.is_null());

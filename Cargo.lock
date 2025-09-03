@@ -2558,6 +2558,8 @@ dependencies = [
  "rustpython-sre_engine",
  "rustyline",
  "schannel",
+ "scoped-tls",
+ "scopeguard",
  "serde",
  "static_assertions",
  "strum",
@@ -2667,6 +2669,12 @@ checksum = "1f29ebaa345f945cec9fbbc532eb307f0fdad8161f281b6369539c8d84876b3d"
 dependencies = [
  "windows-sys 0.59.0",
 ]
+
+[[package]]
+name = "scoped-tls"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
 
 [[package]]
 name = "scopeguard"

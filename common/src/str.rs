@@ -533,10 +533,9 @@ pub mod levenshtein {
             return max_cost + 1;
         }
 
-        BUFFER.with(|buffer| {
-            let mut buffer = buffer.borrow_mut();
-            for i in 0..a_end {
-                buffer[i] = (i + 1) * MOVE_COST;
+        BUFFER.with_borrow_mut(|buffer| {
+            for (i, x) in buffer.iter_mut().take(a_end).enumerate() {
+                *x = (i + 1) * MOVE_COST;
             }
 
             let mut result = 0usize;

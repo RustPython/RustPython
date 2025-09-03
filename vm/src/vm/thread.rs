@@ -8,30 +8,26 @@ use std::{
 
 thread_local! {
     pub(super) static VM_STACK: RefCell<Vec<NonNull<VirtualMachine>>> = Vec::with_capacity(1).into();
-    static VM_CURRENT: RefCell<*const VirtualMachine> = std::ptr::null::<VirtualMachine>().into();
 
     pub(crate) static COROUTINE_ORIGIN_TRACKING_DEPTH: Cell<u32> = const { Cell::new(0) };
     pub(crate) static ASYNC_GEN_FINALIZER: RefCell<Option<PyObjectRef>> = const { RefCell::new(None) };
     pub(crate) static ASYNC_GEN_FIRSTITER: RefCell<Option<PyObjectRef>> = const { RefCell::new(None) };
 }
 
+scoped_tls::scoped_thread_local!(static VM_CURRENT: VirtualMachine);
+
 pub fn with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
-    VM_CURRENT.with(|x| unsafe {
-        f(x.clone()
-            .into_inner()
-            .as_ref()
-            .expect("call with_current_vm() but VM_CURRENT is null"))
-    })
+    if !VM_CURRENT.is_set() {
+        panic!("call with_current_vm() but VM_CURRENT is null");
+    }
+    VM_CURRENT.with(f)
 }
 
 pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     VM_STACK.with(|vms| {
         vms.borrow_mut().push(vm.into());
-        let prev = VM_CURRENT.with(|current| current.replace(vm));
-        let ret = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
-        vms.borrow_mut().pop();
-        VM_CURRENT.with(|current| current.replace(prev));
-        ret.unwrap_or_else(|e| std::panic::resume_unwind(e))
+        scopeguard::defer! { vms.borrow_mut().pop(); }
+        VM_CURRENT.set(vm, f)
     })
 }
 
@@ -55,10 +51,7 @@ where
         // SAFETY: all references in VM_STACK should be valid, and should not be changed or moved
         // at least until this function returns and the stack unwinds to an enter_vm() call
         let vm = unsafe { interp.as_ref() };
-        let prev = VM_CURRENT.with(|current| current.replace(vm));
-        let ret = f(vm);
-        VM_CURRENT.with(|current| current.replace(prev));
-        Some(ret)
+        Some(VM_CURRENT.set(vm, || f(vm)))
     })
 }
 
