@@ -89,7 +89,6 @@ jobs:
             .github/actions/CI-5974-Fetch-CPython
             .github/actions/CI-5974-Integrate-CPython
             .github/actions/CI-5974-Test-RustPython-Integration
-            .github/actions/CI-6089-Test-RustPython-rapu
       - name: Checkout RustPython repository on ${{ matrix.os }}
         id: fetch-rpython
         uses: ./.github/actions/CI-5974-Fetch-RustPython
@@ -102,7 +101,7 @@ jobs:
         id: fetch-cpython
         uses: ./.github/actions/CI-5974-Fetch-CPython
         with:
-          # Define the reference files to pull as a file glob pattern
+          # Define the reference files to pull as a file glob pattern (defaults to ONLY tests)
           match: "Lib/test/*.py Lib/test/**/*.py"
           # ignore: "Lib/test/*.pyc"
           python-version: ${{ matrix.python-version }}
@@ -132,12 +131,10 @@ jobs:
           printf "%s\n" "::endgroup::"
       - name: Try Smoke Testing
         id: smoke_testing
-        uses: ./.github/actions/CI-6089-Test-RustPython-rapu
+        uses: ./.github/actions/CI-5974-Test-RustPython-Integration
         with:
           override-working-dir: rustpython
           # override-rustpython-path: 'Lib'
-          override-rpau-workers: 1
-          override-rpau-base-url: 'https://raw.githubusercontent.com/python/cpython/refs/heads'
           test-files: |
             ${{ steps.fetch-cpython.outputs.files }}
           python-version: ${{ env.PYTHON_VERSION }}

@@ -71,6 +71,12 @@ runs:
         printf "::group::%s\n" "Copy Reference Implementation" ;
         for reference_file in ${INPUT_FILES}; do
           [[ -d $(dirname ${{ inputs.into-path }}/"${reference_file}" ) ]] || mkdir $MKDIR_ARGS $(dirname ${{ inputs.into-path }}/"${reference_file}" ) ;
-          cp -vf ${{ inputs.from-path }}/"${reference_file}" ${{ inputs.into-path }}/"${reference_file}" || printf "::warning file='%s',title='integration failure':: Could not integrate file for Cpython %s on %s.\n" "${reference_file}" '${PYTHON_VERSION}' '${{ runner.os }}' ;
+          if [[ "$reference_file" == Lib/test/* ]] ; then
+            # update patches with lib_updater tool from #6089
+            ${{ inputs.into-path }}/scripts/lib_updater.py --from ${{ inputs.into-path }}/"${reference_file}" --to ${{ inputs.from-path }}/"${reference_file}" -o ${{ inputs.into-path }}/"${reference_file}" || \
+              printf "::warning file='%s',title='integration failure':: Could not integrate file for Cpython %s on %s.\n" "${reference_file}" '${PYTHON_VERSION}' '${{ runner.os }}' ;
+          else
+            cp -vf ${{ inputs.from-path }}/"${reference_file}" ${{ inputs.into-path }}/"${reference_file}" || printf "::warning file='%s',title='integration failure':: Could not integrate file for Cpython %s on %s.\n" "${reference_file}" '${PYTHON_VERSION}' '${{ runner.os }}' ;
+          fi
         done ;
         printf "\n::endgroup::\n\n" ;
