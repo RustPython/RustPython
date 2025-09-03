@@ -47,40 +47,177 @@ pub mod module {
     };
     use strum_macros::{EnumIter, EnumString};
 
+    #[cfg(target_os = "freebsd")]
     #[pyattr]
-    use libc::{PRIO_PGRP, PRIO_PROCESS, PRIO_USER};
+    use libc::{MFD_HUGE_MASK, SF_MNOWAIT, SF_NOCACHE, SF_NODISKIO, SF_SYNC};
+
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    use libc::PIDFD_NONBLOCK;
+
+    #[cfg(target_os = "macos")]
+    #[pyattr]
+    use libc::{
+        COPYFILE_DATA as _COPYFILE_DATA, O_EVTONLY, O_NOFOLLOW_ANY, PRIO_DARWIN_BG,
+        PRIO_DARWIN_NONUI, PRIO_DARWIN_PROCESS, PRIO_DARWIN_THREAD,
+    };
+
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[pyattr]
+    use libc::{
+        CLONE_FILES, CLONE_FS, CLONE_NEWCGROUP, CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWNS,
+        CLONE_NEWPID, CLONE_NEWUSER, CLONE_NEWUTS, CLONE_SIGHAND, CLONE_SYSVSEM, CLONE_THREAD,
+        CLONE_VM, EFD_CLOEXEC, EFD_NONBLOCK, EFD_SEMAPHORE, O_NOATIME, O_TMPFILE, P_PIDFD,
+        SCHED_BATCH, SCHED_IDLE, SCHED_RESET_ON_FORK, SPLICE_F_MORE, SPLICE_F_MOVE,
+        SPLICE_F_NONBLOCK,
+    };
+
+    #[cfg(any(target_os = "android", unix))]
+    #[pyattr]
+    use libc::{
+        F_OK, O_CLOEXEC, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK, PRIO_PGRP, PRIO_PROCESS, PRIO_USER,
+        R_OK, RTLD_GLOBAL, RTLD_LAZY, RTLD_LOCAL, RTLD_NOW, W_OK, WCONTINUED, WNOHANG, WUNTRACED,
+        X_OK,
+    };
+
+    #[cfg(any(target_os = "macos", target_os = "redox"))]
+    #[pyattr]
+    use libc::O_SYMLINK;
+
+    #[cfg(any(target_os = "android", target_os = "freebsd", target_os = "linux"))]
+    #[pyattr]
+    use libc::{
+        MFD_ALLOW_SEALING, MFD_CLOEXEC, MFD_HUGETLB, POSIX_FADV_DONTNEED, POSIX_FADV_NOREUSE,
+        POSIX_FADV_NORMAL, POSIX_FADV_RANDOM, POSIX_FADV_SEQUENTIAL, POSIX_FADV_WILLNEED,
+    };
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "netbsd"))]
+    #[pyattr]
+    use libc::{TFD_CLOEXEC, TFD_NONBLOCK, TFD_TIMER_ABSTIME, TFD_TIMER_CANCEL_ON_SET};
+
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "netbsd"))]
+    #[pyattr]
+    use libc::{XATTR_CREATE, XATTR_REPLACE};
 
     #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "linux",
+        target_os = "netbsd"
+    ))]
+    #[pyattr]
+    use libc::{GRND_NONBLOCK, GRND_RANDOM};
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "redox"
+    ))]
+    #[pyattr]
+    use libc::O_PATH;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    use libc::O_RSYNC;
+
+    #[cfg(any(
+        target_os = "android",
         target_os = "dragonfly",
         target_os = "freebsd",
         target_os = "linux",
         target_os = "macos"
     ))]
     #[pyattr]
-    use libc::{SEEK_DATA, SEEK_HOLE};
+    use libc::{RTLD_NODELETE, SEEK_DATA, SEEK_HOLE};
 
-    #[cfg(not(any(target_os = "redox", target_os = "freebsd")))]
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "netbsd"
+    ))]
+    #[pyattr]
+    use libc::O_DIRECT;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd"
+    ))]
+    #[pyattr]
+    use libc::RTLD_NOLOAD;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
     #[pyattr]
     use libc::O_DSYNC;
 
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
     #[pyattr]
-    use libc::{O_CLOEXEC, O_NONBLOCK, WNOHANG};
+    use libc::SCHED_OTHER;
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "redox"
+    ))]
     #[pyattr]
-    use libc::{O_EVTONLY, O_FSYNC, O_NOFOLLOW_ANY, O_SYMLINK};
+    use libc::{O_EXLOCK, O_FSYNC, O_SHLOCK};
 
-    #[cfg(not(target_os = "redox"))]
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
     #[pyattr]
-    use libc::{O_NDELAY, O_NOCTTY};
+    use libc::{
+        CLD_CONTINUED, CLD_DUMPED, CLD_EXITED, CLD_KILLED, CLD_STOPPED, CLD_TRAPPED, F_LOCK,
+        F_TEST, F_TLOCK, F_ULOCK, O_NDELAY, O_NOCTTY, O_SYNC, P_ALL, P_PGID, P_PID, SCHED_FIFO,
+        SCHED_RR,
+    };
 
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "redox"
+    ))]
     #[pyattr]
-    use libc::{RTLD_GLOBAL, RTLD_LAZY, RTLD_LOCAL, RTLD_NOW};
-
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    use libc::{GRND_NONBLOCK, GRND_RANDOM};
-
+    use libc::{O_ASYNC, WEXITED, WNOWAIT, WSTOPPED};
     #[pyattr]
     const EX_OK: i8 = exitcode::OK as i8;
 
@@ -129,49 +266,6 @@ pub mod module {
     #[pyattr]
     const EX_CONFIG: i8 = exitcode::CONFIG as i8;
 
-    #[cfg(any(
-        target_os = "macos",
-        target_os = "linux",
-        target_os = "android",
-        target_os = "freebsd",
-        target_os = "dragonfly",
-        target_os = "netbsd",
-        target_os = "macos"
-    ))]
-    #[pyattr]
-    const SCHED_RR: i32 = libc::SCHED_RR;
-
-    #[cfg(any(
-        target_os = "macos",
-        target_os = "linux",
-        target_os = "android",
-        target_os = "freebsd",
-        target_os = "dragonfly",
-        target_os = "netbsd",
-        target_os = "macos"
-    ))]
-    #[pyattr]
-    const SCHED_FIFO: i32 = libc::SCHED_FIFO;
-
-    #[cfg(any(
-        target_os = "macos",
-        target_os = "linux",
-        target_os = "freebsd",
-        target_os = "dragonfly",
-        target_os = "netbsd",
-        target_os = "macos"
-    ))]
-    #[pyattr]
-    const SCHED_OTHER: i32 = libc::SCHED_OTHER;
-
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    #[pyattr]
-    const SCHED_IDLE: i32 = libc::SCHED_IDLE;
-
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    #[pyattr]
-    const SCHED_BATCH: i32 = libc::SCHED_BATCH;
-
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     #[pyattr]
     const POSIX_SPAWN_OPEN: i32 = PosixSpawnFileActionIdentifier::Open as i32;
@@ -183,10 +277,6 @@ pub mod module {
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     #[pyattr]
     const POSIX_SPAWN_DUP2: i32 = PosixSpawnFileActionIdentifier::Dup2 as i32;
-
-    #[cfg(target_os = "macos")]
-    #[pyattr]
-    const _COPYFILE_DATA: u32 = 1 << 3;
 
     impl TryFromObject for BorrowedFd<'_> {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
