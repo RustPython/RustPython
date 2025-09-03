@@ -189,6 +189,10 @@ impl Owned {
     pub fn into_raw(self) -> Raw {
         self.inner.into_raw_fd()
     }
+
+    pub fn leak<'fd>(self) -> Borrowed<'fd> {
+        unsafe { Borrowed::borrow_raw(self.into_raw()) }
+    }
 }
 
 #[cfg(unix)]

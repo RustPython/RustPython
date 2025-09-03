@@ -1559,6 +1559,7 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
+ "memoffset",
 ]
 
 [[package]]
@@ -2458,7 +2459,7 @@ dependencies = [
  "memchr",
  "memmap2",
  "mt19937",
- "nix 0.29.0",
+ "nix 0.30.1",
  "num-complex",
  "num-integer",
  "num-traits",
@@ -2533,7 +2534,7 @@ dependencies = [
  "malachite-bigint",
  "memchr",
  "memoffset",
- "nix 0.29.0",
+ "nix 0.30.1",
  "num-complex",
  "num-integer",
  "num-traits",
