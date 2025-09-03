@@ -126,8 +126,8 @@ struct Fd(BorrowedFd<'static>);
 impl TryFromObject for Fd {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         match MaybeFd::try_from_object(vm, obj)? {
-            MaybeFd::Some(fd) => Ok(fd),
-            MaybeFd::None => Err(vm.new_value_error("invalid fd".to_owned())),
+            MaybeFd::Valid(fd) => Ok(fd),
+            MaybeFd::Invalid => Err(vm.new_value_error("invalid fd".to_owned())),
         }
     }
 }
@@ -168,17 +168,17 @@ impl From<OwnedFd> for Fd {
 
 #[derive(Copy, Clone)]
 enum MaybeFd {
-    Some(Fd),
-    None,
+    Valid(Fd),
+    Invalid,
 }
 
 impl TryFromObject for MaybeFd {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let fd = i32::try_from_object(vm, obj)?;
         Ok(if fd == -1 {
-            MaybeFd::None
+            MaybeFd::Invalid
         } else {
-            MaybeFd::Some(Fd(unsafe { BorrowedFd::borrow_raw(fd) }))
+            MaybeFd::Valid(Fd(unsafe { BorrowedFd::borrow_raw(fd) }))
         })
     }
 }
@@ -186,8 +186,8 @@ impl TryFromObject for MaybeFd {
 impl AsRawFd for MaybeFd {
     fn as_raw_fd(&self) -> RawFd {
         match self {
-            MaybeFd::Some(fd) => fd.as_raw_fd(),
-            MaybeFd::None => -1,
+            MaybeFd::Valid(fd) => fd.as_raw_fd(),
+            MaybeFd::Invalid => -1,
         }
     }
 }
@@ -267,17 +267,17 @@ fn exec_inner(
     }
 
     for &fd in &[args.p2cwrite, args.c2pread, args.errread] {
-        if let MaybeFd::Some(fd) = fd {
+        if let MaybeFd::Valid(fd) = fd {
             unistd::close(fd)?;
         }
     }
     unistd::close(args.errpipe_read)?;
 
     let c2pwrite = match args.c2pwrite {
-        MaybeFd::Some(c2pwrite) if c2pwrite.as_raw_fd() == 0 => {
+        MaybeFd::Valid(c2pwrite) if c2pwrite.as_raw_fd() == 0 => {
             let fd = unistd::dup(c2pwrite)?;
             posix::set_inheritable(fd.as_fd(), true)?;
-            MaybeFd::Some(fd.into())
+            MaybeFd::Valid(fd.into())
         }
         fd => fd,
     };
@@ -285,10 +285,10 @@ fn exec_inner(
     let mut errwrite = args.errwrite;
     loop {
         match errwrite {
-            MaybeFd::Some(fd) if fd.as_raw_fd() == 0 || fd.as_raw_fd() == 1 => {
+            MaybeFd::Valid(fd) if fd.as_raw_fd() == 0 || fd.as_raw_fd() == 1 => {
                 let fd = unistd::dup(fd)?;
                 posix::set_inheritable(fd.as_fd(), true)?;
-                errwrite = MaybeFd::Some(fd.into());
+                errwrite = MaybeFd::Valid(fd.into());
             }
             _ => break,
         }
@@ -299,11 +299,11 @@ fn exec_inner(
         F: Fn(Fd) -> nix::Result<()>,
     {
         match fd {
-            MaybeFd::Some(fd) if fd.as_raw_fd() == io_fd => {
+            MaybeFd::Valid(fd) if fd.as_raw_fd() == io_fd => {
                 posix::set_inheritable(fd.as_fd(), true)
             }
-            MaybeFd::Some(fd) => dup2_stdio(fd),
-            MaybeFd::None => Ok(()),
+            MaybeFd::Valid(fd) => dup2_stdio(fd),
+            MaybeFd::Invalid => Ok(()),
         }
     }
     dup_into_stdio(args.p2cread, 0, unistd::dup2_stdin)?;
