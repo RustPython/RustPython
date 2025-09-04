@@ -193,11 +193,11 @@ mod zlib {
     fn decompressobj(args: DecompressobjArgs, vm: &VirtualMachine) -> PyResult<PyDecompress> {
         let mut decompress = InitOptions::new(args.wbits.value, vm)?.decompress();
         let zdict = args.zdict.into_option();
-        if let Some(dict) = &zdict {
-            if args.wbits.value < 0 {
-                dict.with_ref(|d| decompress.set_dictionary(d))
-                    .map_err(|_| new_zlib_error("failed to set dictionary", vm))?;
-            }
+        if let Some(dict) = &zdict
+            && args.wbits.value < 0
+        {
+            dict.with_ref(|d| decompress.set_dictionary(d))
+                .map_err(|_| new_zlib_error("failed to set dictionary", vm))?;
         }
         let inner = PyDecompressInner {
             decompress: Some(DecompressWithDict { decompress, zdict }),
@@ -573,11 +573,11 @@ mod zlib {
         fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
             let mut decompress = InitOptions::new(args.wbits.value, vm)?.decompress();
             let zdict = args.zdict.into_option();
-            if let Some(dict) = &zdict {
-                if args.wbits.value < 0 {
-                    dict.with_ref(|d| decompress.set_dictionary(d))
-                        .map_err(|_| new_zlib_error("failed to set dictionary", vm))?;
-                }
+            if let Some(dict) = &zdict
+                && args.wbits.value < 0
+            {
+                dict.with_ref(|d| decompress.set_dictionary(d))
+                    .map_err(|_| new_zlib_error("failed to set dictionary", vm))?;
             }
             let inner = DecompressState::new(DecompressWithDict { decompress, zdict }, vm);
             Self {

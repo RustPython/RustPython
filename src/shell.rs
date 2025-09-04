@@ -67,10 +67,11 @@ fn shell_exec(
             {
                 let loc = raw_location.start().to_usize();
                 let mut iter = source.chars();
-                if let Some(quote) = iter.nth(loc) {
-                    if iter.next() == Some(quote) && iter.next() == Some(quote) {
-                        return ShellExecResult::ContinueLine;
-                    }
+                if let Some(quote) = iter.nth(loc)
+                    && iter.next() == Some(quote)
+                    && iter.next() == Some(quote)
+                {
+                    return ShellExecResult::ContinueLine;
                 }
             };
 

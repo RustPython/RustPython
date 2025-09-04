@@ -273,25 +273,24 @@ impl PyType {
 
         // First check in our own attributes
         let abc_tpflags_name = ctx.intern_str("__abc_tpflags__");
-        if let Some(abc_tpflags_obj) = attrs.get(abc_tpflags_name) {
-            if let Some(int_obj) = abc_tpflags_obj.downcast_ref::<crate::builtins::int::PyInt>() {
-                let flags_val = int_obj.as_bigint().to_i64().unwrap_or(0);
-                let abc_flags = PyTypeFlags::from_bits_truncate(flags_val as u64);
-                slots.flags |= abc_flags & COLLECTION_FLAGS;
-                return;
-            }
+        if let Some(abc_tpflags_obj) = attrs.get(abc_tpflags_name)
+            && let Some(int_obj) = abc_tpflags_obj.downcast_ref::<crate::builtins::int::PyInt>()
+        {
+            let flags_val = int_obj.as_bigint().to_i64().unwrap_or(0);
+            let abc_flags = PyTypeFlags::from_bits_truncate(flags_val as u64);
+            slots.flags |= abc_flags & COLLECTION_FLAGS;
+            return;
         }
 
         // Then check in base classes
         for base in bases {
-            if let Some(abc_tpflags_obj) = base.find_name_in_mro(abc_tpflags_name) {
-                if let Some(int_obj) = abc_tpflags_obj.downcast_ref::<crate::builtins::int::PyInt>()
-                {
-                    let flags_val = int_obj.as_bigint().to_i64().unwrap_or(0);
-                    let abc_flags = PyTypeFlags::from_bits_truncate(flags_val as u64);
-                    slots.flags |= abc_flags & COLLECTION_FLAGS;
-                    return;
-                }
+            if let Some(abc_tpflags_obj) = base.find_name_in_mro(abc_tpflags_name)
+                && let Some(int_obj) = abc_tpflags_obj.downcast_ref::<crate::builtins::int::PyInt>()
+            {
+                let flags_val = int_obj.as_bigint().to_i64().unwrap_or(0);
+                let abc_flags = PyTypeFlags::from_bits_truncate(flags_val as u64);
+                slots.flags |= abc_flags & COLLECTION_FLAGS;
+                return;
             }
         }
     }
@@ -322,13 +321,13 @@ impl PyType {
             slots.basicsize = base.slots.basicsize;
         }
 
-        if let Some(qualname) = attrs.get(identifier!(ctx, __qualname__)) {
-            if !qualname.fast_isinstance(ctx.types.str_type) {
-                return Err(format!(
-                    "type __qualname__ must be a str, not {}",
-                    qualname.class().name()
-                ));
-            }
+        if let Some(qualname) = attrs.get(identifier!(ctx, __qualname__))
+            && !qualname.fast_isinstance(ctx.types.str_type)
+        {
+            return Err(format!(
+                "type __qualname__ must be a str, not {}",
+                qualname.class().name()
+            ));
         }
 
         let new_type = PyRef::new_ref(
@@ -945,10 +944,10 @@ impl PyType {
     fn __type_params__(&self, vm: &VirtualMachine) -> PyTupleRef {
         let attrs = self.attributes.read();
         let key = identifier!(vm, __type_params__);
-        if let Some(params) = attrs.get(&key) {
-            if let Ok(tuple) = params.clone().downcast::<PyTuple>() {
-                return tuple;
-            }
+        if let Some(params) = attrs.get(&key)
+            && let Ok(tuple) = params.clone().downcast::<PyTuple>()
+        {
+            return tuple;
         }
         // Return empty tuple if not found or not a tuple
         vm.ctx.empty_tuple.clone()
@@ -1064,16 +1063,16 @@ impl Constructor for PyType {
             });
         let mut attributes = dict.to_attributes(vm);
 
-        if let Some(f) = attributes.get_mut(identifier!(vm, __init_subclass__)) {
-            if f.class().is(vm.ctx.types.function_type) {
-                *f = PyClassMethod::from(f.clone()).into_pyobject(vm);
-            }
+        if let Some(f) = attributes.get_mut(identifier!(vm, __init_subclass__))
+            && f.class().is(vm.ctx.types.function_type)
+        {
+            *f = PyClassMethod::from(f.clone()).into_pyobject(vm);
         }
 
-        if let Some(f) = attributes.get_mut(identifier!(vm, __class_getitem__)) {
-            if f.class().is(vm.ctx.types.function_type) {
-                *f = PyClassMethod::from(f.clone()).into_pyobject(vm);
-            }
+        if let Some(f) = attributes.get_mut(identifier!(vm, __class_getitem__))
+            && f.class().is(vm.ctx.types.function_type)
+        {
+            *f = PyClassMethod::from(f.clone()).into_pyobject(vm);
         }
 
         if let Some(current_frame) = vm.current_frame() {
@@ -1370,12 +1369,12 @@ impl Py<PyType> {
     fn __doc__(&self, vm: &VirtualMachine) -> PyResult {
         // Similar to CPython's type_get_doc
         // For non-heap types (static types), check if there's an internal doc
-        if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
-            if let Some(internal_doc) = self.slots.doc {
-                // Process internal doc, removing signature if present
-                let doc_str = get_doc_from_internal_doc(&self.name(), internal_doc);
-                return Ok(vm.ctx.new_str(doc_str).into());
-            }
+        if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
+            && let Some(internal_doc) = self.slots.doc
+        {
+            // Process internal doc, removing signature if present
+            let doc_str = get_doc_from_internal_doc(&self.name(), internal_doc);
+            return Ok(vm.ctx.new_str(doc_str).into());
         }
 
         // Check if there's a __doc__ in the type's dict

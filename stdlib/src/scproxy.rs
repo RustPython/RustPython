@@ -86,23 +86,22 @@ mod _scproxy {
                     .and_then(|v| v.downcast::<CFNumber>())
                     .and_then(|v| v.to_i32())
                     .unwrap_or(0);
-            if enabled {
-                if let Some(host) = proxy_dict
+            if enabled
+                && let Some(host) = proxy_dict
                     .find(host_key)
                     .and_then(|v| v.downcast::<CFString>())
+            {
+                let h = std::borrow::Cow::<str>::from(&host);
+                let v = if let Some(port) = proxy_dict
+                    .find(port_key)
+                    .and_then(|v| v.downcast::<CFNumber>())
+                    .and_then(|v| v.to_i32())
                 {
-                    let h = std::borrow::Cow::<str>::from(&host);
-                    let v = if let Some(port) = proxy_dict
-                        .find(port_key)
-                        .and_then(|v| v.downcast::<CFNumber>())
-                        .and_then(|v| v.to_i32())
-                    {
-                        format!("http://{h}:{port}")
-                    } else {
-                        format!("http://{h}")
-                    };
-                    result.set_item(proto, vm.new_pyobj(v), vm)?;
-                }
+                    format!("http://{h}:{port}")
+                } else {
+                    format!("http://{h}")
+                };
+                result.set_item(proto, vm.new_pyobj(v), vm)?;
             }
             Ok(())
         };

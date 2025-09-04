@@ -33,14 +33,14 @@ pub(crate) mod _ast {
                 zelf.set_attr(name, arg, vm)?;
             }
             for (key, value) in args.kwargs {
-                if let Some(pos) = fields.iter().position(|f| f.as_str() == key) {
-                    if pos < n_args {
-                        return Err(vm.new_type_error(format!(
-                            "{} got multiple values for argument '{}'",
-                            zelf.class().name(),
-                            key
-                        )));
-                    }
+                if let Some(pos) = fields.iter().position(|f| f.as_str() == key)
+                    && pos < n_args
+                {
+                    return Err(vm.new_type_error(format!(
+                        "{} got multiple values for argument '{}'",
+                        zelf.class().name(),
+                        key
+                    )));
                 }
                 zelf.set_attr(vm.ctx.intern_str(key), value, vm)?;
             }

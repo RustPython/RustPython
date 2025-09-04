@@ -110,16 +110,16 @@ fn win32_xstat_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatStruct>
             }
         }
         Err(e) => {
-            if let Some(errno) = e.raw_os_error() {
-                if matches!(
+            if let Some(errno) = e.raw_os_error()
+                && matches!(
                     errno as u32,
                     Foundation::ERROR_FILE_NOT_FOUND
                         | Foundation::ERROR_PATH_NOT_FOUND
                         | Foundation::ERROR_NOT_READY
                         | Foundation::ERROR_BAD_NET_NAME
-                ) {
-                    return Err(e);
-                }
+                )
+            {
+                return Err(e);
             }
         }
     }

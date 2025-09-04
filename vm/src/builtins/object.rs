@@ -53,14 +53,12 @@ impl Constructor for PyBaseObject {
                 let tp_init = cls.get_attr(identifier!(vm, __init__));
                 let object_init = vm.ctx.types.object_type.get_attr(identifier!(vm, __init__));
 
-                if let (Some(tp_init), Some(object_init)) = (tp_init, object_init) {
-                    if tp_init.is(&object_init) {
-                        // Both __new__ and __init__ are object's versions,
-                        // so the type accepts no arguments
-                        return Err(
-                            vm.new_type_error(format!("{}() takes no arguments", cls.name()))
-                        );
-                    }
+                if let (Some(tp_init), Some(object_init)) = (tp_init, object_init)
+                    && tp_init.is(&object_init)
+                {
+                    // Both __new__ and __init__ are object's versions,
+                    // so the type accepts no arguments
+                    return Err(vm.new_type_error(format!("{}() takes no arguments", cls.name())));
                 }
                 // If tp_init != object_init, then the type has custom __init__
                 // which might accept arguments, so we allow it
@@ -75,32 +73,31 @@ impl Constructor for PyBaseObject {
         };
 
         // Ensure that all abstract methods are implemented before instantiating instance.
-        if let Some(abs_methods) = cls.get_attr(identifier!(vm, __abstractmethods__)) {
-            if let Some(unimplemented_abstract_method_count) = abs_methods.length_opt(vm) {
-                let methods: Vec<PyStrRef> = abs_methods.try_to_value(vm)?;
-                let methods: String =
-                    Itertools::intersperse(methods.iter().map(|name| name.as_str()), "', '")
-                        .collect();
+        if let Some(abs_methods) = cls.get_attr(identifier!(vm, __abstractmethods__))
+            && let Some(unimplemented_abstract_method_count) = abs_methods.length_opt(vm)
+        {
+            let methods: Vec<PyStrRef> = abs_methods.try_to_value(vm)?;
+            let methods: String =
+                Itertools::intersperse(methods.iter().map(|name| name.as_str()), "', '").collect();
 
-                let unimplemented_abstract_method_count = unimplemented_abstract_method_count?;
-                let name = cls.name().to_string();
+            let unimplemented_abstract_method_count = unimplemented_abstract_method_count?;
+            let name = cls.name().to_string();
 
-                match unimplemented_abstract_method_count {
-                    0 => {}
-                    1 => {
-                        return Err(vm.new_type_error(format!(
-                            "class {name} without an implementation for abstract method '{methods}'"
-                        )));
-                    }
-                    2.. => {
-                        return Err(vm.new_type_error(format!(
-                            "class {name} without an implementation for abstract methods '{methods}'"
-                        )));
-                    }
-                    // TODO: remove `allow` when redox build doesn't complain about it
-                    #[allow(unreachable_patterns)]
-                    _ => unreachable!(),
+            match unimplemented_abstract_method_count {
+                0 => {}
+                1 => {
+                    return Err(vm.new_type_error(format!(
+                        "class {name} without an implementation for abstract method '{methods}'"
+                    )));
                 }
+                2.. => {
+                    return Err(vm.new_type_error(format!(
+                        "class {name} without an implementation for abstract methods '{methods}'"
+                    )));
+                }
+                // TODO: remove `allow` when redox build doesn't complain about it
+                #[allow(unreachable_patterns)]
+                _ => unreachable!(),
             }
         }
 

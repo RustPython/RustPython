@@ -140,10 +140,10 @@ impl CompilationSource {
         let mut code_map = HashMap::new();
         let paths = fs::read_dir(path)
             .or_else(|e| {
-                if cfg!(windows) {
-                    if let Ok(real_path) = fs::read_to_string(path.canonicalize().unwrap()) {
-                        return fs::read_dir(real_path.trim());
-                    }
+                if cfg!(windows)
+                    && let Ok(real_path) = fs::read_to_string(path.canonicalize().unwrap())
+                {
+                    return fs::read_dir(real_path.trim());
                 }
                 Err(e)
             })
@@ -195,14 +195,14 @@ impl CompilationSource {
                     })
                 };
                 let code = compile_path(&path).or_else(|e| {
-                    if cfg!(windows) {
-                        if let Ok(real_path) = fs::read_to_string(path.canonicalize().unwrap()) {
-                            let joined = path.parent().unwrap().join(real_path.trim());
-                            if joined.exists() {
-                                return compile_path(&joined);
-                            } else {
-                                return Err(e);
-                            }
+                    if cfg!(windows)
+                        && let Ok(real_path) = fs::read_to_string(path.canonicalize().unwrap())
+                    {
+                        let joined = path.parent().unwrap().join(real_path.trim());
+                        if joined.exists() {
+                            return compile_path(&joined);
+                        } else {
+                            return Err(e);
                         }
                     }
                     Err(e)

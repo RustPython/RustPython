@@ -942,12 +942,11 @@ impl Compiler {
         if stack_size > self.symbol_table_stack.len() {
             // We might be in a situation where symbol table isn't pushed yet
             // In this case, check the parent symbol table
-            if let Some(parent_table) = self.symbol_table_stack.last() {
-                if let Some(symbol) = parent_table.lookup(&current_obj_name) {
-                    if symbol.scope == SymbolScope::GlobalExplicit {
-                        force_global = true;
-                    }
-                }
+            if let Some(parent_table) = self.symbol_table_stack.last()
+                && let Some(symbol) = parent_table.lookup(&current_obj_name)
+                && symbol.scope == SymbolScope::GlobalExplicit
+            {
+                force_global = true;
             }
         } else if let Some(_current_table) = self.symbol_table_stack.last() {
             // Mangle the name if necessary (for private names in classes)
@@ -956,10 +955,10 @@ impl Compiler {
             // Look up in parent symbol table to check scope
             if self.symbol_table_stack.len() >= 2 {
                 let parent_table = &self.symbol_table_stack[self.symbol_table_stack.len() - 2];
-                if let Some(symbol) = parent_table.lookup(&mangled_name) {
-                    if symbol.scope == SymbolScope::GlobalExplicit {
-                        force_global = true;
-                    }
+                if let Some(symbol) = parent_table.lookup(&mangled_name)
+                    && symbol.scope == SymbolScope::GlobalExplicit
+                {
+                    force_global = true;
                 }
             }
         }
@@ -3528,10 +3527,10 @@ impl Compiler {
         }
 
         // Validate rest pattern: '_' cannot be used as a rest target
-        if let Some(rest) = star_target {
-            if rest.as_str() == "_" {
-                return Err(self.error(CodegenErrorType::SyntaxError("invalid syntax".to_string())));
-            }
+        if let Some(rest) = star_target
+            && rest.as_str() == "_"
+        {
+            return Err(self.error(CodegenErrorType::SyntaxError("invalid syntax".to_string())));
         }
 
         // Step 1: Check if subject is a mapping
@@ -5377,11 +5376,11 @@ impl Compiler {
     }
 
     fn emit_return_value(&mut self) {
-        if let Some(inst) = self.current_block().instructions.last_mut() {
-            if let Instruction::LoadConst { idx } = inst.instr {
-                inst.instr = Instruction::ReturnConst { idx };
-                return;
-            }
+        if let Some(inst) = self.current_block().instructions.last_mut()
+            && let Instruction::LoadConst { idx } = inst.instr
+        {
+            inst.instr = Instruction::ReturnConst { idx };
+            return;
         }
         emit!(self, Instruction::ReturnValue)
     }

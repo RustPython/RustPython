@@ -280,11 +280,11 @@ impl PyFunction {
                 .take(code.kwonlyarg_count as usize)
                 .filter(|(slot, _)| slot.is_none())
             {
-                if let Some(defaults) = &get_defaults!().1 {
-                    if let Some(default) = defaults.get_item_opt(&**kwarg, vm)? {
-                        *slot = Some(default);
-                        continue;
-                    }
+                if let Some(defaults) = &get_defaults!().1
+                    && let Some(default) = defaults.get_item_opt(&**kwarg, vm)?
+                {
+                    *slot = Some(default);
+                    continue;
                 }
 
                 // No default value and not specified.

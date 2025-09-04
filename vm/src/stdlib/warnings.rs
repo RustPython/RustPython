@@ -9,10 +9,10 @@ pub fn warn(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     // TODO: use rust warnings module
-    if let Ok(module) = vm.import("warnings", 0) {
-        if let Ok(func) = module.get_attr("warn", vm) {
-            let _ = func.call((message, category.to_owned(), stack_level), vm);
-        }
+    if let Ok(module) = vm.import("warnings", 0)
+        && let Ok(func) = module.get_attr("warn", vm)
+    {
+        let _ = func.call((message, category.to_owned(), stack_level), vm);
     }
     Ok(())
 }

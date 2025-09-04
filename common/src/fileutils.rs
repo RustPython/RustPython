@@ -81,14 +81,13 @@ pub mod windows {
                     .next_back()
                     .and_then(|s| String::from_utf16(s).ok());
 
-                if let Some(file_extension) = file_extension {
-                    if file_extension.eq_ignore_ascii_case("exe")
+                if let Some(file_extension) = file_extension
+                    && (file_extension.eq_ignore_ascii_case("exe")
                         || file_extension.eq_ignore_ascii_case("bat")
                         || file_extension.eq_ignore_ascii_case("cmd")
-                        || file_extension.eq_ignore_ascii_case("com")
-                    {
-                        self.st_mode |= 0o111;
-                    }
+                        || file_extension.eq_ignore_ascii_case("com"))
+                {
+                    self.st_mode |= 0o111;
                 }
             }
         }
