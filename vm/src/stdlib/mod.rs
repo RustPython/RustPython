@@ -18,6 +18,7 @@ mod stat;
 mod string;
 #[cfg(feature = "compiler")]
 mod symtable;
+mod sysconfig;
 mod sysconfigdata;
 #[cfg(feature = "threading")]
 pub mod thread;
@@ -97,6 +98,7 @@ pub fn get_module_inits() -> StdlibMap {
             "_signal" => signal::make_module,
             "_sre" => sre::make_module,
             "_stat" => stat::make_module,
+            "_sysconfig" => sysconfig::make_module,
             "_string" => string::make_module,
             "time" => time::make_module,
             "_typing" => typing::make_module,

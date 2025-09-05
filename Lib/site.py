@@ -75,6 +75,7 @@ import builtins
 import _sitebuiltins
 import io
 import stat
+import errno
 
 # Prefixes for site-packages; add additional prefixes like /usr/local here
 PREFIXES = [sys.prefix, sys.exec_prefix]
@@ -179,35 +180,46 @@ def addpackage(sitedir, name, known_paths):
         return
     _trace(f"Processing .pth file: {fullname!r}")
     try:
-        # locale encoding is not ideal especially on Windows. But we have used
-        # it for a long time. setuptools uses the locale encoding too.
-        f = io.TextIOWrapper(io.open_code(fullname), encoding="locale")
+        with io.open_code(fullname) as f:
+            pth_content = f.read()
     except OSError:
         return
-    with f:
-        for n, line in enumerate(f):
-            if line.startswith("#"):
+
+    try:
+        # Accept BOM markers in .pth files as we do in source files
+        # (Windows PowerShell 5.1 makes it hard to emit UTF-8 files without a BOM)
+        pth_content = pth_content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        # Fallback to locale encoding for backward compatibility.
+        # We will deprecate this fallback in the future.
+        import locale
+        pth_content = pth_content.decode(locale.getencoding())
+        _trace(f"Cannot read {fullname!r} as UTF-8. "
+               f"Using fallback encoding {locale.getencoding()!r}")
+
+    for n, line in enumerate(pth_content.splitlines(), 1):
+        if line.startswith("#"):
+            continue
+        if line.strip() == "":
+            continue
+        try:
+            if line.startswith(("import ", "import\t")):
+                exec(line)
                 continue
-            if line.strip() == "":
-                continue
-            try:
-                if line.startswith(("import ", "import\t")):
-                    exec(line)
-                    continue
-                line = line.rstrip()
-                dir, dircase = makepath(sitedir, line)
-                if not dircase in known_paths and os.path.exists(dir):
-                    sys.path.append(dir)
-                    known_paths.add(dircase)
-            except Exception as exc:
-                print("Error processing line {:d} of {}:\n".format(n+1, fullname),
-                      file=sys.stderr)
-                import traceback
-                for record in traceback.format_exception(exc):
-                    for line in record.splitlines():
-                        print('  '+line, file=sys.stderr)
-                print("\nRemainder of file ignored", file=sys.stderr)
-                break
+            line = line.rstrip()
+            dir, dircase = makepath(sitedir, line)
+            if dircase not in known_paths and os.path.exists(dir):
+                sys.path.append(dir)
+                known_paths.add(dircase)
+        except Exception as exc:
+            print(f"Error processing line {n:d} of {fullname}:\n",
+                  file=sys.stderr)
+            import traceback
+            for record in traceback.format_exception(exc):
+                for line in record.splitlines():
+                    print('  '+line, file=sys.stderr)
+            print("\nRemainder of file ignored", file=sys.stderr)
+            break
     if reset:
         known_paths = None
     return known_paths
@@ -270,14 +282,18 @@ def check_enableusersite():
 #
 # See https://bugs.python.org/issue29585
 
+# Copy of sysconfig._get_implementation()
+def _get_implementation():
+    return 'RustPython' # XXX: RustPython; for site-packages
+
 # Copy of sysconfig._getuserbase()
 def _getuserbase():
     env_base = os.environ.get("PYTHONUSERBASE", None)
     if env_base:
         return env_base
 
-    # Emscripten, VxWorks, and WASI have no home directories
-    if sys.platform in {"emscripten", "vxworks", "wasi"}:
+    # Emscripten, iOS, tvOS, VxWorks, WASI, and watchOS have no home directories
+    if sys.platform in {"emscripten", "ios", "tvos", "vxworks", "wasi", "watchos"}:
         return None
 
     def joinuser(*args):
@@ -285,8 +301,7 @@ def _getuserbase():
 
     if os.name == "nt":
         base = os.environ.get("APPDATA") or "~"
-        # XXX: RUSTPYTHON; please keep this change for site-packages
-        return joinuser(base, "RustPython")
+        return joinuser(base, _get_implementation())
 
     if sys.platform == "darwin" and sys._framework:
         return joinuser("~", "Library", sys._framework,
@@ -298,15 +313,22 @@ def _getuserbase():
 # Same to sysconfig.get_path('purelib', os.name+'_user')
 def _get_path(userbase):
     version = sys.version_info
+    if hasattr(sys, 'abiflags') and 't' in sys.abiflags:
+        abi_thread = 't'
+    else:
+        abi_thread = ''
 
+    implementation = _get_implementation()
+    implementation_lower = implementation.lower()
     if os.name == 'nt':
         ver_nodot = sys.winver.replace('.', '')
-        return f'{userbase}\\RustPython{ver_nodot}\\site-packages'
+        return f'{userbase}\\{implementation}{ver_nodot}\\site-packages'
 
     if sys.platform == 'darwin' and sys._framework:
-        return f'{userbase}/lib/rustpython/site-packages'
+        return f'{userbase}/lib/{implementation_lower}/site-packages'
 
-    return f'{userbase}/lib/rustpython{version[0]}.{version[1]}/site-packages'
+    # XXX: RUSTPYTHON
+    return f'{userbase}/lib/rustpython{version[0]}.{version[1]}{abi_thread}/site-packages'
 
 
 def getuserbase():
@@ -372,6 +394,12 @@ def getsitepackages(prefixes=None):
             continue
         seen.add(prefix)
 
+        implementation = _get_implementation().lower()
+        ver = sys.version_info
+        if hasattr(sys, 'abiflags') and 't' in sys.abiflags:
+            abi_thread = 't'
+        else:
+            abi_thread = ''
         if os.sep == '/':
             libdirs = [sys.platlibdir]
             if sys.platlibdir != "lib":
@@ -379,8 +407,7 @@ def getsitepackages(prefixes=None):
 
             for libdir in libdirs:
                 path = os.path.join(prefix, libdir,
-                                    # XXX: RUSTPYTHON; please keep this change for site-packages
-                                    "rustpython%d.%d" % sys.version_info[:2],
+                                    f"{implementation}{ver[0]}.{ver[1]}{abi_thread}",
                                     "site-packages")
                 sitepackages.append(path)
         else:
@@ -417,8 +444,9 @@ def setcopyright():
     """Set 'copyright' and 'credits' in builtins"""
     builtins.copyright = _sitebuiltins._Printer("copyright", sys.copyright)
     builtins.credits = _sitebuiltins._Printer("credits", """\
-    Thanks to CWI, CNRI, BeOpen.com, Zope Corporation and a cast of thousands
-    for supporting Python development.  See www.python.org for more information.""")
+    Thanks to CWI, CNRI, BeOpen, Zope Corporation, the Python Software
+    Foundation, and a cast of thousands for supporting Python
+    development.  See www.python.org for more information.""")
     files, dirs = [], []
     # Not all modules are required to have a __file__ attribute.  See
     # PEP 420 for more details.
@@ -437,27 +465,76 @@ def setcopyright():
 def sethelper():
     builtins.help = _sitebuiltins._Helper()
 
+
+def gethistoryfile():
+    """Check if the PYTHON_HISTORY environment variable is set and define
+    it as the .python_history file.  If PYTHON_HISTORY is not set, use the
+    default .python_history file.
+    """
+    if not sys.flags.ignore_environment:
+        history = os.environ.get("PYTHON_HISTORY")
+        if history:
+            return history
+    return os.path.join(os.path.expanduser('~'),
+        '.python_history')
+
+
 def enablerlcompleter():
     """Enable default readline configuration on interactive prompts, by
     registering a sys.__interactivehook__.
+    """
+    sys.__interactivehook__ = register_readline
+
+
+def register_readline():
+    """Configure readline completion on interactive prompts.
 
     If the readline module can be imported, the hook will set the Tab key
     as completion key and register ~/.python_history as history file.
     This can be overridden in the sitecustomize or usercustomize module,
     or in a PYTHONSTARTUP file.
     """
-    def register_readline():
-        import atexit
+    if not sys.flags.ignore_environment:
+        PYTHON_BASIC_REPL = os.getenv("PYTHON_BASIC_REPL")
+    else:
+        PYTHON_BASIC_REPL = False
+
+    import atexit
+
+    try:
         try:
             import readline
-            import rlcompleter
         except ImportError:
-            return
+            readline = None
+        else:
+            import rlcompleter  # noqa: F401
+    except ImportError:
+        return
 
+    try:
+        if PYTHON_BASIC_REPL:
+            CAN_USE_PYREPL = False
+        else:
+            original_path = sys.path
+            sys.path = [p for p in original_path if p != '']
+            try:
+                import _pyrepl.readline
+                if os.name == "nt":
+                    import _pyrepl.windows_console
+                    console_errors = (_pyrepl.windows_console._error,)
+                else:
+                    import _pyrepl.unix_console
+                    console_errors = _pyrepl.unix_console._error
+                from _pyrepl.main import CAN_USE_PYREPL
+            finally:
+                sys.path = original_path
+    except ImportError:
+        return
+
+    if readline is not None:
         # Reading the initialization (config) file may not be enough to set a
         # completion key, so we set one first and then read the file.
-        readline_doc = getattr(readline, '__doc__', '')
-        if readline_doc is not None and 'libedit' in readline_doc:
+        if readline.backend == 'editline':
             readline.parse_and_bind('bind ^I rl_complete')
         else:
             readline.parse_and_bind('tab: complete')
@@ -471,30 +548,44 @@ def enablerlcompleter():
             # want to ignore the exception.
             pass
 
-        if readline.get_current_history_length() == 0:
-            # If no history was loaded, default to .python_history.
-            # The guard is necessary to avoid doubling history size at
-            # each interpreter exit when readline was already configured
-            # through a PYTHONSTARTUP hook, see:
-            # http://bugs.python.org/issue5845#msg198636
-            history = os.path.join(os.path.expanduser('~'),
-                                   '.python_history')
+    if readline is None or readline.get_current_history_length() == 0:
+        # If no history was loaded, default to .python_history,
+        # or PYTHON_HISTORY.
+        # The guard is necessary to avoid doubling history size at
+        # each interpreter exit when readline was already configured
+        # through a PYTHONSTARTUP hook, see:
+        # http://bugs.python.org/issue5845#msg198636
+        history = gethistoryfile()
+
+        if CAN_USE_PYREPL:
+            readline_module = _pyrepl.readline
+            exceptions = (OSError, *console_errors)
+        else:
+            if readline is None:
+                return
+            readline_module = readline
+            exceptions = OSError
+
+        try:
+            readline_module.read_history_file(history)
+        except exceptions:
+            pass
+
+        def write_history():
             try:
-                readline.read_history_file(history)
-            except OSError:
+                readline_module.write_history_file(history)
+            except (FileNotFoundError, PermissionError):
+                # home directory does not exist or is not writable
+                # https://bugs.python.org/issue19891
                 pass
+            except OSError:
+                if errno.EROFS:
+                    pass  # gh-128066: read-only file system
+                else:
+                    raise
 
-            def write_history():
-                try:
-                    readline.write_history_file(history)
-                except OSError:
-                    # bpo-19891, bpo-41193: Home directory does not exist
-                    # or is not writable, or the filesystem is read-only.
-                    pass
+        atexit.register(write_history)
 
-            atexit.register(write_history)
-
-    sys.__interactivehook__ = register_readline
 
 def venv(known_paths):
     global PREFIXES, ENABLE_USER_SITE
@@ -678,18 +769,6 @@ def _script():
         import textwrap
         print(textwrap.dedent(help % (sys.argv[0], os.pathsep)))
         sys.exit(10)
-
-def gethistoryfile():
-    """Check if the PYTHON_HISTORY environment variable is set and define
-    it as the .python_history file.  If PYTHON_HISTORY is not set, use the
-    default .python_history file.
-    """
-    if not sys.flags.ignore_environment:
-        history = os.environ.get("PYTHON_HISTORY")
-        if history:
-            return history
-    return os.path.join(os.path.expanduser('~'),
-        '.python_history')
 
 if __name__ == '__main__':
     _script()
