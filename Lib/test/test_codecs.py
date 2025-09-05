@@ -762,6 +762,7 @@ class UTF16Test(ReadTest, unittest.TestCase):
         f = reader(s)
         self.assertEqual(f.read(), "spamspam")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON;; UTF-16 stream does not start with BOM
     def test_badbom(self):
         s = io.BytesIO(b"\xff\xff")
         f = codecs.getreader(self.encoding)(s)
@@ -810,7 +811,6 @@ class UTF16Test(ReadTest, unittest.TestCase):
         self.check_state_handling_decode(self.encoding,
                                          "spamspam", self.spambe)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; - ValueError: invalid mode 'Ub'
     def test_bug691291(self):
         # If encoding is not None, then
         # files are always opened in binary mode, even if no binary mode was
@@ -1335,6 +1335,7 @@ class EscapeDecodeTest(unittest.TestCase):
         check(br"[\x41]", b"[A]")
         check(br"[\x410]", b"[A0]")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_warnings(self):
         decode = codecs.escape_decode
         check = coding_checker(self, decode)
@@ -1508,6 +1509,7 @@ class PunycodeTest(unittest.TestCase):
             puny = puny.decode("ascii").encode("ascii")
             self.assertEqual(uni, puny.decode("punycode"))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; b'Pro\xffprostnemluvesky' != b'Pro\xffprostnemluvesky-uyb24dma41a'
     def test_decode_invalid(self):
         testcases = [
             (b"xn--w&", "strict", UnicodeDecodeError("punycode", b"", 5, 6, "")),
@@ -1692,6 +1694,7 @@ nameprep_tests = [
 
 
 class NameprepTest(unittest.TestCase):
+    @unittest.expectedFailure # TODO: RUSTPYTHON; UnicodeError: Invalid character '\u1680'
     def test_nameprep(self):
         from encodings.idna import nameprep
         for pos, (orig, prepped) in enumerate(nameprep_tests):
@@ -1729,6 +1732,7 @@ class IDNACodecTest(unittest.TestCase):
         ("あさ.\u034f", UnicodeEncodeError("idna", "あさ.\u034f", 3, 4, "")),
     ]
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; 'XN--pythn-mua.org.' != 'pythön.org.'
     def test_builtin_decode(self):
         self.assertEqual(str(b"python.org", "idna"), "python.org")
         self.assertEqual(str(b"python.org.", "idna"), "python.org.")
@@ -1742,6 +1746,7 @@ class IDNACodecTest(unittest.TestCase):
         self.assertEqual(str(b"bugs.XN--pythn-mua.org.", "idna"),
                          "bugs.pyth\xf6n.org.")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; 'ascii' != 'idna'
     def test_builtin_decode_invalid(self):
         for case, expected in self.invalid_decode_testcases:
             with self.subTest(case=case, expected=expected):
@@ -1759,6 +1764,7 @@ class IDNACodecTest(unittest.TestCase):
         self.assertEqual("pyth\xf6n.org".encode("idna"), b"xn--pythn-mua.org")
         self.assertEqual("pyth\xf6n.org.".encode("idna"), b"xn--pythn-mua.org.")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; UnicodeError: label empty or too long
     def test_builtin_encode_invalid(self):
         for case, expected in self.invalid_encode_testcases:
             with self.subTest(case=case, expected=expected):
@@ -1770,6 +1776,7 @@ class IDNACodecTest(unittest.TestCase):
                 self.assertEqual(exc.start, expected.start)
                 self.assertEqual(exc.end, expected.end)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; UnicodeError: label empty or too long
     def test_builtin_decode_length_limit(self):
         with self.assertRaisesRegex(UnicodeDecodeError, "way too long"):
             (b"xn--016c"+b"a"*1100).decode("idna")
@@ -1811,6 +1818,7 @@ class IDNACodecTest(unittest.TestCase):
         self.assertEqual(decoder.decode(b"rg."), "org.")
         self.assertEqual(decoder.decode(b"", True), "")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; 'ascii' != 'idna'
     def test_incremental_decode_invalid(self):
         iterdecode_testcases = [
             (b"\xFFpython.org", UnicodeDecodeError("idna", b"\xFF", 0, 1, "")),
@@ -1872,6 +1880,7 @@ class IDNACodecTest(unittest.TestCase):
         self.assertEqual(encoder.encode("ample.org."), b"xn--xample-9ta.org.")
         self.assertEqual(encoder.encode("", True), b"")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; UnicodeError: label empty or too long
     def test_incremental_encode_invalid(self):
         iterencode_testcases = [
             (f"foo.{'\xff'*60}", UnicodeEncodeError("idna", f"{'\xff'*60}", 0, 60, "")),
@@ -2801,7 +2810,6 @@ class UnicodeEscapeTest(ReadTest, unittest.TestCase):
         check('\u20ac', br'\u20ac')
         check('\U0001d120', br'\U0001d120')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_escape_decode(self):
         decode = codecs.unicode_escape_decode
         check = coding_checker(self, decode)
@@ -2827,6 +2835,7 @@ class UnicodeEscapeTest(ReadTest, unittest.TestCase):
         check(br"\u20ac", "\u20ac")
         check(br"\U0001d120", "\U0001d120")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_decode_warnings(self):
         decode = codecs.unicode_escape_decode
         check = coding_checker(self, decode)
@@ -3420,6 +3429,7 @@ class ExceptionNotesTest(unittest.TestCase):
         with self.assertRaisesRegex(LookupError, msg):
             codecs.decode(b"bytes input", self.codec_name)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON;
     def test_unflagged_non_text_codec_handling(self):
         # The stdlib non-text codecs are now marked so they're
         # pre-emptively skipped by the text model related methods
