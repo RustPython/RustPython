@@ -126,7 +126,10 @@ class PatchEntry(typing.NamedTuple):
                     dec_node if isinstance(dec_node, ast.Attribute) else dec_node.func
                 )
 
-                if isinstance(attr_node, ast.Name) or attr_node.value.id != "unittest":
+                if (
+                    isinstance(attr_node, ast.Name)
+                    or getattr(attr_node.value, "id", None) != "unittest"
+                ):
                     continue
 
                 cond = None
