@@ -16,7 +16,7 @@ To get a baseline of patches, you can alter the patches file with your favorite 
 
 >>> ./{fname} --from Lib/test/foo.py --show-patches -o my_patches.json
 
-(omit the `-o` flag to print to stdout instead).
+(By default the output is set to print to stdout).
 
 When you want to apply your own patches:
 
@@ -254,6 +254,15 @@ def apply_patches(contents: str, patches: Patches) -> str:
     return f"{joined}\n"
 
 
+def write_output(data: str, dest: str) -> None:
+    if dest == "-":
+        print(data, end="")
+        return
+
+    with open(dest, "w") as fd:
+        fd.write(data)
+
+
 def build_argparse() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -283,7 +292,9 @@ def build_argparse() -> argparse.ArgumentParser:
         "--show-patches", action="store_true", help="Show the patches and exit"
     )
 
-    parser.add_argument("-o", "--output", help="Output file", type=pathlib.Path)
+    parser.add_argument(
+        "-o", "--output", default="-", help="Output file. Set to '-' for stdout"
+    )
 
     return parser
 
@@ -312,14 +323,8 @@ if __name__ == "__main__":
             for cls_name, tests in patches.items()
         }
         output = json.dumps(patches, indent=4) + "\n"
-        if args.output:
-            args.output.write_text(output)
-        else:
-            print(output, end="")
+        write_output(output, args.output)
         sys.exit(0)
 
     patched = apply_patches(args.to.read_text(), patches)
-    if args.output:
-        args.output.write_text(patched)
-    else:
-        print(patched, end="")
+    write_output(patched, args.output)
