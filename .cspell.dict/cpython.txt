@@ -23,6 +23,7 @@ freevars
 fromlist
 heaptype
 HIGHRES
+Itertool
 IMMUTABLETYPE
 kwonlyarg
 kwonlyargs

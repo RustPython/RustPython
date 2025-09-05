@@ -19,7 +19,7 @@ mod decl {
         identifier,
         protocol::{PyIter, PyIterReturn, PyNumber},
         raise_if_stop,
-        stdlib::sys,
+        stdlib::{sys, warnings},
         types::{Constructor, IterNext, Iterable, Representable, SelfIter},
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -28,6 +28,15 @@ mod decl {
 
     use num_traits::{Signed, ToPrimitive};
     use std::fmt;
+
+    fn pickle_deprecation(vm: &VirtualMachine) -> PyResult<()> {
+        warnings::warn(
+            vm.ctx.exceptions.deprecation_warning,
+            "Itertool pickle/copy/deepcopy support will be removed in a Python 3.14.".to_owned(),
+            1,
+            vm,
+        )
+    }
 
     #[pyattr]
     #[pyclass(name = "chain")]
@@ -74,6 +83,7 @@ mod decl {
 
         #[pymethod]
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+            pickle_deprecation(vm)?;
             let source = zelf.source.read().clone();
             let active = zelf.active.read().clone();
             let cls = zelf.class().to_owned();
@@ -204,7 +214,8 @@ mod decl {
     #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsCompress {
         #[pymethod]
-        fn __reduce__(zelf: PyRef<Self>) -> (PyTypeRef, (PyIter, PyIter)) {
+        fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyTypeRef, (PyIter, PyIter)) {
+            let _ = pickle_deprecation(vm);
             (
                 zelf.class().to_owned(),
                 (zelf.data.clone(), zelf.selectors.clone()),
@@ -274,7 +285,8 @@ mod decl {
         // if (lz->cnt == PY_SSIZE_T_MAX)
         //      return Py_BuildValue("0(00)", Py_TYPE(lz), lz->long_cnt, lz->long_step);
         #[pymethod]
-        fn __reduce__(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef,)) {
+        fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyTypeRef, (PyObjectRef,)) {
+            let _ = pickle_deprecation(vm);
             (zelf.class().to_owned(), (zelf.cur.read().clone(),))
         }
     }
@@ -406,6 +418,7 @@ mod decl {
 
         #[pymethod]
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+            pickle_deprecation(vm)?;
             let cls = zelf.class().to_owned();
             Ok(match zelf.times {
                 Some(ref times) => vm.new_tuple((cls, (zelf.object.clone(), *times.read()))),
@@ -474,7 +487,11 @@ mod decl {
     #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsStarmap {
         #[pymethod]
-        fn __reduce__(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter)) {
+        fn __reduce__(
+            zelf: PyRef<Self>,
+            vm: &VirtualMachine,
+        ) -> (PyTypeRef, (PyObjectRef, PyIter)) {
+            let _ = pickle_deprecation(vm);
             (
                 zelf.class().to_owned(),
                 (zelf.function.clone(), zelf.iterable.clone()),
@@ -539,7 +556,11 @@ mod decl {
     #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsTakewhile {
         #[pymethod]
-        fn __reduce__(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter), u32) {
+        fn __reduce__(
+            zelf: PyRef<Self>,
+            vm: &VirtualMachine,
+        ) -> (PyTypeRef, (PyObjectRef, PyIter), u32) {
+            let _ = pickle_deprecation(vm);
             (
                 zelf.class().to_owned(),
                 (zelf.predicate.clone(), zelf.iterable.clone()),
@@ -623,7 +644,11 @@ mod decl {
     #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsDropwhile {
         #[pymethod]
-        fn __reduce__(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter), u32) {
+        fn __reduce__(
+            zelf: PyRef<Self>,
+            vm: &VirtualMachine,
+        ) -> (PyTypeRef, (PyObjectRef, PyIter), u32) {
+            let _ = pickle_deprecation(vm);
             (
                 zelf.class().to_owned(),
                 (zelf.predicate.clone().into(), zelf.iterable.clone()),
@@ -937,6 +962,7 @@ mod decl {
 
         #[pymethod]
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+            pickle_deprecation(vm)?;
             let cls = zelf.class().to_owned();
             let itr = zelf.iterable.clone();
             let cur = zelf.cur.take();
@@ -1032,7 +1058,11 @@ mod decl {
     #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsFilterFalse {
         #[pymethod]
-        fn __reduce__(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter)) {
+        fn __reduce__(
+            zelf: PyRef<Self>,
+            vm: &VirtualMachine,
+        ) -> (PyTypeRef, (PyObjectRef, PyIter)) {
+            let _ = pickle_deprecation(vm);
             (
                 zelf.class().to_owned(),
                 (zelf.predicate.clone(), zelf.iterable.clone()),
@@ -1110,6 +1140,7 @@ mod decl {
 
         #[pymethod]
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
+            let _ = pickle_deprecation(vm);
             let class = zelf.class().to_owned();
             let bin_op = zelf.bin_op.clone();
             let it = zelf.iterable.clone();
@@ -1374,6 +1405,7 @@ mod decl {
 
         #[pymethod]
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
+            let _ = pickle_deprecation(vm);
             let class = zelf.class().to_owned();
 
             if zelf.stop.load() {
@@ -1483,6 +1515,7 @@ mod decl {
     impl PyItertoolsCombinations {
         #[pymethod]
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
+            let _ = pickle_deprecation(vm);
             let r = zelf.r.load();
 
             let class = zelf.class().to_owned();
@@ -1724,6 +1757,7 @@ mod decl {
     impl PyItertoolsPermutations {
         #[pymethod]
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<PyTuple> {
+            let _ = pickle_deprecation(vm);
             vm.new_tuple((
                 zelf.class().to_owned(),
                 vm.new_tuple((zelf.pool.clone(), vm.ctx.new_int(zelf.r.load()))),
@@ -1837,6 +1871,7 @@ mod decl {
     impl PyItertoolsZipLongest {
         #[pymethod]
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+            pickle_deprecation(vm)?;
             let args: Vec<PyObjectRef> = zelf
                 .iterators
                 .iter()
