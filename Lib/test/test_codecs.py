@@ -1368,7 +1368,7 @@ class EscapeDecodeTest(unittest.TestCase):
                 r"invalid octal escape sequence '\\501'"):
             self.assertEqual(decode(br'\x\501', 'ignore'), (b'A', 6))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; - ValueError: not raised by escape_decode
+    @unittest.expectedFailure # TODO: RUSTPYTHON; ValueError: not raised by escape_decode
     def test_errors(self):
         decode = codecs.escape_decode
         self.assertRaises(ValueError, decode, br"\x")
@@ -2885,7 +2885,7 @@ class UnicodeEscapeTest(ReadTest, unittest.TestCase):
         self.assertEqual(decode(br"\U00110000", "ignore"), ("", 10))
         self.assertEqual(decode(br"\U00110000", "replace"), ("\ufffd", 10))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: '\x00\t\n\r\\' != '\x00\t\n\r'
     def test_partial(self):
         self.check_partial(
             "\x00\t\n\r\\\xff\uffff\U00010000",
@@ -3987,7 +3987,7 @@ class Rot13UtilTest(unittest.TestCase):
 
 class CodecNameNormalizationTest(unittest.TestCase):
     """Test codec name normalization"""
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: Tuples differ: (1, 2, 3, 4) != (None, None, None, None)
     def test_codecs_lookup(self):
         FOUND = (1, 2, 3, 4)
         NOT_FOUND = (None, None, None, None)
