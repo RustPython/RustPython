@@ -8,7 +8,7 @@ To move the patches found in `Lib/test/foo.py` to ` ~/cpython/Lib/test/foo.py` t
 
 >>> ./{fname} --from Lib/test/foo.py --to ~/cpython/Lib/test/foo.py -o Lib/test/foo.py
 
-You can run the same command without `-o` to print the output to stdout:
+You can run the same command without `-o` to override the `--from` path:
 
 >>> ./{fname} --from Lib/test/foo.py --to ~/cpython/Lib/test/foo.py
 
