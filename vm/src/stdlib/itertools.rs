@@ -976,10 +976,10 @@ mod decl {
                 zelf.cur.fetch_add(1);
             }
 
-            if let Some(stop) = zelf.stop {
-                if zelf.cur.load() >= stop {
-                    return Ok(PyIterReturn::StopIteration(None));
-                }
+            if let Some(stop) = zelf.stop
+                && zelf.cur.load() >= stop
+            {
+                return Ok(PyIterReturn::StopIteration(None));
             }
 
             let obj = raise_if_stop!(zelf.iterable.next(vm)?);

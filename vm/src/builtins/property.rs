@@ -74,10 +74,10 @@ impl PyProperty {
         }
 
         // Otherwise try to get __name__ from getter
-        if let Some(getter) = self.getter.read().as_ref() {
-            if let Ok(name) = getter.get_attr("__name__", vm) {
-                return Some(name);
-            }
+        if let Some(getter) = self.getter.read().as_ref()
+            && let Ok(name) = getter.get_attr("__name__", vm)
+        {
+            return Some(name);
         }
 
         None
@@ -249,24 +249,24 @@ impl PyProperty {
         };
 
         // Check getter
-        if let Some(getter) = self.getter.read().as_ref() {
-            if is_abstract(getter)? {
-                return Ok(vm.ctx.new_bool(true).into());
-            }
+        if let Some(getter) = self.getter.read().as_ref()
+            && is_abstract(getter)?
+        {
+            return Ok(vm.ctx.new_bool(true).into());
         }
 
         // Check setter
-        if let Some(setter) = self.setter.read().as_ref() {
-            if is_abstract(setter)? {
-                return Ok(vm.ctx.new_bool(true).into());
-            }
+        if let Some(setter) = self.setter.read().as_ref()
+            && is_abstract(setter)?
+        {
+            return Ok(vm.ctx.new_bool(true).into());
         }
 
         // Check deleter
-        if let Some(deleter) = self.deleter.read().as_ref() {
-            if is_abstract(deleter)? {
-                return Ok(vm.ctx.new_bool(true).into());
-            }
+        if let Some(deleter) = self.deleter.read().as_ref()
+            && is_abstract(deleter)?
+        {
+            return Ok(vm.ctx.new_bool(true).into());
         }
 
         Ok(vm.ctx.new_bool(false).into())

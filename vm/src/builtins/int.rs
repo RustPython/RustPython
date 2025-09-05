@@ -501,34 +501,33 @@ impl PyInt {
             let ndigits = ndigits.as_bigint();
             // round(12345, -2) == 12300
             // If precision >= 0, then any integer is already rounded correctly
-            if let Some(ndigits) = ndigits.neg().to_u32() {
-                if ndigits > 0 {
-                    // Work with positive integers and negate at the end if necessary
-                    let sign = if zelf.value.is_negative() {
-                        BigInt::from(-1)
-                    } else {
-                        BigInt::from(1)
-                    };
-                    let value = zelf.value.abs();
+            if let Some(ndigits) = ndigits.neg().to_u32()
+                && ndigits > 0
+            {
+                // Work with positive integers and negate at the end if necessary
+                let sign = if zelf.value.is_negative() {
+                    BigInt::from(-1)
+                } else {
+                    BigInt::from(1)
+                };
+                let value = zelf.value.abs();
 
-                    // Divide and multiply by the power of 10 to get the approximate answer
-                    let pow10 = BigInt::from(10).pow(ndigits);
-                    let quotient = &value / &pow10;
-                    let rounded = &quotient * &pow10;
+                // Divide and multiply by the power of 10 to get the approximate answer
+                let pow10 = BigInt::from(10).pow(ndigits);
+                let quotient = &value / &pow10;
+                let rounded = &quotient * &pow10;
 
-                    // Malachite division uses floor rounding, Python uses half-even
-                    let remainder = &value - &rounded;
-                    let half_pow10 = &pow10 / BigInt::from(2);
-                    let correction = if remainder > half_pow10
-                        || (remainder == half_pow10 && quotient.is_odd())
-                    {
+                // Malachite division uses floor rounding, Python uses half-even
+                let remainder = &value - &rounded;
+                let half_pow10 = &pow10 / BigInt::from(2);
+                let correction =
+                    if remainder > half_pow10 || (remainder == half_pow10 && quotient.is_odd()) {
                         pow10
                     } else {
                         BigInt::from(0)
                     };
-                    let rounded = (rounded + correction) * sign;
-                    return Ok(vm.ctx.new_int(rounded));
-                }
+                let rounded = (rounded + correction) * sign;
+                return Ok(vm.ctx.new_int(rounded));
             }
         }
         Ok(zelf)

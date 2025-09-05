@@ -111,10 +111,10 @@ impl PyReverseSequenceIterator {
     #[pymethod]
     fn __length_hint__(&self, vm: &VirtualMachine) -> PyResult<usize> {
         let internal = self.internal.lock();
-        if let IterStatus::Active(obj) = &internal.status {
-            if internal.position <= obj.length(vm)? {
-                return Ok(internal.position + 1);
-            }
+        if let IterStatus::Active(obj) = &internal.status
+            && internal.position <= obj.length(vm)?
+        {
+            return Ok(internal.position + 1);
         }
         Ok(0)
     }

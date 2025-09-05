@@ -367,14 +367,12 @@ impl GetDescriptor for PyMemberDescriptor {
                 // return the class's docstring if available
                 // When accessed from class (not instance), check if the class has
                 // an attribute with the same name as this member descriptor
-                if let Some(cls) = cls {
-                    if let Ok(cls_type) = cls.downcast::<PyType>() {
-                        if let Some(interned) = vm.ctx.interned_str(descr.member.name.as_str()) {
-                            if let Some(attr) = cls_type.attributes.read().get(&interned) {
-                                return Ok(attr.clone());
-                            }
-                        }
-                    }
+                if let Some(cls) = cls
+                    && let Ok(cls_type) = cls.downcast::<PyType>()
+                    && let Some(interned) = vm.ctx.interned_str(descr.member.name.as_str())
+                    && let Some(attr) = cls_type.attributes.read().get(&interned)
+                {
+                    return Ok(attr.clone());
                 }
                 Ok(zelf)
             }

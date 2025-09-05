@@ -324,12 +324,12 @@ impl IterNext for PyStrIterator {
                     internal.1 = offset + ch.len_wtf8();
                     return Ok(PyIterReturn::Return(ch.to_pyobject(vm)));
                 }
-            } else if let Some(value) = value.get(internal.1..) {
-                if let Some(ch) = value.code_points().next() {
-                    internal.0.position += 1;
-                    internal.1 += ch.len_wtf8();
-                    return Ok(PyIterReturn::Return(ch.to_pyobject(vm)));
-                }
+            } else if let Some(value) = value.get(internal.1..)
+                && let Some(ch) = value.code_points().next()
+            {
+                internal.0.position += 1;
+                internal.1 += ch.len_wtf8();
+                return Ok(PyIterReturn::Return(ch.to_pyobject(vm)));
             }
             internal.0.status = Exhausted;
         }

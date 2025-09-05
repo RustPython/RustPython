@@ -151,10 +151,10 @@ impl<T> PositionIterInternal<T> {
     where
         F: FnOnce(&T) -> usize,
     {
-        if let IterStatus::Active(obj) = &self.status {
-            if self.position <= f(obj) {
-                return self.position + 1;
-            }
+        if let IterStatus::Active(obj) = &self.status
+            && self.position <= f(obj)
+        {
+            return self.position + 1;
         }
         0
     }

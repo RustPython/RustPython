@@ -1993,7 +1993,9 @@ class _PosixSpawnMixin:
         with open(outfile, encoding="utf-8") as f:
             self.assertEqual(f.read(), 'hello')
 
-    # TODO: RUSTPYTHON: FileNotFoundError: [Errno 2] No such file or directory (os error 2): '@test_55144_tmp' -> 'None'
+    # TODO: RUSTPYTHON: the rust runtime reopens closed stdio fds at startup,
+    #                   so this test fails, even though POSIX_SPAWN_CLOSE does
+    #                   actually have an effect
     @unittest.expectedFailure
     def test_close_file(self):
         closefile = os_helper.TESTFN

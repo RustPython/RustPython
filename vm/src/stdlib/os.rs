@@ -378,8 +378,7 @@ pub(super) mod _os {
                 #[cfg(all(unix, not(target_os = "redox")))]
                 {
                     use rustpython_common::os::ffi::OsStrExt;
-                    let new_fd =
-                        nix::unistd::dup(fno.as_raw()).map_err(|e| e.into_pyexception(vm))?;
+                    let new_fd = nix::unistd::dup(fno).map_err(|e| e.into_pyexception(vm))?;
                     let mut dir =
                         nix::dir::Dir::from_fd(new_fd).map_err(|e| e.into_pyexception(vm))?;
                     dir.iter()

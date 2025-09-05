@@ -18,9 +18,8 @@ use std::{
     io::prelude::*,
     marker::PhantomData,
     ops::Deref,
-    os::fd::FromRawFd,
+    os::fd::{AsFd, AsRawFd, BorrowedFd, IntoRawFd, OwnedFd, RawFd},
 };
-use std::{fs::File, os::unix::io::AsRawFd};
 use unistd::{Gid, Uid};
 
 pub(crate) use _posixsubprocess::make_module;
@@ -33,7 +32,7 @@ mod _posixsubprocess {
     use crate::vm::{PyResult, VirtualMachine, convert::IntoPyException};
 
     #[pyfunction]
-    fn fork_exec(args: ForkExecArgs, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
+    fn fork_exec(args: ForkExecArgs<'_>, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
         if args.preexec_fn.is_some() {
             return Err(vm.new_not_implemented_error("preexec_fn not supported yet"));
         }
@@ -59,7 +58,7 @@ mod _posixsubprocess {
 macro_rules! gen_args {
     ($($field:ident: $t:ty),*$(,)?) => {
         #[derive(FromArgs)]
-        struct ForkExecArgs {
+        struct ForkExecArgs<'fd> {
             $(#[pyarg(positional)] $field: $t,)*
         }
     };
@@ -121,21 +120,95 @@ impl CharPtrSlice<'_> {
     }
 }
 
+#[derive(Copy, Clone)]
+struct Fd(BorrowedFd<'static>);
+
+impl TryFromObject for Fd {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        match MaybeFd::try_from_object(vm, obj)? {
+            MaybeFd::Valid(fd) => Ok(fd),
+            MaybeFd::Invalid => Err(vm.new_value_error("invalid fd")),
+        }
+    }
+}
+
+impl Write for Fd {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        Ok(unistd::write(self, buf)?)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl AsRawFd for Fd {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0.as_raw_fd()
+    }
+}
+
+impl IntoRawFd for Fd {
+    fn into_raw_fd(self) -> RawFd {
+        self.0.as_raw_fd()
+    }
+}
+
+impl AsFd for Fd {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.0.as_fd()
+    }
+}
+
+impl From<OwnedFd> for Fd {
+    fn from(fd: OwnedFd) -> Self {
+        Self(unsafe { BorrowedFd::borrow_raw(fd.into_raw_fd()) })
+    }
+}
+
+#[derive(Copy, Clone)]
+enum MaybeFd {
+    Valid(Fd),
+    Invalid,
+}
+
+impl TryFromObject for MaybeFd {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        let fd = i32::try_from_object(vm, obj)?;
+        Ok(if fd == -1 {
+            MaybeFd::Invalid
+        } else {
+            MaybeFd::Valid(Fd(unsafe { BorrowedFd::borrow_raw(fd) }))
+        })
+    }
+}
+
+impl AsRawFd for MaybeFd {
+    fn as_raw_fd(&self) -> RawFd {
+        match self {
+            MaybeFd::Valid(fd) => fd.as_raw_fd(),
+            MaybeFd::Invalid => -1,
+        }
+    }
+}
+
+// impl
+
 gen_args! {
     args: ArgSequence<CStrPathLike> /* list */,
     exec_list: ArgSequence<CStrPathLike> /* list */,
     close_fds: bool,
-    fds_to_keep: ArgSequence<i32>,
+    fds_to_keep: ArgSequence<BorrowedFd<'fd>>,
     cwd: Option<CStrPathLike>,
     env_list: Option<ArgSequence<CStrPathLike>>,
-    p2cread: i32,
-    p2cwrite: i32,
-    c2pread: i32,
-    c2pwrite: i32,
-    errread: i32,
-    errwrite: i32,
-    errpipe_read: i32,
-    errpipe_write: i32,
+    p2cread: MaybeFd,
+    p2cwrite: MaybeFd,
+    c2pread: MaybeFd,
+    c2pwrite: MaybeFd,
+    errread: MaybeFd,
+    errwrite: MaybeFd,
+    errpipe_read: Fd,
+    errpipe_write: Fd,
     restore_signals: bool,
     call_setsid: bool,
     pgid_to_set: libc::pid_t,
@@ -154,13 +227,12 @@ struct ProcArgs<'a> {
     extra_groups: Option<&'a [Gid]>,
 }
 
-fn exec(args: &ForkExecArgs, procargs: ProcArgs<'_>) -> ! {
+fn exec(args: &ForkExecArgs<'_>, procargs: ProcArgs<'_>) -> ! {
     let mut ctx = ExecErrorContext::NoExec;
     match exec_inner(args, procargs, &mut ctx) {
         Ok(x) => match x {},
         Err(e) => {
-            let mut pipe =
-                std::mem::ManuallyDrop::new(unsafe { File::from_raw_fd(args.errpipe_write) });
+            let mut pipe = args.errpipe_write;
             let _ = write!(pipe, "OSError:{}:{}", e as i32, ctx.as_msg());
             std::process::exit(255)
         }
@@ -184,49 +256,59 @@ impl ExecErrorContext {
 }
 
 fn exec_inner(
-    args: &ForkExecArgs,
+    args: &ForkExecArgs<'_>,
     procargs: ProcArgs<'_>,
     ctx: &mut ExecErrorContext,
 ) -> nix::Result<Never> {
     for &fd in args.fds_to_keep.as_slice() {
-        if fd != args.errpipe_write {
-            posix::raw_set_inheritable(fd, true)?
+        if fd.as_raw_fd() != args.errpipe_write.as_raw_fd() {
+            posix::set_inheritable(fd, true)?
         }
     }
 
     for &fd in &[args.p2cwrite, args.c2pread, args.errread] {
-        if fd != -1 {
+        if let MaybeFd::Valid(fd) = fd {
             unistd::close(fd)?;
         }
     }
     unistd::close(args.errpipe_read)?;
 
-    let c2pwrite = if args.c2pwrite == 0 {
-        let fd = unistd::dup(args.c2pwrite)?;
-        posix::raw_set_inheritable(fd, true)?;
-        fd
-    } else {
-        args.c2pwrite
+    let c2pwrite = match args.c2pwrite {
+        MaybeFd::Valid(c2pwrite) if c2pwrite.as_raw_fd() == 0 => {
+            let fd = unistd::dup(c2pwrite)?;
+            posix::set_inheritable(fd.as_fd(), true)?;
+            MaybeFd::Valid(fd.into())
+        }
+        fd => fd,
     };
 
     let mut errwrite = args.errwrite;
-    while errwrite == 0 || errwrite == 1 {
-        errwrite = unistd::dup(errwrite)?;
-        posix::raw_set_inheritable(errwrite, true)?;
+    loop {
+        match errwrite {
+            MaybeFd::Valid(fd) if fd.as_raw_fd() == 0 || fd.as_raw_fd() == 1 => {
+                let fd = unistd::dup(fd)?;
+                posix::set_inheritable(fd.as_fd(), true)?;
+                errwrite = MaybeFd::Valid(fd.into());
+            }
+            _ => break,
+        }
     }
 
-    let dup_into_stdio = |fd, io_fd| {
-        if fd == io_fd {
-            posix::raw_set_inheritable(fd, true)
-        } else if fd != -1 {
-            unistd::dup2(fd, io_fd).map(drop)
-        } else {
-            Ok(())
+    fn dup_into_stdio<F>(fd: MaybeFd, io_fd: i32, dup2_stdio: F) -> nix::Result<()>
+    where
+        F: Fn(Fd) -> nix::Result<()>,
+    {
+        match fd {
+            MaybeFd::Valid(fd) if fd.as_raw_fd() == io_fd => {
+                posix::set_inheritable(fd.as_fd(), true)
+            }
+            MaybeFd::Valid(fd) => dup2_stdio(fd),
+            MaybeFd::Invalid => Ok(()),
         }
-    };
-    dup_into_stdio(args.p2cread, 0)?;
-    dup_into_stdio(c2pwrite, 1)?;
-    dup_into_stdio(errwrite, 2)?;
+    }
+    dup_into_stdio(args.p2cread, 0, unistd::dup2_stdin)?;
+    dup_into_stdio(c2pwrite, 1, unistd::dup2_stdout)?;
+    dup_into_stdio(errwrite, 2, unistd::dup2_stderr)?;
 
     if let Some(ref cwd) = args.cwd {
         unistd::chdir(cwd.s.as_c_str()).inspect_err(|_| *ctx = ExecErrorContext::ChDir)?
@@ -292,12 +374,16 @@ fn exec_inner(
 #[derive(Copy, Clone)]
 struct KeepFds<'a> {
     above: i32,
-    keep: &'a [i32],
+    keep: &'a [BorrowedFd<'a>],
 }
 
 impl KeepFds<'_> {
     fn should_keep(self, fd: i32) -> bool {
-        fd > self.above && self.keep.binary_search(&fd).is_err()
+        fd > self.above
+            && self
+                .keep
+                .binary_search_by_key(&fd, BorrowedFd::as_raw_fd)
+                .is_err()
     }
 }
 
@@ -394,9 +480,13 @@ fn close_fds_brute_force(keep: KeepFds<'_>) {
         .ok()
         .flatten()
         .unwrap_or(256) as i32;
-    let fds = itertools::chain![Some(keep.above), keep.keep.iter().copied(), Some(max_fd)];
+    let fds = itertools::chain![
+        Some(keep.above),
+        keep.keep.iter().map(BorrowedFd::as_raw_fd),
+        Some(max_fd)
+    ];
     for fd in fds.tuple_windows().flat_map(|(start, end)| start + 1..end) {
-        let _ = unistd::close(fd);
+        unsafe { libc::close(fd) };
     }
 }
 

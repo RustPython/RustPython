@@ -571,10 +571,10 @@ mod _sqlite {
 
         unsafe extern "C" fn progress_callback(data: *mut c_void) -> c_int {
             let (callable, vm) = unsafe { (*data.cast::<Self>()).retrieve() };
-            if let Ok(val) = callable.call((), vm) {
-                if let Ok(val) = val.is_true(vm) {
-                    return val as c_int;
-                }
+            if let Ok(val) = callable.call((), vm)
+                && let Ok(val) = val.is_true(vm)
+            {
+                return val as c_int;
             }
             -1
         }
@@ -1718,10 +1718,10 @@ mod _sqlite {
 
         #[pymethod]
         fn close(&self) {
-            if let Some(inner) = self.inner.lock().take() {
-                if let Some(stmt) = inner.statement {
-                    stmt.lock().reset();
-                }
+            if let Some(inner) = self.inner.lock().take()
+                && let Some(stmt) = inner.statement
+            {
+                stmt.lock().reset();
             }
         }
 

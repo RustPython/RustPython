@@ -240,21 +240,21 @@ fn analyze_symbol_table(symbol_table: &mut SymbolTable) -> SymbolTableResult {
 */
 fn drop_class_free(symbol_table: &mut SymbolTable) {
     // Check if __class__ is used as a free variable
-    if let Some(class_symbol) = symbol_table.symbols.get("__class__") {
-        if class_symbol.scope == SymbolScope::Free {
-            symbol_table.needs_class_closure = true;
-            // Note: In CPython, the symbol is removed from the free set,
-            // but in RustPython we handle this differently during code generation
-        }
+    if let Some(class_symbol) = symbol_table.symbols.get("__class__")
+        && class_symbol.scope == SymbolScope::Free
+    {
+        symbol_table.needs_class_closure = true;
+        // Note: In CPython, the symbol is removed from the free set,
+        // but in RustPython we handle this differently during code generation
     }
 
     // Check if __classdict__ is used as a free variable
-    if let Some(classdict_symbol) = symbol_table.symbols.get("__classdict__") {
-        if classdict_symbol.scope == SymbolScope::Free {
-            symbol_table.needs_classdict = true;
-            // Note: In CPython, the symbol is removed from the free set,
-            // but in RustPython we handle this differently during code generation
-        }
+    if let Some(classdict_symbol) = symbol_table.symbols.get("__classdict__")
+        && classdict_symbol.scope == SymbolScope::Free
+    {
+        symbol_table.needs_classdict = true;
+        // Note: In CPython, the symbol is removed from the free set,
+        // but in RustPython we handle this differently during code generation
     }
 }
 
@@ -733,12 +733,12 @@ impl SymbolTableBuilder {
 
     fn scan_statement(&mut self, statement: &Stmt) -> SymbolTableResult {
         use ruff_python_ast::*;
-        if let Stmt::ImportFrom(StmtImportFrom { module, names, .. }) = &statement {
-            if module.as_ref().map(|id| id.as_str()) == Some("__future__") {
-                for feature in names {
-                    if &feature.name == "annotations" {
-                        self.future_annotations = true;
-                    }
+        if let Stmt::ImportFrom(StmtImportFrom { module, names, .. }) = &statement
+            && module.as_ref().map(|id| id.as_str()) == Some("__future__")
+        {
+            for feature in names {
+                if &feature.name == "annotations" {
+                    self.future_annotations = true;
                 }
             }
         }
@@ -1032,26 +1032,23 @@ impl SymbolTableBuilder {
         use ruff_python_ast::*;
 
         // Check for expressions not allowed in type parameters scope
-        if let Some(table) = self.tables.last() {
-            if table.typ == CompilerScope::TypeParams {
-                if let Some(keyword) = match expression {
-                    Expr::Yield(_) | Expr::YieldFrom(_) => Some("yield"),
-                    Expr::Await(_) => Some("await"),
-                    Expr::Named(_) => Some("named"),
-                    _ => None,
-                } {
-                    return Err(SymbolTableError {
-                        error: format!(
-                            "{keyword} expression cannot be used within a type parameter"
-                        ),
-                        location: Some(
-                            self.source_file
-                                .to_source_code()
-                                .source_location(expression.range().start()),
-                        ),
-                    });
-                }
+        if let Some(table) = self.tables.last()
+            && table.typ == CompilerScope::TypeParams
+            && let Some(keyword) = match expression {
+                Expr::Yield(_) | Expr::YieldFrom(_) => Some("yield"),
+                Expr::Await(_) => Some("await"),
+                Expr::Named(_) => Some("named"),
+                _ => None,
             }
+        {
+            return Err(SymbolTableError {
+                error: format!("{keyword} expression cannot be used within a type parameter"),
+                location: Some(
+                    self.source_file
+                        .to_source_code()
+                        .source_location(expression.range().start()),
+                ),
+            });
         }
 
         match expression {

@@ -78,13 +78,13 @@ impl AsRef<PyObject> for PyMapping<'_> {
 
 impl<'a> PyMapping<'a> {
     pub fn try_protocol(obj: &'a PyObject, vm: &VirtualMachine) -> PyResult<Self> {
-        if let Some(methods) = Self::find_methods(obj) {
-            if methods.as_ref().check() {
-                return Ok(Self {
-                    obj,
-                    methods: unsafe { methods.borrow_static() },
-                });
-            }
+        if let Some(methods) = Self::find_methods(obj)
+            && methods.as_ref().check()
+        {
+            return Ok(Self {
+                obj,
+                methods: unsafe { methods.borrow_static() },
+            });
         }
 
         Err(vm.new_type_error(format!("{} is not a mapping object", obj.class())))

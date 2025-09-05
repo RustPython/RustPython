@@ -138,7 +138,7 @@ members = [
 version = "0.4.0"
 authors = ["RustPython Team"]
 edition = "2024"
-rust-version = "1.87.0"
+rust-version = "1.89.0"
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 
@@ -184,7 +184,7 @@ junction = "1.2.0"
 libc = "0.2.169"
 libffi = "4.1"
 log = "0.4.27"
-nix = { version = "0.29", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
+nix = { version = "0.30", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
 malachite-bigint = "0.6"
 malachite-q = "0.6"
 malachite-base = "0.6"
@@ -207,6 +207,8 @@ rustix = { version = "1.0", features = ["event"] }
 rustyline = "17.0.0"
 serde = { version = "1.0.133", default-features = false }
 schannel = "0.1.27"
+scoped-tls = "1"
+scopeguard = "1"
 static_assertions = "1.1"
 strum = "0.27"
 strum_macros = "0.27"

@@ -1,9 +1,9 @@
 // spell-checker:disable
 
 use crate::{PyRef, VirtualMachine, builtins::PyModule};
-use std::os::unix::io::RawFd;
+use std::os::fd::BorrowedFd;
 
-pub fn raw_set_inheritable(fd: RawFd, inheritable: bool) -> nix::Result<()> {
+pub fn set_inheritable(fd: BorrowedFd<'_>, inheritable: bool) -> nix::Result<()> {
     use nix::fcntl;
     let flags = fcntl::FdFlag::from_bits_truncate(fcntl::fcntl(fd, fcntl::FcntlArg::F_GETFD)?);
     let mut new_flags = flags;
@@ -43,44 +43,181 @@ pub mod module {
         env,
         ffi::{CStr, CString},
         fs, io,
-        os::fd::{AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
+        os::fd::{AsFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd},
     };
     use strum_macros::{EnumIter, EnumString};
 
+    #[cfg(target_os = "freebsd")]
     #[pyattr]
-    use libc::{PRIO_PGRP, PRIO_PROCESS, PRIO_USER};
+    use libc::{MFD_HUGE_MASK, SF_MNOWAIT, SF_NOCACHE, SF_NODISKIO, SF_SYNC};
+
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    use libc::PIDFD_NONBLOCK;
+
+    #[cfg(target_os = "macos")]
+    #[pyattr]
+    use libc::{
+        COPYFILE_DATA as _COPYFILE_DATA, O_EVTONLY, O_NOFOLLOW_ANY, PRIO_DARWIN_BG,
+        PRIO_DARWIN_NONUI, PRIO_DARWIN_PROCESS, PRIO_DARWIN_THREAD,
+    };
+
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[pyattr]
+    use libc::{
+        CLONE_FILES, CLONE_FS, CLONE_NEWCGROUP, CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWNS,
+        CLONE_NEWPID, CLONE_NEWUSER, CLONE_NEWUTS, CLONE_SIGHAND, CLONE_SYSVSEM, CLONE_THREAD,
+        CLONE_VM, EFD_CLOEXEC, EFD_NONBLOCK, EFD_SEMAPHORE, O_NOATIME, O_TMPFILE, P_PIDFD,
+        SCHED_BATCH, SCHED_IDLE, SCHED_RESET_ON_FORK, SPLICE_F_MORE, SPLICE_F_MOVE,
+        SPLICE_F_NONBLOCK,
+    };
+
+    #[cfg(any(target_os = "android", unix))]
+    #[pyattr]
+    use libc::{
+        F_OK, O_CLOEXEC, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK, PRIO_PGRP, PRIO_PROCESS, PRIO_USER,
+        R_OK, RTLD_GLOBAL, RTLD_LAZY, RTLD_LOCAL, RTLD_NOW, W_OK, WCONTINUED, WNOHANG, WUNTRACED,
+        X_OK,
+    };
+
+    #[cfg(any(target_os = "macos", target_os = "redox"))]
+    #[pyattr]
+    use libc::O_SYMLINK;
+
+    #[cfg(any(target_os = "android", target_os = "freebsd", target_os = "linux"))]
+    #[pyattr]
+    use libc::{
+        MFD_ALLOW_SEALING, MFD_CLOEXEC, MFD_HUGETLB, POSIX_FADV_DONTNEED, POSIX_FADV_NOREUSE,
+        POSIX_FADV_NORMAL, POSIX_FADV_RANDOM, POSIX_FADV_SEQUENTIAL, POSIX_FADV_WILLNEED,
+    };
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "netbsd"))]
+    #[pyattr]
+    use libc::{TFD_CLOEXEC, TFD_NONBLOCK, TFD_TIMER_ABSTIME, TFD_TIMER_CANCEL_ON_SET};
+
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "netbsd"))]
+    #[pyattr]
+    use libc::{XATTR_CREATE, XATTR_REPLACE};
 
     #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "linux",
+        target_os = "netbsd"
+    ))]
+    #[pyattr]
+    use libc::{GRND_NONBLOCK, GRND_RANDOM};
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "redox"
+    ))]
+    #[pyattr]
+    use libc::O_PATH;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    use libc::O_RSYNC;
+
+    #[cfg(any(
+        target_os = "android",
         target_os = "dragonfly",
         target_os = "freebsd",
         target_os = "linux",
         target_os = "macos"
     ))]
     #[pyattr]
-    use libc::{SEEK_DATA, SEEK_HOLE};
+    use libc::{RTLD_NODELETE, SEEK_DATA, SEEK_HOLE};
 
-    #[cfg(not(any(target_os = "redox", target_os = "freebsd")))]
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "netbsd"
+    ))]
+    #[pyattr]
+    use libc::O_DIRECT;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd"
+    ))]
+    #[pyattr]
+    use libc::RTLD_NOLOAD;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
     #[pyattr]
     use libc::O_DSYNC;
 
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
     #[pyattr]
-    use libc::{O_CLOEXEC, O_NONBLOCK, WNOHANG};
+    use libc::SCHED_OTHER;
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "redox"
+    ))]
     #[pyattr]
-    use libc::{O_EVTONLY, O_FSYNC, O_NOFOLLOW_ANY, O_SYMLINK};
+    use libc::{O_EXLOCK, O_FSYNC, O_SHLOCK};
 
-    #[cfg(not(target_os = "redox"))]
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
     #[pyattr]
-    use libc::{O_NDELAY, O_NOCTTY};
+    use libc::{
+        CLD_CONTINUED, CLD_DUMPED, CLD_EXITED, CLD_KILLED, CLD_STOPPED, CLD_TRAPPED, F_LOCK,
+        F_TEST, F_TLOCK, F_ULOCK, O_NDELAY, O_NOCTTY, O_SYNC, P_ALL, P_PGID, P_PID, SCHED_FIFO,
+        SCHED_RR,
+    };
 
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "redox"
+    ))]
     #[pyattr]
-    use libc::{RTLD_GLOBAL, RTLD_LAZY, RTLD_LOCAL, RTLD_NOW};
-
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    use libc::{GRND_NONBLOCK, GRND_RANDOM};
-
+    use libc::{O_ASYNC, WEXITED, WNOWAIT, WSTOPPED};
     #[pyattr]
     const EX_OK: i8 = exitcode::OK as i8;
 
@@ -129,49 +266,6 @@ pub mod module {
     #[pyattr]
     const EX_CONFIG: i8 = exitcode::CONFIG as i8;
 
-    #[cfg(any(
-        target_os = "macos",
-        target_os = "linux",
-        target_os = "android",
-        target_os = "freebsd",
-        target_os = "dragonfly",
-        target_os = "netbsd",
-        target_os = "macos"
-    ))]
-    #[pyattr]
-    const SCHED_RR: i32 = libc::SCHED_RR;
-
-    #[cfg(any(
-        target_os = "macos",
-        target_os = "linux",
-        target_os = "android",
-        target_os = "freebsd",
-        target_os = "dragonfly",
-        target_os = "netbsd",
-        target_os = "macos"
-    ))]
-    #[pyattr]
-    const SCHED_FIFO: i32 = libc::SCHED_FIFO;
-
-    #[cfg(any(
-        target_os = "macos",
-        target_os = "linux",
-        target_os = "freebsd",
-        target_os = "dragonfly",
-        target_os = "netbsd",
-        target_os = "macos"
-    ))]
-    #[pyattr]
-    const SCHED_OTHER: i32 = libc::SCHED_OTHER;
-
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    #[pyattr]
-    const SCHED_IDLE: i32 = libc::SCHED_IDLE;
-
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    #[pyattr]
-    const SCHED_BATCH: i32 = libc::SCHED_BATCH;
-
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     #[pyattr]
     const POSIX_SPAWN_OPEN: i32 = PosixSpawnFileActionIdentifier::Open as i32;
@@ -183,10 +277,6 @@ pub mod module {
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     #[pyattr]
     const POSIX_SPAWN_DUP2: i32 = PosixSpawnFileActionIdentifier::Dup2 as i32;
-
-    #[cfg(target_os = "macos")]
-    #[pyattr]
-    const _COPYFILE_DATA: u32 = 1 << 3;
 
     impl TryFromObject for BorrowedFd<'_> {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
@@ -370,7 +460,7 @@ pub mod module {
         let dst = args.dst.into_cstring(vm)?;
         #[cfg(not(target_os = "redox"))]
         {
-            nix::unistd::symlinkat(&*src, args.dir_fd.raw_opt(), &*dst)
+            nix::unistd::symlinkat(&*src, args.dir_fd.get(), &*dst)
                 .map_err(|err| err.into_pyexception(vm))
         }
         #[cfg(target_os = "redox")]
@@ -383,7 +473,7 @@ pub mod module {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn fchdir(fd: RawFd, vm: &VirtualMachine) -> PyResult<()> {
+    fn fchdir(fd: BorrowedFd<'_>, vm: &VirtualMachine) -> PyResult<()> {
         nix::unistd::fchdir(fd).map_err(|err| err.into_pyexception(vm))
     }
 
@@ -432,12 +522,11 @@ pub mod module {
             nix::fcntl::AtFlags::AT_SYMLINK_NOFOLLOW
         };
 
-        let dir_fd = dir_fd.raw_opt();
         match path {
             OsPathOrFd::Path(ref p) => {
-                nix::unistd::fchownat(dir_fd, p.path.as_os_str(), uid, gid, flag)
+                nix::unistd::fchownat(dir_fd.get(), p.path.as_os_str(), uid, gid, flag)
             }
-            OsPathOrFd::Fd(fd) => nix::unistd::fchown(fd.as_raw(), uid, gid),
+            OsPathOrFd::Fd(fd) => nix::unistd::fchown(fd, uid, gid),
         }
         .map_err(|err| {
             // Use `From<nix::Error> for io::Error` when it is available
@@ -855,7 +944,7 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn get_inheritable(fd: RawFd, vm: &VirtualMachine) -> PyResult<bool> {
+    fn get_inheritable(fd: BorrowedFd<'_>, vm: &VirtualMachine) -> PyResult<bool> {
         let flags = fcntl::fcntl(fd, fcntl::FcntlArg::F_GETFD);
         match flags {
             Ok(ret) => Ok((ret & libc::FD_CLOEXEC) == 0),
@@ -864,12 +953,12 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn set_inheritable(fd: i32, inheritable: bool, vm: &VirtualMachine) -> PyResult<()> {
-        super::raw_set_inheritable(fd, inheritable).map_err(|err| err.into_pyexception(vm))
+    fn set_inheritable(fd: BorrowedFd<'_>, inheritable: bool, vm: &VirtualMachine) -> PyResult<()> {
+        super::set_inheritable(fd, inheritable).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
-    fn get_blocking(fd: RawFd, vm: &VirtualMachine) -> PyResult<bool> {
+    fn get_blocking(fd: BorrowedFd<'_>, vm: &VirtualMachine) -> PyResult<bool> {
         let flags = fcntl::fcntl(fd, fcntl::FcntlArg::F_GETFL);
         match flags {
             Ok(ret) => Ok((ret & libc::O_NONBLOCK) == 0),
@@ -878,7 +967,7 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn set_blocking(fd: RawFd, blocking: bool, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_blocking(fd: BorrowedFd<'_>, blocking: bool, vm: &VirtualMachine) -> PyResult<()> {
         let _set_flag = || {
             use nix::fcntl::{FcntlArg, OFlag, fcntl};
 
@@ -897,8 +986,8 @@ pub mod module {
     fn pipe(vm: &VirtualMachine) -> PyResult<(OwnedFd, OwnedFd)> {
         use nix::unistd::pipe;
         let (rfd, wfd) = pipe().map_err(|err| err.into_pyexception(vm))?;
-        set_inheritable(rfd.as_raw_fd(), false, vm)?;
-        set_inheritable(wfd.as_raw_fd(), false, vm)?;
+        set_inheritable(rfd.as_fd(), false, vm)?;
+        set_inheritable(wfd.as_fd(), false, vm)?;
         Ok((rfd, wfd))
     }
 
@@ -940,7 +1029,7 @@ pub mod module {
     #[cfg(not(target_os = "redox"))]
     fn _fchmod(fd: BorrowedFd<'_>, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
         nix::sys::stat::fchmod(
-            fd.as_raw_fd(),
+            fd,
             nix::sys::stat::Mode::from_bits(mode as libc::mode_t).unwrap(),
         )
         .map_err(|err| err.into_pyexception(vm))
@@ -1223,8 +1312,7 @@ pub mod module {
     fn openpty(vm: &VirtualMachine) -> PyResult<(OwnedFd, OwnedFd)> {
         let r = nix::pty::openpty(None, None).map_err(|err| err.into_pyexception(vm))?;
         for fd in [&r.master, &r.slave] {
-            super::raw_set_inheritable(fd.as_raw_fd(), false)
-                .map_err(|e| e.into_pyexception(vm))?;
+            super::set_inheritable(fd.as_fd(), false).map_err(|e| e.into_pyexception(vm))?;
         }
         Ok((r.master, r.slave))
     }
@@ -1423,11 +1511,8 @@ pub mod module {
                 .into_cstring(vm)
                 .map_err(|_| vm.new_value_error("path should not have nul bytes"))?;
 
-            let mut file_actions = unsafe {
-                let mut fa = std::mem::MaybeUninit::uninit();
-                assert!(libc::posix_spawn_file_actions_init(fa.as_mut_ptr()) == 0);
-                fa.assume_init()
-            };
+            let mut file_actions =
+                nix::spawn::PosixSpawnFileActions::init().map_err(|e| e.into_pyexception(vm))?;
             if let Some(it) = self.file_actions {
                 for action in it.iter(vm)? {
                     let action = action?;
@@ -1446,41 +1531,30 @@ pub mod module {
                                     "POSIX_SPAWN_OPEN path should not have nul bytes",
                                 )
                             })?;
-                            unsafe {
-                                libc::posix_spawn_file_actions_addopen(
-                                    &mut file_actions,
-                                    fd,
-                                    path.as_ptr(),
-                                    oflag,
-                                    mode,
-                                )
-                            }
+                            let oflag = nix::fcntl::OFlag::from_bits_retain(oflag);
+                            let mode = nix::sys::stat::Mode::from_bits_retain(mode);
+                            file_actions.add_open(fd, &*path, oflag, mode)
                         }
                         PosixSpawnFileActionIdentifier::Close => {
                             let (fd,) = args.bind(vm)?;
-                            unsafe {
-                                libc::posix_spawn_file_actions_addclose(&mut file_actions, fd)
-                            }
+                            file_actions.add_close(fd)
                         }
                         PosixSpawnFileActionIdentifier::Dup2 => {
                             let (fd, newfd) = args.bind(vm)?;
-                            unsafe {
-                                libc::posix_spawn_file_actions_adddup2(&mut file_actions, fd, newfd)
-                            }
+                            file_actions.add_dup2(fd, newfd)
                         }
                     };
-                    if ret != 0 {
-                        let err = std::io::Error::from_raw_os_error(ret);
+                    if let Err(err) = ret {
+                        let err = err.into();
                         return Err(IOErrorBuilder::with_filename(&err, self.path, vm));
                     }
                 }
             }
 
-            let mut attrp = unsafe {
-                let mut sa = std::mem::MaybeUninit::uninit();
-                assert!(libc::posix_spawnattr_init(sa.as_mut_ptr()) == 0);
-                sa.assume_init()
-            };
+            let mut attrp =
+                nix::spawn::PosixSpawnAttr::init().map_err(|e| e.into_pyexception(vm))?;
+            let mut flags = nix::spawn::PosixSpawnFlags::empty();
+
             if let Some(sigs) = self.setsigdef {
                 use nix::sys::signal;
                 let mut set = signal::SigSet::empty();
@@ -1491,37 +1565,39 @@ pub mod module {
                     })?;
                     set.add(sig);
                 }
-                assert!(
-                    unsafe { libc::posix_spawnattr_setsigdefault(&mut attrp, set.as_ref()) } == 0
-                );
+                attrp
+                    .set_sigdefault(&set)
+                    .map_err(|e| e.into_pyexception(vm))?;
+                flags.insert(nix::spawn::PosixSpawnFlags::POSIX_SPAWN_SETSIGDEF);
             }
 
-            // Handle new posix_spawn attributes
-            let mut flags = 0i32;
-
             if let Some(pgid) = self.setpgroup {
-                let ret = unsafe { libc::posix_spawnattr_setpgroup(&mut attrp, pgid) };
-                if ret != 0 {
-                    return Err(vm.new_os_error(format!("posix_spawnattr_setpgroup failed: {ret}")));
-                }
-                flags |= libc::POSIX_SPAWN_SETPGROUP;
+                attrp
+                    .set_pgroup(nix::unistd::Pid::from_raw(pgid))
+                    .map_err(|e| e.into_pyexception(vm))?;
+                flags.insert(nix::spawn::PosixSpawnFlags::POSIX_SPAWN_SETPGROUP);
             }
 
             if self.resetids {
-                flags |= libc::POSIX_SPAWN_RESETIDS;
+                flags.insert(nix::spawn::PosixSpawnFlags::POSIX_SPAWN_RESETIDS);
             }
 
             if self.setsid {
                 // Note: POSIX_SPAWN_SETSID may not be available on all platforms
-                #[cfg(target_os = "linux")]
-                {
-                    flags |= 0x0080; // POSIX_SPAWN_SETSID value on Linux
-                }
-                #[cfg(not(target_os = "linux"))]
-                {
-                    return Err(vm.new_not_implemented_error(
-                        "setsid parameter is not supported on this platform",
-                    ));
+                cfg_if::cfg_if! {
+                    if #[cfg(any(
+                        target_os = "linux",
+                        target_os = "haiku",
+                        target_os = "solaris",
+                        target_os = "illumos",
+                        target_os = "hurd",
+                    ))] {
+                        flags.insert(nix::spawn::PosixSpawnFlags::from_bits_retain(libc::POSIX_SPAWN_SETSID));
+                    } else {
+                        return Err(vm.new_not_implemented_error(
+                            "setsid parameter is not supported on this platform",
+                        ));
+                    }
                 }
             }
 
@@ -1535,13 +1611,10 @@ pub mod module {
                     })?;
                     set.add(sig);
                 }
-                let ret = unsafe { libc::posix_spawnattr_setsigmask(&mut attrp, set.as_ref()) };
-                if ret != 0 {
-                    return Err(
-                        vm.new_os_error(format!("posix_spawnattr_setsigmask failed: {ret}"))
-                    );
-                }
-                flags |= libc::POSIX_SPAWN_SETSIGMASK;
+                attrp
+                    .set_sigmask(&set)
+                    .map_err(|e| e.into_pyexception(vm))?;
+                flags.insert(nix::spawn::PosixSpawnFlags::POSIX_SPAWN_SETSIGMASK);
             }
 
             if let Some(_scheduler) = self.scheduler {
@@ -1552,19 +1625,11 @@ pub mod module {
                 );
             }
 
-            if flags != 0 {
-                // Check for potential overflow when casting to c_short
-                if flags > libc::c_short::MAX as i32 {
-                    return Err(vm.new_value_error("Too many flags set for posix_spawn"));
-                }
-                let ret =
-                    unsafe { libc::posix_spawnattr_setflags(&mut attrp, flags as libc::c_short) };
-                if ret != 0 {
-                    return Err(vm.new_os_error(format!("posix_spawnattr_setflags failed: {ret}")));
-                }
+            if !flags.is_empty() {
+                attrp.set_flags(flags).map_err(|e| e.into_pyexception(vm))?;
             }
 
-            let mut args: Vec<CString> = self
+            let args: Vec<CString> = self
                 .args
                 .iter(vm)?
                 .map(|res| {
@@ -1572,47 +1637,15 @@ pub mod module {
                         .map_err(|_| vm.new_value_error("path should not have nul bytes"))
                 })
                 .collect::<Result<_, _>>()?;
-            let argv: Vec<*mut libc::c_char> = args
-                .iter_mut()
-                .map(|s| s.as_ptr() as _)
-                .chain(std::iter::once(std::ptr::null_mut()))
-                .collect();
-            let mut env = envp_from_dict(self.env, vm)?;
-            let envp: Vec<*mut libc::c_char> = env
-                .iter_mut()
-                .map(|s| s.as_ptr() as _)
-                .chain(std::iter::once(std::ptr::null_mut()))
-                .collect();
+            let env = envp_from_dict(self.env, vm)?;
 
-            let mut pid = 0;
-            let ret = unsafe {
-                if spawnp {
-                    libc::posix_spawnp(
-                        &mut pid,
-                        path.as_ptr(),
-                        &file_actions,
-                        &attrp,
-                        argv.as_ptr(),
-                        envp.as_ptr(),
-                    )
-                } else {
-                    libc::posix_spawn(
-                        &mut pid,
-                        path.as_ptr(),
-                        &file_actions,
-                        &attrp,
-                        argv.as_ptr(),
-                        envp.as_ptr(),
-                    )
-                }
-            };
-
-            if ret == 0 {
-                Ok(pid)
+            let ret = if spawnp {
+                nix::spawn::posix_spawnp(&path, &file_actions, &attrp, &args, &env)
             } else {
-                let err = std::io::Error::from_raw_os_error(ret);
-                Err(IOErrorBuilder::with_filename(&err, self.path, vm))
-            }
+                nix::spawn::posix_spawn(&*path, &file_actions, &attrp, &args, &env)
+            };
+            ret.map(Into::into)
+                .map_err(|err| IOErrorBuilder::with_filename(&err.into(), self.path, vm))
         }
     }
 
@@ -1733,36 +1766,32 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn dup(fd: i32, vm: &VirtualMachine) -> PyResult<i32> {
+    fn dup(fd: BorrowedFd<'_>, vm: &VirtualMachine) -> PyResult<OwnedFd> {
         let fd = nix::unistd::dup(fd).map_err(|e| e.into_pyexception(vm))?;
-        super::raw_set_inheritable(fd, false)
+        super::set_inheritable(fd.as_fd(), false)
             .map(|()| fd)
-            .map_err(|e| {
-                let _ = nix::unistd::close(fd);
-                e.into_pyexception(vm)
-            })
+            .map_err(|e| e.into_pyexception(vm))
     }
 
     #[derive(FromArgs)]
-    struct Dup2Args {
+    struct Dup2Args<'fd> {
         #[pyarg(positional)]
-        fd: i32,
+        fd: BorrowedFd<'fd>,
         #[pyarg(positional)]
-        fd2: i32,
+        fd2: OwnedFd,
         #[pyarg(any, default = true)]
         inheritable: bool,
     }
 
     #[pyfunction]
-    fn dup2(args: Dup2Args, vm: &VirtualMachine) -> PyResult<i32> {
-        let fd = nix::unistd::dup2(args.fd, args.fd2).map_err(|e| e.into_pyexception(vm))?;
+    fn dup2(args: Dup2Args<'_>, vm: &VirtualMachine) -> PyResult<OwnedFd> {
+        let mut fd2 = std::mem::ManuallyDrop::new(args.fd2);
+        nix::unistd::dup2(args.fd, &mut fd2).map_err(|e| e.into_pyexception(vm))?;
+        let fd2 = std::mem::ManuallyDrop::into_inner(fd2);
         if !args.inheritable {
-            super::raw_set_inheritable(fd, false).map_err(|e| {
-                let _ = nix::unistd::close(fd);
-                e.into_pyexception(vm)
-            })?
+            super::set_inheritable(fd2.as_fd(), false).map_err(|e| e.into_pyexception(vm))?
         }
-        Ok(fd)
+        Ok(fd2)
     }
 
     pub(crate) fn support_funcs() -> Vec<SupportFunc> {

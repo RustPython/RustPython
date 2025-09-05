@@ -244,10 +244,10 @@ mod decl {
             Either::A(f) => f,
             Either::B(i) => i as f64,
         });
-        if let Some(timeout) = timeout {
-            if timeout < 0.0 {
-                return Err(vm.new_value_error("timeout must be positive"));
-            }
+        if let Some(timeout) = timeout
+            && timeout < 0.0
+        {
+            return Err(vm.new_value_error("timeout must be positive"));
         }
         let deadline = timeout.map(|s| time::time(vm).unwrap() + s);
 

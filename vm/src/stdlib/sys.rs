@@ -183,16 +183,16 @@ mod sys {
         let ctx = &vm.ctx;
         #[cfg(not(target_arch = "wasm32"))]
         {
-            if let Some(exec_path) = env::args_os().next() {
-                if let Ok(path) = which::which(exec_path) {
-                    return ctx
-                        .new_str(
-                            path.into_os_string()
-                                .into_string()
-                                .unwrap_or_else(|p| p.to_string_lossy().into_owned()),
-                        )
-                        .into();
-                }
+            if let Some(exec_path) = env::args_os().next()
+                && let Ok(path) = which::which(exec_path)
+            {
+                return ctx
+                    .new_str(
+                        path.into_os_string()
+                            .into_string()
+                            .unwrap_or_else(|p| p.to_string_lossy().into_owned()),
+                    )
+                    .into();
             }
         }
         if let Some(exec_path) = env::args().next() {
@@ -203,16 +203,16 @@ mod sys {
             if path.is_absolute() {
                 return ctx.new_str(exec_path).into();
             }
-            if let Ok(dir) = env::current_dir() {
-                if let Ok(dir) = dir.into_os_string().into_string() {
-                    return ctx
-                        .new_str(format!(
-                            "{}/{}",
-                            dir,
-                            exec_path.strip_prefix("./").unwrap_or(&exec_path)
-                        ))
-                        .into();
-                }
+            if let Ok(dir) = env::current_dir()
+                && let Ok(dir) = dir.into_os_string().into_string()
+            {
+                return ctx
+                    .new_str(format!(
+                        "{}/{}",
+                        dir,
+                        exec_path.strip_prefix("./").unwrap_or(&exec_path)
+                    ))
+                    .into();
             }
         }
         ctx.none()
@@ -830,13 +830,13 @@ mod sys {
         if depth < 0 {
             return Err(vm.new_value_error("depth must be >= 0"));
         }
-        crate::vm::thread::COROUTINE_ORIGIN_TRACKING_DEPTH.with(|cell| cell.set(depth as _));
+        crate::vm::thread::COROUTINE_ORIGIN_TRACKING_DEPTH.set(depth as u32);
         Ok(())
     }
 
     #[pyfunction]
     fn get_coroutine_origin_tracking_depth() -> i32 {
-        crate::vm::thread::COROUTINE_ORIGIN_TRACKING_DEPTH.with(|cell| cell.get()) as _
+        crate::vm::thread::COROUTINE_ORIGIN_TRACKING_DEPTH.get() as i32
     }
 
     #[pyfunction]
@@ -868,33 +868,29 @@ mod sys {
 
     #[pyfunction]
     fn set_asyncgen_hooks(args: SetAsyncgenHooksArgs, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(Some(finalizer)) = args.finalizer.as_option() {
-            if !finalizer.is_callable() {
-                return Err(vm.new_type_error(format!(
-                    "callable finalizer expected, got {:.50}",
-                    finalizer.class().name()
-                )));
-            }
+        if let Some(Some(finalizer)) = args.finalizer.as_option()
+            && !finalizer.is_callable()
+        {
+            return Err(vm.new_type_error(format!(
+                "callable finalizer expected, got {:.50}",
+                finalizer.class().name()
+            )));
         }
 
-        if let Some(Some(firstiter)) = args.firstiter.as_option() {
-            if !firstiter.is_callable() {
-                return Err(vm.new_type_error(format!(
-                    "callable firstiter expected, got {:.50}",
-                    firstiter.class().name()
-                )));
-            }
+        if let Some(Some(firstiter)) = args.firstiter.as_option()
+            && !firstiter.is_callable()
+        {
+            return Err(vm.new_type_error(format!(
+                "callable firstiter expected, got {:.50}",
+                firstiter.class().name()
+            )));
         }
 
         if let Some(finalizer) = args.finalizer.into_option() {
-            crate::vm::thread::ASYNC_GEN_FINALIZER.with(|cell| {
-                cell.replace(finalizer);
-            });
+            crate::vm::thread::ASYNC_GEN_FINALIZER.set(finalizer);
         }
         if let Some(firstiter) = args.firstiter.into_option() {
-            crate::vm::thread::ASYNC_GEN_FIRSTITER.with(|cell| {
-                cell.replace(firstiter);
-            });
+            crate::vm::thread::ASYNC_GEN_FIRSTITER.set(firstiter);
         }
 
         Ok(())
@@ -914,9 +910,11 @@ mod sys {
     fn get_asyncgen_hooks(vm: &VirtualMachine) -> PyAsyncgenHooks {
         PyAsyncgenHooks {
             firstiter: crate::vm::thread::ASYNC_GEN_FIRSTITER
-                .with(|cell| cell.borrow().clone().to_pyobject(vm)),
+                .with_borrow(Clone::clone)
+                .to_pyobject(vm),
             finalizer: crate::vm::thread::ASYNC_GEN_FINALIZER
-                .with(|cell| cell.borrow().clone().to_pyobject(vm)),
+                .with_borrow(Clone::clone)
+                .to_pyobject(vm),
         }
     }
 

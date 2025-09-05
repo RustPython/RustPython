@@ -91,12 +91,11 @@ mod decl {
     #[pyfunction]
     fn sleep(seconds: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let dur = seconds.try_into_value::<Duration>(vm).map_err(|e| {
-            if e.class().is(vm.ctx.exceptions.value_error) {
-                if let Some(s) = e.args().first().and_then(|arg| arg.str(vm).ok()) {
-                    if s.as_str() == "negative duration" {
-                        return vm.new_value_error("sleep length must be non-negative");
-                    }
-                }
+            if e.class().is(vm.ctx.exceptions.value_error)
+                && let Some(s) = e.args().first().and_then(|arg| arg.str(vm).ok())
+                && s.as_str() == "negative duration"
+            {
+                return vm.new_value_error("sleep length must be non-negative");
             }
             e
         })?;

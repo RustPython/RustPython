@@ -58,8 +58,8 @@ impl StoredVirtualMachine {
                 setup_browser_module(vm);
             }
 
-            VM_INIT_FUNCS.with(|cell| {
-                for f in cell.borrow().iter() {
+            VM_INIT_FUNCS.with_borrow(|funcs| {
+                for f in funcs {
                     f(vm)
                 }
             });
@@ -78,7 +78,7 @@ impl StoredVirtualMachine {
 /// Add a hook to add builtins or frozen modules to the RustPython VirtualMachine while it's
 /// initializing.
 pub fn add_init_func(f: fn(&mut VirtualMachine)) {
-    VM_INIT_FUNCS.with(|cell| cell.borrow_mut().push(f))
+    VM_INIT_FUNCS.with_borrow_mut(|funcs| funcs.push(f))
 }
 
 // It's fine that it's thread local, since WASM doesn't even have threads yet. thread_local!
@@ -97,17 +97,15 @@ pub fn get_vm_id(vm: &VirtualMachine) -> &str {
         .expect("VirtualMachine inside of WASM crate should have wasm_id set")
 }
 pub(crate) fn stored_vm_from_wasm(wasm_vm: &WASMVirtualMachine) -> Rc<StoredVirtualMachine> {
-    STORED_VMS.with(|cell| {
-        cell.borrow()
-            .get(&wasm_vm.id)
+    STORED_VMS.with_borrow(|vms| {
+        vms.get(&wasm_vm.id)
             .expect("VirtualMachine is not valid")
             .clone()
     })
 }
 pub(crate) fn weak_vm(vm: &VirtualMachine) -> Weak<StoredVirtualMachine> {
     let id = get_vm_id(vm);
-    STORED_VMS
-        .with(|cell| Rc::downgrade(cell.borrow().get(id).expect("VirtualMachine is not valid")))
+    STORED_VMS.with_borrow(|vms| Rc::downgrade(vms.get(id).expect("VirtualMachine is not valid")))
 }
 
 #[wasm_bindgen(js_name = vmStore)]
@@ -116,8 +114,7 @@ pub struct VMStore;
 #[wasm_bindgen(js_class = vmStore)]
 impl VMStore {
     pub fn init(id: String, inject_browser_module: Option<bool>) -> WASMVirtualMachine {
-        STORED_VMS.with(|cell| {
-            let mut vms = cell.borrow_mut();
+        STORED_VMS.with_borrow_mut(|vms| {
             if !vms.contains_key(&id) {
                 let stored_vm =
                     StoredVirtualMachine::new(id.clone(), inject_browser_module.unwrap_or(true));
@@ -128,14 +125,7 @@ impl VMStore {
     }
 
     pub(crate) fn _get(id: String) -> Option<WASMVirtualMachine> {
-        STORED_VMS.with(|cell| {
-            let vms = cell.borrow();
-            if vms.contains_key(&id) {
-                Some(WASMVirtualMachine { id })
-            } else {
-                None
-            }
-        })
+        STORED_VMS.with_borrow(|vms| vms.contains_key(&id).then_some(WASMVirtualMachine { id }))
     }
 
     pub fn get(id: String) -> JsValue {
@@ -146,24 +136,19 @@ impl VMStore {
     }
 
     pub fn destroy(id: String) {
-        STORED_VMS.with(|cell| {
-            use std::collections::hash_map::Entry;
-            match cell.borrow_mut().entry(id) {
-                Entry::Occupied(o) => {
-                    let (_k, stored_vm) = o.remove_entry();
-                    // for f in stored_vm.drop_handlers.iter() {
-                    //     f();
-                    // }
-                    // deallocate the VM
-                    drop(stored_vm);
-                }
-                Entry::Vacant(_v) => {}
+        STORED_VMS.with_borrow_mut(|vms| {
+            if let Some(stored_vm) = vms.remove(&id) {
+                // for f in stored_vm.drop_handlers.iter() {
+                //     f();
+                // }
+                // deallocate the VM
+                drop(stored_vm);
             }
         });
     }
 
     pub fn ids() -> Vec<JsValue> {
-        STORED_VMS.with(|cell| cell.borrow().keys().map(|k| k.into()).collect())
+        STORED_VMS.with_borrow(|vms| vms.keys().map(|k| k.into()).collect())
     }
 }
 
@@ -179,10 +164,7 @@ impl WASMVirtualMachine {
     where
         F: FnOnce(&StoredVirtualMachine) -> R,
     {
-        let stored_vm = STORED_VMS.with(|cell| {
-            let mut vms = cell.borrow_mut();
-            vms.get_mut(&self.id).unwrap().clone()
-        });
+        let stored_vm = STORED_VMS.with_borrow_mut(|vms| vms.get_mut(&self.id).unwrap().clone());
         f(&stored_vm)
     }
 
@@ -202,7 +184,7 @@ impl WASMVirtualMachine {
     }
 
     pub fn valid(&self) -> bool {
-        STORED_VMS.with(|cell| cell.borrow().contains_key(&self.id))
+        STORED_VMS.with_borrow(|vms| vms.contains_key(&self.id))
     }
 
     pub(crate) fn push_held_rc(

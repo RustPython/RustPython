@@ -518,11 +518,11 @@ mod math {
     #[pyfunction]
     fn ceil(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let result_or_err = try_magic_method(identifier!(vm, __ceil__), vm, &x);
-        if result_or_err.is_err() {
-            if let Some(v) = x.try_float_opt(vm) {
-                let v = try_f64_to_bigint(v?.to_f64().ceil(), vm)?;
-                return Ok(vm.ctx.new_int(v).into());
-            }
+        if result_or_err.is_err()
+            && let Some(v) = x.try_float_opt(vm)
+        {
+            let v = try_f64_to_bigint(v?.to_f64().ceil(), vm)?;
+            return Ok(vm.ctx.new_int(v).into());
         }
         result_or_err
     }
@@ -530,11 +530,11 @@ mod math {
     #[pyfunction]
     fn floor(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let result_or_err = try_magic_method(identifier!(vm, __floor__), vm, &x);
-        if result_or_err.is_err() {
-            if let Some(v) = x.try_float_opt(vm) {
-                let v = try_f64_to_bigint(v?.to_f64().floor(), vm)?;
-                return Ok(vm.ctx.new_int(v).into());
-            }
+        if result_or_err.is_err()
+            && let Some(v) = x.try_float_opt(vm)
+        {
+            let v = try_f64_to_bigint(v?.to_f64().floor(), vm)?;
+            return Ok(vm.ctx.new_int(v).into());
         }
         result_or_err
     }
