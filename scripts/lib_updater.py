@@ -146,7 +146,7 @@ class PatchEntry(typing.NamedTuple):
                         ]:
                             if COMMENT not in line:
                                 continue
-                            reason = "".join(re.findall(rf"{COMMENT} (.*)", line))
+                            reason = "".join(re.findall(rf"{COMMENT}.?(.*)", line))
                             break
                         else:
                             continue
