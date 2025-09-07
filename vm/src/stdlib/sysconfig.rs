@@ -7,7 +7,7 @@ pub(crate) mod sysconfig {
     #[pyfunction]
     fn config_vars(vm: &VirtualMachine) -> PyDictRef {
         let vars = vm.ctx.new_dict();
-        vars.set_item("Py_GIL_DISABLED", false.to_pyobject(vm), vm)
+        vars.set_item("Py_GIL_DISABLED", true.to_pyobject(vm), vm)
             .unwrap();
         vars
     }
