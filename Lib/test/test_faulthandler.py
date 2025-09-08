@@ -979,6 +979,7 @@ class FaultHandlerTests(unittest.TestCase):
         self.assertEqual(output, [])
         self.assertEqual(exitcode, 0)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; AttributeError: module 'msvcrt' has no attribute 'GetErrorMode'")
     @threading_helper.requires_working_threading()
     @unittest.skipUnless(support.Py_GIL_DISABLED, "only meaningful if the GIL is disabled")
     def test_free_threaded_dump_traceback(self):
