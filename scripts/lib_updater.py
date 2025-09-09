@@ -85,22 +85,31 @@ class PatchSpec(typing.NamedTuple):
     cond: str | None = None
     reason: str = ""
 
-    def as_decorator(self) -> str:
-        reason = f"{COMMENT}; {self.reason}".strip(" ;")
+    @property
+    def _reason(self) -> str:
+        return f"{COMMENT}; {self.reason}".strip(" ;")
+
+    @property
+    def _attr_node(self) -> ast.Attribute:
+        return ast.Attribute(value=ast.Name(id=UT), attr=self.ut_method)
+
+    def as_ast_node(self) -> ast.Attribute | ast.Call:
         if not self.ut_method.has_args():
-            return f"@{UT}.{self.ut_method} # {reason}"
+            return self._attr_node
 
         args = []
         if self.cond:
             args.append(ast.parse(self.cond).body[0].value)
-        args.append(ast.Constant(value=reason))
+        args.append(ast.Constant(value=self._reason))
 
-        call_node = ast.Call(
-            func=ast.Attribute(value=ast.Name(id=UT), attr=self.ut_method),
-            args=args,
-            keywords=[],
-        )
-        unparsed = ast.unparse(call_node)
+        return ast.Call(func=self._attr_node, args=args, keywords=[])
+
+    def as_decorator(self) -> str:
+        unparsed = ast.unparse(self.as_ast_node())
+
+        if not self.ut_method.has_args():
+            unparsed = f"{unparsed} # {self._reason}"
+
         return f"@{unparsed}"
 
 
@@ -218,14 +227,14 @@ def build_patch_dict(it: "Iterator[PatchEntry]") -> Patches:
 
 
 def iter_patch_lines(tree: ast.Module, patches: Patches) -> "Iterator[tuple[int, str]]":
-    cache = {}  # Used in phase 2
+    cache = {}  # Used in phase 2. Stores the end line location of a class name.
 
     # Phase 1: Iterate and mark existing tests
     for cls_node, fn_node in iter_tests(tree):
-        cache[cls_node.name] = cls_node.end_lineno
         specs = patches.get(cls_node.name, {}).pop(fn_node.name, None)
         if not specs:
             continue
+        cache[cls_node.name] = cls_node.end_lineno
 
         lineno = min(
             (dec_node.lineno for dec_node in fn_node.decorator_list),
