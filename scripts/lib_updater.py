@@ -43,6 +43,7 @@ COL_OFFSET = 4
 INDENT1 = " " * COL_OFFSET
 INDENT2 = INDENT1 * 2
 COMMENT = "TODO: RUSTPYTHON"
+UT = "unittest"
 
 
 @enum.unique
@@ -87,7 +88,7 @@ class PatchSpec(typing.NamedTuple):
     def as_decorator(self) -> str:
         reason = f"{COMMENT}; {self.reason}".strip(" ;")
         if not self.ut_method.has_args():
-            return f"@unittest.{self.ut_method} # {reason}"
+            return f"@{UT}.{self.ut_method} # {reason}"
 
         args = []
         if self.cond:
@@ -95,7 +96,7 @@ class PatchSpec(typing.NamedTuple):
         args.append(ast.Constant(value=reason))
 
         call_node = ast.Call(
-            func=ast.Attribute(value=ast.Name(id="unittest"), attr=self.ut_method),
+            func=ast.Attribute(value=ast.Name(id=UT), attr=self.ut_method),
             args=args,
             keywords=[],
         )
@@ -137,7 +138,7 @@ class PatchEntry(typing.NamedTuple):
 
                 if (
                     isinstance(attr_node, ast.Name)
-                    or getattr(attr_node.value, "id", None) != "unittest"
+                    or getattr(attr_node.value, "id", None) != UT
                 ):
                     continue
 
@@ -147,37 +148,37 @@ class PatchEntry(typing.NamedTuple):
                 except ValueError:
                     continue
 
-                match ut_method:
-                    case UtMethod.ExpectedFailure:
-                        # Search first on decorator line, then in the line before
-                        for line in lines[
-                            dec_node.lineno - 1 : dec_node.lineno - 3 : -1
-                        ]:
-                            if COMMENT not in line:
-                                continue
-                            reason = "".join(re.findall(rf"{COMMENT}.?(.*)", line))
+                # If our ut_method has args then,
+                # we need to search for a constant that contains our `COMMENT`.
+                # Otherwise we need to search it in the raw source code :/
+                if ut_method.has_args():
+                    reason = next(
+                        (
+                            node.value
+                            for node in ast.walk(dec_node)
+                            if isinstance(node, ast.Constant)
+                            and isinstance(node.value, str)
+                            and COMMENT in node.value
+                        ),
+                        None,
+                    )
+
+                    # If we didn't find a constant containing <COMMENT>,
+                    # then we didn't put this decorator
+                    if not reason:
+                        continue
+
+                    if ut_method.has_cond():
+                        cond = ast.unparse(dec_node.args[0])
+                else:
+                    # Search first on decorator line, then in the line before
+                    for line in lines[dec_node.lineno - 1 : dec_node.lineno - 3 : -1]:
+                        if found := re.search(rf"{COMMENT}.?(.*)", line):
+                            reason = found.group()
                             break
-                        else:
-                            continue
-                    case _:
-                        reason = next(
-                            (
-                                node.value
-                                for node in ast.walk(dec_node)
-                                if isinstance(node, ast.Constant)
-                                and isinstance(node.value, str)
-                                and COMMENT in node.value
-                            ),
-                            None,
-                        )
-
-                        # If we didn't find a constant containing <COMMENT>,
-                        # then we didn't put this decorator
-                        if not reason:
-                            continue
-
-                        if ut_method.has_cond():
-                            cond = ast.unparse(dec_node.args[0])
+                    else:
+                        # Didn't find our `COMMENT` :)
+                        continue
 
                 reason = reason.removeprefix(COMMENT).strip(";:, ")
                 spec = PatchSpec(ut_method, cond, reason)
@@ -242,6 +243,7 @@ def iter_patch_lines(tree: ast.Module, patches: Patches) -> "Iterator[tuple[int,
         if not lineno:
             print(f"WARNING: {cls_name} does not exist in remote file", file=sys.stderr)
             continue
+
         for test_name, specs in tests.items():
             patch_lines = "\n".join(f"{INDENT1}{spec.as_decorator()}" for spec in specs)
             yield (
