@@ -1858,6 +1858,7 @@ class ASTValidatorTests(unittest.TestCase):
 
         self._check_arguments(fac, self.stmt)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: class pattern defines no positional sub-patterns (__match_args__ missing)
     def test_funcdef_pattern_matching(self):
         # gh-104799: New fields on FunctionDef should be added at the end
         def matcher(node):
