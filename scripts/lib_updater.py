@@ -325,7 +325,10 @@ if __name__ == "__main__":
     if args.patches:
         patches = {
             cls_name: {
-                test_name: [PatchSpec(**spec) for spec in specs]
+                test_name: [
+                    PatchSpec(**spec)._replace(ut_method=UtMethod(spec["ut_method"]))
+                    for spec in specs
+                ]
                 for test_name, specs in tests.items()
             }
             for cls_name, tests in json.loads(args.patches.read_text()).items()
