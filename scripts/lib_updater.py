@@ -32,6 +32,7 @@ import json
 import pathlib
 import re
 import sys
+import textwrap
 import typing
 
 if typing.TYPE_CHECKING:
@@ -39,9 +40,7 @@ if typing.TYPE_CHECKING:
 
 type Patches = dict[str, dict[str, list["PatchSpec"]]]
 
-COL_OFFSET = 4
-INDENT1 = " " * COL_OFFSET
-INDENT2 = INDENT1 * 2
+DEFAULT_INDENT = " " * 4
 COMMENT = "TODO: RUSTPYTHON"
 UT = "unittest"
 
@@ -231,20 +230,18 @@ def iter_patch_lines(tree: ast.Module, patches: Patches) -> "Iterator[tuple[int,
 
     # Phase 1: Iterate and mark existing tests
     for cls_node, fn_node in iter_tests(tree):
+        cache[cls_node.name] = cls_node.end_lineno
         specs = patches.get(cls_node.name, {}).pop(fn_node.name, None)
         if not specs:
             continue
-        cache[cls_node.name] = cls_node.end_lineno
 
         lineno = min(
             (dec_node.lineno for dec_node in fn_node.decorator_list),
             default=fn_node.lineno,
         )
         indent = " " * fn_node.col_offset
-        yield (
-            lineno - 1,
-            "\n".join(f"{indent}{spec.as_decorator()}" for spec in specs),
-        )
+        patch_lines = "\n".join(spec.as_decorator() for spec in specs)
+        yield (lineno - 1, textwrap.indent(patch_lines, indent))
 
     # Phase 2: Iterate and mark inhereted tests
     for cls_name, tests in patches.items():
@@ -254,15 +251,13 @@ def iter_patch_lines(tree: ast.Module, patches: Patches) -> "Iterator[tuple[int,
             continue
 
         for test_name, specs in tests.items():
-            patch_lines = "\n".join(f"{INDENT1}{spec.as_decorator()}" for spec in specs)
-            yield (
-                lineno,
-                f"""
-{patch_lines}
-{INDENT1}def {test_name}(self):
-{INDENT2}return super().{test_name}()
-""".rstrip(),
-            )
+            decorators = "\n".join(spec.as_decorator() for spec in specs)
+            patch_lines = f"""
+{decorators}
+def {test_name}(self):
+{DEFAULT_INDENT}return super().{test_name}()
+""".rstrip()
+            yield (lineno, textwrap.indent(patch_lines, DEFAULT_INDENT))
 
 
 def apply_patches(contents: str, patches: Patches) -> str:
