@@ -352,6 +352,10 @@ class TestGenericTest(GenericTest, unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, 'embedded null'):
                         func(b'/tmp\x00abcds')
 
+    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
+    def test_samestat_on_symlink(self):
+        return super().test_samestat_on_symlink()
+
 # Following TestCase is not supposed to be run from test_genericpath.
 # It is inherited by other test modules (ntpath, posixpath).
 
