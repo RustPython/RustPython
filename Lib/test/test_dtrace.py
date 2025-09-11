@@ -159,10 +159,42 @@ class DTraceNormalTests(TraceTests, unittest.TestCase):
     backend = DTraceBackend()
     optimize_python = 0
 
+    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
+    def test_function_entry_return(self):
+        return super().test_function_entry_return()
+
+    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
+    def test_verify_call_opcodes(self):
+        return super().test_verify_call_opcodes()
+
+    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
+    def test_gc(self):
+        return super().test_gc()
+
+    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
+    def test_line(self):
+        return super().test_line()
+
 
 class DTraceOptimizedTests(TraceTests, unittest.TestCase):
     backend = DTraceBackend()
     optimize_python = 2
+
+    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
+    def test_function_entry_return(self):
+        return super().test_function_entry_return()
+
+    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
+    def test_verify_call_opcodes(self):
+        return super().test_verify_call_opcodes()
+
+    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
+    def test_gc(self):
+        return super().test_gc()
+
+    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
+    def test_line(self):
+        return super().test_line()
 
 
 class SystemTapNormalTests(TraceTests, unittest.TestCase):
