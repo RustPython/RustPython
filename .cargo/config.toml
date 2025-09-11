@@ -3,3 +3,6 @@ rustflags = "-C link-arg=/STACK:8000000"
 
 [target.'cfg(all(target_os = "windows", not(target_env = "msvc")))']
 rustflags = "-C link-args=-Wl,--stack,8000000"
+
+[target.wasm32-unknown-unknown]
+rustflags = ["--cfg=getrandom_backend=\"wasm_js\""]
