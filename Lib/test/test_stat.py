@@ -325,20 +325,9 @@ class TestFilemode:
 class TestFilemodeCStat(TestFilemode, unittest.TestCase):
     statmod = c_stat
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def test_link(self):
-            super().test_link()
 
 class TestFilemodePyStat(TestFilemode, unittest.TestCase):
     statmod = py_stat
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def test_link(self):
-            super().test_link()
 
 
 if __name__ == '__main__':

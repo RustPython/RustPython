@@ -1527,6 +1527,14 @@ class NtCommonTest(test_genericpath.CommonTest, unittest.TestCase):
     def test_expandvars_nonascii(self):
         return super().test_expandvars_nonascii()
 
+    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
+    def test_samefile_on_symlink(self):
+        return super().test_samefile_on_symlink()
+
+    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
+    def test_samestat_on_symlink(self):
+        return super().test_samestat_on_symlink()
+
 
 class PathLikeTests(NtpathTestCase):
 
