@@ -32,6 +32,7 @@ import json
 import pathlib
 import re
 import sys
+import textwrap
 import typing
 
 if typing.TYPE_CHECKING:
@@ -39,10 +40,9 @@ if typing.TYPE_CHECKING:
 
 type Patches = dict[str, dict[str, list["PatchSpec"]]]
 
-COL_OFFSET = 4
-INDENT1 = " " * COL_OFFSET
-INDENT2 = INDENT1 * 2
+DEFAULT_INDENT = " " * 4
 COMMENT = "TODO: RUSTPYTHON"
+UT = "unittest"
 
 
 @enum.unique
@@ -53,6 +53,9 @@ class UtMethod(enum.StrEnum):
 
     def _generate_next_value_(name, start, count, last_values) -> str:
         return name[0].lower() + name[1:]
+
+    def has_args(self) -> bool:
+        return self != self.ExpectedFailure
 
     def has_cond(self) -> bool:
         return self.endswith(("If", "Unless"))
@@ -81,17 +84,32 @@ class PatchSpec(typing.NamedTuple):
     cond: str | None = None
     reason: str = ""
 
-    def fmt(self) -> str:
-        prefix = f"@unittest.{self.ut_method}"
-        match self.ut_method:
-            case UtMethod.ExpectedFailure:
-                line = f"{prefix} # {COMMENT}; {self.reason}"
-            case UtMethod.ExpectedFailureIfWindows | UtMethod.Skip:
-                line = f'{prefix}("{COMMENT}; {self.reason}")'
-            case UtMethod.SkipIf | UtMethod.SkipUnless | UtMethod.ExpectedFailureIf:
-                line = f'{prefix}({self.cond}, "{COMMENT}; {self.reason}")'
+    @property
+    def _reason(self) -> str:
+        return f"{COMMENT}; {self.reason}".strip(" ;")
 
-        return line.strip().rstrip(";").strip()
+    @property
+    def _attr_node(self) -> ast.Attribute:
+        return ast.Attribute(value=ast.Name(id=UT), attr=self.ut_method)
+
+    def as_ast_node(self) -> ast.Attribute | ast.Call:
+        if not self.ut_method.has_args():
+            return self._attr_node
+
+        args = []
+        if self.cond:
+            args.append(ast.parse(self.cond).body[0].value)
+        args.append(ast.Constant(value=self._reason))
+
+        return ast.Call(func=self._attr_node, args=args, keywords=[])
+
+    def as_decorator(self) -> str:
+        unparsed = ast.unparse(self.as_ast_node())
+
+        if not self.ut_method.has_args():
+            unparsed = f"{unparsed} # {self._reason}"
+
+        return f"@{unparsed}"
 
 
 class PatchEntry(typing.NamedTuple):
@@ -128,7 +146,7 @@ class PatchEntry(typing.NamedTuple):
 
                 if (
                     isinstance(attr_node, ast.Name)
-                    or getattr(attr_node.value, "id", None) != "unittest"
+                    or getattr(attr_node.value, "id", None) != UT
                 ):
                     continue
 
@@ -138,41 +156,39 @@ class PatchEntry(typing.NamedTuple):
                 except ValueError:
                     continue
 
-                match ut_method:
-                    case UtMethod.ExpectedFailure:
-                        # Search first on decorator line, then in the line before
-                        for line in lines[
-                            dec_node.lineno - 1 : dec_node.lineno - 3 : -1
-                        ]:
-                            if COMMENT not in line:
-                                continue
-                            reason = "".join(re.findall(rf"{COMMENT}.?(.*)", line))
+                # If our ut_method has args then,
+                # we need to search for a constant that contains our `COMMENT`.
+                # Otherwise we need to search it in the raw source code :/
+                if ut_method.has_args():
+                    reason = next(
+                        (
+                            node.value
+                            for node in ast.walk(dec_node)
+                            if isinstance(node, ast.Constant)
+                            and isinstance(node.value, str)
+                            and COMMENT in node.value
+                        ),
+                        None,
+                    )
+
+                    # If we didn't find a constant containing <COMMENT>,
+                    # then we didn't put this decorator
+                    if not reason:
+                        continue
+
+                    if ut_method.has_cond():
+                        cond = ast.unparse(dec_node.args[0])
+                else:
+                    # Search first on decorator line, then in the line before
+                    for line in lines[dec_node.lineno - 1 : dec_node.lineno - 3 : -1]:
+                        if found := re.search(rf"{COMMENT}.?(.*)", line):
+                            reason = found.group()
                             break
-                        else:
-                            continue
-                    case _:
-                        reason = next(
-                            (
-                                node.value
-                                for node in ast.walk(dec_node)
-                                if isinstance(node, ast.Constant)
-                                and isinstance(node.value, str)
-                                and COMMENT in node.value
-                            ),
-                            None,
-                        )
+                    else:
+                        # Didn't find our `COMMENT` :)
+                        continue
 
-                        # If we didn't find a constant containing <COMMENT>,
-                        # then we didn't put this decorator
-                        if not reason:
-                            continue
-
-                        if ut_method.has_cond():
-                            cond = ast.unparse(dec_node.args[0])
-
-                reason = (
-                    reason.replace(COMMENT, "").strip().lstrip(";").lstrip(":").strip()
-                )
+                reason = reason.removeprefix(COMMENT).strip(";:, ")
                 spec = PatchSpec(ut_method, cond, reason)
                 yield cls(parent_class, fn_node.name, spec)
 
@@ -210,7 +226,7 @@ def build_patch_dict(it: "Iterator[PatchEntry]") -> Patches:
 
 
 def iter_patch_lines(tree: ast.Module, patches: Patches) -> "Iterator[tuple[int, str]]":
-    cache = {}  # Used in phase 2
+    cache = {}  # Used in phase 2. Stores the end line location of a class name.
 
     # Phase 1: Iterate and mark existing tests
     for cls_node, fn_node in iter_tests(tree):
@@ -224,7 +240,8 @@ def iter_patch_lines(tree: ast.Module, patches: Patches) -> "Iterator[tuple[int,
             default=fn_node.lineno,
         )
         indent = " " * fn_node.col_offset
-        yield (lineno - 1, "\n".join(f"{indent}{spec.fmt()}" for spec in specs))
+        patch_lines = "\n".join(spec.as_decorator() for spec in specs)
+        yield (lineno - 1, textwrap.indent(patch_lines, indent))
 
     # Phase 2: Iterate and mark inhereted tests
     for cls_name, tests in patches.items():
@@ -232,16 +249,15 @@ def iter_patch_lines(tree: ast.Module, patches: Patches) -> "Iterator[tuple[int,
         if not lineno:
             print(f"WARNING: {cls_name} does not exist in remote file", file=sys.stderr)
             continue
+
         for test_name, specs in tests.items():
-            patch_lines = "\n".join(f"{INDENT1}{spec.fmt()}" for spec in specs)
-            yield (
-                lineno,
-                f"""
-{patch_lines}
-{INDENT1}def {test_name}(self):
-{INDENT2}return super().{test_name}()
-""".rstrip(),
-            )
+            decorators = "\n".join(spec.as_decorator() for spec in specs)
+            patch_lines = f"""
+{decorators}
+def {test_name}(self):
+{DEFAULT_INDENT}return super().{test_name}()
+""".rstrip()
+            yield (lineno, textwrap.indent(patch_lines, DEFAULT_INDENT))
 
 
 def apply_patches(contents: str, patches: Patches) -> str:
@@ -309,7 +325,10 @@ if __name__ == "__main__":
     if args.patches:
         patches = {
             cls_name: {
-                test_name: [PatchSpec(**spec) for spec in specs]
+                test_name: [
+                    PatchSpec(**spec)._replace(ut_method=UtMethod(spec["ut_method"]))
+                    for spec in specs
+                ]
                 for test_name, specs in tests.items()
             }
             for cls_name, tests in json.loads(args.patches.read_text()).items()
