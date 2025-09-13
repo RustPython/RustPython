@@ -116,7 +116,10 @@ jobs:
     timeout-minutes: ${{ contains(matrix.os, 'windows') && 45 || 30 }}
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os:
+          - macos-latest
+          - ubuntu-latest
+          - windows-2025 # TODO: Switch to `windows-latest` on 2025/09/30
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
@@ -242,7 +245,10 @@ jobs:
     timeout-minutes: ${{ contains(matrix.os, 'windows') && 45 || 30 }}
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os:
+          - macos-latest
+          - ubuntu-latest
+          - windows-2025 # TODO: Switch to `windows-latest` on 2025/09/30
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
