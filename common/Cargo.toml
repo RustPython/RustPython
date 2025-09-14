@@ -10,6 +10,7 @@ license.workspace = true
 
 [features]
 threading = ["parking_lot"]
+wasm_js = ["getrandom/wasm_js"]
 
 [dependencies]
 rustpython-literal = { workspace = true }
@@ -35,9 +36,6 @@ radium = { workspace = true }
 lock_api = "0.4"
 siphasher = "1"
 num-complex.workspace = true
-
-[target.'cfg(all(target_arch = "wasm32", not(target_os = "wasi")))'.dependencies]
-getrandom = { workspace = true, features = ["wasm_js"] }
 
 [target.'cfg(windows)'.dependencies]
 widestring = { workspace = true }

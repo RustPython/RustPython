@@ -24,7 +24,7 @@ ast = ["ruff_python_ast", "ruff_text_size"]
 codegen = ["rustpython-codegen", "ast"]
 parser = ["ast"]
 serde = ["dep:serde"]
-wasmbind = ["chrono/wasmbind", "getrandom/wasm_js", "wasm-bindgen"]
+wasmbind = ["rustpython-common/wasm_js", "chrono/wasmbind", "wasm-bindgen"]
 
 [dependencies]
 rustpython-compiler = { workspace = true, optional = true }
