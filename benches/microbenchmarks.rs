@@ -37,7 +37,7 @@ pub struct MicroBenchmark {
 }
 
 fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmark) {
-    pyo3::Python::with_gil(|py| {
+    pyo3::Python::attach(|py| {
         let setup_name = format!("{}_setup", bench.name);
         let setup_code = cpy_compile_code(py, &bench.setup, &setup_name).unwrap();
 
