@@ -2316,7 +2316,6 @@ dependencies = [
  "num-complex",
  "ruff_source_file",
  "rustpython-wtf8",
- "serde",
 ]
 
 [[package]]
@@ -2507,7 +2506,6 @@ dependencies = [
  "log",
  "malachite-bigint",
  "memchr",
- "memoffset",
  "nix 0.30.1",
  "num-complex",
  "num-integer",
@@ -2547,7 +2545,6 @@ dependencies = [
  "unic-ucd-category",
  "unic-ucd-ident",
  "unicode-casing",
- "unicode_names2 2.0.0",
  "wasm-bindgen",
  "which",
  "widestring",
