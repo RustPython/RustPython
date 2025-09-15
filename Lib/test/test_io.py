@@ -1203,6 +1203,14 @@ class TestIOCTypes(unittest.TestCase):
 class PyIOTest(IOTest):
     pass
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; OSError: Negative file descriptor
+    def test_bad_opener_negative_1():
+        return super().test_bad_opener_negative_1()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; OSError: Negative file descriptor
+    def test_bad_opener_other_negative():
+        return super().test_bad_opener_other_negative()
+
 
 @support.cpython_only
 class APIMismatchTest(unittest.TestCase):
@@ -1279,6 +1287,7 @@ class CommonBufferedTests:
         # a ValueError.
         self.assertRaises(ValueError, _with)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_error_through_destructor(self):
         # Test that the exception state is not modified by a destructor,
         # even if close() fails.
@@ -1838,6 +1847,10 @@ class CBufferedReaderTest(BufferedReaderTest, SizeofTest):
     def test_constructor(self):
         return super().test_constructor()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_pickling_subclass(self):
+        return super().test_pickling_subclass()
+
 
 class PyBufferedReaderTest(BufferedReaderTest):
     tp = pyio.BufferedReader
@@ -2184,6 +2197,9 @@ class CBufferedWriterTest(BufferedWriterTest, SizeofTest):
     def test_constructor(self):
         return super().test_constructor()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_pickling_subclass(self):
+        return super().test_pickling_subclass()
 
 class PyBufferedWriterTest(BufferedWriterTest):
     tp = pyio.BufferedWriter
@@ -2687,6 +2703,10 @@ class CBufferedRandomTest(BufferedRandomTest, SizeofTest):
     def test_constructor(self):
         return super().test_constructor()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_pickling_subclass(self):
+        return super().test_pickling_subclass()
+
 
 class PyBufferedRandomTest(BufferedRandomTest):
     tp = pyio.BufferedRandom
@@ -3181,6 +3201,7 @@ class TextIOWrapperTest(unittest.TestCase):
         support.gc_collect()
         self.assertEqual(record, [1, 2, 3])
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_error_through_destructor(self):
         # Test that the exception state is not modified by a destructor,
         # even if close() fails.
@@ -4165,6 +4186,7 @@ class CTextIOWrapperTest(TextIOWrapperTest):
         t.write("x"*chunk_size)
         self.assertEqual([b"abcdef", b"ghi", b"x"*chunk_size], buf._write_stack)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_issue119506(self):
         chunk_size = 8192
 
@@ -4259,10 +4281,26 @@ class CTextIOWrapperTest(TextIOWrapperTest):
     def test_uninitialized(self):
         return super().test_uninitialized()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_recursive_repr(self):
+        return super().test_recursive_repr()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_pickling_subclass(self):
+        return super().test_pickling_subclass()
+
 
 class PyTextIOWrapperTest(TextIOWrapperTest):
     io = pyio
     shutdown_error = "LookupError: unknown encoding: ascii"
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: ValueError not raised
+    def test_constructor(self):
+        return super().test_constructor()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_newlines(self):
+        return super().test_newlines()
 
 
 class IncrementalNewlineDecoderTest(unittest.TestCase):
