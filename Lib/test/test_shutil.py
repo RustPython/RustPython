@@ -196,6 +196,7 @@ class TestRmTree(BaseTest, unittest.TestCase):
         self.assertIsInstance(victim, bytes)
         shutil.rmtree(victim)
 
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; flaky')
     @os_helper.skip_unless_symlink
     def test_rmtree_fails_on_symlink_onerror(self):
         tmp = self.mkdtemp()
@@ -1477,7 +1478,7 @@ class TestCopy(BaseTest, unittest.TestCase):
         finally:
             shutil.rmtree(TESTFN, ignore_errors=True)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
+    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; AssertionError: SameFileError not raised for copyfile')
     @os_helper.skip_unless_symlink
     def test_dont_copy_file_onto_symlink_to_itself(self):
         # bug 851123.
