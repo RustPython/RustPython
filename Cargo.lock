@@ -2268,7 +2268,6 @@ version = "0.4.0"
 dependencies = [
  "ascii",
  "bitflags 2.9.4",
- "bstr",
  "cfg-if",
  "getrandom 0.3.3",
  "itertools 0.14.0",
@@ -2277,7 +2276,6 @@ dependencies = [
  "malachite-base",
  "malachite-bigint",
  "malachite-q",
- "memchr",
  "num-complex",
  "num-traits",
  "once_cell",
@@ -2288,14 +2286,13 @@ dependencies = [
  "siphasher",
  "unicode_names2 2.0.0",
  "widestring",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
 name = "rustpython-compiler"
 version = "0.4.0"
 dependencies = [
- "rand 0.9.2",
  "ruff_python_ast",
  "ruff_python_parser",
  "ruff_source_file",
@@ -2322,7 +2319,6 @@ dependencies = [
 name = "rustpython-derive"
 version = "0.4.0"
 dependencies = [
- "proc-macro2",
  "rustpython-compiler",
  "rustpython-derive-impl",
  "syn",
@@ -2470,7 +2466,7 @@ dependencies = [
  "unicode_names2 2.0.0",
  "uuid",
  "widestring",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
  "xml",
  "xz2",
 ]
@@ -2530,7 +2526,6 @@ dependencies = [
  "rustpython-literal",
  "rustpython-sre_engine",
  "rustyline",
- "schannel",
  "scoped-tls",
  "scopeguard",
  "serde",
@@ -2549,7 +2544,7 @@ dependencies = [
  "which",
  "widestring",
  "windows",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
  "winreg",
 ]
 
