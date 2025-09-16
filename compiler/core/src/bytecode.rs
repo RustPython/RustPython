@@ -33,6 +33,75 @@ pub enum ResumeType {
     AfterAwait = 3,
 }
 
+/// CPython 3.11+ linetable location info codes
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum PyCodeLocationInfoKind {
+    // Short forms are 0 to 9
+    Short0 = 0,
+    Short1 = 1,
+    Short2 = 2,
+    Short3 = 3,
+    Short4 = 4,
+    Short5 = 5,
+    Short6 = 6,
+    Short7 = 7,
+    Short8 = 8,
+    Short9 = 9,
+    // One line forms are 10 to 12
+    OneLine0 = 10,
+    OneLine1 = 11,
+    OneLine2 = 12,
+    NoColumns = 13,
+    Long = 14,
+    None = 15,
+}
+
+impl PyCodeLocationInfoKind {
+    pub fn from_code(code: u8) -> Option<Self> {
+        match code {
+            0 => Some(Self::Short0),
+            1 => Some(Self::Short1),
+            2 => Some(Self::Short2),
+            3 => Some(Self::Short3),
+            4 => Some(Self::Short4),
+            5 => Some(Self::Short5),
+            6 => Some(Self::Short6),
+            7 => Some(Self::Short7),
+            8 => Some(Self::Short8),
+            9 => Some(Self::Short9),
+            10 => Some(Self::OneLine0),
+            11 => Some(Self::OneLine1),
+            12 => Some(Self::OneLine2),
+            13 => Some(Self::NoColumns),
+            14 => Some(Self::Long),
+            15 => Some(Self::None),
+            _ => Option::None,
+        }
+    }
+
+    pub fn is_short(&self) -> bool {
+        (*self as u8) <= 9
+    }
+
+    pub fn short_column_group(&self) -> Option<u8> {
+        if self.is_short() {
+            Some(*self as u8)
+        } else {
+            Option::None
+        }
+    }
+
+    pub fn one_line_delta(&self) -> Option<i32> {
+        match self {
+            Self::OneLine0 => Some(0),
+            Self::OneLine1 => Some(1),
+            Self::OneLine2 => Some(2),
+            _ => Option::None,
+        }
+    }
+}
+
 pub trait Constant: Sized {
     type Name: AsRef<str>;
 
@@ -146,6 +215,10 @@ pub struct CodeObject<C: Constant = ConstantData> {
     pub varnames: Box<[C::Name]>,
     pub cellvars: Box<[C::Name]>,
     pub freevars: Box<[C::Name]>,
+    pub linetable: Box<[u8]>,
+    // Line number table (CPython 3.11+ format)
+    pub exceptiontable: Box<[u8]>,
+    // Exception handling table
 }
 
 bitflags! {
@@ -1202,6 +1275,8 @@ impl<C: Constant> CodeObject<C> {
             first_line_number: self.first_line_number,
             max_stackdepth: self.max_stackdepth,
             cell2arg: self.cell2arg,
+            linetable: self.linetable,
+            exceptiontable: self.exceptiontable,
         }
     }
 
@@ -1232,6 +1307,8 @@ impl<C: Constant> CodeObject<C> {
             first_line_number: self.first_line_number,
             max_stackdepth: self.max_stackdepth,
             cell2arg: self.cell2arg.clone(),
+            linetable: self.linetable.clone(),
+            exceptiontable: self.exceptiontable.clone(),
         }
     }
 }

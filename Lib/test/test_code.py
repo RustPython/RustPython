@@ -347,8 +347,6 @@ class CodeTest(unittest.TestCase):
         newcode = code.replace(co_name="func")  # Should not raise SystemError
         self.assertEqual(code, newcode)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_empty_linetable(self):
         def func():
             pass
@@ -468,8 +466,6 @@ class CodeTest(unittest.TestCase):
 
     # co_positions behavior when info is missing.
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # @requires_debug_ranges()
     def test_co_positions_empty_linetable(self):
         def func():
@@ -480,8 +476,6 @@ class CodeTest(unittest.TestCase):
             self.assertIsNone(line)
             self.assertEqual(end_line, new_code.co_firstlineno + 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_code_equality(self):
         def f():
             try:
@@ -522,8 +516,6 @@ class CodeTest(unittest.TestCase):
         self.assertNotEqual(c, swapped)
         self.assertNotEqual(hash(c), hash(swapped))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_code_hash_uses_bytecode(self):
         c = (lambda x, y: x + y).__code__
         d = (lambda x, y: x * y).__code__
@@ -735,8 +727,6 @@ class CodeLocationTest(unittest.TestCase):
             self.assertEqual(l1, l2)
         self.assertEqual(len(pos1), len(pos2))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_positions(self):
         self.check_positions(parse_location_table)
         self.check_positions(misshappen)
@@ -751,8 +741,6 @@ class CodeLocationTest(unittest.TestCase):
             self.assertEqual(l1, l2)
         self.assertEqual(len(lines1), len(lines2))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_lines(self):
         self.check_lines(parse_location_table)
         self.check_lines(misshappen)

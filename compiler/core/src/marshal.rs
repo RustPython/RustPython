@@ -251,6 +251,16 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
     let cellvars = read_names()?;
     let freevars = read_names()?;
 
+    // Read linetable and exceptiontable
+    let linetable_len = rdr.read_u32()?;
+    let linetable = rdr.read_slice(linetable_len)?.to_vec().into_boxed_slice();
+
+    let exceptiontable_len = rdr.read_u32()?;
+    let exceptiontable = rdr
+        .read_slice(exceptiontable_len)?
+        .to_vec()
+        .into_boxed_slice();
+
     Ok(CodeObject {
         instructions,
         locations,
@@ -269,6 +279,8 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
         varnames,
         cellvars,
         freevars,
+        linetable,
+        exceptiontable,
     })
 }
 
@@ -684,4 +696,8 @@ pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) 
     write_names(&code.varnames);
     write_names(&code.cellvars);
     write_names(&code.freevars);
+
+    // Serialize linetable and exceptiontable
+    write_vec(buf, &code.linetable);
+    write_vec(buf, &code.exceptiontable);
 }
