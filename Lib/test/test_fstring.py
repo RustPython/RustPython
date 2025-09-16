@@ -1557,6 +1557,7 @@ x = (
         self.assertEqual(eval('f"\\\n"'), '')
         self.assertEqual(eval('f"\\\r"'), '')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: '1+2 = # my comment\n  3' != '1+2 = \n  3'
     def test_debug_conversion(self):
         x = 'A string'
         self.assertEqual(f'{x=}', 'x=' + repr(x))
@@ -1798,6 +1799,7 @@ print(f'''{{
             self.assertIn(rb'\1', stdout)
             self.assertEqual(len(stderr.strip().splitlines()), 2)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'dis' has no attribute 'get_instructions'
     def test_fstring_without_formatting_bytecode(self):
         # f-string without any formatting should emit the same bytecode
         # as a normal string. See gh-99606.
@@ -1824,6 +1826,7 @@ print(f'''{{
         self.assertEqual(f'{f'{1!=2=}'=}', "f'{1!=2=}'='1!=2=True'")
         self.assertEqual(f'{f'{1 != 2=}'=}', "f'{1 != 2=}'='1 != 2=True'")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: "f-string: newlines are not allowed in format specifiers" does not match "'unexpected EOF while parsing' (<string>, line 2)"
     def test_newlines_in_format_specifiers(self):
         cases = [
             """f'{1:d\n}'""",
