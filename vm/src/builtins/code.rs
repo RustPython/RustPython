@@ -16,7 +16,124 @@ use crate::{
 use malachite_bigint::BigInt;
 use num_traits::Zero;
 use rustpython_compiler_core::OneIndexed;
+use rustpython_compiler_core::bytecode::PyCodeLocationInfoKind;
 use std::{borrow::Borrow, fmt, ops::Deref};
+
+/// State for iterating through code address ranges
+struct PyCodeAddressRange<'a> {
+    ar_start: i32,
+    ar_end: i32,
+    ar_line: i32,
+    computed_line: i32,
+    reader: LineTableReader<'a>,
+}
+
+impl<'a> PyCodeAddressRange<'a> {
+    fn new(linetable: &'a [u8], first_line: i32) -> Self {
+        PyCodeAddressRange {
+            ar_start: 0,
+            ar_end: 0,
+            ar_line: -1,
+            computed_line: first_line,
+            reader: LineTableReader::new(linetable),
+        }
+    }
+
+    /// Check if this is a NO_LINE marker (code 15)
+    fn is_no_line_marker(byte: u8) -> bool {
+        (byte >> 3) == 0x1f
+    }
+
+    /// Advance to next address range
+    fn advance(&mut self) -> bool {
+        if self.reader.at_end() {
+            return false;
+        }
+
+        let first_byte = match self.reader.read_byte() {
+            Some(b) => b,
+            None => return false,
+        };
+
+        if (first_byte & 0x80) == 0 {
+            return false; // Invalid linetable
+        }
+
+        let code = (first_byte >> 3) & 0x0f;
+        let length = ((first_byte & 0x07) + 1) as i32;
+
+        // Get line delta for this entry
+        let line_delta = self.get_line_delta(code);
+
+        // Update computed line
+        self.computed_line += line_delta;
+
+        // Check for NO_LINE marker
+        if Self::is_no_line_marker(first_byte) {
+            self.ar_line = -1;
+        } else {
+            self.ar_line = self.computed_line;
+        }
+
+        // Update address range
+        self.ar_start = self.ar_end;
+        self.ar_end += length * 2; // sizeof(_Py_CODEUNIT) = 2
+
+        // Skip remaining bytes for this entry
+        while !self.reader.at_end() {
+            if let Some(b) = self.reader.peek_byte() {
+                if (b & 0x80) != 0 {
+                    break;
+                }
+                self.reader.read_byte();
+            } else {
+                break;
+            }
+        }
+
+        true
+    }
+
+    fn get_line_delta(&mut self, code: u8) -> i32 {
+        let kind = match PyCodeLocationInfoKind::from_code(code) {
+            Some(k) => k,
+            None => return 0,
+        };
+
+        match kind {
+            PyCodeLocationInfoKind::None => 0, // NO_LINE marker
+            PyCodeLocationInfoKind::Long => {
+                let delta = self.reader.read_signed_varint();
+                // Skip end_line, col, end_col
+                self.reader.read_varint();
+                self.reader.read_varint();
+                self.reader.read_varint();
+                delta
+            }
+            PyCodeLocationInfoKind::NoColumns => self.reader.read_signed_varint(),
+            PyCodeLocationInfoKind::OneLine0 => {
+                self.reader.read_byte(); // Skip column
+                self.reader.read_byte(); // Skip end column
+                0
+            }
+            PyCodeLocationInfoKind::OneLine1 => {
+                self.reader.read_byte(); // Skip column
+                self.reader.read_byte(); // Skip end column
+                1
+            }
+            PyCodeLocationInfoKind::OneLine2 => {
+                self.reader.read_byte(); // Skip column
+                self.reader.read_byte(); // Skip end column
+                2
+            }
+            _ if kind.is_short() => {
+                self.reader.read_byte(); // Skip column byte
+                0
+            }
+            _ => 0,
+        }
+    }
+}
 
 #[derive(FromArgs)]
 pub struct ReplaceArgs {
@@ -40,6 +157,22 @@ pub struct ReplaceArgs {
     co_flags: OptionalArg<u16>,
     #[pyarg(named, optional)]
     co_varnames: OptionalArg<Vec<PyObjectRef>>,
+    #[pyarg(named, optional)]
+    co_nlocals: OptionalArg<u32>,
+    #[pyarg(named, optional)]
+    co_stacksize: OptionalArg<u32>,
+    #[pyarg(named, optional)]
+    co_code: OptionalArg<crate::builtins::PyBytesRef>,
+    #[pyarg(named, optional)]
+    co_linetable: OptionalArg<crate::builtins::PyBytesRef>,
+    #[pyarg(named, optional)]
+    co_exceptiontable: OptionalArg<crate::builtins::PyBytesRef>,
+    #[pyarg(named, optional)]
+    co_freevars: OptionalArg<Vec<PyObjectRef>>,
+    #[pyarg(named, optional)]
+    co_cellvars: OptionalArg<Vec<PyObjectRef>>,
+    #[pyarg(named, optional)]
+    co_qualname: OptionalArg<PyStrRef>,
 }
 
 #[derive(Clone)]
@@ -350,6 +483,211 @@ impl PyCode {
         vm.ctx.new_tuple(names)
     }
 
+    #[pygetset]
+    pub fn co_linetable(&self, vm: &VirtualMachine) -> crate::builtins::PyBytesRef {
+        // Return the actual linetable from the code object
+        vm.ctx.new_bytes(self.code.linetable.to_vec())
+    }
+
+    #[pygetset]
+    pub fn co_exceptiontable(&self, vm: &VirtualMachine) -> crate::builtins::PyBytesRef {
+        // Return the actual exception table from the code object
+        vm.ctx.new_bytes(self.code.exceptiontable.to_vec())
+    }
+
+    #[pymethod]
+    pub fn co_lines(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        // TODO: Implement lazy iterator (lineiterator) like CPython for better performance
+        // Currently returns eager list for simplicity
+
+        // Return an iterator over (start_offset, end_offset, lineno) tuples
+        let linetable = self.code.linetable.as_ref();
+        let mut lines = Vec::new();
+
+        if !linetable.is_empty() {
+            let first_line = self.code.first_line_number.map_or(0, |n| n.get() as i32);
+            let mut range = PyCodeAddressRange::new(linetable, first_line);
+
+            // Process all address ranges and merge consecutive entries with same line
+            let mut pending_entry: Option<(i32, i32, i32)> = None;
+
+            while range.advance() {
+                let start = range.ar_start;
+                let end = range.ar_end;
+                let line = range.ar_line;
+
+                if let Some((prev_start, _, prev_line)) = pending_entry {
+                    if prev_line == line {
+                        // Same line, extend the range
+                        pending_entry = Some((prev_start, end, prev_line));
+                    } else {
+                        // Different line, emit the previous entry
+                        let tuple = if prev_line == -1 {
+                            vm.ctx.new_tuple(vec![
+                                vm.ctx.new_int(prev_start).into(),
+                                vm.ctx.new_int(start).into(),
+                                vm.ctx.none(),
+                            ])
+                        } else {
+                            vm.ctx.new_tuple(vec![
+                                vm.ctx.new_int(prev_start).into(),
+                                vm.ctx.new_int(start).into(),
+                                vm.ctx.new_int(prev_line).into(),
+                            ])
+                        };
+                        lines.push(tuple.into());
+                        pending_entry = Some((start, end, line));
+                    }
+                } else {
+                    // First entry
+                    pending_entry = Some((start, end, line));
+                }
+            }
+
+            // Emit the last pending entry
+            if let Some((start, end, line)) = pending_entry {
+                let tuple = if line == -1 {
+                    vm.ctx.new_tuple(vec![
+                        vm.ctx.new_int(start).into(),
+                        vm.ctx.new_int(end).into(),
+                        vm.ctx.none(),
+                    ])
+                } else {
+                    vm.ctx.new_tuple(vec![
+                        vm.ctx.new_int(start).into(),
+                        vm.ctx.new_int(end).into(),
+                        vm.ctx.new_int(line).into(),
+                    ])
+                };
+                lines.push(tuple.into());
+            }
+        }
+
+        let list = vm.ctx.new_list(lines);
+        vm.call_method(list.as_object(), "__iter__", ())
+    }
+
+    #[pymethod]
+    pub fn co_positions(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        // Return an iterator over (line, end_line, column, end_column) tuples for each instruction
+        let linetable = self.code.linetable.as_ref();
+        let mut positions = Vec::new();
+
+        if !linetable.is_empty() {
+            let mut reader = LineTableReader::new(linetable);
+            let mut line = self.code.first_line_number.map_or(0, |n| n.get() as i32);
+
+            while !reader.at_end() {
+                let first_byte = match reader.read_byte() {
+                    Some(b) => b,
+                    None => break,
+                };
+
+                if (first_byte & 0x80) == 0 {
+                    break; // Invalid linetable
+                }
+
+                let code = (first_byte >> 3) & 0x0f;
+                let length = ((first_byte & 0x07) + 1) as i32;
+
+                let kind = match PyCodeLocationInfoKind::from_code(code) {
+                    Some(k) => k,
+                    None => break, // Invalid code
+                };
+
+                let (line_delta, end_line_delta, column, end_column): (
+                    i32,
+                    i32,
+                    Option<i32>,
+                    Option<i32>,
+                ) = match kind {
+                    PyCodeLocationInfoKind::None => {
+                        // No location - all values are None
+                        (0, 0, None, None)
+                    }
+                    PyCodeLocationInfoKind::Long => {
+                        // Long form
+                        let delta = reader.read_signed_varint();
+                        let end_line_delta = reader.read_varint() as i32;
+
+                        let col = reader.read_varint();
+                        let column = if col == 0 {
+                            None
+                        } else {
+                            Some((col - 1) as i32)
+                        };
+
+                        let end_col = reader.read_varint();
+                        let end_column = if end_col == 0 {
+                            None
+                        } else {
+                            Some((end_col - 1) as i32)
+                        };
+
+                        // endline = line + end_line_delta (will be computed after line update)
+                        (delta, end_line_delta, column, end_column)
+                    }
+                    PyCodeLocationInfoKind::NoColumns => {
+                        // No column form
+                        let delta = reader.read_signed_varint();
+                        (delta, 0, None, None) // endline will be same as line (delta = 0)
+                    }
+                    PyCodeLocationInfoKind::OneLine0
+                    | PyCodeLocationInfoKind::OneLine1
+                    | PyCodeLocationInfoKind::OneLine2 => {
+                        // One-line form - endline = line
+                        let col = reader.read_byte().unwrap_or(0) as i32;
+                        let end_col = reader.read_byte().unwrap_or(0) as i32;
+                        let delta = kind.one_line_delta().unwrap_or(0);
+                        (delta, 0, Some(col), Some(end_col)) // endline = line (delta = 0)
+                    }
+                    _ if kind.is_short() => {
+                        // Short form - endline = line
+                        let col_data = reader.read_byte().unwrap_or(0);
+                        let col_group = kind.short_column_group().unwrap_or(0);
+                        let col = ((col_group as i32) << 3) | ((col_data >> 4) as i32);
+                        let end_col = col + (col_data & 0x0f) as i32;
+                        (0, 0, Some(col), Some(end_col)) // endline = line (delta = 0)
+                    }
+                    _ => (0, 0, None, None),
+                };
+
+                // Update line number
+                line += line_delta;
+
+                // Generate position tuples for each instruction covered by this entry
+                for _ in 0..length {
+                    // Handle special case for no location (code 15)
+                    let final_line = if kind == PyCodeLocationInfoKind::None {
+                        None
+                    } else {
+                        Some(line)
+                    };
+
+                    let final_endline = if kind == PyCodeLocationInfoKind::None {
+                        None
+                    } else {
+                        Some(line + end_line_delta)
+                    };
+
+                    // Convert Option to PyObject (None or int)
+                    let line_obj = final_line.to_pyobject(vm);
+                    let end_line_obj = final_endline.to_pyobject(vm);
+                    let column_obj = column.to_pyobject(vm);
+                    let end_column_obj = end_column.to_pyobject(vm);
+
+                    let tuple =
+                        vm.ctx
+                            .new_tuple(vec![line_obj, end_line_obj, column_obj, end_column_obj]);
+                    positions.push(tuple.into());
+                }
+            }
+        }
+
+        let list = vm.ctx.new_list(positions);
+        vm.call_method(list.as_object(), "__iter__", ())
+    }
+
     #[pymethod]
     pub fn replace(&self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<Self> {
         let posonlyarg_count = match args.co_posonlyargcount {
@@ -408,6 +746,66 @@ impl PyCode {
             OptionalArg::Missing => self.code.varnames.iter().map(|s| s.to_object()).collect(),
         };
 
+        let qualname = match args.co_qualname {
+            OptionalArg::Present(qualname) => qualname,
+            OptionalArg::Missing => self.code.qualname.to_owned(),
+        };
+
+        let max_stackdepth = match args.co_stacksize {
+            OptionalArg::Present(stacksize) => stacksize,
+            OptionalArg::Missing => self.code.max_stackdepth,
+        };
+
+        let instructions = match args.co_code {
+            OptionalArg::Present(_code_bytes) => {
+                // Convert bytes back to instructions
+                // For now, keep the original instructions
+                // TODO: Properly parse bytecode from bytes
+                self.code.instructions.clone()
+            }
+            OptionalArg::Missing => self.code.instructions.clone(),
+        };
+
+        let cellvars = match args.co_cellvars {
+            OptionalArg::Present(cellvars) => cellvars
+                .into_iter()
+                .map(|o| o.as_interned_str(vm).unwrap())
+                .collect(),
+            OptionalArg::Missing => self.code.cellvars.clone(),
+        };
+
+        let freevars = match args.co_freevars {
+            OptionalArg::Present(freevars) => freevars
+                .into_iter()
+                .map(|o| o.as_interned_str(vm).unwrap())
+                .collect(),
+            OptionalArg::Missing => self.code.freevars.clone(),
+        };
+
+        // Validate co_nlocals if provided
+        if let OptionalArg::Present(nlocals) = args.co_nlocals
+            && nlocals as usize != varnames.len()
+        {
+            return Err(vm.new_value_error(format!(
+                "co_nlocals ({}) != len(co_varnames) ({})",
+                nlocals,
+                varnames.len()
+            )));
+        }
+
+        // Handle linetable and exceptiontable
+        let linetable = match args.co_linetable {
+            OptionalArg::Present(linetable) => linetable.as_bytes().to_vec().into_boxed_slice(),
+            OptionalArg::Missing => self.code.linetable.clone(),
+        };
+
+        let exceptiontable = match args.co_exceptiontable {
+            OptionalArg::Present(exceptiontable) => {
+                exceptiontable.as_bytes().to_vec().into_boxed_slice()
+            }
+            OptionalArg::Missing => self.code.exceptiontable.clone(),
+        };
+
         Ok(Self {
             code: CodeObject {
                 flags: CodeFlags::from_bits_truncate(flags),
@@ -417,10 +815,10 @@ impl PyCode {
                 source_path: source_path.as_object().as_interned_str(vm).unwrap(),
                 first_line_number,
                 obj_name: obj_name.as_object().as_interned_str(vm).unwrap(),
-                qualname: self.code.qualname,
+                qualname: qualname.as_object().as_interned_str(vm).unwrap(),
 
-                max_stackdepth: self.code.max_stackdepth,
-                instructions: self.code.instructions.clone(),
+                max_stackdepth,
+                instructions,
                 locations: self.code.locations.clone(),
                 constants: constants.into_iter().map(Literal).collect(),
                 names: names
@@ -431,9 +829,11 @@ impl PyCode {
                     .into_iter()
                     .map(|o| o.as_interned_str(vm).unwrap())
                     .collect(),
-                cellvars: self.code.cellvars.clone(),
-                freevars: self.code.freevars.clone(),
+                cellvars,
+                freevars,
                 cell2arg: self.code.cell2arg.clone(),
+                linetable,
+                exceptiontable,
             },
         })
     }
@@ -454,6 +854,69 @@ impl ToPyObject for CodeObject {
 impl ToPyObject for bytecode::CodeObject {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_code(self).into()
+    }
+}
+
+// Helper struct for reading linetable
+struct LineTableReader<'a> {
+    data: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> LineTableReader<'a> {
+    fn new(data: &'a [u8]) -> Self {
+        Self { data, pos: 0 }
+    }
+
+    fn read_byte(&mut self) -> Option<u8> {
+        if self.pos < self.data.len() {
+            let byte = self.data[self.pos];
+            self.pos += 1;
+            Some(byte)
+        } else {
+            None
+        }
+    }
+
+    fn peek_byte(&self) -> Option<u8> {
+        if self.pos < self.data.len() {
+            Some(self.data[self.pos])
+        } else {
+            None
+        }
+    }
+
+    fn read_varint(&mut self) -> u32 {
+        if let Some(first) = self.read_byte() {
+            let mut val = (first & 0x3f) as u32;
+            let mut shift = 0;
+            let mut byte = first;
+            while (byte & 0x40) != 0 {
+                if let Some(next) = self.read_byte() {
+                    shift += 6;
+                    val |= ((next & 0x3f) as u32) << shift;
+                    byte = next;
+                } else {
+                    break;
+                }
+            }
+            val
+        } else {
+            0
+        }
+    }
+
+    fn read_signed_varint(&mut self) -> i32 {
+        let uval = self.read_varint();
+        if uval & 1 != 0 {
+            -((uval >> 1) as i32)
+        } else {
+            (uval >> 1) as i32
+        }
+    }
+
+    fn at_end(&self) -> bool {
+        self.pos >= self.data.len()
     }
 }
 
