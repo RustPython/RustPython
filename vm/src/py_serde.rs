@@ -71,14 +71,33 @@ impl serde::Serialize for PyObjectSerializer<'_> {
         } else if self.pyobject.fast_isinstance(self.vm.ctx.types.int_type) {
             let v = int::get_value(self.pyobject);
             let int_too_large = || serde::ser::Error::custom("int too large to serialize");
-            // TODO: serialize BigInt when it does not fit into i64
-            // BigInt implements serialization to a tuple of sign and a list of u32s,
-            // eg. -1 is [-1, [1]], 0 is [0, []], 12345678900000654321 is [1, [2710766577,2874452364]]
-            // CPython serializes big ints as long decimal integer literals
-            if v.is_positive() {
-                serializer.serialize_u64(v.to_u64().ok_or_else(int_too_large)?)
+
+            // For backwards-compat
+            if v.to_u64().is_some() || v.to_i64().is_some() {
+                if v.is_positive() {
+                    serializer.serialize_u64(v.to_u64().ok_or_else(int_too_large)?)
+                } else {
+                    serializer.serialize_i64(v.to_i64().ok_or_else(int_too_large)?)
+                }
             } else {
-                serializer.serialize_i64(v.to_i64().ok_or_else(int_too_large)?)
+                // BigInt implements serialization to a tuple of sign and a list of u32s,
+                // eg. -1 is [-1, [1]], 0 is [0, []], 12345678900000654321 is [1, [2710766577,2874452364]]
+                // CPython serializes big ints as long decimal integer literals
+
+                let (sign, mut magnitude) = v.to_bytes_le();
+                let first = if sign == Sign::Minus { -1 } else { 1 };
+                let mut u32_list = Vec::new();
+                for chunk in magnitude.chunks(4) {
+                    let mut n = 0u32;
+                    for (i, byte) in chunk.iter().enumerate() {
+                        n |= (*byte as u32) << (i * 8);
+                    }
+                    u32_list.push(n);
+                }
+                let mut seq = serializer.serialize_seq(Some(2))?;
+                seq.serialize_element(&self.clone_with_object(&self.vm.ctx.new_int(first).into()))?;
+                seq.serialize_element(&self.clone_with_object(&self.vm.ctx.new_list(u32_list.into_iter().map(|v| &self.vm.ctx.new_int(v).into()).collect())))?;
+                seq.end()
             }
         } else if let Some(list) = self.pyobject.downcast_ref::<PyList>() {
             serialize_seq_elements(serializer, &list.borrow_vec())
