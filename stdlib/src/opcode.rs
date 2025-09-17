@@ -41,7 +41,7 @@ mod opcode {
         /// https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Include/internal/pycore_opcode_metadata.h#L914-L916
         #[must_use]
         pub const fn is_valid(opcode: i32) -> bool {
-            opcode >= 0 && opcode < 268
+            opcode >= 0 && opcode < 268 && opcode != 255
         }
 
         // All `has_*` methods below mimics
