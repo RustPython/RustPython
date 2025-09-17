@@ -40,7 +40,7 @@ mod opcode {
 
         /// https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Include/internal/pycore_opcode_metadata.h#L914-L916
         #[must_use]
-        const fn is_valid(opcode: i32) -> bool {
+        pub const fn is_valid(opcode: i32) -> bool {
             opcode >= 0 && opcode < 268
         }
 
@@ -107,6 +107,9 @@ mod opcode {
         }
     }
 
+    #[pyattr]
+    const ENABLE_SPECIALIZATION: i8 = 1;
+
     #[derive(FromArgs)]
     struct StackEffectArgs {
         #[pyarg(positional)]
@@ -155,6 +158,11 @@ mod opcode {
     }
 
     #[pyfunction]
+    fn is_valid(opcode: i32) -> bool {
+        Opcode::is_valid(opcode)
+    }
+
+    #[pyfunction]
     fn has_arg(opcode: i32) -> bool {
         Opcode::has_arg(opcode)
     }
@@ -187,5 +195,91 @@ mod opcode {
     #[pyfunction]
     fn has_exc(opcode: i32) -> bool {
         Opcode::has_exc(opcode)
+    }
+
+    #[pyfunction]
+    fn get_intrinsic1_descs(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        [
+            "INTRINSIC_1_INVALID",
+            "INTRINSIC_PRINT",
+            "INTRINSIC_IMPORT_STAR",
+            "INTRINSIC_STOPITERATION_ERROR",
+            "INTRINSIC_ASYNC_GEN_WRAP",
+            "INTRINSIC_UNARY_POSITIVE",
+            "INTRINSIC_LIST_TO_TUPLE",
+            "INTRINSIC_TYPEVAR",
+            "INTRINSIC_PARAMSPEC",
+            "INTRINSIC_TYPEVARTUPLE",
+            "INTRINSIC_SUBSCRIPT_GENERIC",
+            "INTRINSIC_TYPEALIAS",
+        ]
+        .into_iter()
+        .map(|x| vm.ctx.new_str(x).into())
+        .collect()
+    }
+
+    #[pyfunction]
+    fn get_intrinsic2_descs(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        [
+            "INTRINSIC_2_INVALID",
+            "INTRINSIC_PREP_RERAISE_STAR",
+            "INTRINSIC_TYPEVAR_WITH_BOUND",
+            "INTRINSIC_TYPEVAR_WITH_CONSTRAINTS",
+            "INTRINSIC_SET_FUNCTION_TYPE_PARAMS",
+            "INTRINSIC_SET_TYPEPARAM_DEFAULT",
+        ]
+        .into_iter()
+        .map(|x| vm.ctx.new_str(x).into())
+        .collect()
+    }
+
+    #[pyfunction]
+    fn get_nb_ops(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        [
+            ("NB_ADD", "+"),
+            ("NB_AND", "&"),
+            ("NB_FLOOR_DIVIDE", "//"),
+            ("NB_LSHIFT", "<<"),
+            ("NB_MATRIX_MULTIPLY", "@"),
+            ("NB_MULTIPLY", "*"),
+            ("NB_REMAINDER", "%"),
+            ("NB_OR", "|"),
+            ("NB_POWER", "**"),
+            ("NB_RSHIFT", ">>"),
+            ("NB_SUBTRACT", "-"),
+            ("NB_TRUE_DIVIDE", "/"),
+            ("NB_XOR", "^"),
+            ("NB_INPLACE_ADD", "+="),
+            ("NB_INPLACE_AND", "&="),
+            ("NB_INPLACE_FLOOR_DIVIDE", "//="),
+            ("NB_INPLACE_LSHIFT", "<<="),
+            ("NB_INPLACE_MATRIX_MULTIPLY", "@="),
+            ("NB_INPLACE_MULTIPLY", "*="),
+            ("NB_INPLACE_REMAINDER", "%="),
+            ("NB_INPLACE_OR", "|="),
+            ("NB_INPLACE_POWER", "**="),
+            ("NB_INPLACE_RSHIFT", ">>="),
+            ("NB_INPLACE_SUBTRACT", "-="),
+            ("NB_INPLACE_TRUE_DIVIDE", "/="),
+            ("NB_INPLACE_XOR", "^="),
+        ]
+        .into_iter()
+        .map(|(a, b)| {
+            vm.ctx
+                .new_tuple(vec![vm.ctx.new_str(a).into(), vm.ctx.new_str(b).into()])
+                .into()
+        })
+        .collect()
+    }
+
+    #[pyfunction]
+    fn get_executor(_code: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        // TODO
+        Ok(vm.ctx.none())
+    }
+
+    #[pyfunction]
+    fn get_specialization_stats(vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.none()
     }
 }
