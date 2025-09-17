@@ -22,7 +22,7 @@ tkinter = ["dep:tk-sys", "dep:tcl-sys"]
 [dependencies]
 # rustpython crates
 rustpython-derive = { workspace = true }
-rustpython-vm = { workspace = true, default-features = false }
+rustpython-vm = { workspace = true, default-features = false, features = ["compiler"]}
 rustpython-common = { workspace = true }
 
 ahash = { workspace = true }

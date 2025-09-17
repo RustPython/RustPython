@@ -38,6 +38,7 @@ mod locale;
 mod math;
 #[cfg(unix)]
 mod mmap;
+mod opcode;
 mod pyexpat;
 mod pystruct;
 mod random;
@@ -135,6 +136,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "_json" => json::make_module,
             "math" => math::make_module,
             "pyexpat" => pyexpat::make_module,
+            "_opcode" => opcode::make_module,
             "_random" => random::make_module,
             "_statistics" => statistics::make_module,
             "_struct" => pystruct::make_module,
