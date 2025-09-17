@@ -24,7 +24,6 @@ mod opcode {
         // https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Include/opcode_ids.h#L238
         const HAVE_ARGUMENT: i32 = 44;
 
-        #[must_use]
         pub fn try_from_pyint(raw: PyIntRef, vm: &VirtualMachine) -> PyResult<Self> {
             let instruction = raw
                 .try_to_primitive::<u8>(vm)
@@ -103,7 +102,7 @@ mod opcode {
 
         #[must_use]
         pub const fn has_exc(opcode: i32) -> bool {
-            Self::is_valid(opcode) && matches!(opcode, 264 | 265 | 266)
+            Self::is_valid(opcode) && matches!(opcode, 264..=266)
         }
     }
 
@@ -132,7 +131,7 @@ mod opcode {
                     )));
                 }
                 v.downcast_ref::<PyInt>()
-                    .ok_or_else(|| return vm.new_type_error(""))?
+                    .ok_or_else(|| vm.new_type_error(""))?
                     .try_to_primitive::<u32>(vm)
             })
             .unwrap_or(Ok(0))?;
@@ -144,9 +143,7 @@ mod opcode {
                     b @ PyBool => Ok(b.is(&vm.ctx.true_value)),
                     _n @ PyNone => Ok(false),
                     _ => {
-                        return Err(
-                            vm.new_value_error("stack_effect: jump must be False, True or None")
-                        );
+                        Err(vm.new_value_error("stack_effect: jump must be False, True or None"))
                     }
                 })
             })
