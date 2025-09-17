@@ -21,6 +21,9 @@ mod opcode {
     }
 
     impl Opcode {
+        // https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Include/opcode_ids.h#L238
+        const HAVE_ARGUMENT: i32 = 44;
+
         #[must_use]
         pub fn try_from_pyint(raw: PyIntRef, vm: &VirtualMachine) -> PyResult<Self> {
             let instruction = raw
@@ -33,6 +36,74 @@ mod opcode {
                 .map_err(|_| vm.new_value_error("invalid opcode or oparg"))?;
 
             Ok(Self(instruction))
+        }
+
+        /// https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Include/internal/pycore_opcode_metadata.h#L914-L916
+        #[must_use]
+        const fn is_valid(opcode: i32) -> bool {
+            opcode >= 0 && opcode < 268
+        }
+
+        // All `has_*` methods below mimics
+        // https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Include/internal/pycore_opcode_metadata.h#L966-L1190
+
+        #[must_use]
+        pub const fn has_arg(opcode: i32) -> bool {
+            Self::is_valid(opcode) && opcode > Self::HAVE_ARGUMENT
+        }
+
+        #[must_use]
+        pub const fn has_const(opcode: i32) -> bool {
+            Self::is_valid(opcode) && matches!(opcode, 83 | 103 | 240)
+        }
+
+        #[must_use]
+        pub const fn has_name(opcode: i32) -> bool {
+            Self::is_valid(opcode)
+                && matches!(
+                    opcode,
+                    63 | 66
+                        | 67
+                        | 74
+                        | 75
+                        | 82
+                        | 90
+                        | 91
+                        | 92
+                        | 93
+                        | 108
+                        | 113
+                        | 114
+                        | 259
+                        | 260
+                        | 261
+                        | 262
+                )
+        }
+
+        #[must_use]
+        pub const fn has_jump(opcode: i32) -> bool {
+            Self::is_valid(opcode)
+                && matches!(
+                    opcode,
+                    72 | 77 | 78 | 79 | 97 | 98 | 99 | 100 | 104 | 256 | 257
+                )
+        }
+
+        #[must_use]
+        pub const fn has_free(opcode: i32) -> bool {
+            Self::is_valid(opcode) && matches!(opcode, 64 | 84 | 89 | 94 | 109)
+        }
+
+        #[must_use]
+        pub const fn has_local(opcode: i32) -> bool {
+            Self::is_valid(opcode)
+                && matches!(opcode, 65 | 85 | 86 | 87 | 88 | 110 | 111 | 112 | 258 | 267)
+        }
+
+        #[must_use]
+        pub const fn has_exc(opcode: i32) -> bool {
+            Self::is_valid(opcode) && matches!(opcode, 264 | 265 | 266)
         }
     }
 
@@ -57,7 +128,9 @@ mod opcode {
                         v.class().name()
                     )));
                 }
-                v.downcast_ref::<PyInt>()?.try_to_primitive::<u32>(vm)
+                v.downcast_ref::<PyInt>()
+                    .ok_or_else(|| return vm.new_type_error(""))?
+                    .try_to_primitive::<u32>(vm)
             })
             .unwrap_or(Ok(0))?;
 
@@ -74,10 +147,45 @@ mod opcode {
                     }
                 })
             })
-            .unwrap_or(Ok(-1))?;
+            .unwrap_or(Ok(false))?;
 
         let opcode = Opcode::try_from_pyint(args.opcode, vm)?;
 
         Ok(opcode.stack_effect(oparg.into(), jump))
+    }
+
+    #[pyfunction]
+    fn has_arg(opcode: i32) -> bool {
+        Opcode::has_arg(opcode)
+    }
+
+    #[pyfunction]
+    fn has_const(opcode: i32) -> bool {
+        Opcode::has_const(opcode)
+    }
+
+    #[pyfunction]
+    fn has_name(opcode: i32) -> bool {
+        Opcode::has_name(opcode)
+    }
+
+    #[pyfunction]
+    fn has_jump(opcode: i32) -> bool {
+        Opcode::has_jump(opcode)
+    }
+
+    #[pyfunction]
+    fn has_free(opcode: i32) -> bool {
+        Opcode::has_free(opcode)
+    }
+
+    #[pyfunction]
+    fn has_local(opcode: i32) -> bool {
+        Opcode::has_local(opcode)
+    }
+
+    #[pyfunction]
+    fn has_exc(opcode: i32) -> bool {
+        Opcode::has_exc(opcode)
     }
 }
