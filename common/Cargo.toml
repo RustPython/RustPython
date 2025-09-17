@@ -10,6 +10,7 @@ license.workspace = true
 
 [features]
 threading = ["parking_lot"]
+wasm_js = ["getrandom/wasm_js"]
 
 [dependencies]
 rustpython-literal = { workspace = true }
