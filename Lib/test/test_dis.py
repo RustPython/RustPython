@@ -2041,7 +2041,6 @@ class InstructionTests(InstructionTestCase):
     def get_instructions(self, code):
         return dis._get_instructions_bytes(code)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'code' object has no attribute '_varname_from_oparg'
     def test_start_offset(self):
         # When no extended args are present,
         # start_offset should be equal to offset
@@ -2136,7 +2135,6 @@ class BytecodeTests(InstructionTestCase, DisTestBase):
 
         self.assertRaises(TypeError, dis.Bytecode, object())
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'code' object has no attribute '_varname_from_oparg'
     def test_iteration(self):
         for obj in [_f, _C(1).__init__, "a=1", _f.__code__]:
             with self.subTest(obj=obj):
