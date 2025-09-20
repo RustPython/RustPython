@@ -7,7 +7,7 @@ import contextlib
 import dataclasses
 import functools
 import logging
-# import _opcode # TODO: RUSTPYTHON
+import _opcode
 import os
 import re
 import stat
