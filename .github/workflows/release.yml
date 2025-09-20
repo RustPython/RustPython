@@ -21,6 +21,8 @@ env:
 jobs:
   build:
     runs-on: ${{ matrix.platform.runner }}
+    # Disable this job when running on a fork.
+    if: github.repository == 'RustPython/RustPython'
     strategy:
       matrix:
         platform:
@@ -88,6 +90,8 @@ jobs:
 
   build-wasm:
     runs-on: ubuntu-latest
+    # Disable this job when running on a fork.
+    if: github.repository == 'RustPython/RustPython'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -136,6 +140,8 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
+    # Disable this job when running on a fork.
+    if: github.repository == 'RustPython/RustPython'
     needs: [build, build-wasm]
     steps:
       - name: Download Binary Artifacts
