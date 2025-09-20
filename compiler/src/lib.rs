@@ -57,8 +57,8 @@ impl CompileError {
 
     pub fn location(&self) -> Option<SourceLocation> {
         match self {
-            Self::Codegen(codegen_error) => codegen_error.location.clone(),
-            Self::Parse(parse_error) => Some(parse_error.location.clone()),
+            Self::Codegen(codegen_error) => codegen_error.location,
+            Self::Parse(parse_error) => Some(parse_error.location),
         }
     }
 
