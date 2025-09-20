@@ -18,6 +18,8 @@ jobs:
   codecov:
     name: Collect code coverage data
     runs-on: ubuntu-latest
+    # Disable this scheduled job when running on a fork.
+    if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -44,6 +46,8 @@ jobs:
   testdata:
     name: Collect regression test data
     runs-on: ubuntu-latest
+    # Disable this scheduled job when running on a fork.
+    if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -73,6 +77,8 @@ jobs:
   whatsleft:
     name: Collect what is left data
     runs-on: ubuntu-latest
+    # Disable this scheduled job when running on a fork.
+    if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -111,6 +117,8 @@ jobs:
   benchmark:
     name: Collect benchmark data
     runs-on: ubuntu-latest
+    # Disable this scheduled job when running on a fork.
+    if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
