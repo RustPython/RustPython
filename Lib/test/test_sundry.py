@@ -6,7 +6,6 @@ from test.support import warnings_helper
 import unittest
 
 class TestUntestedModules(unittest.TestCase):
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
     def test_untested_modules_can_be_imported(self):
         untested = ('encodings',)
         with warnings_helper.check_warnings(quiet=True):
