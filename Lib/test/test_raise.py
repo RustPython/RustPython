@@ -185,6 +185,21 @@ class TestCause(unittest.TestCase):
         else:
             self.fail("No exception raised")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: 'classmethod' object is not callable
+    def test_class_cause_nonexception_result(self):
+        class ConstructsNone(BaseException):
+            @classmethod
+            def __new__(*args, **kwargs):
+                return None
+        try:
+            raise IndexError from ConstructsNone
+        except TypeError as e:
+            self.assertIn("should have returned an instance of BaseException", str(e))
+        except IndexError:
+            self.fail("Wrong kind of exception raised")
+        else:
+            self.fail("No exception raised")
+
     def test_instance_cause(self):
         cause = KeyError()
         try:
@@ -233,8 +248,7 @@ class TestTracebackType(unittest.TestCase):
     def raiser(self):
         raise ValueError
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_attrs(self):
         try:
             self.raiser()
