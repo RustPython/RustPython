@@ -17,7 +17,7 @@ num-traits = { workspace = true }
 thiserror = { workspace = true }
 libffi = { workspace = true }
 
-cranelift = "0.119"
+cranelift = "0.123"
 cranelift-jit = "0.119"
 cranelift-module = "0.119"
 
