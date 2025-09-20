@@ -390,9 +390,13 @@ impl ExecutingFrame<'_> {
 
                         let loc = frame.code.locations[idx].clone();
                         let next = exception.__traceback__();
-                        let new_traceback =
-                            PyTraceback::new(next, frame.object.to_owned(), frame.lasti(), loc.row);
-                        vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.row);
+                        let new_traceback = PyTraceback::new(
+                            next,
+                            frame.object.to_owned(),
+                            frame.lasti(),
+                            loc.line,
+                        );
+                        vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.line);
                         exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
 
                         vm.contextualize_exception(&exception);

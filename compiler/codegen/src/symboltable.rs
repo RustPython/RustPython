@@ -18,6 +18,7 @@ use ruff_python_ast::{
     PatternMatchMapping, PatternMatchOr, PatternMatchSequence, PatternMatchStar, PatternMatchValue,
     Stmt, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams,
 };
+use ruff_source_file::PositionEncoding;
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_core::{SourceFile, SourceLocation};
 use std::{borrow::Cow, fmt};
@@ -1046,7 +1047,7 @@ impl SymbolTableBuilder {
                 location: Some(
                     self.source_file
                         .to_source_code()
-                        .source_location(expression.range().start()),
+                        .source_location(expression.range().start(), PositionEncoding::Utf8),
                 ),
             });
         }
@@ -1282,7 +1283,7 @@ impl SymbolTableBuilder {
                 if let ExpressionContext::IterDefinitionExp = context {
                     return Err(SymbolTableError {
                           error: "assignment expression cannot be used in a comprehension iterable expression".to_string(),
-                          location: Some(self.source_file.to_source_code().source_location(target.range().start())),
+                          location: Some(self.source_file.to_source_code().source_location( target.range().start(), PositionEncoding::Utf8)),
                       });
                 }
 
@@ -1565,7 +1566,7 @@ impl SymbolTableBuilder {
         let location = self
             .source_file
             .to_source_code()
-            .source_location(range.start());
+            .source_location(range.start(), PositionEncoding::Utf8);
         let location = Some(location);
         let scope_depth = self.tables.len();
         let table = self.tables.last_mut().unwrap();

@@ -31,6 +31,7 @@ use ruff_python_ast::{
     TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams, UnaryOp,
     WithItem,
 };
+use ruff_source_file::PositionEncoding;
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_core::{
     Mode, OneIndexed, SourceFile, SourceLocation,
@@ -240,18 +241,18 @@ fn eprint_location(zelf: &Compiler) {
     let start = zelf
         .source_file
         .to_source_code()
-        .source_location(zelf.current_source_range.start());
+        .source_location(zelf.current_source_range.start(), PositionEncoding::Utf8);
     let end = zelf
         .source_file
         .to_source_code()
-        .source_location(zelf.current_source_range.end());
+        .source_location(zelf.current_source_range.end(), PositionEncoding::Utf8);
     eprintln!(
         "LOCATION: {} from {}:{} to {}:{}",
         zelf.source_file.name(),
-        start.row,
-        start.column,
-        end.row,
-        end.column
+        start.line,
+        start.character_offset,
+        end.line,
+        end.character_offset
     );
 }
 
@@ -531,7 +532,7 @@ impl Compiler {
         let location = self
             .source_file
             .to_source_code()
-            .source_location(range.start());
+            .source_location(range.start(), PositionEncoding::Utf8);
         CodegenError {
             error,
             location: Some(location),
@@ -631,8 +632,8 @@ impl Compiler {
     ) -> CompileResult<()> {
         // Create location
         let location = SourceLocation {
-            row: OneIndexed::new(lineno as usize).unwrap_or(OneIndexed::MIN),
-            column: OneIndexed::new(1).unwrap(),
+            line: OneIndexed::new(lineno as usize).unwrap_or(OneIndexed::MIN),
+            character_offset: OneIndexed::new(1).unwrap(),
         };
 
         // Allocate a new compiler unit
@@ -769,8 +770,8 @@ impl Compiler {
         let _resume_loc = if scope_type == CompilerScope::Module {
             // Module scope starts with lineno 0
             SourceLocation {
-                row: OneIndexed::MIN,
-                column: OneIndexed::MIN,
+                line: OneIndexed::MIN,
+                character_offset: OneIndexed::MIN,
             }
         } else {
             location
@@ -5334,7 +5335,7 @@ impl Compiler {
         let location = self
             .source_file
             .to_source_code()
-            .source_location(range.start());
+            .source_location(range.start(), PositionEncoding::Utf8);
         // TODO: insert source filename
         self.current_block().instructions.push(ir::InstructionInfo {
             instr,

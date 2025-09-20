@@ -422,8 +422,8 @@ fn generate_linetable(locations: &[SourceLocation], first_line: i32) -> Box<[u8]
 
             // Get line and column information
             // SourceLocation always has row and column (both are OneIndexed)
-            let line = loc.row.get() as i32;
-            let col = (loc.column.get() as i32) - 1; // Convert 1-based to 0-based
+            let line = loc.line.get() as i32;
+            let col = (loc.character_offset.get() as i32) - 1; // Convert 1-based to 0-based
 
             let line_delta = line - prev_line;
 

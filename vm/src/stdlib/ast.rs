@@ -21,6 +21,7 @@ use crate::{
 };
 use node::Node;
 use ruff_python_ast as ruff;
+use ruff_source_file::PositionEncoding;
 use ruff_text_size::{Ranged, TextRange, TextSize};
 use rustpython_compiler_core::{
     LineIndex, OneIndexed, SourceFile, SourceFileBuilder, SourceLocation,
@@ -92,8 +93,8 @@ pub struct PySourceLocation {
 impl PySourceLocation {
     const fn to_source_location(&self) -> SourceLocation {
         SourceLocation {
-            row: self.row.get_one_indexed(),
-            column: self.column.get_one_indexed(),
+            line: self.row.get_one_indexed(),
+            character_offset: self.column.get_one_indexed(),
         }
     }
 }
@@ -194,14 +195,14 @@ fn source_range_to_text_range(source_file: &SourceFile, location: PySourceRange)
     }
 
     let start = index.offset(
-        location.start.row.get_one_indexed(),
-        location.start.column.get_one_indexed(),
+        location.start.to_source_location(),
         source,
+        PositionEncoding::Utf8,
     );
     let end = index.offset(
-        location.end.row.get_one_indexed(),
-        location.end.column.get_one_indexed(),
+        location.end.to_source_location(),
         source,
+        PositionEncoding::Utf8,
     );
 
     TextRange::new(start, end)
