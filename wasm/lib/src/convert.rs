@@ -251,12 +251,12 @@ pub fn syntax_err(err: CompileError) -> SyntaxError {
     let _ = Reflect::set(
         &js_err,
         &"row".into(),
-        &(err.location().unwrap().row.get()).into(),
+        &(err.location().unwrap().line.get()).into(),
     );
     let _ = Reflect::set(
         &js_err,
         &"col".into(),
-        &(err.location().unwrap().column.get()).into(),
+        &(err.location().unwrap().character_offset.get()).into(),
     );
     // | ParseErrorType::UnrecognizedToken(Token::Dedent, _)
     let can_continue = matches!(
