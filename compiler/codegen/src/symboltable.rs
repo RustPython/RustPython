@@ -794,6 +794,7 @@ impl SymbolTableBuilder {
                 decorator_list,
                 type_params,
                 range,
+                node_index: _,
             }) => {
                 if let Some(type_params) = type_params {
                     self.enter_type_param_block(
@@ -911,6 +912,7 @@ impl SymbolTableBuilder {
                 value,
                 simple,
                 range,
+                node_index: _,
             }) => {
                 // https://github.com/python/cpython/blob/main/Python/symtable.c#L1233
                 match &**target {
@@ -1090,7 +1092,12 @@ impl SymbolTableBuilder {
             }) => {
                 self.scan_expression(value, ExpressionContext::Load)?;
             }
-            Expr::Dict(ExprDict { items, range: _ }) => {
+            Expr::Dict(ExprDict {
+                items,
+                range: _,
+
+                node_index: _,
+            }) => {
                 for item in items {
                     if let Some(key) = &item.key {
                         self.scan_expression(key, context)?;
@@ -1098,15 +1105,27 @@ impl SymbolTableBuilder {
                     self.scan_expression(&item.value, context)?;
                 }
             }
-            Expr::Await(ExprAwait { value, range: _ }) => {
+            Expr::Await(ExprAwait {
+                value,
+                range: _,
+                node_index: _,
+            }) => {
                 self.scan_expression(value, context)?;
             }
-            Expr::Yield(ExprYield { value, range: _ }) => {
+            Expr::Yield(ExprYield {
+                value,
+                range: _,
+                node_index: _,
+            }) => {
                 if let Some(expression) = value {
                     self.scan_expression(expression, context)?;
                 }
             }
-            Expr::YieldFrom(ExprYieldFrom { value, range: _ }) => {
+            Expr::YieldFrom(ExprYieldFrom {
+                value,
+                range: _,
+                node_index: _,
+            }) => {
                 self.scan_expression(value, context)?;
             }
             Expr::UnaryOp(ExprUnaryOp {
@@ -1129,6 +1148,7 @@ impl SymbolTableBuilder {
                 upper,
                 step,
                 range: _,
+                node_index: _,
             }) => {
                 if let Some(lower) = lower {
                     self.scan_expression(lower, context)?;
@@ -1152,6 +1172,7 @@ impl SymbolTableBuilder {
                 elt,
                 generators,
                 range,
+                node_index: _,
             }) => {
                 self.scan_comprehension("genexpr", elt, None, generators, *range)?;
             }
@@ -1159,6 +1180,7 @@ impl SymbolTableBuilder {
                 elt,
                 generators,
                 range,
+                node_index: _,
             }) => {
                 self.scan_comprehension("genexpr", elt, None, generators, *range)?;
             }
@@ -1167,6 +1189,7 @@ impl SymbolTableBuilder {
                 value,
                 generators,
                 range,
+                node_index: _,
             }) => {
                 self.scan_comprehension("genexpr", key, Some(value), generators, *range)?;
             }
@@ -1174,6 +1197,7 @@ impl SymbolTableBuilder {
                 func,
                 arguments,
                 range: _,
+                node_index: _,
             }) => {
                 match context {
                     ExpressionContext::IterDefinitionExp => {
@@ -1220,6 +1244,7 @@ impl SymbolTableBuilder {
                 body,
                 parameters,
                 range: _,
+                node_index: _,
             }) => {
                 if let Some(parameters) = parameters {
                     self.enter_scope_with_parameters(
@@ -1267,6 +1292,7 @@ impl SymbolTableBuilder {
                 body,
                 orelse,
                 range: _,
+                node_index: _,
             }) => {
                 self.scan_expression(test, ExpressionContext::Load)?;
                 self.scan_expression(body, ExpressionContext::Load)?;
@@ -1277,6 +1303,7 @@ impl SymbolTableBuilder {
                 target,
                 value,
                 range,
+                node_index: _,
             }) => {
                 // named expressions are not allowed in the definition of
                 // comprehension iterator definitions
@@ -1395,6 +1422,7 @@ impl SymbolTableBuilder {
                     bound,
                     range: type_var_range,
                     default,
+                    node_index: _,
                 }) => {
                     self.register_name(name.as_str(), SymbolUsage::TypeParam, *type_var_range)?;
 
@@ -1418,6 +1446,7 @@ impl SymbolTableBuilder {
                     name,
                     range: param_spec_range,
                     default,
+                    node_index: _,
                 }) => {
                     self.register_name(name, SymbolUsage::TypeParam, *param_spec_range)?;
 
@@ -1431,6 +1460,7 @@ impl SymbolTableBuilder {
                     name,
                     range: type_var_tuple_range,
                     default,
+                    node_index: _,
                 }) => {
                     self.register_name(name, SymbolUsage::TypeParam, *type_var_tuple_range)?;
 

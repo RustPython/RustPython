@@ -8,6 +8,7 @@ fn ruff_fstring_value_into_iter(
         range: Default::default(),
         elements: Default::default(),
         flags: ruff::FStringFlags::empty(),
+        node_index: ruff_python_ast::AtomicNodeIndex::NONE,
     });
     (0..fstring_value.as_slice().len()).map(move |i| {
         let fstring_value = &mut fstring_value;
@@ -23,6 +24,7 @@ fn ruff_fstring_element_into_iter(
         ruff::InterpolatedStringElement::Literal(ruff::InterpolatedStringLiteralElement {
             range: Default::default(),
             value: Default::default(),
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         });
     (0..fstring_element.into_iter().len()).map(move |i| {
         let fstring_element = &mut fstring_element;
@@ -37,6 +39,7 @@ fn fstring_part_to_joined_str_part(fstring_part: ruff::FStringPart) -> Vec<Joine
             range,
             value,
             flags,
+            node_index: _,
         }) => {
             vec![JoinedStrPart::Constant(Constant::new_str(
                 value,
@@ -48,6 +51,7 @@ fn fstring_part_to_joined_str_part(fstring_part: ruff::FStringPart) -> Vec<Joine
             range: _,
             elements,
             flags: _, // TODO
+            node_index: _,
         }) => ruff_fstring_element_into_iter(elements)
             .map(ruff_fstring_element_to_joined_str_part)
             .collect(),
@@ -61,6 +65,7 @@ fn ruff_fstring_element_to_joined_str_part(
         ruff::InterpolatedStringElement::Literal(ruff::InterpolatedStringLiteralElement {
             range,
             value,
+            node_index: _,
         }) => JoinedStrPart::Constant(Constant::new_str(
             value,
             ruff::str_prefix::StringLiteralPrefix::Empty,
@@ -72,6 +77,7 @@ fn ruff_fstring_element_to_joined_str_part(
             debug_text: _, // TODO: What is this?
             conversion,
             format_spec,
+            node_index: _,
         }) => JoinedStrPart::FormattedValue(FormattedValue {
             value: expression,
             conversion,
@@ -87,7 +93,11 @@ fn ruff_format_spec_to_joined_str(
     match format_spec {
         None => None,
         Some(format_spec) => {
-            let ruff::InterpolatedStringFormatSpec { range, elements } = *format_spec;
+            let ruff::InterpolatedStringFormatSpec {
+                range,
+                elements,
+                node_index: _,
+            } = *format_spec;
             let values: Vec<_> = ruff_fstring_element_into_iter(elements)
                 .map(ruff_fstring_element_to_joined_str_part)
                 .collect();
@@ -102,11 +112,16 @@ fn ruff_fstring_element_to_ruff_fstring_part(
 ) -> ruff::FStringPart {
     match element {
         ruff::InterpolatedStringElement::Literal(value) => {
-            let ruff::InterpolatedStringLiteralElement { range, value } = value;
+            let ruff::InterpolatedStringLiteralElement {
+                range,
+                value,
+                node_index: _,
+            } = value;
             ruff::FStringPart::Literal(ruff::StringLiteral {
                 range,
                 value,
                 flags: ruff::StringLiteralFlags::empty(),
+                node_index: ruff_python_ast::AtomicNodeIndex::NONE,
             })
         }
         ruff::InterpolatedStringElement::Interpolation(value) => {
@@ -116,6 +131,7 @@ fn ruff_fstring_element_to_ruff_fstring_part(
                 debug_text,
                 conversion,
                 format_spec,
+                node_index: _,
             } = value;
             ruff::FStringPart::FString(ruff::FString {
                 range,
@@ -126,10 +142,12 @@ fn ruff_fstring_element_to_ruff_fstring_part(
                         debug_text,
                         conversion,
                         format_spec,
+                        node_index: ruff_python_ast::AtomicNodeIndex::NONE,
                     },
                 )]
                 .into(),
                 flags: ruff::FStringFlags::empty(),
+                node_index: ruff_python_ast::AtomicNodeIndex::NONE,
             })
         }
     }
@@ -148,6 +166,7 @@ fn joined_str_to_ruff_format_spec(
             let format_spec = ruff::InterpolatedStringFormatSpec {
                 range,
                 elements: elements.into(),
+                node_index: ruff_python_ast::AtomicNodeIndex::NONE,
             };
             Some(Box::new(format_spec))
         }
@@ -171,6 +190,7 @@ impl JoinedStr {
                     range,
                     elements: vec![].into(),
                     flags: ruff::FStringFlags::empty(),
+                    node_index: ruff_python_ast::AtomicNodeIndex::NONE,
                 }),
                 1 => ruff::FStringValue::single(
                     Box::<[_]>::into_iter(values)
@@ -179,6 +199,7 @@ impl JoinedStr {
                             range,
                             elements: vec![element].into(),
                             flags: ruff::FStringFlags::empty(),
+                            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
                         })
                         .next()
                         .expect("FString has exactly one part"),
@@ -190,6 +211,7 @@ impl JoinedStr {
                         .collect(),
                 ),
             },
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -203,6 +225,7 @@ fn joined_str_part_to_ruff_fstring_element(part: JoinedStrPart) -> ruff::Interpo
                 debug_text: None, // TODO: What is this?
                 conversion: value.conversion,
                 format_spec: joined_str_to_ruff_format_spec(value.format_spec),
+                node_index: ruff_python_ast::AtomicNodeIndex::NONE,
             })
         }
         JoinedStrPart::Constant(value) => {
@@ -212,6 +235,7 @@ fn joined_str_part_to_ruff_fstring_element(part: JoinedStrPart) -> ruff::Interpo
                     ConstantLiteral::Str { value, .. } => value,
                     _ => todo!(),
                 },
+                node_index: ruff_python_ast::AtomicNodeIndex::NONE,
             })
         }
     }
@@ -350,7 +374,11 @@ pub(super) fn fstring_to_object(
     source_file: &SourceFile,
     expression: ruff::ExprFString,
 ) -> PyObjectRef {
-    let ruff::ExprFString { range, value } = expression;
+    let ruff::ExprFString {
+        range,
+        value,
+        node_index: _,
+    } = expression;
     let values: Vec<_> = ruff_fstring_value_into_iter(value)
         .flat_map(fstring_part_to_joined_str_part)
         .collect();

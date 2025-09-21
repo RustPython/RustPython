@@ -69,6 +69,7 @@ impl Node for ruff::ModModule {
             body,
             // type_ignores,
             range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeModModule::static_type().to_owned())
@@ -105,6 +106,7 @@ impl Node for ruff::ModModule {
             //     get_node_field(_vm, &_object, "type_ignores", "Module")?,
             // )?,
             range: Default::default(),
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -147,7 +149,11 @@ impl Node for ModInteractive {
 // constructor
 impl Node for ruff::ModExpression {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { body, range } = self;
+        let Self {
+            body,
+            range,
+            node_index: _,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeModExpression::static_type().to_owned())
             .unwrap();
@@ -170,6 +176,7 @@ impl Node for ruff::ModExpression {
                 get_node_field(vm, &object, "body", "Expression")?,
             )?,
             range: Default::default(),
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }

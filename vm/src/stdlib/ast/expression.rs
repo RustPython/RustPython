@@ -146,7 +146,12 @@ impl Node for ruff::Expr {
 // constructor
 impl Node for ruff::ExprBoolOp {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { op, values, range } = self;
+        let Self {
+            op,
+            values,
+            range,
+            node_index: _,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprBoolOp::static_type().to_owned())
             .unwrap();
@@ -176,6 +181,7 @@ impl Node for ruff::ExprBoolOp {
                 get_node_field(vm, &object, "values", "BoolOp")?,
             )?,
             range: range_from_object(vm, source_file, object, "BoolOp")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -187,6 +193,7 @@ impl Node for ruff::ExprNamed {
             target,
             value,
             range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprNamedExpr::static_type().to_owned())
@@ -217,6 +224,7 @@ impl Node for ruff::ExprNamed {
                 get_node_field(vm, &object, "value", "NamedExpr")?,
             )?,
             range: range_from_object(vm, source_file, object, "NamedExpr")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -229,6 +237,7 @@ impl Node for ruff::ExprBinOp {
             op,
             right,
             range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprBinOp::static_type().to_owned())
@@ -266,6 +275,7 @@ impl Node for ruff::ExprBinOp {
                 get_node_field(vm, &object, "right", "BinOp")?,
             )?,
             range: range_from_object(vm, source_file, object, "BinOp")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -273,7 +283,12 @@ impl Node for ruff::ExprBinOp {
 // constructor
 impl Node for ruff::ExprUnaryOp {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { op, operand, range } = self;
+        let Self {
+            op,
+            operand,
+            range,
+            node_index: _,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprUnaryOp::static_type().to_owned())
             .unwrap();
@@ -302,6 +317,7 @@ impl Node for ruff::ExprUnaryOp {
                 get_node_field(vm, &object, "operand", "UnaryOp")?,
             )?,
             range: range_from_object(vm, source_file, object, "UnaryOp")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -313,6 +329,7 @@ impl Node for ruff::ExprLambda {
             parameters,
             body,
             range: _range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprLambda::static_type().to_owned())
@@ -343,6 +360,7 @@ impl Node for ruff::ExprLambda {
                 get_node_field(vm, &object, "body", "Lambda")?,
             )?,
             range: range_from_object(vm, source_file, object, "Lambda")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -355,6 +373,7 @@ impl Node for ruff::ExprIf {
             body,
             orelse,
             range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprIfExp::static_type().to_owned())
@@ -392,6 +411,7 @@ impl Node for ruff::ExprIf {
                 get_node_field(vm, &object, "orelse", "IfExp")?,
             )?,
             range: range_from_object(vm, source_file, object, "IfExp")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -399,7 +419,11 @@ impl Node for ruff::ExprIf {
 // constructor
 impl Node for ruff::ExprDict {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { items, range } = self;
+        let Self {
+            items,
+            range,
+            node_index: _,
+        } = self;
         let (keys, values) =
             items
                 .into_iter()
@@ -443,6 +467,7 @@ impl Node for ruff::ExprDict {
         Ok(Self {
             items,
             range: range_from_object(vm, source_file, object, "Dict")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -450,7 +475,11 @@ impl Node for ruff::ExprDict {
 // constructor
 impl Node for ruff::ExprSet {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { elts, range } = self;
+        let Self {
+            elts,
+            range,
+            node_index: _,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprSet::static_type().to_owned())
             .unwrap();
@@ -472,6 +501,7 @@ impl Node for ruff::ExprSet {
                 get_node_field(vm, &object, "elts", "Set")?,
             )?,
             range: range_from_object(vm, source_file, object, "Set")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -483,6 +513,7 @@ impl Node for ruff::ExprListComp {
             elt,
             generators,
             range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprListComp::static_type().to_owned())
@@ -513,6 +544,7 @@ impl Node for ruff::ExprListComp {
                 get_node_field(vm, &object, "generators", "ListComp")?,
             )?,
             range: range_from_object(vm, source_file, object, "ListComp")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -524,6 +556,7 @@ impl Node for ruff::ExprSetComp {
             elt,
             generators,
             range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprSetComp::static_type().to_owned())
@@ -554,6 +587,7 @@ impl Node for ruff::ExprSetComp {
                 get_node_field(vm, &object, "generators", "SetComp")?,
             )?,
             range: range_from_object(vm, source_file, object, "SetComp")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -566,6 +600,7 @@ impl Node for ruff::ExprDictComp {
             value,
             generators,
             range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprDictComp::static_type().to_owned())
@@ -603,6 +638,7 @@ impl Node for ruff::ExprDictComp {
                 get_node_field(vm, &object, "generators", "DictComp")?,
             )?,
             range: range_from_object(vm, source_file, object, "DictComp")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -615,6 +651,7 @@ impl Node for ruff::ExprGenerator {
             generators,
             range,
             parenthesized: _,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprGeneratorExp::static_type().to_owned())
@@ -647,6 +684,7 @@ impl Node for ruff::ExprGenerator {
             range: range_from_object(vm, source_file, object, "GeneratorExp")?,
             // TODO: Is this correct?
             parenthesized: true,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -654,7 +692,11 @@ impl Node for ruff::ExprGenerator {
 // constructor
 impl Node for ruff::ExprAwait {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { value, range } = self;
+        let Self {
+            value,
+            range,
+            node_index: _,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprAwait::static_type().to_owned())
             .unwrap();
@@ -676,6 +718,7 @@ impl Node for ruff::ExprAwait {
                 get_node_field(vm, &object, "value", "Await")?,
             )?,
             range: range_from_object(vm, source_file, object, "Await")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -683,7 +726,11 @@ impl Node for ruff::ExprAwait {
 // constructor
 impl Node for ruff::ExprYield {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { value, range } = self;
+        let Self {
+            value,
+            range,
+            node_index: _,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprYield::static_type().to_owned())
             .unwrap();
@@ -704,6 +751,7 @@ impl Node for ruff::ExprYield {
                 .map(|obj| Node::ast_from_object(vm, source_file, obj))
                 .transpose()?,
             range: range_from_object(vm, source_file, object, "Yield")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -711,7 +759,11 @@ impl Node for ruff::ExprYield {
 // constructor
 impl Node for ruff::ExprYieldFrom {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { value, range } = self;
+        let Self {
+            value,
+            range,
+            node_index: _,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprYieldFrom::static_type().to_owned())
             .unwrap();
@@ -734,6 +786,7 @@ impl Node for ruff::ExprYieldFrom {
                 get_node_field(vm, &object, "value", "YieldFrom")?,
             )?,
             range: range_from_object(vm, source_file, object, "YieldFrom")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -746,6 +799,7 @@ impl Node for ruff::ExprCompare {
             ops,
             comparators,
             range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprCompare::static_type().to_owned())
@@ -793,6 +847,7 @@ impl Node for ruff::ExprCompare {
                 comparators.0
             },
             range: range_from_object(vm, source_file, object, "Compare")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -804,6 +859,7 @@ impl Node for ruff::ExprCall {
             func,
             arguments,
             range,
+            node_index: _,
         } = self;
         let (positional_arguments, keyword_arguments) = split_function_call_arguments(arguments);
         let node = NodeAst
@@ -852,6 +908,7 @@ impl Node for ruff::ExprCall {
                 )?,
             ),
             range: range_from_object(vm, source_file, object, "Call")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -864,6 +921,7 @@ impl Node for ruff::ExprAttribute {
             attr,
             ctx,
             range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprAttribute::static_type().to_owned())
@@ -901,6 +959,7 @@ impl Node for ruff::ExprAttribute {
                 get_node_field(vm, &object, "ctx", "Attribute")?,
             )?,
             range: range_from_object(vm, source_file, object, "Attribute")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -913,6 +972,7 @@ impl Node for ruff::ExprSubscript {
             slice,
             ctx,
             range: _range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprSubscript::static_type().to_owned())
@@ -949,6 +1009,7 @@ impl Node for ruff::ExprSubscript {
                 get_node_field(vm, &object, "ctx", "Subscript")?,
             )?,
             range: range_from_object(vm, source_file, object, "Subscript")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -956,7 +1017,12 @@ impl Node for ruff::ExprSubscript {
 // constructor
 impl Node for ruff::ExprStarred {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { value, ctx, range } = self;
+        let Self {
+            value,
+            ctx,
+            range,
+            node_index: _,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprStarred::static_type().to_owned())
             .unwrap();
@@ -985,6 +1051,7 @@ impl Node for ruff::ExprStarred {
                 get_node_field(vm, &object, "ctx", "Starred")?,
             )?,
             range: range_from_object(vm, source_file, object, "Starred")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -992,7 +1059,12 @@ impl Node for ruff::ExprStarred {
 // constructor
 impl Node for ruff::ExprName {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { id, ctx, range } = self;
+        let Self {
+            id,
+            ctx,
+            range,
+            node_index: _,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprName::static_type().to_owned())
             .unwrap();
@@ -1017,6 +1089,7 @@ impl Node for ruff::ExprName {
                 get_node_field(vm, &object, "ctx", "Name")?,
             )?,
             range: range_from_object(vm, source_file, object, "Name")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -1024,7 +1097,12 @@ impl Node for ruff::ExprName {
 // constructor
 impl Node for ruff::ExprList {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { elts, ctx, range } = self;
+        let Self {
+            elts,
+            ctx,
+            range,
+            node_index: _,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprList::static_type().to_owned())
             .unwrap();
@@ -1054,6 +1132,7 @@ impl Node for ruff::ExprList {
                 get_node_field(vm, &object, "ctx", "List")?,
             )?,
             range: range_from_object(vm, source_file, object, "List")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -1066,6 +1145,7 @@ impl Node for ruff::ExprTuple {
             ctx,
             range: _range,
             parenthesized: _,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprTuple::static_type().to_owned())
@@ -1097,6 +1177,7 @@ impl Node for ruff::ExprTuple {
             )?,
             range: range_from_object(vm, source_file, object, "Tuple")?,
             parenthesized: true, // TODO: is this correct?
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -1109,6 +1190,7 @@ impl Node for ruff::ExprSlice {
             upper,
             step,
             range: _range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprSlice::static_type().to_owned())
@@ -1140,6 +1222,7 @@ impl Node for ruff::ExprSlice {
                 .map(|obj| Node::ast_from_object(vm, source_file, obj))
                 .transpose()?,
             range: range_from_object(vm, source_file, object, "Slice")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -1191,6 +1274,7 @@ impl Node for ruff::Comprehension {
             ifs,
             is_async,
             range: _range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeComprehension::static_type().to_owned())
@@ -1234,6 +1318,7 @@ impl Node for ruff::Comprehension {
                 get_node_field(vm, &object, "is_async", "comprehension")?,
             )?,
             range: Default::default(),
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }

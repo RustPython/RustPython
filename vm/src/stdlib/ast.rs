@@ -274,9 +274,11 @@ pub(crate) fn compile(
     let ast: Mod = Node::ast_from_object(vm, &source_file, object)?;
     let ast = match ast {
         Mod::Module(m) => ruff::Mod::Module(m),
-        Mod::Interactive(ModInteractive { range, body }) => {
-            ruff::Mod::Module(ruff::ModModule { range, body })
-        }
+        Mod::Interactive(ModInteractive { range, body }) => ruff::Mod::Module(ruff::ModModule {
+            range,
+            body,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
+        }),
         Mod::Expression(e) => ruff::Mod::Expression(e),
         Mod::FunctionType(_) => todo!(),
     };

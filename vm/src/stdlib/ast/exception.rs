@@ -39,6 +39,7 @@ impl Node for ruff::ExceptHandlerExceptHandler {
             name,
             body,
             range: _range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(
@@ -75,6 +76,7 @@ impl Node for ruff::ExceptHandlerExceptHandler {
                 get_node_field(_vm, &_object, "body", "ExceptHandler")?,
             )?,
             range: range_from_object(_vm, source_file, _object, "ExceptHandler")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }

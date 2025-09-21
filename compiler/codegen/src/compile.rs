@@ -149,16 +149,11 @@ enum ComprehensionType {
 }
 
 fn unparse_expr(expr: &Expr) -> String {
-    // Hack, because we can't do `ruff_python_codegen::Indentation::default()`
-    // https://github.com/astral-sh/ruff/pull/20216
-    let indentation = {
-        let contents = r"x = 1";
-        let module = ruff_python_parser::parse_module(contents).unwrap();
-        let stylist = ruff_python_codegen::Stylist::from_tokens(module.tokens(), contents);
-        stylist.indentation().clone()
-    };
-
-    ruff_python_codegen::Generator::new(&indentation, LineEnding::default()).expr(expr)
+    use ruff_python_ast::str::Quote;
+    use ruff_python_codegen::{Generator, Indentation};
+    Generator::new(&Indentation::default(), LineEnding::default())
+        .with_preferred_quote(Some(Quote::Single))
+        .expr(expr)
 }
 
 /// Compile an Mod produced from ruff parser
@@ -4885,6 +4880,7 @@ impl Compiler {
                 target,
                 value,
                 range: _,
+                node_index: _,
             }) => {
                 self.compile_expression(value)?;
                 emit!(self, Instruction::Duplicate);
@@ -5538,8 +5534,13 @@ impl Compiler {
                 target,
                 value,
                 range: _,
+                node_index: _,
             }) => Self::contains_await(target) || Self::contains_await(value),
-            Expr::FString(ExprFString { value, range: _ }) => {
+            Expr::FString(ExprFString {
+                value,
+                range: _,
+                node_index: _,
+            }) => {
                 fn expr_element_contains_await<F: Copy + Fn(&Expr) -> bool>(
                     expr_element: &InterpolatedElement,
                     contains_await: F,

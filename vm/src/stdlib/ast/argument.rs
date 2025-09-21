@@ -60,6 +60,7 @@ pub(super) fn merge_function_call_arguments(
         range,
         args: pos_args.args,
         keywords: key_args.keywords,
+        node_index: ruff_python_ast::AtomicNodeIndex::NONE,
     }
 }
 
@@ -70,6 +71,7 @@ pub(super) fn split_function_call_arguments(
         range: _,
         args,
         keywords,
+        node_index: _,
     } = args;
 
     let positional_arguments_range = args
@@ -108,6 +110,7 @@ pub(super) fn split_class_def_args(
         range: _,
         args,
         keywords,
+        node_index: _,
     } = args;
 
     let positional_arguments_range = args
@@ -158,5 +161,6 @@ pub(super) fn merge_class_def_args(
         range: Default::default(), // TODO
         args,
         keywords,
+        node_index: ruff_python_ast::AtomicNodeIndex::NONE,
     }))
 }

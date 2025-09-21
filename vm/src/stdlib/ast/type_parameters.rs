@@ -15,7 +15,11 @@ impl Node for ruff::TypeParams {
         let range = Option::zip(type_params.first(), type_params.last())
             .map(|(first, last)| first.range().cover(last.range()))
             .unwrap_or_default();
-        Ok(Self { type_params, range })
+        Ok(Self {
+            type_params,
+            range,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
+        })
     }
 
     fn is_none(&self) -> bool {
@@ -74,6 +78,7 @@ impl Node for ruff::TypeParamTypeVar {
             bound,
             range: _range,
             default: _,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodeTypeParamTypeVar::static_type().to_owned())
@@ -107,6 +112,7 @@ impl Node for ruff::TypeParamTypeVar {
                 get_node_field(_vm, &_object, "default_value", "TypeVar")?,
             )?,
             range: range_from_object(_vm, source_file, _object, "TypeVar")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -118,6 +124,7 @@ impl Node for ruff::TypeParamParamSpec {
             name,
             range: _range,
             default,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodeTypeParamParamSpec::static_type().to_owned())
@@ -152,6 +159,7 @@ impl Node for ruff::TypeParamParamSpec {
                 get_node_field(_vm, &_object, "default_value", "ParamSpec")?,
             )?,
             range: range_from_object(_vm, source_file, _object, "ParamSpec")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -163,6 +171,7 @@ impl Node for ruff::TypeParamTypeVarTuple {
             name,
             range: _range,
             default,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(
@@ -200,6 +209,7 @@ impl Node for ruff::TypeParamTypeVarTuple {
                 get_node_field(_vm, &_object, "default_value", "TypeVarTuple")?,
             )?,
             range: range_from_object(_vm, source_file, _object, "TypeVarTuple")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
