@@ -5877,6 +5877,7 @@ mod ruff_tests {
             range,
             id: Name::new("x"),
             ctx: ExprContext::Load,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         });
         let not_present = &Expr::FString(ExprFString {
             range,
@@ -5904,6 +5905,7 @@ mod ruff_tests {
                 range,
                 id: Name::new("x"),
                 ctx: ExprContext::Load,
+                node_index: ruff_python_ast::AtomicNodeIndex::NONE,
             })),
         });
         let present = &Expr::FString(ExprFString {
@@ -5922,6 +5924,7 @@ mod ruff_tests {
                 .into(),
                 flags,
             }),
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         });
         assert!(Compiler::contains_await(present));
 
@@ -5930,6 +5933,7 @@ mod ruff_tests {
             range,
             id: Name::new("x"),
             ctx: ExprContext::Load,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         });
         let expr_await_y = Expr::Await(ExprAwait {
             range,
@@ -5937,7 +5941,9 @@ mod ruff_tests {
                 range,
                 id: Name::new("y"),
                 ctx: ExprContext::Load,
+                node_index: ruff_python_ast::AtomicNodeIndex::NONE,
             })),
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         });
         let present = &Expr::FString(ExprFString {
             range,
