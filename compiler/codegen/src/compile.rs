@@ -10,13 +10,10 @@
 #![deny(clippy::cast_possible_truncation)]
 
 use crate::{
-    IndexMap,
-    IndexSet,
-    ToPythonName,
+    IndexMap, IndexSet, ToPythonName,
     error::{CodegenError, CodegenErrorType, InternalError, PatternUnreachableReason},
     ir::{self, BlockIdx},
     symboltable::{self, CompilerScope, SymbolFlags, SymbolScope, SymbolTable},
-    //unparse::UnparseExpr,
 };
 use itertools::Itertools;
 use malachite_bigint::BigInt;

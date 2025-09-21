@@ -321,7 +321,7 @@ impl VirtualMachine {
                 error:
                     ruff_python_parser::ParseErrorType::Lexical(
                         ruff_python_parser::LexicalErrorType::FStringError(
-                            ruff_python_parser::FStringErrorType::UnterminatedTripleQuotedString,
+                            ruff_python_parser::InterpolatedStringErrorType::UnterminatedTripleQuotedString,
                         ),
                     ),
                 ..

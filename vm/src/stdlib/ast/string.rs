@@ -17,12 +17,13 @@ fn ruff_fstring_value_into_iter(
 }
 
 fn ruff_fstring_element_into_iter(
-    mut fstring_element: ruff::FStringElements,
-) -> impl Iterator<Item = ruff::FStringElement> + 'static {
-    let default = ruff::FStringElement::Literal(ruff::FStringLiteralElement {
-        range: Default::default(),
-        value: Default::default(),
-    });
+    mut fstring_element: ruff::InterpolatedStringElements,
+) -> impl Iterator<Item = ruff::InterpolatedStringElement> + 'static {
+    let default =
+        ruff::InterpolatedStringElement::Literal(ruff::InterpolatedStringLiteralElement {
+            range: Default::default(),
+            value: Default::default(),
+        });
     (0..fstring_element.into_iter().len()).map(move |i| {
         let fstring_element = &mut fstring_element;
         let tmp = fstring_element.into_iter().nth(i).unwrap();
@@ -53,16 +54,19 @@ fn fstring_part_to_joined_str_part(fstring_part: ruff::FStringPart) -> Vec<Joine
     }
 }
 
-fn ruff_fstring_element_to_joined_str_part(element: ruff::FStringElement) -> JoinedStrPart {
+fn ruff_fstring_element_to_joined_str_part(
+    element: ruff::InterpolatedStringElement,
+) -> JoinedStrPart {
     match element {
-        ruff::FStringElement::Literal(ruff::FStringLiteralElement { range, value }) => {
-            JoinedStrPart::Constant(Constant::new_str(
-                value,
-                ruff::str_prefix::StringLiteralPrefix::Empty,
-                range,
-            ))
-        }
-        ruff::FStringElement::Expression(ruff::FStringExpressionElement {
+        ruff::InterpolatedStringElement::Literal(ruff::InterpolatedStringLiteralElement {
+            range,
+            value,
+        }) => JoinedStrPart::Constant(Constant::new_str(
+            value,
+            ruff::str_prefix::StringLiteralPrefix::Empty,
+            range,
+        )),
+        ruff::InterpolatedStringElement::Interpolation(ruff::InterpolatedElement {
             range,
             expression,
             debug_text: _, // TODO: What is this?
@@ -78,12 +82,12 @@ fn ruff_fstring_element_to_joined_str_part(element: ruff::FStringElement) -> Joi
 }
 
 fn ruff_format_spec_to_joined_str(
-    format_spec: Option<Box<ruff::FStringFormatSpec>>,
+    format_spec: Option<Box<ruff::InterpolatedStringFormatSpec>>,
 ) -> Option<Box<JoinedStr>> {
     match format_spec {
         None => None,
         Some(format_spec) => {
-            let ruff::FStringFormatSpec { range, elements } = *format_spec;
+            let ruff::InterpolatedStringFormatSpec { range, elements } = *format_spec;
             let values: Vec<_> = ruff_fstring_element_into_iter(elements)
                 .map(ruff_fstring_element_to_joined_str_part)
                 .collect();
@@ -93,18 +97,20 @@ fn ruff_format_spec_to_joined_str(
     }
 }
 
-fn ruff_fstring_element_to_ruff_fstring_part(element: ruff::FStringElement) -> ruff::FStringPart {
+fn ruff_fstring_element_to_ruff_fstring_part(
+    element: ruff::InterpolatedStringElement,
+) -> ruff::FStringPart {
     match element {
-        ruff::FStringElement::Literal(value) => {
-            let ruff::FStringLiteralElement { range, value } = value;
+        ruff::InterpolatedStringElement::Literal(value) => {
+            let ruff::InterpolatedStringLiteralElement { range, value } = value;
             ruff::FStringPart::Literal(ruff::StringLiteral {
                 range,
                 value,
                 flags: ruff::StringLiteralFlags::empty(),
             })
         }
-        ruff::FStringElement::Expression(value) => {
-            let ruff::FStringExpressionElement {
+        ruff::InterpolatedStringElement::Interpolation(value) => {
+            let ruff::InterpolatedElement {
                 range,
                 expression,
                 debug_text,
@@ -113,8 +119,8 @@ fn ruff_fstring_element_to_ruff_fstring_part(element: ruff::FStringElement) -> r
             } = value;
             ruff::FStringPart::FString(ruff::FString {
                 range,
-                elements: vec![ruff::FStringElement::Expression(
-                    ruff::FStringExpressionElement {
+                elements: vec![ruff::InterpolatedStringElement::Interpolation(
+                    ruff::InterpolatedElement {
                         range,
                         expression,
                         debug_text,
@@ -131,7 +137,7 @@ fn ruff_fstring_element_to_ruff_fstring_part(element: ruff::FStringElement) -> r
 
 fn joined_str_to_ruff_format_spec(
     joined_str: Option<Box<JoinedStr>>,
-) -> Option<Box<ruff::FStringFormatSpec>> {
+) -> Option<Box<ruff::InterpolatedStringFormatSpec>> {
     match joined_str {
         None => None,
         Some(joined_str) => {
@@ -139,7 +145,7 @@ fn joined_str_to_ruff_format_spec(
             let elements: Vec<_> = Box::into_iter(values)
                 .map(joined_str_part_to_ruff_fstring_element)
                 .collect();
-            let format_spec = ruff::FStringFormatSpec {
+            let format_spec = ruff::InterpolatedStringFormatSpec {
                 range,
                 elements: elements.into(),
             };
@@ -188,10 +194,10 @@ impl JoinedStr {
     }
 }
 
-fn joined_str_part_to_ruff_fstring_element(part: JoinedStrPart) -> ruff::FStringElement {
+fn joined_str_part_to_ruff_fstring_element(part: JoinedStrPart) -> ruff::InterpolatedStringElement {
     match part {
         JoinedStrPart::FormattedValue(value) => {
-            ruff::FStringElement::Expression(ruff::FStringExpressionElement {
+            ruff::InterpolatedStringElement::Interpolation(ruff::InterpolatedElement {
                 range: value.range,
                 expression: value.value.clone(),
                 debug_text: None, // TODO: What is this?
@@ -200,7 +206,7 @@ fn joined_str_part_to_ruff_fstring_element(part: JoinedStrPart) -> ruff::FString
             })
         }
         JoinedStrPart::Constant(value) => {
-            ruff::FStringElement::Literal(ruff::FStringLiteralElement {
+            ruff::InterpolatedStringElement::Literal(ruff::InterpolatedStringLiteralElement {
                 range: value.range,
                 value: match value.value {
                     ConstantLiteral::Str { value, .. } => value,

@@ -45,6 +45,7 @@ impl Node for ruff::Expr {
                 constant::ellipsis_literal_to_object(vm, source_file, cons)
             }
             Self::Named(cons) => cons.ast_to_object(vm, source_file),
+            Self::TString(_) => todo!(),
             Self::IpyEscapeCommand(_) => {
                 unimplemented!("IPython escape command is not allowed in Python AST")
             }
