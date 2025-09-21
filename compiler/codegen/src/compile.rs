@@ -5949,7 +5949,7 @@ mod ruff_tests {
                         expression: Box::new(expr_x),
                         debug_text: None,
                         conversion: ConversionFlag::None,
-                        format_spec: Some(Box::new(FStringFormatSpec {
+                        format_spec: Some(Box::new(InterpolatedStringFormatSpec {
                             range,
                             elements: vec![InterpolatedStringElement::Interpolation(
                                 InterpolatedElement {
