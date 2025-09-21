@@ -10,11 +10,13 @@
 #![deny(clippy::cast_possible_truncation)]
 
 use crate::{
-    IndexMap, IndexSet, ToPythonName,
+    IndexMap,
+    IndexSet,
+    ToPythonName,
     error::{CodegenError, CodegenErrorType, InternalError, PatternUnreachableReason},
     ir::{self, BlockIdx},
     symboltable::{self, CompilerScope, SymbolFlags, SymbolScope, SymbolTable},
-    unparse::UnparseExpr,
+    //unparse::UnparseExpr,
 };
 use itertools::Itertools;
 use malachite_bigint::BigInt;
@@ -24,13 +26,14 @@ use ruff_python_ast::{
     Alias, Arguments, BoolOp, CmpOp, Comprehension, ConversionFlag, DebugText, Decorator, DictItem,
     ExceptHandler, ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprContext,
     ExprFString, ExprList, ExprName, ExprSlice, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp,
-    FString, FStringElement, FStringElements, FStringFlags, FStringPart, Identifier, Int, Keyword,
-    MatchCase, ModExpression, ModModule, Operator, Parameters, Pattern, PatternMatchAs,
-    PatternMatchClass, PatternMatchMapping, PatternMatchOr, PatternMatchSequence,
-    PatternMatchSingleton, PatternMatchStar, PatternMatchValue, Singleton, Stmt, StmtExpr,
-    TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams, UnaryOp,
-    WithItem,
+    FString, FStringFlags, FStringPart, Identifier, Int, InterpolatedStringElement,
+    InterpolatedStringElements, Keyword, MatchCase, ModExpression, ModModule, Operator, Parameters,
+    Pattern, PatternMatchAs, PatternMatchClass, PatternMatchMapping, PatternMatchOr,
+    PatternMatchSequence, PatternMatchSingleton, PatternMatchStar, PatternMatchValue, Singleton,
+    Stmt, StmtExpr, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple,
+    TypeParams, UnaryOp, WithItem,
 };
+use ruff_source_file::LineEnding;
 use ruff_source_file::PositionEncoding;
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_core::{
@@ -146,6 +149,19 @@ enum ComprehensionType {
     List,
     Set,
     Dict,
+}
+
+fn unparse_expr(expr: &Expr) -> String {
+    // Hack, because we can't do `ruff_python_codegen::Indentation::default()`
+    // https://github.com/astral-sh/ruff/pull/20216
+    let indentation = {
+        let contents = r"x = 1";
+        let module = ruff_python_parser::parse_module(contents).unwrap();
+        let stylist = ruff_python_codegen::Stylist::from_tokens(module.tokens(), contents);
+        stylist.indentation().clone()
+    };
+
+    ruff_python_codegen::Generator::new(&indentation, LineEnding::default()).expr(expr)
 }
 
 /// Compile an Mod produced from ruff parser
@@ -3592,7 +3608,7 @@ impl Compiler {
                         | Expr::NoneLiteral(_)
                 );
                 let key_repr = if is_literal {
-                    UnparseExpr::new(key, &self.source_file).to_string()
+                    unparse_expr(key)
                 } else if is_attribute {
                     String::new()
                 } else {
@@ -4146,9 +4162,7 @@ impl Compiler {
     fn compile_annotation(&mut self, annotation: &Expr) -> CompileResult<()> {
         if self.future_annotations {
             self.emit_load_const(ConstantData::Str {
-                value: UnparseExpr::new(annotation, &self.source_file)
-                    .to_string()
-                    .into(),
+                value: unparse_expr(annotation).into(),
             });
         } else {
             let was_in_annotation = self.in_annotation;
@@ -4932,6 +4946,7 @@ impl Compiler {
             Expr::IpyEscapeCommand(_) => {
                 panic!("unexpected ipy escape command");
             }
+            Expr::TString(_) => todo!(),
         }
         Ok(())
     }
@@ -5529,22 +5544,22 @@ impl Compiler {
             }) => Self::contains_await(target) || Self::contains_await(value),
             Expr::FString(ExprFString { value, range: _ }) => {
                 fn expr_element_contains_await<F: Copy + Fn(&Expr) -> bool>(
-                    expr_element: &FStringExpressionElement,
+                    expr_element: &InterpolatedElement,
                     contains_await: F,
                 ) -> bool {
                     contains_await(&expr_element.expression)
                         || expr_element
                             .format_spec
                             .iter()
-                            .flat_map(|spec| spec.elements.expressions())
+                            .flat_map(|spec| spec.elements.interpolations())
                             .any(|element| expr_element_contains_await(element, contains_await))
                 }
 
                 value.elements().any(|element| match element {
-                    FStringElement::Expression(expr_element) => {
+                    InterpolatedStringElement::Interpolation(expr_element) => {
                         expr_element_contains_await(expr_element, Self::contains_await)
                     }
-                    FStringElement::Literal(_) => false,
+                    InterpolatedStringElement::Literal(_) => false,
                 })
             }
             Expr::StringLiteral(_)
@@ -5554,6 +5569,8 @@ impl Compiler {
             | Expr::NoneLiteral(_)
             | Expr::EllipsisLiteral(_)
             | Expr::IpyEscapeCommand(_) => false,
+
+            Expr::TString(_) => todo!(),
         }
     }
 
@@ -5603,13 +5620,13 @@ impl Compiler {
     fn compile_fstring_elements(
         &mut self,
         flags: FStringFlags,
-        fstring_elements: &FStringElements,
+        fstring_elements: &InterpolatedStringElements,
     ) -> CompileResult<()> {
         let mut element_count = 0;
         for element in fstring_elements {
             element_count += 1;
             match element {
-                FStringElement::Literal(string) => {
+                InterpolatedStringElement::Literal(string) => {
                     if string.value.contains(char::REPLACEMENT_CHARACTER) {
                         // might have a surrogate literal; should reparse to be sure
                         let source = self.source_file.slice(string.range);
@@ -5626,7 +5643,7 @@ impl Compiler {
                         });
                     }
                 }
-                FStringElement::Expression(fstring_expr) => {
+                InterpolatedStringElement::Interpolation(fstring_expr) => {
                     let mut conversion = fstring_expr.conversion;
 
                     if let Some(DebugText { leading, trailing }) = &fstring_expr.debug_text {
@@ -5867,13 +5884,15 @@ mod ruff_tests {
             range,
             value: FStringValue::single(FString {
                 range,
-                elements: vec![FStringElement::Expression(FStringExpressionElement {
-                    range,
-                    expression: Box::new(expr_x),
-                    debug_text: None,
-                    conversion: ConversionFlag::None,
-                    format_spec: None,
-                })]
+                elements: vec![InterpolatedStringElement::Interpolation(
+                    InterpolatedElement {
+                        range,
+                        expression: Box::new(expr_x),
+                        debug_text: None,
+                        conversion: ConversionFlag::None,
+                        format_spec: None,
+                    },
+                )]
                 .into(),
                 flags,
             }),
@@ -5893,13 +5912,15 @@ mod ruff_tests {
             range,
             value: FStringValue::single(FString {
                 range,
-                elements: vec![FStringElement::Expression(FStringExpressionElement {
-                    range,
-                    expression: Box::new(expr_await_x),
-                    debug_text: None,
-                    conversion: ConversionFlag::None,
-                    format_spec: None,
-                })]
+                elements: vec![InterpolatedStringElement::Interpolation(
+                    InterpolatedElement {
+                        range,
+                        expression: Box::new(expr_await_x),
+                        debug_text: None,
+                        conversion: ConversionFlag::None,
+                        format_spec: None,
+                    },
+                )]
                 .into(),
                 flags,
             }),
@@ -5924,23 +5945,27 @@ mod ruff_tests {
             range,
             value: FStringValue::single(FString {
                 range,
-                elements: vec![FStringElement::Expression(FStringExpressionElement {
-                    range,
-                    expression: Box::new(expr_x),
-                    debug_text: None,
-                    conversion: ConversionFlag::None,
-                    format_spec: Some(Box::new(FStringFormatSpec {
+                elements: vec![InterpolatedStringElement::Interpolation(
+                    InterpolatedElement {
                         range,
-                        elements: vec![FStringElement::Expression(FStringExpressionElement {
+                        expression: Box::new(expr_x),
+                        debug_text: None,
+                        conversion: ConversionFlag::None,
+                        format_spec: Some(Box::new(FStringFormatSpec {
                             range,
-                            expression: Box::new(expr_await_y),
-                            debug_text: None,
-                            conversion: ConversionFlag::None,
-                            format_spec: None,
-                        })]
-                        .into(),
-                    })),
-                })]
+                            elements: vec![InterpolatedStringElement::Interpolation(
+                                InterpolatedElement {
+                                    range,
+                                    expression: Box::new(expr_await_y),
+                                    debug_text: None,
+                                    conversion: ConversionFlag::None,
+                                    format_spec: None,
+                                },
+                            )]
+                            .into(),
+                        })),
+                    },
+                )]
                 .into(),
                 flags,
             }),

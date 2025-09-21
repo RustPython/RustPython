@@ -1245,10 +1245,10 @@ impl SymbolTableBuilder {
                 self.leave_scope();
             }
             Expr::FString(ExprFString { value, .. }) => {
-                for expr in value.elements().filter_map(|x| x.as_expression()) {
+                for expr in value.elements().filter_map(|x| x.as_interpolation()) {
                     self.scan_expression(&expr.expression, ExpressionContext::Load)?;
                     if let Some(format_spec) = &expr.format_spec {
-                        for element in format_spec.elements.expressions() {
+                        for element in format_spec.elements.interpolations() {
                             self.scan_expression(&element.expression, ExpressionContext::Load)?
                         }
                     }
@@ -1312,6 +1312,7 @@ impl SymbolTableBuilder {
                     self.scan_expression(target, ExpressionContext::Store)?;
                 }
             }
+            Expr::TString(_) => todo!(),
         }
         Ok(())
     }

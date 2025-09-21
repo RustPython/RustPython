@@ -450,6 +450,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 }
             }
             Expr::IpyEscapeCommand(_) => {}
+            Expr::TString(_) => todo!(),
         }
         Ok(())
     }
@@ -513,7 +514,10 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         Ok(())
     }
 
-    fn unparse_fstring_body(&mut self, elements: &[ruff::FStringElement]) -> fmt::Result {
+    fn unparse_fstring_body(
+        &mut self,
+        elements: &[ruff::InterpolatedStringElement],
+    ) -> fmt::Result {
         for elem in elements {
             self.unparse_fstring_elem(elem)?;
         }
@@ -562,9 +566,9 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         Ok(())
     }
 
-    fn unparse_fstring_elem(&mut self, elem: &ruff::FStringElement) -> fmt::Result {
+    fn unparse_fstring_elem(&mut self, elem: &ruff::InterpolatedStringElement) -> fmt::Result {
         match elem {
-            ruff::FStringElement::Expression(ruff::FStringExpressionElement {
+            ruff::InterpolatedStringElement::Interpolation(ruff::FStringExpressionElement {
                 expression,
                 debug_text,
                 conversion,
@@ -576,9 +580,10 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 *conversion,
                 format_spec.as_deref(),
             ),
-            ruff::FStringElement::Literal(ruff::FStringLiteralElement { value, .. }) => {
-                self.unparse_fstring_str(value)
-            }
+            ruff::InterpolatedStringElement::Literal(ruff::InterpolatedStringLiteralElement {
+                value,
+                ..
+            }) => self.unparse_fstring_str(value),
         }
     }
 
