@@ -36,6 +36,7 @@ impl Node for ruff::Expr {
             Self::NumberLiteral(cons) => constant::number_literal_to_object(vm, source_file, cons),
             Self::StringLiteral(cons) => constant::string_literal_to_object(vm, source_file, cons),
             Self::FString(cons) => string::fstring_to_object(vm, source_file, cons),
+            Self::TString(_) => unimplemented!(),
             Self::BytesLiteral(cons) => constant::bytes_literal_to_object(vm, source_file, cons),
             Self::BooleanLiteral(cons) => {
                 constant::boolean_literal_to_object(vm, source_file, cons)
@@ -145,7 +146,12 @@ impl Node for ruff::Expr {
 // constructor
 impl Node for ruff::ExprBoolOp {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { op, values, range } = self;
+        let Self {
+            node_index: _,
+            op,
+            values,
+            range,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprBoolOp::static_type().to_owned())
             .unwrap();
@@ -164,6 +170,7 @@ impl Node for ruff::ExprBoolOp {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             op: Node::ast_from_object(
                 vm,
                 source_file,
@@ -183,6 +190,7 @@ impl Node for ruff::ExprBoolOp {
 impl Node for ruff::ExprNamed {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             target,
             value,
             range,
@@ -205,6 +213,7 @@ impl Node for ruff::ExprNamed {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             target: Node::ast_from_object(
                 vm,
                 source_file,
@@ -224,6 +233,7 @@ impl Node for ruff::ExprNamed {
 impl Node for ruff::ExprBinOp {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             left,
             op,
             right,
@@ -249,6 +259,7 @@ impl Node for ruff::ExprBinOp {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             left: Node::ast_from_object(
                 vm,
                 source_file,
@@ -272,7 +283,12 @@ impl Node for ruff::ExprBinOp {
 // constructor
 impl Node for ruff::ExprUnaryOp {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { op, operand, range } = self;
+        let Self {
+            node_index: _,
+            op,
+            operand,
+            range,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprUnaryOp::static_type().to_owned())
             .unwrap();
@@ -290,6 +306,7 @@ impl Node for ruff::ExprUnaryOp {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             op: Node::ast_from_object(
                 vm,
                 source_file,
@@ -309,6 +326,7 @@ impl Node for ruff::ExprUnaryOp {
 impl Node for ruff::ExprLambda {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             parameters,
             body,
             range: _range,
@@ -331,6 +349,7 @@ impl Node for ruff::ExprLambda {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             parameters: Node::ast_from_object(
                 vm,
                 source_file,
@@ -350,6 +369,7 @@ impl Node for ruff::ExprLambda {
 impl Node for ruff::ExprIf {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             test,
             body,
             orelse,
@@ -375,6 +395,7 @@ impl Node for ruff::ExprIf {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             test: Node::ast_from_object(
                 vm,
                 source_file,
@@ -398,7 +419,11 @@ impl Node for ruff::ExprIf {
 // constructor
 impl Node for ruff::ExprDict {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { items, range } = self;
+        let Self {
+            node_index: _,
+            items,
+            range,
+        } = self;
         let (keys, values) =
             items
                 .into_iter()
@@ -440,6 +465,7 @@ impl Node for ruff::ExprDict {
             .map(|(key, value)| ruff::DictItem { key, value })
             .collect();
         Ok(Self {
+            node_index: Default::default(),
             items,
             range: range_from_object(vm, source_file, object, "Dict")?,
         })
@@ -449,7 +475,11 @@ impl Node for ruff::ExprDict {
 // constructor
 impl Node for ruff::ExprSet {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { elts, range } = self;
+        let Self {
+            node_index: _,
+            elts,
+            range,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprSet::static_type().to_owned())
             .unwrap();
@@ -465,6 +495,7 @@ impl Node for ruff::ExprSet {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             elts: Node::ast_from_object(
                 vm,
                 source_file,
@@ -479,6 +510,7 @@ impl Node for ruff::ExprSet {
 impl Node for ruff::ExprListComp {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             elt,
             generators,
             range,
@@ -501,6 +533,7 @@ impl Node for ruff::ExprListComp {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             elt: Node::ast_from_object(
                 vm,
                 source_file,
@@ -520,6 +553,7 @@ impl Node for ruff::ExprListComp {
 impl Node for ruff::ExprSetComp {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             elt,
             generators,
             range,
@@ -542,6 +576,7 @@ impl Node for ruff::ExprSetComp {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             elt: Node::ast_from_object(
                 vm,
                 source_file,
@@ -561,6 +596,7 @@ impl Node for ruff::ExprSetComp {
 impl Node for ruff::ExprDictComp {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             key,
             value,
             generators,
@@ -586,6 +622,7 @@ impl Node for ruff::ExprDictComp {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             key: Node::ast_from_object(
                 vm,
                 source_file,
@@ -610,6 +647,7 @@ impl Node for ruff::ExprDictComp {
 impl Node for ruff::ExprGenerator {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             elt,
             generators,
             range,
@@ -633,6 +671,7 @@ impl Node for ruff::ExprGenerator {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             elt: Node::ast_from_object(
                 vm,
                 source_file,
@@ -653,7 +692,11 @@ impl Node for ruff::ExprGenerator {
 // constructor
 impl Node for ruff::ExprAwait {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { value, range } = self;
+        let Self {
+            node_index: _,
+            value,
+            range,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprAwait::static_type().to_owned())
             .unwrap();
@@ -669,6 +712,7 @@ impl Node for ruff::ExprAwait {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             value: Node::ast_from_object(
                 vm,
                 source_file,
@@ -682,7 +726,11 @@ impl Node for ruff::ExprAwait {
 // constructor
 impl Node for ruff::ExprYield {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { value, range } = self;
+        let Self {
+            node_index: _,
+            value,
+            range,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprYield::static_type().to_owned())
             .unwrap();
@@ -699,6 +747,7 @@ impl Node for ruff::ExprYield {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             value: get_node_field_opt(vm, &object, "value")?
                 .map(|obj| Node::ast_from_object(vm, source_file, obj))
                 .transpose()?,
@@ -710,7 +759,11 @@ impl Node for ruff::ExprYield {
 // constructor
 impl Node for ruff::ExprYieldFrom {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { value, range } = self;
+        let Self {
+            node_index: _,
+            value,
+            range,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprYieldFrom::static_type().to_owned())
             .unwrap();
@@ -727,6 +780,7 @@ impl Node for ruff::ExprYieldFrom {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             value: Node::ast_from_object(
                 vm,
                 source_file,
@@ -741,6 +795,7 @@ impl Node for ruff::ExprYieldFrom {
 impl Node for ruff::ExprCompare {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             left,
             ops,
             comparators,
@@ -770,6 +825,7 @@ impl Node for ruff::ExprCompare {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             left: Node::ast_from_object(
                 vm,
                 source_file,
@@ -800,6 +856,7 @@ impl Node for ruff::ExprCompare {
 impl Node for ruff::ExprCall {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             func,
             arguments,
             range,
@@ -833,6 +890,7 @@ impl Node for ruff::ExprCall {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             func: Node::ast_from_object(
                 vm,
                 source_file,
@@ -859,6 +917,7 @@ impl Node for ruff::ExprCall {
 impl Node for ruff::ExprAttribute {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             value,
             attr,
             ctx,
@@ -884,6 +943,7 @@ impl Node for ruff::ExprAttribute {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             value: Node::ast_from_object(
                 vm,
                 source_file,
@@ -908,6 +968,7 @@ impl Node for ruff::ExprAttribute {
 impl Node for ruff::ExprSubscript {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             value,
             slice,
             ctx,
@@ -932,6 +993,7 @@ impl Node for ruff::ExprSubscript {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             value: Node::ast_from_object(
                 vm,
                 source_file,
@@ -955,7 +1017,12 @@ impl Node for ruff::ExprSubscript {
 // constructor
 impl Node for ruff::ExprStarred {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { value, ctx, range } = self;
+        let Self {
+            node_index: _,
+            value,
+            ctx,
+            range,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprStarred::static_type().to_owned())
             .unwrap();
@@ -973,6 +1040,7 @@ impl Node for ruff::ExprStarred {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             value: Node::ast_from_object(
                 vm,
                 source_file,
@@ -991,7 +1059,12 @@ impl Node for ruff::ExprStarred {
 // constructor
 impl Node for ruff::ExprName {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { id, ctx, range } = self;
+        let Self {
+            node_index: _,
+            id,
+            ctx,
+            range,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprName::static_type().to_owned())
             .unwrap();
@@ -1009,6 +1082,7 @@ impl Node for ruff::ExprName {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             id: Node::ast_from_object(vm, source_file, get_node_field(vm, &object, "id", "Name")?)?,
             ctx: Node::ast_from_object(
                 vm,
@@ -1023,7 +1097,12 @@ impl Node for ruff::ExprName {
 // constructor
 impl Node for ruff::ExprList {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { elts, ctx, range } = self;
+        let Self {
+            node_index: _,
+            elts,
+            ctx,
+            range,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprList::static_type().to_owned())
             .unwrap();
@@ -1042,6 +1121,7 @@ impl Node for ruff::ExprList {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             elts: Node::ast_from_object(
                 vm,
                 source_file,
@@ -1061,6 +1141,7 @@ impl Node for ruff::ExprList {
 impl Node for ruff::ExprTuple {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             elts,
             ctx,
             range: _range,
@@ -1084,6 +1165,7 @@ impl Node for ruff::ExprTuple {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             elts: Node::ast_from_object(
                 vm,
                 source_file,
@@ -1104,6 +1186,7 @@ impl Node for ruff::ExprTuple {
 impl Node for ruff::ExprSlice {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             lower,
             upper,
             step,
@@ -1129,6 +1212,7 @@ impl Node for ruff::ExprSlice {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             lower: get_node_field_opt(vm, &object, "lower")?
                 .map(|obj| Node::ast_from_object(vm, source_file, obj))
                 .transpose()?,
@@ -1185,6 +1269,7 @@ impl Node for ruff::ExprContext {
 impl Node for ruff::Comprehension {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             target,
             iter,
             ifs,
@@ -1212,6 +1297,7 @@ impl Node for ruff::Comprehension {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             target: Node::ast_from_object(
                 vm,
                 source_file,

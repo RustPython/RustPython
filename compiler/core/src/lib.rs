@@ -8,4 +8,6 @@ mod mode;
 
 pub use mode::Mode;
 
-pub use ruff_source_file::{LineIndex, OneIndexed, SourceFile, SourceFileBuilder, SourceLocation};
+pub use ruff_source_file::{
+    LineIndex, OneIndexed, PositionEncoding, SourceFile, SourceFileBuilder, SourceLocation,
+};

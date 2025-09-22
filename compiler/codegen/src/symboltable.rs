@@ -19,7 +19,7 @@ use ruff_python_ast::{
     Stmt, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams,
 };
 use ruff_text_size::{Ranged, TextRange};
-use rustpython_compiler_core::{SourceFile, SourceLocation};
+use rustpython_compiler_core::{PositionEncoding, SourceFile, SourceLocation};
 use std::{borrow::Cow, fmt};
 
 /// Captures all symbols in the current scope, and has a list of sub-scopes in this scope.
@@ -793,6 +793,7 @@ impl SymbolTableBuilder {
                 decorator_list,
                 type_params,
                 range,
+                node_index: _,
             }) => {
                 if let Some(type_params) = type_params {
                     self.enter_type_param_block(
@@ -910,6 +911,7 @@ impl SymbolTableBuilder {
                 value,
                 simple,
                 range,
+                node_index: _,
             }) => {
                 // https://github.com/python/cpython/blob/main/Python/symtable.c#L1233
                 match &**target {
@@ -1046,7 +1048,7 @@ impl SymbolTableBuilder {
                 location: Some(
                     self.source_file
                         .to_source_code()
-                        .source_location(expression.range().start()),
+                        .source_location(expression.range().start(), PositionEncoding::Utf8),
                 ),
             });
         }
@@ -1089,7 +1091,11 @@ impl SymbolTableBuilder {
             }) => {
                 self.scan_expression(value, ExpressionContext::Load)?;
             }
-            Expr::Dict(ExprDict { items, range: _ }) => {
+            Expr::Dict(ExprDict {
+                items,
+                node_index: _,
+                range: _,
+            }) => {
                 for item in items {
                     if let Some(key) = &item.key {
                         self.scan_expression(key, context)?;
@@ -1097,15 +1103,27 @@ impl SymbolTableBuilder {
                     self.scan_expression(&item.value, context)?;
                 }
             }
-            Expr::Await(ExprAwait { value, range: _ }) => {
+            Expr::Await(ExprAwait {
+                value,
+                node_index: _,
+                range: _,
+            }) => {
                 self.scan_expression(value, context)?;
             }
-            Expr::Yield(ExprYield { value, range: _ }) => {
+            Expr::Yield(ExprYield {
+                value,
+                node_index: _,
+                range: _,
+            }) => {
                 if let Some(expression) = value {
                     self.scan_expression(expression, context)?;
                 }
             }
-            Expr::YieldFrom(ExprYieldFrom { value, range: _ }) => {
+            Expr::YieldFrom(ExprYieldFrom {
+                value,
+                node_index: _,
+                range: _,
+            }) => {
                 self.scan_expression(value, context)?;
             }
             Expr::UnaryOp(ExprUnaryOp {
@@ -1127,6 +1145,7 @@ impl SymbolTableBuilder {
                 lower,
                 upper,
                 step,
+                node_index: _,
                 range: _,
             }) => {
                 if let Some(lower) = lower {
@@ -1151,6 +1170,7 @@ impl SymbolTableBuilder {
                 elt,
                 generators,
                 range,
+                node_index: _,
             }) => {
                 self.scan_comprehension("genexpr", elt, None, generators, *range)?;
             }
@@ -1158,6 +1178,7 @@ impl SymbolTableBuilder {
                 elt,
                 generators,
                 range,
+                node_index: _,
             }) => {
                 self.scan_comprehension("genexpr", elt, None, generators, *range)?;
             }
@@ -1166,12 +1187,14 @@ impl SymbolTableBuilder {
                 value,
                 generators,
                 range,
+                node_index: _,
             }) => {
                 self.scan_comprehension("genexpr", key, Some(value), generators, *range)?;
             }
             Expr::Call(ExprCall {
                 func,
                 arguments,
+                node_index: _,
                 range: _,
             }) => {
                 match context {
@@ -1218,6 +1241,7 @@ impl SymbolTableBuilder {
             Expr::Lambda(ExprLambda {
                 body,
                 parameters,
+                node_index: _,
                 range: _,
             }) => {
                 if let Some(parameters) = parameters {
@@ -1244,14 +1268,24 @@ impl SymbolTableBuilder {
                 self.leave_scope();
             }
             Expr::FString(ExprFString { value, .. }) => {
-                for expr in value.elements().filter_map(|x| x.as_expression()) {
+                for expr in value.elements().filter_map(|x| x.as_interpolation()) {
                     self.scan_expression(&expr.expression, ExpressionContext::Load)?;
                     if let Some(format_spec) = &expr.format_spec {
-                        for element in format_spec.elements.expressions() {
+                        for element in format_spec.elements.interpolations() {
                             self.scan_expression(&element.expression, ExpressionContext::Load)?
                         }
                     }
                 }
+            }
+            Expr::TString(tstring) => {
+                return Err(SymbolTableError {
+                    error: "not yet implemented".into(),
+                    location: Some(
+                        self.source_file
+                            .to_source_code()
+                            .source_location(tstring.range.start(), PositionEncoding::Utf8),
+                    ),
+                });
             }
             // Constants
             Expr::StringLiteral(_)
@@ -1265,6 +1299,7 @@ impl SymbolTableBuilder {
                 test,
                 body,
                 orelse,
+                node_index: _,
                 range: _,
             }) => {
                 self.scan_expression(test, ExpressionContext::Load)?;
@@ -1276,13 +1311,14 @@ impl SymbolTableBuilder {
                 target,
                 value,
                 range,
+                node_index: _,
             }) => {
                 // named expressions are not allowed in the definition of
                 // comprehension iterator definitions
                 if let ExpressionContext::IterDefinitionExp = context {
                     return Err(SymbolTableError {
                           error: "assignment expression cannot be used in a comprehension iterable expression".to_string(),
-                          location: Some(self.source_file.to_source_code().source_location(target.range().start())),
+                          location: Some(self.source_file.to_source_code().source_location(target.range().start(), PositionEncoding::Utf8)),
                       });
                 }
 
@@ -1393,6 +1429,7 @@ impl SymbolTableBuilder {
                     bound,
                     range: type_var_range,
                     default,
+                    node_index: _,
                 }) => {
                     self.register_name(name.as_str(), SymbolUsage::TypeParam, *type_var_range)?;
 
@@ -1416,6 +1453,7 @@ impl SymbolTableBuilder {
                     name,
                     range: param_spec_range,
                     default,
+                    node_index: _,
                 }) => {
                     self.register_name(name, SymbolUsage::TypeParam, *param_spec_range)?;
 
@@ -1429,6 +1467,7 @@ impl SymbolTableBuilder {
                     name,
                     range: type_var_tuple_range,
                     default,
+                    node_index: _,
                 }) => {
                     self.register_name(name, SymbolUsage::TypeParam, *type_var_tuple_range)?;
 
@@ -1565,7 +1604,7 @@ impl SymbolTableBuilder {
         let location = self
             .source_file
             .to_source_code()
-            .source_location(range.start());
+            .source_location(range.start(), PositionEncoding::Utf8);
         let location = Some(location);
         let scope_depth = self.tables.len();
         let table = self.tables.last_mut().unwrap();

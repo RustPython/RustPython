@@ -5,6 +5,7 @@ use rustpython_compiler_core::SourceFile;
 impl Node for ruff::MatchCase {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             pattern,
             guard,
             body,
@@ -29,6 +30,7 @@ impl Node for ruff::MatchCase {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             pattern: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -127,6 +129,7 @@ impl Node for ruff::Pattern {
 impl Node for ruff::PatternMatchValue {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             value,
             range: _range,
         } = self;
@@ -146,6 +149,7 @@ impl Node for ruff::PatternMatchValue {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             value: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -160,6 +164,7 @@ impl Node for ruff::PatternMatchValue {
 impl Node for ruff::PatternMatchSingleton {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             value,
             range: _range,
         } = self;
@@ -182,6 +187,7 @@ impl Node for ruff::PatternMatchSingleton {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             value: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -210,6 +216,7 @@ impl Node for ruff::Singleton {
 impl Node for ruff::PatternMatchSequence {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             patterns,
             range: _range,
         } = self;
@@ -232,6 +239,7 @@ impl Node for ruff::PatternMatchSequence {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             patterns: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -246,6 +254,7 @@ impl Node for ruff::PatternMatchSequence {
 impl Node for ruff::PatternMatchMapping {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             keys,
             patterns,
             rest,
@@ -274,6 +283,7 @@ impl Node for ruff::PatternMatchMapping {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             keys: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -296,6 +306,7 @@ impl Node for ruff::PatternMatchMapping {
 impl Node for ruff::PatternMatchClass {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             cls,
             arguments,
             range: _range,
@@ -344,6 +355,7 @@ impl Node for ruff::PatternMatchClass {
         let (patterns, keywords) = merge_pattern_match_class(patterns, kwd_attrs, kwd_patterns);
 
         Ok(Self {
+            node_index: Default::default(),
             cls: Node::ast_from_object(
                 vm,
                 source_file,
@@ -351,6 +363,7 @@ impl Node for ruff::PatternMatchClass {
             )?,
             range: range_from_object(vm, source_file, object, "MatchClass")?,
             arguments: ruff::PatternArguments {
+                node_index: Default::default(),
                 range: Default::default(),
                 patterns,
                 keywords,
@@ -416,6 +429,7 @@ impl Node for PatternMatchClassKeywordPatterns {
 impl Node for ruff::PatternMatchStar {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             name,
             range: _range,
         } = self;
@@ -435,6 +449,7 @@ impl Node for ruff::PatternMatchStar {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             name: get_node_field_opt(_vm, &_object, "name")?
                 .map(|obj| Node::ast_from_object(_vm, source_file, obj))
                 .transpose()?,
@@ -447,6 +462,7 @@ impl Node for ruff::PatternMatchStar {
 impl Node for ruff::PatternMatchAs {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             pattern,
             name,
             range: _range,
@@ -469,6 +485,7 @@ impl Node for ruff::PatternMatchAs {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             pattern: get_node_field_opt(_vm, &_object, "pattern")?
                 .map(|obj| Node::ast_from_object(_vm, source_file, obj))
                 .transpose()?,
@@ -484,6 +501,7 @@ impl Node for ruff::PatternMatchAs {
 impl Node for ruff::PatternMatchOr {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             patterns,
             range: _range,
         } = self;
@@ -502,6 +520,7 @@ impl Node for ruff::PatternMatchOr {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             patterns: Node::ast_from_object(
                 _vm,
                 source_file,

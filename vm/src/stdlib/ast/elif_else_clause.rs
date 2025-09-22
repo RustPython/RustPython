@@ -7,7 +7,12 @@ pub(super) fn ast_to_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
 ) -> PyObjectRef {
-    let ruff::ElifElseClause { range, test, body } = clause;
+    let ruff::ElifElseClause {
+        node_index: _,
+        range,
+        test,
+        body,
+    } = clause;
     let Some(test) = test else {
         assert!(rest.len() == 0);
         return body.ast_to_object(vm, source_file);
@@ -55,6 +60,7 @@ pub(super) fn ast_from_object(
 
     let elif_else_clauses = if let [ruff::Stmt::If(_)] = &*orelse {
         let Some(ruff::Stmt::If(ruff::StmtIf {
+            node_index: _,
             range,
             test,
             body,
@@ -66,6 +72,7 @@ pub(super) fn ast_from_object(
         elif_else_clauses.insert(
             0,
             ruff::ElifElseClause {
+                node_index: Default::default(),
                 range,
                 test: Some(*test),
                 body,
@@ -74,6 +81,7 @@ pub(super) fn ast_from_object(
         elif_else_clauses
     } else {
         vec![ruff::ElifElseClause {
+            node_index: Default::default(),
             range,
             test: None,
             body: orelse,
@@ -81,6 +89,7 @@ pub(super) fn ast_from_object(
     };
 
     Ok(ruff::StmtIf {
+        node_index: Default::default(),
         test,
         body,
         elif_else_clauses,

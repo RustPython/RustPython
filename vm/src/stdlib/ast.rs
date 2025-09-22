@@ -23,7 +23,7 @@ use node::Node;
 use ruff_python_ast as ruff;
 use ruff_text_size::{Ranged, TextRange, TextSize};
 use rustpython_compiler_core::{
-    LineIndex, OneIndexed, SourceFile, SourceFileBuilder, SourceLocation,
+    LineIndex, OneIndexed, PositionEncoding, SourceFile, SourceFileBuilder, SourceLocation,
 };
 
 #[cfg(feature = "parser")]
@@ -92,8 +92,8 @@ pub struct PySourceLocation {
 impl PySourceLocation {
     const fn to_source_location(&self) -> SourceLocation {
         SourceLocation {
-            row: self.row.get_one_indexed(),
-            column: self.column.get_one_indexed(),
+            line: self.row.get_one_indexed(),
+            character_offset: self.column.get_one_indexed(),
         }
     }
 }
@@ -194,14 +194,14 @@ fn source_range_to_text_range(source_file: &SourceFile, location: PySourceRange)
     }
 
     let start = index.offset(
-        location.start.row.get_one_indexed(),
-        location.start.column.get_one_indexed(),
+        location.start.to_source_location(),
         source,
+        PositionEncoding::Utf8,
     );
     let end = index.offset(
-        location.end.row.get_one_indexed(),
-        location.end.column.get_one_indexed(),
+        location.end.to_source_location(),
         source,
+        PositionEncoding::Utf8,
     );
 
     TextRange::new(start, end)
@@ -273,9 +273,11 @@ pub(crate) fn compile(
     let ast: Mod = Node::ast_from_object(vm, &source_file, object)?;
     let ast = match ast {
         Mod::Module(m) => ruff::Mod::Module(m),
-        Mod::Interactive(ModInteractive { range, body }) => {
-            ruff::Mod::Module(ruff::ModModule { range, body })
-        }
+        Mod::Interactive(ModInteractive { range, body }) => ruff::Mod::Module(ruff::ModModule {
+            node_index: Default::default(),
+            range,
+            body,
+        }),
         Mod::Expression(e) => ruff::Mod::Expression(e),
         Mod::FunctionType(_) => todo!(),
     };
