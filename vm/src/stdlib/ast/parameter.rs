@@ -11,6 +11,7 @@ impl Node for ruff::Parameters {
             kwonlyargs,
             kwarg,
             range,
+            node_index: _,
         } = self;
         let (posonlyargs, args, defaults) =
             extract_positional_parameter_defaults(posonlyargs, args);
@@ -90,6 +91,7 @@ impl Node for ruff::Parameters {
                 .map(|obj| Node::ast_from_object(vm, source_file, obj))
                 .transpose()?,
             range: Default::default(),
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 
@@ -106,6 +108,7 @@ impl Node for ruff::Parameter {
             annotation,
             // type_comment,
             range,
+            node_index: _,
         } = self;
 
         // ruff covers the ** in range but python expects it to start at the ident
@@ -147,6 +150,7 @@ impl Node for ruff::Parameter {
             //     .map(|obj| Node::ast_from_object(_vm, obj))
             //     .transpose()?,
             range: range_from_object(_vm, source_file, _object, "arg")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -158,6 +162,7 @@ impl Node for ruff::Keyword {
             arg,
             value,
             range: _range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodeKeyword::static_type().to_owned())
@@ -170,6 +175,7 @@ impl Node for ruff::Keyword {
         node_add_location(&dict, _range, _vm, source_file);
         node.into()
     }
+
     fn ast_from_object(
         _vm: &VirtualMachine,
         source_file: &SourceFile,
@@ -185,6 +191,7 @@ impl Node for ruff::Keyword {
                 get_node_field(_vm, &_object, "value", "keyword")?,
             )?,
             range: range_from_object(_vm, source_file, _object, "keyword")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -331,6 +338,7 @@ fn merge_positional_parameter_defaults(
             range: Default::default(),
             parameter,
             default: None,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
         .collect();
     let mut args: Vec<_> = <Box<[_]> as IntoIterator>::into_iter(args)
@@ -338,6 +346,7 @@ fn merge_positional_parameter_defaults(
             range: Default::default(),
             parameter,
             default: None,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
         .collect();
 
@@ -400,6 +409,7 @@ fn merge_keyword_parameter_defaults(
             parameter,
             default,
             range: Default::default(),
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
         .collect()
 }

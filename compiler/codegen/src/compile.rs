@@ -14,7 +14,6 @@ use crate::{
     error::{CodegenError, CodegenErrorType, InternalError, PatternUnreachableReason},
     ir::{self, BlockIdx},
     symboltable::{self, CompilerScope, SymbolFlags, SymbolScope, SymbolTable},
-    unparse::UnparseExpr,
 };
 use itertools::Itertools;
 use malachite_bigint::BigInt;
@@ -24,13 +23,15 @@ use ruff_python_ast::{
     Alias, Arguments, BoolOp, CmpOp, Comprehension, ConversionFlag, DebugText, Decorator, DictItem,
     ExceptHandler, ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprContext,
     ExprFString, ExprList, ExprName, ExprSlice, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp,
-    FString, FStringElement, FStringElements, FStringFlags, FStringPart, Identifier, Int, Keyword,
-    MatchCase, ModExpression, ModModule, Operator, Parameters, Pattern, PatternMatchAs,
-    PatternMatchClass, PatternMatchMapping, PatternMatchOr, PatternMatchSequence,
-    PatternMatchSingleton, PatternMatchStar, PatternMatchValue, Singleton, Stmt, StmtExpr,
-    TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams, UnaryOp,
-    WithItem,
+    FString, FStringFlags, FStringPart, Identifier, Int, InterpolatedStringElement,
+    InterpolatedStringElements, Keyword, MatchCase, ModExpression, ModModule, Operator, Parameters,
+    Pattern, PatternMatchAs, PatternMatchClass, PatternMatchMapping, PatternMatchOr,
+    PatternMatchSequence, PatternMatchSingleton, PatternMatchStar, PatternMatchValue, Singleton,
+    Stmt, StmtExpr, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple,
+    TypeParams, UnaryOp, WithItem,
 };
+use ruff_source_file::LineEnding;
+use ruff_source_file::PositionEncoding;
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_core::{
     Mode, OneIndexed, SourceFile, SourceLocation,
@@ -147,6 +148,14 @@ enum ComprehensionType {
     Dict,
 }
 
+fn unparse_expr(expr: &Expr) -> String {
+    use ruff_python_ast::str::Quote;
+    use ruff_python_codegen::{Generator, Indentation};
+    Generator::new(&Indentation::default(), LineEnding::default())
+        .with_preferred_quote(Some(Quote::Single))
+        .expr(expr)
+}
+
 /// Compile an Mod produced from ruff parser
 pub fn compile_top(
     ast: ruff_python_ast::Mod,
@@ -240,18 +249,18 @@ fn eprint_location(zelf: &Compiler) {
     let start = zelf
         .source_file
         .to_source_code()
-        .source_location(zelf.current_source_range.start());
+        .source_location(zelf.current_source_range.start(), PositionEncoding::Utf8);
     let end = zelf
         .source_file
         .to_source_code()
-        .source_location(zelf.current_source_range.end());
+        .source_location(zelf.current_source_range.end(), PositionEncoding::Utf8);
     eprintln!(
         "LOCATION: {} from {}:{} to {}:{}",
         zelf.source_file.name(),
-        start.row,
-        start.column,
-        end.row,
-        end.column
+        start.line,
+        start.character_offset,
+        end.line,
+        end.character_offset
     );
 }
 
@@ -531,7 +540,7 @@ impl Compiler {
         let location = self
             .source_file
             .to_source_code()
-            .source_location(range.start());
+            .source_location(range.start(), PositionEncoding::Utf8);
         CodegenError {
             error,
             location: Some(location),
@@ -631,8 +640,8 @@ impl Compiler {
     ) -> CompileResult<()> {
         // Create location
         let location = SourceLocation {
-            row: OneIndexed::new(lineno as usize).unwrap_or(OneIndexed::MIN),
-            column: OneIndexed::new(1).unwrap(),
+            line: OneIndexed::new(lineno as usize).unwrap_or(OneIndexed::MIN),
+            character_offset: OneIndexed::new(1).unwrap(),
         };
 
         // Allocate a new compiler unit
@@ -769,8 +778,8 @@ impl Compiler {
         let _resume_loc = if scope_type == CompilerScope::Module {
             // Module scope starts with lineno 0
             SourceLocation {
-                row: OneIndexed::MIN,
-                column: OneIndexed::MIN,
+                line: OneIndexed::MIN,
+                character_offset: OneIndexed::MIN,
             }
         } else {
             location
@@ -3591,7 +3600,7 @@ impl Compiler {
                         | Expr::NoneLiteral(_)
                 );
                 let key_repr = if is_literal {
-                    UnparseExpr::new(key, &self.source_file).to_string()
+                    unparse_expr(key)
                 } else if is_attribute {
                     String::new()
                 } else {
@@ -4145,9 +4154,7 @@ impl Compiler {
     fn compile_annotation(&mut self, annotation: &Expr) -> CompileResult<()> {
         if self.future_annotations {
             self.emit_load_const(ConstantData::Str {
-                value: UnparseExpr::new(annotation, &self.source_file)
-                    .to_string()
-                    .into(),
+                value: unparse_expr(annotation).into(),
             });
         } else {
             let was_in_annotation = self.in_annotation;
@@ -4873,6 +4880,7 @@ impl Compiler {
                 target,
                 value,
                 range: _,
+                node_index: _,
             }) => {
                 self.compile_expression(value)?;
                 emit!(self, Instruction::Duplicate);
@@ -4931,6 +4939,7 @@ impl Compiler {
             Expr::IpyEscapeCommand(_) => {
                 panic!("unexpected ipy escape command");
             }
+            Expr::TString(_) => todo!(),
         }
         Ok(())
     }
@@ -5334,7 +5343,7 @@ impl Compiler {
         let location = self
             .source_file
             .to_source_code()
-            .source_location(range.start());
+            .source_location(range.start(), PositionEncoding::Utf8);
         // TODO: insert source filename
         self.current_block().instructions.push(ir::InstructionInfo {
             instr,
@@ -5525,25 +5534,30 @@ impl Compiler {
                 target,
                 value,
                 range: _,
+                node_index: _,
             }) => Self::contains_await(target) || Self::contains_await(value),
-            Expr::FString(ExprFString { value, range: _ }) => {
+            Expr::FString(ExprFString {
+                value,
+                range: _,
+                node_index: _,
+            }) => {
                 fn expr_element_contains_await<F: Copy + Fn(&Expr) -> bool>(
-                    expr_element: &FStringExpressionElement,
+                    expr_element: &InterpolatedElement,
                     contains_await: F,
                 ) -> bool {
                     contains_await(&expr_element.expression)
                         || expr_element
                             .format_spec
                             .iter()
-                            .flat_map(|spec| spec.elements.expressions())
+                            .flat_map(|spec| spec.elements.interpolations())
                             .any(|element| expr_element_contains_await(element, contains_await))
                 }
 
                 value.elements().any(|element| match element {
-                    FStringElement::Expression(expr_element) => {
+                    InterpolatedStringElement::Interpolation(expr_element) => {
                         expr_element_contains_await(expr_element, Self::contains_await)
                     }
-                    FStringElement::Literal(_) => false,
+                    InterpolatedStringElement::Literal(_) => false,
                 })
             }
             Expr::StringLiteral(_)
@@ -5553,6 +5567,8 @@ impl Compiler {
             | Expr::NoneLiteral(_)
             | Expr::EllipsisLiteral(_)
             | Expr::IpyEscapeCommand(_) => false,
+
+            Expr::TString(_) => todo!(),
         }
     }
 
@@ -5602,13 +5618,13 @@ impl Compiler {
     fn compile_fstring_elements(
         &mut self,
         flags: FStringFlags,
-        fstring_elements: &FStringElements,
+        fstring_elements: &InterpolatedStringElements,
     ) -> CompileResult<()> {
         let mut element_count = 0;
         for element in fstring_elements {
             element_count += 1;
             match element {
-                FStringElement::Literal(string) => {
+                InterpolatedStringElement::Literal(string) => {
                     if string.value.contains(char::REPLACEMENT_CHARACTER) {
                         // might have a surrogate literal; should reparse to be sure
                         let source = self.source_file.slice(string.range);
@@ -5625,7 +5641,7 @@ impl Compiler {
                         });
                     }
                 }
-                FStringElement::Expression(fstring_expr) => {
+                InterpolatedStringElement::Interpolation(fstring_expr) => {
                     let mut conversion = fstring_expr.conversion;
 
                     if let Some(DebugText { leading, trailing }) = &fstring_expr.debug_text {
@@ -5861,21 +5877,27 @@ mod ruff_tests {
             range,
             id: Name::new("x"),
             ctx: ExprContext::Load,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         });
         let not_present = &Expr::FString(ExprFString {
             range,
             value: FStringValue::single(FString {
                 range,
-                elements: vec![FStringElement::Expression(FStringExpressionElement {
-                    range,
-                    expression: Box::new(expr_x),
-                    debug_text: None,
-                    conversion: ConversionFlag::None,
-                    format_spec: None,
-                })]
+                elements: vec![InterpolatedStringElement::Interpolation(
+                    InterpolatedElement {
+                        range,
+                        expression: Box::new(expr_x),
+                        debug_text: None,
+                        conversion: ConversionFlag::None,
+                        format_spec: None,
+                        node_index: ruff_python_ast::AtomicNodeIndex::NONE,
+                    },
+                )]
                 .into(),
                 flags,
+                node_index: ruff_python_ast::AtomicNodeIndex::NONE,
             }),
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         });
         assert!(!Compiler::contains_await(not_present));
 
@@ -5886,22 +5908,29 @@ mod ruff_tests {
                 range,
                 id: Name::new("x"),
                 ctx: ExprContext::Load,
+                node_index: ruff_python_ast::AtomicNodeIndex::NONE,
             })),
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         });
         let present = &Expr::FString(ExprFString {
             range,
             value: FStringValue::single(FString {
                 range,
-                elements: vec![FStringElement::Expression(FStringExpressionElement {
-                    range,
-                    expression: Box::new(expr_await_x),
-                    debug_text: None,
-                    conversion: ConversionFlag::None,
-                    format_spec: None,
-                })]
+                elements: vec![InterpolatedStringElement::Interpolation(
+                    InterpolatedElement {
+                        range,
+                        expression: Box::new(expr_await_x),
+                        debug_text: None,
+                        conversion: ConversionFlag::None,
+                        format_spec: None,
+                        node_index: ruff_python_ast::AtomicNodeIndex::NONE,
+                    },
+                )]
                 .into(),
                 flags,
+                node_index: ruff_python_ast::AtomicNodeIndex::NONE,
             }),
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         });
         assert!(Compiler::contains_await(present));
 
@@ -5910,6 +5939,7 @@ mod ruff_tests {
             range,
             id: Name::new("x"),
             ctx: ExprContext::Load,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         });
         let expr_await_y = Expr::Await(ExprAwait {
             range,
@@ -5917,32 +5947,43 @@ mod ruff_tests {
                 range,
                 id: Name::new("y"),
                 ctx: ExprContext::Load,
+                node_index: ruff_python_ast::AtomicNodeIndex::NONE,
             })),
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         });
         let present = &Expr::FString(ExprFString {
             range,
             value: FStringValue::single(FString {
                 range,
-                elements: vec![FStringElement::Expression(FStringExpressionElement {
-                    range,
-                    expression: Box::new(expr_x),
-                    debug_text: None,
-                    conversion: ConversionFlag::None,
-                    format_spec: Some(Box::new(FStringFormatSpec {
+                elements: vec![InterpolatedStringElement::Interpolation(
+                    InterpolatedElement {
                         range,
-                        elements: vec![FStringElement::Expression(FStringExpressionElement {
+                        expression: Box::new(expr_x),
+                        debug_text: None,
+                        conversion: ConversionFlag::None,
+                        format_spec: Some(Box::new(InterpolatedStringFormatSpec {
                             range,
-                            expression: Box::new(expr_await_y),
-                            debug_text: None,
-                            conversion: ConversionFlag::None,
-                            format_spec: None,
-                        })]
-                        .into(),
-                    })),
-                })]
+                            elements: vec![InterpolatedStringElement::Interpolation(
+                                InterpolatedElement {
+                                    range,
+                                    expression: Box::new(expr_await_y),
+                                    debug_text: None,
+                                    conversion: ConversionFlag::None,
+                                    format_spec: None,
+                                    node_index: ruff_python_ast::AtomicNodeIndex::NONE,
+                                },
+                            )]
+                            .into(),
+                            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
+                        })),
+                        node_index: ruff_python_ast::AtomicNodeIndex::NONE,
+                    },
+                )]
                 .into(),
                 flags,
+                node_index: ruff_python_ast::AtomicNodeIndex::NONE,
             }),
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         });
         assert!(Compiler::contains_await(present));
     }

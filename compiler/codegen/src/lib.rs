@@ -13,7 +13,6 @@ pub mod error;
 pub mod ir;
 mod string_parser;
 pub mod symboltable;
-mod unparse;
 
 pub use compile::CompileOpts;
 use ruff_python_ast::Expr;
@@ -56,6 +55,7 @@ impl ToPythonName for Expr {
             Self::Starred { .. } => "starred",
             Self::Slice { .. } => "slice",
             Self::FString { .. } => "f-string expression",
+            Self::TString { .. } => "t-string expression",
             Self::Name { .. } => "name",
             Self::Lambda { .. } => "lambda",
             Self::If { .. } => "conditional expression",

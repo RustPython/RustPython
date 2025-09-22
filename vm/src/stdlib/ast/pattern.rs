@@ -9,6 +9,7 @@ impl Node for ruff::MatchCase {
             guard,
             body,
             range: _range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodeMatchCase::static_type().to_owned())
@@ -43,6 +44,7 @@ impl Node for ruff::MatchCase {
                 get_node_field(_vm, &_object, "body", "match_case")?,
             )?,
             range: Default::default(),
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -129,6 +131,7 @@ impl Node for ruff::PatternMatchValue {
         let Self {
             value,
             range: _range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodePatternMatchValue::static_type().to_owned())
@@ -152,6 +155,7 @@ impl Node for ruff::PatternMatchValue {
                 get_node_field(_vm, &_object, "value", "MatchValue")?,
             )?,
             range: range_from_object(_vm, source_file, _object, "MatchValue")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -162,6 +166,7 @@ impl Node for ruff::PatternMatchSingleton {
         let Self {
             value,
             range: _range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(
@@ -188,6 +193,7 @@ impl Node for ruff::PatternMatchSingleton {
                 get_node_field(_vm, &_object, "value", "MatchSingleton")?,
             )?,
             range: range_from_object(_vm, source_file, _object, "MatchSingleton")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -212,6 +218,7 @@ impl Node for ruff::PatternMatchSequence {
         let Self {
             patterns,
             range: _range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(
@@ -238,6 +245,7 @@ impl Node for ruff::PatternMatchSequence {
                 get_node_field(_vm, &_object, "patterns", "MatchSequence")?,
             )?,
             range: range_from_object(_vm, source_file, _object, "MatchSequence")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -250,6 +258,7 @@ impl Node for ruff::PatternMatchMapping {
             patterns,
             rest,
             range: _range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(
@@ -288,6 +297,7 @@ impl Node for ruff::PatternMatchMapping {
                 .map(|obj| Node::ast_from_object(_vm, source_file, obj))
                 .transpose()?,
             range: range_from_object(_vm, source_file, _object, "MatchMapping")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -299,6 +309,7 @@ impl Node for ruff::PatternMatchClass {
             cls,
             arguments,
             range: _range,
+            node_index: _,
         } = self;
         let (patterns, kwd_attrs, kwd_patterns) = split_pattern_match_class(arguments);
         let node = NodeAst
@@ -354,7 +365,9 @@ impl Node for ruff::PatternMatchClass {
                 range: Default::default(),
                 patterns,
                 keywords,
+                node_index: ruff_python_ast::AtomicNodeIndex::NONE,
             },
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -412,12 +425,14 @@ impl Node for PatternMatchClassKeywordPatterns {
         todo!()
     }
 }
+
 // constructor
 impl Node for ruff::PatternMatchStar {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             name,
             range: _range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodePatternMatchStar::static_type().to_owned())
@@ -439,6 +454,7 @@ impl Node for ruff::PatternMatchStar {
                 .map(|obj| Node::ast_from_object(_vm, source_file, obj))
                 .transpose()?,
             range: range_from_object(_vm, source_file, _object, "MatchStar")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -450,6 +466,7 @@ impl Node for ruff::PatternMatchAs {
             pattern,
             name,
             range: _range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodePatternMatchAs::static_type().to_owned())
@@ -476,6 +493,7 @@ impl Node for ruff::PatternMatchAs {
                 .map(|obj| Node::ast_from_object(_vm, source_file, obj))
                 .transpose()?,
             range: range_from_object(_vm, source_file, _object, "MatchAs")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -486,6 +504,7 @@ impl Node for ruff::PatternMatchOr {
         let Self {
             patterns,
             range: _range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodePatternMatchOr::static_type().to_owned())
@@ -496,6 +515,7 @@ impl Node for ruff::PatternMatchOr {
         node_add_location(&dict, _range, _vm, source_file);
         node.into()
     }
+
     fn ast_from_object(
         _vm: &VirtualMachine,
         source_file: &SourceFile,
@@ -508,6 +528,7 @@ impl Node for ruff::PatternMatchOr {
                 get_node_field(_vm, &_object, "patterns", "MatchOr")?,
             )?,
             range: range_from_object(_vm, source_file, _object, "MatchOr")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }

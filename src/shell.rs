@@ -1,7 +1,7 @@
 mod helper;
 
 use rustpython_compiler::{
-    CompileError, ParseError, parser::FStringErrorType, parser::LexicalErrorType,
+    CompileError, ParseError, parser::InterpolatedStringErrorType, parser::LexicalErrorType,
     parser::ParseErrorType,
 };
 use rustpython_vm::{
@@ -52,7 +52,7 @@ fn shell_exec(
         Err(CompileError::Parse(ParseError {
             error:
                 ParseErrorType::Lexical(LexicalErrorType::FStringError(
-                    FStringErrorType::UnterminatedTripleQuotedString,
+                    InterpolatedStringErrorType::UnterminatedTripleQuotedString,
                 )),
             ..
         })) => ShellExecResult::ContinueLine,

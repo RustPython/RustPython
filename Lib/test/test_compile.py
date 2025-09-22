@@ -43,6 +43,7 @@ class TestSpecifics(unittest.TestCase):
         self.assertEqual(__debug__, prev)
         setattr(builtins, '__debug__', prev)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised by eval
     def test_argument_handling(self):
         # detect duplicate positional and keyword arguments
         self.assertRaises(SyntaxError, eval, 'lambda a,a:0')

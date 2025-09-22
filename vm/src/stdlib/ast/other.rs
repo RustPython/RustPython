@@ -55,7 +55,11 @@ impl Node for ruff::Decorator {
     ) -> PyResult<Self> {
         let expression = ruff::Expr::ast_from_object(vm, source_file, object)?;
         let range = expression.range();
-        Ok(Self { expression, range })
+        Ok(Self {
+            expression,
+            range,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
+        })
     }
 }
 
@@ -66,6 +70,7 @@ impl Node for ruff::Alias {
             name,
             asname,
             range: _range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeAlias::static_type().to_owned())
@@ -94,6 +99,7 @@ impl Node for ruff::Alias {
                 .map(|obj| Node::ast_from_object(vm, source_file, obj))
                 .transpose()?,
             range: range_from_object(vm, source_file, object, "alias")?,
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }
@@ -105,6 +111,7 @@ impl Node for ruff::WithItem {
             context_expr,
             optional_vars,
             range: _range,
+            node_index: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeWithItem::static_type().to_owned())
@@ -140,6 +147,7 @@ impl Node for ruff::WithItem {
                 .map(|obj| Node::ast_from_object(vm, source_file, obj))
                 .transpose()?,
             range: Default::default(),
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         })
     }
 }

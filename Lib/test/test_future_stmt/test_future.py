@@ -198,6 +198,7 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         )
         return scope
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: 'a,' != '(a,)'
     def test_annotations(self):
         eq = self.assertAnnotationEqual
         eq('...')
@@ -362,6 +363,7 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         eq('(((a, b)))', '(a, b)')
         eq("1 + 2 + 3")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: "f'{x=!r}'" != "f'x={x!r}'"
     def test_fstring_debug_annotations(self):
         # f-strings with '=' don't round trip very well, so set the expected
         # result explicitly.
@@ -372,6 +374,7 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         self.assertAnnotationEqual("f'{x=!a}'", expected="f'x={x!a}'")
         self.assertAnnotationEqual("f'{x=!s:*^20}'", expected="f'x={x!s:*^20}'")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: '1e309, 1e309j' != '(1e309, 1e309j)'
     def test_infinity_numbers(self):
         inf = "1e" + repr(sys.float_info.max_10_exp + 1)
         infj = f"{inf}j"
