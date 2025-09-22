@@ -109,7 +109,7 @@ dns-lookup = "3.0"
 openssl = { version = "0.10.72", optional = true }
 openssl-sys = { version = "0.9.80", optional = true }
 openssl-probe = { version = "0.1.5", optional = true }
-foreign-types-shared = { version = "0.1.1", optional = true }
+foreign-types-shared = { version = "0.3.1", optional = true }
 
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
 libsqlite3-sys = { version = "0.28", features = ["bundled"], optional = true }
