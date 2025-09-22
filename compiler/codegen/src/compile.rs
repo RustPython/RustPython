@@ -5923,10 +5923,12 @@ mod ruff_tests {
                         debug_text: None,
                         conversion: ConversionFlag::None,
                         format_spec: None,
+                        node_index: ruff_python_ast::AtomicNodeIndex::NONE,
                     },
                 )]
                 .into(),
                 flags,
+                node_index: ruff_python_ast::AtomicNodeIndex::NONE,
             }),
             node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         });
@@ -5979,6 +5981,7 @@ mod ruff_tests {
                 )]
                 .into(),
                 flags,
+                node_index: ruff_python_ast::AtomicNodeIndex::NONE,
             }),
             node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         });
