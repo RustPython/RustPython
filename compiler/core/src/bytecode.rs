@@ -198,27 +198,27 @@ pub struct CodeObject<C: Constant = ConstantData> {
     pub instructions: Box<[CodeUnit]>,
     pub locations: Box<[SourceLocation]>,
     pub flags: CodeFlags,
+    /// Number of positional-only arguments
     pub posonlyarg_count: u32,
-    // Number of positional-only arguments
     pub arg_count: u32,
     pub kwonlyarg_count: u32,
     pub source_path: C::Name,
     pub first_line_number: Option<OneIndexed>,
     pub max_stackdepth: u32,
+    /// Name of the object that created this code object
     pub obj_name: C::Name,
-    // Name of the object that created this code object
+    /// Qualified name of the object (like CPython's co_qualname)
     pub qualname: C::Name,
-    // Qualified name of the object (like CPython's co_qualname)
     pub cell2arg: Option<Box<[i32]>>,
     pub constants: Box<[C]>,
     pub names: Box<[C::Name]>,
     pub varnames: Box<[C::Name]>,
     pub cellvars: Box<[C::Name]>,
     pub freevars: Box<[C::Name]>,
+    /// Line number table (CPython 3.11+ format)
     pub linetable: Box<[u8]>,
-    // Line number table (CPython 3.11+ format)
+    /// Exception handling table
     pub exceptiontable: Box<[u8]>,
-    // Exception handling table
 }
 
 bitflags! {
@@ -291,6 +291,12 @@ impl OpArg {
             .take(self.instr_size());
         let lo = it.next().unwrap();
         (it.rev(), lo)
+    }
+}
+
+impl From<u32> for OpArg {
+    fn from(raw: u32) -> Self {
+        Self(raw)
     }
 }
 
