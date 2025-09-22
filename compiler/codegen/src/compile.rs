@@ -5890,11 +5890,14 @@ mod ruff_tests {
                         debug_text: None,
                         conversion: ConversionFlag::None,
                         format_spec: None,
+                        node_index: ruff_python_ast::AtomicNodeIndex::NONE,
                     },
                 )]
                 .into(),
                 flags,
+                node_index: ruff_python_ast::AtomicNodeIndex::NONE,
             }),
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         });
         assert!(!Compiler::contains_await(not_present));
 
@@ -5907,6 +5910,7 @@ mod ruff_tests {
                 ctx: ExprContext::Load,
                 node_index: ruff_python_ast::AtomicNodeIndex::NONE,
             })),
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         });
         let present = &Expr::FString(ExprFString {
             range,
@@ -5964,15 +5968,19 @@ mod ruff_tests {
                                     debug_text: None,
                                     conversion: ConversionFlag::None,
                                     format_spec: None,
+                                    node_index: ruff_python_ast::AtomicNodeIndex::NONE,
                                 },
                             )]
                             .into(),
+                            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
                         })),
+                        node_index: ruff_python_ast::AtomicNodeIndex::NONE,
                     },
                 )]
                 .into(),
                 flags,
             }),
+            node_index: ruff_python_ast::AtomicNodeIndex::NONE,
         });
         assert!(Compiler::contains_await(present));
     }
