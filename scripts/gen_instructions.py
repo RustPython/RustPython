@@ -93,7 +93,7 @@ pub enum Instruction {{
 }}
     """.strip()
 
-    OUT_PATH.write_text(out)
+    OUT_PATH.write_text(out + "\n")
 
 
 if __name__ == "__main__":
