@@ -51,6 +51,8 @@ class Instruction(typing.NamedTuple):
 
             yield cls(cname=name, id=opmap[name], fmt=fmt, flags=flags)
 
+        # TODO: What about `analysis.pseudos` ?
+
     def __lt__(self, other: typing.Self) -> bool:
         return self.id < other.id
 
