@@ -14,7 +14,7 @@ sys.path.append(str(_cases_generator_path))
 
 import analyzer
 from generators_common import DEFAULT_INPUT
-from opcode_metadata_generator import cflags, get_format
+from opcode_metadata_generator import cflags
 
 ROOT = pathlib.Path(__file__).parents[1]
 OUT_PATH = ROOT / "compiler" / "core" / "src" / "instruction.rs"
@@ -23,8 +23,8 @@ OUT_PATH = ROOT / "compiler" / "core" / "src" / "instruction.rs"
 class Instruction(typing.NamedTuple):
     cname: str
     id: int
-    fmt: str
     flags: frozenset[str]
+    has_oparg: bool
 
     @property
     def name(self) -> str:
@@ -32,29 +32,40 @@ class Instruction(typing.NamedTuple):
 
     def as_member(self) -> str:
         out = self.name
-        match self.fmt:
-            case "INSTR_FMT_IB":
-                out += " { index: Arg<u32> }"
+        if self.has_oparg:
+            out += "(Arg<u32>)"
         out += f" = {self.id}"
         return out
 
     @classmethod
     def iter_instructions(cls, analysis: analyzer.Analysis):
         """
-        Adopted from https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Tools/cases_generator/opcode_metadata_generator.py#L186-L213
+        Adapted from https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Tools/cases_generator/opcode_metadata_generator.py#L186-L213
         """
         opmap = analysis.opmap
         for inst in sorted(analysis.instructions.values(), key=lambda t: t.name):
             name = inst.name
-            fmt = get_format(inst)
             flags = frozenset(cflags(inst.properties).split(" | "))
 
-            yield cls(cname=name, id=opmap[name], fmt=fmt, flags=flags)
+            yield cls(
+                cname=name, id=opmap[name], flags=flags, has_oparg=inst.properties.oparg
+            )
 
-        # TODO: What about `analysis.pseudos` ?
+        for pseudo in sorted(analysis.pseudos.values(), key=lambda t: t.name):
+            name = pseudo.name
+            flags = cflags(pseudo.properties)
+            for flag in pseudo.flags:
+                if flags == "0":
+                    flags = f"{flag}_FLAG"
+                else:
+                    flags += f" | {flag}_FLAG"
 
-    def __lt__(self, other: typing.Self) -> bool:
-        return self.id < other.id
+            yield cls(
+                cname=name,
+                id=opmap[name],
+                has_oparg=pseudo.properties.oparg,
+                flags=frozenset(flags.split(" | ")),
+            )
 
 
 def gen_by_comment() -> str:
@@ -72,9 +83,7 @@ def main():
     analysis = analyzer.analyze_files([DEFAULT_INPUT])
 
     instruction_memebers = textwrap.indent(
-        ",\n".join(
-            ins.as_member() for ins in sorted(Instruction.iter_instructions(analysis))
-        ),
+        ",\n".join(ins.as_member() for ins in Instruction.iter_instructions(analysis)),
         " " * 4,
     )
 
@@ -92,6 +101,9 @@ def main():
 #[repr(u16)]
 pub enum Instruction {{
 {instruction_memebers}
+}}
+
+impl Instruction {{
 }}
     """.strip()
 
