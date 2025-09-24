@@ -102,12 +102,12 @@ def main():
 pub enum Instruction {{
 {instruction_memebers}
 }}
+
+impl Instruction {{
+}}
     """.strip()
 
     OUT_PATH.write_text(out + "\n")
-    for x in analysis.pseudos.values():
-        __import__("pprint").pprint((x.name, x.targets))
-        print()
 
 
 if __name__ == "__main__":
