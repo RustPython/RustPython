@@ -4,6 +4,7 @@
 pub mod bytecode;
 pub mod frozen;
 pub mod marshal;
+pub mod instruction;
 mod mode;
 
 pub use mode::Mode;
