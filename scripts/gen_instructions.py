@@ -29,6 +29,7 @@ class Instruction(typing.NamedTuple):
     id: int
     flags: frozenset[str]
     has_oparg: bool
+    is_pseudo: bool = False
 
     @property
     def name(self) -> str:
@@ -75,6 +76,7 @@ class Instruction(typing.NamedTuple):
                 id=opmap[name],
                 has_oparg=pseudo.properties.oparg,
                 flags=frozenset(flags.split(" | ")),
+                is_pseudo=True,
             )
 
     def __lt__(self, other) -> bool:
@@ -97,6 +99,19 @@ def gen_valid_ranges(ids: list[int]) -> str:
         " | ".join(r) if len(r) < 3 else f"{r.start}..={r.stop - 1}"
         for r in group_nums(ids)
     )
+
+
+def build_is_pseudo_fn(instructions: frozenset[Instruction]):
+    matches = " | ".join(
+        ins.as_matched() for ins in sorted(instructions) if ins.is_pseudo
+    )
+    return f"""
+/// Whether opcode is pseudo.
+#[must_use]
+pub const fn is_pseudo(&self) -> bool {{
+    matches!(self, {matches})
+}}
+""".strip()
 
 
 def gen_has_attr_fn(
@@ -129,7 +144,7 @@ def main():
     has_attr_methods = textwrap.indent(
         "\n\n".join(gen_has_attr_fn(instructions)), INDENT
     )
-
+    is_pseudo_fn = textwrap.indent(build_is_pseudo_fn(instructions), INDENT)
     members = textwrap.indent(
         ",\n".join(ins.as_member() for ins in sorted(instructions)), INDENT
     )
@@ -163,6 +178,8 @@ impl Instruction {{
     }}
 
 {has_attr_methods}
+
+{is_pseudo_fn}
 }}
 
 impl TryFrom<u16> for Instruction {{
