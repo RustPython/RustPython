@@ -46,7 +46,7 @@ class Instruction(typing.NamedTuple):
         out = self.name
         if self.has_oparg:
             out += "(_)"
-        return out
+        return f"Self::{out}"
 
     @classmethod
     def iter_instructions(cls, analysis: analyzer.Analysis) -> "Iterator[typing.Self]":
