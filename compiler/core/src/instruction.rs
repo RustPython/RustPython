@@ -235,8 +235,15 @@ pub enum Instruction {
 impl Instruction {
     /// Creates a new Instruction without validating that the `id` is valid before.
     #[must_use]
-    pub unsafe fn new_unchecked(id: u16) -> Self {
+    pub unsafe const fn new_unchecked(id: u16) -> Self {
+        // SAFETY: Caller responsebility.
         unsafe { std::mem::transmute::<u16, Self>(id) }
+    }
+
+    /// Whether the given ID matches one of the opcode IDs.
+    #[must_use]
+    pub const fn is_valid(id: u16) -> bool {
+        matches!(id, 0..=118 | 149..=222 | 236..=253 | 256..=267)
     }
 }
 
@@ -244,9 +251,8 @@ impl TryFrom<u16> for Instruction {
     type Error = crate::marshal::MarshalError;
 
     fn try_from(id: u16) -> Result<Self, Self::Error> {
-        if matches!(id, 0..=118 | 149..=222 | 236..=253 | 256..=267) {
-            // SAFETY: we just validated that we have a valid opcode id.
-            Ok(unsafe { Self::new_unchecked(id) })
+        if Self::is_valid(id) {
+            Ok(Self::new_unchecked(id))
         } else {
             Err(Self::Error::InvalidBytecode)
         }
