@@ -3,8 +3,8 @@
 
 pub mod bytecode;
 pub mod frozen;
-pub mod marshal;
 pub mod instruction;
+pub mod marshal;
 mod mode;
 
 pub use mode::Mode;

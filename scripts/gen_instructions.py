@@ -1,8 +1,12 @@
 #!/usr/bin/env python
 import pathlib
+import subprocess  # for `cargo fmt`
 import sys
 import textwrap
 import typing
+
+if typing.TYPE_CHECKING:
+    from collections.abc import Iterator
 
 CPYTHON_PATH = (
     pathlib.Path(__file__).parents[2] / "cpython"  # Local filesystem path of cpython
@@ -37,8 +41,14 @@ class Instruction(typing.NamedTuple):
         out += f" = {self.id}"
         return out
 
+    def as_matched(self) -> str:
+        out = self.name
+        if self.has_oparg:
+            out += "(_)"
+        return out
+
     @classmethod
-    def iter_instructions(cls, analysis: analyzer.Analysis):
+    def iter_instructions(cls, analysis: analyzer.Analysis) -> "Iterator[typing.Self]":
         """
         Adapted from https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Tools/cases_generator/opcode_metadata_generator.py#L186-L213
         """
@@ -71,7 +81,7 @@ class Instruction(typing.NamedTuple):
         return self.id < other.id
 
 
-def group_nums(nums: list[int]):
+def group_nums(nums: list[int]) -> "Iterator[range]":
     nums = sorted(nums)
     start = prev = nums[0]
 
@@ -89,17 +99,42 @@ def gen_valid_ranges(ids: list[int]) -> str:
     )
 
 
+def gen_has_attr_fn(
+    instructions: frozenset[Instruction],
+    *,
+    attrs: tuple[str, ...] = ("arg", "const", "name", "jump", "free", "local", "exc"),
+) -> "Iterator[str]":
+    for attr in attrs:
+        flag_name = "pure" if attr == "exc" else attr
+        flag = f"has_{flag_name}_flag".upper()
+        matches = " | ".join(
+            ins.as_matched() for ins in sorted(instructions) if flag in ins.flags
+        )
+        yield f"""
+/// Whether opcode had '{flag}' set.
+#[must_use]
+pub const fn has_{attr}(&self) -> bool {{
+    matches!(self, {matches})
+}}
+""".strip()
+
+
 def main():
     INDENT = " " * 4
+    script_path = pathlib.Path(__file__).absolute().relative_to(ROOT).as_posix()
+
     analysis = analyzer.analyze_files([DEFAULT_INPUT])
     instructions = frozenset(Instruction.iter_instructions(analysis))
+
+    has_attr_methods = textwrap.indent(
+        "\n\n".join(gen_has_attr_fn(instructions)), INDENT
+    )
 
     members = textwrap.indent(
         ",\n".join(ins.as_member() for ins in sorted(instructions)), INDENT
     )
     valid_ranges = gen_valid_ranges([ins.id for ins in instructions])
 
-    script_path = pathlib.Path(__file__).absolute().relative_to(ROOT).as_posix()
     out = f"""
 ///! Python opcode implementation. Currently aligned with cpython 3.13.7
 
@@ -116,7 +151,7 @@ pub enum Instruction {{
 impl Instruction {{
     /// Creates a new Instruction without validating that the `id` is valid before.
     #[must_use]
-    pub unsafe const fn new_unchecked(id: u16) -> Self {{
+    pub const unsafe fn new_unchecked(id: u16) -> Self {{
         // SAFETY: Caller responsebility.
         unsafe {{ std::mem::transmute::<u16, Self>(id) }}
     }}
@@ -126,6 +161,8 @@ impl Instruction {{
     pub const fn is_valid(id: u16) -> bool {{
         matches!(id, {valid_ranges})
     }}
+
+{has_attr_methods}
 }}
 
 impl TryFrom<u16> for Instruction {{
@@ -142,6 +179,10 @@ impl TryFrom<u16> for Instruction {{
     """.strip()
 
     OUT_PATH.write_text(out + "\n")
+
+    print("DONE")
+    print("Running `cargo fmt`")
+    subprocess.run(["cargo", "fmt"], cwd=ROOT)
 
 
 if __name__ == "__main__":
