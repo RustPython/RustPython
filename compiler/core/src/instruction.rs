@@ -514,6 +514,26 @@ impl Instruction {
                 | SetupWith
         )
     }
+
+    /// Whether opcode is pseudo.
+    #[must_use]
+    pub const fn is_pseudo(&self) -> bool {
+        matches!(
+            self,
+            Jump(_)
+                | JumpNoInterrupt(_)
+                | LoadClosure(_)
+                | LoadMethod(_)
+                | LoadSuperMethod(_)
+                | LoadZeroSuperAttr(_)
+                | LoadZeroSuperMethod(_)
+                | PopBlock
+                | SetupCleanup
+                | SetupFinally
+                | SetupWith
+                | StoreFastMaybeNull(_)
+        )
+    }
 }
 
 impl TryFrom<u16> for Instruction {
