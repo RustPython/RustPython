@@ -229,13 +229,13 @@ pub enum Instruction {
     SetupCleanup = 264,
     SetupFinally = 265,
     SetupWith = 266,
-    StoreFastMaybeNull(Arg<u32>) = 267
+    StoreFastMaybeNull(Arg<u32>) = 267,
 }
 
 impl Instruction {
     /// Creates a new Instruction without validating that the `id` is valid before.
     #[must_use]
-    pub unsafe const fn new_unchecked(id: u16) -> Self {
+    pub const unsafe fn new_unchecked(id: u16) -> Self {
         // SAFETY: Caller responsebility.
         unsafe { std::mem::transmute::<u16, Self>(id) }
     }
@@ -244,6 +244,275 @@ impl Instruction {
     #[must_use]
     pub const fn is_valid(id: u16) -> bool {
         matches!(id, 0..=118 | 149..=222 | 236..=253 | 256..=267)
+    }
+
+    /// Whether opcode had 'HAS_ARG_FLAG' set.
+    #[must_use]
+    pub const fn has_arg(&self) -> bool {
+        matches!(
+            self,
+            BinaryOp(_)
+                | BuildConstKeyMap(_)
+                | BuildList(_)
+                | BuildMap(_)
+                | BuildSet(_)
+                | BuildSlice(_)
+                | BuildString(_)
+                | BuildTuple(_)
+                | Call(_)
+                | CallFunctionEx(_)
+                | CallIntrinsic1(_)
+                | CallIntrinsic2(_)
+                | CallKw(_)
+                | CompareOp(_)
+                | ContainsOp(_)
+                | ConvertValue(_)
+                | Copy(_)
+                | CopyFreeVars(_)
+                | DeleteAttr(_)
+                | DeleteDeref(_)
+                | DeleteFast(_)
+                | DeleteGlobal(_)
+                | DeleteName(_)
+                | DictMerge(_)
+                | DictUpdate(_)
+                | EnterExecutor(_)
+                | ExtendedArg(_)
+                | ForIter(_)
+                | GetAwaitable(_)
+                | ImportFrom(_)
+                | ImportName(_)
+                | IsOp(_)
+                | JumpBackward(_)
+                | JumpBackwardNoInterrupt(_)
+                | JumpForward(_)
+                | ListAppend(_)
+                | ListExtend(_)
+                | LoadAttr(_)
+                | LoadConst(_)
+                | LoadDeref(_)
+                | LoadFast(_)
+                | LoadFastAndClear(_)
+                | LoadFastCheck(_)
+                | LoadFastLoadFast(_)
+                | LoadFromDictOrDeref(_)
+                | LoadFromDictOrGlobals(_)
+                | LoadGlobal(_)
+                | LoadName(_)
+                | LoadSuperAttr(_)
+                | MakeCell(_)
+                | MapAdd(_)
+                | MatchClass(_)
+                | PopJumpIfFalse(_)
+                | PopJumpIfNone(_)
+                | PopJumpIfNotNone(_)
+                | PopJumpIfTrue(_)
+                | RaiseVarargs(_)
+                | Reraise(_)
+                | ReturnConst(_)
+                | Send(_)
+                | SetAdd(_)
+                | SetFunctionAttribute(_)
+                | SetUpdate(_)
+                | StoreAttr(_)
+                | StoreDeref(_)
+                | StoreFast(_)
+                | StoreFastLoadFast(_)
+                | StoreFastStoreFast(_)
+                | StoreGlobal(_)
+                | StoreName(_)
+                | Swap(_)
+                | UnpackEx(_)
+                | UnpackSequence(_)
+                | YieldValue(_)
+                | Resume(_)
+                | CallAllocAndEnterInit(_)
+                | CallBoundMethodExactArgs(_)
+                | CallBoundMethodGeneral(_)
+                | CallBuiltinClass(_)
+                | CallBuiltinFast(_)
+                | CallBuiltinFastWithKeywords(_)
+                | CallBuiltinO(_)
+                | CallIsinstance(_)
+                | CallLen(_)
+                | CallListAppend(_)
+                | CallMethodDescriptorFast(_)
+                | CallMethodDescriptorFastWithKeywords(_)
+                | CallMethodDescriptorNoargs(_)
+                | CallMethodDescriptorO(_)
+                | CallNonPyGeneral(_)
+                | CallPyExactArgs(_)
+                | CallPyGeneral(_)
+                | CallStr1(_)
+                | CallTuple1(_)
+                | CallType1(_)
+                | CompareOpFloat(_)
+                | CompareOpInt(_)
+                | CompareOpStr(_)
+                | ContainsOpDict(_)
+                | ContainsOpSet(_)
+                | ForIterGen(_)
+                | ForIterList(_)
+                | ForIterRange(_)
+                | ForIterTuple(_)
+                | LoadAttrClass(_)
+                | LoadAttrGetattributeOverridden(_)
+                | LoadAttrInstanceValue(_)
+                | LoadAttrMethodLazyDict(_)
+                | LoadAttrMethodNoDict(_)
+                | LoadAttrMethodWithValues(_)
+                | LoadAttrModule(_)
+                | LoadAttrNondescriptorNoDict(_)
+                | LoadAttrNondescriptorWithValues(_)
+                | LoadAttrProperty(_)
+                | LoadAttrSlot(_)
+                | LoadAttrWithHint(_)
+                | LoadGlobalBuiltin(_)
+                | LoadGlobalModule(_)
+                | LoadSuperAttrAttr(_)
+                | LoadSuperAttrMethod(_)
+                | SendGen(_)
+                | StoreAttrWithHint(_)
+                | UnpackSequenceList(_)
+                | UnpackSequenceTuple(_)
+                | UnpackSequenceTwoTuple(_)
+                | InstrumentedResume(_)
+                | InstrumentedReturnConst(_)
+                | InstrumentedYieldValue(_)
+                | InstrumentedLoadSuperAttr(_)
+                | InstrumentedForIter(_)
+                | InstrumentedCall(_)
+                | InstrumentedCallKw(_)
+                | InstrumentedJumpForward(_)
+                | InstrumentedJumpBackward(_)
+                | InstrumentedPopJumpIfTrue(_)
+                | InstrumentedPopJumpIfFalse(_)
+                | InstrumentedPopJumpIfNone(_)
+                | InstrumentedPopJumpIfNotNone(_)
+                | Jump(_)
+                | JumpNoInterrupt(_)
+                | LoadClosure(_)
+                | LoadMethod(_)
+                | LoadSuperMethod(_)
+                | LoadZeroSuperAttr(_)
+                | LoadZeroSuperMethod(_)
+                | SetupCleanup
+                | SetupFinally
+                | SetupWith
+                | StoreFastMaybeNull(_)
+        )
+    }
+
+    /// Whether opcode had 'HAS_CONST_FLAG' set.
+    #[must_use]
+    pub const fn has_const(&self) -> bool {
+        matches!(
+            self,
+            LoadConst(_) | ReturnConst(_) | InstrumentedReturnConst(_)
+        )
+    }
+
+    /// Whether opcode had 'HAS_NAME_FLAG' set.
+    #[must_use]
+    pub const fn has_name(&self) -> bool {
+        matches!(
+            self,
+            DeleteAttr(_)
+                | DeleteGlobal(_)
+                | DeleteName(_)
+                | ImportFrom(_)
+                | ImportName(_)
+                | LoadAttr(_)
+                | LoadFromDictOrGlobals(_)
+                | LoadGlobal(_)
+                | LoadName(_)
+                | LoadSuperAttr(_)
+                | StoreAttr(_)
+                | StoreGlobal(_)
+                | StoreName(_)
+                | LoadAttrGetattributeOverridden(_)
+                | LoadAttrWithHint(_)
+                | LoadSuperAttrAttr(_)
+                | LoadSuperAttrMethod(_)
+                | StoreAttrWithHint(_)
+                | LoadMethod(_)
+                | LoadSuperMethod(_)
+                | LoadZeroSuperAttr(_)
+                | LoadZeroSuperMethod(_)
+        )
+    }
+
+    /// Whether opcode had 'HAS_JUMP_FLAG' set.
+    #[must_use]
+    pub const fn has_jump(&self) -> bool {
+        matches!(
+            self,
+            ForIter(_)
+                | JumpBackward(_)
+                | JumpBackwardNoInterrupt(_)
+                | JumpForward(_)
+                | PopJumpIfFalse(_)
+                | PopJumpIfNone(_)
+                | PopJumpIfNotNone(_)
+                | PopJumpIfTrue(_)
+                | Send(_)
+                | ForIterList(_)
+                | ForIterRange(_)
+                | ForIterTuple(_)
+                | Jump(_)
+                | JumpNoInterrupt(_)
+        )
+    }
+
+    /// Whether opcode had 'HAS_FREE_FLAG' set.
+    #[must_use]
+    pub const fn has_free(&self) -> bool {
+        matches!(
+            self,
+            DeleteDeref(_) | LoadDeref(_) | LoadFromDictOrDeref(_) | MakeCell(_) | StoreDeref(_)
+        )
+    }
+
+    /// Whether opcode had 'HAS_LOCAL_FLAG' set.
+    #[must_use]
+    pub const fn has_local(&self) -> bool {
+        matches!(
+            self,
+            BinaryOpInplaceAddUnicode
+                | DeleteFast(_)
+                | LoadFast(_)
+                | LoadFastAndClear(_)
+                | LoadFastCheck(_)
+                | LoadFastLoadFast(_)
+                | StoreFast(_)
+                | StoreFastLoadFast(_)
+                | StoreFastStoreFast(_)
+                | LoadClosure(_)
+                | StoreFastMaybeNull(_)
+        )
+    }
+
+    /// Whether opcode had 'HAS_PURE_FLAG' set.
+    #[must_use]
+    pub const fn has_exc(&self) -> bool {
+        matches!(
+            self,
+            EndFor
+                | EndSend
+                | Nop
+                | PopTop
+                | PushNull
+                | UnaryNot
+                | Copy(_)
+                | LoadConst(_)
+                | LoadFast(_)
+                | Swap(_)
+                | LoadClosure(_)
+                | PopBlock
+                | SetupCleanup
+                | SetupFinally
+                | SetupWith
+        )
     }
 }
 
