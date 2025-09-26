@@ -3,6 +3,7 @@
 
 pub mod bytecode;
 pub mod frozen;
+pub mod instruction;
 pub mod marshal;
 mod mode;
 
