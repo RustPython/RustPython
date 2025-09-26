@@ -88,7 +88,7 @@ class Instruction:
         return f"Self::{out}"
 
     def __lt__(self, other) -> bool:
-        return self.id < other.id
+        return (self.is_pseudo, self.name) < (other.is_pseudo, other.name)
 
 
 class Instructions:
@@ -107,7 +107,7 @@ class Instructions:
         yield from self._inner
 
     def _valid_ranges(self) -> "Iterator[range]":
-        ids = [ins.id for ins in self]
+        ids = sorted(ins.id for ins in self)
 
         # Group consecutive numbers into ranges.
         start = prev = ids[0]
