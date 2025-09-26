@@ -16,12 +16,33 @@ sys.path.append(str(_cases_generator_path))
 
 
 import analyzer
-import stack
 from generators_common import DEFAULT_INPUT
 from opcode_metadata_generator import cflags
+from stack import StackOffset, get_stack_effect
 
 ROOT = pathlib.Path(__file__).parents[1]
 OUT_PATH = ROOT / "compiler" / "core" / "src" / "instruction.rs"
+
+
+def _var_size(var):
+    """
+    Adapted from https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Tools/cases_generator/stack.py#L24-L36
+    """
+    if var.condition:
+        if var.condition == "0":
+            return "0"
+        elif var.condition == "1":
+            return var.size
+        elif var.condition == "oparg & 1" and var.size == "1":
+            return f"({var.condition})"
+        else:
+            return f"(if ({var.condition}) {{ {var.size} }} else {{ 0 }})"
+    else:
+        return var.size
+
+
+StackOffset.pop = lambda self, item: self.popped.append(_var_size(item))
+StackOffset.push = lambda self, item: self.pushed.append(_var_size(item))
 
 
 class Instruction:
@@ -60,10 +81,10 @@ class Instruction:
         out += f" = {self.id}"
         return out
 
-    def as_matched(self) -> str:
+    def as_matched(self, arg: str = "_") -> str:
         out = self.name
         if self.has_oparg:
-            out += "(_)"
+            out += f"({arg})"
         return f"Self::{out}"
 
     def __lt__(self, other) -> bool:
@@ -154,6 +175,45 @@ pub const fn has_{attr}(&self) -> bool {{
     def generate_has_exc(self) -> str:
         return self._generate_has_attr("exc", flag_override="HAS_PURE_FLAG")
 
+    def _generate_stack_effect(self, direction: str) -> str:
+        """
+        Adapted from https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Tools/cases_generator/stack.py#L89-L111
+        """
+        lines = []
+        for ins in self:
+            if ins.is_pseudo:
+                continue
+
+            stack = get_stack_effect(ins._inner)
+            if direction == "popped":
+                val = -stack.base_offset
+            elif direction == "pushed":
+                val = stack.top_offset - stack.base_offset
+
+            expr = val.to_c()
+
+            matched = ins.as_matched("oparg" if "oparg" in expr else "_")
+            line = f"{matched} => {expr}"
+            lines.append(line)
+
+        conds = ",\n".join(lines)
+        doc = "from" if direction == "popped" else "on"
+        return f"""
+/// How many items should be {direction} {doc} the stack.
+const fn num_{direction}(&self) {{
+    match &self {{
+    {conds},
+    _ => panic!("Pseudo opcodes are not allowed!")
+    }}
+}}
+"""
+
+    def generate_num_popped(self) -> str:
+        return self._generate_stack_effect("popped")
+
+    def generate_num_pushed(self) -> str:
+        return self._generate_stack_effect("pushed")
+
 
 def main():
     analysis = analyzer.analyze_files([DEFAULT_INPUT])
@@ -163,6 +223,7 @@ def main():
 
     is_valid = instructions.generate_is_valid()
     is_pseudo = instructions.generate_is_pseudo()
+
     has_arg = instructions.generate_has_arg()
     has_const = instructions.generate_has_const()
     has_name = instructions.generate_has_name()
@@ -170,6 +231,9 @@ def main():
     has_free = instructions.generate_has_free()
     has_local = instructions.generate_has_local()
     has_exc = instructions.generate_has_exc()
+
+    num_popped = instructions.generate_num_popped()
+    num_pushed = instructions.generate_num_pushed()
 
     script_path = pathlib.Path(__file__).absolute().relative_to(ROOT).as_posix()
 
@@ -211,6 +275,10 @@ impl Instruction {{
 {has_local}
 
 {has_exc}
+
+{num_popped}
+
+{num_pushed}
 }}
 
 impl TryFrom<u16> for Instruction {{
