@@ -236,7 +236,7 @@ impl Instruction {
     /// Creates a new Instruction without validating that the `id` is valid before.
     #[must_use]
     pub const unsafe fn new_unchecked(id: u16) -> Self {
-        // SAFETY: Caller responsebility.
+        // SAFETY: Caller responsibility.
         unsafe { std::mem::transmute::<u16, Self>(id) }
     }
 
@@ -246,7 +246,27 @@ impl Instruction {
         matches!(id, 0..=118 | 149..=222 | 236..=253 | 256..=267)
     }
 
-    /// Whether opcode had 'HAS_ARG_FLAG' set.
+    /// Whether opcode is pseudo.
+    #[must_use]
+    pub const fn is_pseudo(&self) -> bool {
+        matches!(
+            self,
+            Self::Jump(_)
+                | Self::JumpNoInterrupt(_)
+                | Self::LoadClosure(_)
+                | Self::LoadMethod(_)
+                | Self::LoadSuperMethod(_)
+                | Self::LoadZeroSuperAttr(_)
+                | Self::LoadZeroSuperMethod(_)
+                | Self::PopBlock
+                | Self::SetupCleanup
+                | Self::SetupFinally
+                | Self::SetupWith
+                | Self::StoreFastMaybeNull(_)
+        )
+    }
+
+    /// Whether opcode have 'HAS_ARG_FLAG' set.
     #[must_use]
     pub const fn has_arg(&self) -> bool {
         matches!(
@@ -403,7 +423,7 @@ impl Instruction {
         )
     }
 
-    /// Whether opcode had 'HAS_CONST_FLAG' set.
+    /// Whether opcode have 'HAS_CONST_FLAG' set.
     #[must_use]
     pub const fn has_const(&self) -> bool {
         matches!(
@@ -412,7 +432,7 @@ impl Instruction {
         )
     }
 
-    /// Whether opcode had 'HAS_NAME_FLAG' set.
+    /// Whether opcode have 'HAS_NAME_FLAG' set.
     #[must_use]
     pub const fn has_name(&self) -> bool {
         matches!(
@@ -442,7 +462,7 @@ impl Instruction {
         )
     }
 
-    /// Whether opcode had 'HAS_JUMP_FLAG' set.
+    /// Whether opcode have 'HAS_JUMP_FLAG' set.
     #[must_use]
     pub const fn has_jump(&self) -> bool {
         matches!(
@@ -464,7 +484,7 @@ impl Instruction {
         )
     }
 
-    /// Whether opcode had 'HAS_FREE_FLAG' set.
+    /// Whether opcode have 'HAS_FREE_FLAG' set.
     #[must_use]
     pub const fn has_free(&self) -> bool {
         matches!(
@@ -477,7 +497,7 @@ impl Instruction {
         )
     }
 
-    /// Whether opcode had 'HAS_LOCAL_FLAG' set.
+    /// Whether opcode have 'HAS_LOCAL_FLAG' set.
     #[must_use]
     pub const fn has_local(&self) -> bool {
         matches!(
@@ -496,7 +516,7 @@ impl Instruction {
         )
     }
 
-    /// Whether opcode had 'HAS_PURE_FLAG' set.
+    /// Whether opcode have 'HAS_PURE_FLAG' set.
     #[must_use]
     pub const fn has_exc(&self) -> bool {
         matches!(
@@ -516,26 +536,6 @@ impl Instruction {
                 | Self::SetupCleanup
                 | Self::SetupFinally
                 | Self::SetupWith
-        )
-    }
-
-    /// Whether opcode is pseudo.
-    #[must_use]
-    pub const fn is_pseudo(&self) -> bool {
-        matches!(
-            self,
-            Self::Jump(_)
-                | Self::JumpNoInterrupt(_)
-                | Self::LoadClosure(_)
-                | Self::LoadMethod(_)
-                | Self::LoadSuperMethod(_)
-                | Self::LoadZeroSuperAttr(_)
-                | Self::LoadZeroSuperMethod(_)
-                | Self::PopBlock
-                | Self::SetupCleanup
-                | Self::SetupFinally
-                | Self::SetupWith
-                | Self::StoreFastMaybeNull(_)
         )
     }
 }

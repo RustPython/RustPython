@@ -2,7 +2,6 @@
 import pathlib
 import subprocess  # for `cargo fmt`
 import sys
-import textwrap
 import typing
 
 if typing.TYPE_CHECKING:
@@ -17,6 +16,7 @@ sys.path.append(str(_cases_generator_path))
 
 
 import analyzer
+import stack
 from generators_common import DEFAULT_INPUT
 from opcode_metadata_generator import cflags
 
@@ -24,21 +24,39 @@ ROOT = pathlib.Path(__file__).parents[1]
 OUT_PATH = ROOT / "compiler" / "core" / "src" / "instruction.rs"
 
 
-class Instruction(typing.NamedTuple):
-    cname: str
-    id: int
-    flags: frozenset[str]
-    has_oparg: bool
-    is_pseudo: bool = False
+class Instruction:
+    def __init__(
+        self, ins: analyzer.Instruction, val: int, is_pseudo: bool = False
+    ) -> None:
+        self.id = val
+        self.is_pseudo = is_pseudo
+        self._inner = ins
 
     @property
     def name(self) -> str:
-        return self.cname.title().replace("_", "")
+        return self._inner.name.title().replace("_", "")
 
-    def as_member(self) -> str:
+    @property
+    def has_oparg(self) -> bool:
+        return self._inner.properties.oparg
+
+    @property
+    def flags(self) -> frozenset[str]:
+        if not self.is_pseudo:
+            return frozenset(cflags(self._inner.properties).split(" | "))
+
+        flags = cflags(self._inner.properties)
+        for flag in self._inner.flags:
+            if flags == "0":
+                flags = f"{flag}_FLAG"
+            else:
+                flags += f" | {flag}_FLAG"
+        return frozenset(flags.split(" | "))
+
+    def as_enum_member(self) -> str:
         out = self.name
         if self.has_oparg:
-            out += "(Arg<u32>)"
+            out += "(Arg<u32>)"  # TODO: What should that be?
         out += f" = {self.id}"
         return out
 
@@ -48,64 +66,55 @@ class Instruction(typing.NamedTuple):
             out += "(_)"
         return f"Self::{out}"
 
-    @classmethod
-    def iter_instructions(cls, analysis: analyzer.Analysis) -> "Iterator[typing.Self]":
-        """
-        Adapted from https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Tools/cases_generator/opcode_metadata_generator.py#L186-L213
-        """
-        opmap = analysis.opmap
-        for inst in sorted(analysis.instructions.values(), key=lambda t: t.name):
-            name = inst.name
-            flags = frozenset(cflags(inst.properties).split(" | "))
-
-            yield cls(
-                cname=name, id=opmap[name], flags=flags, has_oparg=inst.properties.oparg
-            )
-
-        for pseudo in sorted(analysis.pseudos.values(), key=lambda t: t.name):
-            name = pseudo.name
-            flags = cflags(pseudo.properties)
-            for flag in pseudo.flags:
-                if flags == "0":
-                    flags = f"{flag}_FLAG"
-                else:
-                    flags += f" | {flag}_FLAG"
-
-            yield cls(
-                cname=name,
-                id=opmap[name],
-                has_oparg=pseudo.properties.oparg,
-                flags=frozenset(flags.split(" | ")),
-                is_pseudo=True,
-            )
-
     def __lt__(self, other) -> bool:
         return self.id < other.id
 
 
-def group_nums(nums: list[int]) -> "Iterator[range]":
-    nums = sorted(nums)
-    start = prev = nums[0]
+class Instructions:
+    def __init__(self, analysis: analyzer.Analysis) -> None:
+        inner = []
+        for ins in analysis.instructions.values():
+            inner.append(Instruction(ins, analysis.opmap[ins.name], is_pseudo=False))
 
-    for n in nums[1:] + [None]:
-        if n is None or n != prev + 1:
-            yield range(start, prev + 1)
-            start = n
-        prev = n
+        for pseudo in analysis.pseudos.values():
+            inner.append(
+                Instruction(pseudo, analysis.opmap[pseudo.name], is_pseudo=True)
+            )
+        self._inner = tuple(sorted(inner))
 
+    def __iter__(self) -> "Iterator[analyzer.Instruction]":
+        yield from self._inner
 
-def gen_valid_ranges(ids: list[int]) -> str:
-    return " | ".join(
-        " | ".join(r) if len(r) < 3 else f"{r.start}..={r.stop - 1}"
-        for r in group_nums(ids)
-    )
+    def _valid_ranges(self) -> "Iterator[range]":
+        ids = [ins.id for ins in self]
 
+        # Group consecutive numbers into ranges.
+        start = prev = ids[0]
+        for n in ids[1:] + [None]:
+            if n is None or n != prev + 1:
+                yield range(start, prev + 1)
+                start = n
+            prev = n
 
-def build_is_pseudo_fn(instructions: frozenset[Instruction]):
-    matches = " | ".join(
-        ins.as_matched() for ins in sorted(instructions) if ins.is_pseudo
-    )
-    return f"""
+    def generate_enum_members(self) -> str:
+        return ",".join(ins.as_enum_member() for ins in self)
+
+    def generate_is_valid(self) -> str:
+        valid_ranges = " | ".join(
+            " | ".join(r) if len(r) < 3 else f"{r.start}..={r.stop - 1}"
+            for r in self._valid_ranges()
+        )
+        return f"""
+/// Whether the given ID matches one of the opcode IDs.
+#[must_use]
+pub const fn is_valid(id: u16) -> bool {{
+    matches!(id, {valid_ranges})
+}}
+""".strip()
+
+    def generate_is_pseudo(self) -> str:
+        matches = " | ".join(ins.as_matched() for ins in self if ins.is_pseudo)
+        return f"""
 /// Whether opcode is pseudo.
 #[must_use]
 pub const fn is_pseudo(&self) -> bool {{
@@ -113,42 +122,56 @@ pub const fn is_pseudo(&self) -> bool {{
 }}
 """.strip()
 
-
-def gen_has_attr_fn(
-    instructions: frozenset[Instruction],
-    *,
-    attrs: tuple[str, ...] = ("arg", "const", "name", "jump", "free", "local", "exc"),
-) -> "Iterator[str]":
-    for attr in attrs:
-        flag_name = "pure" if attr == "exc" else attr
-        flag = f"has_{flag_name}_flag".upper()
-        matches = " | ".join(
-            ins.as_matched() for ins in sorted(instructions) if flag in ins.flags
-        )
-        yield f"""
-/// Whether opcode had '{flag}' set.
+    def _generate_has_attr(self, attr: str, *, flag_override: str | None = None) -> str:
+        flag = flag_override if flag_override else f"has_{attr}_flag".upper()
+        matches = " | ".join(ins.as_matched() for ins in self if flag in ins.flags)
+        return f"""
+/// Whether opcode have '{flag}' set.
 #[must_use]
 pub const fn has_{attr}(&self) -> bool {{
     matches!(self, {matches})
 }}
 """.strip()
 
+    def generate_has_arg(self) -> str:
+        return self._generate_has_attr("arg")
+
+    def generate_has_const(self) -> str:
+        return self._generate_has_attr("const")
+
+    def generate_has_name(self) -> str:
+        return self._generate_has_attr("name")
+
+    def generate_has_jump(self) -> str:
+        return self._generate_has_attr("jump")
+
+    def generate_has_free(self) -> str:
+        return self._generate_has_attr("free")
+
+    def generate_has_local(self) -> str:
+        return self._generate_has_attr("local")
+
+    def generate_has_exc(self) -> str:
+        return self._generate_has_attr("exc", flag_override="HAS_PURE_FLAG")
+
 
 def main():
-    INDENT = " " * 4
-    script_path = pathlib.Path(__file__).absolute().relative_to(ROOT).as_posix()
-
     analysis = analyzer.analyze_files([DEFAULT_INPUT])
-    instructions = frozenset(Instruction.iter_instructions(analysis))
+    instructions = Instructions(analysis)
 
-    has_attr_methods = textwrap.indent(
-        "\n\n".join(gen_has_attr_fn(instructions)), INDENT
-    )
-    is_pseudo_fn = textwrap.indent(build_is_pseudo_fn(instructions), INDENT)
-    members = textwrap.indent(
-        ",\n".join(ins.as_member() for ins in sorted(instructions)), INDENT
-    )
-    valid_ranges = gen_valid_ranges([ins.id for ins in instructions])
+    enum_members = instructions.generate_enum_members()
+
+    is_valid = instructions.generate_is_valid()
+    is_pseudo = instructions.generate_is_pseudo()
+    has_arg = instructions.generate_has_arg()
+    has_const = instructions.generate_has_const()
+    has_name = instructions.generate_has_name()
+    has_jump = instructions.generate_has_jump()
+    has_free = instructions.generate_has_free()
+    has_local = instructions.generate_has_local()
+    has_exc = instructions.generate_has_exc()
+
+    script_path = pathlib.Path(__file__).absolute().relative_to(ROOT).as_posix()
 
     out = f"""
 ///! Python opcode implementation. Currently aligned with cpython 3.13.7
@@ -160,26 +183,34 @@ def main():
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u16)]
 pub enum Instruction {{
-{members}
+{enum_members}
 }}
 
 impl Instruction {{
     /// Creates a new Instruction without validating that the `id` is valid before.
     #[must_use]
     pub const unsafe fn new_unchecked(id: u16) -> Self {{
-        // SAFETY: Caller responsebility.
+        // SAFETY: Caller responsibility.
         unsafe {{ std::mem::transmute::<u16, Self>(id) }}
     }}
 
-    /// Whether the given ID matches one of the opcode IDs.
-    #[must_use]
-    pub const fn is_valid(id: u16) -> bool {{
-        matches!(id, {valid_ranges})
-    }}
+{is_valid}
 
-{has_attr_methods}
+{is_pseudo}
 
-{is_pseudo_fn}
+{has_arg}
+
+{has_const}
+
+{has_name}
+
+{has_jump}
+
+{has_free}
+
+{has_local}
+
+{has_exc}
 }}
 
 impl TryFrom<u16> for Instruction {{
@@ -193,11 +224,11 @@ impl TryFrom<u16> for Instruction {{
         }}
     }}
 }}
-    """.strip()
+""".strip()
 
-    OUT_PATH.write_text(out + "\n")
-
+    OUT_PATH.write_text(out)
     print("DONE")
+
     print("Running `cargo fmt`")
     subprocess.run(["cargo", "fmt"], cwd=ROOT)
 
