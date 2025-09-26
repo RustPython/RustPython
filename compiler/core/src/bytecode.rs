@@ -264,7 +264,7 @@ impl fmt::Debug for OpArgByte {
 }
 
 /// a full 32-bit op_arg, including any possible ExtendedArg extension
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(transparent)]
 pub struct OpArg(pub u32);
 
