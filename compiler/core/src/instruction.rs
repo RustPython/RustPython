@@ -757,7 +757,7 @@ impl Instruction {
         }
     }
 
-    /// How many items should be pushed to the stack.
+    /// How many items should be pushed on the stack.
     const fn num_pushed(&self) {
         match &self {
             Self::Cache => 0,
