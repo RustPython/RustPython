@@ -11,14 +11,13 @@ inputs:
       The GitHub repository to clone CPython from. When running this action on github.com,
       the default value is sufficient. Useful for Forks.
     required: true
-    # keep it simple
     default: 'python/cpython'
   override-rustpython-path:
     description: |
       override value for path to the Python Lib. The default is to use the value of the environment
       variable 'RUSTPYTHONPATH'. Most users will find the default 'Lib' sufficient.
     required: true
-    default: ${{ github.server_url == 'https://github.com' && env.RUSTPYTHONPATH || 'Lib' }}
+    default: ''
   override-path:
     description: |
       Path to setup. When running this action on github.com, the default value
@@ -31,7 +30,7 @@ inputs:
       environment variable 'PYTHONPLATLIBDIR'. Most users will find the default 'Lib' sufficient.
       See https://docs.python.org/3/using/cmdline.html#envvar-PYTHONPLATLIBDIR for more.
     required: true
-    default: ${{ github.server_url == 'https://github.com' && env.PYTHONPLATLIBDIR || 'Lib' }}
+    default: ''
   match:
     description: |
       Glob-style pattern of files or directories to match and integrate.
@@ -86,6 +85,34 @@ runs:
           printf "python-version=%s\n" "${PYTHON_VERSION}" >> "$GITHUB_OUTPUT"
         fi
         printf "%s\n" "PYTHON_VERSION=${PYTHON_VERSION}" >> "$GITHUB_ENV"
+    - name: "Setup RustPython Lib Path"
+      id: output_rpython_path
+      env:
+        RUST_PYTHON_LIB_PATH_INPUT: ${{ inputs.override-rustpython-path }}
+      shell: bash
+      run: |
+        if [[ -n $RUST_PYTHON_LIB_PATH_INPUT ]]; then
+          printf "::debug:: Initializing rust-python-path as ${RUST_PYTHON_LIB_PATH_INPUT}"
+          printf "rust-python-path=%s\n" "${RUST_PYTHON_LIB_PATH_INPUT:-${RUSTPYTHONPATH:-Lib}}" >> "$GITHUB_OUTPUT"
+        else
+          printf "::debug:: Initializing rust-python-path as ${RUSTPYTHONPATH:-Lib}"
+          printf "rust-python-path=%s\n" "${RUSTPYTHONPATH:-Lib}" >> "$GITHUB_OUTPUT"
+        fi
+        printf "%s\n" "RUSTPYTHONPATH=${RUST_PYTHON_LIB_PATH_INPUT:-${RUSTPYTHONPATH:-Lib}}" >> "$GITHUB_ENV"
+    - name: "Setup cPython Lib Path"
+      id: output_cpython_path
+      env:
+        PYTHONPLATLIBDIR_INPUT: ${{ inputs.override-cpython-lib-path }}
+      shell: bash
+      run: |
+        if [[ -n $PYTHONPLATLIBDIR_INPUT ]]; then
+          printf "::debug:: Initializing cpython-lib-path as ${PYTHONPLATLIBDIR_INPUT}"
+          printf "cpython-lib-path=%s\n" "${PYTHONPLATLIBDIR_INPUT:-${PYTHONPLATLIBDIR:-Lib}}" >> "$GITHUB_OUTPUT"
+        else
+          printf "::debug:: Initializing cpython-lib-path as ${PYTHONPLATLIBDIR:-Lib}"
+          printf "cpython-lib-path=%s\n" "${PYTHONPLATLIBDIR:-Lib}" >> "$GITHUB_OUTPUT"
+        fi
+        printf "%s\n" "PYTHONPLATLIBDIR=${PYTHONPLATLIBDIR_INPUT:-${PYTHONPLATLIBDIR:-Lib}}" >> "$GITHUB_ENV"
     - name: Fetch Reference Cpython ${{ matrix.python-version }} on ${{ matrix.os }}
       id: cpython
       uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -94,7 +121,7 @@ runs:
         path: ${{ inputs.override-path }}
         fetch-tags: true
         sparse-checkout: |
-          ${{ inputs.override-cpython-lib-path }}
+          ${{ steps.output_cpython_path.outputs.cpython-lib-path }}
         ref: ${{ steps.output_python.outputs.python-version }}
         repository: ${{ inputs.override-repository }}
         # fixed settings
@@ -147,7 +174,7 @@ runs:
         cd ${{ inputs.override-path }} || exit 14 ;
         FILES=$(git ls-files --exclude-standard -- ${{ env.TEST_MATCH_PATTERN }} )
         if [ -z "$FILES" ]; then
-          printf "%s\n" "::warning file=.github/actions/:: No ${{ inputs.override-cpython-lib-path }} Reference files found for Cpython ${{ inputs.python-version }} on ${{ runner.os }}." ;
+          printf "%s\n" "::warning file=.github/actions/:: No ${{ steps.output_cpython_path.outputs.cpython-lib-path }} Reference files found for Cpython ${{ inputs.python-version }} on ${{ runner.os }}." ;
           printf "%s\n" "files=" >> "$GITHUB_OUTPUT"
         else
           printf "%s\n" "Reference files found:"

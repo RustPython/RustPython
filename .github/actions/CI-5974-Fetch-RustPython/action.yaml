@@ -24,7 +24,7 @@ inputs:
       override value for path to the Python Lib. The default is to use the value of the environment
       variable 'RUSTPYTHONPATH'. Most users will find the default 'Lib' sufficient.
     required: true
-    default: ${{ github.server_url == 'https://github.com' && env.RUSTPYTHONPATH || 'Lib' }}
+    default: ''
   override-path:
     description: |
       Path to setup. When running this action on github.com, the default value
@@ -46,7 +46,7 @@ outputs:
   sha:
     description: "The SHA of the commit checked-out."
     value: ${{ steps.output_sha.outputs.sha || 'HEAD' }}
-  rustpython-version:
+  # rustpython-version:
   rustpython-lib-path:
     description: "The python version that was used in the run."
     value: ${{ steps.output_rpython_path.outputs.rustpython-lib-path }}
@@ -54,6 +54,20 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: "Setup RustPython Lib Path"
+      id: setup_rpython_path
+      env:
+        RUST_PYTHON_LIB_PATH_INPUT: ${{ inputs.override-rustpython-path }}
+      shell: bash
+      run: |
+        if [[ -n $RUST_PYTHON_LIB_PATH_INPUT ]]; then
+          printf "::debug:: Initializing rust-python-path as ${RUST_PYTHON_LIB_PATH_INPUT}"
+          printf "rust-python-path=%s\n" "${RUST_PYTHON_LIB_PATH_INPUT:-${RUSTPYTHONPATH:-Lib}}" >> "$GITHUB_OUTPUT"
+        else
+          printf "::debug:: Initializing rust-python-path as ${RUSTPYTHONPATH:-Lib}"
+          printf "rust-python-path=%s\n" "${RUSTPYTHONPATH:-Lib}" >> "$GITHUB_OUTPUT"
+        fi
+        printf "%s\n" "RUSTPYTHONPATH=${RUST_PYTHON_LIB_PATH_INPUT:-${RUSTPYTHONPATH:-Lib}}" >> "$GITHUB_ENV"
     - name: Checkout repository
       id: rpython
       uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -115,7 +129,7 @@ runs:
         if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$ACTIONS_STEP_DEBUG" == "true" ]]; then printf "::debug::Now Building '%s'\n" "RustPython" ; fi ;
           # Execute the testing command in a subshell
           (
-            RUSTPYTHONPATH=${{ inputs.override-rustpython-path }} cargo run $CARGO_ARGS -- --version || printf "::error title='build failure':: Could not pass build step for version check on ${OS}.\n" ;
+            RUSTPYTHONPATH=${{ steps.setup_rpython_path.outputs.rust-python-path }} cargo run $CARGO_ARGS -- --version || printf "::error title='build failure':: Could not pass build step for version check on ${OS}.\n" ;
           ) ;
         printf "::endgroup::%s\n" ;
         cd ${{ steps.store_old_path.outputs.initial-path }} || exit 15 ;
@@ -123,7 +137,7 @@ runs:
       shell: bash
       run: |
         cd ${{ inputs.override-path }} || exit 13 ; # in case it is relative
-        cd ${{ inputs.override-rustpython-path }} || exit 13 ;
+        cd ${{ steps.setup_rpython_path.outputs.rust-python-path }} || exit 13 ;
         printf "RUSTPYTHONPATH=%s\n" $(pwd) >> "$GITHUB_ENV" ;
         printf "rustpython-lib-path=%s\n" $(pwd) >> "$GITHUB_OUTPUT" ;
         cd ${{ steps.store_old_path.outputs.initial-path }} || exit 15 ;
