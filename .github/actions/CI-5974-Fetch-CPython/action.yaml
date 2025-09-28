@@ -11,13 +11,14 @@ inputs:
       The GitHub repository to clone CPython from. When running this action on github.com,
       the default value is sufficient. Useful for Forks.
     required: true
-    default: ${{ github.server_url == 'https://github.com' && github.repository || 'python/cpython' }}
+    # keep it simple
+    default: 'python/cpython'
   override-rustpython-path:
     description: |
       override value for path to the Python Lib. The default is to use the value of the environment
       variable 'RUSTPYTHONPATH'. Most users will find the default 'Lib' sufficient.
     required: true
-    default: ${{ github.server_url == 'https://github.com' && github.repository || 'Lib' }}
+    default: ${{ github.server_url == 'https://github.com' && env.RUSTPYTHONPATH || 'Lib' }}
   override-path:
     description: |
       Path to setup. When running this action on github.com, the default value
@@ -30,7 +31,7 @@ inputs:
       environment variable 'PYTHONPLATLIBDIR'. Most users will find the default 'Lib' sufficient.
       See https://docs.python.org/3/using/cmdline.html#envvar-PYTHONPLATLIBDIR for more.
     required: true
-    default: ${{ github.server_url == 'https://github.com' && github.repository || 'Lib' }}
+    default: ${{ github.server_url == 'https://github.com' && env.PYTHONPLATLIBDIR || 'Lib' }}
   match:
     description: |
       Glob-style pattern of files or directories to match and integrate.

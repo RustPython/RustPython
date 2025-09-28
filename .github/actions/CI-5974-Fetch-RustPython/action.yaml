@@ -17,13 +17,14 @@ inputs:
       The GitHub repository to clone RustPython from. When running this action on github.com,
       the default value is sufficient. Useful for Forks.
     required: true
+    # odd as it looks this is correct
     default: ${{ github.server_url == 'https://github.com' && github.repository || 'RustPython/RustPython' }}
   override-rustpython-path:
     description: |
       override value for path to the Python Lib. The default is to use the value of the environment
       variable 'RUSTPYTHONPATH'. Most users will find the default 'Lib' sufficient.
     required: true
-    default: ${{ github.server_url == 'https://github.com' && github.repository || 'Lib' }}
+    default: ${{ github.server_url == 'https://github.com' && env.RUSTPYTHONPATH || 'Lib' }}
   override-path:
     description: |
       Path to setup. When running this action on github.com, the default value
@@ -46,11 +47,9 @@ outputs:
     description: "The SHA of the commit checked-out."
     value: ${{ steps.output_sha.outputs.sha || 'HEAD' }}
   rustpython-version:
-    description: "The python version that was used in the run."
-    value: '0.4'  # TODO: fix this
   rustpython-lib-path:
     description: "The python version that was used in the run."
-    value: ${{ steps.output_rpython_path.output.rustpython-lib-path }}
+    value: ${{ steps.output_rpython_path.outputs.rustpython-lib-path }}
 
 runs:
   using: composite
