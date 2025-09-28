@@ -165,15 +165,19 @@ runs:
                 fi ;
                 if [ -n ${RAW_COPY_OUTCOME} ]; then
                   if [[ "${RAW_COPY_OUTCOME}" == "compatible" ]] ; then
-                    printf "%s\n" ":ballot_box_with_check: Directly copying the test file \`${reference_file}\` is ${RAW_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                    # printf "%s\n" ":ballot_box_with_check: Directly copying the test file \`${reference_file}\` is ${RAW_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                    printf "## %s\n| Direct copy | :ballot_box_with_check: %s |\n" "\`${reference_file}\`" "${RAW_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
                   else
-                    printf "%s\n" ":black_square_button: Directly copying the test file \`${reference_file}\` is ${RAW_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                    # printf "%s\n" ":black_square_button: Directly copying the test file \`${reference_file}\` is ${RAW_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                    printf "## %s\n| Direct copy | :black_square_button: %s |\n" "\`${reference_file}\`" "${RAW_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
                   fi ;
                   if [ -n ${FIX_COPY_OUTCOME} ]; then
                     if [[ "${FIX_COPY_OUTCOME}" == "fixed" ]] ; then
-                      printf "%s\n\n" "  :ballot_box_with_check: Copying and Auto-fixing the test file \`${reference_file}\` was successful" >> "${TEST_STEP_SUMMARY}" ;
+                      # printf "%s\n\n" "  :ballot_box_with_check: Copying and Auto-fixing the test file \`${reference_file}\` was successful" >> "${TEST_STEP_SUMMARY}" ;
+                      printf "| Auto‑fix | :ballot_box_with_check: %s |\n\n" "successful" >> "${TEST_STEP_SUMMARY}" ;
                     else
-                      printf "%s\n\n" "  :grey_exclamation: Copying and Auto-fixing the test file \`${reference_file}\` was ${FIX_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                      # printf "%s\n\n" "  :grey_exclamation: Copying and Auto-fixing the test file \`${reference_file}\` was ${FIX_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                      printf "| Auto‑fix | :grey_exclamation: %s |\n\n" "${FIX_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
                     fi ;  # end auto-fix
                   else
                     printf "\n" >> "${TEST_STEP_SUMMARY}" ;  # extra space
@@ -229,15 +233,19 @@ runs:
                   fi ;
                   if [ -n ${RAW_COPY_OUTCOME} ]; then
                     if [[ "${RAW_COPY_OUTCOME}" == "compatible" ]] ; then
-                      printf "%s\n" ":ballot_box_with_check: Directly copying the test file \`${reference_file}\` is ${RAW_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                      # printf "%s\n" ":ballot_box_with_check: Directly copying the test file \`${reference_file}\` is ${RAW_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                      printf "## %s\n| Direct copy | :ballot_box_with_check: %s |\n" "\`${reference_file}\`" "${RAW_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
                     else
-                      printf "%s\n" ":black_square_button: Directly copying the test file \`${reference_file}\` is ${RAW_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                      # printf "%s\n" ":black_square_button: Directly copying the test file \`${reference_file}\` is ${RAW_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                      printf "## %s\n| Direct copy | :black_square_button: %s |\n" "\`${reference_file}\`" "${RAW_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
                     fi ;
                     if [ -n ${FIX_COPY_OUTCOME} ]; then
                       if [[ "${FIX_COPY_OUTCOME}" == "fixed" ]] ; then
-                        printf "%s\n\n" "  :ballot_box_with_check: Copying and Auto-fixing the test file \`${reference_file}\` was successful" >> "${TEST_STEP_SUMMARY}" ;
+                        # printf "%s\n\n" "  :ballot_box_with_check: Copying and Auto-fixing the test file \`${reference_file}\` was successful" >> "${TEST_STEP_SUMMARY}" ;
+                        printf "| Auto‑fix | :ballot_box_with_check: %s |\n\n" "successful" >> "${TEST_STEP_SUMMARY}" ;
                       else
-                        printf "%s\n\n" "  :grey_exclamation: Copying and Auto-fixing the test file \`${reference_file}\` was ${FIX_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                        # printf "%s\n\n" "  :grey_exclamation: Copying and Auto-fixing the test file \`${reference_file}\` was ${FIX_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
+                        printf "| Auto‑fix | :grey_exclamation: %s |\n\n" "${FIX_COPY_OUTCOME}" >> "${TEST_STEP_SUMMARY}" ;
                       fi ;  # end auto-fix
                     else
                       printf "\n" >> "${TEST_STEP_SUMMARY}" ;  # extra space
@@ -259,7 +267,8 @@ runs:
                 wait ;
               else
                 printf "\nNow Skipping '%s'\n\n" "${reference_file}" ;
-                printf "%s\n" ":grey_exclamation: Directly copying the filepath \`${reference_file}\` was inconclusive (_testing and validation skipped_)." >> "${TEST_STEP_SUMMARY}" ;
+                # printf "%s\n" ":grey_exclamation: Directly copying the filepath \`${reference_file}\` was inconclusive (_testing and validation skipped_)." >> "${TEST_STEP_SUMMARY}" ;
+                printf "## %s\n| Direct copy | :grey_exclamation: %s |\n" "\`${reference_file}\`" "inconclusive" >> "${TEST_STEP_SUMMARY}" ;
                 printf "\n" >> "${TEST_STEP_SUMMARY}" ;  # extra space
               fi ;
             fi ; # TODO: else can not be run directly and needs to be invoked with -m unittest -v test.

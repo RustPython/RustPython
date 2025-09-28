@@ -95,8 +95,8 @@ jobs:
         with:
           override-path: rustpython
           override-rustpython-path: Lib
-          override-repository: 'ShaharNaveh/RustPython'
-          override-ref: auto-updater  # Hint: could be changed to ${{ github.ref }}
+          override-repository: 'RustPython/RustPython'
+          override-ref: main # Hint: could be changed to ${{ github.ref }}
       - name: Fetch Reference Cpython ${{ matrix.python-version }} on ${{ matrix.os }}
         id: fetch-cpython
         uses: ./.github/actions/CI-5974-Fetch-CPython
