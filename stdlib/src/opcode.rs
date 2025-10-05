@@ -73,37 +73,37 @@ mod opcode {
 
     #[pyfunction]
     fn has_arg(opcode: i32) -> bool {
-        OpcodeId::try_from(opcode).map_or(false, |oid| !oid.is_pseudo() && oid.has_arg())
+        OpcodeId::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_arg())
     }
 
     #[pyfunction]
     fn has_const(opcode: i32) -> bool {
-        OpcodeId::try_from(opcode).map_or(false, |oid| !oid.is_pseudo() && oid.has_const())
+        OpcodeId::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_const())
     }
 
     #[pyfunction]
     fn has_name(opcode: i32) -> bool {
-        OpcodeId::try_from(opcode).map_or(false, |oid| !oid.is_pseudo() && oid.has_name())
+        OpcodeId::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_name())
     }
 
     #[pyfunction]
     fn has_jump(opcode: i32) -> bool {
-        OpcodeId::try_from(opcode).map_or(false, |oid| !oid.is_pseudo() && oid.has_jump())
+        OpcodeId::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_jump())
     }
 
     #[pyfunction]
     fn has_free(opcode: i32) -> bool {
-        OpcodeId::try_from(opcode).map_or(false, |oid| !oid.is_pseudo() && oid.has_free())
+        OpcodeId::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_free())
     }
 
     #[pyfunction]
     fn has_local(opcode: i32) -> bool {
-        OpcodeId::try_from(opcode).map_or(false, |oid| !oid.is_pseudo() && oid.has_local())
+        OpcodeId::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_local())
     }
 
     #[pyfunction]
     fn has_exc(opcode: i32) -> bool {
-        OpcodeId::try_from(opcode).map_or(false, |oid| !oid.is_pseudo() && oid.has_exc())
+        OpcodeId::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_exc())
     }
 
     #[pyfunction]
