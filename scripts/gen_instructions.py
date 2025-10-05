@@ -18,7 +18,6 @@ sys.path.append(str(_cases_generator_path))
 import analyzer
 from generators_common import DEFAULT_INPUT
 from opcode_metadata_generator import cflags
-from stack import StackOffset, get_stack_effect
 
 ROOT = pathlib.Path(__file__).parents[1]
 OUT_PATH = ROOT / "compiler" / "core" / "src" / "instruction.rs"
@@ -52,25 +51,31 @@ def group_ranges(it: "Iterable[int]") -> "Iterator[range]":
         prev = num
 
 
-def _var_size(var):
+def fmt_ranges(ids: "Iterable[range]", *, min_length: int = 3) -> str:
     """
-    Adapted from https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Tools/cases_generator/stack.py#L24-L36
+    Get valid opcode ranges in Rust's `match` syntax.
+
+    Parameters
+    ----------
+    ids : Iterable[range]
+        Ranges to be formatted.
+    min_length : int, default 3
+        Minimum range length, if a range is less than this it will be expanded.
+
+    Examples
+    --------
+    >>> ids = [range(10, 11), range(20, 22), range(30, 33)]
+
+    >>> fmt_ranges(ids)
+    10 | 20 | 21 | 30..=32
+
+    >>> fmt_ranges(ids, min_length=2)
+    10 | 20..=21 | 30..=32
     """
-    if var.condition:
-        if var.condition == "0":
-            return "0"
-        elif var.condition == "1":
-            return var.size
-        elif var.condition == "oparg & 1" and var.size == "1":
-            return f"({var.condition})"
-        else:
-            return f"(if {var.condition} {{ {var.size} }} else {{ 0 }})"
-    else:
-        return var.size
-
-
-StackOffset.pop = lambda self, item: self.popped.append(_var_size(item))
-StackOffset.push = lambda self, item: self.pushed.append(_var_size(item))
+    return " | ".join(
+        " | ".join(r) if len(r) < min_length else f"{r.start}..={r.stop - 1}"
+        for r in ids
+    )
 
 
 class Instruction:
@@ -82,11 +87,7 @@ class Instruction:
         self._inner = ins
 
     @property
-    def enum_member_name(self) -> str:
-        return self._inner.name.title().replace("_", "")
-
-    @property
-    def struct_const_name(self) -> str:
+    def name(self) -> str:
         return self._inner.name
 
     @property
@@ -106,21 +107,13 @@ class Instruction:
                 flags += f" | {flag}_FLAG"
         return frozenset(flags.split(" | "))
 
-    def as_enum_member(self) -> str:
-        out = self.enum_member_name
-        if self.has_oparg:
-            out += "(crate::bytecode::Arg<NameIdx>)"
-        out += f" = {self.id}"
-        return out
+    @property
+    def associated_constant(self) -> str:
+        return f"Self::{self.name}"
 
-    def as_enum_matched(self, arg: str = "_") -> str:
-        out = self.enum_member_name
-        if self.has_oparg:
-            out += f"({arg})"
-        return f"Self::{out}"
-
-    def as_struct_const(self) -> str:
-        return f"pub const {self.struct_const_name}: Self = unsafe {{ Self::new_unchecked({self.id}) }};"
+    @property
+    def associated_constant_def(self) -> str:
+        return f"pub const {self.name}: Self = unsafe {{ Self::new_unchecked({self.id}) }};"
 
     def __lt__(self, other) -> bool:
         return (self.is_pseudo, self._inner.name) < (other.is_pseudo, other._inner.name)
@@ -141,42 +134,11 @@ class Instructions:
     def __iter__(self) -> "Iterator[analyzer.Instruction]":
         yield from self._inner
 
-    def generate_struct_consts(self) -> str:
-        return "\n".join(ins.as_struct_const() for ins in self)
-
-    def generate_enum_members(self) -> str:
-        return ",".join(ins.as_enum_member() for ins in self)
-
-    @staticmethod
-    def _fmt_ranges(ids: "Iterable[range]", *, min_length: int = 3) -> str:
-        """
-        Get valid opcode ranges in Rust's `match` syntax.
-
-        Parameters
-        ----------
-        ids : Iterable[range]
-            Ranges to be formatted.
-        min_length : int, default 3
-            Minimum range length, if a range is less than this it will be expanded.
-
-        Examples
-        --------
-        >>> ids = [range(10, 11), range(20, 22), range(30, 33)]
-
-        >>> Instructions._fmt_ranges(ids)
-        10 | 20 | 21 | 30..=32
-
-        >>> Instructions._fmt_ranges(ids, min_length=2)
-        10 | 20..=21 | 30..=32
-        """
-        return " | ".join(
-            " | ".join(r) if len(r) < min_length else f"{r.start}..={r.stop - 1}"
-            for r in ids
-        )
+    def generate_associated_constant_defs(self) -> str:
+        return "\n".join(ins.associated_constant_def for ins in self)
 
     def generate_is_valid(self) -> str:
-        ranges = group_ranges(sorted(ins.id for ins in self))
-        valid_ranges = Instructions._fmt_ranges(ranges)
+        valid_ranges = fmt_ranges(group_ranges(sorted(ins.id for ins in self)))
         return f"""
 /// Whether the given ID matches one of the opcode IDs.
 #[must_use]
@@ -186,9 +148,9 @@ pub const fn is_valid(id: u16) -> bool {{
 """.strip()
 
     def generate_is_pseudo(self) -> str:
-        matches = " | ".join(ins.as_enum_matched() for ins in self if ins.is_pseudo)
+        matches = " | ".join(ins.associated_constant for ins in self if ins.is_pseudo)
         return f"""
-/// Whether opcode is pseudo.
+/// Whether opcode ID is pseudo.
 #[must_use]
 pub const fn is_pseudo(&self) -> bool {{
     matches!(self, {matches})
@@ -197,9 +159,11 @@ pub const fn is_pseudo(&self) -> bool {{
 
     def _generate_has_attr(self, attr: str, *, flag_override: str | None = None) -> str:
         flag = flag_override if flag_override else f"has_{attr}_flag".upper()
-        matches = " | ".join(ins.as_enum_matched() for ins in self if flag in ins.flags)
+        matches = " | ".join(
+            ins.associated_constant for ins in self if flag in ins.flags
+        )
         return f"""
-/// Whether opcode have '{flag}' set.
+/// Whether opcode ID have '{flag}' set.
 #[must_use]
 pub const fn has_{attr}(&self) -> bool {{
     matches!(self, {matches})
@@ -227,51 +191,12 @@ pub const fn has_{attr}(&self) -> bool {{
     def generate_has_exc(self) -> str:
         return self._generate_has_attr("exc", flag_override="HAS_PURE_FLAG")
 
-    def _generate_stack_effect(self, direction: str) -> str:
-        """
-        Adapted from https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Tools/cases_generator/stack.py#L89-L111
-        """
-        lines = []
-        for ins in self:
-            if ins.is_pseudo:
-                continue
-
-            stack = get_stack_effect(ins._inner)
-            if direction == "popped":
-                val = -stack.base_offset
-            elif direction == "pushed":
-                val = stack.top_offset - stack.base_offset
-
-            expr = val.to_c()
-            matched = ins.as_enum_matched("args" if "oparg" in expr else "_")
-            expr = expr.replace("oparg", "args.get(oparg)")
-            line = f"{matched} => {expr}"
-            lines.append(line)
-
-        conds = ",\n".join(lines)
-        doc = "from" if direction == "popped" else "on"
-        return f"""
-/// How many items should be {direction} {doc} the stack.
-fn num_{direction}(&self, oparg: crate::bytecode::OpArg) -> u32 {{
-    match &self {{
-    {conds},
-    _ => panic!("Pseudo opcodes are not allowed!")
-    }}
-}}
-"""
-
-    def generate_num_popped(self) -> str:
-        return self._generate_stack_effect("popped")
-
-    def generate_num_pushed(self) -> str:
-        return self._generate_stack_effect("pushed")
-
 
 def main():
     analysis = analyzer.analyze_files([DEFAULT_INPUT])
     instructions = Instructions(analysis)
 
-    struct_consts = instructions.generate_struct_consts()
+    associated_constant_defs = instructions.generate_associated_constant_defs()
     is_valid = instructions.generate_is_valid()
     is_pseudo = instructions.generate_is_pseudo()
 
@@ -291,7 +216,7 @@ def main():
 pub struct OpcodeId(u16);
 
 impl OpcodeId {{
-{struct_consts}
+{associated_constant_defs}
 
     /// Creates a new Instruction without validating that the `id` is valid.
     #[must_use]
@@ -300,6 +225,22 @@ impl OpcodeId {{
     }}
 
 {is_valid}
+
+{is_pseudo}
+
+{has_arg}
+
+{has_const}
+
+{has_name}
+
+{has_jump}
+
+{has_free}
+
+{has_local}
+
+{has_exc}
 }}
 
 macro_rules! opcode_id_try_from_impl {{
@@ -333,70 +274,6 @@ opcode_id_try_from_impl!(u128);
 opcode_id_try_from_impl!(usize);
     """.strip()
 
-    enum_members = instructions.generate_enum_members()
-    num_popped = instructions.generate_num_popped()
-    num_pushed = instructions.generate_num_pushed()
-
-    instruction_src = f"""
-pub type NameIdx = u32;
-
-/// A Single bytecode instruction.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u16)]
-pub enum Instruction {{
-{enum_members}
-}}
-
-impl Instruction {{
-    /// Creates a new Instruction without validating that the `id` is valid before.
-    #[must_use]
-    pub const unsafe fn new_unchecked(id: u16) -> Self {{
-        // SAFETY: Caller responsibility.
-        unsafe {{ std::mem::transmute::<u16, Self>(id) }}
-    }}
-
-
-{is_pseudo}
-
-{has_arg}
-
-{has_const}
-
-{has_name}
-
-{has_jump}
-
-{has_free}
-
-{has_local}
-
-{has_exc}
-
-{num_popped}
-
-{num_pushed}
-}}
-
-impl<T: TryInto<u16>> TryFrom<T> for Instruction {{
-    type Error = crate::marshal::MarshalError;
-
-    fn try_from(raw: T) -> Result<Self, Self::Error> {{
-        let id = raw.try_into().map_err(|_| Self::Error::InvalidBytecode)?;
-        if Self::is_valid(id) {{
-            Ok(unsafe {{ Self::new_unchecked(id) }})
-        }} else {{
-            Err(Self::Error::InvalidBytecode)
-        }}
-    }}
-}}
-
-// TODO: Should this still pass?
-// const _: () = assert!(std::mem::size_of::<Instruction>() == 1);
-    """.strip()
-
-    # TODO: Delete this line and use autogenerated `Instruction` enum
-    instruction_src = ""
-
     out = f"""
 ///! Python opcode implementation. Currently aligned with cpython 3.13.7
 
@@ -404,8 +281,6 @@ impl<T: TryInto<u16>> TryFrom<T> for Instruction {{
 // Do not edit!
 
 {opcode_id_src}
-
-{instruction_src}
 """.strip()
 
     OUT_PATH.write_text(out)

@@ -243,6 +243,299 @@ impl OpcodeId {
     pub const fn is_valid(id: u16) -> bool {
         matches!(id, 0..=118 | 149..=222 | 236..=253 | 256..=267)
     }
+
+    /// Whether opcode ID is pseudo.
+    #[must_use]
+    pub const fn is_pseudo(&self) -> bool {
+        matches!(
+            self,
+            Self::JUMP
+                | Self::JUMP_NO_INTERRUPT
+                | Self::LOAD_CLOSURE
+                | Self::LOAD_METHOD
+                | Self::LOAD_SUPER_METHOD
+                | Self::LOAD_ZERO_SUPER_ATTR
+                | Self::LOAD_ZERO_SUPER_METHOD
+                | Self::POP_BLOCK
+                | Self::SETUP_CLEANUP
+                | Self::SETUP_FINALLY
+                | Self::SETUP_WITH
+                | Self::STORE_FAST_MAYBE_NULL
+        )
+    }
+
+    /// Whether opcode ID have 'HAS_ARG_FLAG' set.
+    #[must_use]
+    pub const fn has_arg(&self) -> bool {
+        matches!(
+            self,
+            Self::BINARY_OP
+                | Self::BUILD_CONST_KEY_MAP
+                | Self::BUILD_LIST
+                | Self::BUILD_MAP
+                | Self::BUILD_SET
+                | Self::BUILD_SLICE
+                | Self::BUILD_STRING
+                | Self::BUILD_TUPLE
+                | Self::CALL
+                | Self::CALL_ALLOC_AND_ENTER_INIT
+                | Self::CALL_BOUND_METHOD_EXACT_ARGS
+                | Self::CALL_BOUND_METHOD_GENERAL
+                | Self::CALL_BUILTIN_CLASS
+                | Self::CALL_BUILTIN_FAST
+                | Self::CALL_BUILTIN_FAST_WITH_KEYWORDS
+                | Self::CALL_BUILTIN_O
+                | Self::CALL_FUNCTION_EX
+                | Self::CALL_INTRINSIC_1
+                | Self::CALL_INTRINSIC_2
+                | Self::CALL_ISINSTANCE
+                | Self::CALL_KW
+                | Self::CALL_LEN
+                | Self::CALL_LIST_APPEND
+                | Self::CALL_METHOD_DESCRIPTOR_FAST
+                | Self::CALL_METHOD_DESCRIPTOR_FAST_WITH_KEYWORDS
+                | Self::CALL_METHOD_DESCRIPTOR_NOARGS
+                | Self::CALL_METHOD_DESCRIPTOR_O
+                | Self::CALL_NON_PY_GENERAL
+                | Self::CALL_PY_EXACT_ARGS
+                | Self::CALL_PY_GENERAL
+                | Self::CALL_STR_1
+                | Self::CALL_TUPLE_1
+                | Self::CALL_TYPE_1
+                | Self::COMPARE_OP
+                | Self::COMPARE_OP_FLOAT
+                | Self::COMPARE_OP_INT
+                | Self::COMPARE_OP_STR
+                | Self::CONTAINS_OP
+                | Self::CONTAINS_OP_DICT
+                | Self::CONTAINS_OP_SET
+                | Self::CONVERT_VALUE
+                | Self::COPY
+                | Self::COPY_FREE_VARS
+                | Self::DELETE_ATTR
+                | Self::DELETE_DEREF
+                | Self::DELETE_FAST
+                | Self::DELETE_GLOBAL
+                | Self::DELETE_NAME
+                | Self::DICT_MERGE
+                | Self::DICT_UPDATE
+                | Self::ENTER_EXECUTOR
+                | Self::EXTENDED_ARG
+                | Self::FOR_ITER
+                | Self::FOR_ITER_GEN
+                | Self::FOR_ITER_LIST
+                | Self::FOR_ITER_RANGE
+                | Self::FOR_ITER_TUPLE
+                | Self::GET_AWAITABLE
+                | Self::IMPORT_FROM
+                | Self::IMPORT_NAME
+                | Self::INSTRUMENTED_CALL
+                | Self::INSTRUMENTED_CALL_KW
+                | Self::INSTRUMENTED_FOR_ITER
+                | Self::INSTRUMENTED_JUMP_BACKWARD
+                | Self::INSTRUMENTED_JUMP_FORWARD
+                | Self::INSTRUMENTED_LOAD_SUPER_ATTR
+                | Self::INSTRUMENTED_POP_JUMP_IF_FALSE
+                | Self::INSTRUMENTED_POP_JUMP_IF_NONE
+                | Self::INSTRUMENTED_POP_JUMP_IF_NOT_NONE
+                | Self::INSTRUMENTED_POP_JUMP_IF_TRUE
+                | Self::INSTRUMENTED_RESUME
+                | Self::INSTRUMENTED_RETURN_CONST
+                | Self::INSTRUMENTED_YIELD_VALUE
+                | Self::IS_OP
+                | Self::JUMP_BACKWARD
+                | Self::JUMP_BACKWARD_NO_INTERRUPT
+                | Self::JUMP_FORWARD
+                | Self::LIST_APPEND
+                | Self::LIST_EXTEND
+                | Self::LOAD_ATTR
+                | Self::LOAD_ATTR_CLASS
+                | Self::LOAD_ATTR_GETATTRIBUTE_OVERRIDDEN
+                | Self::LOAD_ATTR_INSTANCE_VALUE
+                | Self::LOAD_ATTR_METHOD_LAZY_DICT
+                | Self::LOAD_ATTR_METHOD_NO_DICT
+                | Self::LOAD_ATTR_METHOD_WITH_VALUES
+                | Self::LOAD_ATTR_MODULE
+                | Self::LOAD_ATTR_NONDESCRIPTOR_NO_DICT
+                | Self::LOAD_ATTR_NONDESCRIPTOR_WITH_VALUES
+                | Self::LOAD_ATTR_PROPERTY
+                | Self::LOAD_ATTR_SLOT
+                | Self::LOAD_ATTR_WITH_HINT
+                | Self::LOAD_CONST
+                | Self::LOAD_DEREF
+                | Self::LOAD_FAST
+                | Self::LOAD_FAST_AND_CLEAR
+                | Self::LOAD_FAST_CHECK
+                | Self::LOAD_FAST_LOAD_FAST
+                | Self::LOAD_FROM_DICT_OR_DEREF
+                | Self::LOAD_FROM_DICT_OR_GLOBALS
+                | Self::LOAD_GLOBAL
+                | Self::LOAD_GLOBAL_BUILTIN
+                | Self::LOAD_GLOBAL_MODULE
+                | Self::LOAD_NAME
+                | Self::LOAD_SUPER_ATTR
+                | Self::LOAD_SUPER_ATTR_ATTR
+                | Self::LOAD_SUPER_ATTR_METHOD
+                | Self::MAKE_CELL
+                | Self::MAP_ADD
+                | Self::MATCH_CLASS
+                | Self::POP_JUMP_IF_FALSE
+                | Self::POP_JUMP_IF_NONE
+                | Self::POP_JUMP_IF_NOT_NONE
+                | Self::POP_JUMP_IF_TRUE
+                | Self::RAISE_VARARGS
+                | Self::RERAISE
+                | Self::RESUME
+                | Self::RETURN_CONST
+                | Self::SEND
+                | Self::SEND_GEN
+                | Self::SET_ADD
+                | Self::SET_FUNCTION_ATTRIBUTE
+                | Self::SET_UPDATE
+                | Self::STORE_ATTR
+                | Self::STORE_ATTR_WITH_HINT
+                | Self::STORE_DEREF
+                | Self::STORE_FAST
+                | Self::STORE_FAST_LOAD_FAST
+                | Self::STORE_FAST_STORE_FAST
+                | Self::STORE_GLOBAL
+                | Self::STORE_NAME
+                | Self::SWAP
+                | Self::UNPACK_EX
+                | Self::UNPACK_SEQUENCE
+                | Self::UNPACK_SEQUENCE_LIST
+                | Self::UNPACK_SEQUENCE_TUPLE
+                | Self::UNPACK_SEQUENCE_TWO_TUPLE
+                | Self::YIELD_VALUE
+                | Self::JUMP
+                | Self::JUMP_NO_INTERRUPT
+                | Self::LOAD_CLOSURE
+                | Self::LOAD_METHOD
+                | Self::LOAD_SUPER_METHOD
+                | Self::LOAD_ZERO_SUPER_ATTR
+                | Self::LOAD_ZERO_SUPER_METHOD
+                | Self::SETUP_CLEANUP
+                | Self::SETUP_FINALLY
+                | Self::SETUP_WITH
+                | Self::STORE_FAST_MAYBE_NULL
+        )
+    }
+
+    /// Whether opcode ID have 'HAS_CONST_FLAG' set.
+    #[must_use]
+    pub const fn has_const(&self) -> bool {
+        matches!(
+            self,
+            Self::INSTRUMENTED_RETURN_CONST | Self::LOAD_CONST | Self::RETURN_CONST
+        )
+    }
+
+    /// Whether opcode ID have 'HAS_NAME_FLAG' set.
+    #[must_use]
+    pub const fn has_name(&self) -> bool {
+        matches!(
+            self,
+            Self::DELETE_ATTR
+                | Self::DELETE_GLOBAL
+                | Self::DELETE_NAME
+                | Self::IMPORT_FROM
+                | Self::IMPORT_NAME
+                | Self::LOAD_ATTR
+                | Self::LOAD_ATTR_GETATTRIBUTE_OVERRIDDEN
+                | Self::LOAD_ATTR_WITH_HINT
+                | Self::LOAD_FROM_DICT_OR_GLOBALS
+                | Self::LOAD_GLOBAL
+                | Self::LOAD_NAME
+                | Self::LOAD_SUPER_ATTR
+                | Self::LOAD_SUPER_ATTR_ATTR
+                | Self::LOAD_SUPER_ATTR_METHOD
+                | Self::STORE_ATTR
+                | Self::STORE_ATTR_WITH_HINT
+                | Self::STORE_GLOBAL
+                | Self::STORE_NAME
+                | Self::LOAD_METHOD
+                | Self::LOAD_SUPER_METHOD
+                | Self::LOAD_ZERO_SUPER_ATTR
+                | Self::LOAD_ZERO_SUPER_METHOD
+        )
+    }
+
+    /// Whether opcode ID have 'HAS_JUMP_FLAG' set.
+    #[must_use]
+    pub const fn has_jump(&self) -> bool {
+        matches!(
+            self,
+            Self::FOR_ITER
+                | Self::FOR_ITER_LIST
+                | Self::FOR_ITER_RANGE
+                | Self::FOR_ITER_TUPLE
+                | Self::JUMP_BACKWARD
+                | Self::JUMP_BACKWARD_NO_INTERRUPT
+                | Self::JUMP_FORWARD
+                | Self::POP_JUMP_IF_FALSE
+                | Self::POP_JUMP_IF_NONE
+                | Self::POP_JUMP_IF_NOT_NONE
+                | Self::POP_JUMP_IF_TRUE
+                | Self::SEND
+                | Self::JUMP
+                | Self::JUMP_NO_INTERRUPT
+        )
+    }
+
+    /// Whether opcode ID have 'HAS_FREE_FLAG' set.
+    #[must_use]
+    pub const fn has_free(&self) -> bool {
+        matches!(
+            self,
+            Self::DELETE_DEREF
+                | Self::LOAD_DEREF
+                | Self::LOAD_FROM_DICT_OR_DEREF
+                | Self::MAKE_CELL
+                | Self::STORE_DEREF
+        )
+    }
+
+    /// Whether opcode ID have 'HAS_LOCAL_FLAG' set.
+    #[must_use]
+    pub const fn has_local(&self) -> bool {
+        matches!(
+            self,
+            Self::BINARY_OP_INPLACE_ADD_UNICODE
+                | Self::DELETE_FAST
+                | Self::LOAD_FAST
+                | Self::LOAD_FAST_AND_CLEAR
+                | Self::LOAD_FAST_CHECK
+                | Self::LOAD_FAST_LOAD_FAST
+                | Self::STORE_FAST
+                | Self::STORE_FAST_LOAD_FAST
+                | Self::STORE_FAST_STORE_FAST
+                | Self::LOAD_CLOSURE
+                | Self::STORE_FAST_MAYBE_NULL
+        )
+    }
+
+    /// Whether opcode ID have 'HAS_PURE_FLAG' set.
+    #[must_use]
+    pub const fn has_exc(&self) -> bool {
+        matches!(
+            self,
+            Self::COPY
+                | Self::END_FOR
+                | Self::END_SEND
+                | Self::LOAD_CONST
+                | Self::LOAD_FAST
+                | Self::NOP
+                | Self::POP_TOP
+                | Self::PUSH_NULL
+                | Self::SWAP
+                | Self::UNARY_NOT
+                | Self::LOAD_CLOSURE
+                | Self::POP_BLOCK
+                | Self::SETUP_CLEANUP
+                | Self::SETUP_FINALLY
+                | Self::SETUP_WITH
+        )
+    }
 }
 
 macro_rules! opcode_id_try_from_impl {
