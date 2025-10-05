@@ -20,7 +20,7 @@ from generators_common import DEFAULT_INPUT
 from opcode_metadata_generator import cflags
 
 ROOT = pathlib.Path(__file__).parents[1]
-OUT_PATH = ROOT / "compiler" / "core" / "src" / "instruction.rs"
+OUT_PATH = ROOT / "compiler" / "core" / "src" / "opcode.rs"
 
 
 def group_ranges(it: "Iterable[int]") -> "Iterator[range]":
@@ -153,7 +153,7 @@ pub const fn is_valid(id: u16) -> bool {{
 /// Whether opcode ID is pseudo.
 #[must_use]
 pub const fn is_pseudo(&self) -> bool {{
-    matches!(self, {matches})
+    matches!(*self, {matches})
 }}
 """.strip()
 
@@ -166,7 +166,7 @@ pub const fn is_pseudo(&self) -> bool {{
 /// Whether opcode ID have '{flag}' set.
 #[must_use]
 pub const fn has_{attr}(&self) -> bool {{
-    matches!(self, {matches})
+    matches!(*self, {matches})
 }}
 """.strip()
 

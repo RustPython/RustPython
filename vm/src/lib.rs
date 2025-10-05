@@ -99,7 +99,7 @@ pub use self::object::{
 pub use self::vm::{Context, Interpreter, Settings, VirtualMachine};
 
 pub use rustpython_common as common;
-pub use rustpython_compiler_core::{bytecode, frozen, instruction};
+pub use rustpython_compiler_core::{bytecode, frozen, opcode};
 pub use rustpython_literal as literal;
 
 #[doc(hidden)]

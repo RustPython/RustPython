@@ -5,36 +5,10 @@ mod opcode {
     use crate::vm::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyBool, PyInt, PyIntRef, PyNone},
-        instruction::Instruction,
+        bytecode::Instruction,
         match_class,
+        opcode::OpcodeId,
     };
-    use std::ops::Deref;
-
-    struct Opcode(Instruction);
-
-    impl Deref for Opcode {
-        type Target = Instruction;
-
-        fn deref(&self) -> &Self::Target {
-            &self.0
-        }
-    }
-
-    impl Opcode {
-        #[must_use]
-        fn try_from_pyint(raw: PyIntRef, vm: &VirtualMachine) -> PyResult<Self> {
-            let instruction = raw
-                .try_to_primitive::<u16>(vm)
-                .and_then(|v| {
-                    Instruction::try_from(v).map_err(|_| {
-                        vm.new_exception_empty(vm.ctx.exceptions.value_error.to_owned())
-                    })
-                })
-                .map_err(|_| vm.new_value_error("invalid opcode or oparg"))?;
-
-            Ok(Self(instruction))
-        }
-    }
 
     #[pyattr]
     const ENABLE_SPECIALIZATION: u8 = 1;
@@ -49,82 +23,87 @@ mod opcode {
         jump: Option<PyObjectRef>,
     }
 
-    /*
-        #[pyfunction]
-        fn stack_effect(args: StackEffectArgs, vm: &VirtualMachine) -> PyResult<i32> {
-            let oparg = args
-                .oparg
-                .map(|v| {
-                    if !v.fast_isinstance(vm.ctx.types.int_type) {
-                        return Err(vm.new_type_error(format!(
-                            "'{}' object cannot be interpreted as an integer",
-                            v.class().name()
-                        )));
+    // TODO: Make use of the auto generated `Instruction` enum (when we will have it)
+    #[pyfunction]
+    fn stack_effect(args: StackEffectArgs, vm: &VirtualMachine) -> PyResult<i32> {
+        let oparg = args
+            .oparg
+            .map(|v| {
+                if !v.fast_isinstance(vm.ctx.types.int_type) {
+                    return Err(vm.new_type_error(format!(
+                        "'{}' object cannot be interpreted as an integer",
+                        v.class().name()
+                    )));
+                }
+                v.downcast_ref::<PyInt>()
+                    .ok_or_else(|| vm.new_type_error(""))?
+                    .try_to_primitive::<u32>(vm)
+            })
+            .unwrap_or(Ok(0))?;
+
+        let jump = args
+            .jump
+            .map(|v| {
+                match_class!(match v {
+                    b @ PyBool => Ok(b.is(&vm.ctx.true_value)),
+                    _n @ PyNone => Ok(false),
+                    _ => {
+                        Err(vm.new_value_error("stack_effect: jump must be False, True or None"))
                     }
-                    v.downcast_ref::<PyInt>()
-                        .ok_or_else(|| vm.new_type_error(""))?
-                        .try_to_primitive::<u32>(vm)
                 })
-                .unwrap_or(Ok(0))?;
+            })
+            .unwrap_or(Ok(false))?;
 
-            let jump = args
-                .jump
-                .map(|v| {
-                    match_class!(match v {
-                        b @ PyBool => Ok(b.is(&vm.ctx.true_value)),
-                        _n @ PyNone => Ok(false),
-                        _ => {
-                            Err(vm.new_value_error("stack_effect: jump must be False, True or None"))
-                        }
-                    })
-                })
-                .unwrap_or(Ok(false))?;
+        let instruction = args
+            .opcode
+            .try_to_primitive::<u8>(vm)
+            .and_then(|v| {
+                Instruction::try_from(v)
+                    .map_err(|_| vm.new_exception_empty(vm.ctx.exceptions.value_error.to_owned()))
+            })
+            .map_err(|_| vm.new_value_error("invalid opcode or oparg"))?;
 
-            let opcode = Opcode::try_from_pyint(args.opcode, vm)?;
+        Ok(instruction.stack_effect(oparg.into(), jump))
+    }
 
-            Ok(opcode.stack_effect(oparg.into(), jump))
-        }
-    */
-
-    /*
     #[pyfunction]
     fn is_valid(opcode: i32) -> bool {
-        Opcode::is_valid(opcode)
+        OpcodeId::try_from(opcode).is_ok()
     }
 
     #[pyfunction]
     fn has_arg(opcode: i32) -> bool {
-        Opcode::has_arg(opcode)
+        OpcodeId::try_from(opcode).map_or(false, |oid| !oid.is_pseudo() && oid.has_arg())
     }
 
     #[pyfunction]
     fn has_const(opcode: i32) -> bool {
-        Opcode::has_const(opcode)
+        OpcodeId::try_from(opcode).map_or(false, |oid| !oid.is_pseudo() && oid.has_const())
     }
 
     #[pyfunction]
     fn has_name(opcode: i32) -> bool {
-        Opcode::has_name(opcode)
+        OpcodeId::try_from(opcode).map_or(false, |oid| !oid.is_pseudo() && oid.has_name())
     }
 
     #[pyfunction]
     fn has_jump(opcode: i32) -> bool {
-        Opcode::has_jump(opcode)
+        OpcodeId::try_from(opcode).map_or(false, |oid| !oid.is_pseudo() && oid.has_jump())
     }
 
     #[pyfunction]
     fn has_free(opcode: i32) -> bool {
-        Opcode::has_free(opcode)
+        OpcodeId::try_from(opcode).map_or(false, |oid| !oid.is_pseudo() && oid.has_free())
     }
 
     #[pyfunction]
     fn has_local(opcode: i32) -> bool {
-        Opcode::has_local(opcode)
+        OpcodeId::try_from(opcode).map_or(false, |oid| !oid.is_pseudo() && oid.has_local())
     }
 
     #[pyfunction]
     fn has_exc(opcode: i32) -> bool {
-        Opcode::has_exc(opcode)
+        OpcodeId::try_from(opcode).map_or(false, |oid| !oid.is_pseudo() && oid.has_exc())
     }
 
     #[pyfunction]
@@ -212,5 +191,4 @@ mod opcode {
     fn get_specialization_stats(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.none()
     }
-    */
 }
