@@ -231,7 +231,7 @@ pub const fn has_{attr}(&self) -> bool {{
         doc = "from" if direction == "popped" else "on"
         return f"""
 /// How many items should be {direction} {doc} the stack.
-pub const fn num_{direction}(&self, oparg: u32) -> u32 {{
+pub const fn num_{direction}(&self, oparg: i32) -> i32 {{
     match &self {{
     {conds},
     _ => panic!("Pseudo opcodes are not allowed!")

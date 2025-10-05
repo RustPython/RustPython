@@ -5,13 +5,15 @@ mod opcode {
     use crate::vm::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyBool, PyInt, PyIntRef, PyNone},
-        bytecode::Instruction,
         match_class,
         opcode::Opcode,
     };
 
     #[pyattr]
     const ENABLE_SPECIALIZATION: u8 = 1;
+
+    // https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Include/internal/pycore_opcode_utils.h#L13
+    const MAX_REAL_OPCODE: u16 = 254;
 
     #[derive(FromArgs)]
     struct StackEffectArgs {
@@ -23,9 +25,11 @@ mod opcode {
         jump: Option<PyObjectRef>,
     }
 
-    // TODO: Make use of the auto generated `Instruction` enum (when we will have it)
+    // https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Python/compile.c#L704-L767
     #[pyfunction]
     fn stack_effect(args: StackEffectArgs, vm: &VirtualMachine) -> PyResult<i32> {
+        let invalid_opcode = || vm.new_value_error("invalid opcode or oparg");
+
         let oparg = args
             .oparg
             .map(|v| {
@@ -37,7 +41,7 @@ mod opcode {
                 }
                 v.downcast_ref::<PyInt>()
                     .ok_or_else(|| vm.new_type_error(""))?
-                    .try_to_primitive::<u32>(vm)
+                    .try_to_primitive::<i32>(vm)
             })
             .unwrap_or(Ok(0))?;
 
@@ -54,11 +58,59 @@ mod opcode {
             })
             .unwrap_or(Ok(false))?;
 
-        let opcode = args.opcode.try_to_primitive::<u8>(vm)?;
-        let instruction = Instruction::try_from(opcode)
-            .map_err(|_| vm.new_value_error("invalid opcode or oparg"))?;
+        let raw_opcode = args.opcode.try_to_primitive::<u16>(vm)?;
+        let opcode = Opcode::try_from(raw_opcode).map_err(|_| invalid_opcode())?;
 
-        Ok(instruction.stack_effect(oparg.into(), jump))
+        if raw_opcode <= MAX_REAL_OPCODE {
+            /*
+            // TODO: implement Opcode.is_specialized
+            if opcode.is_specialized() {
+                return Err(invalid_opcode());
+            }
+            */
+
+            let popped = opcode.num_popped(oparg);
+            let pushed = opcode.num_pushed(oparg);
+
+            if popped < 0 || pushed < 0 {
+                return Err(invalid_opcode());
+            }
+            return Ok(pushed - popped);
+        }
+
+        // Pseudo ops
+        Ok(match opcode {
+            Opcode::PopBlock | Opcode::Jump | Opcode::JumpNoInterrupt => 0,
+            Opcode::ExitInitCheck => -1,
+            // Exception handling pseudo-instructions
+            Opcode::SetupFinally => {
+                if jump {
+                    1
+                } else {
+                    0
+                }
+            }
+            Opcode::SetupCleanup => {
+                if jump {
+                    2
+                } else {
+                    0
+                }
+            }
+            Opcode::SetupWith => {
+                if jump {
+                    1
+                } else {
+                    0
+                }
+            }
+            Opcode::StoreFastMaybeNull => -1,
+            Opcode::LoadClosure => 1,
+            Opcode::LoadMethod => 1,
+            Opcode::LoadSuperMethod | Opcode::LoadZeroSuperMethod | Opcode::LoadZeroSuperAttr => -1,
+
+            _ => return Err(invalid_opcode()),
+        })
     }
 
     #[pyfunction]

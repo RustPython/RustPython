@@ -533,7 +533,7 @@ impl Opcode {
     }
 
     /// How many items should be popped from the stack.
-    pub const fn num_popped(&self, oparg: u32) -> u32 {
+    pub const fn num_popped(&self, oparg: i32) -> i32 {
         match &self {
             Self::BeforeAsyncWith => 1,
             Self::BeforeWith => 1,
@@ -751,7 +751,7 @@ impl Opcode {
     }
 
     /// How many items should be pushed on the stack.
-    pub const fn num_pushed(&self, oparg: u32) -> u32 {
+    pub const fn num_pushed(&self, oparg: i32) -> i32 {
         match &self {
             Self::BeforeAsyncWith => 2,
             Self::BeforeWith => 2,
