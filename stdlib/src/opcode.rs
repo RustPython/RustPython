@@ -54,13 +54,8 @@ mod opcode {
             })
             .unwrap_or(Ok(false))?;
 
-        let instruction = args
-            .opcode
-            .try_to_primitive::<u8>(vm)
-            .and_then(|v| {
-                Instruction::try_from(v)
-                    .map_err(|_| vm.new_exception_empty(vm.ctx.exceptions.value_error.to_owned()))
-            })
+        let opcode = args.opcode.try_to_primitive::<u8>(vm)?;
+        let instruction = Instruction::try_from(opcode)
             .map_err(|_| vm.new_value_error("invalid opcode or oparg"))?;
 
         Ok(instruction.stack_effect(oparg.into(), jump))
