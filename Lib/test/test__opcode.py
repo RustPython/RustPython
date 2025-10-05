@@ -27,7 +27,6 @@ class OpListTests(unittest.TestCase):
         self.check_bool_function_result(_opcode.has_local, invalid, False)
         self.check_bool_function_result(_opcode.has_exc, invalid, False)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'dis' has no attribute 'opmap'
     def test_is_valid(self):
         names = [
             'CACHE',
@@ -39,7 +38,6 @@ class OpListTests(unittest.TestCase):
         opcodes = [dis.opmap[opname] for opname in names]
         self.check_bool_function_result(_opcode.is_valid, opcodes, True)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'dis' has no attribute 'hasarg'
     def test_oplists(self):
         def check_function(self, func, expected):
             for op in [-10, 520]:
