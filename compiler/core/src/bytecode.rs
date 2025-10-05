@@ -9,8 +9,6 @@ use num_complex::Complex64;
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
 use std::{collections::BTreeSet, fmt, hash, marker::PhantomData, mem};
 
-pub use crate::instruction::{Instruction, NameIdx};
-
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 #[repr(i8)]
 #[allow(clippy::cast_possible_wrap)]
@@ -133,7 +131,7 @@ impl Constant for ConstantData {
 }
 
 /// A Constant Bag
-pub trait ConstantBag: Sized + std::marker::Copy {
+pub trait ConstantBag: Sized + Copy {
     type Constant: Constant;
 
     fn make_constant<C: Constant>(&self, constant: BorrowedConstant<'_, C>) -> Self::Constant;
@@ -266,7 +264,7 @@ impl fmt::Debug for OpArgByte {
 }
 
 /// a full 32-bit op_arg, including any possible ExtendedArg extension
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
 pub struct OpArg(pub u32);
 
@@ -312,7 +310,7 @@ impl OpArgState {
     #[inline(always)]
     pub fn get(&mut self, ins: CodeUnit) -> (Instruction, OpArg) {
         let arg = self.extend(ins.arg);
-        if !matches!(ins.op, Instruction::ExtendedArg(_)) {
+        if ins.op != Instruction::ExtendedArg {
             self.reset();
         }
         (ins.op, arg)
@@ -330,7 +328,7 @@ impl OpArgState {
     }
 }
 
-pub trait OpArgType: std::marker::Copy {
+pub trait OpArgType: Copy {
     fn from_op_arg(x: u32) -> Option<Self>;
 
     fn to_op_arg(self) -> u32;
@@ -536,6 +534,292 @@ op_arg_enum!(
     }
 );
 
+pub type NameIdx = u32;
+
+/// A Single bytecode instruction.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Instruction {
+    Nop,
+    /// Importing by name
+    ImportName {
+        idx: Arg<NameIdx>,
+    },
+    /// Importing without name
+    ImportNameless,
+    /// from ... import ...
+    ImportFrom {
+        idx: Arg<NameIdx>,
+    },
+    LoadFast(Arg<NameIdx>),
+    LoadNameAny(Arg<NameIdx>),
+    LoadGlobal(Arg<NameIdx>),
+    LoadDeref(Arg<NameIdx>),
+    LoadClassDeref(Arg<NameIdx>),
+    StoreFast(Arg<NameIdx>),
+    StoreLocal(Arg<NameIdx>),
+    StoreGlobal(Arg<NameIdx>),
+    StoreDeref(Arg<NameIdx>),
+    DeleteFast(Arg<NameIdx>),
+    DeleteLocal(Arg<NameIdx>),
+    DeleteGlobal(Arg<NameIdx>),
+    DeleteDeref(Arg<NameIdx>),
+    LoadClosure(Arg<NameIdx>),
+    Subscript,
+    StoreSubscript,
+    DeleteSubscript,
+    StoreAttr {
+        idx: Arg<NameIdx>,
+    },
+    DeleteAttr {
+        idx: Arg<NameIdx>,
+    },
+    LoadConst {
+        /// index into constants vec
+        idx: Arg<u32>,
+    },
+    UnaryOperation {
+        op: Arg<UnaryOperator>,
+    },
+    BinaryOperation {
+        op: Arg<BinaryOperator>,
+    },
+    BinaryOperationInplace {
+        op: Arg<BinaryOperator>,
+    },
+    BinarySubscript,
+    LoadAttr {
+        idx: Arg<NameIdx>,
+    },
+    TestOperation {
+        op: Arg<TestOperator>,
+    },
+    CompareOperation {
+        op: Arg<ComparisonOperator>,
+    },
+    CopyItem {
+        index: Arg<u32>,
+    },
+    Pop,
+    Swap {
+        index: Arg<u32>,
+    },
+    ToBool,
+    Rotate2,
+    Rotate3,
+    Duplicate,
+    Duplicate2,
+    GetIter,
+    GetLen,
+    CallIntrinsic1 {
+        func: Arg<IntrinsicFunction1>,
+    },
+    CallIntrinsic2 {
+        func: Arg<IntrinsicFunction2>,
+    },
+    Continue {
+        target: Arg<Label>,
+    },
+    Break {
+        target: Arg<Label>,
+    },
+    Jump {
+        target: Arg<Label>,
+    },
+    /// Pop the top of the stack, and jump if this value is true.
+    PopJumpIfTrue {
+        target: Arg<Label>,
+    },
+    /// Pop the top of the stack, and jump if this value is false.
+    PopJumpIfFalse {
+        target: Arg<Label>,
+    },
+    /// Peek at the top of the stack, and jump if this value is true.
+    /// Otherwise, pop top of stack.
+    JumpIfTrueOrPop {
+        target: Arg<Label>,
+    },
+    /// Peek at the top of the stack, and jump if this value is false.
+    /// Otherwise, pop top of stack.
+    JumpIfFalseOrPop {
+        target: Arg<Label>,
+    },
+    MakeFunction,
+    SetFunctionAttribute {
+        attr: Arg<MakeFunctionFlags>,
+    },
+    CallFunctionPositional {
+        nargs: Arg<u32>,
+    },
+    CallFunctionKeyword {
+        nargs: Arg<u32>,
+    },
+    CallFunctionEx {
+        has_kwargs: Arg<bool>,
+    },
+    LoadMethod {
+        idx: Arg<NameIdx>,
+    },
+    CallMethodPositional {
+        nargs: Arg<u32>,
+    },
+    CallMethodKeyword {
+        nargs: Arg<u32>,
+    },
+    CallMethodEx {
+        has_kwargs: Arg<bool>,
+    },
+    ForIter {
+        target: Arg<Label>,
+    },
+    ReturnValue,
+    ReturnConst {
+        idx: Arg<u32>,
+    },
+    YieldValue,
+    YieldFrom,
+
+    /// Resume execution (e.g., at function start, after yield, etc.)
+    Resume {
+        arg: Arg<u32>,
+    },
+
+    SetupAnnotation,
+    SetupLoop,
+
+    /// Setup a finally handler, which will be called whenever one of this events occurs:
+    /// - the block is popped
+    /// - the function returns
+    /// - an exception is returned
+    SetupFinally {
+        handler: Arg<Label>,
+    },
+
+    /// Enter a finally block, without returning, excepting, just because we are there.
+    EnterFinally,
+
+    /// Marker bytecode for the end of a finally sequence.
+    /// When this bytecode is executed, the eval loop does one of those things:
+    /// - Continue at a certain bytecode position
+    /// - Propagate the exception
+    /// - Return from a function
+    /// - Do nothing at all, just continue
+    EndFinally,
+
+    SetupExcept {
+        handler: Arg<Label>,
+    },
+    SetupWith {
+        end: Arg<Label>,
+    },
+    WithCleanupStart,
+    WithCleanupFinish,
+    PopBlock,
+    Raise {
+        kind: Arg<RaiseKind>,
+    },
+    BuildString {
+        size: Arg<u32>,
+    },
+    BuildTuple {
+        size: Arg<u32>,
+    },
+    BuildTupleFromTuples {
+        size: Arg<u32>,
+    },
+    BuildTupleFromIter,
+    BuildList {
+        size: Arg<u32>,
+    },
+    BuildListFromTuples {
+        size: Arg<u32>,
+    },
+    BuildSet {
+        size: Arg<u32>,
+    },
+    BuildSetFromTuples {
+        size: Arg<u32>,
+    },
+    BuildMap {
+        size: Arg<u32>,
+    },
+    BuildMapForCall {
+        size: Arg<u32>,
+    },
+    DictUpdate {
+        index: Arg<u32>,
+    },
+    BuildSlice {
+        /// whether build a slice with a third step argument
+        step: Arg<bool>,
+    },
+    ListAppend {
+        i: Arg<u32>,
+    },
+    SetAdd {
+        i: Arg<u32>,
+    },
+    MapAdd {
+        i: Arg<u32>,
+    },
+
+    PrintExpr,
+    LoadBuildClass,
+    UnpackSequence {
+        size: Arg<u32>,
+    },
+    UnpackEx {
+        args: Arg<UnpackExArgs>,
+    },
+    FormatValue {
+        conversion: Arg<ConversionFlag>,
+    },
+    PopException,
+    Reverse {
+        amount: Arg<u32>,
+    },
+    GetAwaitable,
+    BeforeAsyncWith,
+    SetupAsyncWith {
+        end: Arg<Label>,
+    },
+    GetAIter,
+    GetANext,
+    EndAsyncFor,
+    MatchMapping,
+    MatchSequence,
+    MatchKeys,
+    MatchClass(Arg<u32>),
+    ExtendedArg,
+    // If you add a new instruction here, be sure to keep LAST_INSTRUCTION updated
+}
+
+// This must be kept up to date to avoid marshaling errors
+const LAST_INSTRUCTION: Instruction = Instruction::ExtendedArg;
+
+const _: () = assert!(mem::size_of::<Instruction>() == 1);
+
+impl From<Instruction> for u8 {
+    #[inline]
+    fn from(ins: Instruction) -> Self {
+        // SAFETY: there's no padding bits
+        unsafe { std::mem::transmute::<Instruction, Self>(ins) }
+    }
+}
+
+impl TryFrom<u8> for Instruction {
+    type Error = crate::marshal::MarshalError;
+
+    #[inline]
+    fn try_from(value: u8) -> Result<Self, crate::marshal::MarshalError> {
+        if value <= u8::from(LAST_INSTRUCTION) {
+            Ok(unsafe { std::mem::transmute::<u8, Self>(value) })
+        } else {
+            Err(crate::marshal::MarshalError::InvalidBytecode)
+        }
+    }
+}
+
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct CodeUnit {
@@ -543,14 +827,15 @@ pub struct CodeUnit {
     pub arg: OpArgByte,
 }
 
-// TODO: Uncomment this
-// const _: () = assert!(mem::size_of::<CodeUnit>() == 2);
+const _: () = assert!(mem::size_of::<CodeUnit>() == 2);
 
 impl CodeUnit {
     pub const fn new(op: Instruction, arg: OpArgByte) -> Self {
         Self { op, arg }
     }
 }
+
+use self::Instruction::*;
 
 bitflags! {
     #[derive(Copy, Clone, Debug, PartialEq)]
@@ -661,7 +946,7 @@ pub enum BorrowedConstant<'a, C: Constant> {
     Ellipsis,
 }
 
-impl<C: Constant> std::marker::Copy for BorrowedConstant<'_, C> {}
+impl<C: Constant> Copy for BorrowedConstant<'_, C> {}
 
 impl<C: Constant> Clone for BorrowedConstant<'_, C> {
     fn clone(&self) -> Self {
@@ -897,13 +1182,8 @@ impl<C: Constant> CodeObject<C> {
         let mut arg_state = OpArgState::default();
         for instruction in &*self.instructions {
             let (instruction, arg) = arg_state.get(*instruction);
-            match instruction {
-                // TODO: Put more instructions here
-                Instruction::Jump(l) => {
-                    let label = Label(l.get(arg));
-                    label_targets.insert(label);
-                }
-                _ => {}
+            if let Some(l) = instruction.label_arg() {
+                label_targets.insert(l.get(arg));
             }
         }
         label_targets
@@ -951,10 +1231,8 @@ impl<C: Constant> CodeObject<C> {
             write!(f, "{arrow} {offset:offset_digits$} ")?;
 
             // instruction
-            /*
             instruction.fmt_dis(arg, f, self, expand_code_objects, 21, level)?;
             writeln!(f)?;
-            */
         }
         Ok(())
     }
@@ -1051,6 +1329,370 @@ impl<C: Constant> fmt::Display for CodeObject<C> {
             }
         }
         Ok(())
+    }
+}
+
+impl Instruction {
+    /// Gets the label stored inside this instruction, if it exists
+    #[inline]
+    pub const fn label_arg(&self) -> Option<Arg<Label>> {
+        match self {
+            Jump { target: l }
+            | PopJumpIfTrue { target: l }
+            | PopJumpIfFalse { target: l }
+            | JumpIfTrueOrPop { target: l }
+            | JumpIfFalseOrPop { target: l }
+            | ForIter { target: l }
+            | SetupFinally { handler: l }
+            | SetupExcept { handler: l }
+            | SetupWith { end: l }
+            | SetupAsyncWith { end: l }
+            | Break { target: l }
+            | Continue { target: l } => Some(*l),
+            _ => None,
+        }
+    }
+
+    /// Whether this is an unconditional branching
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rustpython_compiler_core::bytecode::{Arg, Instruction};
+    /// let jump_inst = Instruction::Jump { target: Arg::marker() };
+    /// assert!(jump_inst.unconditional_branch())
+    /// ```
+    pub const fn unconditional_branch(&self) -> bool {
+        matches!(
+            self,
+            Jump { .. }
+                | Continue { .. }
+                | Break { .. }
+                | ReturnValue
+                | ReturnConst { .. }
+                | Raise { .. }
+        )
+    }
+
+    /// What effect this instruction has on the stack
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rustpython_compiler_core::bytecode::{Arg, Instruction, Label, UnaryOperator};
+    /// let (target, jump_arg) = Arg::new(Label(0xF));
+    /// let jump_instruction = Instruction::Jump { target };
+    /// let (op, invert_arg) = Arg::new(UnaryOperator::Invert);
+    /// let invert_instruction = Instruction::UnaryOperation { op };
+    /// assert_eq!(jump_instruction.stack_effect(jump_arg, true), 0);
+    /// assert_eq!(invert_instruction.stack_effect(invert_arg, false), 0);
+    /// ```
+    ///
+    pub fn stack_effect(&self, arg: OpArg, jump: bool) -> i32 {
+        match self {
+            Nop => 0,
+            ImportName { .. } | ImportNameless => -1,
+            ImportFrom { .. } => 1,
+            LoadFast(_) | LoadNameAny(_) | LoadGlobal(_) | LoadDeref(_) | LoadClassDeref(_) => 1,
+            StoreFast(_) | StoreLocal(_) | StoreGlobal(_) | StoreDeref(_) => -1,
+            DeleteFast(_) | DeleteLocal(_) | DeleteGlobal(_) | DeleteDeref(_) => 0,
+            LoadClosure(_) => 1,
+            Subscript => -1,
+            StoreSubscript => -3,
+            DeleteSubscript => -2,
+            LoadAttr { .. } => 0,
+            StoreAttr { .. } => -2,
+            DeleteAttr { .. } => -1,
+            LoadConst { .. } => 1,
+            UnaryOperation { .. } => 0,
+            BinaryOperation { .. }
+            | BinaryOperationInplace { .. }
+            | TestOperation { .. }
+            | CompareOperation { .. } => -1,
+            BinarySubscript => -1,
+            CopyItem { .. } => 1,
+            Pop => -1,
+            Swap { .. } => 0,
+            ToBool => 0,
+            Rotate2 | Rotate3 => 0,
+            Duplicate => 1,
+            Duplicate2 => 2,
+            GetIter => 0,
+            GetLen => 1,
+            CallIntrinsic1 { .. } => 0,  // Takes 1, pushes 1
+            CallIntrinsic2 { .. } => -1, // Takes 2, pushes 1
+            Continue { .. } => 0,
+            Break { .. } => 0,
+            Jump { .. } => 0,
+            PopJumpIfTrue { .. } | PopJumpIfFalse { .. } => -1,
+            JumpIfTrueOrPop { .. } | JumpIfFalseOrPop { .. } => {
+                if jump {
+                    0
+                } else {
+                    -1
+                }
+            }
+            MakeFunction => {
+                // CPython 3.13 style: MakeFunction only pops code object
+                -1 + 1 // pop code, push function
+            }
+            SetFunctionAttribute { .. } => {
+                // pops attribute value and function, pushes function back
+                -2 + 1
+            }
+            CallFunctionPositional { nargs } => -(nargs.get(arg) as i32) - 1 + 1,
+            CallMethodPositional { nargs } => -(nargs.get(arg) as i32) - 3 + 1,
+            CallFunctionKeyword { nargs } => -1 - (nargs.get(arg) as i32) - 1 + 1,
+            CallMethodKeyword { nargs } => -1 - (nargs.get(arg) as i32) - 3 + 1,
+            CallFunctionEx { has_kwargs } => -1 - (has_kwargs.get(arg) as i32) - 1 + 1,
+            CallMethodEx { has_kwargs } => -1 - (has_kwargs.get(arg) as i32) - 3 + 1,
+            LoadMethod { .. } => -1 + 3,
+            ForIter { .. } => {
+                if jump {
+                    -1
+                } else {
+                    1
+                }
+            }
+            ReturnValue => -1,
+            ReturnConst { .. } => 0,
+            Resume { .. } => 0,
+            YieldValue => 0,
+            YieldFrom => -1,
+            SetupAnnotation | SetupLoop | SetupFinally { .. } | EnterFinally | EndFinally => 0,
+            SetupExcept { .. } => jump as i32,
+            SetupWith { .. } => (!jump) as i32,
+            WithCleanupStart => 0,
+            WithCleanupFinish => -1,
+            PopBlock => 0,
+            Raise { kind } => -(kind.get(arg) as u8 as i32),
+            BuildString { size }
+            | BuildTuple { size, .. }
+            | BuildTupleFromTuples { size, .. }
+            | BuildList { size, .. }
+            | BuildListFromTuples { size, .. }
+            | BuildSet { size, .. }
+            | BuildSetFromTuples { size, .. } => -(size.get(arg) as i32) + 1,
+            BuildTupleFromIter => 0,
+            BuildMap { size } => {
+                let nargs = size.get(arg) * 2;
+                -(nargs as i32) + 1
+            }
+            BuildMapForCall { size } => {
+                let nargs = size.get(arg);
+                -(nargs as i32) + 1
+            }
+            DictUpdate { .. } => -1,
+            BuildSlice { step } => -2 - (step.get(arg) as i32) + 1,
+            ListAppend { .. } | SetAdd { .. } => -1,
+            MapAdd { .. } => -2,
+            PrintExpr => -1,
+            LoadBuildClass => 1,
+            UnpackSequence { size } => -1 + size.get(arg) as i32,
+            UnpackEx { args } => {
+                let UnpackExArgs { before, after } = args.get(arg);
+                -1 + before as i32 + 1 + after as i32
+            }
+            FormatValue { .. } => -1,
+            PopException => 0,
+            Reverse { .. } => 0,
+            GetAwaitable => 0,
+            BeforeAsyncWith => 1,
+            SetupAsyncWith { .. } => {
+                if jump {
+                    -1
+                } else {
+                    0
+                }
+            }
+            GetAIter => 0,
+            GetANext => 1,
+            EndAsyncFor => -2,
+            MatchMapping | MatchSequence => 1, // Push bool result
+            MatchKeys => 1, // Pop 2 (subject, keys), push 3 (subject, keys_or_none, values_or_none)
+            MatchClass(_) => -2,
+            ExtendedArg => 0,
+        }
+    }
+
+    pub fn display<'a>(
+        &'a self,
+        arg: OpArg,
+        ctx: &'a impl InstrDisplayContext,
+    ) -> impl fmt::Display + 'a {
+        struct FmtFn<F>(F);
+        impl<F: Fn(&mut fmt::Formatter<'_>) -> fmt::Result> fmt::Display for FmtFn<F> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                (self.0)(f)
+            }
+        }
+        FmtFn(move |f: &mut fmt::Formatter<'_>| self.fmt_dis(arg, f, ctx, false, 0, 0))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn fmt_dis(
+        &self,
+        arg: OpArg,
+        f: &mut fmt::Formatter<'_>,
+        ctx: &impl InstrDisplayContext,
+        expand_code_objects: bool,
+        pad: usize,
+        level: usize,
+    ) -> fmt::Result {
+        macro_rules! w {
+            ($variant:ident) => {
+                write!(f, stringify!($variant))
+            };
+            ($variant:ident, $map:ident = $arg_marker:expr) => {{
+                let arg = $arg_marker.get(arg);
+                write!(f, "{:pad$}({}, {})", stringify!($variant), arg, $map(arg))
+            }};
+            ($variant:ident, $arg_marker:expr) => {
+                write!(f, "{:pad$}({})", stringify!($variant), $arg_marker.get(arg))
+            };
+            ($variant:ident, ?$arg_marker:expr) => {
+                write!(
+                    f,
+                    "{:pad$}({:?})",
+                    stringify!($variant),
+                    $arg_marker.get(arg)
+                )
+            };
+        }
+
+        let varname = |i: u32| ctx.get_varname(i as usize);
+        let name = |i: u32| ctx.get_name(i as usize);
+        let cell_name = |i: u32| ctx.get_cell_name(i as usize);
+
+        let fmt_const =
+            |op: &str, arg: OpArg, f: &mut fmt::Formatter<'_>, idx: &Arg<u32>| -> fmt::Result {
+                let value = ctx.get_constant(idx.get(arg) as usize);
+                match value.borrow_constant() {
+                    BorrowedConstant::Code { code } if expand_code_objects => {
+                        write!(f, "{op:pad$}({code:?}):")?;
+                        code.display_inner(f, true, level + 1)?;
+                        Ok(())
+                    }
+                    c => {
+                        write!(f, "{op:pad$}(")?;
+                        c.fmt_display(f)?;
+                        write!(f, ")")
+                    }
+                }
+            };
+
+        match self {
+            Nop => w!(Nop),
+            ImportName { idx } => w!(ImportName, name = idx),
+            ImportNameless => w!(ImportNameless),
+            ImportFrom { idx } => w!(ImportFrom, name = idx),
+            LoadFast(idx) => w!(LoadFast, varname = idx),
+            LoadNameAny(idx) => w!(LoadNameAny, name = idx),
+            LoadGlobal(idx) => w!(LoadGlobal, name = idx),
+            LoadDeref(idx) => w!(LoadDeref, cell_name = idx),
+            LoadClassDeref(idx) => w!(LoadClassDeref, cell_name = idx),
+            StoreFast(idx) => w!(StoreFast, varname = idx),
+            StoreLocal(idx) => w!(StoreLocal, name = idx),
+            StoreGlobal(idx) => w!(StoreGlobal, name = idx),
+            StoreDeref(idx) => w!(StoreDeref, cell_name = idx),
+            DeleteFast(idx) => w!(DeleteFast, varname = idx),
+            DeleteLocal(idx) => w!(DeleteLocal, name = idx),
+            DeleteGlobal(idx) => w!(DeleteGlobal, name = idx),
+            DeleteDeref(idx) => w!(DeleteDeref, cell_name = idx),
+            LoadClosure(i) => w!(LoadClosure, cell_name = i),
+            Subscript => w!(Subscript),
+            StoreSubscript => w!(StoreSubscript),
+            DeleteSubscript => w!(DeleteSubscript),
+            StoreAttr { idx } => w!(StoreAttr, name = idx),
+            DeleteAttr { idx } => w!(DeleteAttr, name = idx),
+            LoadConst { idx } => fmt_const("LoadConst", arg, f, idx),
+            UnaryOperation { op } => w!(UnaryOperation, ?op),
+            BinaryOperation { op } => w!(BinaryOperation, ?op),
+            BinaryOperationInplace { op } => w!(BinaryOperationInplace, ?op),
+            BinarySubscript => w!(BinarySubscript),
+            LoadAttr { idx } => w!(LoadAttr, name = idx),
+            TestOperation { op } => w!(TestOperation, ?op),
+            CompareOperation { op } => w!(CompareOperation, ?op),
+            CopyItem { index } => w!(CopyItem, index),
+            Pop => w!(Pop),
+            Swap { index } => w!(Swap, index),
+            ToBool => w!(ToBool),
+            Rotate2 => w!(Rotate2),
+            Rotate3 => w!(Rotate3),
+            Duplicate => w!(Duplicate),
+            Duplicate2 => w!(Duplicate2),
+            GetIter => w!(GetIter),
+            // GET_LEN
+            GetLen => w!(GetLen),
+            CallIntrinsic1 { func } => w!(CallIntrinsic1, ?func),
+            CallIntrinsic2 { func } => w!(CallIntrinsic2, ?func),
+            Continue { target } => w!(Continue, target),
+            Break { target } => w!(Break, target),
+            Jump { target } => w!(Jump, target),
+            PopJumpIfTrue { target } => w!(PopJumpIfTrue, target),
+            PopJumpIfFalse { target } => w!(PopJumpIfFalse, target),
+            JumpIfTrueOrPop { target } => w!(JumpIfTrueOrPop, target),
+            JumpIfFalseOrPop { target } => w!(JumpIfFalseOrPop, target),
+            MakeFunction => w!(MakeFunction),
+            SetFunctionAttribute { attr } => w!(SetFunctionAttribute, ?attr),
+            CallFunctionPositional { nargs } => w!(CallFunctionPositional, nargs),
+            CallFunctionKeyword { nargs } => w!(CallFunctionKeyword, nargs),
+            CallFunctionEx { has_kwargs } => w!(CallFunctionEx, has_kwargs),
+            LoadMethod { idx } => w!(LoadMethod, name = idx),
+            CallMethodPositional { nargs } => w!(CallMethodPositional, nargs),
+            CallMethodKeyword { nargs } => w!(CallMethodKeyword, nargs),
+            CallMethodEx { has_kwargs } => w!(CallMethodEx, has_kwargs),
+            ForIter { target } => w!(ForIter, target),
+            ReturnValue => w!(ReturnValue),
+            ReturnConst { idx } => fmt_const("ReturnConst", arg, f, idx),
+            Resume { arg } => w!(Resume, arg),
+            YieldValue => w!(YieldValue),
+            YieldFrom => w!(YieldFrom),
+            SetupAnnotation => w!(SetupAnnotation),
+            SetupLoop => w!(SetupLoop),
+            SetupExcept { handler } => w!(SetupExcept, handler),
+            SetupFinally { handler } => w!(SetupFinally, handler),
+            EnterFinally => w!(EnterFinally),
+            EndFinally => w!(EndFinally),
+            SetupWith { end } => w!(SetupWith, end),
+            WithCleanupStart => w!(WithCleanupStart),
+            WithCleanupFinish => w!(WithCleanupFinish),
+            BeforeAsyncWith => w!(BeforeAsyncWith),
+            SetupAsyncWith { end } => w!(SetupAsyncWith, end),
+            PopBlock => w!(PopBlock),
+            Raise { kind } => w!(Raise, ?kind),
+            BuildString { size } => w!(BuildString, size),
+            BuildTuple { size } => w!(BuildTuple, size),
+            BuildTupleFromTuples { size } => w!(BuildTupleFromTuples, size),
+            BuildTupleFromIter => w!(BuildTupleFromIter),
+            BuildList { size } => w!(BuildList, size),
+            BuildListFromTuples { size } => w!(BuildListFromTuples, size),
+            BuildSet { size } => w!(BuildSet, size),
+            BuildSetFromTuples { size } => w!(BuildSetFromTuples, size),
+            BuildMap { size } => w!(BuildMap, size),
+            BuildMapForCall { size } => w!(BuildMapForCall, size),
+            DictUpdate { index } => w!(DictUpdate, index),
+            BuildSlice { step } => w!(BuildSlice, step),
+            ListAppend { i } => w!(ListAppend, i),
+            SetAdd { i } => w!(SetAdd, i),
+            MapAdd { i } => w!(MapAdd, i),
+            PrintExpr => w!(PrintExpr),
+            LoadBuildClass => w!(LoadBuildClass),
+            UnpackSequence { size } => w!(UnpackSequence, size),
+            UnpackEx { args } => w!(UnpackEx, args),
+            FormatValue { conversion } => w!(FormatValue, ?conversion),
+            PopException => w!(PopException),
+            Reverse { amount } => w!(Reverse, amount),
+            GetAwaitable => w!(GetAwaitable),
+            GetAIter => w!(GetAIter),
+            GetANext => w!(GetANext),
+            EndAsyncFor => w!(EndAsyncFor),
+            MatchMapping => w!(MatchMapping),
+            MatchSequence => w!(MatchSequence),
+            MatchKeys => w!(MatchKeys),
+            MatchClass(arg) => w!(MatchClass, arg),
+            ExtendedArg => w!(ExtendedArg, Arg::<u32>::marker()),
+        }
     }
 }
 

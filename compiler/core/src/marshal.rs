@@ -81,7 +81,7 @@ impl TryFrom<u8> for Type {
 
         Ok(match value {
             // b'0' => Null,
-            b'N' => Self::None,
+            b'N' => None,
             b'F' => False,
             b'T' => True,
             b'S' => StopIter,
@@ -188,7 +188,7 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
     let instructions = instructions
         .chunks_exact(2)
         .map(|cu| {
-            let op = crate::instruction::Instruction::try_from(cu[0])?;
+            let op = Instruction::try_from(cu[0])?;
             let arg = OpArgByte(cu[1]);
             Ok(CodeUnit { op, arg })
         })
