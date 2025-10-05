@@ -7,7 +7,7 @@ mod opcode {
         builtins::{PyBool, PyInt, PyIntRef, PyNone},
         bytecode::Instruction,
         match_class,
-        opcode::OpcodeId,
+        opcode::Opcode,
     };
 
     #[pyattr]
@@ -63,42 +63,42 @@ mod opcode {
 
     #[pyfunction]
     fn is_valid(opcode: i32) -> bool {
-        OpcodeId::try_from(opcode).is_ok()
+        Opcode::try_from(opcode).is_ok()
     }
 
     #[pyfunction]
     fn has_arg(opcode: i32) -> bool {
-        OpcodeId::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_arg())
+        Opcode::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_arg())
     }
 
     #[pyfunction]
     fn has_const(opcode: i32) -> bool {
-        OpcodeId::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_const())
+        Opcode::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_const())
     }
 
     #[pyfunction]
     fn has_name(opcode: i32) -> bool {
-        OpcodeId::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_name())
+        Opcode::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_name())
     }
 
     #[pyfunction]
     fn has_jump(opcode: i32) -> bool {
-        OpcodeId::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_jump())
+        Opcode::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_jump())
     }
 
     #[pyfunction]
     fn has_free(opcode: i32) -> bool {
-        OpcodeId::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_free())
+        Opcode::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_free())
     }
 
     #[pyfunction]
     fn has_local(opcode: i32) -> bool {
-        OpcodeId::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_local())
+        Opcode::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_local())
     }
 
     #[pyfunction]
     fn has_exc(opcode: i32) -> bool {
-        OpcodeId::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_exc())
+        Opcode::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_exc())
     }
 
     #[pyfunction]
