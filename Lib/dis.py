@@ -1,5 +1,7 @@
 from _dis import *
 
+from opcode import * # XXX: From CPython 3.13.7
+
 
 # Disassembling a file by following cpython Lib/dis.py
 def _test():
