@@ -224,6 +224,7 @@ impl TryFrom<{typ}> for {self.enum_name} {{
     type Error = ();
 
     fn try_from(raw: {typ}) -> Result<Self, Self::Error> {{
+        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {{
             // SAFETY: We just validated that we have a valid opcode id.
