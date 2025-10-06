@@ -56,7 +56,6 @@ class OpListTests(unittest.TestCase):
 
 
 class StackEffectTests(unittest.TestCase):
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: ValueError not raised by stack_effect
     def test_stack_effect(self):
         self.assertEqual(stack_effect(dis.opmap['POP_TOP']), -1)
         self.assertEqual(stack_effect(dis.opmap['BUILD_SLICE'], 0), -1)

@@ -1,5 +1,9 @@
 #!/usr/bin/env python
+import abc
+import collections
+import itertools
 import pathlib
+import re
 import subprocess  # for `cargo fmt`
 import sys
 import typing
@@ -21,7 +25,12 @@ from opcode_metadata_generator import cflags
 from stack import StackOffset, get_stack_effect
 
 ROOT = pathlib.Path(__file__).parents[1]
-OUT_PATH = ROOT / "compiler" / "core" / "src" / "opcode.rs"
+OUT_PATH = ROOT / "compiler" / "core" / "src" / "opcodes.rs"
+
+DERIVE = "#[derive(Clone, Copy, Debug, Eq, PartialEq)]"
+TYPES = tuple(
+    f"{a}{b}" for a, b in itertools.product(("i", "u"), (8, 16, 32, 64, 128, "size"))
+)
 
 
 def _var_size(var):
@@ -100,112 +109,147 @@ def fmt_ranges(ids: "Iterable[range]", *, min_length: int = 3) -> str:
     )
 
 
-class Instruction:
-    def __init__(
-        self, ins: analyzer.Instruction, val: int, is_pseudo: bool = False
-    ) -> None:
-        self.id = val
-        self.is_pseudo = is_pseudo
-        self._inner = ins
-
-    @property
-    def name(self) -> str:
-        return self._inner.name.title().replace("_", "")
-
-    @property
-    def flags(self) -> frozenset[str]:
-        if not self.is_pseudo:
-            return frozenset(cflags(self._inner.properties).split(" | "))
-
-        flags = cflags(self._inner.properties)
-        for flag in self._inner.flags:
-            if flags == "0":
-                flags = f"{flag}_FLAG"
-            else:
-                flags += f" | {flag}_FLAG"
-        return frozenset(flags.split(" | "))
-
-    @property
-    def enum_variant(self) -> str:
-        return f"Self::{self.name}"
-
-    @property
-    def enum_variant_def(self) -> str:
-        return f"{self.name} = {self.id}"
-
-    def __lt__(self, other) -> bool:
-        return (self.is_pseudo, self._inner.name) < (other.is_pseudo, other._inner.name)
+def enum_variant_name(name: str) -> str:
+    return name.title().replace("_", "")
 
 
-class Instructions:
+class InstructionsMeta(metaclass=abc.ABCMeta):
     def __init__(self, analysis: analyzer.Analysis) -> None:
-        inner = []
-        for ins in analysis.instructions.values():
-            inner.append(Instruction(ins, analysis.opmap[ins.name], is_pseudo=False))
+        self._analysis = analysis
 
-        for pseudo in analysis.pseudos.values():
-            inner.append(
-                Instruction(pseudo, analysis.opmap[pseudo.name], is_pseudo=True)
-            )
-        self._inner = tuple(sorted(inner))
+    @abc.abstractmethod
+    def __iter__(
+        self,
+    ) -> "Iterator[analyzer.Instruction | analyzer.PseudoInstruction]": ...
 
-    def __iter__(self) -> "Iterator[analyzer.Instruction]":
-        yield from self._inner
+    @property
+    @abc.abstractmethod
+    def typ(self) -> str:
+        """
+        Opcode ID type (u8/u16/u32/etc)
+        """
+        ...
 
-    def generate_enum_variant_defs(self) -> str:
-        return ",\n".join(ins.enum_variant_def for ins in self)
+    @property
+    @abc.abstractmethod
+    def enum_name(self) -> str: ...
 
-    def generate_is_valid(self) -> str:
-        valid_ranges = fmt_ranges(group_ranges(sorted(ins.id for ins in self)))
+    @property
+    def rust_code(self) -> str:
+        enum_variant_defs = ",\n".join(
+            f"{inst.name} = {self._analysis.opmap[inst.name]}" for inst in self
+        )
+        funcs = "\n\n".join(
+            getattr(self, attr).strip()
+            for attr in sorted(dir(self))
+            if attr.startswith("fn_")
+        )
+        impls = "\n\n".join(
+            getattr(self, attr).strip()
+            for attr in sorted(dir(self))
+            if attr.startswith("impl_")
+        )
+
+        return f"""
+{DERIVE}
+#[repr({self.typ})]
+pub enum {self.enum_name} {{
+{enum_variant_defs}
+}}
+
+impl {self.enum_name} {{
+{funcs}
+}}
+
+{impls}
+        """.strip()
+
+    @property
+    def fn_is_valid(self) -> str:
+        valid_ranges = fmt_ranges(
+            group_ranges(sorted(self._analysis.opmap[inst.name] for inst in self))
+        )
         return f"""
 /// Whether the given ID matches one of the opcode IDs.
 #[must_use]
-pub const fn is_valid(id: u16) -> bool {{
+pub const fn is_valid(id: {self.typ}) -> bool {{
     matches!(id, {valid_ranges})
 }}
-""".strip()
+        """
 
-    def generate_is_pseudo(self) -> str:
-        matches = " | ".join(ins.enum_variant for ins in self if ins.is_pseudo)
+    def build_has_attr_fn(self, fn_attr: str, prop_attr: str, doc_flag: str):
+        matches = "|".join(
+            f"Self::{inst.name}" for inst in self if getattr(inst.properties, prop_attr)
+        )
+        if matches:
+            inner = f"matches!(*self, {matches})"
+        else:
+            inner = "false"
+
         return f"""
-/// Whether opcode ID is pseudo.
+/// Whether opcode ID have '{doc_flag}' set.
 #[must_use]
-pub const fn is_pseudo(&self) -> bool {{
-    matches!(*self, {matches})
+pub const fn has_{fn_attr}(&self) -> bool {{
+{inner}
 }}
-""".strip()
+        """
 
-    def _generate_has_attr(self, attr: str, *, flag_override: str | None = None) -> str:
-        flag = flag_override if flag_override else f"has_{attr}_flag".upper()
-        matches = " | ".join(ins.enum_variant for ins in self if flag in ins.flags)
-        return f"""
-/// Whether opcode ID have '{flag}' set.
-#[must_use]
-pub const fn has_{attr}(&self) -> bool {{
-    matches!(*self, {matches})
+    fn_has_arg = property(
+        lambda self: self.build_has_attr_fn("arg", "oparg", "HAS_ARG_FLAG")
+    )
+    fn_has_const = property(
+        lambda self: self.build_has_attr_fn("const", "uses_co_consts", "HAS_CONST_FLAG")
+    )
+    fn_has_name = property(
+        lambda self: self.build_has_attr_fn("name", "uses_co_names", "HAS_NAME_FLAG")
+    )
+    fn_has_jump = property(
+        lambda self: self.build_has_attr_fn("jump", "jumps", "HAS_JUMP_FLAG")
+    )
+    fn_has_free = property(
+        lambda self: self.build_has_attr_fn("free", "has_free", "HAS_FREE_FLAG")
+    )
+    fn_has_local = property(
+        lambda self: self.build_has_attr_fn("local", "uses_locals", "HAS_LOCAL_FLAG")
+    )
+    fn_has_exc = property(
+        lambda self: self.build_has_attr_fn("exc", "pure", "HAS_PURE_FLAG")
+    )
+
+    @property
+    def impl_try_from_nums(self) -> str:
+        return "\n\n".join(
+            f"""
+impl TryFrom<{typ}> for {self.enum_name} {{
+    type Error = ();
+
+    fn try_from(raw: {typ}) -> Result<Self, Self::Error> {{
+        let id = raw.try_into().map_err(|_| ())?;
+        if Self::is_valid(id) {{
+            // SAFETY: We just validated that we have a valid opcode id.
+            Ok(unsafe {{ std::mem::transmute::<{self.typ}, Self>(id) }})
+        }} else {{
+            Err(())
+        }}
+    }}
 }}
-""".strip()
+"""
+            for typ in TYPES
+        )
 
-    def generate_has_arg(self) -> str:
-        return self._generate_has_attr("arg")
 
-    def generate_has_const(self) -> str:
-        return self._generate_has_attr("const")
+class RealInstructions(InstructionsMeta):
+    enum_name = "RealOpcode"
+    typ = "u8"
 
-    def generate_has_name(self) -> str:
-        return self._generate_has_attr("name")
-
-    def generate_has_jump(self) -> str:
-        return self._generate_has_attr("jump")
-
-    def generate_has_free(self) -> str:
-        return self._generate_has_attr("free")
-
-    def generate_has_local(self) -> str:
-        return self._generate_has_attr("local")
-
-    def generate_has_exc(self) -> str:
-        return self._generate_has_attr("exc", flag_override="HAS_PURE_FLAG")
+    def __iter__(self) -> "Iterator[analyzer.Instruction | analyzer.PseudoInstruction]":
+        yield from sorted(
+            itertools.chain(
+                self._analysis.instructions.values(),
+                [analyzer.Instruction("INSTRUMENTED_LINE", [], None)],
+            ),
+            key=lambda inst: inst.name,
+        )
 
     def _generate_stack_effect(self, direction: str) -> str:
         """
@@ -213,136 +257,93 @@ pub const fn has_{attr}(&self) -> bool {{
         """
 
         lines = []
-        for ins in self:
-            if ins.is_pseudo:
-                continue
-
-            stack = get_stack_effect(ins._inner)
+        for inst in self:
+            stack = get_stack_effect(inst)
             if direction == "popped":
                 val = -stack.base_offset
             elif direction == "pushed":
                 val = stack.top_offset - stack.base_offset
 
             expr = val.to_c()
-            line = f"{ins.enum_variant} => {expr}"
+            line = f"Self::{inst.name} => {expr}"
             lines.append(line)
 
-        conds = ",\n".join(lines)
+        branches = ",\n".join(lines)
         doc = "from" if direction == "popped" else "on"
         return f"""
 /// How many items should be {direction} {doc} the stack.
 pub const fn num_{direction}(&self, oparg: i32) -> i32 {{
-    match &self {{
-    {conds},
-    _ => panic!("Pseudo opcodes are not allowed!")
+    match *self {{
+{branches}
     }}
 }}
 """
 
-    def generate_num_popped(self) -> str:
+    @property
+    def fn_num_popped(self) -> str:
         return self._generate_stack_effect("popped")
 
-    def generate_num_pushed(self) -> str:
+    @property
+    def fn_num_pushed(self) -> str:
         return self._generate_stack_effect("pushed")
+
+    @property
+    def fn_deopt(self) -> str:
+        deopts = collections.defaultdict(list)
+        for inst in self:
+            deopt = inst.name
+
+            if inst.family is not None:
+                deopt = inst.family.name
+
+            if inst.name == deopt:
+                continue
+            deopts[deopt].append(inst.name)
+
+        f = lambda l: "|".join(f"Self::{x}" for x in l)
+        branches = ",\n".join(
+            f"{f(deopt)} => Self::{name}" for name, deopt in sorted(deopts.items())
+        )
+        return f"""
+pub const fn deopt(&self) -> Option<Self> {{
+    Some(match *self {{
+{branches},
+_ => return None,
+    }})
+}}
+""".strip()
+
+
+class PseudoInstructions(InstructionsMeta):
+    enum_name = "PseudoOpcode"
+    typ = "u16"
+
+    def __iter__(self) -> "Iterator[analyzer.PseudoInstruction]":
+        yield from sorted(self._analysis.pseudos.values(), key=lambda inst: inst.name)
 
 
 def main():
     analysis = analyzer.analyze_files([DEFAULT_INPUT])
-    instructions = Instructions(analysis)
-
-    enum_variant_defs = instructions.generate_enum_variant_defs()
-    is_valid = instructions.generate_is_valid()
-    is_pseudo = instructions.generate_is_pseudo()
-
-    has_arg = instructions.generate_has_arg()
-    has_const = instructions.generate_has_const()
-    has_name = instructions.generate_has_name()
-    has_jump = instructions.generate_has_jump()
-    has_free = instructions.generate_has_free()
-    has_local = instructions.generate_has_local()
-    has_exc = instructions.generate_has_exc()
-
-    num_popped = instructions.generate_num_popped()
-    num_pushed = instructions.generate_num_pushed()
+    real_instructions = RealInstructions(analysis)
+    pseudo_instructions = PseudoInstructions(analysis)
 
     script_path = pathlib.Path(__file__).absolute().relative_to(ROOT).as_posix()
-
-    opcode_src = f"""
-/// Python opcode
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u16)]
-pub enum Opcode {{
-{enum_variant_defs}
-}}
-
-impl Opcode {{
-{is_valid}
-
-{is_pseudo}
-
-{has_arg}
-
-{has_const}
-
-{has_name}
-
-{has_jump}
-
-{has_free}
-
-{has_local}
-
-{has_exc}
-
-{num_popped}
-
-{num_pushed}
-}}
-
-macro_rules! opcode_try_from_impl {{
-    ($t:ty) => {{
-        impl TryFrom<$t> for Opcode {{
-            type Error = ();
-
-            fn try_from(value: $t) -> Result<Self, Self::Error> {{
-                let id = value.try_into().map_err(|_| ())?;
-                if Self::is_valid(id) {{
-                    // SAFETY: We just validated that we have a valid opcode id.
-                    Ok( unsafe {{ std::mem::transmute::<u16, Self>(id) }})
-                }} else {{
-                    Err(())
-                }}
-            }}
-        }}
-    }};
-}}
-
-opcode_try_from_impl!(i8);
-opcode_try_from_impl!(i16);
-opcode_try_from_impl!(i32);
-opcode_try_from_impl!(i64);
-opcode_try_from_impl!(i128);
-opcode_try_from_impl!(isize);
-opcode_try_from_impl!(u8);
-opcode_try_from_impl!(u16);
-opcode_try_from_impl!(u32);
-opcode_try_from_impl!(u64);
-opcode_try_from_impl!(u128);
-opcode_try_from_impl!(usize);
-    """.strip()
-
     out = f"""
 //! Python opcode implementation. Currently aligned with cpython 3.13.7
 
 // This file is generated by {script_path}
 // Do not edit!
 
-{opcode_src}
-""".strip()
+{real_instructions.rust_code}
 
+{pseudo_instructions.rust_code}
+    """.strip()
+
+    replacements = {name: enum_variant_name(name) for name in analysis.opmap}
+    inner_pattern = "|".join(replacements)
+    pattern = re.compile(rf"\b({inner_pattern})\b")
+    out = pattern.sub(lambda m: replacements[m.group(0)], out)
     OUT_PATH.write_text(out)
-    print("DONE")
-
     print("Running `cargo fmt`")
     subprocess.run(["cargo", "fmt"], cwd=ROOT)
 

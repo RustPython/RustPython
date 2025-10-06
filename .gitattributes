@@ -2,7 +2,7 @@ Lib/**      linguist-vendored
 Cargo.lock  linguist-generated
 *.snap      linguist-generated -merge
 vm/src/stdlib/ast/gen.rs    linguist-generated -merge
-compiler/core/src/opcode.rs linguist-generated=true
+compiler/core/src/opcodes.rs linguist-generated=true
 Lib/*.py    text working-tree-encoding=UTF-8 eol=LF
 **/*.rs     text working-tree-encoding=UTF-8 eol=LF
 *.pck       binary

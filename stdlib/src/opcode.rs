@@ -6,14 +6,10 @@ mod opcode {
         AsObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyBool, PyInt, PyIntRef, PyNone},
         match_class,
-        opcode::Opcode,
+        opcode::{Opcode, PseudoOpcode, RealOpcode},
     };
-
     #[pyattr]
     const ENABLE_SPECIALIZATION: u8 = 1;
-
-    // https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Include/internal/pycore_opcode_utils.h#L13
-    const MAX_REAL_OPCODE: u16 = 254;
 
     #[derive(FromArgs)]
     struct StackEffectArgs {
@@ -61,55 +57,62 @@ mod opcode {
         let raw_opcode = args.opcode.try_to_primitive::<u16>(vm)?;
         let opcode = Opcode::try_from(raw_opcode).map_err(|_| invalid_opcode())?;
 
-        if raw_opcode <= MAX_REAL_OPCODE {
-            /*
-            // TODO: implement Opcode.is_specialized
-            if opcode.is_specialized() {
-                return Err(invalid_opcode());
-            }
-            */
-
-            let popped = opcode.num_popped(oparg);
-            let pushed = opcode.num_pushed(oparg);
-
-            if popped < 0 || pushed < 0 {
-                return Err(invalid_opcode());
-            }
-            return Ok(pushed - popped);
-        }
-
-        // Pseudo ops
         Ok(match opcode {
-            Opcode::PopBlock | Opcode::Jump | Opcode::JumpNoInterrupt => 0,
-            Opcode::ExitInitCheck => -1,
-            // Exception handling pseudo-instructions
-            Opcode::SetupFinally => {
-                if jump {
-                    1
-                } else {
-                    0
+            Opcode::Real(r_op) => {
+                // ExitInitCheck at CPython is under the pseudos match?
+                // https://github.com/python/cpython/blob/bcee1c322115c581da27600f2ae55e5439c027eb/Python/compile.c#L736-L737
+                if matches!(r_op, RealOpcode::ExitInitCheck) {
+                    return Ok(-1);
                 }
-            }
-            Opcode::SetupCleanup => {
-                if jump {
-                    2
-                } else {
-                    0
-                }
-            }
-            Opcode::SetupWith => {
-                if jump {
-                    1
-                } else {
-                    0
-                }
-            }
-            Opcode::StoreFastMaybeNull => -1,
-            Opcode::LoadClosure => 1,
-            Opcode::LoadMethod => 1,
-            Opcode::LoadSuperMethod | Opcode::LoadZeroSuperMethod | Opcode::LoadZeroSuperAttr => -1,
 
-            _ => return Err(invalid_opcode()),
+                if let Some(_) = r_op.deopt() {
+                    // Specialized instructions are not supported.
+                    return Err(invalid_opcode());
+                }
+
+                let popped = r_op.num_popped(oparg);
+                let pushed = r_op.num_pushed(oparg);
+
+                if popped < 0 || pushed < 0 {
+                    return Err(invalid_opcode());
+                }
+                pushed - popped
+            }
+            Opcode::Pseudo(p_op) => {
+                match p_op {
+                    PseudoOpcode::PopBlock | PseudoOpcode::Jump | PseudoOpcode::JumpNoInterrupt => {
+                        0
+                    }
+                    // Exception handling pseudo-instructions
+                    PseudoOpcode::SetupFinally => {
+                        if jump {
+                            1
+                        } else {
+                            0
+                        }
+                    }
+                    PseudoOpcode::SetupCleanup => {
+                        if jump {
+                            2
+                        } else {
+                            0
+                        }
+                    }
+                    PseudoOpcode::SetupWith => {
+                        if jump {
+                            1
+                        } else {
+                            0
+                        }
+                    }
+                    PseudoOpcode::StoreFastMaybeNull => -1,
+                    PseudoOpcode::LoadClosure => 1,
+                    PseudoOpcode::LoadMethod => 1,
+                    PseudoOpcode::LoadSuperMethod
+                    | PseudoOpcode::LoadZeroSuperMethod
+                    | PseudoOpcode::LoadZeroSuperAttr => -1,
+                }
+            }
         })
     }
 
@@ -120,37 +123,37 @@ mod opcode {
 
     #[pyfunction]
     fn has_arg(opcode: i32) -> bool {
-        Opcode::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_arg())
+        RealOpcode::try_from(opcode).is_ok_and(|op| op.has_arg())
     }
 
     #[pyfunction]
     fn has_const(opcode: i32) -> bool {
-        Opcode::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_const())
+        RealOpcode::try_from(opcode).is_ok_and(|op| op.has_const())
     }
 
     #[pyfunction]
     fn has_name(opcode: i32) -> bool {
-        Opcode::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_name())
+        RealOpcode::try_from(opcode).is_ok_and(|op| op.has_name())
     }
 
     #[pyfunction]
     fn has_jump(opcode: i32) -> bool {
-        Opcode::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_jump())
+        RealOpcode::try_from(opcode).is_ok_and(|op| op.has_jump())
     }
 
     #[pyfunction]
     fn has_free(opcode: i32) -> bool {
-        Opcode::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_free())
+        RealOpcode::try_from(opcode).is_ok_and(|op| op.has_free())
     }
 
     #[pyfunction]
     fn has_local(opcode: i32) -> bool {
-        Opcode::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_local())
+        RealOpcode::try_from(opcode).is_ok_and(|op| op.has_local())
     }
 
     #[pyfunction]
     fn has_exc(opcode: i32) -> bool {
-        Opcode::try_from(opcode).is_ok_and(|oid| !oid.is_pseudo() && oid.has_exc())
+        RealOpcode::try_from(opcode).is_ok_and(|op| op.has_exc())
     }
 
     #[pyfunction]
