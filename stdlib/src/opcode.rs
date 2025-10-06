@@ -35,7 +35,12 @@ mod opcode {
                     )));
                 }
                 v.downcast_ref::<PyInt>()
-                    .ok_or_else(|| vm.new_type_error(""))?
+                    .ok_or_else(|| {
+                        vm.new_type_error(format!(
+                            "'{}' object cannot be interpreted as an integer",
+                            v.class().name()
+                        ))
+                    })?
                     .try_to_primitive::<i32>(vm)
             })
             .unwrap_or(Ok(0))?;

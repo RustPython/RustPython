@@ -234,6 +234,15 @@ pub const fn has_{fn_attr}(&self) -> bool {{
     @property
     def impl_try_from_nums(self) -> str:
         def fn_prefix(typ: str):
+            """
+            Generate the TryFrom prefix based on type compatibility.
+
+            Cases:
+            1. Sign mismatch (u8 vs i8): requires try_into
+            2. Widening (u8 to u16): requires try_into for safety
+            3. Exact match (u8 to u8): use directly
+            4. Narrowing (u16 to u8): use into (infallible)
+            """
             s_val = int(
                 self.typ[1:]
             )  # Will not work if `self.typ` is either isize or usize
