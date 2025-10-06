@@ -338,6 +338,9 @@ pub const fn num_{direction}(&self, oparg: i32) -> i32 {{
 
     @property
     def fn_deopt(self) -> str:
+        def format_deopt_variants(lst: list[str]) -> str:
+            return "|".join(f"Self::{v}" for v in lst)
+
         deopts = collections.defaultdict(list)
         for inst in self:
             deopt = inst.name
@@ -349,9 +352,9 @@ pub const fn num_{direction}(&self, oparg: i32) -> i32 {{
                 continue
             deopts[deopt].append(inst.name)
 
-        f = lambda l: "|".join(f"Self::{x}" for x in l)
         branches = ",\n".join(
-            f"{f(deopt)} => Self::{name}" for name, deopt in sorted(deopts.items())
+            f"{format_deopt_variants(deopt)} => Self::{name}"
+            for name, deopt in sorted(deopts.items())
         )
         return f"""
 pub const fn deopt(&self) -> Option<Self> {{
