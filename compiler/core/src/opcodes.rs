@@ -991,7 +991,6 @@ impl TryFrom<i8> for RealOpcode {
     type Error = ();
 
     fn try_from(raw: i8) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
@@ -1006,7 +1005,6 @@ impl TryFrom<i16> for RealOpcode {
     type Error = ();
 
     fn try_from(raw: i16) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
@@ -1021,7 +1019,6 @@ impl TryFrom<i32> for RealOpcode {
     type Error = ();
 
     fn try_from(raw: i32) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
@@ -1036,7 +1033,6 @@ impl TryFrom<i64> for RealOpcode {
     type Error = ();
 
     fn try_from(raw: i64) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
@@ -1051,7 +1047,6 @@ impl TryFrom<i128> for RealOpcode {
     type Error = ();
 
     fn try_from(raw: i128) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
@@ -1066,7 +1061,6 @@ impl TryFrom<isize> for RealOpcode {
     type Error = ();
 
     fn try_from(raw: isize) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
@@ -1080,9 +1074,7 @@ impl TryFrom<isize> for RealOpcode {
 impl TryFrom<u8> for RealOpcode {
     type Error = ();
 
-    fn try_from(raw: u8) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
-        let id = raw.try_into().map_err(|_| ())?;
+    fn try_from(id: u8) -> Result<Self, Self::Error> {
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
             Ok(unsafe { std::mem::transmute::<u8, Self>(id) })
@@ -1096,7 +1088,6 @@ impl TryFrom<u16> for RealOpcode {
     type Error = ();
 
     fn try_from(raw: u16) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
@@ -1111,7 +1102,6 @@ impl TryFrom<u32> for RealOpcode {
     type Error = ();
 
     fn try_from(raw: u32) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
@@ -1126,7 +1116,6 @@ impl TryFrom<u64> for RealOpcode {
     type Error = ();
 
     fn try_from(raw: u64) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
@@ -1141,7 +1130,6 @@ impl TryFrom<u128> for RealOpcode {
     type Error = ();
 
     fn try_from(raw: u128) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
@@ -1156,7 +1144,6 @@ impl TryFrom<usize> for RealOpcode {
     type Error = ();
 
     fn try_from(raw: usize) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
@@ -1261,7 +1248,6 @@ impl TryFrom<i8> for PseudoOpcode {
     type Error = ();
 
     fn try_from(raw: i8) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
@@ -1276,7 +1262,6 @@ impl TryFrom<i16> for PseudoOpcode {
     type Error = ();
 
     fn try_from(raw: i16) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
@@ -1291,7 +1276,6 @@ impl TryFrom<i32> for PseudoOpcode {
     type Error = ();
 
     fn try_from(raw: i32) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
@@ -1306,7 +1290,6 @@ impl TryFrom<i64> for PseudoOpcode {
     type Error = ();
 
     fn try_from(raw: i64) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
@@ -1321,7 +1304,6 @@ impl TryFrom<i128> for PseudoOpcode {
     type Error = ();
 
     fn try_from(raw: i128) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
@@ -1336,7 +1318,6 @@ impl TryFrom<isize> for PseudoOpcode {
     type Error = ();
 
     fn try_from(raw: isize) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
@@ -1351,8 +1332,7 @@ impl TryFrom<u8> for PseudoOpcode {
     type Error = ();
 
     fn try_from(raw: u8) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
-        let id = raw.try_into().map_err(|_| ())?;
+        let id = raw.into();
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
             Ok(unsafe { std::mem::transmute::<u16, Self>(id) })
@@ -1365,9 +1345,7 @@ impl TryFrom<u8> for PseudoOpcode {
 impl TryFrom<u16> for PseudoOpcode {
     type Error = ();
 
-    fn try_from(raw: u16) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
-        let id = raw.try_into().map_err(|_| ())?;
+    fn try_from(id: u16) -> Result<Self, Self::Error> {
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
             Ok(unsafe { std::mem::transmute::<u16, Self>(id) })
@@ -1381,7 +1359,6 @@ impl TryFrom<u32> for PseudoOpcode {
     type Error = ();
 
     fn try_from(raw: u32) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
@@ -1396,7 +1373,6 @@ impl TryFrom<u64> for PseudoOpcode {
     type Error = ();
 
     fn try_from(raw: u64) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
@@ -1411,7 +1387,6 @@ impl TryFrom<u128> for PseudoOpcode {
     type Error = ();
 
     fn try_from(raw: u128) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
@@ -1426,7 +1401,6 @@ impl TryFrom<usize> for PseudoOpcode {
     type Error = ();
 
     fn try_from(raw: usize) -> Result<Self, Self::Error> {
-        #[allow(clippy::unnecessary_fallible_conversions)]
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.

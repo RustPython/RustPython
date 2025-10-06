@@ -218,14 +218,39 @@ pub const fn has_{fn_attr}(&self) -> bool {{
 
     @property
     def impl_try_from_nums(self) -> str:
+        def fn_prefix(typ: str):
+            s_val = int(
+                self.typ[1:]
+            )  # Will not work if `self.typ` is either isize or usize
+            try:
+                o_val = int(typ[1:])
+            except ValueError:
+                o_val = float("inf")
+
+            if self.typ[0] != typ[0]:
+                arg = f"raw: {typ}"
+                id_def = "let id = raw.try_into().map_err(|_| ())?;"
+            elif o_val > s_val:
+                arg = f"raw: {typ}"
+                id_def = "let id = raw.try_into().map_err(|_| ())?;"
+            elif o_val == s_val:
+                arg = f"id: {typ}"
+                id_def = ""
+            else:
+                arg = f"raw: {typ}"
+                id_def = "let id = raw.into();"
+
+            return f"""
+fn try_from({arg}) -> Result<Self, Self::Error> {{
+{id_def}
+        """.strip()
+
         return "\n\n".join(
             f"""
 impl TryFrom<{typ}> for {self.enum_name} {{
     type Error = ();
 
-    fn try_from(raw: {typ}) -> Result<Self, Self::Error> {{
-        #[allow(clippy::unnecessary_fallible_conversions)]
-        let id = raw.try_into().map_err(|_| ())?;
+    {fn_prefix(typ)}
         if Self::is_valid(id) {{
             // SAFETY: We just validated that we have a valid opcode id.
             Ok(unsafe {{ std::mem::transmute::<{self.typ}, Self>(id) }})
