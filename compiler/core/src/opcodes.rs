@@ -550,6 +550,17 @@ impl RealOpcode {
         matches!(id, 0..=118 | 149..=222 | 236..=254)
     }
 
+    /// Creates a new `RealOpcode` without checking the value is a valid opcode ID.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `id` satisfies `RealOpcode::is_valid(id)`.
+    #[must_use]
+    pub const unsafe fn new_unchecked(id: u8) -> Self {
+        // SAFETY: caller responsibility
+        unsafe { std::mem::transmute::<u8, Self>(id) }
+    }
+
     /// How many items should be popped from the stack.
     pub const fn num_popped(&self, oparg: i32) -> i32 {
         match *self {
@@ -994,7 +1005,7 @@ impl TryFrom<i8> for RealOpcode {
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u8, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1008,7 +1019,7 @@ impl TryFrom<i16> for RealOpcode {
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u8, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1022,7 +1033,7 @@ impl TryFrom<i32> for RealOpcode {
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u8, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1036,7 +1047,7 @@ impl TryFrom<i64> for RealOpcode {
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u8, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1050,7 +1061,7 @@ impl TryFrom<i128> for RealOpcode {
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u8, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1064,7 +1075,7 @@ impl TryFrom<isize> for RealOpcode {
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u8, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1077,7 +1088,7 @@ impl TryFrom<u8> for RealOpcode {
     fn try_from(id: u8) -> Result<Self, Self::Error> {
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u8, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1091,7 +1102,7 @@ impl TryFrom<u16> for RealOpcode {
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u8, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1105,7 +1116,7 @@ impl TryFrom<u32> for RealOpcode {
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u8, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1119,7 +1130,7 @@ impl TryFrom<u64> for RealOpcode {
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u8, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1133,7 +1144,7 @@ impl TryFrom<u128> for RealOpcode {
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u8, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1147,7 +1158,7 @@ impl TryFrom<usize> for RealOpcode {
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u8, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1242,6 +1253,17 @@ impl PseudoOpcode {
     pub const fn is_valid(id: u16) -> bool {
         matches!(id, 256..=267)
     }
+
+    /// Creates a new `PseudoOpcode` without checking the value is a valid opcode ID.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `id` satisfies `PseudoOpcode::is_valid(id)`.
+    #[must_use]
+    pub const unsafe fn new_unchecked(id: u16) -> Self {
+        // SAFETY: caller responsibility
+        unsafe { std::mem::transmute::<u16, Self>(id) }
+    }
 }
 
 impl TryFrom<i8> for PseudoOpcode {
@@ -1251,7 +1273,7 @@ impl TryFrom<i8> for PseudoOpcode {
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u16, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1265,7 +1287,7 @@ impl TryFrom<i16> for PseudoOpcode {
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u16, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1279,7 +1301,7 @@ impl TryFrom<i32> for PseudoOpcode {
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u16, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1293,7 +1315,7 @@ impl TryFrom<i64> for PseudoOpcode {
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u16, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1307,7 +1329,7 @@ impl TryFrom<i128> for PseudoOpcode {
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u16, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1321,7 +1343,7 @@ impl TryFrom<isize> for PseudoOpcode {
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u16, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1335,7 +1357,7 @@ impl TryFrom<u8> for PseudoOpcode {
         let id = raw.into();
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u16, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1348,7 +1370,7 @@ impl TryFrom<u16> for PseudoOpcode {
     fn try_from(id: u16) -> Result<Self, Self::Error> {
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u16, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1362,7 +1384,7 @@ impl TryFrom<u32> for PseudoOpcode {
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u16, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1376,7 +1398,7 @@ impl TryFrom<u64> for PseudoOpcode {
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u16, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1390,7 +1412,7 @@ impl TryFrom<u128> for PseudoOpcode {
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u16, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }
@@ -1404,7 +1426,7 @@ impl TryFrom<usize> for PseudoOpcode {
         let id = raw.try_into().map_err(|_| ())?;
         if Self::is_valid(id) {
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe { std::mem::transmute::<u16, Self>(id) })
+            Ok(unsafe { Self::new_unchecked(id) })
         } else {
             Err(())
         }

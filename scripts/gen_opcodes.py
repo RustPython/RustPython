@@ -165,6 +165,21 @@ impl {self.enum_name} {{
         """.strip()
 
     @property
+    def fn_new_unchecked(self) -> str:
+        return f"""
+/// Creates a new `{self.enum_name}` without checking the value is a valid opcode ID.
+///
+/// # Safety
+///
+/// The caller must ensure that `id` satisfies `{self.enum_name}::is_valid(id)`.
+#[must_use]
+pub const unsafe fn new_unchecked(id: {self.typ}) -> Self {{
+    // SAFETY: caller responsibility
+    unsafe {{ std::mem::transmute::<{self.typ}, Self>(id) }}
+}}
+"""
+
+    @property
     def fn_is_valid(self) -> str:
         valid_ranges = fmt_ranges(
             group_ranges(sorted(self._analysis.opmap[inst.name] for inst in self))
@@ -253,7 +268,7 @@ impl TryFrom<{typ}> for {self.enum_name} {{
     {fn_prefix(typ)}
         if Self::is_valid(id) {{
             // SAFETY: We just validated that we have a valid opcode id.
-            Ok(unsafe {{ std::mem::transmute::<{self.typ}, Self>(id) }})
+            Ok(unsafe {{ Self::new_unchecked(id) }})
         }} else {{
             Err(())
         }}
