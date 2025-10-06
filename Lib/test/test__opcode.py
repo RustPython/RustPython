@@ -76,7 +76,6 @@ class StackEffectTests(unittest.TestCase):
                 self.assertRaises(ValueError, stack_effect, code)
                 self.assertRaises(ValueError, stack_effect, code, 0)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; ValueError: stack_effect: jump must be False, True or None
     def test_stack_effect_jump(self):
         FOR_ITER = dis.opmap['FOR_ITER']
         self.assertEqual(stack_effect(FOR_ITER, 0), 1)

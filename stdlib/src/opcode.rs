@@ -4,8 +4,7 @@ pub(crate) use opcode::make_module;
 mod opcode {
     use crate::vm::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyBool, PyInt, PyIntRef, PyNone},
-        match_class,
+        builtins::{PyInt, PyIntRef},
         opcode::{Opcode, PseudoOpcode, RealOpcode},
     };
     #[pyattr]
@@ -44,12 +43,8 @@ mod opcode {
         let jump = args
             .jump
             .map(|v| {
-                match_class!(match v {
-                    b @ PyBool => Ok(b.is(&vm.ctx.true_value)),
-                    _n @ PyNone => Ok(false),
-                    _ => {
-                        Err(vm.new_value_error("stack_effect: jump must be False, True or None"))
-                    }
+                v.try_to_bool(vm).map_err(|_| {
+                    vm.new_value_error("stack_effect: jump must be False, True or None")
                 })
             })
             .unwrap_or(Ok(false))?;
