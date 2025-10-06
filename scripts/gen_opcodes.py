@@ -21,7 +21,6 @@ sys.path.append(str(_cases_generator_path))
 
 import analyzer
 from generators_common import DEFAULT_INPUT
-from opcode_metadata_generator import cflags
 from stack import StackOffset, get_stack_effect
 
 ROOT = pathlib.Path(__file__).parents[1]
