@@ -65,7 +65,7 @@ mod opcode {
                     return Ok(-1);
                 }
 
-                if let Some(_) = r_op.deopt() {
+                if r_op.deopt().is_some() {
                     // Specialized instructions are not supported.
                     return Err(invalid_opcode());
                 }
