@@ -13,7 +13,7 @@ rustpython-wtf8 = { workspace = true }
 
 hexf-parse = "0.2.1"
 is-macro.workspace = true
-lexical-parse-float = { version = "1.0.4", features = ["format"] }
+lexical-parse-float = { version = "1.0.6", features = ["format"] }
 num-traits = { workspace = true }
 unic-ucd-category = { workspace = true }
 
