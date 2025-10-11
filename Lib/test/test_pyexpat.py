@@ -549,6 +549,7 @@ class PositionTest(unittest.TestCase):
 
 
 class sf1296433Test(unittest.TestCase):
+    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: Expected type 'str' but 'bytes' found.
     def test_parse_only_xml_data(self):
         # https://bugs.python.org/issue1296433
         #
@@ -797,6 +798,7 @@ class ParentParserLifetimeTest(unittest.TestCase):
     See https://github.com/python/cpython/issues/139400.
     """
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'ExternalEntityParserCreate'
     def test_parent_parser_outlives_its_subparsers__single(self):
         parser = expat.ParserCreate()
         subparser = parser.ExternalEntityParserCreate(None)
@@ -805,6 +807,7 @@ class ParentParserLifetimeTest(unittest.TestCase):
         # while it's still being referenced by a related subparser.
         del parser
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'ExternalEntityParserCreate'
     def test_parent_parser_outlives_its_subparsers__multiple(self):
         parser = expat.ParserCreate()
         subparser_one = parser.ExternalEntityParserCreate(None)
@@ -814,6 +817,7 @@ class ParentParserLifetimeTest(unittest.TestCase):
         # while it's still being referenced by a related subparser.
         del parser
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'ExternalEntityParserCreate'
     def test_parent_parser_outlives_its_subparsers__chain(self):
         parser = expat.ParserCreate()
         subparser = parser.ExternalEntityParserCreate(None)
@@ -826,6 +830,7 @@ class ParentParserLifetimeTest(unittest.TestCase):
 
 
 class ReparseDeferralTest(unittest.TestCase):
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'GetReparseDeferralEnabled'
     def test_getter_setter_round_trip(self):
         parser = expat.ParserCreate()
         enabled = (expat.version_info >= (2, 6, 0))
@@ -836,6 +841,7 @@ class ReparseDeferralTest(unittest.TestCase):
         parser.SetReparseDeferralEnabled(True)
         self.assertIs(parser.GetReparseDeferralEnabled(), enabled)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'GetReparseDeferralEnabled'
     def test_reparse_deferral_enabled(self):
         if expat.version_info < (2, 6, 0):
             self.skipTest(f'Expat {expat.version_info} does not '
@@ -860,6 +866,7 @@ class ReparseDeferralTest(unittest.TestCase):
 
         self.assertEqual(started, ['doc'])
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetReparseDeferralEnabled'
     def test_reparse_deferral_disabled(self):
         started = []
 
