@@ -107,7 +107,7 @@ else:
     _INSTALL_SCHEMES['venv'] = _INSTALL_SCHEMES['posix_venv']
 
 def _get_implementation():
-    return 'Python'
+    return 'RustPython' # XXX: For site-packages
 
 # NOTE: site.py has copy of this function.
 # Sync it when modify this function.

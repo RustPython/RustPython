@@ -512,6 +512,10 @@ class _CallableGenericAlias(GenericAlias):
             new_args = (t_args, t_result)
         return _CallableGenericAlias(Callable, tuple(new_args))
 
+    # TODO: RUSTPYTHON; patch for common call
+    def __or__(self, other):
+        super().__or__(other)
+
 def _is_param_expr(obj):
     """Checks if obj matches either a list of types, ``...``, ``ParamSpec`` or
     ``_ConcatenateGenericAlias`` from typing.py
