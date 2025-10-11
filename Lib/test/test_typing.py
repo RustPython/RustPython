@@ -49,6 +49,8 @@ from test.support import captured_stderr, cpython_only, infinite_recursion, requ
 from test.support.testcase import ExtraAssertions
 from test.typinganndata import ann_module695, mod_generics_cache, _typed_dict_helper
 
+import unittest # XXX: RUSTPYTHON
+
 
 CANNOT_SUBCLASS_TYPE = 'Cannot subclass special typing classes'
 NOT_A_BASE_TYPE = "type 'typing.%s' is not an acceptable base type"
