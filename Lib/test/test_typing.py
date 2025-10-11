@@ -5715,6 +5715,7 @@ class GenericTests(BaseTestCase):
                     with self.assertRaises(TypeError):
                         a[int]
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: ".+__typing_subst__.+tuple.+int.*" does not match "'TypeAliasType' object is not subscriptable"
     def test_return_non_tuple_while_unpacking(self):
         # GH-138497: GenericAlias objects didn't ensure that __typing_subst__ actually
         # returned a tuple
