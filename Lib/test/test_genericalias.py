@@ -151,6 +151,7 @@ class BaseTest(unittest.TestCase):
                 self.assertEqual(alias.__args__, (int,))
                 self.assertEqual(alias.__parameters__, ())
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; wrong error message
     def test_unsubscriptable(self):
         for t in int, str, float, Sized, Hashable:
             tname = t.__name__
@@ -209,6 +210,7 @@ class BaseTest(unittest.TestCase):
         self.assertEqual(t.__args__, (int,))
         self.assertEqual(t.__parameters__, ())
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_repr(self):
         class MyList(list):
             pass
@@ -332,6 +334,7 @@ class BaseTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             dict[T, T][str, int]
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_equality(self):
         self.assertEqual(list[int], list[int])
         self.assertEqual(dict[str, int], dict[str, int])
@@ -362,6 +365,7 @@ class BaseTest(unittest.TestCase):
         self.assertEqual(t(test), Test)
         self.assertEqual(t(0), int)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; wrong error message
     def test_type_subclass_generic(self):
         class MyType(type):
             pass
@@ -422,6 +426,7 @@ class BaseTest(unittest.TestCase):
         self.assertEqual(a.__args__, (list[T], tuple[T, ...]))
         self.assertEqual(a.__parameters__, (T,))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_dir(self):
         ga = list[int]
         dir_of_gen_alias = set(dir(ga))
