@@ -489,6 +489,8 @@ mod builtins {
                     Err(vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.to_owned()))
                 }
                 ReadlineResult::Io(e) => Err(vm.new_os_error(e.to_string())),
+                #[cfg(unix)]
+                ReadlineResult::OsError(num) => Err(vm.new_os_error(num.to_string())),
                 ReadlineResult::Other(e) => Err(vm.new_runtime_error(e.to_string())),
             }
         } else {
