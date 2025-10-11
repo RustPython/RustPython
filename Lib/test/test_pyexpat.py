@@ -466,7 +466,6 @@ class HandlerExceptionTest(unittest.TestCase):
         self.assertEqual(os.path.basename(entry.filename), filename)
         self.assertEqual(entry.name, funcname)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @support.cpython_only
     def test_exception(self):
         # gh-66652: test _PyTraceback_Add() used by pyexpat.c to inject frames

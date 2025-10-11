@@ -331,13 +331,15 @@ class HelperFunctionsTests(unittest.TestCase):
             if sys.platlibdir != "lib":
                 self.assertEqual(len(dirs), 2)
                 wanted = os.path.join('xoxo', sys.platlibdir,
-                                      f'python{sysconfig._get_python_version_abi()}',
+                                      # XXX: RUSTPYTHON
+                                      f'rustpython{sysconfig._get_python_version_abi()}',
                                       'site-packages')
                 self.assertEqual(dirs[0], wanted)
             else:
                 self.assertEqual(len(dirs), 1)
             wanted = os.path.join('xoxo', 'lib',
-                                  f'python{sysconfig._get_python_version_abi()}',
+                                  # XXX: RUSTPYTHON
+                                  f'rustpython{sysconfig._get_python_version_abi()}',
                                   'site-packages')
             self.assertEqual(dirs[-1], wanted)
         else:
