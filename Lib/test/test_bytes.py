@@ -1579,6 +1579,11 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         self.assertEqual(b, b1)
         self.assertIs(b, b1)
 
+    # NOTE: RUSTPYTHON:
+    #
+    # The second instance of self.assertGreater was replaced with
+    # self.assertGreaterEqual since, in RustPython, the underlying storage
+    # is a Vec which doesn't require trailing null byte.
     def test_alloc(self):
         b = bytearray()
         alloc = b.__alloc__()
@@ -1587,10 +1592,15 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         for i in range(100):
             b += b"x"
             alloc = b.__alloc__()
-            self.assertGreater(alloc, len(b))  # including trailing null byte
+            self.assertGreaterEqual(alloc, len(b))  # NOTE: RUSTPYTHON patched
             if alloc not in seq:
                 seq.append(alloc)
 
+    # NOTE: RUSTPYTHON:
+    #
+    # The usages of self.assertGreater were replaced with
+    # self.assertGreaterEqual since, in RustPython, the underlying storage
+    # is a Vec which doesn't require trailing null byte.
     def test_init_alloc(self):
         b = bytearray()
         def g():
@@ -1601,12 +1611,12 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
                 self.assertEqual(len(b), len(a))
                 self.assertLessEqual(len(b), i)
                 alloc = b.__alloc__()
-                self.assertGreater(alloc, len(b))  # including trailing null byte
+                self.assertGreaterEqual(alloc, len(b))  # NOTE: RUSTPYTHON patched
         b.__init__(g())
         self.assertEqual(list(b), list(range(1, 100)))
         self.assertEqual(len(b), 99)
         alloc = b.__alloc__()
-        self.assertGreater(alloc, len(b))
+        self.assertGreaterEqual(alloc, len(b))  # NOTE: RUSTPYTHON patched
 
     def test_extend(self):
         orig = b'hello'
