@@ -345,8 +345,7 @@ class TestEnUSCollation(BaseLocalizedTest, TestCollation):
         enc = codecs.lookup(locale.getencoding() or 'ascii').name
         if enc not in ('utf-8', 'iso8859-1', 'cp1252'):
             raise unittest.SkipTest('encoding not suitable')
-        if enc != 'iso8859-1' and (sys.platform == 'darwin' or is_android or
-                                   sys.platform.startswith('freebsd')):
+        if enc != 'iso8859-1' and is_android:
             raise unittest.SkipTest('wcscoll/wcsxfrm have known bugs')
         BaseLocalizedTest.setUp(self)
 
@@ -512,7 +511,7 @@ class TestRealLocales(unittest.TestCase):
             self.skipTest(f"setlocale(LC_CTYPE, {loc!r}) failed: {exc!r}")
         self.assertEqual(loc, locale.getlocale(locale.LC_CTYPE))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; Error not raised")
+    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; Error not raised')
     @unittest.skipUnless(os.name == 'nt', 'requires Windows')
     def test_setlocale_long_encoding(self):
         with self.assertRaises(locale.Error):

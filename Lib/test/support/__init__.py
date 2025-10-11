@@ -305,6 +305,16 @@ def requires(resource, msg=None):
     if resource == 'gui' and not _is_gui_available():
         raise ResourceDenied(_is_gui_available.reason)
 
+def _get_kernel_version(sysname="Linux"):
+    import platform
+    if platform.system() != sysname:
+        return None
+    version_txt = platform.release().split('-', 1)[0]
+    try:
+        return tuple(map(int, version_txt.split('.')))
+    except ValueError:
+        return None
+
 def _requires_unix_version(sysname, min_version):
     """Decorator raising SkipTest if the OS is `sysname` and the version is less
     than `min_version`.
@@ -501,8 +511,6 @@ def requires_lzma(reason='requires lzma'):
         import lzma
     except ImportError:
         lzma = None
-    # XXX: RUSTPYTHON; xz is not supported yet
-    lzma = None
     return unittest.skipUnless(lzma, reason)
 
 def has_no_debug_ranges():
@@ -521,24 +529,42 @@ def requires_debug_ranges(reason='requires co_positions / debug_ranges'):
         reason = e.args[0] if e.args else reason
     return unittest.skipIf(skip, reason)
 
-@contextlib.contextmanager
-def suppress_immortalization(suppress=True):
-    """Suppress immortalization of deferred objects."""
+
+def can_use_suppress_immortalization(suppress=True):
+    """Check if suppress_immortalization(suppress) can be used.
+
+    Use this helper in code where SkipTest must be eagerly handled.
+    """
+    if not suppress:
+        return True
     try:
         import _testinternalcapi
     except ImportError:
-        yield
-        return
+        return False
+    return True
 
+
+@contextlib.contextmanager
+def suppress_immortalization(suppress=True):
+    """Suppress immortalization of deferred objects.
+
+    If _testinternalcapi is not available, the decorated test or class
+    is skipped. Use can_use_suppress_immortalization() outside test cases
+    to check if this decorator can be used.
+    """
     if not suppress:
-        yield
+        yield  # no-op
         return
 
+    from .import_helper import import_module
+
+    _testinternalcapi = import_module("_testinternalcapi")
     _testinternalcapi.suppress_immortalization(True)
     try:
         yield
     finally:
         _testinternalcapi.suppress_immortalization(False)
+
 
 def skip_if_suppress_immortalization():
     try:
@@ -815,8 +841,6 @@ def gc_collect():
     longer than expected.  This function tries its best to force all garbage
     objects to disappear.
     """
-    return # TODO: RUSTPYTHON
-
     import gc
     gc.collect()
     gc.collect()
@@ -824,13 +848,6 @@ def gc_collect():
 
 @contextlib.contextmanager
 def disable_gc():
-    # TODO: RUSTPYTHON; GC is not supported yet
-    try:
-        yield
-    finally:
-        pass
-    return
-
     import gc
     have_gc = gc.isenabled()
     gc.disable()
@@ -842,13 +859,6 @@ def disable_gc():
 
 @contextlib.contextmanager
 def gc_threshold(*args):
-    # TODO: RUSTPYTHON; GC is not supported yet
-    try:
-        yield
-    finally:
-        pass
-    return
-
     import gc
     old_threshold = gc.get_threshold()
     gc.set_threshold(*args)
@@ -1645,7 +1655,7 @@ def check__all__(test_case, module, name_of_module=None, extra=(),
     'module'.
 
     The 'name_of_module' argument can specify (as a string or tuple thereof)
-    what module(s) an API could be defined in in order to be detected as a
+    what module(s) an API could be defined in order to be detected as a
     public API. One case for this is when 'module' imports part of its public
     API from other modules, possibly a C backend (like 'csv' and its '_csv').
 
@@ -1911,10 +1921,6 @@ def _check_tracemalloc():
 
 
 def check_free_after_iterating(test, iter, cls, args=()):
-    # TODO: RUSTPYTHON; GC is not supported yet
-    test.assertTrue(False)
-    return
-
     done = False
     def wrapper():
         class A(cls):
@@ -2296,6 +2302,7 @@ def check_disallow_instantiation(testcase, tp, *args, **kwds):
         qualname = f"{name}"
     msg = f"cannot create '{re.escape(qualname)}' instances"
     testcase.assertRaisesRegex(TypeError, msg, tp, *args, **kwds)
+    testcase.assertRaisesRegex(TypeError, msg, tp.__new__, tp, *args, **kwds)
 
 def get_recursion_depth():
     """Get the recursion depth of the caller function.
@@ -2757,7 +2764,7 @@ def no_color():
     from .os_helper import EnvironmentVarGuard
 
     with (
-        swap_attr(_colorize, "can_colorize", lambda file=None: False),
+        swap_attr(_colorize, "can_colorize", lambda *, file=None: False),
         EnvironmentVarGuard() as env,
     ):
         env.unset("FORCE_COLOR", "NO_COLOR", "PYTHON_COLORS")
@@ -2838,205 +2845,3 @@ def linked_to_musl():
     except (OSError, subprocess.CalledProcessError):
         return False
     return ('musl' in stdout)
-
-
-# TODO: RUSTPYTHON
-# Every line of code below allowed us to update `Lib/test/support/__init__.py` without
-# needing to update `libregtest` and its dependencies.
-# Ideally we want to remove all code below and update `libregtest`.
-#
-# Code below was copied from: https://github.com/RustPython/RustPython/blob/9499d39f55b73535e2405bf208d5380241f79ada/Lib/test/support/__init__.py
-
-from .testresult import get_test_runner
-
-def _filter_suite(suite, pred):
-    """Recursively filter test cases in a suite based on a predicate."""
-    newtests = []
-    for test in suite._tests:
-        if isinstance(test, unittest.TestSuite):
-            _filter_suite(test, pred)
-            newtests.append(test)
-        else:
-            if pred(test):
-                newtests.append(test)
-    suite._tests = newtests
-
-# By default, don't filter tests
-_match_test_func = None
-
-_accept_test_patterns = None
-_ignore_test_patterns = None
-
-def match_test(test):
-    # Function used by support.run_unittest() and regrtest --list-cases
-    if _match_test_func is None:
-        return True
-    else:
-        return _match_test_func(test.id())
-
-def _is_full_match_test(pattern):
-    # If a pattern contains at least one dot, it's considered
-    # as a full test identifier.
-    # Example: 'test.test_os.FileTests.test_access'.
-    #
-    # ignore patterns which contain fnmatch patterns: '*', '?', '[...]'
-    # or '[!...]'. For example, ignore 'test_access*'.
-    return ('.' in pattern) and (not re.search(r'[?*\[\]]', pattern))
-
-def set_match_tests(accept_patterns=None, ignore_patterns=None):
-    global _match_test_func, _accept_test_patterns, _ignore_test_patterns
-
-    if accept_patterns is None:
-        accept_patterns = ()
-    if ignore_patterns is None:
-        ignore_patterns = ()
-
-    accept_func = ignore_func = None
-
-    if accept_patterns != _accept_test_patterns:
-        accept_patterns, accept_func = _compile_match_function(accept_patterns)
-    if ignore_patterns != _ignore_test_patterns:
-        ignore_patterns, ignore_func = _compile_match_function(ignore_patterns)
-
-    # Create a copy since patterns can be mutable and so modified later
-    _accept_test_patterns = tuple(accept_patterns)
-    _ignore_test_patterns = tuple(ignore_patterns)
-
-    if accept_func is not None or ignore_func is not None:
-        def match_function(test_id):
-            accept = True
-            ignore = False
-            if accept_func:
-                accept = accept_func(test_id)
-            if ignore_func:
-                ignore = ignore_func(test_id)
-            return accept and not ignore
-
-        _match_test_func = match_function
-
-def _compile_match_function(patterns):
-    if not patterns:
-        func = None
-        # set_match_tests(None) behaves as set_match_tests(())
-        patterns = ()
-    elif all(map(_is_full_match_test, patterns)):
-        # Simple case: all patterns are full test identifier.
-        # The test.bisect_cmd utility only uses such full test identifiers.
-        func = set(patterns).__contains__
-    else:
-        import fnmatch
-        regex = '|'.join(map(fnmatch.translate, patterns))
-        # The search *is* case sensitive on purpose:
-        # don't use flags=re.IGNORECASE
-        regex_match = re.compile(regex).match
-
-        def match_test_regex(test_id):
-            if regex_match(test_id):
-                # The regex matches the whole identifier, for example
-                # 'test.test_os.FileTests.test_access'.
-                return True
-            else:
-                # Try to match parts of the test identifier.
-                # For example, split 'test.test_os.FileTests.test_access'
-                # into: 'test', 'test_os', 'FileTests' and 'test_access'.
-                return any(map(regex_match, test_id.split(".")))
-
-        func = match_test_regex
-
-    return patterns, func
-
-def run_unittest(*classes):
-    """Run tests from unittest.TestCase-derived classes."""
-    valid_types = (unittest.TestSuite, unittest.TestCase)
-    loader = unittest.TestLoader()
-    suite = unittest.TestSuite()
-    for cls in classes:
-        if isinstance(cls, str):
-            if cls in sys.modules:
-                suite.addTest(loader.loadTestsFromModule(sys.modules[cls]))
-            else:
-                raise ValueError("str arguments must be keys in sys.modules")
-        elif isinstance(cls, valid_types):
-            suite.addTest(cls)
-        else:
-            suite.addTest(loader.loadTestsFromTestCase(cls))
-    _filter_suite(suite, match_test)
-    return _run_suite(suite)
-
-def _run_suite(suite):
-    """Run tests from a unittest.TestSuite-derived class."""
-    runner = get_test_runner(sys.stdout,
-                             verbosity=verbose,
-                             capture_output=(junit_xml_list is not None))
-
-    result = runner.run(suite)
-
-    if junit_xml_list is not None:
-        junit_xml_list.append(result.get_xml_element())
-
-    if not result.testsRun and not result.skipped and not result.errors:
-        raise TestDidNotRun
-    if not result.wasSuccessful():
-        stats = TestStats.from_unittest(result)
-        if len(result.errors) == 1 and not result.failures:
-            err = result.errors[0][1]
-        elif len(result.failures) == 1 and not result.errors:
-            err = result.failures[0][1]
-        else:
-            err = "multiple errors occurred"
-            if not verbose: err += "; run in verbose mode for details"
-        errors = [(str(tc), exc_str) for tc, exc_str in result.errors]
-        failures = [(str(tc), exc_str) for tc, exc_str in result.failures]
-        raise TestFailedWithDetails(err, errors, failures, stats=stats)
-    return result
-
-@dataclasses.dataclass(slots=True)
-class TestStats:
-    tests_run: int = 0
-    failures: int = 0
-    skipped: int = 0
-
-    @staticmethod
-    def from_unittest(result):
-        return TestStats(result.testsRun,
-                         len(result.failures),
-                         len(result.skipped))
-
-    @staticmethod
-    def from_doctest(results):
-        return TestStats(results.attempted,
-                         results.failed)
-
-    def accumulate(self, stats):
-        self.tests_run += stats.tests_run
-        self.failures += stats.failures
-        self.skipped += stats.skipped
-
-
-def run_doctest(module, verbosity=None, optionflags=0):
-    """Run doctest on the given module.  Return (#failures, #tests).
-
-    If optional argument verbosity is not specified (or is None), pass
-    support's belief about verbosity on to doctest.  Else doctest's
-    usual behavior is used (it searches sys.argv for -v).
-    """
-
-    import doctest
-
-    if verbosity is None:
-        verbosity = verbose
-    else:
-        verbosity = None
-
-    results = doctest.testmod(module,
-                             verbose=verbosity,
-                             optionflags=optionflags)
-    if results.failed:
-        stats = TestStats.from_doctest(results)
-        raise TestFailed(f"{results.failed} of {results.attempted} "
-                         f"doctests failed",
-                         stats=stats)
-    if verbose:
-        print('doctest (%s) ... %d tests with zero failures' %
-              (module.__name__, results.attempted))
-    return results
