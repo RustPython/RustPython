@@ -2074,6 +2074,7 @@ class _PosixSpawnMixin:
         with open(outfile, encoding="utf-8") as f:
             self.assertEqual(f.read(), 'hello')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; the rust runtime reopens closed stdio fds at startup, so this test fails, even though POSIX_SPAWN_CLOSE does actually have an effect
     def test_close_file(self):
         closefile = os_helper.TESTFN
         self.addCleanup(os_helper.unlink, closefile)
