@@ -113,7 +113,7 @@ num_cpus = "1.17.0"
 junction = { workspace = true }
 
 [target.'cfg(windows)'.dependencies.windows]
-version = "0.52.0"
+version = "0.62.2"
 features = [
   "Win32_Foundation",
   "Win32_System_LibraryLoader",
