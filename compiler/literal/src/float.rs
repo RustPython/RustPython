@@ -18,7 +18,7 @@ fn parse_inner(literal: &[u8]) -> Option<f64> {
     // lexical-core's format::PYTHON_STRING is inaccurate
     const PYTHON_STRING: u128 = NumberFormatBuilder::rebuild(PYTHON3_LITERAL)
         .no_special(false)
-        .build();
+        .build_unchecked();
     f64::from_lexical_with_options::<PYTHON_STRING>(literal, &Options::new()).ok()
 }
 
