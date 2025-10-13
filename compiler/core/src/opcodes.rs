@@ -548,23 +548,6 @@ impl RealOpcode {
         )
     }
 
-    /// Whether the given ID matches one of the opcode IDs.
-    #[must_use]
-    pub const fn is_valid(id: u8) -> bool {
-        matches!(id, 0..=118 | 149..=222 | 236..=254)
-    }
-
-    /// Creates a new `RealOpcode` without checking the value is a valid opcode ID.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `id` satisfies `RealOpcode::is_valid(id)`.
-    #[must_use]
-    pub const unsafe fn new_unchecked(id: u8) -> Self {
-        // SAFETY: caller responsibility
-        unsafe { std::mem::transmute::<u8, Self>(id) }
-    }
-
     /// How many items should be popped from the stack.
     pub const fn num_popped(&self, oparg: i32) -> i32 {
         match *self {
@@ -1084,23 +1067,6 @@ impl PseudoOpcode {
                 | Self::LoadZeroSuperAttr
                 | Self::LoadZeroSuperMethod
         )
-    }
-
-    /// Whether the given ID matches one of the opcode IDs.
-    #[must_use]
-    pub const fn is_valid(id: u16) -> bool {
-        matches!(id, 256..=267)
-    }
-
-    /// Creates a new `PseudoOpcode` without checking the value is a valid opcode ID.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `id` satisfies `PseudoOpcode::is_valid(id)`.
-    #[must_use]
-    pub const unsafe fn new_unchecked(id: u16) -> Self {
-        // SAFETY: caller responsibility
-        unsafe { std::mem::transmute::<u16, Self>(id) }
     }
 }
 

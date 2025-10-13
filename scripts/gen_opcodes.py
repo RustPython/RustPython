@@ -50,61 +50,6 @@ StackOffset.pop = lambda self, item: self.popped.append(_var_size(item))
 StackOffset.push = lambda self, item: self.pushed.append(_var_size(item))
 
 
-def group_ranges(it: "Iterable[int]") -> "Iterator[range]":
-    """
-    Group consecutive numbers into ranges.
-
-    Parameters
-    ----------
-    it : Iterable[int]
-        Numbers to group into ranges.
-
-    Notes
-    -----
-    Numbers in `it` must be sorted in ascending order.
-
-    Examples
-    --------
-    >>> nums = [0, 1, 2, 3, 17, 18, 42, 50, 51]
-    >>> list(group_ranges(nums))
-    [range(0, 4), range(17, 19), range(42, 43), range(50, 52)]
-    """
-    nums = list(it)
-    start = prev = nums[0]
-    for num in nums[1:] + [None]:
-        if num is None or num != prev + 1:
-            yield range(start, prev + 1)
-            start = num
-        prev = num
-
-
-def fmt_ranges(ids: "Iterable[range]", *, min_length: int = 3) -> str:
-    """
-    Get valid opcode ranges in Rust's `match` syntax.
-
-    Parameters
-    ----------
-    ids : Iterable[range]
-        Ranges to be formatted.
-    min_length : int, default 3
-        Minimum range length, if a range is less than this it will be expanded.
-
-    Examples
-    --------
-    >>> ids = [range(10, 11), range(20, 22), range(30, 33)]
-
-    >>> fmt_ranges(ids)
-    10 | 20 | 21 | 30..=32
-
-    >>> fmt_ranges(ids, min_length=2)
-    10 | 20..=21 | 30..=32
-    """
-    return " | ".join(
-        " | ".join(r) if len(r) < min_length else f"{r.start}..={r.stop - 1}"
-        for r in ids
-    )
-
-
 def enum_variant_name(name: str) -> str:
     return name.title().replace("_", "")
 
@@ -153,34 +98,6 @@ impl {self.enum_name} {{
 {funcs}
 }}
         """.strip()
-
-    @property
-    def fn_new_unchecked(self) -> str:
-        return f"""
-/// Creates a new `{self.enum_name}` without checking the value is a valid opcode ID.
-///
-/// # Safety
-///
-/// The caller must ensure that `id` satisfies `{self.enum_name}::is_valid(id)`.
-#[must_use]
-pub const unsafe fn new_unchecked(id: {self.typ}) -> Self {{
-    // SAFETY: caller responsibility
-    unsafe {{ std::mem::transmute::<{self.typ}, Self>(id) }}
-}}
-"""
-
-    @property
-    def fn_is_valid(self) -> str:
-        valid_ranges = fmt_ranges(
-            group_ranges(sorted(self._analysis.opmap[inst.name] for inst in self))
-        )
-        return f"""
-/// Whether the given ID matches one of the opcode IDs.
-#[must_use]
-pub const fn is_valid(id: {self.typ}) -> bool {{
-    matches!(id, {valid_ranges})
-}}
-        """
 
     def build_has_attr_fn(self, fn_attr: str, prop_attr: str, doc_flag: str):
         matches = "|".join(
