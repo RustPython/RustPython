@@ -30,7 +30,7 @@ wasm-bindgen = { workspace = true }
 
 console_error_panic_hook = "0.1"
 js-sys = "0.3"
-serde-wasm-bindgen = "0.3.1"
+serde-wasm-bindgen = "0.6.5"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = [
     "console",
