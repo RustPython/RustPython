@@ -116,6 +116,17 @@ mod opcode {
         })
     }
 
+    macro_rules! real_opcode_check {
+        ($opcode:expr, $method:ident) => {{
+            let opcode_u8 = match u8::try_from($opcode) {
+                Ok(v) => v,
+                Err(_) => return false,
+            };
+
+            RealOpcode::try_from(opcode_u8).map_or(false, |op| op.$method())
+        }};
+    }
+
     #[pyfunction]
     fn is_valid(opcode: i32) -> bool {
         Opcode::try_from(opcode).is_ok()
@@ -123,37 +134,37 @@ mod opcode {
 
     #[pyfunction]
     fn has_arg(opcode: i32) -> bool {
-        RealOpcode::try_from(opcode).is_ok_and(|op| op.has_arg())
+        real_opcode_check!(opcode, has_arg)
     }
 
     #[pyfunction]
     fn has_const(opcode: i32) -> bool {
-        RealOpcode::try_from(opcode).is_ok_and(|op| op.has_const())
+        real_opcode_check!(opcode, has_const)
     }
 
     #[pyfunction]
     fn has_name(opcode: i32) -> bool {
-        RealOpcode::try_from(opcode).is_ok_and(|op| op.has_name())
+        real_opcode_check!(opcode, has_name)
     }
 
     #[pyfunction]
     fn has_jump(opcode: i32) -> bool {
-        RealOpcode::try_from(opcode).is_ok_and(|op| op.has_jump())
+        real_opcode_check!(opcode, has_jump)
     }
 
     #[pyfunction]
     fn has_free(opcode: i32) -> bool {
-        RealOpcode::try_from(opcode).is_ok_and(|op| op.has_free())
+        real_opcode_check!(opcode, has_free)
     }
 
     #[pyfunction]
     fn has_local(opcode: i32) -> bool {
-        RealOpcode::try_from(opcode).is_ok_and(|op| op.has_local())
+        real_opcode_check!(opcode, has_local)
     }
 
     #[pyfunction]
     fn has_exc(opcode: i32) -> bool {
-        RealOpcode::try_from(opcode).is_ok_and(|op| op.has_exc())
+        real_opcode_check!(opcode, has_exc)
     }
 
     #[pyfunction]
