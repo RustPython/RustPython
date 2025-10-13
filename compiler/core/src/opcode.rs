@@ -24,7 +24,7 @@ impl TryFrom<u8> for Opcode {
     type Error = MarshalError;
 
     fn try_from(raw: u8) -> Result<Self, Self::Error> {
-        // u8 can never be a pseduo.
+        // u8 can never be a pseudo.
         RealOpcode::try_from(raw).map(Opcode::Real)
     }
 }
