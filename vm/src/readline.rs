@@ -13,6 +13,8 @@ pub enum ReadlineResult {
     Eof,
     Interrupt,
     Io(std::io::Error),
+    #[cfg(unix)]
+    OsError(nix::Error),
     Other(OtherError),
 }
 
@@ -118,6 +120,8 @@ mod rustyline_readline {
                     Err(ReadlineError::Eof) => ReadlineResult::Eof,
                     Err(ReadlineError::Io(e)) => ReadlineResult::Io(e),
                     Err(ReadlineError::Signal(_)) => continue,
+                    #[cfg(unix)]
+                    Err(ReadlineError::Errno(num)) => ReadlineResult::OsError(num),
                     Err(e) => ReadlineResult::Other(e.into()),
                 };
             }
