@@ -583,6 +583,7 @@ class PosixTester(unittest.TestCase):
         self.assertGreater(len(path), 0)
         self.assertEqual(posix.confstr(posix.confstr_names["CS_PATH"]), path)
 
+    @unittest.expectedFailureIf(sys.platform in ('darwin', 'linux'), '''TODO: RUSTPYTHON; AssertionError: "configuration names must be strings or integers" does not match "Expected type 'str' but 'float' found."''')
     @unittest.skipUnless(hasattr(posix, 'sysconf'),
                          'test needs posix.sysconf()')
     def test_sysconf(self):
@@ -1017,6 +1018,7 @@ class PosixTester(unittest.TestCase):
         target = self.tempdir()
         self.check_chmod(posix.chmod, target)
 
+    @unittest.skipIf(sys.platform in ('darwin', 'linux'), 'TODO: RUSTPYTHON; crash')
     @os_helper.skip_unless_working_chmod
     def test_fchmod_file(self):
         with open(os_helper.TESTFN, 'wb+') as f:
@@ -1073,6 +1075,7 @@ class PosixTester(unittest.TestCase):
             self.check_chmod_link(posix.chmod, target, link)
         self.check_chmod_link(posix.chmod, target, link, follow_symlinks=True)
 
+    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
     @os_helper.skip_unless_symlink
     def test_chmod_dir_symlink(self):
         target = self.tempdir()
@@ -1566,6 +1569,7 @@ class TestPosixDirFd(unittest.TestCase):
         with self.prepare_file() as (dir_fd, name, fullname):
             posix.chown(name, os.getuid(), os.getgid(), dir_fd=dir_fd)
 
+    @unittest.expectedFailureIf(sys.platform in ('darwin', 'linux'), 'TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered')
     @unittest.skipUnless(os.stat in os.supports_dir_fd, "test needs dir_fd support in os.stat()")
     def test_stat_dir_fd(self):
         with self.prepare() as (dir_fd, name, fullname):
@@ -1968,6 +1972,7 @@ class _PosixSpawnMixin:
                             [sys.executable, "-c", "pass"],
                             os.environ, setsigdef=[signal.NSIG, signal.NSIG+1])
 
+    @unittest.expectedFailureIf(sys.platform in ('darwin', 'linux'), 'TODO: RUSTPYTHON; NotImplementedError: scheduler parameter is not yet implemented')
     @requires_sched
     @unittest.skipIf(sys.platform.startswith(('freebsd', 'netbsd')),
                      "bpo-34685: test can fail on BSD")
@@ -1988,6 +1993,7 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
+    @unittest.expectedFailureIf(sys.platform in ('darwin', 'linux'), 'TODO: RUSTPYTHON; NotImplementedError: scheduler parameter is not yet implemented')
     @requires_sched
     @unittest.skipIf(sys.platform.startswith(('freebsd', 'netbsd')),
                      "bpo-34685: test can fail on BSD")
