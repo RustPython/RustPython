@@ -28,7 +28,7 @@ use rustpython_jit::CompiledCode;
 #[pyclass(module = false, name = "function", traverse = "manual")]
 #[derive(Debug)]
 pub struct PyFunction {
-    code: PyRef<PyCode>,
+    code: PyMutex<PyRef<PyCode>>,
     globals: PyDictRef,
     builtins: PyObjectRef,
     closure: Option<PyRef<PyTuple<PyCellRef>>>,
@@ -73,7 +73,7 @@ impl PyFunction {
 
         let qualname = vm.ctx.new_str(code.qualname.as_str());
         let func = Self {
-            code: code.clone(),
+            code: PyMutex::new(code.clone()),
             globals,
             builtins,
             closure: None,
@@ -96,7 +96,7 @@ impl PyFunction {
         func_args: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let code = &*self.code;
+        let code = &*self.code.lock();
         let nargs = func_args.args.len();
         let n_expected_args = code.arg_count as usize;
         let total_args = code.arg_count as usize + code.kwonlyarg_count as usize;
@@ -392,14 +392,15 @@ impl Py<PyFunction> {
                 Err(err) => info!(
                     "jit: function `{}` is falling back to being interpreted because of the \
                     error: {}",
-                    self.code.obj_name, err
+                    self.code.lock().obj_name,
+                    err
                 ),
             }
         }
 
-        let code = &self.code;
+        let code = self.code.lock().clone();
 
-        let locals = if self.code.flags.contains(bytecode::CodeFlags::NEW_LOCALS) {
+        let locals = if code.flags.contains(bytecode::CodeFlags::NEW_LOCALS) {
             ArgMapping::from_dict_exact(vm.ctx.new_dict())
         } else if let Some(locals) = locals {
             locals
@@ -451,7 +452,18 @@ impl PyPayload for PyFunction {
 impl PyFunction {
     #[pygetset]
     fn __code__(&self) -> PyRef<PyCode> {
-        self.code.clone()
+        self.code.lock().clone()
+    }
+
+    #[pygetset(setter)]
+    fn set___code__(&self, code: PyRef<PyCode>) {
+        *self.code.lock() = code;
+        // TODO: jit support
+        // #[cfg(feature = "jit")]
+        // {
+        //     // If available, clear cached compiled code.
+        //     let _ = self.jitted_code.take();
+        // }
     }
 
     #[pygetset]
@@ -595,7 +607,8 @@ impl PyFunction {
             .get_or_try_init(|| {
                 let arg_types = jit::get_jit_arg_types(&zelf, vm)?;
                 let ret_type = jit::jit_ret_type(&zelf, vm)?;
-                rustpython_jit::compile(&zelf.code.code, &arg_types, ret_type)
+                let code = zelf.code.lock();
+                rustpython_jit::compile(&code.code, &arg_types, ret_type)
                     .map_err(|err| jit::new_jit_error(err.to_string(), vm))
             })
             .map(drop)
