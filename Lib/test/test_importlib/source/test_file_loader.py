@@ -715,17 +715,33 @@ class Source_SourceBadBytecodePEP451(Source_SourceBadBytecodePEP451):
         super().test_non_code_marshal()
 
 
-# TODO: RUSTPYTHON
-# class SourceLoaderBadBytecodeTestPEP302(
-#         SourceLoaderBadBytecodeTest, BadBytecodeTestPEP302):
-#     pass
+class SourceLoaderBadBytecodeTestPEP302(
+        SourceLoaderBadBytecodeTest, BadBytecodeTestPEP302):
+    pass
 
 
-# (Frozen_SourceBadBytecodePEP302,
-#  Source_SourceBadBytecodePEP302
-#  ) = util.test_both(SourceLoaderBadBytecodeTestPEP302, importlib=importlib,
-#                     machinery=machinery, abc=importlib_abc,
-#                     util=importlib_util)
+(Frozen_SourceBadBytecodePEP302,
+ Source_SourceBadBytecodePEP302
+ ) = util.test_both(SourceLoaderBadBytecodeTestPEP302, importlib=importlib,
+                    machinery=machinery, abc=importlib_abc,
+                    util=importlib_util)
+
+# TODO: RUSTPYTHON, get rid of this entire class when all of the following tests are fixed
+class Source_SourceBadBytecodePEP302(Source_SourceBadBytecodePEP302):
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_bad_marshal(self):
+        super().test_bad_marshal()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_no_marshal(self):
+        super().test_no_marshal()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_non_code_marshal(self):
+        super().test_non_code_marshal()
 
 
 class SourcelessLoaderBadBytecodeTest:
