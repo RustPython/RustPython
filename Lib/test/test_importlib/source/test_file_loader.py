@@ -236,7 +236,6 @@ class SimpleTest(abc.LoaderTests):
                 warnings.simplefilter('ignore', DeprecationWarning)
                 loader.load_module('bad name')
 
-    @unittest.skip("TODO: RUSTPYTHON; successful only for Frozen")
     @util.writes_bytecode_files
     def test_checked_hash_based_pyc(self):
         with util.create_modules('_temp') as mapping:
@@ -293,7 +292,6 @@ class SimpleTest(abc.LoaderTests):
             loader.exec_module(mod)
             self.assertEqual(mod.state, 'old')
 
-    @unittest.skip("TODO: RUSTPYTHON; successful only for Frozen")
     @util.writes_bytecode_files
     def test_unchecked_hash_based_pyc(self):
         with util.create_modules('_temp') as mapping:
@@ -324,7 +322,6 @@ class SimpleTest(abc.LoaderTests):
                 data[8:16],
             )
 
-    @unittest.skip("TODO: RUSTPYTHON; successful only for Frozen")
     @util.writes_bytecode_files
     def test_overridden_unchecked_hash_based_pyc(self):
         with util.create_modules('_temp') as mapping, \
@@ -361,6 +358,23 @@ class SimpleTest(abc.LoaderTests):
  Source_SimpleTest
  ) = util.test_both(SimpleTest, importlib=importlib, machinery=machinery,
                     abc=importlib_abc, util=importlib_util)
+
+# TODO: RUSTPYTHON, get rid of this entire class when all of the following tests are fixed
+class Source_SimpleTest(Source_SimpleTest):
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_checked_hash_based_pyc(self):
+        super().test_checked_hash_based_pyc()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_unchecked_hash_based_pyc(self):
+        super().test_unchecked_hash_based_pyc()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_overridden_unchecked_hash_based_pyc(self):
+        super().test_overridden_unchecked_hash_based_pyc()
 
 
 class SourceDateEpochTestMeta(SourceDateEpochTestMeta,
