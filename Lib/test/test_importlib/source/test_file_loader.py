@@ -691,11 +691,28 @@ class SourceLoaderBadBytecodeTestPEP451(
     pass
 
 
-# (Frozen_SourceBadBytecodePEP451,
-#  Source_SourceBadBytecodePEP451
-#  ) = util.test_both(SourceLoaderBadBytecodeTestPEP451, importlib=importlib,
-#                     machinery=machinery, abc=importlib_abc,
-#                     util=importlib_util)
+(Frozen_SourceBadBytecodePEP451,
+ Source_SourceBadBytecodePEP451
+ ) = util.test_both(SourceLoaderBadBytecodeTestPEP451, importlib=importlib,
+                    machinery=machinery, abc=importlib_abc,
+                    util=importlib_util)
+
+# TODO: RUSTPYTHON, get rid of this entire class when all of the following tests are fixed
+class Source_SourceBadBytecodePEP451(Source_SourceBadBytecodePEP451):
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_bad_marshal(self):
+        super().test_bad_marshal()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_no_marshal(self):
+        super().test_no_marshal()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_non_code_marshal(self):
+        super().test_non_code_marshal()
 
 
 # TODO: RUSTPYTHON
