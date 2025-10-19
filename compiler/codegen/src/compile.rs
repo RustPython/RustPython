@@ -1515,7 +1515,7 @@ impl Compiler {
                 is_async,
                 ..
             }) => {
-                let _ = validate_duplicate_params(&parameters).map_err(|e| self.error(e))?;
+                validate_duplicate_params(parameters).map_err(|e| self.error(e))?;
 
                 self.compile_function_def(
                     name.as_str(),
@@ -4676,7 +4676,7 @@ impl Compiler {
             }) => {
                 let default_params = Parameters::default();
                 let params = parameters.as_deref().unwrap_or(&default_params);
-                let _ = validate_duplicate_params(&params).map_err(|e| self.error(e))?;
+                validate_duplicate_params(params).map_err(|e| self.error(e))?;
 
                 let prev_ctx = self.ctx;
                 let name = "<lambda>".to_owned();
