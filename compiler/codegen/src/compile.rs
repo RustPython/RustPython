@@ -40,7 +40,7 @@ use rustpython_compiler_core::{
     },
 };
 use rustpython_wtf8::Wtf8Buf;
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::HashSet};
 
 const MAXBLOCKS: usize = 20;
 
@@ -145,6 +145,20 @@ enum ComprehensionType {
     List,
     Set,
     Dict,
+}
+
+fn validate_duplicate_params(params: &Parameters) -> Result<(), CodegenErrorType> {
+    let mut seen_params = HashSet::new();
+    for param in params {
+        let param_name = param.name().as_str();
+        if !seen_params.insert(param_name) {
+            return Err(CodegenErrorType::SyntaxError(format!(
+                r#"Duplicate parameter "{param_name}""#
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 /// Compile an Mod produced from ruff parser
@@ -1500,15 +1514,19 @@ impl Compiler {
                 type_params,
                 is_async,
                 ..
-            }) => self.compile_function_def(
-                name.as_str(),
-                parameters,
-                body,
-                decorator_list,
-                returns.as_deref(),
-                *is_async,
-                type_params.as_deref(),
-            )?,
+            }) => {
+                let _ = validate_duplicate_params(&parameters).map_err(|e| self.error(e))?;
+
+                self.compile_function_def(
+                    name.as_str(),
+                    parameters,
+                    body,
+                    decorator_list,
+                    returns.as_deref(),
+                    *is_async,
+                    type_params.as_deref(),
+                )?
+            }
             Stmt::ClassDef(StmtClassDef {
                 name,
                 body,
@@ -3579,7 +3597,7 @@ impl Compiler {
         // Step 2: If we have keys to match
         if size > 0 {
             // Validate and compile keys
-            let mut seen = std::collections::HashSet::new();
+            let mut seen = HashSet::new();
             for key in keys {
                 let is_attribute = matches!(key, Expr::Attribute(_));
                 let is_literal = matches!(
@@ -4656,10 +4674,12 @@ impl Compiler {
             Expr::Lambda(ExprLambda {
                 parameters, body, ..
             }) => {
-                let prev_ctx = self.ctx;
-                let name = "<lambda>".to_owned();
                 let default_params = Parameters::default();
                 let params = parameters.as_deref().unwrap_or(&default_params);
+                let _ = validate_duplicate_params(&params).map_err(|e| self.error(e))?;
+
+                let prev_ctx = self.ctx;
+                let name = "<lambda>".to_owned();
 
                 // Prepare defaults before entering function
                 let defaults: Vec<_> = std::iter::empty()
