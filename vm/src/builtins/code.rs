@@ -837,6 +837,15 @@ impl PyCode {
             },
         })
     }
+
+    #[pymethod]
+    fn _varname_from_oparg(&self, opcode: i32, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let idx_err = |vm: &VirtualMachine| vm.new_index_error("tuple index out of range");
+
+        let idx = usize::try_from(opcode).map_err(|_| idx_err(vm))?;
+        let name = self.code.varnames.get(idx).ok_or_else(|| idx_err(vm))?;
+        Ok(name.to_object())
+    }
 }
 
 impl fmt::Display for PyCode {

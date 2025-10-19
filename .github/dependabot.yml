@@ -4,6 +4,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # TODO: Remove when we use ruff from crates.io
+      # for some reason dependabot only updates the Cargo.lock file when dealing
+      # with git dependencies. i.e. not updating the version in Cargo.toml
+      - dependency-name: "ruff_*" 
   - package-ecosystem: github-actions
     directory: /
     schedule:

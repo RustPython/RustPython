@@ -209,6 +209,13 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
             ReadlineResult::Eof => {
                 break;
             }
+            #[cfg(unix)]
+            ReadlineResult::OsError(num) => {
+                let os_error =
+                    vm.new_exception_msg(vm.ctx.exceptions.os_error.to_owned(), format!("{num:?}"));
+                vm.print_exception(os_error);
+                break;
+            }
             ReadlineResult::Other(err) => {
                 eprintln!("Readline error: {err:?}");
                 break;
