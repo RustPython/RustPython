@@ -1459,6 +1459,8 @@ mod _sqlite {
         #[pytraverse(skip)]
         rowcount: i64,
         statement: Option<PyRef<Statement>>,
+        #[pytraverse(skip)]
+        closed: bool,
     }
 
     #[derive(FromArgs)]
@@ -1484,20 +1486,54 @@ mod _sqlite {
                     lastrowid: -1,
                     rowcount: -1,
                     statement: None,
+                    closed: false,
                 })),
             }
+        }
+
+        fn new_uninitialized(connection: PyRef<Connection>, _vm: &VirtualMachine) -> Self {
+            Self {
+                connection,
+                arraysize: Radium::new(1),
+                row_factory: PyAtomicRef::from(None),
+                inner: PyMutex::from(None),
+            }
+        }
+
+        #[pymethod]
+        fn __init__(&self, _connection: PyRef<Connection>, _vm: &VirtualMachine) -> PyResult<()> {
+            let mut guard = self.inner.lock();
+            if guard.is_some() {
+                // Already initialized (e.g., from a call to super().__init__)
+                return Ok(());
+            }
+            *guard = Some(CursorInner {
+                description: None,
+                row_cast_map: vec![],
+                lastrowid: -1,
+                rowcount: -1,
+                statement: None,
+                closed: false,
+            });
+            Ok(())
         }
 
         fn inner(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<'_, CursorInner>> {
             let guard = self.inner.lock();
             if guard.is_some() {
-                Ok(PyMutexGuard::map(guard, |x| unsafe {
-                    x.as_mut().unwrap_unchecked()
-                }))
+                let inner_guard =
+                    PyMutexGuard::map(guard, |x| unsafe { x.as_mut().unwrap_unchecked() });
+                if inner_guard.closed {
+                    return Err(new_programming_error(
+                        vm,
+                        "Cannot operate on a closed cursor.".to_owned(),
+                    ));
+                }
+                Ok(inner_guard)
             } else {
                 Err(new_programming_error(
                     vm,
-                    "Cannot operate on a closed cursor.".to_owned(),
+                    "Base Cursor.__init__ not called.".to_owned(),
                 ))
             }
         }
@@ -1717,12 +1753,23 @@ mod _sqlite {
         }
 
         #[pymethod]
-        fn close(&self) {
-            if let Some(inner) = self.inner.lock().take()
-                && let Some(stmt) = inner.statement
-            {
-                stmt.lock().reset();
+        fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
+            // Check if __init__ was called
+            let mut guard = self.inner.lock();
+            if guard.is_none() {
+                return Err(new_programming_error(
+                    vm,
+                    "Base Cursor.__init__ not called.".to_owned(),
+                ));
             }
+
+            if let Some(inner) = guard.as_mut() {
+                if let Some(stmt) = &inner.statement {
+                    stmt.lock().reset();
+                }
+                inner.closed = true;
+            }
+            Ok(())
         }
 
         #[pymethod]
@@ -1809,7 +1856,7 @@ mod _sqlite {
         type Args = (PyRef<Connection>,);
 
         fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            Self::new(args.0, None, vm)
+            Self::new_uninitialized(args.0, vm)
                 .into_ref_with_type(vm, cls)
                 .map(Into::into)
         }
