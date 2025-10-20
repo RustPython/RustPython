@@ -389,7 +389,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: python -m pip install -r requirements.txt
         working-directory: ./wasm/tests
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           cache: "npm"
           cache-dependency-path: "wasm/demo/package-lock.json"
