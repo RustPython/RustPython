@@ -39,6 +39,12 @@ macro_rules! panic_oob {
 
 impl<T> BoxVec<T> {
     pub fn new(n: usize) -> Self {
+        if n == 0 {
+            return Self {
+                xs: Box::new([]),
+                len: 0,
+            };
+        }
         Self {
             xs: Box::new_uninit_slice(n),
             len: 0,
