@@ -55,7 +55,11 @@ impl Node for ruff::Decorator {
     ) -> PyResult<Self> {
         let expression = ruff::Expr::ast_from_object(vm, source_file, object)?;
         let range = expression.range();
-        Ok(Self { expression, range })
+        Ok(Self {
+            node_index: Default::default(),
+            expression,
+            range,
+        })
     }
 }
 
@@ -63,6 +67,7 @@ impl Node for ruff::Decorator {
 impl Node for ruff::Alias {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             name,
             asname,
             range: _range,
@@ -85,6 +90,7 @@ impl Node for ruff::Alias {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             name: Node::ast_from_object(
                 vm,
                 source_file,
@@ -102,6 +108,7 @@ impl Node for ruff::Alias {
 impl Node for ruff::WithItem {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             context_expr,
             optional_vars,
             range: _range,
@@ -131,6 +138,7 @@ impl Node for ruff::WithItem {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             context_expr: Node::ast_from_object(
                 vm,
                 source_file,

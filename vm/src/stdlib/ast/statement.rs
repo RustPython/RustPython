@@ -172,6 +172,7 @@ impl Node for ruff::Stmt {
 impl Node for ruff::StmtFunctionDef {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             name,
             parameters,
             body,
@@ -225,6 +226,7 @@ impl Node for ruff::StmtFunctionDef {
         let _cls = _object.class();
         let is_async = _cls.is(pyast::NodeStmtAsyncFunctionDef::static_type());
         Ok(Self {
+            node_index: Default::default(),
             name: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -267,6 +269,7 @@ impl Node for ruff::StmtFunctionDef {
 impl Node for ruff::StmtClassDef {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             name,
             arguments,
             body,
@@ -318,6 +321,7 @@ impl Node for ruff::StmtClassDef {
             get_node_field(_vm, &_object, "keywords", "ClassDef")?,
         )?;
         Ok(Self {
+            node_index: Default::default(),
             name: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -347,6 +351,7 @@ impl Node for ruff::StmtClassDef {
 impl Node for ruff::StmtReturn {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             value,
             range: _range,
         } = self;
@@ -365,6 +370,7 @@ impl Node for ruff::StmtReturn {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             value: get_node_field_opt(_vm, &_object, "value")?
                 .map(|obj| Node::ast_from_object(_vm, source_file, obj))
                 .transpose()?,
@@ -376,6 +382,7 @@ impl Node for ruff::StmtReturn {
 impl Node for ruff::StmtDelete {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             targets,
             range: _range,
         } = self;
@@ -394,6 +401,7 @@ impl Node for ruff::StmtDelete {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             targets: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -408,6 +416,7 @@ impl Node for ruff::StmtDelete {
 impl Node for ruff::StmtAssign {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             targets,
             value,
             // type_comment,
@@ -432,6 +441,7 @@ impl Node for ruff::StmtAssign {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             targets: Node::ast_from_object(
                 vm,
                 source_file,
@@ -454,6 +464,7 @@ impl Node for ruff::StmtAssign {
 impl Node for ruff::StmtTypeAlias {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             name,
             type_params,
             value,
@@ -483,6 +494,7 @@ impl Node for ruff::StmtTypeAlias {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             name: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -507,6 +519,7 @@ impl Node for ruff::StmtTypeAlias {
 impl Node for ruff::StmtAugAssign {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             target,
             op,
             value,
@@ -531,6 +544,7 @@ impl Node for ruff::StmtAugAssign {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             target: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -555,6 +569,7 @@ impl Node for ruff::StmtAugAssign {
 impl Node for ruff::StmtAnnAssign {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             target,
             annotation,
             value,
@@ -586,6 +601,7 @@ impl Node for ruff::StmtAnnAssign {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             target: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -613,6 +629,7 @@ impl Node for ruff::StmtAnnAssign {
 impl Node for ruff::StmtFor {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             is_async,
             target,
             iter,
@@ -656,6 +673,7 @@ impl Node for ruff::StmtFor {
         );
         let is_async = _cls.is(pyast::NodeStmtAsyncFor::static_type());
         Ok(Self {
+            node_index: Default::default(),
             target: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -689,6 +707,7 @@ impl Node for ruff::StmtFor {
 impl Node for ruff::StmtWhile {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             test,
             body,
             orelse,
@@ -714,6 +733,7 @@ impl Node for ruff::StmtWhile {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             test: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -737,6 +757,7 @@ impl Node for ruff::StmtWhile {
 impl Node for ruff::StmtIf {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             test,
             body,
             range,
@@ -744,6 +765,7 @@ impl Node for ruff::StmtIf {
         } = self;
         elif_else_clause::ast_to_object(
             ruff::ElifElseClause {
+                node_index: Default::default(),
                 range,
                 test: Some(*test),
                 body,
@@ -765,6 +787,7 @@ impl Node for ruff::StmtIf {
 impl Node for ruff::StmtWith {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             is_async,
             items,
             body,
@@ -801,6 +824,7 @@ impl Node for ruff::StmtWith {
         );
         let is_async = _cls.is(pyast::NodeStmtAsyncWith::static_type());
         Ok(Self {
+            node_index: Default::default(),
             items: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -823,6 +847,7 @@ impl Node for ruff::StmtWith {
 impl Node for ruff::StmtMatch {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             subject,
             cases,
             range: _range,
@@ -844,6 +869,7 @@ impl Node for ruff::StmtMatch {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             subject: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -862,6 +888,7 @@ impl Node for ruff::StmtMatch {
 impl Node for ruff::StmtRaise {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             exc,
             cause,
             range: _range,
@@ -883,6 +910,7 @@ impl Node for ruff::StmtRaise {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             exc: get_node_field_opt(_vm, &_object, "exc")?
                 .map(|obj| Node::ast_from_object(_vm, source_file, obj))
                 .transpose()?,
@@ -897,6 +925,7 @@ impl Node for ruff::StmtRaise {
 impl Node for ruff::StmtTry {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             body,
             handlers,
             orelse,
@@ -940,6 +969,7 @@ impl Node for ruff::StmtTry {
         );
 
         Ok(Self {
+            node_index: Default::default(),
             body: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -969,6 +999,7 @@ impl Node for ruff::StmtTry {
 impl Node for ruff::StmtAssert {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             test,
             msg,
             range: _range,
@@ -990,6 +1021,7 @@ impl Node for ruff::StmtAssert {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             test: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -1006,6 +1038,7 @@ impl Node for ruff::StmtAssert {
 impl Node for ruff::StmtImport {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             names,
             range: _range,
         } = self;
@@ -1024,6 +1057,7 @@ impl Node for ruff::StmtImport {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             names: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -1037,6 +1071,7 @@ impl Node for ruff::StmtImport {
 impl Node for ruff::StmtImportFrom {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             module,
             names,
             level,
@@ -1061,6 +1096,7 @@ impl Node for ruff::StmtImportFrom {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             module: get_node_field_opt(vm, &_object, "module")?
                 .map(|obj| Node::ast_from_object(vm, source_file, obj))
                 .transpose()?,
@@ -1081,6 +1117,7 @@ impl Node for ruff::StmtImportFrom {
 impl Node for ruff::StmtGlobal {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             names,
             range: _range,
         } = self;
@@ -1099,6 +1136,7 @@ impl Node for ruff::StmtGlobal {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             names: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -1112,6 +1150,7 @@ impl Node for ruff::StmtGlobal {
 impl Node for ruff::StmtNonlocal {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             names,
             range: _range,
         } = self;
@@ -1130,6 +1169,7 @@ impl Node for ruff::StmtNonlocal {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             names: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -1143,6 +1183,7 @@ impl Node for ruff::StmtNonlocal {
 impl Node for ruff::StmtExpr {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             value,
             range: _range,
         } = self;
@@ -1161,6 +1202,7 @@ impl Node for ruff::StmtExpr {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             value: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -1173,7 +1215,10 @@ impl Node for ruff::StmtExpr {
 // constructor
 impl Node for ruff::StmtPass {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { range: _range } = self;
+        let Self {
+            node_index: _,
+            range: _range,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodeStmtPass::static_type().to_owned())
             .unwrap();
@@ -1187,6 +1232,7 @@ impl Node for ruff::StmtPass {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             range: range_from_object(_vm, source_file, _object, "Pass")?,
         })
     }
@@ -1194,7 +1240,10 @@ impl Node for ruff::StmtPass {
 // constructor
 impl Node for ruff::StmtBreak {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { range: _range } = self;
+        let Self {
+            node_index: _,
+            range: _range,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodeStmtBreak::static_type().to_owned())
             .unwrap();
@@ -1209,6 +1258,7 @@ impl Node for ruff::StmtBreak {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             range: range_from_object(_vm, source_file, _object, "Break")?,
         })
     }
@@ -1217,7 +1267,10 @@ impl Node for ruff::StmtBreak {
 // constructor
 impl Node for ruff::StmtContinue {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { range: _range } = self;
+        let Self {
+            node_index: _,
+            range: _range,
+        } = self;
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodeStmtContinue::static_type().to_owned())
             .unwrap();
@@ -1231,6 +1284,7 @@ impl Node for ruff::StmtContinue {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             range: range_from_object(_vm, source_file, _object, "Continue")?,
         })
     }

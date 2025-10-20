@@ -1,4 +1,4 @@
-use ruff_source_file::{SourceFile, SourceFileBuilder, SourceLocation};
+use ruff_source_file::{PositionEncoding, SourceFile, SourceFileBuilder, SourceLocation};
 use rustpython_codegen::{compile, symboltable};
 
 pub use rustpython_codegen::compile::CompileOpts;
@@ -46,7 +46,7 @@ impl CompileError {
     pub fn from_ruff_parse_error(error: parser::ParseError, source_file: &SourceFile) -> Self {
         let location = source_file
             .to_source_code()
-            .source_location(error.location.start());
+            .source_location(error.location.start(), PositionEncoding::Utf8);
         Self::Parse(ParseError {
             error: error.error,
             raw_location: error.location,
@@ -55,26 +55,18 @@ impl CompileError {
         })
     }
 
-    pub fn location(&self) -> Option<SourceLocation> {
+    pub const fn location(&self) -> Option<SourceLocation> {
         match self {
-            Self::Codegen(codegen_error) => codegen_error.location.clone(),
-            Self::Parse(parse_error) => Some(parse_error.location.clone()),
+            Self::Codegen(codegen_error) => codegen_error.location,
+            Self::Parse(parse_error) => Some(parse_error.location),
         }
     }
 
     pub const fn python_location(&self) -> (usize, usize) {
-        match self {
-            Self::Codegen(codegen_error) => {
-                if let Some(location) = &codegen_error.location {
-                    (location.row.get(), location.column.get())
-                } else {
-                    (0, 0)
-                }
-            }
-            Self::Parse(parse_error) => (
-                parse_error.location.row.get(),
-                parse_error.location.column.get(),
-            ),
+        if let Some(location) = self.location() {
+            (location.line.get(), location.character_offset.get())
+        } else {
+            (0, 0)
         }
     }
 

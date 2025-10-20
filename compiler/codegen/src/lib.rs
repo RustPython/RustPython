@@ -56,6 +56,7 @@ impl ToPythonName for Expr {
             Self::Starred { .. } => "starred",
             Self::Slice { .. } => "slice",
             Self::FString { .. } => "f-string expression",
+            Self::TString { .. } => "t-string expression",
             Self::Name { .. } => "name",
             Self::Lambda { .. } => "lambda",
             Self::If { .. } => "conditional expression",

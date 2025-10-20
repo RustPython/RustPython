@@ -1826,7 +1826,6 @@ print(f'''{{
         self.assertEqual(f'{f'{1!=2=}'=}', "f'{1!=2=}'='1!=2=True'")
         self.assertEqual(f'{f'{1 != 2=}'=}', "f'{1 != 2=}'='1 != 2=True'")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: "f-string: newlines are not allowed in format specifiers" does not match "'unexpected EOF while parsing' (<string>, line 2)"
     def test_newlines_in_format_specifiers(self):
         cases = [
             """f'{1:d\n}'""",

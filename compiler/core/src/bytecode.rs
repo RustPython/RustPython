@@ -1196,14 +1196,14 @@ impl<C: Constant> CodeObject<C> {
         level: usize,
     ) -> fmt::Result {
         let label_targets = self.label_targets();
-        let line_digits = (3).max(self.locations.last().unwrap().row.to_string().len());
-        let offset_digits = (4).max(self.instructions.len().to_string().len());
+        let line_digits = (3).max(self.locations.last().unwrap().line.digits().get());
+        let offset_digits = (4).max(1 + self.instructions.len().ilog10() as usize);
         let mut last_line = OneIndexed::MAX;
         let mut arg_state = OpArgState::default();
         for (offset, &instruction) in self.instructions.iter().enumerate() {
             let (instruction, arg) = arg_state.get(instruction);
             // optional line number
-            let line = self.locations[offset].row;
+            let line = self.locations[offset].line;
             if line != last_line {
                 if last_line != OneIndexed::MAX {
                     writeln!(f)?;

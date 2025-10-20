@@ -10,7 +10,7 @@ mod decl {
             stderr,
             "  File \"{}\", line {} in {}",
             frame.code.source_path,
-            frame.current_location().row,
+            frame.current_location().line,
             frame.code.obj_name
         )
     }

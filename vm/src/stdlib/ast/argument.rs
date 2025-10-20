@@ -57,6 +57,7 @@ pub(super) fn merge_function_call_arguments(
     let range = pos_args.range.cover(key_args.range);
 
     ruff::Arguments {
+        node_index: Default::default(),
         range,
         args: pos_args.args,
         keywords: key_args.keywords,
@@ -67,6 +68,7 @@ pub(super) fn split_function_call_arguments(
     args: ruff::Arguments,
 ) -> (PositionalArguments, KeywordArguments) {
     let ruff::Arguments {
+        node_index: _,
         range: _,
         args,
         keywords,
@@ -105,6 +107,7 @@ pub(super) fn split_class_def_args(
         Some(args) => *args,
     };
     let ruff::Arguments {
+        node_index: _,
         range: _,
         args,
         keywords,
@@ -155,6 +158,7 @@ pub(super) fn merge_class_def_args(
     };
 
     Some(Box::new(ruff::Arguments {
+        node_index: Default::default(),
         range: Default::default(), // TODO
         args,
         keywords,

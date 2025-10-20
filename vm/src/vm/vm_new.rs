@@ -321,7 +321,7 @@ impl VirtualMachine {
                 error:
                     ruff_python_parser::ParseErrorType::Lexical(
                         ruff_python_parser::LexicalErrorType::FStringError(
-                            ruff_python_parser::FStringErrorType::UnterminatedTripleQuotedString,
+                            ruff_python_parser::InterpolatedStringErrorType::UnterminatedTripleQuotedString,
                         ),
                     ),
                 ..
@@ -412,7 +412,7 @@ impl VirtualMachine {
         fn get_statement(source: &str, loc: Option<SourceLocation>) -> Option<String> {
             let line = source
                 .split('\n')
-                .nth(loc?.row.to_zero_indexed())?
+                .nth(loc?.line.to_zero_indexed())?
                 .to_owned();
             Some(line + "\n")
         }

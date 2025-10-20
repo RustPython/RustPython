@@ -85,6 +85,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
             Expr::BoolOp(ruff::ExprBoolOp {
                 op,
                 values,
+                node_index: _,
                 range: _range,
             }) => {
                 let (op, prec) = op_prec!(bin, op, BoolOp, And("and", AND), Or("or", OR));
@@ -99,6 +100,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
             Expr::Named(ruff::ExprNamed {
                 target,
                 value,
+                node_index: _,
                 range: _range,
             }) => {
                 group_if!(precedence::TUPLE, {
@@ -111,6 +113,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 left,
                 op,
                 right,
+                node_index: _,
                 range: _range,
             }) => {
                 let right_associative = matches!(op, Operator::Pow);
@@ -141,6 +144,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
             Expr::UnaryOp(ruff::ExprUnaryOp {
                 op,
                 operand,
+                node_index: _,
                 range: _range,
             }) => {
                 let (op, prec) = op_prec!(
@@ -160,6 +164,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
             Expr::Lambda(ruff::ExprLambda {
                 parameters,
                 body,
+                node_index: _,
                 range: _range,
             }) => {
                 group_if!(precedence::TEST, {
@@ -176,6 +181,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 test,
                 body,
                 orelse,
+                node_index: _,
                 range: _range,
             }) => {
                 group_if!(precedence::TEST, {
@@ -188,6 +194,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
             }
             Expr::Dict(ruff::ExprDict {
                 items,
+                node_index: _,
                 range: _range,
             }) => {
                 self.p("{")?;
@@ -205,6 +212,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
             }
             Expr::Set(ruff::ExprSet {
                 elts,
+                node_index: _,
                 range: _range,
             }) => {
                 self.p("{")?;
@@ -218,6 +226,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
             Expr::ListComp(ruff::ExprListComp {
                 elt,
                 generators,
+                node_index: _,
                 range: _range,
             }) => {
                 self.p("[")?;
@@ -228,6 +237,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
             Expr::SetComp(ruff::ExprSetComp {
                 elt,
                 generators,
+                node_index: _,
                 range: _range,
             }) => {
                 self.p("{")?;
@@ -239,6 +249,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 key,
                 value,
                 generators,
+                node_index: _,
                 range: _range,
             }) => {
                 self.p("{")?;
@@ -252,6 +263,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 parenthesized: _,
                 elt,
                 generators,
+                node_index: _,
                 range: _range,
             }) => {
                 self.p("(")?;
@@ -261,6 +273,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
             }
             Expr::Await(ruff::ExprAwait {
                 value,
+                node_index: _,
                 range: _range,
             }) => {
                 group_if!(precedence::AWAIT, {
@@ -270,6 +283,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
             }
             Expr::Yield(ruff::ExprYield {
                 value,
+                node_index: _,
                 range: _range,
             }) => {
                 if let Some(value) = value {
@@ -280,6 +294,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
             }
             Expr::YieldFrom(ruff::ExprYieldFrom {
                 value,
+                node_index: _,
                 range: _range,
             }) => {
                 write!(
@@ -292,6 +307,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 left,
                 ops,
                 comparators,
+                node_index: _,
                 range: _range,
             }) => {
                 group_if!(precedence::CMP, {
@@ -308,6 +324,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
             Expr::Call(ruff::ExprCall {
                 func,
                 arguments: Arguments { args, keywords, .. },
+                node_index: _,
                 range: _range,
             }) => {
                 self.unparse_expr(func, precedence::ATOM)?;
@@ -317,6 +334,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                         Expr::Generator(ruff::ExprGenerator {
                             elt,
                             generators,
+                            node_index: _,
                             range: _range,
                             ..
                         }),
@@ -347,6 +365,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 self.p(")")?;
             }
             Expr::FString(ruff::ExprFString { value, .. }) => self.unparse_fstring(value)?,
+            Expr::TString(_) => self.p("t\"\"")?,
             Expr::StringLiteral(ruff::ExprStringLiteral { value, .. }) => {
                 if value.is_unicode() {
                     self.p("u")?
@@ -435,6 +454,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 lower,
                 upper,
                 step,
+                node_index: _,
                 range: _range,
             }) => {
                 if let Some(lower) = lower {
@@ -513,7 +533,10 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         Ok(())
     }
 
-    fn unparse_fstring_body(&mut self, elements: &[ruff::FStringElement]) -> fmt::Result {
+    fn unparse_fstring_body(
+        &mut self,
+        elements: &[ruff::InterpolatedStringElement],
+    ) -> fmt::Result {
         for elem in elements {
             self.unparse_fstring_elem(elem)?;
         }
@@ -525,7 +548,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         val: &Expr,
         debug_text: Option<&ruff::DebugText>,
         conversion: ConversionFlag,
-        spec: Option<&ruff::FStringFormatSpec>,
+        spec: Option<&ruff::InterpolatedStringFormatSpec>,
     ) -> fmt::Result {
         let buffered = to_string_fmt(|f| {
             Unparser::new(f, self.source).unparse_expr(val, precedence::TEST + 1)
@@ -562,9 +585,9 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         Ok(())
     }
 
-    fn unparse_fstring_elem(&mut self, elem: &ruff::FStringElement) -> fmt::Result {
+    fn unparse_fstring_elem(&mut self, elem: &ruff::InterpolatedStringElement) -> fmt::Result {
         match elem {
-            ruff::FStringElement::Expression(ruff::FStringExpressionElement {
+            ruff::InterpolatedStringElement::Interpolation(ruff::InterpolatedElement {
                 expression,
                 debug_text,
                 conversion,
@@ -576,9 +599,10 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 *conversion,
                 format_spec.as_deref(),
             ),
-            ruff::FStringElement::Literal(ruff::FStringLiteralElement { value, .. }) => {
-                self.unparse_fstring_str(value)
-            }
+            ruff::InterpolatedStringElement::Literal(ruff::InterpolatedStringLiteralElement {
+                value,
+                ..
+            }) => self.unparse_fstring_str(value),
         }
     }
 
