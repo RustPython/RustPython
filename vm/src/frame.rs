@@ -2453,6 +2453,9 @@ impl ExecutingFrame<'_> {
                         .map_err(|_| vm.new_type_error("Type params must be a tuple."))?
                 };
 
+                let name = name.downcast::<crate::builtins::PyStr>().map_err(|_| {
+                    vm.new_type_error("TypeAliasType name must be a string".to_owned())
+                })?;
                 let type_alias = typing::TypeAliasType::new(name, type_params, value);
                 Ok(type_alias.into_ref(&vm.ctx).into())
             }
