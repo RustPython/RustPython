@@ -154,9 +154,10 @@ pub(crate) mod decl {
                 )));
             }
 
-            let name = args.args[0].clone().downcast::<crate::builtins::PyStr>().map_err(|_| {
-                vm.new_type_error("TypeAliasType name must be a string".to_owned())
-            })?;
+            let name = args.args[0]
+                .clone()
+                .downcast::<crate::builtins::PyStr>()
+                .map_err(|_| vm.new_type_error("TypeAliasType name must be a string".to_owned()))?;
             let value = args.args[1].clone();
 
             let type_params = if let Some(tp) = args.kwargs.get("type_params") {
