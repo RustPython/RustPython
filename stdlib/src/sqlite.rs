@@ -74,8 +74,8 @@ mod _sqlite {
         },
         sliceable::{SaturatedSliceIter, SliceableSequenceOp},
         types::{
-            AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
-            Iterable, PyComparisonOp, SelfIter, Unconstructible,
+            AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Hashable,
+            Initializer, IterNext, Iterable, PyComparisonOp, SelfIter, Unconstructible,
         },
         utils::ToCString,
     };
@@ -895,7 +895,23 @@ mod _sqlite {
         }
     }
 
-    #[pyclass(with(Constructor, Callable), flags(BASETYPE))]
+    impl Initializer for Connection {
+        type Args = ConnectArgs;
+
+        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            let mut guard = zelf.db.lock();
+            if guard.is_some() {
+                // Already initialized
+                return Ok(());
+            }
+
+            let db = Self::initialize_db(&args, vm)?;
+            *guard = Some(db);
+            Ok(())
+        }
+    }
+
+    #[pyclass(with(Constructor, Callable, Initializer), flags(BASETYPE))]
     impl Connection {
         fn initialize_db(args: &ConnectArgs, vm: &VirtualMachine) -> PyResult<Sqlite> {
             let path = args.database.to_cstring(vm)?;
@@ -906,19 +922,6 @@ mod _sqlite {
                 begin_statement_ptr_from_isolation_level(isolation_level, vm)?;
             }
             Ok(db)
-        }
-
-        #[pymethod]
-        fn __init__(&self, args: ConnectArgs, vm: &VirtualMachine) -> PyResult<()> {
-            let mut guard = self.db.lock();
-            if guard.is_some() {
-                // Already initialized
-                return Ok(());
-            }
-
-            let db = Self::initialize_db(&args, vm)?;
-            *guard = Some(db);
-            Ok(())
         }
 
         fn db_lock(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<'_, Sqlite>> {
