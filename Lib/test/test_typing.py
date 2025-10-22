@@ -49,8 +49,8 @@ from test.support import captured_stderr, cpython_only, infinite_recursion, requ
 from test.support.testcase import ExtraAssertions
 from test.typinganndata import ann_module695, mod_generics_cache, _typed_dict_helper
 
-# TODO: RUSTPYTHON
-import unittest
+import unittest # XXX: RUSTPYTHON
+
 
 CANNOT_SUBCLASS_TYPE = 'Cannot subclass special typing classes'
 NOT_A_BASE_TYPE = "type 'typing.%s' is not an acceptable base type"
@@ -966,8 +966,7 @@ class GenericAliasSubstitutionTests(BaseTestCase):
                         )
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_two_parameters(self):
         T1 = TypeVar('T1')
         T2 = TypeVar('T2')
@@ -1065,8 +1064,7 @@ class GenericAliasSubstitutionTests(BaseTestCase):
                             eval(expected_str)
                         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_variadic_parameters(self):
         T1 = TypeVar('T1')
         T2 = TypeVar('T2')
@@ -3231,8 +3229,7 @@ class ProtocolTests(BaseTestCase):
         self.assertIsSubclass(NotAProtocolButAnImplicitSubclass2, CallableMembersProto)
         self.assertIsSubclass(NotAProtocolButAnImplicitSubclass3, CallableMembersProto)
 
-    # TODO: RUSTPYTHON
-    @unittest.skip("TODO: RUSTPYTHON (no gc)")
+    @unittest.skip('TODO: RUSTPYTHON; (no gc)')
     def test_isinstance_checks_not_at_whim_of_gc(self):
         self.addCleanup(gc.enable)
         gc.disable()
@@ -4175,8 +4172,7 @@ class ProtocolTests(BaseTestCase):
         Alias2 = typing.Union[P, typing.Iterable]
         self.assertEqual(Alias, Alias2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_protocols_pickleable(self):
         global P, CP  # pickle wants to reference the class by name
         T = TypeVar('T')
@@ -5151,8 +5147,7 @@ class GenericTests(BaseTestCase):
                     self.assertNotEqual(repr(base), '')
                     self.assertEqual(base, base)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_pickle(self):
         global C  # pickle wants to reference the class by name
         T = TypeVar('T')
@@ -5274,8 +5269,7 @@ class GenericTests(BaseTestCase):
         for t in things:
             self.assertEqual(weakref.ref(t)(), t)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_parameterized_slots(self):
         T = TypeVar('T')
         class C(Generic[T]):
@@ -5295,8 +5289,7 @@ class GenericTests(BaseTestCase):
         self.assertEqual(get_type_hints(foo, globals(), locals())['x'], C[C])
         self.assertEqual(copy(C[int]), deepcopy(C[int]))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_parameterized_slots_dict(self):
         T = TypeVar('T')
         class D(Generic[T]):
@@ -5722,6 +5715,24 @@ class GenericTests(BaseTestCase):
                     with self.assertRaises(TypeError):
                         a[int]
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: ".+__typing_subst__.+tuple.+int.*" does not match "'TypeAliasType' object is not subscriptable"
+    def test_return_non_tuple_while_unpacking(self):
+        # GH-138497: GenericAlias objects didn't ensure that __typing_subst__ actually
+        # returned a tuple
+        class EvilTypeVar:
+            __typing_is_unpacked_typevartuple__ = True
+            def __typing_prepare_subst__(*_):
+                return None  # any value
+            def __typing_subst__(*_):
+                return 42  # not tuple
+
+        evil = EvilTypeVar()
+        # Create a dummy TypeAlias that will be given the evil generic from
+        # above.
+        type type_alias[*_] = 0
+        with self.assertRaisesRegex(TypeError, ".+__typing_subst__.+tuple.+int.*"):
+            type_alias[evil][0]
+
 
 class ClassVarTests(BaseTestCase):
 
@@ -5824,8 +5835,7 @@ class FinalDecoratorTests(BaseTestCase):
         def func(x): ...
         self.assertIs(func, final(func))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_dunder_final(self):
         @final
         def func(): ...
@@ -6844,8 +6854,7 @@ class GetTypeHintTests(BaseTestCase):
         with self.assertRaises(TypeError):
             gth(None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_get_type_hints_modules(self):
         ann_module_type_hints = {1: 2, 'f': Tuple[int, int], 'x': int, 'y': str, 'u': int | float}
         self.assertEqual(gth(ann_module), ann_module_type_hints)
@@ -7096,8 +7105,7 @@ class GetTypeHintTests(BaseTestCase):
         ):
             get_type_hints(ann_module6)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_get_type_hints_typeddict(self):
         self.assertEqual(get_type_hints(TotalMovie), {'title': str, 'year': int})
         self.assertEqual(get_type_hints(TotalMovie, include_extras=True), {
@@ -8138,8 +8146,7 @@ class NamedTupleTests(BaseTestCase):
                 self.assertEqual(struct.__annotations__, {})
                 self.assertIsInstance(struct(), struct)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_namedtuple_errors(self):
         with self.assertRaises(TypeError):
             NamedTuple.__new__()
@@ -8227,8 +8234,7 @@ class NamedTupleTests(BaseTestCase):
         self.assertIsInstance(bar.attr, Vanilla)
         self.assertEqual(bar.attr.name, "attr")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_setname_raises_the_same_as_on_other_classes(self):
         class CustomException(BaseException): pass
 
@@ -8644,16 +8650,14 @@ class TypedDictTests(BaseTestCase):
         # The TypedDict constructor is not itself a TypedDict
         self.assertIs(is_typeddict(TypedDict), False)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_get_type_hints(self):
         self.assertEqual(
             get_type_hints(Bar),
             {'a': typing.Optional[int], 'b': int}
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_get_type_hints_generic(self):
         self.assertEqual(
             get_type_hints(BarGeneric),
@@ -8786,8 +8790,7 @@ class TypedDictTests(BaseTestCase):
         with self.assertRaises(TypeError):
             WithImplicitAny[str]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_non_generic_subscript(self):
         # For backward compatibility, subscription works
         # on arbitrary TypedDict types.
@@ -8915,8 +8918,7 @@ class TypedDictTests(BaseTestCase):
         self.assertEqual(Child.__readonly_keys__, frozenset())
         self.assertEqual(Child.__mutable_keys__, frozenset({'a'}))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_combine_qualifiers(self):
         class AllTheThings(TypedDict):
             a: Annotated[Required[ReadOnly[int]], "why not"]
@@ -9110,8 +9112,7 @@ class RETests(BaseTestCase):
         self.assertEqual(repr(Match[str]), 'typing.Match[str]')
         self.assertEqual(repr(Match[bytes]), 'typing.Match[bytes]')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_cannot_subclass(self):
         with self.assertRaisesRegex(
             TypeError,
@@ -10330,8 +10331,7 @@ class SpecialAttrsTests(BaseTestCase):
 
     TypeName = typing.NewType('SpecialAttrsTests.TypeName', Any)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_special_attrs2(self):
         # Forward refs provide a different introspection API. __name__ and
         # __qualname__ make little sense for forward refs as they can store
@@ -10498,8 +10498,7 @@ class DataclassTransformTests(BaseTestCase):
 
 
 class NoDefaultTests(BaseTestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             s = pickle.dumps(NoDefault, proto)
@@ -10525,8 +10524,7 @@ class NoDefaultTests(BaseTestCase):
         with self.assertRaises(TypeError):
             NoDefault()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_no_attributes(self):
         with self.assertRaises(AttributeError):
             NoDefault.foo = 3
@@ -10602,8 +10600,7 @@ class TypeIterationTests(BaseTestCase):
         Annotated[T, ''],
     )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_cannot_iterate(self):
         expected_error_regex = "object is not iterable"
         for test_type in self._UNITERABLE_TYPES:

@@ -201,8 +201,7 @@ class BaseBytesTest:
         self.assertRaises(ValueError, self.type2test, [sys.maxsize+1])
         self.assertRaises(ValueError, self.type2test, [10**100])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     @bigaddrspacetest
     def test_constructor_overflow(self):
         size = MAX_Py_ssize_t
@@ -326,8 +325,7 @@ class BaseBytesTest:
         # Default encoding is utf-8
         self.assertEqual(self.type2test(b'\xe2\x98\x83').decode(), '\u2603')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_check_encoding_errors(self):
         # bpo-37388: bytes(str) and bytes.encode() must check encoding
         # and errors arguments in dev mode
@@ -972,8 +970,7 @@ class BaseBytesTest:
             self.assertRaises(ValueError, method, 256)
             self.assertRaises(ValueError, method, 9999)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_find_etc_raise_correct_error_messages(self):
         # issue 11828
         b = self.type2test(b'hello')
@@ -993,8 +990,7 @@ class BaseBytesTest:
         self.assertRaisesRegex(TypeError, r'\bendswith\b', b.endswith,
                                 x, None, None, None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_free_after_iterating(self):
         test.support.check_free_after_iterating(self, iter, self.type2test)
         test.support.check_free_after_iterating(self, reversed, self.type2test)
@@ -1845,6 +1841,8 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         self.assertEqual(b3, b'xcxcxc')
 
     def test_mutating_index(self):
+        # bytearray slice assignment can call into python code
+        # that reallocates the internal buffer
         # See gh-91153
 
         class Boom:
@@ -1862,22 +1860,82 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
             with self.assertRaises(IndexError):
                 self._testlimitedcapi.sequence_setitem(b, 0, Boom())
 
+    def test_mutating_index_inbounds(self):
+        # gh-91153 continued
+        # Ensure buffer is not broken even if length is correct
+
+        class MutatesOnIndex:
+            def __init__(self):
+                self.ba = bytearray(0x180)
+
+            def __index__(self):
+                self.ba.clear()
+                self.new_ba = bytearray(0x180)  # to catch out-of-bounds writes
+                self.ba.extend([0] * 0x180)     # to check bounds checks
+                return 0
+
+        with self.subTest("skip_bounds_safety"):
+            instance = MutatesOnIndex()
+            instance.ba[instance] = ord("?")
+            self.assertEqual(instance.ba[0], ord("?"), "Assigned bytearray not altered")
+            self.assertEqual(instance.new_ba, bytearray(0x180), "Wrong object altered")
+
+        with self.subTest("skip_bounds_safety_capi"):
+            instance = MutatesOnIndex()
+            instance.ba[instance] = ord("?")
+            self._testlimitedcapi.sequence_setitem(instance.ba, instance, ord("?"))
+            self.assertEqual(instance.ba[0], ord("?"), "Assigned bytearray not altered")
+            self.assertEqual(instance.new_ba, bytearray(0x180), "Wrong object altered")
+
+        with self.subTest("skip_bounds_safety_slice"):
+            instance = MutatesOnIndex()
+            instance.ba[instance:1] = [ord("?")]
+            self.assertEqual(instance.ba[0], ord("?"), "Assigned bytearray not altered")
+            self.assertEqual(instance.new_ba, bytearray(0x180), "Wrong object altered")
+
 
 class AssortedBytesTest(unittest.TestCase):
     #
     # Test various combinations of bytes and bytearray
     #
 
+    def test_bytes_repr(self, f=repr):
+        self.assertEqual(f(b''), "b''")
+        self.assertEqual(f(b"abc"), "b'abc'")
+        self.assertEqual(f(bytes([92])), r"b'\\'")
+        self.assertEqual(f(bytes([0, 1, 254, 255])), r"b'\x00\x01\xfe\xff'")
+        self.assertEqual(f(b'\a\b\t\n\v\f\r'), r"b'\x07\x08\t\n\x0b\x0c\r'")
+        self.assertEqual(f(b'"'), """b'"'""") # '"'
+        self.assertEqual(f(b"'"), '''b"'"''') # "'"
+        self.assertEqual(f(b"'\""), r"""b'\'"'""") # '\'"'
+        self.assertEqual(f(b"\"'\""), r"""b'"\'"'""") # '"\'"'
+        self.assertEqual(f(b"'\"'"), r"""b'\'"\''""") # '\'"\''
+        self.assertEqual(f(BytesSubclass(b"abc")), "b'abc'")
+
+    def test_bytearray_repr(self, f=repr):
+        self.assertEqual(f(bytearray()), "bytearray(b'')")
+        self.assertEqual(f(bytearray(b'abc')), "bytearray(b'abc')")
+        self.assertEqual(f(bytearray([92])), r"bytearray(b'\\')")
+        self.assertEqual(f(bytearray([0, 1, 254, 255])),
+                            r"bytearray(b'\x00\x01\xfe\xff')")
+        self.assertEqual(f(bytearray([7, 8, 9, 10, 11, 12, 13])),
+                            r"bytearray(b'\x07\x08\t\n\x0b\x0c\r')")
+        self.assertEqual(f(bytearray(b'"')), """bytearray(b'"')""") # '"'
+        self.assertEqual(f(bytearray(b"'")), r'''bytearray(b"\'")''') # "\'"
+        self.assertEqual(f(bytearray(b"'\"")), r"""bytearray(b'\'"')""") # '\'"'
+        self.assertEqual(f(bytearray(b"\"'\"")), r"""bytearray(b'"\'"')""") # '"\'"'
+        self.assertEqual(f(bytearray(b'\'"\'')), r"""bytearray(b'\'"\'')""") # '\'"\''
+        self.assertEqual(f(ByteArraySubclass(b"abc")), "ByteArraySubclass(b'abc')")
+        self.assertEqual(f(ByteArraySubclass.Nested(b"abc")), "Nested(b'abc')")
+        self.assertEqual(f(ByteArraySubclass.Ŭñıçöđë(b"abc")), "Ŭñıçöđë(b'abc')")
+
     @check_bytes_warnings
-    def test_repr_str(self):
-        for f in str, repr:
-            self.assertEqual(f(bytearray()), "bytearray(b'')")
-            self.assertEqual(f(bytearray([0])), "bytearray(b'\\x00')")
-            self.assertEqual(f(bytearray([0, 1, 254, 255])),
-                             "bytearray(b'\\x00\\x01\\xfe\\xff')")
-            self.assertEqual(f(b"abc"), "b'abc'")
-            self.assertEqual(f(b"'"), '''b"'"''') # '''
-            self.assertEqual(f(b"'\""), r"""b'\'"'""") # '
+    def test_bytes_str(self):
+        self.test_bytes_repr(str)
+
+    @check_bytes_warnings
+    def test_bytearray_str(self):
+        self.test_bytearray_repr(str)
 
     @check_bytes_warnings
     def test_format(self):
@@ -1929,15 +1987,6 @@ class AssortedBytesTest(unittest.TestCase):
         buf = memoryview(sample)
         b = bytearray(buf)
         self.assertEqual(b, bytearray(sample))
-
-    @check_bytes_warnings
-    def test_to_str(self):
-        self.assertEqual(str(b''), "b''")
-        self.assertEqual(str(b'x'), "b'x'")
-        self.assertEqual(str(b'\x80'), "b'\\x80'")
-        self.assertEqual(str(bytearray(b'')), "bytearray(b'')")
-        self.assertEqual(str(bytearray(b'x')), "bytearray(b'x')")
-        self.assertEqual(str(bytearray(b'\x80')), "bytearray(b'\\x80')")
 
     def test_literal(self):
         tests =  [
@@ -2089,7 +2138,7 @@ class SubclassTest:
         s3 = s1.join([b"abcd"])
         self.assertIs(type(s3), self.basetype)
 
-    @unittest.skip("TODO: RUSTPYTHON, Fails on ByteArraySubclassWithSlotsTest")
+    @unittest.skip('TODO: RUSTPYTHON; Fails on ByteArraySubclassWithSlotsTest')
     def test_pickle(self):
         a = self.type2test(b"abcd")
         a.x = 10
@@ -2104,7 +2153,7 @@ class SubclassTest:
             self.assertEqual(type(a.z), type(b.z))
             self.assertFalse(hasattr(b, 'y'))
 
-    @unittest.skip("TODO: RUSTPYTHON, Fails on ByteArraySubclassWithSlotsTest")
+    @unittest.skip('TODO: RUSTPYTHON; Fails on ByteArraySubclassWithSlotsTest')
     def test_copy(self):
         a = self.type2test(b"abcd")
         a.x = 10
@@ -2148,7 +2197,10 @@ class SubclassTest:
 
 
 class ByteArraySubclass(bytearray):
-    pass
+    class Nested(bytearray):
+        pass
+    class Ŭñıçöđë(bytearray):
+        pass
 
 class ByteArraySubclassWithSlots(bytearray):
     __slots__ = ('x', 'y', '__dict__')

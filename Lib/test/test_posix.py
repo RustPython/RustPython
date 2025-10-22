@@ -1,17 +1,19 @@
 "Test posix functions"
 
 from test import support
-from test.support import import_helper
+from test.support import is_apple
 from test.support import os_helper
 from test.support import warnings_helper
 from test.support.script_helper import assert_python_ok
 
+import copy
 import errno
 import sys
 import signal
 import time
 import os
 import platform
+import pickle
 import stat
 import tempfile
 import unittest
@@ -411,8 +413,10 @@ class PosixTester(unittest.TestCase):
             # issue33655: Also ignore EINVAL on *BSD since ZFS is also
             # often used there.
             if inst.errno == errno.EINVAL and sys.platform.startswith(
-                ('sunos', 'freebsd', 'netbsd', 'openbsd', 'gnukfreebsd')):
+                ('sunos', 'freebsd', 'openbsd', 'gnukfreebsd')):
                 raise unittest.SkipTest("test may fail on ZFS filesystems")
+            elif inst.errno == errno.EOPNOTSUPP and sys.platform.startswith("netbsd"):
+                raise unittest.SkipTest("test may fail on FFS filesystems")
             else:
                 raise
         finally:
@@ -565,8 +569,38 @@ class PosixTester(unittest.TestCase):
     @unittest.skipUnless(hasattr(posix, 'confstr'),
                          'test needs posix.confstr()')
     def test_confstr(self):
-        self.assertRaises(ValueError, posix.confstr, "CS_garbage")
-        self.assertEqual(len(posix.confstr("CS_PATH")) > 0, True)
+        with self.assertRaisesRegex(
+            ValueError, "unrecognized configuration name"
+        ):
+            posix.confstr("CS_garbage")
+
+        with self.assertRaisesRegex(
+            TypeError, "configuration names must be strings or integers"
+        ):
+            posix.confstr(1.23)
+
+        path = posix.confstr("CS_PATH")
+        self.assertGreater(len(path), 0)
+        self.assertEqual(posix.confstr(posix.confstr_names["CS_PATH"]), path)
+
+    @unittest.expectedFailureIf(sys.platform in ('darwin', 'linux'), '''TODO: RUSTPYTHON; AssertionError: "configuration names must be strings or integers" does not match "Expected type 'str' but 'float' found."''')
+    @unittest.skipUnless(hasattr(posix, 'sysconf'),
+                         'test needs posix.sysconf()')
+    def test_sysconf(self):
+        with self.assertRaisesRegex(
+            ValueError, "unrecognized configuration name"
+        ):
+            posix.sysconf("SC_garbage")
+
+        with self.assertRaisesRegex(
+            TypeError, "configuration names must be strings or integers"
+        ):
+            posix.sysconf(1.23)
+
+        arg_max = posix.sysconf("SC_ARG_MAX")
+        self.assertGreater(arg_max, 0)
+        self.assertEqual(
+            posix.sysconf(posix.sysconf_names["SC_ARG_MAX"]), arg_max)
 
     @unittest.skipUnless(hasattr(posix, 'dup2'),
                          'test needs posix.dup2()')
@@ -703,7 +737,8 @@ class PosixTester(unittest.TestCase):
         self.assertEqual(posix.major(dev), major)
         self.assertRaises(TypeError, posix.major, float(dev))
         self.assertRaises(TypeError, posix.major)
-        self.assertRaises((ValueError, OverflowError), posix.major, -1)
+        for x in -2, 2**64, -2**63-1:
+            self.assertRaises((ValueError, OverflowError), posix.major, x)
 
         minor = posix.minor(dev)
         self.assertIsInstance(minor, int)
@@ -711,13 +746,23 @@ class PosixTester(unittest.TestCase):
         self.assertEqual(posix.minor(dev), minor)
         self.assertRaises(TypeError, posix.minor, float(dev))
         self.assertRaises(TypeError, posix.minor)
-        self.assertRaises((ValueError, OverflowError), posix.minor, -1)
+        for x in -2, 2**64, -2**63-1:
+            self.assertRaises((ValueError, OverflowError), posix.minor, x)
 
         self.assertEqual(posix.makedev(major, minor), dev)
         self.assertRaises(TypeError, posix.makedev, float(major), minor)
         self.assertRaises(TypeError, posix.makedev, major, float(minor))
         self.assertRaises(TypeError, posix.makedev, major)
         self.assertRaises(TypeError, posix.makedev)
+        for x in -2, 2**32, 2**64, -2**63-1:
+            self.assertRaises((ValueError, OverflowError), posix.makedev, x, minor)
+            self.assertRaises((ValueError, OverflowError), posix.makedev, major, x)
+
+        if sys.platform == 'linux' and not support.linked_to_musl():
+            NODEV = -1
+            self.assertEqual(posix.major(NODEV), NODEV)
+            self.assertEqual(posix.minor(NODEV), NODEV)
+            self.assertEqual(posix.makedev(NODEV, NODEV), NODEV)
 
     def _test_all_chown_common(self, chown_func, first_param, stat_func):
         """Common code for chown, fchown and lchown tests."""
@@ -781,9 +826,10 @@ class PosixTester(unittest.TestCase):
             check_stat(uid, gid)
             self.assertRaises(OSError, chown_func, first_param, 0, -1)
             check_stat(uid, gid)
-            if 0 not in os.getgroups():
-                self.assertRaises(OSError, chown_func, first_param, -1, 0)
-                check_stat(uid, gid)
+            if hasattr(os, 'getgroups'):
+                if 0 not in os.getgroups():
+                    self.assertRaises(OSError, chown_func, first_param, -1, 0)
+                    check_stat(uid, gid)
         # test illegal types
         for t in str, float:
             self.assertRaises(TypeError, chown_func, first_param, t(uid), gid)
@@ -936,6 +982,7 @@ class PosixTester(unittest.TestCase):
         posix.utime(os_helper.TESTFN, (now, now))
 
     def check_chmod(self, chmod_func, target, **kwargs):
+        closefd = not isinstance(target, int)
         mode = os.stat(target).st_mode
         try:
             new_mode = mode & ~(stat.S_IWOTH | stat.S_IWGRP | stat.S_IWUSR)
@@ -943,7 +990,7 @@ class PosixTester(unittest.TestCase):
             self.assertEqual(os.stat(target).st_mode, new_mode)
             if stat.S_ISREG(mode):
                 try:
-                    with open(target, 'wb+'):
+                    with open(target, 'wb+', closefd=closefd):
                         pass
                 except PermissionError:
                     pass
@@ -951,10 +998,10 @@ class PosixTester(unittest.TestCase):
             chmod_func(target, new_mode, **kwargs)
             self.assertEqual(os.stat(target).st_mode, new_mode)
             if stat.S_ISREG(mode):
-                with open(target, 'wb+'):
+                with open(target, 'wb+', closefd=closefd):
                     pass
         finally:
-            posix.chmod(target, mode)
+            chmod_func(target, mode)
 
     @os_helper.skip_unless_working_chmod
     def test_chmod_file(self):
@@ -970,6 +1017,13 @@ class PosixTester(unittest.TestCase):
     def test_chmod_dir(self):
         target = self.tempdir()
         self.check_chmod(posix.chmod, target)
+
+    @unittest.skipIf(sys.platform in ('darwin', 'linux'), 'TODO: RUSTPYTHON; crash')
+    @os_helper.skip_unless_working_chmod
+    def test_fchmod_file(self):
+        with open(os_helper.TESTFN, 'wb+') as f:
+            self.check_chmod(posix.fchmod, f.fileno())
+            self.check_chmod(posix.chmod, f.fileno())
 
     @unittest.skipUnless(hasattr(posix, 'lchmod'), 'test needs os.lchmod()')
     def test_lchmod_file(self):
@@ -1009,6 +1063,7 @@ class PosixTester(unittest.TestCase):
         self.assertEqual(os.stat(target).st_mode, target_mode)
         self.assertEqual(os.lstat(link).st_mode, new_mode)
 
+    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
     @os_helper.skip_unless_symlink
     def test_chmod_file_symlink(self):
         target = os_helper.TESTFN
@@ -1019,8 +1074,9 @@ class PosixTester(unittest.TestCase):
             self.check_lchmod_link(posix.chmod, target, link)
         else:
             self.check_chmod_link(posix.chmod, target, link)
-            self.check_chmod_link(posix.chmod, target, link, follow_symlinks=True)
+        self.check_chmod_link(posix.chmod, target, link, follow_symlinks=True)
 
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; flaky')
     @os_helper.skip_unless_symlink
     def test_chmod_dir_symlink(self):
         target = self.tempdir()
@@ -1031,7 +1087,7 @@ class PosixTester(unittest.TestCase):
             self.check_lchmod_link(posix.chmod, target, link)
         else:
             self.check_chmod_link(posix.chmod, target, link)
-            self.check_chmod_link(posix.chmod, target, link, follow_symlinks=True)
+        self.check_chmod_link(posix.chmod, target, link, follow_symlinks=True)
 
     @unittest.skipUnless(hasattr(posix, 'lchmod'), 'test needs os.lchmod()')
     @os_helper.skip_unless_symlink
@@ -1249,8 +1305,8 @@ class PosixTester(unittest.TestCase):
         self.assertIsInstance(lo, int)
         self.assertIsInstance(hi, int)
         self.assertGreaterEqual(hi, lo)
-        # OSX evidently just returns 15 without checking the argument.
-        if sys.platform != "darwin":
+        # Apple platforms return 15 without checking the argument.
+        if not is_apple:
             self.assertRaises(OSError, posix.sched_get_priority_min, -23)
             self.assertRaises(OSError, posix.sched_get_priority_max, -23)
 
@@ -1262,9 +1318,10 @@ class PosixTester(unittest.TestCase):
         self.assertIn(mine, possible_schedulers)
         try:
             parent = posix.sched_getscheduler(os.getppid())
-        except OSError as e:
-            if e.errno != errno.EPERM:
-                raise
+        except PermissionError:
+            # POSIX specifies EPERM, but Android returns EACCES. Both errno
+            # values are mapped to PermissionError.
+            pass
         else:
             self.assertIn(parent, possible_schedulers)
         self.assertRaises(OSError, posix.sched_getscheduler, -1)
@@ -1279,9 +1336,8 @@ class PosixTester(unittest.TestCase):
             try:
                 posix.sched_setscheduler(0, mine, param)
                 posix.sched_setparam(0, param)
-            except OSError as e:
-                if e.errno != errno.EPERM:
-                    raise
+            except PermissionError:
+                pass
             self.assertRaises(OSError, posix.sched_setparam, -1, param)
 
         self.assertRaises(OSError, posix.sched_setscheduler, -1, mine, param)
@@ -1294,6 +1350,26 @@ class PosixTester(unittest.TestCase):
         self.assertRaises(OverflowError, posix.sched_setparam, 0, param)
         param = posix.sched_param(sched_priority=-large)
         self.assertRaises(OverflowError, posix.sched_setparam, 0, param)
+
+    @unittest.expectedFailureIf(sys.platform == 'linux', "TODO: RUSTPYTHON; TypeError: cannot pickle 'sched_param' object")
+    @requires_sched
+    def test_sched_param(self):
+        param = posix.sched_param(1)
+        for proto in range(pickle.HIGHEST_PROTOCOL+1):
+            newparam = pickle.loads(pickle.dumps(param, proto))
+            self.assertEqual(newparam, param)
+        newparam = copy.copy(param)
+        self.assertIsNot(newparam, param)
+        self.assertEqual(newparam, param)
+        newparam = copy.deepcopy(param)
+        self.assertIsNot(newparam, param)
+        self.assertEqual(newparam, param)
+        newparam = copy.replace(param)
+        self.assertIsNot(newparam, param)
+        self.assertEqual(newparam, param)
+        newparam = copy.replace(param, sched_priority=0)
+        self.assertNotEqual(newparam, param)
+        self.assertEqual(newparam.sched_priority, 0)
 
     @unittest.skipUnless(hasattr(posix, "sched_rr_get_interval"), "no function")
     def test_sched_rr_get_interval(self):
@@ -1495,6 +1571,7 @@ class TestPosixDirFd(unittest.TestCase):
         with self.prepare_file() as (dir_fd, name, fullname):
             posix.chown(name, os.getuid(), os.getgid(), dir_fd=dir_fd)
 
+    @unittest.expectedFailureIf(sys.platform in ('darwin', 'linux'), 'TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered')
     @unittest.skipUnless(os.stat in os.supports_dir_fd, "test needs dir_fd support in os.stat()")
     def test_stat_dir_fd(self):
         with self.prepare() as (dir_fd, name, fullname):
@@ -1514,6 +1591,13 @@ class TestPosixDirFd(unittest.TestCase):
                     posix.stat, name, dir_fd=float(dir_fd))
             self.assertRaises(OverflowError,
                     posix.stat, name, dir_fd=10**20)
+
+            for fd in False, True:
+                with self.assertWarnsRegex(RuntimeWarning,
+                        'bool is used as a file descriptor') as cm:
+                    with self.assertRaises(OSError):
+                        posix.stat('nonexisting', dir_fd=fd)
+                self.assertEqual(cm.filename, __file__)
 
     @unittest.skipUnless(os.utime in os.supports_dir_fd, "test needs dir_fd support in os.utime()")
     def test_utime_dir_fd(self):
@@ -1890,7 +1974,7 @@ class _PosixSpawnMixin:
                             [sys.executable, "-c", "pass"],
                             os.environ, setsigdef=[signal.NSIG, signal.NSIG+1])
 
-    @unittest.expectedFailure
+    @unittest.expectedFailureIf(sys.platform in ('darwin', 'linux'), 'TODO: RUSTPYTHON; NotImplementedError: scheduler parameter is not yet implemented')
     @requires_sched
     @unittest.skipIf(sys.platform.startswith(('freebsd', 'netbsd')),
                      "bpo-34685: test can fail on BSD")
@@ -1911,10 +1995,15 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
-    @unittest.expectedFailure
+    @unittest.expectedFailureIf(sys.platform in ('darwin', 'linux'), 'TODO: RUSTPYTHON; NotImplementedError: scheduler parameter is not yet implemented')
     @requires_sched
     @unittest.skipIf(sys.platform.startswith(('freebsd', 'netbsd')),
                      "bpo-34685: test can fail on BSD")
+    @unittest.skipIf(platform.libc_ver()[0] == 'glibc' and
+                     os.sched_getscheduler(0) in [
+                        os.SCHED_BATCH,
+                        os.SCHED_IDLE],
+                     "Skip test due to glibc posix_spawn policy")
     def test_setscheduler_with_policy(self):
         policy = os.sched_getscheduler(0)
         priority = os.sched_get_priority_min(policy)
@@ -1993,10 +2082,7 @@ class _PosixSpawnMixin:
         with open(outfile, encoding="utf-8") as f:
             self.assertEqual(f.read(), 'hello')
 
-    # TODO: RUSTPYTHON: the rust runtime reopens closed stdio fds at startup,
-    #                   so this test fails, even though POSIX_SPAWN_CLOSE does
-    #                   actually have an effect
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; the rust runtime reopens closed stdio fds at startup, so this test fails, even though POSIX_SPAWN_CLOSE does actually have an effect
     def test_close_file(self):
         closefile = os_helper.TESTFN
         self.addCleanup(os_helper.unlink, closefile)
@@ -2036,11 +2122,13 @@ class _PosixSpawnMixin:
 
 
 @unittest.skipUnless(hasattr(os, 'posix_spawn'), "test needs os.posix_spawn")
+@support.requires_subprocess()
 class TestPosixSpawn(unittest.TestCase, _PosixSpawnMixin):
     spawn_func = getattr(posix, 'posix_spawn', None)
 
 
 @unittest.skipUnless(hasattr(os, 'posix_spawnp'), "test needs os.posix_spawnp")
+@support.requires_subprocess()
 class TestPosixSpawnP(unittest.TestCase, _PosixSpawnMixin):
     spawn_func = getattr(posix, 'posix_spawnp', None)
 
@@ -2116,6 +2204,13 @@ class TestPosixWeaklinking(unittest.TestCase):
 
             with self.assertRaisesRegex(NotImplementedError, "dir_fd unavailable"):
                 os.stat("file", dir_fd=0)
+
+    def test_ptsname_r(self):
+        self._verify_available("HAVE_PTSNAME_R")
+        if self.mac_ver >= (10, 13, 4):
+            self.assertIn("HAVE_PTSNAME_R", posix._have_functions)
+        else:
+            self.assertNotIn("HAVE_PTSNAME_R", posix._have_functions)
 
     def test_access(self):
         self._verify_available("HAVE_FACCESSAT")

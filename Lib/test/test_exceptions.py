@@ -60,8 +60,7 @@ class ExceptionTests(unittest.TestCase):
             self.assertEqual(buf1, buf2)
             self.assertEqual(exc.__name__, excname)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testRaising(self):
         self.raise_catch(AttributeError, "AttributeError")
         self.assertRaises(AttributeError, getattr, sys, "undefined_attribute")
@@ -146,8 +145,7 @@ class ExceptionTests(unittest.TestCase):
 
         self.raise_catch(StopAsyncIteration, "StopAsyncIteration")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testSyntaxErrorMessage(self):
         # make sure the right exception message is raised for each of
         # these code fragments
@@ -172,8 +170,7 @@ class ExceptionTests(unittest.TestCase):
         ckmsg("continue\n", "'continue' not properly in loop")
         ckmsg("f'{6 0}'", "invalid syntax. Perhaps you forgot a comma?")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testSyntaxErrorMissingParens(self):
         def ckmsg(src, msg, exception=SyntaxError):
             try:
@@ -232,14 +229,12 @@ class ExceptionTests(unittest.TestCase):
                 line = src.split('\n')[lineno-1]
                 self.assertIn(line, cm.exception.text)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_error_offset_continuation_characters(self):
         check = self.check
         check('"\\\n"(1 for c in I,\\\n\\', 2, 2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testSyntaxErrorOffset(self):
         check = self.check
         check('def fact(x):\n\treturn x!\n', 2, 10)
@@ -443,8 +438,7 @@ class ExceptionTests(unittest.TestCase):
         with self.assertRaisesRegex(OSError, 'Windows Error 0x%x' % code):
             ctypes.pythonapi.PyErr_SetFromWindowsErr(code)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testAttributes(self):
         # test that exception attributes are happy
 
@@ -607,8 +601,7 @@ class ExceptionTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "state is not a dictionary"):
             e.__setstate__(42)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_notes(self):
         for e in [BaseException(1), Exception(2), ValueError(3)]:
             with self.subTest(e=e):
@@ -665,8 +658,7 @@ class ExceptionTests(unittest.TestCase):
         else:
             self.fail("No exception raised")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_invalid_setattr(self):
         TE = TypeError
         exc = Exception()
@@ -679,8 +671,7 @@ class ExceptionTests(unittest.TestCase):
         msg = "exception context must be None or derive from BaseException"
         self.assertRaisesRegex(TE, msg, setattr, exc, '__context__', 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_invalid_delattr(self):
         TE = TypeError
         try:
@@ -752,8 +743,8 @@ class ExceptionTests(unittest.TestCase):
         x = DerivedException(fancy_arg=42)
         self.assertEqual(x.fancy_arg, 42)
 
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; Windows')
     @no_tracing
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def testInfiniteRecursion(self):
         def f():
             return f()
@@ -1161,8 +1152,7 @@ class ExceptionTests(unittest.TestCase):
         self.assertIs(c.__context__, b)
         self.assertIsNone(b.__context__)
 
-    # TODO: RUSTPYTHON
-    @unittest.skip("Infinite loop")
+    @unittest.skip("TODO: RUSTPYTHON; Infinite loop")
     def test_no_hang_on_context_chain_cycle1(self):
         # See issue 25782. Cycle in context chain.
 
@@ -1218,8 +1208,7 @@ class ExceptionTests(unittest.TestCase):
         self.assertIs(b.__context__, a)
         self.assertIs(a.__context__, c)
 
-    # TODO: RUSTPYTHON
-    @unittest.skip("Infinite loop")
+    @unittest.skip("TODO: RUSTPYTHON; Infinite loop")
     def test_no_hang_on_context_chain_cycle3(self):
         # See issue 25782. Longer context chain with cycle.
 
@@ -1317,8 +1306,7 @@ class ExceptionTests(unittest.TestCase):
         self.assertIs(exc, oe)
         self.assertIs(exc.__context__, ve)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_unicode_change_attributes(self):
         # See issue 7309. This was a crasher.
 
@@ -1362,8 +1350,7 @@ class ExceptionTests(unittest.TestCase):
         for klass in klasses:
             self.assertEqual(str(klass.__new__(klass)), "")
 
-    # TODO: RUSTPYTHON; OverflowError: Python int too large to convert to Rust usize
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; OverflowError: Python int too large to convert to Rust usize
     def test_unicode_error_str_does_not_crash(self):
         # Test that str(UnicodeError(...)) does not crash.
         # See https://github.com/python/cpython/issues/123378.
@@ -1387,8 +1374,8 @@ class ExceptionTests(unittest.TestCase):
                 exc = UnicodeDecodeError('utf-8', encoded, start, end, '')
                 self.assertIsInstance(str(exc), str)
 
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; Windows')
     @no_tracing
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def test_badisinstance(self):
         # Bug #2542: if issubclass(e, MyException) raises an exception,
         # it should be ignored
@@ -1669,7 +1656,7 @@ class ExceptionTests(unittest.TestCase):
         gc_collect()  # For PyPy or other GCs.
         self.assertEqual(wr(), None)
 
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; Windows')
     @no_tracing
     def test_recursion_error_cleanup(self):
         # Same test as above, but with "recursion exceeded" errors
@@ -1691,7 +1678,7 @@ class ExceptionTests(unittest.TestCase):
         gc_collect()  # For PyPy or other GCs.
         self.assertEqual(wr(), None)
 
-    @unittest.skipIf(sys.platform == 'win32', 'error specific to cpython')
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; error specific to cpython')
     def test_errno_ENOTDIR(self):
         # Issue #12802: "not a directory" errors are ENOTDIR even on Windows
         with self.assertRaises(OSError) as cm:
@@ -1714,8 +1701,7 @@ class ExceptionTests(unittest.TestCase):
             self.assertEqual(cm.unraisable.object, BrokenDel.__del__)
             self.assertIsNotNone(cm.unraisable.exc_traceback)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_unhandled(self):
         # Check for sensible reporting of unhandled exceptions
         for exc_type in (ValueError, BrokenStrException):
@@ -1814,8 +1800,7 @@ class ExceptionTests(unittest.TestCase):
                 next(i)
                 next(i)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipUnless(__debug__, "Won't work if __debug__ is False")
     def test_assert_shadowing(self):
         # Shadowing AssertionError would cause the assert statement to
@@ -1876,6 +1861,38 @@ class ExceptionTests(unittest.TestCase):
         """
         rc, _, err = script_helper.assert_python_ok("-c", code)
         self.assertIn(b'MemoryError', err)
+
+    @cpython_only
+    # Python built with Py_TRACE_REFS fail with a fatal error in
+    # _PyRefchain_Trace() on memory allocation error.
+    @unittest.skipIf(support.Py_TRACE_REFS, 'cannot test Py_TRACE_REFS build')
+    def test_exec_set_nomemory_hang(self):
+        import_module("_testcapi")
+        # gh-134163: A MemoryError inside code that was wrapped by a try/except
+        # block would lead to an infinite loop.
+
+        # The frame_lasti needs to be greater than 257 to prevent
+        # PyLong_FromLong() from returning cached integers, which
+        # don't require a memory allocation. Prepend some dummy code
+        # to artificially increase the instruction index.
+        warmup_code = "a = list(range(0, 1))\n" * 20
+        user_input = warmup_code + dedent("""
+            try:
+                import _testcapi
+                _testcapi.set_nomemory(0)
+                b = list(range(1000, 2000))
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+            """)
+        with SuppressCrashReport():
+            with script_helper.spawn_python('-c', user_input) as p:
+                p.wait()
+                output = p.stdout.read()
+
+        self.assertIn(p.returncode, (0, 1))
+        self.assertGreater(len(output), 0)  # At minimum, should not hang
+        self.assertIn(b"MemoryError", output)
 
 
 class NameErrorTests(unittest.TestCase):
@@ -1973,8 +1990,7 @@ class AttributeErrorTests(unittest.TestCase):
 
 class ImportErrorTests(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_attributes(self):
         # Setting 'name' and 'path' should not be a problem.
         exc = ImportError('test')
@@ -2064,8 +2080,7 @@ class AssertionErrorTests(unittest.TestCase):
     def tearDown(self):
         unlink(TESTFN)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     @force_not_colorized
     def test_assertion_error_location(self):
         cases = [
@@ -2164,8 +2179,7 @@ class AssertionErrorTests(unittest.TestCase):
                 result = run_script(source)
                 self.assertEqual(result[-3:], expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     @force_not_colorized
     def test_multiline_not_highlighted(self):
         cases = [
@@ -2202,8 +2216,7 @@ class AssertionErrorTests(unittest.TestCase):
 class SyntaxErrorTests(unittest.TestCase):
     maxDiff = None
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     @force_not_colorized
     def test_range_of_offsets(self):
         cases = [
@@ -2310,8 +2323,7 @@ class SyntaxErrorTests(unittest.TestCase):
      ^^^^^
 """, err.getvalue())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_encodings(self):
         self.addCleanup(unlink, TESTFN)
         source = (
@@ -2328,16 +2340,14 @@ class SyntaxErrorTests(unittest.TestCase):
         self.assertEqual(err[-3], '    (')
         self.assertEqual(err[-2], '    ^')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_non_utf8(self):
         # Check non utf-8 characters
         self.addCleanup(unlink, TESTFN)
         err = run_script(b"\x89")
         self.assertIn("SyntaxError: Non-UTF-8 code starting with '\\x89' in file", err[-1])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_string_source(self):
         def try_compile(source):
             with self.assertRaises(SyntaxError) as cm:
@@ -2380,8 +2390,7 @@ class SyntaxErrorTests(unittest.TestCase):
         self.assertEqual(exc.offset, 1)
         self.assertEqual(exc.end_offset, 12)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_file_source(self):
         self.addCleanup(unlink, TESTFN)
         err = run_script('return "ä"')
@@ -2444,8 +2453,7 @@ class SyntaxErrorTests(unittest.TestCase):
         self.assertEqual(error, the_exception.text)
         self.assertEqual("bad bad", the_exception.msg)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_incorrect_constructor(self):
         args = ("bad.py", 1, 2)
         self.assertRaises(TypeError, SyntaxError, "bad bad", args)
@@ -2507,8 +2515,7 @@ class PEP626Tests(unittest.TestCase):
                 pass
         self.lineno_after_raise(in_except, 4)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_lineno_after_other_except(self):
         def other_except():
             try:
@@ -2526,8 +2533,7 @@ class PEP626Tests(unittest.TestCase):
                 pass
         self.lineno_after_raise(in_named_except, 4)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_lineno_in_try(self):
         def in_try():
             try:
@@ -2554,8 +2560,7 @@ class PEP626Tests(unittest.TestCase):
                 pass
         self.lineno_after_raise(in_finally_except, 4)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_lineno_after_with(self):
         class Noop:
             def __enter__(self):
@@ -2568,8 +2573,7 @@ class PEP626Tests(unittest.TestCase):
                 pass
         self.lineno_after_raise(after_with, 2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_missing_lineno_shows_as_none(self):
         def f():
             1/0

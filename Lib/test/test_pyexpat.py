@@ -1,13 +1,14 @@
 # XXX TypeErrors on calling handlers, or on bad return values from a
 # handler, are obscure and unhelpful.
 
-from io import BytesIO
 import os
-import platform
 import sys
 import sysconfig
 import unittest
 import traceback
+from io import BytesIO
+from test import support
+from test.support import os_helper
 
 from xml.parsers import expat
 from xml.parsers.expat import errors
@@ -19,32 +20,28 @@ class SetAttributeTest(unittest.TestCase):
     def setUp(self):
         self.parser = expat.ParserCreate(namespace_separator='!')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_buffer_text(self):
         self.assertIs(self.parser.buffer_text, False)
         for x in 0, 1, 2, 0:
             self.parser.buffer_text = x
             self.assertIs(self.parser.buffer_text, bool(x))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_namespace_prefixes(self):
         self.assertIs(self.parser.namespace_prefixes, False)
         for x in 0, 1, 2, 0:
             self.parser.namespace_prefixes = x
             self.assertIs(self.parser.namespace_prefixes, bool(x))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_ordered_attributes(self):
         self.assertIs(self.parser.ordered_attributes, False)
         for x in 0, 1, 2, 0:
             self.parser.ordered_attributes = x
             self.assertIs(self.parser.ordered_attributes, bool(x))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_specified_attributes(self):
         self.assertIs(self.parser.specified_attributes, False)
         for x in 0, 1, 2, 0:
@@ -234,8 +231,7 @@ class ParseTest(unittest.TestCase):
         for operation, expected_operation in zip(operations, expected_operations):
             self.assertEqual(operation, expected_operation)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_parse_bytes(self):
         out = self.Outputter()
         parser = expat.ParserCreate(namespace_separator='!')
@@ -248,8 +244,7 @@ class ParseTest(unittest.TestCase):
         # Issue #6697.
         self.assertRaises(AttributeError, getattr, parser, '\uD800')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_parse_str(self):
         out = self.Outputter()
         parser = expat.ParserCreate(namespace_separator='!')
@@ -260,8 +255,7 @@ class ParseTest(unittest.TestCase):
         operations = out.out
         self._verify_parse_output(operations)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_parse_file(self):
         # Try parsing a file
         out = self.Outputter()
@@ -274,8 +268,7 @@ class ParseTest(unittest.TestCase):
         operations = out.out
         self._verify_parse_output(operations)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_parse_again(self):
         parser = expat.ParserCreate()
         file = BytesIO(data)
@@ -289,8 +282,7 @@ class ParseTest(unittest.TestCase):
                           expat.errors.XML_ERROR_FINISHED)
 
 class NamespaceSeparatorTest(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_legal(self):
         # Tests that make sure we get errors when the namespace_separator value
         # is illegal, and that we don't for good values:
@@ -298,15 +290,12 @@ class NamespaceSeparatorTest(unittest.TestCase):
         expat.ParserCreate(namespace_separator=None)
         expat.ParserCreate(namespace_separator=' ')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_illegal(self):
-        try:
+        with self.assertRaisesRegex(TypeError,
+                r"ParserCreate\(\) argument (2|'namespace_separator') "
+                r"must be str or None, not int"):
             expat.ParserCreate(namespace_separator=42)
-            self.fail()
-        except TypeError as e:
-            self.assertEqual(str(e),
-                "ParserCreate() argument 'namespace_separator' must be str or None, not int")
 
         try:
             expat.ParserCreate(namespace_separator='too long')
@@ -328,9 +317,7 @@ class NamespaceSeparatorTest(unittest.TestCase):
 
 
 class InterningTest(unittest.TestCase):
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test(self):
         # Test the interning machinery.
         p = expat.ParserCreate()
@@ -346,8 +333,7 @@ class InterningTest(unittest.TestCase):
             # L should have the same string repeated over and over.
             self.assertTrue(tag is entry)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_issue9402(self):
         # create an ExternalEntityParserCreate with buffer text
         class ExternalOutputter:
@@ -405,8 +391,7 @@ class BufferTextTest(unittest.TestCase):
         parser = expat.ParserCreate()
         self.assertFalse(parser.buffer_text)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_buffering_enabled(self):
         # Make sure buffering is turned on
         self.assertTrue(self.parser.buffer_text)
@@ -414,8 +399,7 @@ class BufferTextTest(unittest.TestCase):
         self.assertEqual(self.stuff, ['123'],
                          "buffered text not properly collapsed")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test1(self):
         # XXX This test exposes more detail of Expat's text chunking than we
         # XXX like, but it tests what we need to concisely.
@@ -425,23 +409,20 @@ class BufferTextTest(unittest.TestCase):
                          ["<a>", "1", "<b>", "2", "\n", "3", "<c>", "4\n5"],
                          "buffering control not reacting as expected")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test2(self):
         self.parser.Parse(b"<a>1<b/>&lt;2&gt;<c/>&#32;\n&#x20;3</a>", True)
         self.assertEqual(self.stuff, ["1<2> \n 3"],
                          "buffered text not properly collapsed")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test3(self):
         self.setHandlers(["StartElementHandler"])
         self.parser.Parse(b"<a>1<b/>2<c/>3</a>", True)
         self.assertEqual(self.stuff, ["<a>", "1", "<b>", "2", "<c>", "3"],
                          "buffered text not properly split")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test4(self):
         self.setHandlers(["StartElementHandler", "EndElementHandler"])
         self.parser.CharacterDataHandler = None
@@ -449,16 +430,14 @@ class BufferTextTest(unittest.TestCase):
         self.assertEqual(self.stuff,
                          ["<a>", "<b>", "</b>", "<c>", "</c>", "</a>"])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test5(self):
         self.setHandlers(["StartElementHandler", "EndElementHandler"])
         self.parser.Parse(b"<a>1<b></b>2<c/>3</a>", True)
         self.assertEqual(self.stuff,
             ["<a>", "1", "<b>", "</b>", "2", "<c>", "</c>", "3", "</a>"])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test6(self):
         self.setHandlers(["CommentHandler", "EndElementHandler",
                     "StartElementHandler"])
@@ -467,8 +446,7 @@ class BufferTextTest(unittest.TestCase):
             ["<a>", "1", "<b>", "</b>", "2", "<c>", "</c>", "345", "</a>"],
             "buffered text not properly split")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test7(self):
         self.setHandlers(["CommentHandler", "EndElementHandler",
                     "StartElementHandler"])
@@ -482,35 +460,59 @@ class BufferTextTest(unittest.TestCase):
 # Test handling of exception from callback:
 class HandlerExceptionTest(unittest.TestCase):
     def StartElementHandler(self, name, attrs):
-        raise RuntimeError(name)
+        raise RuntimeError(f'StartElementHandler: <{name}>')
 
     def check_traceback_entry(self, entry, filename, funcname):
-        self.assertEqual(os.path.basename(entry[0]), filename)
-        self.assertEqual(entry[2], funcname)
+        self.assertEqual(os.path.basename(entry.filename), filename)
+        self.assertEqual(entry.name, funcname)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @support.cpython_only
     def test_exception(self):
+        # gh-66652: test _PyTraceback_Add() used by pyexpat.c to inject frames
+
+        # Change the current directory to the Python source code directory
+        # if it is available.
+        src_dir = sysconfig.get_config_var('abs_builddir')
+        if src_dir:
+            have_source = os.path.isdir(src_dir)
+        else:
+            have_source = False
+        if have_source:
+            with os_helper.change_cwd(src_dir):
+                self._test_exception(have_source)
+        else:
+            self._test_exception(have_source)
+
+    def _test_exception(self, have_source):
+        # Use path relative to the current directory which should be the Python
+        # source code directory (if it is available).
+        PYEXPAT_C = os.path.join('Modules', 'pyexpat.c')
+
         parser = expat.ParserCreate()
         parser.StartElementHandler = self.StartElementHandler
         try:
             parser.Parse(b"<a><b><c/></b></a>", True)
-            self.fail()
-        except RuntimeError as e:
-            self.assertEqual(e.args[0], 'a',
-                             "Expected RuntimeError for element 'a', but" + \
-                             " found %r" % e.args[0])
-            # Check that the traceback contains the relevant line in pyexpat.c
-            entries = traceback.extract_tb(e.__traceback__)
-            self.assertEqual(len(entries), 3)
-            self.check_traceback_entry(entries[0],
-                                       "test_pyexpat.py", "test_exception")
-            self.check_traceback_entry(entries[1],
-                                       "pyexpat.c", "StartElement")
-            self.check_traceback_entry(entries[2],
-                                       "test_pyexpat.py", "StartElementHandler")
-            if sysconfig.is_python_build() and not (sys.platform == 'win32' and platform.machine() == 'ARM'):
-                self.assertIn('call_with_frame("StartElement"', entries[1][3])
+
+            self.fail("the parser did not raise RuntimeError")
+        except RuntimeError as exc:
+            self.assertEqual(exc.args[0], 'StartElementHandler: <a>', exc)
+            entries = traceback.extract_tb(exc.__traceback__)
+
+        self.assertEqual(len(entries), 3, entries)
+        self.check_traceback_entry(entries[0],
+                                   "test_pyexpat.py", "_test_exception")
+        self.check_traceback_entry(entries[1],
+                                   os.path.basename(PYEXPAT_C),
+                                   "StartElement")
+        self.check_traceback_entry(entries[2],
+                                   "test_pyexpat.py", "StartElementHandler")
+
+        # Check that the traceback contains the relevant line in
+        # Modules/pyexpat.c. Skip the test if Modules/pyexpat.c is not
+        # available.
+        if have_source and os.path.exists(PYEXPAT_C):
+            self.assertIn('call_with_frame("StartElement"',
+                          entries[1].line)
 
 
 # Test Current* members:
@@ -533,8 +535,7 @@ class PositionTest(unittest.TestCase):
                 'Expected position %s, got position %s' %(pos, expected))
         self.upto += 1
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test(self):
         self.parser = expat.ParserCreate()
         self.parser.StartElementHandler = self.StartElementHandler
@@ -548,9 +549,9 @@ class PositionTest(unittest.TestCase):
 
 
 class sf1296433Test(unittest.TestCase):
-
+    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: Expected type 'str' but 'bytes' found.
     def test_parse_only_xml_data(self):
-        # http://python.org/sf/1296433
+        # https://bugs.python.org/issue1296433
         #
         xml = "<?xml version='1.0' encoding='iso8859'?><s>%s</s>" % ('a' * 1025)
         # this one doesn't crash
@@ -565,25 +566,22 @@ class sf1296433Test(unittest.TestCase):
         parser = expat.ParserCreate()
         parser.CharacterDataHandler = handler
 
-        self.assertRaises(Exception, parser.Parse, xml.encode('iso8859'))
+        self.assertRaises(SpecificException, parser.Parse, xml.encode('iso8859'))
 
 class ChardataBufferTest(unittest.TestCase):
     """
     test setting of chardata buffer size
     """
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_1025_bytes(self):
         self.assertEqual(self.small_buffer_test(1025), 2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_1000_bytes(self):
         self.assertEqual(self.small_buffer_test(1000), 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_wrong_size(self):
         parser = expat.ParserCreate()
         parser.buffer_text = 1
@@ -596,8 +594,7 @@ class ChardataBufferTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             parser.buffer_size = 512.0
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_unchanged_size(self):
         xml1 = b"<?xml version='1.0' encoding='iso8859'?><s>" + b'a' * 512
         xml2 = b'a'*512 + b'</s>'
@@ -620,8 +617,8 @@ class ChardataBufferTest(unittest.TestCase):
         parser.Parse(xml2)
         self.assertEqual(self.n, 2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_disabling_buffer(self):
         xml1 = b"<?xml version='1.0' encoding='iso8859'?><a>" + b'a' * 512
         xml2 = b'b' * 1024
@@ -666,8 +663,7 @@ class ChardataBufferTest(unittest.TestCase):
         parser.Parse(xml)
         return self.n
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_change_size_1(self):
         xml1 = b"<?xml version='1.0' encoding='iso8859'?><a><s>" + b'a' * 1024
         xml2 = b'aaa</s><s>' + b'a' * 1025 + b'</s></a>'
@@ -684,8 +680,7 @@ class ChardataBufferTest(unittest.TestCase):
         parser.Parse(xml2, True)
         self.assertEqual(self.n, 2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_change_size_2(self):
         xml1 = b"<?xml version='1.0' encoding='iso8859'?><a>a<s>" + b'a' * 1023
         xml2 = b'aaa</s><s>' + b'a' * 1025 + b'</s></a>'
@@ -703,9 +698,7 @@ class ChardataBufferTest(unittest.TestCase):
         self.assertEqual(self.n, 4)
 
 class MalformedInputTest(unittest.TestCase):
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test1(self):
         xml = b"\0\r\n"
         parser = expat.ParserCreate()
@@ -715,8 +708,7 @@ class MalformedInputTest(unittest.TestCase):
         except expat.ExpatError as e:
             self.assertEqual(str(e), 'unclosed token: line 2, column 0')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test2(self):
         # \xc2\x85 is UTF-8 encoded U+0085 (NEXT LINE)
         xml = b"<?xml version\xc2\x85='1.0'?>\r\n"
@@ -726,16 +718,13 @@ class MalformedInputTest(unittest.TestCase):
             parser.Parse(xml, True)
 
 class ErrorMessageTest(unittest.TestCase):
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_codes(self):
         # verify mapping of errors.codes and errors.messages
         self.assertEqual(errors.XML_ERROR_SYNTAX,
                          errors.messages[errors.codes[errors.XML_ERROR_SYNTAX]])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_expaterror(self):
         xml = b'<'
         parser = expat.ParserCreate()
@@ -751,9 +740,7 @@ class ForeignDTDTests(unittest.TestCase):
     """
     Tests for the UseForeignDTD method of expat parser objects.
     """
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_use_foreign_dtd(self):
         """
         If UseForeignDTD is passed True and a document without an external
@@ -782,8 +769,7 @@ class ForeignDTDTests(unittest.TestCase):
         parser.Parse(b"<?xml version='1.0'?><element/>")
         self.assertEqual(handler_call_args, [(None, None)])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_ignore_use_foreign_dtd(self):
         """
         If UseForeignDTD is passed True and a document with an external
@@ -802,6 +788,102 @@ class ForeignDTDTests(unittest.TestCase):
         parser.Parse(
             b"<?xml version='1.0'?><!DOCTYPE foo PUBLIC 'bar' 'baz'><element/>")
         self.assertEqual(handler_call_args, [("bar", "baz")])
+
+
+class ParentParserLifetimeTest(unittest.TestCase):
+    """
+    Subparsers make use of their parent XML_Parser inside of Expat.
+    As a result, parent parsers need to outlive subparsers.
+
+    See https://github.com/python/cpython/issues/139400.
+    """
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'ExternalEntityParserCreate'
+    def test_parent_parser_outlives_its_subparsers__single(self):
+        parser = expat.ParserCreate()
+        subparser = parser.ExternalEntityParserCreate(None)
+
+        # Now try to cause garbage collection of the parent parser
+        # while it's still being referenced by a related subparser.
+        del parser
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'ExternalEntityParserCreate'
+    def test_parent_parser_outlives_its_subparsers__multiple(self):
+        parser = expat.ParserCreate()
+        subparser_one = parser.ExternalEntityParserCreate(None)
+        subparser_two = parser.ExternalEntityParserCreate(None)
+
+        # Now try to cause garbage collection of the parent parser
+        # while it's still being referenced by a related subparser.
+        del parser
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'ExternalEntityParserCreate'
+    def test_parent_parser_outlives_its_subparsers__chain(self):
+        parser = expat.ParserCreate()
+        subparser = parser.ExternalEntityParserCreate(None)
+        subsubparser = subparser.ExternalEntityParserCreate(None)
+
+        # Now try to cause garbage collection of the parent parsers
+        # while they are still being referenced by a related subparser.
+        del parser
+        del subparser
+
+
+class ReparseDeferralTest(unittest.TestCase):
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'GetReparseDeferralEnabled'
+    def test_getter_setter_round_trip(self):
+        parser = expat.ParserCreate()
+        enabled = (expat.version_info >= (2, 6, 0))
+
+        self.assertIs(parser.GetReparseDeferralEnabled(), enabled)
+        parser.SetReparseDeferralEnabled(False)
+        self.assertIs(parser.GetReparseDeferralEnabled(), False)
+        parser.SetReparseDeferralEnabled(True)
+        self.assertIs(parser.GetReparseDeferralEnabled(), enabled)
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'GetReparseDeferralEnabled'
+    def test_reparse_deferral_enabled(self):
+        if expat.version_info < (2, 6, 0):
+            self.skipTest(f'Expat {expat.version_info} does not '
+                          'support reparse deferral')
+
+        started = []
+
+        def start_element(name, _):
+            started.append(name)
+
+        parser = expat.ParserCreate()
+        parser.StartElementHandler = start_element
+        self.assertTrue(parser.GetReparseDeferralEnabled())
+
+        for chunk in (b'<doc', b'/>'):
+            parser.Parse(chunk, False)
+
+        # The key test: Have handlers already fired?  Expecting: no.
+        self.assertEqual(started, [])
+
+        parser.Parse(b'', True)
+
+        self.assertEqual(started, ['doc'])
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetReparseDeferralEnabled'
+    def test_reparse_deferral_disabled(self):
+        started = []
+
+        def start_element(name, _):
+            started.append(name)
+
+        parser = expat.ParserCreate()
+        parser.StartElementHandler = start_element
+        if expat.version_info >= (2, 6, 0):
+            parser.SetReparseDeferralEnabled(False)
+        self.assertFalse(parser.GetReparseDeferralEnabled())
+
+        for chunk in (b'<doc', b'/>'):
+            parser.Parse(chunk, False)
+
+        # The key test: Have handlers already fired?  Expecting: yes.
+        self.assertEqual(started, ['doc'])
 
 
 if __name__ == "__main__":

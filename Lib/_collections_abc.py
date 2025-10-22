@@ -512,7 +512,7 @@ class _CallableGenericAlias(GenericAlias):
             new_args = (t_args, t_result)
         return _CallableGenericAlias(Callable, tuple(new_args))
 
-    # TODO: RUSTPYTHON patch for common call
+    # TODO: RUSTPYTHON; patch for common call
     def __or__(self, other):
         super().__or__(other)
 
@@ -1087,7 +1087,7 @@ class _DeprecateByteStringMeta(ABCMeta):
 
             warnings._deprecated(
                 "collections.abc.ByteString",
-                remove=(3, 14),
+                remove=(3, 17),
             )
         return super().__new__(cls, name, bases, namespace, **kwargs)
 
@@ -1096,14 +1096,18 @@ class _DeprecateByteStringMeta(ABCMeta):
 
         warnings._deprecated(
             "collections.abc.ByteString",
-            remove=(3, 14),
+            remove=(3, 17),
         )
         return super().__instancecheck__(instance)
 
 class ByteString(Sequence, metaclass=_DeprecateByteStringMeta):
-    """This unifies bytes and bytearray.
+    """Deprecated ABC serving as a common supertype of ``bytes`` and ``bytearray``.
 
-    XXX Should add all their methods.
+    This ABC is scheduled for removal in Python 3.17.
+    Use ``isinstance(obj, collections.abc.Buffer)`` to test if ``obj``
+    implements the buffer protocol at runtime. For use in type annotations,
+    either use ``Buffer`` or a union that explicitly specifies the types your
+    code supports (e.g., ``bytes | bytearray | memoryview``).
     """
 
     __slots__ = ()
