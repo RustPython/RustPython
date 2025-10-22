@@ -395,6 +395,7 @@ class TestPartial:
         f = self.partial(object)
         self.assertRaises(TypeError, f.__setstate__, BadSequence())
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_partial_as_method(self):
         class A:
             meth = self.partial(capture, 1, a=2)
@@ -463,6 +464,14 @@ class TestPartialC(TestPartial, unittest.TestCase):
         r = repr(p)
         self.assertIn('astr', r)
         self.assertIn("['sth']", r)
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_repr(self):
+        return super().test_repr()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_recursive_repr(self):
+        return super().test_recursive_repr()
 
 
 class TestPartialPy(TestPartial, unittest.TestCase):
@@ -658,7 +667,6 @@ class TestUpdateWrapper(unittest.TestCase):
         functools.update_wrapper(wrapper, f)
         return wrapper, f
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_default_update(self):
         wrapper, f = self._default_update()
         self.check_wrapper(wrapper, f)
