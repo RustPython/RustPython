@@ -50,6 +50,7 @@ mod suggestions;
 pub mod socket;
 #[cfg(all(unix, not(target_os = "redox")))]
 mod syslog;
+mod tokenize;
 mod unicodedata;
 
 mod faulthandler;
@@ -140,6 +141,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "_random" => random::make_module,
             "_statistics" => statistics::make_module,
             "_struct" => pystruct::make_module,
+            "_tokenize" => tokenize::make_module,
             "unicodedata" => unicodedata::make_module,
             "zlib" => zlib::make_module,
             "_statistics" => statistics::make_module,

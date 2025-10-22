@@ -49,6 +49,11 @@ dyn-clone = "1.0.10"
 pymath = { workspace = true }
 xml = "1.0"
 
+# tokenize
+ruff_python_ast = { workspace = true }
+ruff_python_parser = { workspace = true }
+ruff_source_file = { workspace = true }
+
 # random
 rand_core = { workspace = true }
 mt19937 = "3.1"
