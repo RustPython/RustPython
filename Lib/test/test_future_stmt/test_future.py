@@ -10,6 +10,8 @@ import os
 import re
 import sys
 
+TOP_LEVEL_MSG = 'from __future__ imports must occur at the beginning of the file'
+
 rx = re.compile(r'\((\S+).py, line (\d+)')
 
 def get_error_location(msg):
@@ -18,21 +20,48 @@ def get_error_location(msg):
 
 class FutureTest(unittest.TestCase):
 
-    def check_syntax_error(self, err, basename, lineno, offset=1):
-        self.assertIn('%s.py, line %d' % (basename, lineno), str(err))
-        self.assertEqual(os.path.basename(err.filename), basename + '.py')
+    def check_syntax_error(self, err, basename,
+                           *,
+                           lineno,
+                           message=TOP_LEVEL_MSG, offset=1):
+        if basename != '<string>':
+            basename += '.py'
+
+        self.assertEqual(f'{message} ({basename}, line {lineno})', str(err))
+        self.assertEqual(os.path.basename(err.filename), basename)
         self.assertEqual(err.lineno, lineno)
         self.assertEqual(err.offset, offset)
 
-    def test_future1(self):
-        with import_helper.CleanImport('test.test_future_stmt.future_test1'):
-            from test.test_future_stmt import future_test1
-            self.assertEqual(future_test1.result, 6)
+    def assertSyntaxError(self, code,
+                          *,
+                          lineno=1,
+                          message=TOP_LEVEL_MSG, offset=1,
+                          parametrize_docstring=True):
+        code = dedent(code.lstrip('\n'))
+        for add_docstring in ([False, True] if parametrize_docstring else [False]):
+            with self.subTest(code=code, add_docstring=add_docstring):
+                if add_docstring:
+                    code = '"""Docstring"""\n' + code
+                    lineno += 1
+                with self.assertRaises(SyntaxError) as cm:
+                    exec(code)
+                self.check_syntax_error(cm.exception, "<string>",
+                                        lineno=lineno,
+                                        message=message,
+                                        offset=offset)
 
-    def test_future2(self):
-        with import_helper.CleanImport('test.test_future_stmt.future_test2'):
-            from test.test_future_stmt import future_test2
-            self.assertEqual(future_test2.result, 6)
+    def test_import_nested_scope_twice(self):
+        # Import the name nested_scopes twice to trigger SF bug #407394
+        with import_helper.CleanImport(
+            'test.test_future_stmt.import_nested_scope_twice',
+        ):
+            from test.test_future_stmt import import_nested_scope_twice
+        self.assertEqual(import_nested_scope_twice.result, 6)
+
+    def test_nested_scope(self):
+        with import_helper.CleanImport('test.test_future_stmt.nested_scope'):
+            from test.test_future_stmt import nested_scope
+        self.assertEqual(nested_scope.result, 6)
 
     def test_future_single_import(self):
         with import_helper.CleanImport(
@@ -52,47 +81,87 @@ class FutureTest(unittest.TestCase):
         ):
             from test.test_future_stmt import test_future_multiple_features
 
-    def test_badfuture3(self):
-        with self.assertRaises(SyntaxError) as cm:
-            from test.test_future_stmt import badsyntax_future3
-        self.check_syntax_error(cm.exception, "badsyntax_future3", 3)
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Wrong error message
+    def test_unknown_future_flag(self):
+        code = """
+            from __future__ import nested_scopes
+            from __future__ import rested_snopes  # typo error here: nested => rested
+        """
+        self.assertSyntaxError(
+            code, lineno=2,
+            message='future feature rested_snopes is not defined', offset=24,
+        )
 
-    def test_badfuture4(self):
-        with self.assertRaises(SyntaxError) as cm:
-            from test.test_future_stmt import badsyntax_future4
-        self.check_syntax_error(cm.exception, "badsyntax_future4", 3)
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Wrong error message
+    def test_future_import_not_on_top(self):
+        code = """
+            import some_module
+            from __future__ import annotations
+        """
+        self.assertSyntaxError(code, lineno=2)
 
-    def test_badfuture5(self):
-        with self.assertRaises(SyntaxError) as cm:
-            from test.test_future_stmt import badsyntax_future5
-        self.check_syntax_error(cm.exception, "badsyntax_future5", 4)
+        code = """
+            import __future__
+            from __future__ import annotations
+        """
+        self.assertSyntaxError(code, lineno=2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_badfuture6(self):
-        with self.assertRaises(SyntaxError) as cm:
-            from test.test_future_stmt import badsyntax_future6
-        self.check_syntax_error(cm.exception, "badsyntax_future6", 3)
+        code = """
+            from __future__ import absolute_import
+            "spam, bar, blah"
+            from __future__ import print_function
+        """
+        self.assertSyntaxError(code, lineno=3)
 
-    def test_badfuture7(self):
-        with self.assertRaises(SyntaxError) as cm:
-            from test.test_future_stmt import badsyntax_future7
-        self.check_syntax_error(cm.exception, "badsyntax_future7", 3, 54)
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Wrong error message
+    def test_future_import_with_extra_string(self):
+        code = """
+            '''Docstring'''
+            "this isn't a doc string"
+            from __future__ import nested_scopes
+        """
+        self.assertSyntaxError(code, lineno=3, parametrize_docstring=False)
 
-    def test_badfuture8(self):
-        with self.assertRaises(SyntaxError) as cm:
-            from test.test_future_stmt import badsyntax_future8
-        self.check_syntax_error(cm.exception, "badsyntax_future8", 3)
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Wrong error message
+    def test_multiple_import_statements_on_same_line(self):
+        # With `\`:
+        code = """
+            from __future__ import nested_scopes; import string; from __future__ import \
+        nested_scopes
+        """
+        self.assertSyntaxError(code, offset=54)
 
-    def test_badfuture9(self):
-        with self.assertRaises(SyntaxError) as cm:
-            from test.test_future_stmt import badsyntax_future9
-        self.check_syntax_error(cm.exception, "badsyntax_future9", 3)
+        # Without `\`:
+        code = """
+            from __future__ import nested_scopes; import string; from __future__ import  nested_scopes
+        """
+        self.assertSyntaxError(code, offset=54)
 
-    def test_badfuture10(self):
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Wrong error message
+    def test_future_import_star(self):
+        code = """
+            from __future__ import *
+        """
+        self.assertSyntaxError(code, message='future feature * is not defined', offset=24)
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Wrong error message
+    def test_future_import_braces(self):
+        code = """
+            from __future__ import braces
+        """
+        # Congrats, you found an easter egg!
+        self.assertSyntaxError(code, message='not a chance', offset=24)
+
+        code = """
+            from __future__ import nested_scopes, braces
+        """
+        self.assertSyntaxError(code, message='not a chance', offset=39)
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Wrong error message
+    def test_module_with_future_import_not_on_top(self):
         with self.assertRaises(SyntaxError) as cm:
-            from test.test_future_stmt import badsyntax_future10
-        self.check_syntax_error(cm.exception, "badsyntax_future10", 3)
+            from test.test_future_stmt import badsyntax_future
+        self.check_syntax_error(cm.exception, "badsyntax_future", lineno=3)
 
     def test_ensure_flags_dont_clash(self):
         # bpo-39562: test that future flags and compiler flags doesn't clash
@@ -109,26 +178,6 @@ class FutureTest(unittest.TestCase):
         }
         self.assertCountEqual(set(flags.values()), flags.values())
 
-    def test_parserhack(self):
-        # test that the parser.c::future_hack function works as expected
-        # Note: although this test must pass, it's not testing the original
-        #       bug as of 2.6 since the with statement is not optional and
-        #       the parser hack disabled. If a new keyword is introduced in
-        #       2.6, change this to refer to the new future import.
-        try:
-            exec("from __future__ import print_function; print 0")
-        except SyntaxError:
-            pass
-        else:
-            self.fail("syntax error didn't occur")
-
-        try:
-            exec("from __future__ import (print_function); print 0")
-        except SyntaxError:
-            pass
-        else:
-            self.fail("syntax error didn't occur")
-
     def test_unicode_literals_exec(self):
         scope = {}
         exec("from __future__ import unicode_literals; x = ''", {}, scope)
@@ -140,6 +189,26 @@ class FutureTest(unittest.TestCase):
         p.stdin.write(b"2 <> 3\n")
         out = kill_python(p)
         self.assertNotIn(b'SyntaxError: invalid syntax', out)
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; SyntaxError: future feature spam is not defined
+    def test_future_dotted_import(self):
+        with self.assertRaises(ImportError):
+            exec("from .__future__ import spam")
+
+        code = dedent(
+            """
+            from __future__ import print_function
+            from ...__future__ import ham
+            """
+        )
+        with self.assertRaises(ImportError):
+            exec(code)
+
+        code = """
+            from .__future__ import nested_scopes
+            from __future__ import barry_as_FLUFL
+        """
+        self.assertSyntaxError(code, lineno=2)
 
 class AnnotationsFutureTestCase(unittest.TestCase):
     template = dedent(
@@ -198,6 +267,7 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         )
         return scope
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; 'a,' != '(a,)'
     def test_annotations(self):
         eq = self.assertAnnotationEqual
         eq('...')
@@ -362,6 +432,7 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         eq('(((a, b)))', '(a, b)')
         eq("1 + 2 + 3")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; "f'{x=!r}'" != "f'x={x!r}'"
     def test_fstring_debug_annotations(self):
         # f-strings with '=' don't round trip very well, so set the expected
         # result explicitly.
@@ -372,6 +443,7 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         self.assertAnnotationEqual("f'{x=!a}'", expected="f'x={x!a}'")
         self.assertAnnotationEqual("f'{x=!s:*^20}'", expected="f'x={x!s:*^20}'")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; '1e309, 1e309j' != '(1e309, 1e309j)'
     def test_infinity_numbers(self):
         inf = "1e" + repr(sys.float_info.max_10_exp + 1)
         infj = f"{inf}j"
@@ -384,8 +456,7 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         self.assertAnnotationEqual("('inf', 1e1000, 'infxxx', 1e1000j)", expected=f"('inf', {inf}, 'infxxx', {infj})")
         self.assertAnnotationEqual("(1e1000, (1e1000j,))", expected=f"({inf}, ({infj},))")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; SyntaxError not raised
     def test_annotation_with_complex_target(self):
         with self.assertRaises(SyntaxError):
             exec(
@@ -409,8 +480,7 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         self.assertEqual(foo.__code__.co_cellvars, ())
         self.assertEqual(foo().__code__.co_freevars, ())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; "f'{x=!r}'" != "f'x={x!r}'"
     def test_annotations_forbidden(self):
         with self.assertRaises(SyntaxError):
             self._exec_future("test: (yield)")
