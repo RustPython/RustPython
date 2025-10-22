@@ -1678,6 +1678,7 @@ class ExceptionTests(unittest.TestCase):
         gc_collect()  # For PyPy or other GCs.
         self.assertEqual(wr(), None)
 
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; error specific to cpython')
     def test_errno_ENOTDIR(self):
         # Issue #12802: "not a directory" errors are ENOTDIR even on Windows
         with self.assertRaises(OSError) as cm:
