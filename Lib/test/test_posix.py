@@ -1063,6 +1063,7 @@ class PosixTester(unittest.TestCase):
         self.assertEqual(os.stat(target).st_mode, target_mode)
         self.assertEqual(os.lstat(link).st_mode, new_mode)
 
+    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
     @os_helper.skip_unless_symlink
     def test_chmod_file_symlink(self):
         target = os_helper.TESTFN
@@ -1350,6 +1351,7 @@ class PosixTester(unittest.TestCase):
         param = posix.sched_param(sched_priority=-large)
         self.assertRaises(OverflowError, posix.sched_setparam, 0, param)
 
+    @unittest.expectedFailureIf(sys.platform == 'linux', "TODO: RUSTPYTHON; TypeError: cannot pickle 'sched_param' object")
     @requires_sched
     def test_sched_param(self):
         param = posix.sched_param(1)
