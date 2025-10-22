@@ -222,8 +222,6 @@ class CodeTest(unittest.TestCase):
         obj = List([1, 2, 3])
         self.assertEqual(obj[0], "Foreign getitem: 1")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructor(self):
         def func(): pass
         co = func.__code__
@@ -255,8 +253,6 @@ class CodeTest(unittest.TestCase):
             CodeTest.test_qualname.__qualname__
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_replace(self):
         def func():
             x = 1
@@ -297,8 +293,6 @@ class CodeTest(unittest.TestCase):
         self.assertEqual(new_code.co_varnames, code2.co_varnames)
         self.assertEqual(new_code.co_nlocals, code2.co_nlocals)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nlocals_mismatch(self):
         def func():
             x = 1
