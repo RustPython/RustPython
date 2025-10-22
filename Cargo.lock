@@ -2280,7 +2280,6 @@ dependencies = [
  "ruff_text_size",
  "rustc-hash",
  "thiserror 2.0.17",
-<<<<<<< HEAD
 ]
 
 [[package]]
@@ -2304,9 +2303,6 @@ dependencies = [
  "itertools 0.14.0",
  "ruff_python_ast",
  "unic-ucd-category",
-||||||| 056795eed
-=======
->>>>>>> upstream/main
 ]
 
 [[package]]
