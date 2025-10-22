@@ -4952,7 +4952,6 @@ class GenericTests(BaseTestCase):
         def barfoo2(x: CT): ...
         self.assertIs(get_type_hints(barfoo2, globals(), locals())['x'], CT)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; 'List[list["C2"]]' != "List[list['C2']]"
     def test_generic_pep585_forward_ref(self):
         # See https://bugs.python.org/issue41370
 
