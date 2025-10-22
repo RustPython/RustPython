@@ -148,16 +148,12 @@ enum ComprehensionType {
 }
 
 fn unparse_expr(expr: &Expr) -> String {
-    // Hack, because we can't do `ruff_python_codegen::Indentation::default()`
-    // https://github.com/astral-sh/ruff/pull/20216
-    let indentation = {
-        let contents = r"x = 1";
-        let module = ruff_python_parser::parse_module(contents).unwrap();
-        let stylist = ruff_python_codegen::Stylist::from_tokens(module.tokens(), contents);
-        stylist.indentation().clone()
-    };
+    use ruff_python_ast::str::Quote;
+    use ruff_python_codegen::{Generator, Indentation};
 
-    ruff_python_codegen::Generator::new(&indentation, LineEnding::default()).expr(expr)
+    Generator::new(&Indentation::default(), LineEnding::default())
+        .with_preferred_quote(Some(Quote::Single))
+        .expr(expr)
 }
 
 fn validate_duplicate_params(params: &Parameters) -> Result<(), CodegenErrorType> {
