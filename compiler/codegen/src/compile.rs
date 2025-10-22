@@ -147,6 +147,7 @@ enum ComprehensionType {
     Dict,
 }
 
+<<<<<<< HEAD
 fn unparse_expr(expr: &Expr) -> String {
     use ruff_python_ast::str::Quote;
     use ruff_python_codegen::{Generator, Indentation};
@@ -156,6 +157,9 @@ fn unparse_expr(expr: &Expr) -> String {
         .expr(expr)
 }
 
+||||||| 056795eed
+=======
+>>>>>>> upstream/main
 fn validate_duplicate_params(params: &Parameters) -> Result<(), CodegenErrorType> {
     let mut seen_params = HashSet::new();
     for param in params {
