@@ -15,8 +15,11 @@ use crate::{
 };
 use malachite_bigint::BigInt;
 use num_traits::Zero;
-use rustpython_compiler_core::OneIndexed;
-use rustpython_compiler_core::bytecode::PyCodeLocationInfoKind;
+use rustpython_compiler_core::{
+    OneIndexed,
+    bytecode::PyCodeLocationInfoKind,
+    marshal::{MarshalError, parse_instructions_from_bytes},
+};
 use std::{borrow::Borrow, fmt, ops::Deref};
 
 /// State for iterating through code address ranges
@@ -454,11 +457,8 @@ impl Constructor for PyCode {
 
         // Parse and validate bytecode from bytes
         let bytecode_bytes = args.co_code.as_bytes();
-        let instructions = parse_bytecode(bytecode_bytes).ok_or_else(|| {
-            vm.new_value_error(
-                "bytecode must have even length and contain only valid opcodes".to_owned(),
-            )
-        })?;
+        let instructions = parse_bytecode(bytecode_bytes)
+            .map_err(|e| vm.new_value_error(format!("invalid bytecode: {}", e)))?;
 
         // Convert constants
         let constants: Box<[Literal]> = args
@@ -925,11 +925,8 @@ impl PyCode {
         let instructions = match co_code {
             OptionalArg::Present(code_bytes) => {
                 // Parse and validate bytecode from bytes
-                parse_bytecode(code_bytes.as_bytes()).ok_or_else(|| {
-                    vm.new_value_error(
-                        "bytecode must have even length and contain only valid opcodes".to_owned(),
-                    )
-                })?
+                parse_bytecode(code_bytes.as_bytes())
+                    .map_err(|e| vm.new_value_error(format!("invalid bytecode: {}", e)))?
             }
             OptionalArg::Missing => self.code.instructions.clone(),
         };
@@ -1037,23 +1034,16 @@ impl ToPyObject for bytecode::CodeObject {
 }
 
 /// Validates and parses bytecode bytes into CodeUnit instructions.
-/// Returns None if bytecode is invalid (odd length or contains invalid opcodes).
-fn parse_bytecode(bytecode_bytes: &[u8]) -> Option<Box<[CodeUnit]>> {
+/// Returns MarshalError if bytecode is invalid (odd length or contains invalid opcodes).
+/// Note: Returning MarshalError is not necessary at this point because this is not a part of marshalling API.
+/// However, we (temporarily) reuse MarshalError for simplicity.
+fn parse_bytecode(bytecode_bytes: &[u8]) -> Result<Box<[CodeUnit]>, MarshalError> {
     // Bytecode must have even length (each instruction is 2 bytes)
     if !bytecode_bytes.len().is_multiple_of(2) {
-        return None;
+        return Err(MarshalError::InvalidBytecode);
     }
 
-    let mut instructions = Vec::with_capacity(bytecode_bytes.len() / 2);
-
-    for chunk in bytecode_bytes.chunks_exact(2) {
-        // Try to parse the opcode - if invalid, return None
-        let op = rustpython_compiler_core::bytecode::Instruction::try_from(chunk[0]).ok()?;
-        let arg = rustpython_compiler_core::bytecode::OpArgByte(chunk[1]);
-        instructions.push(CodeUnit { op, arg });
-    }
-
-    Some(instructions.into_boxed_slice())
+    parse_instructions_from_bytes(bytecode_bytes)
 }
 
 // Helper struct for reading linetable
