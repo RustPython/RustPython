@@ -195,10 +195,10 @@ fn spec_format_string(
                     .ok_or_else(|| vm.new_overflow_error("%c arg not in range(0x110000)"))?;
                 return Ok(spec.format_char(ch));
             }
-            if let Some(s) = obj.downcast_ref::<PyStr>() {
-                if let Ok(ch) = s.as_wtf8().code_points().exactly_one() {
-                    return Ok(spec.format_char(ch));
-                }
+            if let Some(s) = obj.downcast_ref::<PyStr>()
+                && let Ok(ch) = s.as_wtf8().code_points().exactly_one()
+            {
+                return Ok(spec.format_char(ch));
             }
             Err(vm.new_type_error("%c requires int or char"))
         }

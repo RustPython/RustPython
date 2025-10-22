@@ -885,8 +885,6 @@ if 1:
                 self.assertIn('LOAD_ATTR', instructions)
                 self.assertIn('PRECALL', instructions)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_lineno_procedure_call(self):
         def call():
             (

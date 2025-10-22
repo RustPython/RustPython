@@ -51,7 +51,7 @@ rustyline = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
-pyo3 = { version = "0.24", features = ["auto-initialize"] }
+pyo3 = { version = "0.26", features = ["auto-initialize"] }
 
 [[bench]]
 name = "execution"
@@ -90,7 +90,7 @@ lto = "thin"
 git = "https://github.com/microsoft/vcpkg"
 # The revision of the vcpkg repository to use
 # https://github.com/microsoft/vcpkg/tags
-rev = "2024.02.14"
+rev = "2025.09.17"
 
 [package.metadata.vcpkg.target]
 x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md", dev-dependencies = ["openssl" ] }
@@ -138,7 +138,7 @@ members = [
 version = "0.4.0"
 authors = ["RustPython Team"]
 edition = "2024"
-rust-version = "1.87.0"
+rust-version = "1.89.0"
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 
@@ -158,34 +158,33 @@ rustpython-sre_engine = { path = "vm/sre_engine", version = "0.4.0" }
 rustpython-wtf8 = { path = "wtf8", version = "0.4.0" }
 rustpython-doc = { git = "https://github.com/RustPython/__doc__", tag = "0.3.0", version = "0.3.0" }
 
-ruff_python_parser = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }
-ruff_python_ast = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }
-ruff_text_size = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }
-ruff_source_file = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }
-ruff_python_codegen = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff.git", tag = "0.14.1" }
+ruff_python_ast = { git = "https://github.com/astral-sh/ruff.git", tag = "0.14.1" }
+ruff_text_size = { git = "https://github.com/astral-sh/ruff.git", tag = "0.14.1" }
+ruff_source_file = { git = "https://github.com/astral-sh/ruff.git", tag = "0.14.1" }
 
-ahash = "0.8.11"
+ahash = "0.8.12"
 ascii = "1.1"
-bitflags = "2.9.1"
+bitflags = "2.9.4"
 bstr = "1"
 cfg-if = "1.0"
-chrono = "0.4.39"
+chrono = "0.4.42"
 constant_time_eq = "0.4"
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.7", features = ["html_reports"] }
 crossbeam-utils = "0.8.21"
 flame = "0.2.2"
 getrandom = { version = "0.3", features = ["std"] }
 glob = "0.3"
 hex = "0.4.3"
-indexmap = { version = "2.10.0", features = ["std"] }
+indexmap = { version = "2.11.3", features = ["std"] }
 insta = "1.42"
 itertools = "0.14.0"
 is-macro = "0.3.7"
-junction = "1.2.0"
+junction = "1.3.0"
 libc = "0.2.169"
 libffi = "4.1"
-log = "0.4.27"
-nix = { version = "0.29", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
+log = "0.4.28"
+nix = { version = "0.30", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
 malachite-bigint = "0.6"
 malachite-q = "0.6"
 malachite-base = "0.6"
@@ -205,9 +204,9 @@ radium = "1.1.1"
 rand = "0.9"
 rand_core = { version = "0.9", features = ["os_rng"] }
 rustix = { version = "1.0", features = ["event"] }
-rustyline = "17.0.0"
-serde = { version = "1.0.133", default-features = false }
-schannel = "0.1.27"
+rustyline = "17.0.1"
+serde = { version = "1.0.225", default-features = false }
+schannel = "0.1.28"
 scoped-tls = "1"
 scopeguard = "1"
 static_assertions = "1.1"
@@ -215,16 +214,16 @@ strum = "0.27"
 strum_macros = "0.27"
 syn = "2"
 thiserror = "2.0"
-thread_local = "1.1.8"
-unicode-casing = "0.1.0"
+thread_local = "1.1.9"
+unicode-casing = "0.1.1"
 unic-char-property = "0.9.0"
 unic-normal = "0.9.0"
 unic-ucd-age = "0.9.0"
 unic-ucd-bidi = "0.9.0"
 unic-ucd-category = "0.9.0"
 unic-ucd-ident = "0.9.0"
-unicode_names2 = "1.3.0"
-unicode-bidi-mirroring = "0.2"
+unicode_names2 = "2.0.0"
+unicode-bidi-mirroring = "0.4"
 widestring = "1.2.0"
 windows-sys = "0.59.0"
 wasm-bindgen = "0.2.100"

@@ -41,7 +41,7 @@ atexit.register(lambda: server_proc and server_proc.terminate())
 
 
 # From https://gist.github.com/butla/2d9a4c0f35ea47b7452156c96a4e7b12
-def wait_for_port(port, host="0.0.0.0", timeout=5.0):
+def wait_for_port(port, host="localhost", timeout=5.0):
     """Wait until a port starts accepting TCP connections.
     Args:
         port (int): Port number.
@@ -94,7 +94,7 @@ def wdriver(request):
     options.add_argument("-headless")
     driver = Driver(options=options)
     try:
-        driver.get(f"http://0.0.0.0:{PORT}")
+        driver.get(f"http://localhost:{PORT}")
         WebDriverWait(driver, 5).until(
             EC.presence_of_element_located((By.ID, "rp_loaded"))
         )

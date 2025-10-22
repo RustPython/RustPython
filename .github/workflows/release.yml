@@ -21,6 +21,8 @@ env:
 jobs:
   build:
     runs-on: ${{ matrix.platform.runner }}
+    # Disable this scheduled job when running on a fork.
+    if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     strategy:
       matrix:
         platform:
@@ -88,6 +90,8 @@ jobs:
 
   build-wasm:
     runs-on: ubuntu-latest
+    # Disable this scheduled job when running on a fork.
+    if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -108,7 +112,7 @@ jobs:
 
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
       - uses: mwilliamson/setup-wabt-action@v3
         with: { wabt-version: "1.0.30" }
       - name: build demo
@@ -136,10 +140,12 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
+    # Disable this scheduled job when running on a fork.
+    if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     needs: [build, build-wasm]
     steps:
       - name: Download Binary Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: bin
           pattern: rustpython-*

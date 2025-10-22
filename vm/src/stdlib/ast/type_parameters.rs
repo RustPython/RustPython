@@ -15,7 +15,11 @@ impl Node for ruff::TypeParams {
         let range = Option::zip(type_params.first(), type_params.last())
             .map(|(first, last)| first.range().cover(last.range()))
             .unwrap_or_default();
-        Ok(Self { type_params, range })
+        Ok(Self {
+            node_index: Default::default(),
+            type_params,
+            range,
+        })
     }
 
     fn is_none(&self) -> bool {
@@ -70,6 +74,7 @@ impl Node for ruff::TypeParam {
 impl Node for ruff::TypeParamTypeVar {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             name,
             bound,
             range: _range,
@@ -93,6 +98,7 @@ impl Node for ruff::TypeParamTypeVar {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             name: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -115,6 +121,7 @@ impl Node for ruff::TypeParamTypeVar {
 impl Node for ruff::TypeParamParamSpec {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             name,
             range: _range,
             default,
@@ -141,6 +148,7 @@ impl Node for ruff::TypeParamParamSpec {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             name: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -160,6 +168,7 @@ impl Node for ruff::TypeParamParamSpec {
 impl Node for ruff::TypeParamTypeVarTuple {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             name,
             range: _range,
             default,
@@ -189,6 +198,7 @@ impl Node for ruff::TypeParamTypeVarTuple {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             name: Node::ast_from_object(
                 _vm,
                 source_file,

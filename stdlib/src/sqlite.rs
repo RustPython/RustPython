@@ -74,8 +74,8 @@ mod _sqlite {
         },
         sliceable::{SaturatedSliceIter, SliceableSequenceOp},
         types::{
-            AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
-            Iterable, PyComparisonOp, SelfIter, Unconstructible,
+            AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Hashable,
+            Initializer, IterNext, Iterable, PyComparisonOp, SelfIter, Unconstructible,
         },
         utils::ToCString,
     };
@@ -571,10 +571,10 @@ mod _sqlite {
 
         unsafe extern "C" fn progress_callback(data: *mut c_void) -> c_int {
             let (callable, vm) = unsafe { (*data.cast::<Self>()).retrieve() };
-            if let Ok(val) = callable.call((), vm) {
-                if let Ok(val) = val.is_true(vm) {
-                    return val as c_int;
-                }
+            if let Ok(val) = callable.call((), vm)
+                && let Ok(val) = val.is_true(vm)
+            {
+                return val as c_int;
             }
             -1
         }
@@ -851,7 +851,31 @@ mod _sqlite {
         type Args = ConnectArgs;
 
         fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            Ok(Self::new(args, vm)?.into_ref_with_type(vm, cls)?.into())
+            let text_factory = PyStr::class(&vm.ctx).to_owned().into_object();
+
+            // For non-subclassed Connection, initialize in __new__
+            // For subclassed Connection, leave db as None and require __init__ to be called
+            let is_base_class = cls.is(Connection::class(&vm.ctx).as_object());
+
+            let db = if is_base_class {
+                // Initialize immediately for base class
+                Some(Connection::initialize_db(&args, vm)?)
+            } else {
+                // For subclasses, require __init__ to be called
+                None
+            };
+
+            let conn = Self {
+                db: PyMutex::new(db),
+                detect_types: args.detect_types,
+                isolation_level: PyAtomicRef::from(args.isolation_level),
+                check_same_thread: args.check_same_thread,
+                thread_ident: std::thread::current().id(),
+                row_factory: PyAtomicRef::from(None),
+                text_factory: PyAtomicRef::from(text_factory),
+            };
+
+            Ok(conn.into_ref_with_type(vm, cls)?.into())
         }
     }
 
@@ -871,9 +895,25 @@ mod _sqlite {
         }
     }
 
-    #[pyclass(with(Constructor, Callable), flags(BASETYPE))]
+    impl Initializer for Connection {
+        type Args = ConnectArgs;
+
+        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            let mut guard = zelf.db.lock();
+            if guard.is_some() {
+                // Already initialized
+                return Ok(());
+            }
+
+            let db = Self::initialize_db(&args, vm)?;
+            *guard = Some(db);
+            Ok(())
+        }
+    }
+
+    #[pyclass(with(Constructor, Callable, Initializer), flags(BASETYPE))]
     impl Connection {
-        fn new(args: ConnectArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        fn initialize_db(args: &ConnectArgs, vm: &VirtualMachine) -> PyResult<Sqlite> {
             let path = args.database.to_cstring(vm)?;
             let db = Sqlite::from(SqliteRaw::open(path.as_ptr(), args.uri, vm)?);
             let timeout = (args.timeout * 1000.0) as c_int;
@@ -881,17 +921,7 @@ mod _sqlite {
             if let Some(isolation_level) = &args.isolation_level {
                 begin_statement_ptr_from_isolation_level(isolation_level, vm)?;
             }
-            let text_factory = PyStr::class(&vm.ctx).to_owned().into_object();
-
-            Ok(Self {
-                db: PyMutex::new(Some(db)),
-                detect_types: args.detect_types,
-                isolation_level: PyAtomicRef::from(args.isolation_level),
-                check_same_thread: args.check_same_thread,
-                thread_ident: std::thread::current().id(),
-                row_factory: PyAtomicRef::from(None),
-                text_factory: PyAtomicRef::from(text_factory),
-            })
+            Ok(db)
         }
 
         fn db_lock(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<'_, Sqlite>> {
@@ -908,7 +938,7 @@ mod _sqlite {
             } else {
                 Err(new_programming_error(
                     vm,
-                    "Cannot operate on a closed database.".to_owned(),
+                    "Base Connection.__init__ not called.".to_owned(),
                 ))
             }
         }
@@ -1459,6 +1489,8 @@ mod _sqlite {
         #[pytraverse(skip)]
         rowcount: i64,
         statement: Option<PyRef<Statement>>,
+        #[pytraverse(skip)]
+        closed: bool,
     }
 
     #[derive(FromArgs)]
@@ -1484,20 +1516,54 @@ mod _sqlite {
                     lastrowid: -1,
                     rowcount: -1,
                     statement: None,
+                    closed: false,
                 })),
             }
+        }
+
+        fn new_uninitialized(connection: PyRef<Connection>, _vm: &VirtualMachine) -> Self {
+            Self {
+                connection,
+                arraysize: Radium::new(1),
+                row_factory: PyAtomicRef::from(None),
+                inner: PyMutex::from(None),
+            }
+        }
+
+        #[pymethod]
+        fn __init__(&self, _connection: PyRef<Connection>, _vm: &VirtualMachine) -> PyResult<()> {
+            let mut guard = self.inner.lock();
+            if guard.is_some() {
+                // Already initialized (e.g., from a call to super().__init__)
+                return Ok(());
+            }
+            *guard = Some(CursorInner {
+                description: None,
+                row_cast_map: vec![],
+                lastrowid: -1,
+                rowcount: -1,
+                statement: None,
+                closed: false,
+            });
+            Ok(())
         }
 
         fn inner(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<'_, CursorInner>> {
             let guard = self.inner.lock();
             if guard.is_some() {
-                Ok(PyMutexGuard::map(guard, |x| unsafe {
-                    x.as_mut().unwrap_unchecked()
-                }))
+                let inner_guard =
+                    PyMutexGuard::map(guard, |x| unsafe { x.as_mut().unwrap_unchecked() });
+                if inner_guard.closed {
+                    return Err(new_programming_error(
+                        vm,
+                        "Cannot operate on a closed cursor.".to_owned(),
+                    ));
+                }
+                Ok(inner_guard)
             } else {
                 Err(new_programming_error(
                     vm,
-                    "Cannot operate on a closed cursor.".to_owned(),
+                    "Base Cursor.__init__ not called.".to_owned(),
                 ))
             }
         }
@@ -1717,12 +1783,23 @@ mod _sqlite {
         }
 
         #[pymethod]
-        fn close(&self) {
-            if let Some(inner) = self.inner.lock().take() {
-                if let Some(stmt) = inner.statement {
+        fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
+            // Check if __init__ was called
+            let mut guard = self.inner.lock();
+            if guard.is_none() {
+                return Err(new_programming_error(
+                    vm,
+                    "Base Cursor.__init__ not called.".to_owned(),
+                ));
+            }
+
+            if let Some(inner) = guard.as_mut() {
+                if let Some(stmt) = &inner.statement {
                     stmt.lock().reset();
                 }
+                inner.closed = true;
             }
+            Ok(())
         }
 
         #[pymethod]
@@ -1809,7 +1886,7 @@ mod _sqlite {
         type Args = (PyRef<Connection>,);
 
         fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            Self::new(args.0, None, vm)
+            Self::new_uninitialized(args.0, vm)
                 .into_ref_with_type(vm, cls)
                 .map(Into::into)
         }

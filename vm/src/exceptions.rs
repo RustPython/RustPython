@@ -1535,10 +1535,10 @@ pub(super) mod types {
                     if !vm.is_none(&filename) {
                         let mut args_reduced: Vec<PyObjectRef> = vec![errno, msg, filename];
 
-                        if let Ok(filename2) = obj.get_attr("filename2", vm) {
-                            if !vm.is_none(&filename2) {
-                                args_reduced.push(filename2);
-                            }
+                        if let Ok(filename2) = obj.get_attr("filename2", vm)
+                            && !vm.is_none(&filename2)
+                        {
+                            args_reduced.push(filename2);
                         }
                         result.push(args_reduced.into_pytuple(vm).into());
                     } else {
@@ -1658,28 +1658,27 @@ pub(super) mod types {
 
             zelf.set_attr("print_file_and_line", vm.ctx.none(), vm)?;
 
-            if len == 2 {
-                if let Ok(location_tuple) = new_args.args[1]
+            if len == 2
+                && let Ok(location_tuple) = new_args.args[1]
                     .clone()
                     .downcast::<crate::builtins::PyTuple>()
+            {
+                let location_tup_len = location_tuple.len();
+                for (i, &attr) in [
+                    "filename",
+                    "lineno",
+                    "offset",
+                    "text",
+                    "end_lineno",
+                    "end_offset",
+                ]
+                .iter()
+                .enumerate()
                 {
-                    let location_tup_len = location_tuple.len();
-                    for (i, &attr) in [
-                        "filename",
-                        "lineno",
-                        "offset",
-                        "text",
-                        "end_lineno",
-                        "end_offset",
-                    ]
-                    .iter()
-                    .enumerate()
-                    {
-                        if location_tup_len > i {
-                            zelf.set_attr(attr, location_tuple[i].to_owned(), vm)?;
-                        } else {
-                            break;
-                        }
+                    if location_tup_len > i {
+                        zelf.set_attr(attr, location_tuple[i].to_owned(), vm)?;
+                    } else {
+                        break;
                     }
                 }
             }

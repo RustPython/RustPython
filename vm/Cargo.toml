@@ -24,7 +24,7 @@ ast = ["ruff_python_ast", "ruff_text_size"]
 codegen = ["rustpython-codegen", "ast"]
 parser = ["ast"]
 serde = ["dep:serde"]
-wasmbind = ["chrono/wasmbind", "getrandom/wasm_js", "wasm-bindgen"]
+wasmbind = ["rustpython-common/wasm_js", "chrono/wasmbind", "wasm-bindgen"]
 
 [dependencies]
 rustpython-compiler = { workspace = true, optional = true }
@@ -56,7 +56,6 @@ itertools = { workspace = true }
 is-macro = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
-nix = { workspace = true }
 malachite-bigint = { workspace = true }
 num-complex = { workspace = true }
 num-integer = { workspace = true }
@@ -76,15 +75,13 @@ thread_local = { workspace = true }
 memchr = { workspace = true }
 
 caseless = "0.2.2"
-flamer = { version = "0.4", optional = true }
+flamer = { version = "0.5", optional = true }
 half = "2"
-memoffset = "0.9.1"
 optional = { workspace = true }
 result-like = "0.5.0"
 timsort = "0.1.2"
 
 ## unicode stuff
-unicode_names2 = { workspace = true }
 # TODO: use unic for this; needed for title case:
 # https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
 unicode-casing = { workspace = true }
@@ -95,6 +92,7 @@ unic-ucd-ident = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { workspace = true }
+nix = { workspace = true }
 exitcode = "1.1.2"
 uname = "0.1.1"
 
@@ -113,7 +111,6 @@ num_cpus = "1.17.0"
 
 [target.'cfg(windows)'.dependencies]
 junction = { workspace = true }
-schannel = { workspace = true }
 winreg = "0.55"
 
 [target.'cfg(windows)'.dependencies.windows]

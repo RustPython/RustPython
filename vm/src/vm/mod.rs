@@ -363,13 +363,14 @@ impl VirtualMachine {
         let res = essential_init();
         let importlib = self.expect_pyresult(res, "essential initialization failed");
 
-        if self.state.settings.allow_external_library && cfg!(feature = "rustpython-compiler") {
-            if let Err(e) = import::init_importlib_package(self, importlib) {
-                eprintln!(
-                    "importlib initialization failed. This is critical for many complicated packages."
-                );
-                self.print_exception(e);
-            }
+        if self.state.settings.allow_external_library
+            && cfg!(feature = "rustpython-compiler")
+            && let Err(e) = import::init_importlib_package(self, importlib)
+        {
+            eprintln!(
+                "importlib initialization failed. This is critical for many complicated packages."
+            );
+            self.print_exception(e);
         }
 
         let expect_stdlib =
@@ -714,10 +715,10 @@ impl VirtualMachine {
         };
         // TODO: fix extend to do this check (?), see test_extend in Lib/test/list_tests.py,
         // https://github.com/python/cpython/blob/v3.9.0/Objects/listobject.c#L922-L928
-        if let Some(cap) = cap {
-            if cap >= isize::MAX as usize {
-                return Ok(Vec::new());
-            }
+        if let Some(cap) = cap
+            && cap >= isize::MAX as usize
+        {
+            return Ok(Vec::new());
         }
 
         let mut results = PyIterIter::new(self, iter.as_ref(), cap)
@@ -829,18 +830,18 @@ impl VirtualMachine {
     }
 
     pub(crate) fn contextualize_exception(&self, exception: &PyBaseExceptionRef) {
-        if let Some(context_exc) = self.topmost_exception() {
-            if !context_exc.is(exception) {
-                let mut o = context_exc.clone();
-                while let Some(context) = o.__context__() {
-                    if context.is(exception) {
-                        o.set___context__(None);
-                        break;
-                    }
-                    o = context;
+        if let Some(context_exc) = self.topmost_exception()
+            && !context_exc.is(exception)
+        {
+            let mut o = context_exc.clone();
+            while let Some(context) = o.__context__() {
+                if context.is(exception) {
+                    o.set___context__(None);
+                    break;
                 }
-                exception.set___context__(Some(context_exc))
+                o = context;
             }
+            exception.set___context__(Some(context_exc))
         }
     }
 

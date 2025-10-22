@@ -31,7 +31,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 pub(crate) mod decl {
     use crate::{
         Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyTupleRef, PyTypeRef, pystr::AsPyStr},
+        builtins::{PyStrRef, PyTupleRef, PyTypeRef, pystr::AsPyStr},
         function::{FuncArgs, IntoFuncArgs},
         types::{Constructor, Representable},
     };
@@ -98,7 +98,7 @@ pub(crate) mod decl {
     #[derive(Debug, PyPayload)]
     #[allow(dead_code)]
     pub(crate) struct TypeAliasType {
-        name: PyObjectRef, // TODO PyStrRef?
+        name: PyStrRef,
         type_params: PyTupleRef,
         value: PyObjectRef,
         // compute_value: PyObjectRef,
@@ -106,7 +106,7 @@ pub(crate) mod decl {
     }
     #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
     impl TypeAliasType {
-        pub const fn new(name: PyObjectRef, type_params: PyTupleRef, value: PyObjectRef) -> Self {
+        pub const fn new(name: PyStrRef, type_params: PyTupleRef, value: PyObjectRef) -> Self {
             Self {
                 name,
                 type_params,
@@ -116,7 +116,7 @@ pub(crate) mod decl {
 
         #[pygetset]
         fn __name__(&self) -> PyObjectRef {
-            self.name.clone()
+            self.name.clone().into()
         }
 
         #[pygetset]
@@ -154,7 +154,10 @@ pub(crate) mod decl {
                 )));
             }
 
-            let name = args.args[0].clone();
+            let name = args.args[0]
+                .clone()
+                .downcast::<crate::builtins::PyStr>()
+                .map_err(|_| vm.new_type_error("TypeAliasType name must be a string".to_owned()))?;
             let value = args.args[1].clone();
 
             let type_params = if let Some(tp) = args.kwargs.get("type_params") {
@@ -171,9 +174,8 @@ pub(crate) mod decl {
     }
 
     impl Representable for TypeAliasType {
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let name = zelf.name.str(vm)?;
-            Ok(name.as_str().to_owned())
+        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            Ok(zelf.name.as_str().to_owned())
         }
     }
 

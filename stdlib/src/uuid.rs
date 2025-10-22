@@ -30,4 +30,7 @@ mod _uuid {
     fn has_uuid_generate_time_safe(_vm: &VirtualMachine) -> u32 {
         0
     }
+
+    #[pyattr(name = "has_stable_extractable_node")]
+    const HAS_STABLE_EXTRACTABLE_NODE: bool = false;
 }

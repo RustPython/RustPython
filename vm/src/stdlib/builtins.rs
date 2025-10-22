@@ -489,6 +489,8 @@ mod builtins {
                     Err(vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.to_owned()))
                 }
                 ReadlineResult::Io(e) => Err(vm.new_os_error(e.to_string())),
+                #[cfg(unix)]
+                ReadlineResult::OsError(num) => Err(vm.new_os_error(num.to_string())),
                 ReadlineResult::Other(e) => Err(vm.new_runtime_error(e.to_string())),
             }
         } else {
@@ -969,17 +971,13 @@ mod builtins {
         if let Ok(type_params) = function
             .as_object()
             .get_attr(identifier!(vm, __type_params__), vm)
+            && let Some(type_params_tuple) = type_params.downcast_ref::<PyTuple>()
+            && !type_params_tuple.is_empty()
         {
-            if let Some(type_params_tuple) = type_params.downcast_ref::<PyTuple>() {
-                if !type_params_tuple.is_empty() {
-                    // Set .type_params in namespace so the compiler-generated code can use it
-                    namespace.as_object().set_item(
-                        vm.ctx.intern_str(".type_params"),
-                        type_params,
-                        vm,
-                    )?;
-                }
-            }
+            // Set .type_params in namespace so the compiler-generated code can use it
+            namespace
+                .as_object()
+                .set_item(vm.ctx.intern_str(".type_params"), type_params, vm)?;
         }
 
         let classcell = function.invoke_with_locals(().into(), Some(namespace.clone()), vm)?;
@@ -1006,14 +1004,12 @@ mod builtins {
         if let Ok(type_params) = function
             .as_object()
             .get_attr(identifier!(vm, __type_params__), vm)
+            && let Some(type_params_tuple) = type_params.downcast_ref::<PyTuple>()
+            && !type_params_tuple.is_empty()
         {
-            if let Some(type_params_tuple) = type_params.downcast_ref::<PyTuple>() {
-                if !type_params_tuple.is_empty() {
-                    class.set_attr(identifier!(vm, __type_params__), type_params.clone(), vm)?;
-                    // Also set __parameters__ for compatibility with typing module
-                    class.set_attr(identifier!(vm, __parameters__), type_params, vm)?;
-                }
-            }
+            class.set_attr(identifier!(vm, __type_params__), type_params.clone(), vm)?;
+            // Also set __parameters__ for compatibility with typing module
+            class.set_attr(identifier!(vm, __parameters__), type_params, vm)?;
         }
 
         if let Some(ref classcell) = classcell {

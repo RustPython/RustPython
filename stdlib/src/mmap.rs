@@ -27,11 +27,9 @@ mod mmap {
     use nix::sys::stat::fstat;
     use nix::unistd;
     use num_traits::Signed;
-    use std::fs::File;
+    use rustpython_common::crt_fd;
     use std::io::{self, Write};
     use std::ops::{Deref, DerefMut};
-    #[cfg(unix)]
-    use std::os::unix::io::{FromRawFd, RawFd};
 
     fn advice_try_from_i32(vm: &VirtualMachine, i: i32) -> PyResult<Advice> {
         Ok(match i {
@@ -179,7 +177,7 @@ mod mmap {
     struct PyMmap {
         closed: AtomicCell<bool>,
         mmap: PyMutex<Option<MmapObj>>,
-        fd: RawFd,
+        fd: AtomicCell<i32>,
         offset: libc::off_t,
         size: AtomicCell<usize>,
         pos: AtomicCell<usize>, // relative to offset
@@ -190,7 +188,7 @@ mod mmap {
     #[derive(FromArgs)]
     struct MmapNewArgs {
         #[pyarg(any)]
-        fileno: RawFd,
+        fileno: i32,
         #[pyarg(any)]
         length: isize,
         #[pyarg(any, default = MAP_SHARED)]
@@ -340,7 +338,8 @@ mod mmap {
                 }
             };
 
-            if fd != -1 {
+            let fd = unsafe { crt_fd::Borrowed::try_borrow_raw(fd) };
+            if let Ok(fd) = fd {
                 let metadata = fstat(fd)
                     .map_err(|err| io::Error::from_raw_os_error(err as i32).to_pyexception(vm))?;
                 let file_len = metadata.st_size;
@@ -366,19 +365,19 @@ mod mmap {
             let mmap_opt = mmap_opt.offset(offset.try_into().unwrap()).len(map_size);
 
             let (fd, mmap) = || -> std::io::Result<_> {
-                if fd == -1 {
-                    let mmap = MmapObj::Write(mmap_opt.map_anon()?);
-                    Ok((fd, mmap))
-                } else {
-                    let new_fd = unistd::dup(fd)?;
+                if let Ok(fd) = fd {
+                    let new_fd: crt_fd::Owned = unistd::dup(fd)?.into();
                     let mmap = match access {
                         AccessMode::Default | AccessMode::Write => {
-                            MmapObj::Write(unsafe { mmap_opt.map_mut(fd) }?)
+                            MmapObj::Write(unsafe { mmap_opt.map_mut(&new_fd) }?)
                         }
-                        AccessMode::Read => MmapObj::Read(unsafe { mmap_opt.map(fd) }?),
-                        AccessMode::Copy => MmapObj::Write(unsafe { mmap_opt.map_copy(fd) }?),
+                        AccessMode::Read => MmapObj::Read(unsafe { mmap_opt.map(&new_fd) }?),
+                        AccessMode::Copy => MmapObj::Write(unsafe { mmap_opt.map_copy(&new_fd) }?),
                     };
-                    Ok((new_fd, mmap))
+                    Ok((Some(new_fd), mmap))
+                } else {
+                    let mmap = MmapObj::Write(mmap_opt.map_anon()?);
+                    Ok((None, mmap))
                 }
             }()
             .map_err(|e| e.to_pyexception(vm))?;
@@ -386,7 +385,7 @@ mod mmap {
             let m_obj = Self {
                 closed: AtomicCell::new(false),
                 mmap: PyMutex::new(Some(mmap)),
-                fd,
+                fd: AtomicCell::new(fd.map_or(-1, |fd| fd.into_raw())),
                 offset,
                 size: AtomicCell::new(map_size),
                 pos: AtomicCell::new(0),
@@ -841,9 +840,8 @@ mod mmap {
 
         #[pymethod]
         fn size(&self, vm: &VirtualMachine) -> std::io::Result<PyIntRef> {
-            let new_fd = unistd::dup(self.fd)?;
-            let file = unsafe { File::from_raw_fd(new_fd) };
-            let file_len = file.metadata()?.len();
+            let fd = unsafe { crt_fd::Borrowed::try_borrow_raw(self.fd.load())? };
+            let file_len = fstat(fd)?.st_size;
             Ok(PyInt::from(file_len).into_ref(&vm.ctx))
         }
 

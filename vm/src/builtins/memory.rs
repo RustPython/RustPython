@@ -330,10 +330,10 @@ impl PyMemoryView {
             return Ok(false);
         }
 
-        if let Some(other) = other.downcast_ref::<Self>() {
-            if other.released.load() {
-                return Ok(false);
-            }
+        if let Some(other) = other.downcast_ref::<Self>()
+            && other.released.load()
+        {
+            return Ok(false);
         }
 
         let other = match PyBuffer::try_from_borrowed_object(vm, other) {
@@ -668,10 +668,10 @@ impl PyMemoryView {
             if needle.is(&vm.ctx.ellipsis) {
                 return Ok(zelf.into());
             }
-            if let Some(tuple) = needle.downcast_ref::<PyTuple>() {
-                if tuple.is_empty() {
-                    return zelf.unpack_single(0, vm);
-                }
+            if let Some(tuple) = needle.downcast_ref::<PyTuple>()
+                && tuple.is_empty()
+            {
+                return zelf.unpack_single(0, vm);
             }
             return Err(vm.new_type_error("invalid indexing of 0-dim memory"));
         }
@@ -867,10 +867,10 @@ impl Py<PyMemoryView> {
             // TODO: merge branches when we got conditional if let
             if needle.is(&vm.ctx.ellipsis) {
                 return self.pack_single(0, value, vm);
-            } else if let Some(tuple) = needle.downcast_ref::<PyTuple>() {
-                if tuple.is_empty() {
-                    return self.pack_single(0, value, vm);
-                }
+            } else if let Some(tuple) = needle.downcast_ref::<PyTuple>()
+                && tuple.is_empty()
+            {
+                return self.pack_single(0, value, vm);
             }
             return Err(vm.new_type_error("invalid indexing of 0-dim memory"));
         }

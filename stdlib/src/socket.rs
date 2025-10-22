@@ -2277,15 +2277,16 @@ mod _socket {
                 0,
             )));
         }
-        if let c::AF_INET | c::AF_UNSPEC = af {
-            if let Ok(addr) = name.parse::<Ipv4Addr>() {
-                return Ok(SocketAddr::V4(net::SocketAddrV4::new(addr, 0)));
-            }
+        if let c::AF_INET | c::AF_UNSPEC = af
+            && let Ok(addr) = name.parse::<Ipv4Addr>()
+        {
+            return Ok(SocketAddr::V4(net::SocketAddrV4::new(addr, 0)));
         }
-        if matches!(af, c::AF_INET | c::AF_UNSPEC) && !name.contains('%') {
-            if let Ok(addr) = name.parse::<Ipv6Addr>() {
-                return Ok(SocketAddr::V6(net::SocketAddrV6::new(addr, 0, 0, 0)));
-            }
+        if matches!(af, c::AF_INET | c::AF_UNSPEC)
+            && !name.contains('%')
+            && let Ok(addr) = name.parse::<Ipv6Addr>()
+        {
+            return Ok(SocketAddr::V6(net::SocketAddrV6::new(addr, 0, 0, 0)));
         }
         let hints = dns_lookup::AddrInfoHints {
             address: af,

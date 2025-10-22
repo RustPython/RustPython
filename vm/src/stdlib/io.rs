@@ -3394,11 +3394,9 @@ mod _io {
                 output.to_mut().insert(0, '\r'.into());
                 self.pendingcr = false;
             }
-            if !final_ {
-                if let Some(s) = output.strip_suffix("\r".as_ref()) {
-                    output = Cow::Owned(s.to_owned());
-                    self.pendingcr = true;
-                }
+            if !final_ && let Some(s) = output.strip_suffix("\r".as_ref()) {
+                output = Cow::Owned(s.to_owned());
+                self.pendingcr = true;
             }
 
             if output.is_empty() {
@@ -3972,7 +3970,7 @@ mod _io {
         // check file descriptor validity
         #[cfg(unix)]
         if let Ok(crate::ospath::OsPathOrFd::Fd(fd)) = file.clone().try_into_value(vm) {
-            nix::fcntl::fcntl(fd.as_raw(), nix::fcntl::F_GETFD)
+            nix::fcntl::fcntl(fd, nix::fcntl::F_GETFD)
                 .map_err(|_| crate::stdlib::os::errno_err(vm))?;
         }
 

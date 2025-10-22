@@ -5,6 +5,7 @@ use rustpython_compiler_core::SourceFile;
 impl Node for ruff::Parameters {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             posonlyargs,
             args,
             vararg,
@@ -80,6 +81,7 @@ impl Node for ruff::Parameters {
         let (posonlyargs, args) = merge_positional_parameter_defaults(posonlyargs, args, defaults);
 
         Ok(Self {
+            node_index: Default::default(),
             posonlyargs,
             args,
             vararg: get_node_field_opt(vm, &object, "vararg")?
@@ -102,6 +104,7 @@ impl Node for ruff::Parameters {
 impl Node for ruff::Parameter {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             name,
             annotation,
             // type_comment,
@@ -135,6 +138,7 @@ impl Node for ruff::Parameter {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             name: Node::ast_from_object(
                 _vm,
                 source_file,
@@ -155,6 +159,7 @@ impl Node for ruff::Parameter {
 impl Node for ruff::Keyword {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             arg,
             value,
             range: _range,
@@ -176,6 +181,7 @@ impl Node for ruff::Keyword {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             arg: get_node_field_opt(_vm, &_object, "arg")?
                 .map(|obj| Node::ast_from_object(_vm, source_file, obj))
                 .transpose()?,
@@ -328,6 +334,7 @@ fn merge_positional_parameter_defaults(
 
     let mut posonlyargs: Vec<_> = <Box<[_]> as IntoIterator>::into_iter(posonlyargs)
         .map(|parameter| ruff::ParameterWithDefault {
+            node_index: Default::default(),
             range: Default::default(),
             parameter,
             default: None,
@@ -335,6 +342,7 @@ fn merge_positional_parameter_defaults(
         .collect();
     let mut args: Vec<_> = <Box<[_]> as IntoIterator>::into_iter(args)
         .map(|parameter| ruff::ParameterWithDefault {
+            node_index: Default::default(),
             range: Default::default(),
             parameter,
             default: None,
@@ -397,6 +405,7 @@ fn merge_keyword_parameter_defaults(
 ) -> Vec<ruff::ParameterWithDefault> {
     std::iter::zip(kw_only_args.keywords, defaults.defaults)
         .map(|(parameter, default)| ruff::ParameterWithDefault {
+            node_index: Default::default(),
             parameter,
             default,
             range: Default::default(),

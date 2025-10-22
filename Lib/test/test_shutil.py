@@ -196,7 +196,7 @@ class TestRmTree(BaseTest, unittest.TestCase):
         self.assertIsInstance(victim, bytes)
         shutil.rmtree(victim)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; flaky')
     @os_helper.skip_unless_symlink
     def test_rmtree_fails_on_symlink_onerror(self):
         tmp = self.mkdtemp()
@@ -216,7 +216,6 @@ class TestRmTree(BaseTest, unittest.TestCase):
         self.assertEqual(errors[0][1], link)
         self.assertIsInstance(errors[0][2][1], OSError)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     def test_rmtree_fails_on_symlink_onexc(self):
         tmp = self.mkdtemp()
@@ -1087,7 +1086,6 @@ class TestCopy(BaseTest, unittest.TestCase):
         shutil.copymode(src_link, dst_link)
         self.assertEqual(os.stat(src).st_mode, os.stat(dst).st_mode)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipUnless(hasattr(os, 'lchmod') or os.name == 'nt', 'requires os.lchmod')
     @os_helper.skip_unless_symlink
     def test_copymode_symlink_to_symlink(self):
@@ -1317,7 +1315,6 @@ class TestCopy(BaseTest, unittest.TestCase):
         self.assertTrue(os.path.exists(file2))
         self.assertEqual(os.stat(file1).st_mode, os.stat(file2).st_mode)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     def test_copy_symlinks(self):
         tmp_dir = self.mkdtemp()
@@ -1360,7 +1357,6 @@ class TestCopy(BaseTest, unittest.TestCase):
             self.assertEqual(getattr(file1_stat, 'st_flags'),
                              getattr(file2_stat, 'st_flags'))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     def test_copy2_symlinks(self):
         tmp_dir = self.mkdtemp()
@@ -1445,7 +1441,6 @@ class TestCopy(BaseTest, unittest.TestCase):
 
     ### shutil.copyfile
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     def test_copyfile_symlinks(self):
         tmp_dir = self.mkdtemp()
@@ -1483,6 +1478,7 @@ class TestCopy(BaseTest, unittest.TestCase):
         finally:
             shutil.rmtree(TESTFN, ignore_errors=True)
 
+    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; AssertionError: SameFileError not raised for copyfile')
     @os_helper.skip_unless_symlink
     def test_dont_copy_file_onto_symlink_to_itself(self):
         # bug 851123.

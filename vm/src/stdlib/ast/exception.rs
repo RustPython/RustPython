@@ -35,6 +35,7 @@ impl Node for ruff::ExceptHandler {
 impl Node for ruff::ExceptHandlerExceptHandler {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
+            node_index: _,
             type_,
             name,
             body,
@@ -63,6 +64,7 @@ impl Node for ruff::ExceptHandlerExceptHandler {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
+            node_index: Default::default(),
             type_: get_node_field_opt(_vm, &_object, "type")?
                 .map(|obj| Node::ast_from_object(_vm, source_file, obj))
                 .transpose()?,

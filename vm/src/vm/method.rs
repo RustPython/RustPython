@@ -42,14 +42,13 @@ impl PyMethod {
                     None
                 } else {
                     let descr_get = descr_cls.mro_find_map(|cls| cls.slots.descr_get.load());
-                    if let Some(descr_get) = descr_get {
-                        if descr_cls
+                    if let Some(descr_get) = descr_get
+                        && descr_cls
                             .mro_find_map(|cls| cls.slots.descr_set.load())
                             .is_some()
-                        {
-                            let cls = cls.to_owned().into();
-                            return descr_get(descr, Some(obj), Some(cls), vm).map(Self::Attribute);
-                        }
+                    {
+                        let cls = cls.to_owned().into();
+                        return descr_get(descr, Some(obj), Some(cls), vm).map(Self::Attribute);
                     }
                     descr_get
                 };
@@ -58,10 +57,10 @@ impl PyMethod {
             None => None,
         };
 
-        if let Some(dict) = obj.dict() {
-            if let Some(attr) = dict.get_item_opt(name, vm)? {
-                return Ok(Self::Attribute(attr));
-            }
+        if let Some(dict) = obj.dict()
+            && let Some(attr) = dict.get_item_opt(name, vm)?
+        {
+            return Ok(Self::Attribute(attr));
         }
 
         if let Some((attr, descr_get)) = cls_attr {

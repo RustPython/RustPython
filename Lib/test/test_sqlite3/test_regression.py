@@ -195,8 +195,6 @@ class RegressionTests(unittest.TestCase):
                     con.isolation_level = value
                 self.assertEqual(con.isolation_level, "DEFERRED")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_cursor_constructor_call_check(self):
         """
         Verifies that cursor methods check whether base class __init__ was
@@ -221,8 +219,6 @@ class RegressionTests(unittest.TestCase):
         class MyStr(str): pass
         self.con.execute("select ?", (MyStr("abc"),))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_connection_constructor_call_check(self):
         """
         Verifies that connection methods check whether base class __init__ was

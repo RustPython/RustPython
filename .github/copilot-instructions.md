@@ -206,7 +206,7 @@ cargo run --features ssl
 
 ## Documentation
 
-- Check the [architecture document](architecture/architecture.md) for a high-level overview
-- Read the [development guide](DEVELOPMENT.md) for detailed setup instructions
+- Check the [architecture document](/architecture/architecture.md) for a high-level overview
+- Read the [development guide](/DEVELOPMENT.md) for detailed setup instructions
 - Generate documentation with `cargo doc --no-deps --all`
 - Online documentation is available at [docs.rs/rustpython](https://docs.rs/rustpython/)
