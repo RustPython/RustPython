@@ -1147,6 +1147,37 @@ mod _ssl {
         }
 
         #[pymethod]
+        fn get_verified_chain(&self, vm: &VirtualMachine) -> Option<PyListRef> {
+            let stream = self.stream.read();
+            unsafe {
+                let chain = sys::SSL_get0_verified_chain(stream.ssl().as_ptr());
+                if chain.is_null() {
+                    return None;
+                }
+
+                let num_certs = sys::OPENSSL_sk_num(chain as *const _);
+                let mut certs = Vec::new();
+
+                for i in 0..num_certs {
+                    let cert_ptr = sys::OPENSSL_sk_value(chain as *const _, i) as *mut sys::X509;
+                    if cert_ptr.is_null() {
+                        continue;
+                    }
+                    let cert = X509Ref::from_ptr(cert_ptr);
+                    if let Ok(der) = cert.to_der() {
+                        certs.push(vm.ctx.new_bytes(der).into());
+                    }
+                }
+
+                if certs.is_empty() {
+                    None
+                } else {
+                    Some(vm.ctx.new_list(certs))
+                }
+            }
+        }
+
+        #[pymethod]
         fn version(&self) -> Option<&'static str> {
             let v = self.stream.read().ssl().version_str();
             if v == "unknown" { None } else { Some(v) }
