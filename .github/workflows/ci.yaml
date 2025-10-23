@@ -294,8 +294,7 @@ jobs:
           mkdir site-packages
           target/release/rustpython --install-pip ensurepip --user
           target/release/rustpython -m pip install six
-      - if: runner.os != 'Windows'
-        name: Check that ensurepip succeeds.
+      - name: Check that ensurepip succeeds.
         run: |
           target/release/rustpython -m ensurepip
           target/release/rustpython -c "import pip"
