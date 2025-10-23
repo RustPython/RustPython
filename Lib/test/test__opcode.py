@@ -27,7 +27,6 @@ class OpListTests(unittest.TestCase):
         self.check_bool_function_result(_opcode.has_local, invalid, False)
         self.check_bool_function_result(_opcode.has_exc, invalid, False)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'dis' has no attribute 'opmap'
     def test_is_valid(self):
         names = [
             'CACHE',
@@ -39,7 +38,6 @@ class OpListTests(unittest.TestCase):
         opcodes = [dis.opmap[opname] for opname in names]
         self.check_bool_function_result(_opcode.is_valid, opcodes, True)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'dis' has no attribute 'hasarg'
     def test_oplists(self):
         def check_function(self, func, expected):
             for op in [-10, 520]:
@@ -58,7 +56,6 @@ class OpListTests(unittest.TestCase):
 
 
 class StackEffectTests(unittest.TestCase):
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_stack_effect(self):
         self.assertEqual(stack_effect(dis.opmap['POP_TOP']), -1)
         self.assertEqual(stack_effect(dis.opmap['BUILD_SLICE'], 0), -1)
@@ -79,7 +76,6 @@ class StackEffectTests(unittest.TestCase):
                 self.assertRaises(ValueError, stack_effect, code)
                 self.assertRaises(ValueError, stack_effect, code, 0)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_stack_effect_jump(self):
         FOR_ITER = dis.opmap['FOR_ITER']
         self.assertEqual(stack_effect(FOR_ITER, 0), 1)
