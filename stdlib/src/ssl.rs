@@ -836,6 +836,29 @@ mod _ssl {
 
             Ok(py_ssl_socket)
         }
+
+        #[pymethod]
+        fn _wrap_bio(_zelf: PyRef<Self>, _args: WrapBioArgs, vm: &VirtualMachine) -> PyResult {
+            // TODO: Implement BIO-based SSL wrapping
+            // This requires refactoring PySslSocket to support both socket and BIO modes
+            Err(vm.new_not_implemented_error(
+                "_wrap_bio is not yet implemented in RustPython".to_owned(),
+            ))
+        }
+    }
+
+    #[derive(FromArgs)]
+    #[allow(dead_code)] // Fields will be used when _wrap_bio is fully implemented
+    struct WrapBioArgs {
+        incoming: PyRef<PySslMemoryBio>,
+        outgoing: PyRef<PySslMemoryBio>,
+        server_side: bool,
+        #[pyarg(any, default)]
+        server_hostname: Option<PyStrRef>,
+        #[pyarg(named, default)]
+        owner: Option<PyObjectRef>,
+        #[pyarg(named, default)]
+        session: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
@@ -1310,6 +1333,156 @@ mod _ssl {
                 eq = !eq;
             }
             Ok(PyComparisonValue::Implemented(eq))
+        }
+    }
+
+    #[pyattr]
+    #[pyclass(module = "ssl", name = "MemoryBIO")]
+    #[derive(PyPayload)]
+    struct PySslMemoryBio {
+        bio: *mut sys::BIO,
+        eof_written: AtomicCell<bool>,
+    }
+
+    impl fmt::Debug for PySslMemoryBio {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.pad("MemoryBIO")
+        }
+    }
+
+    impl Drop for PySslMemoryBio {
+        fn drop(&mut self) {
+            if !self.bio.is_null() {
+                unsafe {
+                    sys::BIO_free_all(self.bio);
+                }
+            }
+        }
+    }
+
+    unsafe impl Send for PySslMemoryBio {}
+    unsafe impl Sync for PySslMemoryBio {}
+
+    // OpenSSL BIO helper functions
+    // These are typically macros in OpenSSL, implemented via BIO_ctrl
+    const BIO_CTRL_PENDING: libc::c_int = 10;
+    const BIO_CTRL_SET_EOF: libc::c_int = 2;
+
+    #[allow(non_snake_case)]
+    unsafe fn BIO_ctrl_pending(bio: *mut sys::BIO) -> usize {
+        unsafe { sys::BIO_ctrl(bio, BIO_CTRL_PENDING, 0, std::ptr::null_mut()) as usize }
+    }
+
+    #[allow(non_snake_case)]
+    unsafe fn BIO_set_mem_eof_return(bio: *mut sys::BIO, eof: libc::c_int) -> libc::c_int {
+        unsafe {
+            sys::BIO_ctrl(
+                bio,
+                BIO_CTRL_SET_EOF,
+                eof as libc::c_long,
+                std::ptr::null_mut(),
+            ) as libc::c_int
+        }
+    }
+
+    #[allow(non_snake_case)]
+    unsafe fn BIO_clear_retry_flags(bio: *mut sys::BIO) {
+        unsafe {
+            sys::BIO_clear_flags(bio, sys::BIO_FLAGS_RWS | sys::BIO_FLAGS_SHOULD_RETRY);
+        }
+    }
+
+    impl Constructor for PySslMemoryBio {
+        type Args = ();
+
+        fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            unsafe {
+                let bio = sys::BIO_new(sys::BIO_s_mem());
+                if bio.is_null() {
+                    return Err(vm.new_memory_error("failed to allocate BIO".to_owned()));
+                }
+
+                sys::BIO_set_retry_read(bio);
+                BIO_set_mem_eof_return(bio, -1);
+
+                PySslMemoryBio {
+                    bio,
+                    eof_written: AtomicCell::new(false),
+                }
+                .into_ref_with_type(vm, cls)
+                .map(Into::into)
+            }
+        }
+    }
+
+    #[pyclass(with(Constructor))]
+    impl PySslMemoryBio {
+        #[pygetset]
+        fn pending(&self) -> usize {
+            unsafe { BIO_ctrl_pending(self.bio) }
+        }
+
+        #[pygetset]
+        fn eof(&self) -> bool {
+            let pending = unsafe { BIO_ctrl_pending(self.bio) };
+            pending == 0 && self.eof_written.load()
+        }
+
+        #[pymethod]
+        fn read(&self, size: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            unsafe {
+                let avail = BIO_ctrl_pending(self.bio).min(i32::MAX as usize) as i32;
+                let len = size.unwrap_or(-1);
+                let len = if len < 0 || len > avail { avail } else { len };
+
+                if len == 0 {
+                    return Ok(Vec::new());
+                }
+
+                let mut buf = vec![0u8; len as usize];
+                let nbytes = sys::BIO_read(self.bio, buf.as_mut_ptr() as *mut _, len);
+
+                if nbytes < 0 {
+                    return Err(convert_openssl_error(vm, ErrorStack::get()));
+                }
+
+                buf.truncate(nbytes as usize);
+                Ok(buf)
+            }
+        }
+
+        #[pymethod]
+        fn write(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<i32> {
+            if self.eof_written.load() {
+                return Err(vm.new_exception_msg(
+                    ssl_error(vm),
+                    "cannot write() after write_eof()".to_owned(),
+                ));
+            }
+
+            data.with_ref(|buf| unsafe {
+                if buf.len() > i32::MAX as usize {
+                    return Err(
+                        vm.new_overflow_error(format!("string longer than {} bytes", i32::MAX))
+                    );
+                }
+
+                let nbytes = sys::BIO_write(self.bio, buf.as_ptr() as *const _, buf.len() as i32);
+                if nbytes < 0 {
+                    return Err(convert_openssl_error(vm, ErrorStack::get()));
+                }
+
+                Ok(nbytes)
+            })
+        }
+
+        #[pymethod]
+        fn write_eof(&self) {
+            self.eof_written.store(true);
+            unsafe {
+                BIO_clear_retry_flags(self.bio);
+                BIO_set_mem_eof_return(self.bio, 0);
+            }
         }
     }
 
