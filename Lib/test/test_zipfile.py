@@ -123,8 +123,6 @@ class AbstractTestsWithSourceFile:
             # Check that testzip doesn't raise an exception
             zipfp.testzip()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basic(self):
         for f in get_files(self):
             self.zip_test(f, self.compression)
@@ -394,8 +392,6 @@ class AbstractTestsWithSourceFile:
                 self.assertIn('[closed]', repr(zipopen))
             self.assertIn('[closed]', repr(zipfp))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_compresslevel_basic(self):
         for f in get_files(self):
             self.zip_test(f, self.compression, compresslevel=9)
@@ -751,8 +747,6 @@ class AbstractTestZip64InSmallFiles:
             # Check that testzip doesn't raise an exception
             zipfp.testzip()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basic(self):
         for f in get_files(self):
             self.zip_test(f, self.compression)
