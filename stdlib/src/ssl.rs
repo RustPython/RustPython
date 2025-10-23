@@ -1006,6 +1006,19 @@ mod _ssl {
         }
 
         #[pymethod]
+        fn get_unverified_chain(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
+            let stream = self.stream.read();
+            let chain = stream.ssl().peer_cert_chain()?;
+
+            let certs: Vec<PyObjectRef> = chain
+                .iter()
+                .filter_map(|cert| cert.to_der().ok().map(|der| vm.ctx.new_bytes(der).into()))
+                .collect();
+
+            Some(vm.ctx.new_list(certs).into())
+        }
+
+        #[pymethod]
         fn version(&self) -> Option<&'static str> {
             let v = self.stream.read().ssl().version_str();
             if v == "unknown" { None } else { Some(v) }
