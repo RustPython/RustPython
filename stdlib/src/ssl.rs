@@ -39,7 +39,7 @@ mod _ssl {
         socket::{self, PySocket},
         vm::{
             Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-            builtins::{PyBaseExceptionRef, PyStrRef, PyType, PyTypeRef, PyWeak},
+            builtins::{PyBaseExceptionRef, PyListRef, PyStrRef, PyType, PyTypeRef, PyWeak},
             class_or_notimplemented,
             convert::{ToPyException, ToPyObject},
             exceptions,
@@ -567,6 +567,64 @@ mod _ssl {
             self.builder().set_cipher_list(ciphers).map_err(|_| {
                 vm.new_exception_msg(ssl_error(vm), "No cipher can be selected.".to_owned())
             })
+        }
+
+        #[pymethod]
+        fn get_ciphers(&self, vm: &VirtualMachine) -> PyResult<PyListRef> {
+            let ctx = self.ctx();
+            let ssl = ssl::Ssl::new(&*ctx).map_err(|e| convert_openssl_error(vm, e))?;
+
+            unsafe {
+                let ciphers_ptr = SSL_get_ciphers(ssl.as_ptr());
+                if ciphers_ptr.is_null() {
+                    return Ok(vm.ctx.new_list(vec![]));
+                }
+
+                let num_ciphers = sys::OPENSSL_sk_num(ciphers_ptr as *const _);
+                let mut result = Vec::new();
+
+                for i in 0..num_ciphers {
+                    let cipher_ptr =
+                        sys::OPENSSL_sk_value(ciphers_ptr as *const _, i) as *const sys::SSL_CIPHER;
+                    let cipher = ssl::SslCipherRef::from_ptr(cipher_ptr as *mut _);
+
+                    let (name, version, bits) = cipher_to_tuple(cipher);
+                    let dict = vm.ctx.new_dict();
+                    dict.set_item("name", vm.ctx.new_str(name).into(), vm)?;
+                    dict.set_item("protocol", vm.ctx.new_str(version).into(), vm)?;
+                    dict.set_item("secret_bits", vm.ctx.new_int(bits).into(), vm)?;
+                    result.push(dict.into());
+                }
+
+                Ok(vm.ctx.new_list(result))
+            }
+        }
+
+        #[pymethod]
+        fn set_ecdh_curve(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+            use openssl::ec::{EcGroup, EcKey};
+
+            let curve_name = name.as_str();
+            if curve_name.contains('\0') {
+                return Err(exceptions::cstring_error(vm));
+            }
+
+            // Find the NID for the curve name using OBJ_sn2nid
+            let name_cstr = name.to_cstring(vm)?;
+            let nid_raw = unsafe { sys::OBJ_sn2nid(name_cstr.as_ptr()) };
+            if nid_raw == 0 {
+                return Err(vm.new_value_error(format!("unknown curve name: {}", curve_name)));
+            }
+            let nid = Nid::from_raw(nid_raw);
+
+            // Create EC key from the curve
+            let group = EcGroup::from_curve_name(nid).map_err(|e| convert_openssl_error(vm, e))?;
+            let key = EcKey::from_group(&group).map_err(|e| convert_openssl_error(vm, e))?;
+
+            // Set the temporary ECDH key
+            self.builder()
+                .set_tmp_ecdh(&key)
+                .map_err(|e| convert_openssl_error(vm, e))
         }
 
         #[pygetset]
