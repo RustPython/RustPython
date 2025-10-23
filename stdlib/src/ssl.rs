@@ -39,7 +39,7 @@ mod _ssl {
         socket::{self, PySocket},
         vm::{
             Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-            builtins::{PyBaseExceptionRef, PyListRef, PyStrRef, PyType, PyTypeRef, PyWeak},
+            builtins::{PyBaseExceptionRef, PyBytesRef, PyListRef, PyStrRef, PyType, PyTypeRef, PyWeak},
             class_or_notimplemented,
             convert::{ToPyException, ToPyObject},
             exceptions,
@@ -1136,6 +1136,49 @@ mod _ssl {
             #[cfg(not(ossl102))]
             {
                 None
+            }
+        }
+
+        #[pymethod]
+        fn get_channel_binding(
+            &self,
+            cb_type: OptionalArg<PyStrRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<PyBytesRef>> {
+            const CB_MAXLEN: usize = 512;
+
+            let cb_type_str = cb_type.as_ref().map_or("tls-unique", |s| s.as_str());
+
+            if cb_type_str != "tls-unique" {
+                return Err(vm.new_value_error(format!(
+                    "Unsupported channel binding type '{}'",
+                    cb_type_str
+                )));
+            }
+
+            let stream = self.stream.read();
+            let ssl_ptr = stream.ssl().as_ptr();
+
+            unsafe {
+                let session_reused = sys::SSL_session_reused(ssl_ptr) != 0;
+                let is_client = matches!(self.socket_type, SslServerOrClient::Client);
+
+                // Use XOR logic from CPython
+                let use_finished = session_reused ^ is_client;
+
+                let mut buf = vec![0u8; CB_MAXLEN];
+                let len = if use_finished {
+                    sys::SSL_get_finished(ssl_ptr, buf.as_mut_ptr() as *mut _, CB_MAXLEN)
+                } else {
+                    sys::SSL_get_peer_finished(ssl_ptr, buf.as_mut_ptr() as *mut _, CB_MAXLEN)
+                };
+
+                if len == 0 {
+                    Ok(None)
+                } else {
+                    buf.truncate(len);
+                    Ok(Some(vm.ctx.new_bytes(buf)))
+                }
             }
         }
 
