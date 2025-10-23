@@ -1292,6 +1292,29 @@ mod _ssl {
             }
         }
 
+        #[pymethod]
+        fn verify_client_post_handshake(&self, vm: &VirtualMachine) -> PyResult<()> {
+            #[cfg(ossl111)]
+            {
+                let stream = self.stream.read();
+                let result = unsafe { SSL_verify_client_post_handshake(stream.ssl().as_ptr()) };
+                if result == 0 {
+                    Err(vm.new_exception_msg(
+                        ssl_error(vm),
+                        "Post-handshake authentication failed".to_owned(),
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+            #[cfg(not(ossl111))]
+            {
+                Err(vm.new_not_implemented_error(
+                    "Post-handshake auth is not supported by your OpenSSL version.".to_owned()
+                ))
+            }
+        }
+
         #[cfg(osslconf = "OPENSSL_NO_COMP")]
         #[pymethod]
         fn compression(&self) -> Option<&'static str> {
@@ -1607,6 +1630,11 @@ mod _ssl {
     #[cfg(ossl110)]
     unsafe extern "C" {
         fn SSL_get_client_ciphers(ssl: *const sys::SSL) -> *const sys::stack_st_SSL_CIPHER;
+    }
+
+    #[cfg(ossl111)]
+    unsafe extern "C" {
+        fn SSL_verify_client_post_handshake(ssl: *const sys::SSL) -> libc::c_int;
     }
 
     // OpenSSL BIO helper functions
