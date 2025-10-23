@@ -1404,7 +1404,7 @@ mod _ssl {
             let ret = match inner_buffer {
                 Either::A(_buf) => vm.ctx.new_int(count).into(),
                 Either::B(mut buf) => {
-                    buf.truncate(n);
+                    buf.truncate(count);
                     buf.shrink_to_fit();
                     vm.ctx.new_bytes(buf).into()
                 }
