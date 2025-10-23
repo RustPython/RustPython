@@ -116,6 +116,10 @@ mod _ssl {
     #[pyattr]
     const PROTOCOL_TLSv1: u32 = SslVersion::Tls1 as u32;
     #[pyattr]
+    const PROTOCOL_TLSv1_1: u32 = SslVersion::Tls1_1 as u32;
+    #[pyattr]
+    const PROTOCOL_TLSv1_2: u32 = SslVersion::Tls1_2 as u32;
+    #[pyattr]
     const PROTO_MINIMUM_SUPPORTED: i32 = ProtoVersion::MinSupported as i32;
     #[pyattr]
     const PROTO_SSLv3: i32 = ProtoVersion::Ssl3 as i32;
@@ -265,7 +269,8 @@ mod _ssl {
         Ssl3 = 1,
         Tls,
         Tls1,
-        // TODO: Tls1_1, Tls1_2 ?
+        Tls1_1,
+        Tls1_2,
         TlsClient = 0x10,
         TlsServer,
     }
@@ -480,7 +485,9 @@ mod _ssl {
             let method = match proto {
                 // SslVersion::Ssl3 => unsafe { ssl::SslMethod::from_ptr(sys::SSLv3_method()) },
                 SslVersion::Tls => ssl::SslMethod::tls(),
-                // TODO: Tls1_1, Tls1_2 ?
+                SslVersion::Tls1 => ssl::SslMethod::tls(),
+                SslVersion::Tls1_1 => ssl::SslMethod::tls(),
+                SslVersion::Tls1_2 => ssl::SslMethod::tls(),
                 SslVersion::TlsClient => ssl::SslMethod::tls_client(),
                 SslVersion::TlsServer => ssl::SslMethod::tls_server(),
                 _ => return Err(vm.new_value_error("invalid protocol version")),
