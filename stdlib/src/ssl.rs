@@ -26,7 +26,7 @@ cfg_if::cfg_if! {
 }
 
 #[allow(non_upper_case_globals)]
-#[pymodule(with(ossl101, windows))]
+#[pymodule(with(ossl101, ossl111, windows))]
 mod _ssl {
     use super::{bio, probe};
     use crate::{
@@ -84,19 +84,23 @@ mod _ssl {
         SSL_ERROR_WANT_CONNECT,
         SSL_ERROR_WANT_READ,
         SSL_ERROR_WANT_WRITE,
-        // #ifdef SSL_OP_SINGLE_ECDH_USE
-        // SSL_OP_SINGLE_ECDH_USE as OP_SINGLE_ECDH_USE
-        // #endif
         // X509_V_FLAG_CRL_CHECK as VERIFY_CRL_CHECK_LEAF,
         // sys::X509_V_FLAG_CRL_CHECK|sys::X509_V_FLAG_CRL_CHECK_ALL as VERIFY_CRL_CHECK_CHAIN
         // X509_V_FLAG_X509_STRICT as VERIFY_X509_STRICT,
         SSL_ERROR_ZERO_RETURN,
         SSL_OP_CIPHER_SERVER_PREFERENCE as OP_CIPHER_SERVER_PREFERENCE,
+        SSL_OP_LEGACY_SERVER_CONNECT as OP_LEGACY_SERVER_CONNECT,
         SSL_OP_NO_SSLv2 as OP_NO_SSLv2,
         SSL_OP_NO_SSLv3 as OP_NO_SSLv3,
         SSL_OP_NO_TICKET as OP_NO_TICKET,
         SSL_OP_NO_TLSv1 as OP_NO_TLSv1,
         SSL_OP_SINGLE_DH_USE as OP_SINGLE_DH_USE,
+        SSL_OP_SINGLE_ECDH_USE as OP_SINGLE_ECDH_USE,
+        X509_V_FLAG_ALLOW_PROXY_CERTS as VERIFY_ALLOW_PROXY_CERTS,
+        X509_V_FLAG_CRL_CHECK as VERIFY_CRL_CHECK_LEAF,
+        X509_V_FLAG_PARTIAL_CHAIN as VERIFY_X509_PARTIAL_CHAIN,
+        X509_V_FLAG_TRUSTED_FIRST as VERIFY_X509_TRUSTED_FIRST,
+        X509_V_FLAG_X509_STRICT as VERIFY_X509_STRICT,
     };
 
     // taken from CPython, should probably be kept up to date with their version if it ever changes
@@ -150,7 +154,7 @@ mod _ssl {
     #[pyattr]
     const HAS_SNI: bool = true;
     #[pyattr]
-    const HAS_ECDH: bool = false;
+    const HAS_ECDH: bool = true;
     #[pyattr]
     const HAS_NPN: bool = false;
     #[pyattr]
