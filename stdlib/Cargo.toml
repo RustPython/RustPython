@@ -107,7 +107,7 @@ gethostname = "1.0.2"
 socket2 = { version = "0.6.0", features = ["all"] }
 dns-lookup = "3.0"
 openssl = { version = "0.10.72", optional = true }
-openssl-sys = { version = "0.9.80", optional = true }
+openssl-sys = { version = "0.9.110", optional = true }
 openssl-probe = { version = "0.1.5", optional = true }
 foreign-types-shared = { version = "0.1.1", optional = true }
 
