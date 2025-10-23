@@ -1056,6 +1056,31 @@ mod _ssl {
                 .map(cipher_to_tuple)
         }
 
+        #[pymethod]
+        fn selected_alpn_protocol(&self) -> Option<String> {
+            #[cfg(ossl102)]
+            {
+                let stream = self.stream.read();
+                unsafe {
+                    let mut out: *const libc::c_uchar = std::ptr::null();
+                    let mut outlen: libc::c_uint = 0;
+
+                    sys::SSL_get0_alpn_selected(stream.ssl().as_ptr(), &mut out, &mut outlen);
+
+                    if out.is_null() {
+                        None
+                    } else {
+                        let slice = std::slice::from_raw_parts(out, outlen as usize);
+                        Some(String::from_utf8_lossy(slice).into_owned())
+                    }
+                }
+            }
+            #[cfg(not(ossl102))]
+            {
+                None
+            }
+        }
+
         #[cfg(osslconf = "OPENSSL_NO_COMP")]
         #[pymethod]
         fn compression(&self) -> Option<&'static str> {
