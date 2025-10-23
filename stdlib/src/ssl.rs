@@ -1310,9 +1310,41 @@ mod _ssl {
             #[cfg(not(ossl111))]
             {
                 Err(vm.new_not_implemented_error(
-                    "Post-handshake auth is not supported by your OpenSSL version.".to_owned()
+                    "Post-handshake auth is not supported by your OpenSSL version.".to_owned(),
                 ))
             }
+        }
+
+        #[pymethod]
+        fn shutdown(&self, vm: &VirtualMachine) -> PyResult<PyRef<PySocket>> {
+            let stream = self.stream.read();
+            let ssl_ptr = stream.ssl().as_ptr();
+
+            // Perform SSL shutdown
+            let ret = unsafe { sys::SSL_shutdown(ssl_ptr) };
+
+            if ret < 0 {
+                // Error occurred
+                let err = unsafe {
+                    let err_code = sys::SSL_get_error(ssl_ptr, ret);
+                    err_code
+                };
+
+                if err == sys::SSL_ERROR_WANT_READ || err == sys::SSL_ERROR_WANT_WRITE {
+                    // Non-blocking would block - this is okay for shutdown
+                    // Return the underlying socket
+                } else {
+                    return Err(vm.new_exception_msg(
+                        ssl_error(vm),
+                        format!("SSL shutdown failed: error code {}", err),
+                    ));
+                }
+            }
+
+            // Return the underlying socket
+            // Get the socket from the stream (SocketStream wraps PyRef<PySocket>)
+            let socket = stream.get_ref();
+            Ok(socket.0.clone())
         }
 
         #[cfg(osslconf = "OPENSSL_NO_COMP")]
