@@ -364,15 +364,16 @@ mod decl {
     }
 
     #[pyfunction]
-    fn strptime(
-        string: PyStrRef,
-        format: OptionalArg<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyStructTime> {
-        let format = format.as_ref().map_or("%a %b %H:%M:%S %Y", |s| s.as_str());
-        let instant = NaiveDateTime::parse_from_str(string.as_str(), format)
-            .map_err(|e| vm.new_value_error(format!("Parse error: {e:?}")))?;
-        Ok(PyStructTime::new(vm, instant, -1))
+    fn strptime(string: PyStrRef, format: OptionalArg<PyStrRef>, vm: &VirtualMachine) -> PyResult {
+        // Call _strptime._strptime_time like CPython does
+        let strptime_module = vm.import("_strptime", 0)?;
+        let strptime_func = strptime_module.get_attr("_strptime_time", vm)?;
+
+        // Call with positional arguments
+        match format.into_option() {
+            Some(fmt) => strptime_func.call((string, fmt), vm),
+            None => strptime_func.call((string,), vm),
+        }
     }
 
     #[cfg(not(any(
