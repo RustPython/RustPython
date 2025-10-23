@@ -1162,6 +1162,69 @@ mod _ssl {
         }
 
         #[pymethod]
+        fn shared_ciphers(&self, vm: &VirtualMachine) -> Option<PyListRef> {
+            #[cfg(ossl110)]
+            {
+                let stream = self.stream.read();
+                unsafe {
+                    let server_ciphers = SSL_get_ciphers(stream.ssl().as_ptr());
+                    if server_ciphers.is_null() {
+                        return None;
+                    }
+
+                    let client_ciphers = SSL_get_client_ciphers(stream.ssl().as_ptr());
+                    if client_ciphers.is_null() {
+                        return None;
+                    }
+
+                    let mut result = Vec::new();
+                    let num_server = sys::OPENSSL_sk_num(server_ciphers as *const _);
+                    let num_client = sys::OPENSSL_sk_num(client_ciphers as *const _);
+
+                    for i in 0..num_server {
+                        let server_cipher_ptr = sys::OPENSSL_sk_value(server_ciphers as *const _, i)
+                            as *const sys::SSL_CIPHER;
+
+                        // Check if client supports this cipher by comparing pointers
+                        let mut found = false;
+                        for j in 0..num_client {
+                            let client_cipher_ptr =
+                                sys::OPENSSL_sk_value(client_ciphers as *const _, j)
+                                    as *const sys::SSL_CIPHER;
+
+                            if server_cipher_ptr == client_cipher_ptr {
+                                found = true;
+                                break;
+                            }
+                        }
+
+                        if found {
+                            let cipher = ssl::SslCipherRef::from_ptr(server_cipher_ptr as *mut _);
+                            let (name, version, bits) = cipher_to_tuple(cipher);
+                            let tuple = vm.new_tuple((
+                                vm.ctx.new_str(name),
+                                vm.ctx.new_str(version),
+                                vm.ctx.new_int(bits),
+                            ));
+                            result.push(tuple.into());
+                        }
+                    }
+
+                    if result.is_empty() {
+                        None
+                    } else {
+                        Some(vm.ctx.new_list(result))
+                    }
+                }
+            }
+            #[cfg(not(ossl110))]
+            {
+                let _ = vm;
+                None
+            }
+        }
+
+        #[pymethod]
         fn selected_alpn_protocol(&self) -> Option<String> {
             #[cfg(ossl102)]
             {
@@ -1535,6 +1598,16 @@ mod _ssl {
 
     unsafe impl Send for PySslMemoryBio {}
     unsafe impl Sync for PySslMemoryBio {}
+
+    // OpenSSL functions not in openssl-sys
+    unsafe extern "C" {
+        fn SSL_get_ciphers(ssl: *const sys::SSL) -> *const sys::stack_st_SSL_CIPHER;
+    }
+
+    #[cfg(ossl110)]
+    unsafe extern "C" {
+        fn SSL_get_client_ciphers(ssl: *const sys::SSL) -> *const sys::stack_st_SSL_CIPHER;
+    }
 
     // OpenSSL BIO helper functions
     // These are typically macros in OpenSSL, implemented via BIO_ctrl
