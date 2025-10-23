@@ -685,6 +685,42 @@ mod _ssl {
             Ok(())
         }
         #[pygetset]
+        fn verify_flags(&self) -> libc::c_ulong {
+            unsafe {
+                let ctx_ptr = self.ctx().as_ptr();
+                let param = sys::SSL_CTX_get0_param(ctx_ptr);
+                sys::X509_VERIFY_PARAM_get_flags(param)
+            }
+        }
+        #[pygetset(setter)]
+        fn set_verify_flags(&self, new_flags: libc::c_ulong, vm: &VirtualMachine) -> PyResult<()> {
+            unsafe {
+                let ctx_ptr = self.ctx().as_ptr();
+                let param = sys::SSL_CTX_get0_param(ctx_ptr);
+                let flags = sys::X509_VERIFY_PARAM_get_flags(param);
+                let clear = flags & !new_flags;
+                let set = !flags & new_flags;
+
+                if clear != 0 {
+                    if sys::X509_VERIFY_PARAM_clear_flags(param, clear) == 0 {
+                        return Err(vm.new_exception_msg(
+                            ssl_error(vm),
+                            "Failed to clear verify flags".to_owned(),
+                        ));
+                    }
+                }
+                if set != 0 {
+                    if sys::X509_VERIFY_PARAM_set_flags(param, set) == 0 {
+                        return Err(vm.new_exception_msg(
+                            ssl_error(vm),
+                            "Failed to set verify flags".to_owned(),
+                        ));
+                    }
+                }
+                Ok(())
+            }
+        }
+        #[pygetset]
         fn check_hostname(&self) -> bool {
             self.check_hostname.load()
         }
