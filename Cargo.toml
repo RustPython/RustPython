@@ -159,6 +159,7 @@ rustpython-wtf8 = { path = "wtf8", version = "0.4.0" }
 rustpython-doc = { git = "https://github.com/RustPython/__doc__", tag = "0.3.0", version = "0.3.0" }
 
 ruff_python_parser = { git = "https://github.com/astral-sh/ruff.git", tag = "0.14.1" }
+ruff_python_codegen = { git = "https://github.com/astral-sh/ruff.git", tag = "0.14.1" }
 ruff_python_ast = { git = "https://github.com/astral-sh/ruff.git", tag = "0.14.1" }
 ruff_text_size = { git = "https://github.com/astral-sh/ruff.git", tag = "0.14.1" }
 ruff_source_file = { git = "https://github.com/astral-sh/ruff.git", tag = "0.14.1" }

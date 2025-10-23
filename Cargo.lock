@@ -2283,6 +2283,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruff_python_codegen"
+version = "0.0.0"
+source = "git+https://github.com/astral-sh/ruff.git?tag=0.14.1#2bffef59665ce7d2630dfd72ee99846663660db8"
+dependencies = [
+ "ruff_python_ast",
+ "ruff_python_literal",
+ "ruff_python_parser",
+ "ruff_source_file",
+ "ruff_text_size",
+]
+
+[[package]]
+name = "ruff_python_literal"
+version = "0.0.0"
+source = "git+https://github.com/astral-sh/ruff.git?tag=0.14.1#2bffef59665ce7d2630dfd72ee99846663660db8"
+dependencies = [
+ "bitflags 2.9.4",
+ "itertools 0.14.0",
+ "ruff_python_ast",
+ "unic-ucd-category",
+]
+
+[[package]]
 name = "ruff_python_parser"
 version = "0.0.0"
 source = "git+https://github.com/astral-sh/ruff.git?tag=0.14.1#2bffef59665ce7d2630dfd72ee99846663660db8"
@@ -2387,7 +2410,9 @@ dependencies = [
  "num-complex",
  "num-traits",
  "ruff_python_ast",
+ "ruff_python_codegen",
  "ruff_python_parser",
+ "ruff_source_file",
  "ruff_text_size",
  "rustpython-compiler-core",
  "rustpython-literal",
