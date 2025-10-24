@@ -1914,23 +1914,39 @@ mod _ssl {
                     "certificate verify failed" => "CERTIFICATE_VERIFY_FAILED",
                     _ => default_errstr,
                 };
-                let msg = if let Some(lib) = e.library() {
-                    // add `library` attribute
-                    let attr_name = vm.ctx.as_ref().intern_str("library");
-                    cls.set_attr(attr_name, vm.ctx.new_str(lib).into());
+
+                // Build message
+                let lib_obj = e.library();
+                let msg = if let Some(lib) = lib_obj {
                     format!("[{lib}] {errstr} ({file}:{line})")
                 } else {
                     format!("{errstr} ({file}:{line})")
                 };
-                // add `reason` attribute
-                let attr_name = vm.ctx.as_ref().intern_str("reason");
-                cls.set_attr(attr_name, vm.ctx.new_str(errstr).into());
 
+                // Create exception instance
                 let reason = sys::ERR_GET_REASON(e.code());
-                vm.new_exception(
+                let exc = vm.new_exception(
                     cls,
                     vec![vm.ctx.new_int(reason).into(), vm.ctx.new_str(msg).into()],
-                )
+                );
+
+                // Set attributes on instance, not class
+                let exc_obj: PyObjectRef = exc.into();
+
+                // Set reason attribute (always set, even if just the error string)
+                let reason_value = vm.ctx.new_str(errstr);
+                let _ = exc_obj.set_attr("reason", reason_value, vm);
+
+                // Set library attribute (None if not available)
+                let library_value: PyObjectRef = if let Some(lib) = lib_obj {
+                    vm.ctx.new_str(lib).into()
+                } else {
+                    vm.ctx.none()
+                };
+                let _ = exc_obj.set_attr("library", library_value, vm);
+
+                // Convert back to PyBaseExceptionRef
+                exc_obj.downcast().unwrap()
             }
             None => vm.new_exception_empty(cls),
         }
