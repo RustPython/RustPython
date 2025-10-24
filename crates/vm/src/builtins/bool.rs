@@ -39,39 +39,43 @@ impl PyObjectRef {
         if self.is(&vm.ctx.false_value) {
             return Ok(false);
         }
-        let rs_bool = match vm.get_method(self.clone(), identifier!(vm, __bool__)) {
-            Some(method_or_err) => {
-                // If descriptor returns Error, propagate it further
-                let method = method_or_err?;
-                let bool_obj = method.call((), vm)?;
-                if !bool_obj.fast_isinstance(vm.ctx.types.bool_type) {
-                    return Err(vm.new_type_error(format!(
-                        "__bool__ should return bool, returned type {}",
-                        bool_obj.class().name()
-                    )));
-                }
-
-                get_value(&bool_obj)
-            }
-            None => match vm.get_method(self, identifier!(vm, __len__)) {
+        let rs_bool = if let Some(nb_bool) = self.class().slots.as_number.boolean.load() {
+            nb_bool(self.as_object().to_number(), vm)?
+        } else {
+            match vm.get_method(self.clone(), identifier!(vm, __bool__)) {
                 Some(method_or_err) => {
+                    // If descriptor returns Error, propagate it further
                     let method = method_or_err?;
                     let bool_obj = method.call((), vm)?;
-                    let int_obj = bool_obj.downcast_ref::<PyInt>().ok_or_else(|| {
-                        vm.new_type_error(format!(
-                            "'{}' object cannot be interpreted as an integer",
+                    if !bool_obj.fast_isinstance(vm.ctx.types.bool_type) {
+                        return Err(vm.new_type_error(format!(
+                            "__bool__ should return bool, returned type {}",
                             bool_obj.class().name()
-                        ))
-                    })?;
-
-                    let len_val = int_obj.as_bigint();
-                    if len_val.sign() == Sign::Minus {
-                        return Err(vm.new_value_error("__len__() should return >= 0"));
+                        )));
                     }
-                    !len_val.is_zero()
+
+                    get_value(&bool_obj)
                 }
-                None => true,
-            },
+                None => match vm.get_method(self, identifier!(vm, __len__)) {
+                    Some(method_or_err) => {
+                        let method = method_or_err?;
+                        let bool_obj = method.call((), vm)?;
+                        let int_obj = bool_obj.downcast_ref::<PyInt>().ok_or_else(|| {
+                            vm.new_type_error(format!(
+                                "'{}' object cannot be interpreted as an integer",
+                                bool_obj.class().name()
+                            ))
+                        })?;
+
+                        let len_val = int_obj.as_bigint();
+                        if len_val.sign() == Sign::Minus {
+                            return Err(vm.new_value_error("__len__() should return >= 0"));
+                        }
+                        !len_val.is_zero()
+                    }
+                    None => true,
+                },
+            }
         };
         Ok(rs_bool)
     }
