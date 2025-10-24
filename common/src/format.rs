@@ -424,7 +424,13 @@ impl FormatSpec {
     const fn get_separator_interval(&self) -> usize {
         match self.format_type {
             Some(FormatType::Binary | FormatType::Octal | FormatType::Hex(_)) => 4,
-            Some(FormatType::Decimal | FormatType::Number(_) | FormatType::FixedPoint(_)) => 3,
+            Some(
+                FormatType::Decimal
+                | FormatType::FixedPoint(_)
+                | FormatType::GeneralFormat(_)
+                | FormatType::Exponent(_)
+                | FormatType::Percentage,
+            ) => 3,
             None => 3,
             _ => panic!("Separators only valid for numbers!"),
         }
