@@ -884,6 +884,20 @@ mod _ssl {
             args: WrapSocketArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PySslSocket> {
+            // validate socket type and context protocol
+            if !args.server_side && zelf.protocol == SslVersion::TlsServer {
+                return Err(vm.new_exception_msg(
+                    ssl_error(vm),
+                    "Cannot create a client socket with a PROTOCOL_TLS_SERVER context".to_owned(),
+                ));
+            }
+            if args.server_side && zelf.protocol == SslVersion::TlsClient {
+                return Err(vm.new_exception_msg(
+                    ssl_error(vm),
+                    "Cannot create a server socket with a PROTOCOL_TLS_CLIENT context".to_owned(),
+                ));
+            }
+
             let mut ssl = ssl::Ssl::new(&zelf.ctx()).map_err(|e| convert_openssl_error(vm, e))?;
 
             let socket_type = if args.server_side {
