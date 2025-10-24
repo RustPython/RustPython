@@ -68,7 +68,8 @@ mod _ssl {
         ffi::CStr,
         fmt,
         io::{Read, Write},
-        path::Path,
+        path::{Path, PathBuf},
+        sync::LazyLock,
         time::Instant,
     };
 
@@ -193,7 +194,8 @@ mod _ssl {
 
     #[pyattr(name = "_OPENSSL_API_VERSION")]
     fn _openssl_api_version(_vm: &VirtualMachine) -> OpensslVersionInfo {
-        let openssl_api_version = i64::from_str_radix(env!("OPENSSL_API_VERSION"), 16).unwrap();
+        let openssl_api_version = i64::from_str_radix(env!("OPENSSL_API_VERSION"), 16)
+            .expect("OPENSSL_API_VERSION is malformed");
         parse_version_info(openssl_api_version)
     }
 
@@ -251,7 +253,8 @@ mod _ssl {
     /// SSL/TLS connection terminated abruptly.
     #[pyattr(name = "SSLEOFError", once)]
     fn ssl_eof_error(vm: &VirtualMachine) -> PyTypeRef {
-        PyType::new_simple_heap("ssl.SSLEOFError", &ssl_error(vm), &vm.ctx).unwrap()
+        vm.ctx
+            .new_exception_type("ssl", "SSLEOFError", Some(vec![ssl_error(vm)]))
     }
 
     type OpensslVersionInfo = (u8, u8, u8, u8, u8);
@@ -352,14 +355,17 @@ mod _ssl {
     }
 
     type PyNid = (libc::c_int, String, String, Option<String>);
-    fn obj2py(obj: &Asn1ObjectRef) -> PyNid {
+    fn obj2py(obj: &Asn1ObjectRef, vm: &VirtualMachine) -> PyResult<PyNid> {
         let nid = obj.nid();
-        (
-            nid.as_raw(),
-            nid.short_name().unwrap().to_owned(),
-            nid.long_name().unwrap().to_owned(),
-            obj2txt(obj, true),
-        )
+        let short_name = nid
+            .short_name()
+            .map_err(|_| vm.new_value_error("NID has no short name".to_owned()))?
+            .to_owned();
+        let long_name = nid
+            .long_name()
+            .map_err(|_| vm.new_value_error("NID has no long name".to_owned()))?
+            .to_owned();
+        Ok((nid.as_raw(), short_name, long_name, obj2txt(obj, true)))
     }
 
     #[derive(FromArgs)]
@@ -373,55 +379,81 @@ mod _ssl {
     fn txt2obj(args: Txt2ObjArgs, vm: &VirtualMachine) -> PyResult<PyNid> {
         _txt2obj(&args.txt.to_cstring(vm)?, !args.name)
             .as_deref()
-            .map(obj2py)
             .ok_or_else(|| vm.new_value_error(format!("unknown object '{}'", args.txt)))
+            .and_then(|obj| obj2py(obj, vm))
     }
 
     #[pyfunction]
     fn nid2obj(nid: libc::c_int, vm: &VirtualMachine) -> PyResult<PyNid> {
         _nid2obj(Nid::from_raw(nid))
             .as_deref()
-            .map(obj2py)
             .ok_or_else(|| vm.new_value_error(format!("unknown NID {nid}")))
+            .and_then(|obj| obj2py(obj, vm))
     }
 
-    fn get_cert_file_dir() -> (&'static Path, &'static Path) {
-        let probe = probe();
-        // on windows, these should be utf8 strings
-        fn path_from_bytes(c: &CStr) -> &Path {
+    // Lazily compute and cache cert file/dir paths
+    static CERT_PATHS: LazyLock<(PathBuf, PathBuf)> = LazyLock::new(|| {
+        fn path_from_cstr(c: &CStr) -> PathBuf {
             #[cfg(unix)]
             {
                 use std::os::unix::ffi::OsStrExt;
-                std::ffi::OsStr::from_bytes(c.to_bytes()).as_ref()
+                std::ffi::OsStr::from_bytes(c.to_bytes()).into()
             }
             #[cfg(windows)]
             {
-                c.to_str().unwrap().as_ref()
+                // Use lossy conversion for potential non-UTF8
+                PathBuf::from(c.to_string_lossy().as_ref())
             }
         }
-        let cert_file = probe.cert_file.as_deref().unwrap_or_else(|| {
-            path_from_bytes(unsafe { CStr::from_ptr(sys::X509_get_default_cert_file()) })
-        });
-        let cert_dir = probe.cert_dir.as_deref().unwrap_or_else(|| {
-            path_from_bytes(unsafe { CStr::from_ptr(sys::X509_get_default_cert_dir()) })
-        });
+
+        let probe = probe();
+        let cert_file = probe
+            .cert_file
+            .as_ref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                path_from_cstr(unsafe { CStr::from_ptr(sys::X509_get_default_cert_file()) })
+            });
+        let cert_dir = probe
+            .cert_dir
+            .as_ref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                path_from_cstr(unsafe { CStr::from_ptr(sys::X509_get_default_cert_dir()) })
+            });
         (cert_file, cert_dir)
+    });
+
+    fn get_cert_file_dir() -> (&'static Path, &'static Path) {
+        let (cert_file, cert_dir) = &*CERT_PATHS;
+        (cert_file.as_path(), cert_dir.as_path())
     }
+
+    // Lazily compute and cache cert environment variable names
+    static CERT_ENV_NAMES: LazyLock<(String, String)> = LazyLock::new(|| {
+        let cert_file_env = unsafe { CStr::from_ptr(sys::X509_get_default_cert_file_env()) }
+            .to_string_lossy()
+            .into_owned();
+        let cert_dir_env = unsafe { CStr::from_ptr(sys::X509_get_default_cert_dir_env()) }
+            .to_string_lossy()
+            .into_owned();
+        (cert_file_env, cert_dir_env)
+    });
 
     #[pyfunction]
     fn get_default_verify_paths(
         vm: &VirtualMachine,
     ) -> PyResult<(&'static str, PyObjectRef, &'static str, PyObjectRef)> {
-        let cert_file_env = unsafe { CStr::from_ptr(sys::X509_get_default_cert_file_env()) }
-            .to_str()
-            .unwrap();
-        let cert_dir_env = unsafe { CStr::from_ptr(sys::X509_get_default_cert_dir_env()) }
-            .to_str()
-            .unwrap();
+        let (cert_file_env, cert_dir_env) = &*CERT_ENV_NAMES;
         let (cert_file, cert_dir) = get_cert_file_dir();
         let cert_file = OsPath::new_str(cert_file).filename(vm);
         let cert_dir = OsPath::new_str(cert_dir).filename(vm);
-        Ok((cert_file_env, cert_file, cert_dir_env, cert_dir))
+        Ok((
+            cert_file_env.as_str(),
+            cert_file,
+            cert_dir_env.as_str(),
+            cert_dir,
+        ))
     }
 
     #[pyfunction(name = "RAND_status")]
@@ -1871,12 +1903,12 @@ mod _ssl {
         }
 
         #[pygetset]
-        fn id(&self, vm: &VirtualMachine) -> PyObjectRef {
+        fn id(&self, vm: &VirtualMachine) -> PyBytesRef {
             unsafe {
                 let mut len: libc::c_uint = 0;
                 let id_ptr = sys::SSL_SESSION_get_id(self.session, &mut len);
                 let id_slice = std::slice::from_raw_parts(id_ptr, len as usize);
-                vm.ctx.new_bytes(id_slice.to_vec()).into()
+                vm.ctx.new_bytes(id_slice.to_vec())
             }
         }
 
@@ -2256,21 +2288,18 @@ mod windows {
                 Cryptography::PKCS_7_ASN_ENCODING => vm.new_pyobj(ascii!("pkcs_7_asn")),
                 other => vm.new_pyobj(other),
             };
-            let usage: PyObjectRef = match c.valid_uses()? {
+            let usage: PyObjectRef = match c.valid_uses().map_err(|e| e.to_pyexception(vm))? {
                 ValidUses::All => vm.ctx.new_bool(true).into(),
                 ValidUses::Oids(oids) => PyFrozenSet::from_iter(
                     vm,
                     oids.into_iter().map(|oid| vm.ctx.new_str(oid).into()),
-                )
-                .unwrap()
+                )?
                 .into_ref(&vm.ctx)
                 .into(),
             };
             Ok(vm.new_tuple((cert, enc_type, usage)).into())
         });
-        let certs = certs
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e: std::io::Error| e.to_pyexception(vm))?;
+        let certs: Vec<PyObjectRef> = certs.collect::<PyResult<Vec<_>>>()?;
         Ok(certs)
     }
 }
