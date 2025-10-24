@@ -426,7 +426,6 @@ impl FormatSpec {
             Some(FormatType::Binary | FormatType::Octal | FormatType::Hex(_)) => 4,
             Some(
                 FormatType::Decimal
-                | FormatType::Number(_)
                 | FormatType::FixedPoint(_)
                 | FormatType::GeneralFormat(_)
                 | FormatType::Exponent(_)
