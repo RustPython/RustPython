@@ -26,7 +26,7 @@ cfg_if::cfg_if! {
 }
 
 #[allow(non_upper_case_globals)]
-#[pymodule(with(ossl101, windows))]
+#[pymodule(with(ossl101, ossl111, windows))]
 mod _ssl {
     use super::{bio, probe};
     use crate::{
@@ -39,7 +39,9 @@ mod _ssl {
         socket::{self, PySocket},
         vm::{
             Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-            builtins::{PyBaseExceptionRef, PyStrRef, PyType, PyTypeRef, PyWeak},
+            builtins::{
+                PyBaseExceptionRef, PyBytesRef, PyListRef, PyStrRef, PyType, PyTypeRef, PyWeak,
+            },
             class_or_notimplemented,
             convert::{ToPyException, ToPyObject},
             exceptions,
@@ -84,19 +86,23 @@ mod _ssl {
         SSL_ERROR_WANT_CONNECT,
         SSL_ERROR_WANT_READ,
         SSL_ERROR_WANT_WRITE,
-        // #ifdef SSL_OP_SINGLE_ECDH_USE
-        // SSL_OP_SINGLE_ECDH_USE as OP_SINGLE_ECDH_USE
-        // #endif
         // X509_V_FLAG_CRL_CHECK as VERIFY_CRL_CHECK_LEAF,
         // sys::X509_V_FLAG_CRL_CHECK|sys::X509_V_FLAG_CRL_CHECK_ALL as VERIFY_CRL_CHECK_CHAIN
         // X509_V_FLAG_X509_STRICT as VERIFY_X509_STRICT,
         SSL_ERROR_ZERO_RETURN,
         SSL_OP_CIPHER_SERVER_PREFERENCE as OP_CIPHER_SERVER_PREFERENCE,
+        SSL_OP_LEGACY_SERVER_CONNECT as OP_LEGACY_SERVER_CONNECT,
         SSL_OP_NO_SSLv2 as OP_NO_SSLv2,
         SSL_OP_NO_SSLv3 as OP_NO_SSLv3,
         SSL_OP_NO_TICKET as OP_NO_TICKET,
         SSL_OP_NO_TLSv1 as OP_NO_TLSv1,
         SSL_OP_SINGLE_DH_USE as OP_SINGLE_DH_USE,
+        SSL_OP_SINGLE_ECDH_USE as OP_SINGLE_ECDH_USE,
+        X509_V_FLAG_ALLOW_PROXY_CERTS as VERIFY_ALLOW_PROXY_CERTS,
+        X509_V_FLAG_CRL_CHECK as VERIFY_CRL_CHECK_LEAF,
+        X509_V_FLAG_PARTIAL_CHAIN as VERIFY_X509_PARTIAL_CHAIN,
+        X509_V_FLAG_TRUSTED_FIRST as VERIFY_X509_TRUSTED_FIRST,
+        X509_V_FLAG_X509_STRICT as VERIFY_X509_STRICT,
     };
 
     // taken from CPython, should probably be kept up to date with their version if it ever changes
@@ -115,6 +121,10 @@ mod _ssl {
     const PROTOCOL_TLS_SERVER: u32 = SslVersion::TlsServer as u32;
     #[pyattr]
     const PROTOCOL_TLSv1: u32 = SslVersion::Tls1 as u32;
+    #[pyattr]
+    const PROTOCOL_TLSv1_1: u32 = SslVersion::Tls1_1 as u32;
+    #[pyattr]
+    const PROTOCOL_TLSv1_2: u32 = SslVersion::Tls1_2 as u32;
     #[pyattr]
     const PROTO_MINIMUM_SUPPORTED: i32 = ProtoVersion::MinSupported as i32;
     #[pyattr]
@@ -146,7 +156,7 @@ mod _ssl {
     #[pyattr]
     const HAS_SNI: bool = true;
     #[pyattr]
-    const HAS_ECDH: bool = false;
+    const HAS_ECDH: bool = true;
     #[pyattr]
     const HAS_NPN: bool = false;
     #[pyattr]
@@ -265,7 +275,8 @@ mod _ssl {
         Ssl3 = 1,
         Tls,
         Tls1,
-        // TODO: Tls1_1, Tls1_2 ?
+        Tls1_1,
+        Tls1_2,
         TlsClient = 0x10,
         TlsServer,
     }
@@ -480,7 +491,9 @@ mod _ssl {
             let method = match proto {
                 // SslVersion::Ssl3 => unsafe { ssl::SslMethod::from_ptr(sys::SSLv3_method()) },
                 SslVersion::Tls => ssl::SslMethod::tls(),
-                // TODO: Tls1_1, Tls1_2 ?
+                SslVersion::Tls1 => ssl::SslMethod::tls(),
+                SslVersion::Tls1_1 => ssl::SslMethod::tls(),
+                SslVersion::Tls1_2 => ssl::SslMethod::tls(),
                 SslVersion::TlsClient => ssl::SslMethod::tls_client(),
                 SslVersion::TlsServer => ssl::SslMethod::tls_server(),
                 _ => return Err(vm.new_value_error("invalid protocol version")),
@@ -569,6 +582,64 @@ mod _ssl {
             })
         }
 
+        #[pymethod]
+        fn get_ciphers(&self, vm: &VirtualMachine) -> PyResult<PyListRef> {
+            let ctx = self.ctx();
+            let ssl = ssl::Ssl::new(&ctx).map_err(|e| convert_openssl_error(vm, e))?;
+
+            unsafe {
+                let ciphers_ptr = SSL_get_ciphers(ssl.as_ptr());
+                if ciphers_ptr.is_null() {
+                    return Ok(vm.ctx.new_list(vec![]));
+                }
+
+                let num_ciphers = sys::OPENSSL_sk_num(ciphers_ptr as *const _);
+                let mut result = Vec::new();
+
+                for i in 0..num_ciphers {
+                    let cipher_ptr =
+                        sys::OPENSSL_sk_value(ciphers_ptr as *const _, i) as *const sys::SSL_CIPHER;
+                    let cipher = ssl::SslCipherRef::from_ptr(cipher_ptr as *mut _);
+
+                    let (name, version, bits) = cipher_to_tuple(cipher);
+                    let dict = vm.ctx.new_dict();
+                    dict.set_item("name", vm.ctx.new_str(name).into(), vm)?;
+                    dict.set_item("protocol", vm.ctx.new_str(version).into(), vm)?;
+                    dict.set_item("secret_bits", vm.ctx.new_int(bits).into(), vm)?;
+                    result.push(dict.into());
+                }
+
+                Ok(vm.ctx.new_list(result))
+            }
+        }
+
+        #[pymethod]
+        fn set_ecdh_curve(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+            use openssl::ec::{EcGroup, EcKey};
+
+            let curve_name = name.as_str();
+            if curve_name.contains('\0') {
+                return Err(exceptions::cstring_error(vm));
+            }
+
+            // Find the NID for the curve name using OBJ_sn2nid
+            let name_cstr = name.to_cstring(vm)?;
+            let nid_raw = unsafe { sys::OBJ_sn2nid(name_cstr.as_ptr()) };
+            if nid_raw == 0 {
+                return Err(vm.new_value_error(format!("unknown curve name: {}", curve_name)));
+            }
+            let nid = Nid::from_raw(nid_raw);
+
+            // Create EC key from the curve
+            let group = EcGroup::from_curve_name(nid).map_err(|e| convert_openssl_error(vm, e))?;
+            let key = EcKey::from_group(&group).map_err(|e| convert_openssl_error(vm, e))?;
+
+            // Set the temporary ECDH key
+            self.builder()
+                .set_tmp_ecdh(&key)
+                .map_err(|e| convert_openssl_error(vm, e))
+        }
+
         #[pygetset]
         fn options(&self) -> libc::c_ulong {
             self.ctx.read().options().bits() as _
@@ -614,6 +685,38 @@ mod _ssl {
             };
             ctx.set_verify(mode);
             Ok(())
+        }
+        #[pygetset]
+        fn verify_flags(&self) -> libc::c_ulong {
+            unsafe {
+                let ctx_ptr = self.ctx().as_ptr();
+                let param = sys::SSL_CTX_get0_param(ctx_ptr);
+                sys::X509_VERIFY_PARAM_get_flags(param)
+            }
+        }
+        #[pygetset(setter)]
+        fn set_verify_flags(&self, new_flags: libc::c_ulong, vm: &VirtualMachine) -> PyResult<()> {
+            unsafe {
+                let ctx_ptr = self.ctx().as_ptr();
+                let param = sys::SSL_CTX_get0_param(ctx_ptr);
+                let flags = sys::X509_VERIFY_PARAM_get_flags(param);
+                let clear = flags & !new_flags;
+                let set = !flags & new_flags;
+
+                if clear != 0 && sys::X509_VERIFY_PARAM_clear_flags(param, clear) == 0 {
+                    return Err(vm.new_exception_msg(
+                        ssl_error(vm),
+                        "Failed to clear verify flags".to_owned(),
+                    ));
+                }
+                if set != 0 && sys::X509_VERIFY_PARAM_set_flags(param, set) == 0 {
+                    return Err(vm.new_exception_msg(
+                        ssl_error(vm),
+                        "Failed to set verify flags".to_owned(),
+                    ));
+                }
+                Ok(())
+            }
         }
         #[pygetset]
         fn check_hostname(&self) -> bool {
@@ -1042,6 +1145,37 @@ mod _ssl {
         }
 
         #[pymethod]
+        fn get_verified_chain(&self, vm: &VirtualMachine) -> Option<PyListRef> {
+            let stream = self.stream.read();
+            unsafe {
+                let chain = sys::SSL_get0_verified_chain(stream.ssl().as_ptr());
+                if chain.is_null() {
+                    return None;
+                }
+
+                let num_certs = sys::OPENSSL_sk_num(chain as *const _);
+                let mut certs = Vec::new();
+
+                for i in 0..num_certs {
+                    let cert_ptr = sys::OPENSSL_sk_value(chain as *const _, i) as *mut sys::X509;
+                    if cert_ptr.is_null() {
+                        continue;
+                    }
+                    let cert = X509Ref::from_ptr(cert_ptr);
+                    if let Ok(der) = cert.to_der() {
+                        certs.push(vm.ctx.new_bytes(der).into());
+                    }
+                }
+
+                if certs.is_empty() {
+                    None
+                } else {
+                    Some(vm.ctx.new_list(certs))
+                }
+            }
+        }
+
+        #[pymethod]
         fn version(&self) -> Option<&'static str> {
             let v = self.stream.read().ssl().version_str();
             if v == "unknown" { None } else { Some(v) }
@@ -1054,6 +1188,189 @@ mod _ssl {
                 .ssl()
                 .current_cipher()
                 .map(cipher_to_tuple)
+        }
+
+        #[pymethod]
+        fn shared_ciphers(&self, vm: &VirtualMachine) -> Option<PyListRef> {
+            #[cfg(ossl110)]
+            {
+                let stream = self.stream.read();
+                unsafe {
+                    let server_ciphers = SSL_get_ciphers(stream.ssl().as_ptr());
+                    if server_ciphers.is_null() {
+                        return None;
+                    }
+
+                    let client_ciphers = SSL_get_client_ciphers(stream.ssl().as_ptr());
+                    if client_ciphers.is_null() {
+                        return None;
+                    }
+
+                    let mut result = Vec::new();
+                    let num_server = sys::OPENSSL_sk_num(server_ciphers as *const _);
+                    let num_client = sys::OPENSSL_sk_num(client_ciphers as *const _);
+
+                    for i in 0..num_server {
+                        let server_cipher_ptr = sys::OPENSSL_sk_value(server_ciphers as *const _, i)
+                            as *const sys::SSL_CIPHER;
+
+                        // Check if client supports this cipher by comparing pointers
+                        let mut found = false;
+                        for j in 0..num_client {
+                            let client_cipher_ptr =
+                                sys::OPENSSL_sk_value(client_ciphers as *const _, j)
+                                    as *const sys::SSL_CIPHER;
+
+                            if server_cipher_ptr == client_cipher_ptr {
+                                found = true;
+                                break;
+                            }
+                        }
+
+                        if found {
+                            let cipher = ssl::SslCipherRef::from_ptr(server_cipher_ptr as *mut _);
+                            let (name, version, bits) = cipher_to_tuple(cipher);
+                            let tuple = vm.new_tuple((
+                                vm.ctx.new_str(name),
+                                vm.ctx.new_str(version),
+                                vm.ctx.new_int(bits),
+                            ));
+                            result.push(tuple.into());
+                        }
+                    }
+
+                    if result.is_empty() {
+                        None
+                    } else {
+                        Some(vm.ctx.new_list(result))
+                    }
+                }
+            }
+            #[cfg(not(ossl110))]
+            {
+                let _ = vm;
+                None
+            }
+        }
+
+        #[pymethod]
+        fn selected_alpn_protocol(&self) -> Option<String> {
+            #[cfg(ossl102)]
+            {
+                let stream = self.stream.read();
+                unsafe {
+                    let mut out: *const libc::c_uchar = std::ptr::null();
+                    let mut outlen: libc::c_uint = 0;
+
+                    sys::SSL_get0_alpn_selected(stream.ssl().as_ptr(), &mut out, &mut outlen);
+
+                    if out.is_null() {
+                        None
+                    } else {
+                        let slice = std::slice::from_raw_parts(out, outlen as usize);
+                        Some(String::from_utf8_lossy(slice).into_owned())
+                    }
+                }
+            }
+            #[cfg(not(ossl102))]
+            {
+                None
+            }
+        }
+
+        #[pymethod]
+        fn get_channel_binding(
+            &self,
+            cb_type: OptionalArg<PyStrRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<PyBytesRef>> {
+            const CB_MAXLEN: usize = 512;
+
+            let cb_type_str = cb_type.as_ref().map_or("tls-unique", |s| s.as_str());
+
+            if cb_type_str != "tls-unique" {
+                return Err(vm.new_value_error(format!(
+                    "Unsupported channel binding type '{}'",
+                    cb_type_str
+                )));
+            }
+
+            let stream = self.stream.read();
+            let ssl_ptr = stream.ssl().as_ptr();
+
+            unsafe {
+                let session_reused = sys::SSL_session_reused(ssl_ptr) != 0;
+                let is_client = matches!(self.socket_type, SslServerOrClient::Client);
+
+                // Use XOR logic from CPython
+                let use_finished = session_reused ^ is_client;
+
+                let mut buf = vec![0u8; CB_MAXLEN];
+                let len = if use_finished {
+                    sys::SSL_get_finished(ssl_ptr, buf.as_mut_ptr() as *mut _, CB_MAXLEN)
+                } else {
+                    sys::SSL_get_peer_finished(ssl_ptr, buf.as_mut_ptr() as *mut _, CB_MAXLEN)
+                };
+
+                if len == 0 {
+                    Ok(None)
+                } else {
+                    buf.truncate(len);
+                    Ok(Some(vm.ctx.new_bytes(buf)))
+                }
+            }
+        }
+
+        #[pymethod]
+        fn verify_client_post_handshake(&self, vm: &VirtualMachine) -> PyResult<()> {
+            #[cfg(ossl111)]
+            {
+                let stream = self.stream.read();
+                let result = unsafe { SSL_verify_client_post_handshake(stream.ssl().as_ptr()) };
+                if result == 0 {
+                    Err(vm.new_exception_msg(
+                        ssl_error(vm),
+                        "Post-handshake authentication failed".to_owned(),
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+            #[cfg(not(ossl111))]
+            {
+                Err(vm.new_not_implemented_error(
+                    "Post-handshake auth is not supported by your OpenSSL version.".to_owned(),
+                ))
+            }
+        }
+
+        #[pymethod]
+        fn shutdown(&self, vm: &VirtualMachine) -> PyResult<PyRef<PySocket>> {
+            let stream = self.stream.read();
+            let ssl_ptr = stream.ssl().as_ptr();
+
+            // Perform SSL shutdown
+            let ret = unsafe { sys::SSL_shutdown(ssl_ptr) };
+
+            if ret < 0 {
+                // Error occurred
+                let err = unsafe { sys::SSL_get_error(ssl_ptr, ret) };
+
+                if err == sys::SSL_ERROR_WANT_READ || err == sys::SSL_ERROR_WANT_WRITE {
+                    // Non-blocking would block - this is okay for shutdown
+                    // Return the underlying socket
+                } else {
+                    return Err(vm.new_exception_msg(
+                        ssl_error(vm),
+                        format!("SSL shutdown failed: error code {}", err),
+                    ));
+                }
+            }
+
+            // Return the underlying socket
+            // Get the socket from the stream (SocketStream wraps PyRef<PySocket>)
+            let socket = stream.get_ref();
+            Ok(socket.0.clone())
         }
 
         #[cfg(osslconf = "OPENSSL_NO_COMP")]
@@ -1267,7 +1584,7 @@ mod _ssl {
             let ret = match inner_buffer {
                 Either::A(_buf) => vm.ctx.new_int(count).into(),
                 Either::B(mut buf) => {
-                    buf.truncate(n);
+                    buf.truncate(count);
                     buf.shrink_to_fit();
                     vm.ctx.new_bytes(buf).into()
                 }
@@ -1362,6 +1679,21 @@ mod _ssl {
 
     unsafe impl Send for PySslMemoryBio {}
     unsafe impl Sync for PySslMemoryBio {}
+
+    // OpenSSL functions not in openssl-sys
+    unsafe extern "C" {
+        fn SSL_get_ciphers(ssl: *const sys::SSL) -> *const sys::stack_st_SSL_CIPHER;
+    }
+
+    #[cfg(ossl110)]
+    unsafe extern "C" {
+        fn SSL_get_client_ciphers(ssl: *const sys::SSL) -> *const sys::stack_st_SSL_CIPHER;
+    }
+
+    #[cfg(ossl111)]
+    unsafe extern "C" {
+        fn SSL_verify_client_post_handshake(ssl: *const sys::SSL) -> libc::c_int;
+    }
 
     // OpenSSL BIO helper functions
     // These are typically macros in OpenSSL, implemented via BIO_ctrl
