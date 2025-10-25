@@ -878,8 +878,16 @@ mod _ssl {
             let certs = ctx.cert_store().all_certificates();
             #[cfg(not(ossl300))]
             let certs = ctx.cert_store().objects().iter().filter_map(|x| x.x509());
+
+            // Filter to only include CA certificates (Basic Constraints: CA=TRUE)
             let certs = certs
                 .into_iter()
+                .filter(|cert| {
+                    unsafe {
+                        // X509_check_ca() returns 1 for CA certificates
+                        X509_check_ca(cert.as_ptr()) == 1
+                    }
+                })
                 .map(|ref cert| cert_to_py(vm, cert, binary_form))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(certs)
@@ -1727,6 +1735,12 @@ mod _ssl {
     unsafe impl Sync for PySslMemoryBio {}
 
     // OpenSSL functions not in openssl-sys
+
+    unsafe extern "C" {
+        // X509_check_ca returns 1 for CA certificates, 0 otherwise
+        fn X509_check_ca(x: *const sys::X509) -> libc::c_int;
+    }
+
     unsafe extern "C" {
         fn SSL_get_ciphers(ssl: *const sys::SSL) -> *const sys::stack_st_SSL_CIPHER;
     }
