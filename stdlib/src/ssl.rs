@@ -90,6 +90,7 @@ mod _ssl {
         // X509_V_FLAG_X509_STRICT as VERIFY_X509_STRICT,
         SSL_ERROR_ZERO_RETURN,
         SSL_OP_CIPHER_SERVER_PREFERENCE as OP_CIPHER_SERVER_PREFERENCE,
+        SSL_OP_ENABLE_MIDDLEBOX_COMPAT as OP_ENABLE_MIDDLEBOX_COMPAT,
         SSL_OP_LEGACY_SERVER_CONNECT as OP_LEGACY_SERVER_CONNECT,
         SSL_OP_NO_SSLv2 as OP_NO_SSLv2,
         SSL_OP_NO_SSLv3 as OP_NO_SSLv3,
@@ -552,6 +553,7 @@ mod _ssl {
             options |= SslOptions::CIPHER_SERVER_PREFERENCE;
             options |= SslOptions::SINGLE_DH_USE;
             options |= SslOptions::SINGLE_ECDH_USE;
+            options |= SslOptions::ENABLE_MIDDLEBOX_COMPAT;
             builder.set_options(options);
 
             let mode = ssl::SslMode::ACCEPT_MOVING_WRITE_BUFFER | ssl::SslMode::AUTO_RETRY;
