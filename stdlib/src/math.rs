@@ -570,7 +570,15 @@ mod math {
         // Direct multiplication would overflow for large i values, especially when computing
         // the largest finite float (i=1024, x<1.0). By directly modifying the exponent bits,
         // we avoid intermediate overflow to infinity.
-        let (mant, exp0) = float_ops::decompose_float(value);
+        
+        // Scale subnormals to normal range first, then adjust exponent.
+        let (mant, exp0) = if value.abs() < f64::MIN_POSITIVE {
+            let scaled = value * (1u64 << 54) as f64; // multiply by 2^54
+            let (mant_scaled, exp_scaled) = float_ops::decompose_float(scaled);
+            (mant_scaled, exp_scaled - 54) // adjust exponent back
+        } else {
+            float_ops::decompose_float(value)
+        };
 
         let i_big = i.as_bigint();
         let overflow_bound = BigInt::from(1024_i32 - exp0); // i > 1024 - exp0 => overflow
