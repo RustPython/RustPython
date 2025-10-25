@@ -1898,7 +1898,6 @@ class TestBinaryOpsMutating_Subclass_Set(TestBinaryOpsMutating, unittest.TestCas
     constructor2 = set
 
 
-@unittest.skip("TODO: RUSTPYTHON; segfault")
 class TestMethodsMutating(TestOperationsMutating):
 
     def test_issubset_with_mutation(self):
