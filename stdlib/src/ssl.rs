@@ -2096,7 +2096,8 @@ mod _ssl {
 
             dict.set_item("subject", name_to_py(cert.subject_name())?, vm)?;
             dict.set_item("issuer", name_to_py(cert.issuer_name())?, vm)?;
-            dict.set_item("version", vm.new_pyobj(cert.version()), vm)?;
+            // X.509 version: OpenSSL uses 0-based (0=v1, 1=v2, 2=v3) but Python uses 1-based (1=v1, 2=v2, 3=v3)
+            dict.set_item("version", vm.new_pyobj(cert.version() + 1), vm)?;
 
             let serial_num = cert
                 .serial_number()
