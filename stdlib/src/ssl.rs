@@ -39,7 +39,9 @@ mod _ssl {
         socket::{self, PySocket},
         vm::{
             Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-            builtins::{PyBaseExceptionRef, PyBytesRef, PyListRef, PyStrRef, PyType, PyTypeRef, PyWeak},
+            builtins::{
+                PyBaseExceptionRef, PyBytesRef, PyListRef, PyStrRef, PyType, PyTypeRef, PyWeak,
+            },
             class_or_notimplemented,
             convert::{ToPyException, ToPyObject},
             exceptions,
@@ -583,7 +585,7 @@ mod _ssl {
         #[pymethod]
         fn get_ciphers(&self, vm: &VirtualMachine) -> PyResult<PyListRef> {
             let ctx = self.ctx();
-            let ssl = ssl::Ssl::new(&*ctx).map_err(|e| convert_openssl_error(vm, e))?;
+            let ssl = ssl::Ssl::new(&ctx).map_err(|e| convert_openssl_error(vm, e))?;
 
             unsafe {
                 let ciphers_ptr = SSL_get_ciphers(ssl.as_ptr());
@@ -701,21 +703,17 @@ mod _ssl {
                 let clear = flags & !new_flags;
                 let set = !flags & new_flags;
 
-                if clear != 0 {
-                    if sys::X509_VERIFY_PARAM_clear_flags(param, clear) == 0 {
-                        return Err(vm.new_exception_msg(
-                            ssl_error(vm),
-                            "Failed to clear verify flags".to_owned(),
-                        ));
-                    }
+                if clear != 0 && sys::X509_VERIFY_PARAM_clear_flags(param, clear) == 0 {
+                    return Err(vm.new_exception_msg(
+                        ssl_error(vm),
+                        "Failed to clear verify flags".to_owned(),
+                    ));
                 }
-                if set != 0 {
-                    if sys::X509_VERIFY_PARAM_set_flags(param, set) == 0 {
-                        return Err(vm.new_exception_msg(
-                            ssl_error(vm),
-                            "Failed to set verify flags".to_owned(),
-                        ));
-                    }
+                if set != 0 && sys::X509_VERIFY_PARAM_set_flags(param, set) == 0 {
+                    return Err(vm.new_exception_msg(
+                        ssl_error(vm),
+                        "Failed to set verify flags".to_owned(),
+                    ));
                 }
                 Ok(())
             }
@@ -1356,10 +1354,7 @@ mod _ssl {
 
             if ret < 0 {
                 // Error occurred
-                let err = unsafe {
-                    let err_code = sys::SSL_get_error(ssl_ptr, ret);
-                    err_code
-                };
+                let err = unsafe { sys::SSL_get_error(ssl_ptr, ret) };
 
                 if err == sys::SSL_ERROR_WANT_READ || err == sys::SSL_ERROR_WANT_WRITE {
                     // Non-blocking would block - this is okay for shutdown
