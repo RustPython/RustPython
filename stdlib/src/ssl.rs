@@ -568,6 +568,13 @@ mod _ssl {
                 .set_session_id_context(b"Python")
                 .map_err(|e| convert_openssl_error(vm, e))?;
 
+            // Set default verify flags: VERIFY_X509_TRUSTED_FIRST
+            unsafe {
+                let ctx_ptr = builder.as_ptr();
+                let param = sys::SSL_CTX_get0_param(ctx_ptr);
+                sys::X509_VERIFY_PARAM_set_flags(param, sys::X509_V_FLAG_TRUSTED_FIRST);
+            }
+
             PySslContext {
                 ctx: PyRwLock::new(builder),
                 check_hostname: AtomicCell::new(check_hostname),
