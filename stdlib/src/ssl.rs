@@ -39,9 +39,7 @@ mod _ssl {
         socket::{self, PySocket},
         vm::{
             Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-            builtins::{
-                PyBaseExceptionRef, PyBytesRef, PyListRef, PyStrRef, PyType, PyTypeRef, PyWeak,
-            },
+            builtins::{PyBaseExceptionRef, PyBytesRef, PyListRef, PyStrRef, PyTypeRef, PyWeak},
             class_or_notimplemented,
             convert::{ToPyException, ToPyObject},
             exceptions,
