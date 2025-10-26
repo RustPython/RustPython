@@ -619,7 +619,7 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
     } else {
         quote! {
             #[pyslot]
-            pub(crate) fn slot_new(
+            pub fn slot_new(
                 cls: ::rustpython_vm::builtins::PyTypeRef,
                 args: ::rustpython_vm::function::FuncArgs,
                 vm: &::rustpython_vm::VirtualMachine,
@@ -640,7 +640,7 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
         quote! {
             #[pyslot]
             #[pymethod(name="__init__")]
-            pub(crate) fn slot_init(
+            pub fn slot_init(
                 zelf: ::rustpython_vm::PyObjectRef,
                 args: ::rustpython_vm::function::FuncArgs,
                 vm: &::rustpython_vm::VirtualMachine,
