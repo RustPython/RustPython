@@ -1450,7 +1450,7 @@ pub(super) mod types {
         }
         #[cfg(not(target_arch = "wasm32"))]
         #[pyslot]
-        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        pub fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             // We need this method, because of how `CPython` copies `init`
             // from `BaseException` in `SimpleExtendsException` macro.
             // See: `BaseException_new`
@@ -1465,12 +1465,12 @@ pub(super) mod types {
         }
         #[cfg(target_arch = "wasm32")]
         #[pyslot]
-        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        pub fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             PyBaseException::slot_new(cls, args, vm)
         }
         #[pyslot]
         #[pymethod(name = "__init__")]
-        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        pub fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             let len = args.args.len();
             let mut new_args = args;
             if (3..=5).contains(&len) {
