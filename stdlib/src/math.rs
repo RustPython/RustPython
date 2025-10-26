@@ -570,7 +570,7 @@ mod math {
         // Direct multiplication would overflow for large i values, especially when computing
         // the largest finite float (i=1024, x<1.0). By directly modifying the exponent bits,
         // we avoid intermediate overflow to infinity.
-        
+
         // Scale subnormals to normal range first, then adjust exponent.
         let (mant, exp0) = if value.abs() < f64::MIN_POSITIVE {
             let scaled = value * (1u64 << 54) as f64; // multiply by 2^54
