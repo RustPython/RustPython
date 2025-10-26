@@ -446,7 +446,8 @@ impl ClassItemMeta {
 pub(crate) struct ExceptionItemMeta(ClassItemMeta);
 
 impl ItemMeta for ExceptionItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "base", "unhashable", "ctx", "impl"];
+    const ALLOWED_NAMES: &'static [&'static str] =
+        &["module", "name", "base", "unhashable", "ctx", "impl"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(ClassItemMeta(inner))

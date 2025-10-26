@@ -16,6 +16,7 @@ enum AttrName {
     Function,
     Attr,
     Class,
+    Exception,
 }
 
 impl std::fmt::Display for AttrName {
@@ -24,6 +25,7 @@ impl std::fmt::Display for AttrName {
             Self::Function => "pyfunction",
             Self::Attr => "pyattr",
             Self::Class => "pyclass",
+            Self::Exception => "pyexception",
         };
         s.fmt(f)
     }
@@ -37,6 +39,7 @@ impl FromStr for AttrName {
             "pyfunction" => Self::Function,
             "pyattr" => Self::Attr,
             "pyclass" => Self::Class,
+            "pyexception" => Self::Exception,
             s => {
                 return Err(s.to_owned());
             }
@@ -232,7 +235,8 @@ fn module_item_new(
             inner: ContentItemInner { index, attr_name },
             py_attrs,
         }),
-        AttrName::Class => Box::new(ClassItem {
+        // pyexception is treated like pyclass - both define types
+        AttrName::Class | AttrName::Exception => Box::new(ClassItem {
             inner: ContentItemInner { index, attr_name },
             py_attrs,
         }),
@@ -302,13 +306,13 @@ where
             result.push(item_new(i, attr_name, Vec::new()));
         } else {
             match attr_name {
-                AttrName::Class | AttrName::Function => {
+                AttrName::Class | AttrName::Function | AttrName::Exception => {
                     result.push(item_new(i, attr_name, py_attrs.clone()));
                 }
                 _ => {
                     bail_span!(
                         attr,
-                        "#[pyclass] or #[pyfunction] only can follow #[pyattr]",
+                        "#[pyclass], #[pyfunction], or #[pyexception] can follow #[pyattr]",
                     )
                 }
             }

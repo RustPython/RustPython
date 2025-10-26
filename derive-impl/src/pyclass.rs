@@ -551,7 +551,13 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: Item) -> Result
             }
         }
     } else {
-        quote! {}
+        quote! {
+            impl ::rustpython_vm::PyPayload for #ident {
+                fn class(_ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
+                    <Self as ::rustpython_vm::class::StaticType>::static_type()
+                }
+            }
+        }
     };
     let impl_pyclass = if class_meta.has_impl()? {
         quote! {
