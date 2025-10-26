@@ -1733,8 +1733,6 @@ class HTTPSTest(TestCase):
             h.close()
             self.assertIn('text/html', content_type)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_networked_good_cert(self):
         # We feed the server's cert as a validating cert
         import ssl

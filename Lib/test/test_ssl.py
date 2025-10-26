@@ -477,7 +477,6 @@ class BasicSocketTests(unittest.TestCase):
             }
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_parse_cert_CVE_2013_4238(self):
         p = ssl._ssl._test_decode_cert(NULLBYTECERT)
         if support.verbose:
@@ -1167,7 +1166,6 @@ class ContextTests(unittest.TestCase):
         }
         self.assertIn(ctx.security_level, security_level_range)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_verify_flags(self):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         # default value
@@ -1427,7 +1425,6 @@ class ContextTests(unittest.TestCase):
         ctx.set_default_verify_paths()
 
     @unittest.skipUnless(ssl.HAS_ECDH, "ECDH disabled on this OpenSSL build")
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_set_ecdh_curve(self):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.set_ecdh_curve("prime256v1")
@@ -1714,7 +1711,6 @@ class ContextTests(unittest.TestCase):
 
 class SSLErrorTests(unittest.TestCase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_str(self):
         # The str() of a SSLError doesn't include the errno
         e = ssl.SSLError(1, "foo")
@@ -2010,7 +2006,6 @@ class SimpleBackgroundTests(unittest.TestCase):
         self.assertRaisesRegex(ssl.SSLError, regex,
                                 s.connect, self.server_addr)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_connect_capath(self):
         # Verify server certificates using the `capath` argument
         # NOTE: the subject hashing algorithm has been changed between
@@ -3268,7 +3263,6 @@ class ThreadedTests(unittest.TestCase):
                 server_hostname=b'k\xf6nig.idn.pythontest.net',
             )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_wrong_cert_tls12(self):
         """Connecting when the server rejects the client's certificate
 
@@ -4047,7 +4041,6 @@ class ThreadedTests(unittest.TestCase):
                 s.connect((HOST, server.port))
                 self.assertEqual(s.version(), 'SSLv3')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_default_ecdh_curve(self):
         # Issue #21015: elliptic curve-based Diffie Hellman key exchange
         # should be enabled by default on SSL contexts.
@@ -4911,7 +4904,6 @@ class TestPostHandshakeAuth(unittest.TestCase):
                     ssl.PEM_cert_to_DER_cert(pem), der
                 )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_certificate_chain(self):
         client_context, server_context, hostname = testing_context(
             server_chain=False
@@ -5232,7 +5224,6 @@ class TestPreHandshakeClose(unittest.TestCase):
         # just turn this into an unconditional skip anything but Linux.
         # The important thing is that our CI has the logic covered.
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_preauth_data_to_tls_server(self):
         server_accept_called = threading.Event()
         ready_for_server_wrap_socket = threading.Event()
@@ -5277,7 +5268,6 @@ class TestPreHandshakeClose(unittest.TestCase):
             wrap_error = None
             server = None
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_preauth_data_to_tls_client(self):
         server_can_continue_with_wrap_socket = threading.Event()
         client_can_continue_with_wrap_socket = threading.Event()
