@@ -1202,7 +1202,6 @@ class MathTests(unittest.TestCase):
             self.assertEqual(math.ldexp(NINF, n), NINF)
             self.assertTrue(math.isnan(math.ldexp(NAN, n)))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @requires_IEEE_754
     def testLdexp_denormal(self):
         # Denormal output incorrectly rounded (truncated)

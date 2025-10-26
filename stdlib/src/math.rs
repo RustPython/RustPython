@@ -12,7 +12,7 @@ mod math {
     };
     use itertools::Itertools;
     use malachite_bigint::BigInt;
-    use num_traits::{One, Signed, Zero};
+    use num_traits::{One, Signed, ToPrimitive, Zero};
     use rustpython_common::{float_ops, int::true_div};
     use std::cmp::Ordering;
 
@@ -563,11 +563,73 @@ mod math {
 
         if value == 0_f64 || !value.is_finite() {
             // NaNs, zeros and infinities are returned unchanged
-            Ok(value)
-        } else {
-            let result = value * (2_f64).powf(try_bigint_to_f64(i.as_bigint(), vm)?);
-            result_or_overflow(value, result, vm)
+            return Ok(value);
         }
+
+        // Using IEEE 754 bit manipulation to handle large exponents correctly.
+        // Direct multiplication would overflow for large i values, especially when computing
+        // the largest finite float (i=1024, x<1.0). By directly modifying the exponent bits,
+        // we avoid intermediate overflow to infinity.
+
+        // Scale subnormals to normal range first, then adjust exponent.
+        let (mant, exp0) = if value.abs() < f64::MIN_POSITIVE {
+            let scaled = value * (1u64 << 54) as f64; // multiply by 2^54
+            let (mant_scaled, exp_scaled) = float_ops::decompose_float(scaled);
+            (mant_scaled, exp_scaled - 54) // adjust exponent back
+        } else {
+            float_ops::decompose_float(value)
+        };
+
+        let i_big = i.as_bigint();
+        let overflow_bound = BigInt::from(1024_i32 - exp0); // i > 1024 - exp0 => overflow
+        if i_big > &overflow_bound {
+            return Err(vm.new_overflow_error("math range error"));
+        }
+        if i_big == &overflow_bound && mant == 1.0 {
+            return Err(vm.new_overflow_error("math range error"));
+        }
+        let underflow_bound = BigInt::from(-1074_i32 - exp0); // i < -1074 - exp0 => 0.0 with sign
+        if i_big < &underflow_bound {
+            return Ok(0.0f64.copysign(value));
+        }
+
+        let i_small: i32 = i_big
+            .to_i32()
+            .expect("exponent within [-1074-exp0, 1024-exp0] must fit in i32");
+        let exp = exp0 + i_small;
+
+        const SIGN_MASK: u64 = 0x8000_0000_0000_0000;
+        const FRAC_MASK: u64 = 0x000F_FFFF_FFFF_FFFF;
+        let sign_bit: u64 = if value.is_sign_negative() {
+            SIGN_MASK
+        } else {
+            0
+        };
+        let mant_bits = mant.to_bits() & FRAC_MASK;
+        if exp >= -1021 {
+            let e_bits = (1022_i32 + exp) as u64;
+            let result_bits = sign_bit | (e_bits << 52) | mant_bits;
+            return Ok(f64::from_bits(result_bits));
+        }
+
+        let full_mant: u64 = (1u64 << 52) | mant_bits;
+        let shift: u32 = (-exp - 1021) as u32;
+        let frac_shifted = full_mant >> shift;
+        let lost_bits = full_mant & ((1u64 << shift) - 1);
+
+        let half = 1u64 << (shift - 1);
+        let frac = if (lost_bits > half) || (lost_bits == half && (frac_shifted & 1) == 1) {
+            frac_shifted + 1
+        } else {
+            frac_shifted
+        };
+
+        let result_bits = if frac >= (1u64 << 52) {
+            sign_bit | (1u64 << 52)
+        } else {
+            sign_bit | frac
+        };
+        Ok(f64::from_bits(result_bits))
     }
 
     fn math_perf_arb_len_int_op<F>(args: PosArgs<ArgIndex>, op: F, default: BigInt) -> BigInt
