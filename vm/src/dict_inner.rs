@@ -582,12 +582,13 @@ impl<T: Clone> Dict<T> {
                 });
                 loop {
                     let index_index = idxs.next();
-                    let index_entry_ptr = inner.indices.get(index_index);
-                    if index_entry_ptr.is_none() {
-                        // Dictionary was modified under our hands, see TestMethodsMutating.
-                        continue 'outer;
-                    }
-                    let index_entry = *index_entry_ptr.unwrap();
+                    let index_entry = match inner.indices.get(index_index) {
+                        None => {
+                            // Dictionary was modified under our hands, see TestMethodsMutating.
+                            continue 'outer;
+                        }
+                        Some(v) => *v,
+                    };
                     match index_entry {
                         IndexEntry::DUMMY => {
                             if free_slot.is_none() {
