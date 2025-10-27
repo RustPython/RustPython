@@ -94,9 +94,6 @@ mod _ssl {
         SSL_ERROR_WANT_CONNECT,
         SSL_ERROR_WANT_READ,
         SSL_ERROR_WANT_WRITE,
-        // X509_V_FLAG_CRL_CHECK as VERIFY_CRL_CHECK_LEAF,
-        // sys::X509_V_FLAG_CRL_CHECK|sys::X509_V_FLAG_CRL_CHECK_ALL as VERIFY_CRL_CHECK_CHAIN
-        // X509_V_FLAG_X509_STRICT as VERIFY_X509_STRICT,
         SSL_ERROR_ZERO_RETURN,
         SSL_OP_CIPHER_SERVER_PREFERENCE as OP_CIPHER_SERVER_PREFERENCE,
         SSL_OP_ENABLE_MIDDLEBOX_COMPAT as OP_ENABLE_MIDDLEBOX_COMPAT,
@@ -113,6 +110,11 @@ mod _ssl {
         X509_V_FLAG_TRUSTED_FIRST as VERIFY_X509_TRUSTED_FIRST,
         X509_V_FLAG_X509_STRICT as VERIFY_X509_STRICT,
     };
+
+    // CRL verification constants
+    #[pyattr]
+    const VERIFY_CRL_CHECK_CHAIN: libc::c_ulong =
+        sys::X509_V_FLAG_CRL_CHECK | sys::X509_V_FLAG_CRL_CHECK_ALL;
 
     // taken from CPython, should probably be kept up to date with their version if it ever changes
     #[pyattr]
