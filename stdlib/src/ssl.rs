@@ -2082,7 +2082,7 @@ mod _ssl {
                         let lib = sys::ERR_GET_LIB(err_code);
                         if lib == ERR_LIB_SSL && reason == SSL_R_UNEXPECTED_EOF_WHILE_READING {
                             return vm.new_exception(
-                                vm.class("_ssl", "SSLEOFError"),
+                                PySslEOFError::class(&vm.ctx).to_owned(),
                                 vec![
                                     vm.ctx.new_int(SSL_ERROR_EOF).into(),
                                     vm.ctx
