@@ -854,12 +854,6 @@ mod _ssl {
             if let (None, None, None) = (&args.cafile, &args.capath, &args.cadata) {
                 return Err(vm.new_type_error("cafile, capath and cadata cannot be all omitted"));
             }
-            if let Some(cafile) = &args.cafile {
-                cafile.ensure_no_nul(vm)?
-            }
-            if let Some(capath) = &args.capath {
-                capath.ensure_no_nul(vm)?
-            }
 
             #[cold]
             fn invalid_cadata(vm: &VirtualMachine) -> PyBaseExceptionRef {
@@ -889,11 +883,10 @@ mod _ssl {
             }
 
             if args.cafile.is_some() || args.capath.is_some() {
-                ctx.load_verify_locations(
-                    args.cafile.as_ref().map(|s| s.as_str().as_ref()),
-                    args.capath.as_ref().map(|s| s.as_str().as_ref()),
-                )
-                .map_err(|e| convert_openssl_error(vm, e))?;
+                let cafile_path = args.cafile.map(|p| p.to_path_buf(vm)).transpose()?;
+                let capath_path = args.capath.map(|p| p.to_path_buf(vm)).transpose()?;
+                ctx.load_verify_locations(cafile_path.as_deref(), capath_path.as_deref())
+                    .map_err(|e| convert_openssl_error(vm, e))?;
             }
 
             Ok(())
@@ -1066,9 +1059,9 @@ mod _ssl {
     #[derive(FromArgs)]
     struct LoadVerifyLocationsArgs {
         #[pyarg(any, default)]
-        cafile: Option<PyStrRef>,
+        cafile: Option<FsPath>,
         #[pyarg(any, default)]
-        capath: Option<PyStrRef>,
+        capath: Option<FsPath>,
         #[pyarg(any, default)]
         cadata: Option<Either<PyStrRef, ArgBytesLike>>,
     }
