@@ -679,19 +679,29 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn set_ecdh_curve(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_ecdh_curve(
+            &self,
+            name: Either<PyStrRef, ArgBytesLike>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             use openssl::ec::{EcGroup, EcKey};
 
-            let curve_name = name.as_str();
-            if curve_name.contains('\0') {
-                return Err(exceptions::cstring_error(vm));
-            }
+            // Convert name to CString, supporting both str and bytes
+            let name_cstr = match name {
+                Either::A(s) => {
+                    if s.as_str().contains('\0') {
+                        return Err(exceptions::cstring_error(vm));
+                    }
+                    s.to_cstring(vm)?
+                }
+                Either::B(b) => std::ffi::CString::new(b.borrow_buf().to_vec())
+                    .map_err(|_| exceptions::cstring_error(vm))?,
+            };
 
             // Find the NID for the curve name using OBJ_sn2nid
-            let name_cstr = name.to_cstring(vm)?;
             let nid_raw = unsafe { sys::OBJ_sn2nid(name_cstr.as_ptr()) };
             if nid_raw == 0 {
-                return Err(vm.new_value_error(format!("unknown curve name: {}", curve_name)));
+                return Err(vm.new_value_error("unknown curve name"));
             }
             let nid = Nid::from_raw(nid_raw);
 
