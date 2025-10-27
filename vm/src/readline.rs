@@ -88,7 +88,8 @@ mod rustyline_readline {
             )
             .expect("failed to initialize line editor");
             repl.set_helper(Some(helper));
-
+            
+            // Bind CTRL + Z to insert EOF character on Windows
             #[cfg(windows)]
             {
                 repl.bind_sequence(
