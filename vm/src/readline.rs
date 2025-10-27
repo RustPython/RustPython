@@ -76,6 +76,8 @@ mod rustyline_readline {
         repl: rustyline::Editor<H, rustyline::history::DefaultHistory>,
     }
 
+    const EOF_CHAR: &str = "\u{001A}";
+
     impl<H: Helper> Readline<H> {
         pub fn new(helper: H) -> Self {
             use rustyline::*;
@@ -88,13 +90,13 @@ mod rustyline_readline {
             )
             .expect("failed to initialize line editor");
             repl.set_helper(Some(helper));
-            
+
             // Bind CTRL + Z to insert EOF character on Windows
             #[cfg(windows)]
             {
                 repl.bind_sequence(
                     KeyEvent::new('z', Modifiers::CTRL),
-                    EventHandler::Simple(Cmd::Insert(1, "\u{001A}".into())),
+                    EventHandler::Simple(Cmd::Insert(1, EOF_CHAR.into())),
                 );
             }
 
@@ -132,7 +134,7 @@ mod rustyline_readline {
                             use std::io::IsTerminal;
 
                             let trimmed = line.trim_end_matches(&['\r', '\n'][..]);
-                            if trimmed == "\u{001A}" && io::stdin().is_terminal() {
+                            if trimmed == EOF_CHAR && io::stdin().is_terminal() {
                                 return ReadlineResult::Eof;
                             }
                         }
