@@ -160,11 +160,12 @@ impl VirtualMachine {
         let class_a = a.class();
         let class_b = b.class();
 
-        let slot_a = class_a.slots.as_number.left_binary_op(op_slot);
+        // Look up number slots across MRO for inheritance
+        let slot_a = class_a.mro_find_map(|x| x.slots.as_number.left_binary_op(op_slot));
         let mut slot_b = None;
 
         if !class_a.is(class_b) {
-            let slot_bb = class_b.slots.as_number.right_binary_op(op_slot);
+            let slot_bb = class_b.mro_find_map(|x| x.slots.as_number.right_binary_op(op_slot));
             if slot_bb.map(|x| x as usize) != slot_a.map(|x| x as usize) {
                 slot_b = slot_bb;
             }
@@ -230,7 +231,10 @@ impl VirtualMachine {
         iop_slot: PyNumberBinaryOp,
         op_slot: PyNumberBinaryOp,
     ) -> PyResult {
-        if let Some(slot) = a.class().slots.as_number.left_binary_op(iop_slot) {
+        if let Some(slot) = a
+            .class()
+            .mro_find_map(|x| x.slots.as_number.left_binary_op(iop_slot))
+        {
             let x = slot(a, b, self)?;
             if !x.is(&self.ctx.not_implemented) {
                 return Ok(x);
@@ -266,11 +270,12 @@ impl VirtualMachine {
         let class_b = b.class();
         let class_c = c.class();
 
-        let slot_a = class_a.slots.as_number.left_ternary_op(op_slot);
+        // Look up number slots across MRO for inheritance
+        let slot_a = class_a.mro_find_map(|x| x.slots.as_number.left_ternary_op(op_slot));
         let mut slot_b = None;
 
         if !class_a.is(class_b) {
-            let slot_bb = class_b.slots.as_number.right_ternary_op(op_slot);
+            let slot_bb = class_b.mro_find_map(|x| x.slots.as_number.right_ternary_op(op_slot));
             if slot_bb.map(|x| x as usize) != slot_a.map(|x| x as usize) {
                 slot_b = slot_bb;
             }
@@ -299,7 +304,7 @@ impl VirtualMachine {
             }
         }
 
-        if let Some(slot_c) = class_c.slots.as_number.left_ternary_op(op_slot)
+        if let Some(slot_c) = class_c.mro_find_map(|x| x.slots.as_number.left_ternary_op(op_slot))
             && slot_a.is_some_and(|slot_a| !std::ptr::fn_addr_eq(slot_a, slot_c))
             && slot_b.is_some_and(|slot_b| !std::ptr::fn_addr_eq(slot_b, slot_c))
         {
@@ -338,7 +343,10 @@ impl VirtualMachine {
         op_slot: PyNumberTernaryOp,
         op_str: &str,
     ) -> PyResult {
-        if let Some(slot) = a.class().slots.as_number.left_ternary_op(iop_slot) {
+        if let Some(slot) = a
+            .class()
+            .mro_find_map(|x| x.slots.as_number.left_ternary_op(iop_slot))
+        {
             let x = slot(a, b, c, self)?;
             if !x.is(&self.ctx.not_implemented) {
                 return Ok(x);
