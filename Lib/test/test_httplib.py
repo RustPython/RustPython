@@ -1801,8 +1801,6 @@ class HTTPSTest(TestCase):
         self.addCleanup(resp.close)
         self.assertEqual(resp.status, 404)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_local_bad_hostname(self):
         # The (valid) cert doesn't validate the HTTP hostname
         import ssl

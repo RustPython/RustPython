@@ -438,3 +438,99 @@ pub mod windows {
         }
     }
 }
+
+// _Py_fopen_obj in cpython (Python/fileutils.c:1757-1835)
+// Open a file using std::fs::File and convert to FILE*
+// Automatically handles path encoding and EINTR retries
+pub fn fopen(path: &std::path::Path, mode: &str) -> std::io::Result<*mut libc::FILE> {
+    use std::ffi::CString;
+    use std::fs::File;
+
+    // Currently only supports read mode
+    // Can be extended to support "wb", "w+b", etc. if needed
+    if mode != "rb" {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("unsupported mode: {}", mode),
+        ));
+    }
+
+    // Open file using std::fs::File (handles path encoding and EINTR automatically)
+    let file = File::open(path)?;
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::IntoRawHandle;
+
+        // Declare Windows CRT functions
+        unsafe extern "C" {
+            fn _open_osfhandle(handle: isize, flags: libc::c_int) -> libc::c_int;
+            fn _fdopen(fd: libc::c_int, mode: *const libc::c_char) -> *mut libc::FILE;
+        }
+
+        // Convert File handle to CRT file descriptor
+        let handle = file.into_raw_handle();
+        let fd = unsafe { _open_osfhandle(handle as isize, libc::O_RDONLY) };
+        if fd == -1 {
+            return Err(std::io::Error::last_os_error());
+        }
+
+        // Convert fd to FILE*
+        let mode_cstr = CString::new(mode).unwrap();
+        let fp = unsafe { _fdopen(fd, mode_cstr.as_ptr()) };
+        if fp.is_null() {
+            unsafe { libc::close(fd) };
+            return Err(std::io::Error::last_os_error());
+        }
+
+        // Set non-inheritable (Windows needs this explicitly)
+        if let Err(e) = set_inheritable(fd, false) {
+            unsafe { libc::fclose(fp) };
+            return Err(e);
+        }
+
+        Ok(fp)
+    }
+
+    #[cfg(not(windows))]
+    {
+        use std::os::fd::IntoRawFd;
+
+        // Convert File to raw fd
+        let fd = file.into_raw_fd();
+
+        // Convert fd to FILE*
+        let mode_cstr = CString::new(mode).unwrap();
+        let fp = unsafe { libc::fdopen(fd, mode_cstr.as_ptr()) };
+        if fp.is_null() {
+            unsafe { libc::close(fd) };
+            return Err(std::io::Error::last_os_error());
+        }
+
+        // Unix: O_CLOEXEC is already set by File::open, so non-inheritable is automatic
+        Ok(fp)
+    }
+}
+
+// set_inheritable in cpython (Python/fileutils.c:1443-1570)
+// Set the inheritable flag of the specified file descriptor
+// Only used on Windows; Unix automatically sets O_CLOEXEC
+#[cfg(windows)]
+fn set_inheritable(fd: libc::c_int, inheritable: bool) -> std::io::Result<()> {
+    use windows_sys::Win32::Foundation::{
+        HANDLE, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, SetHandleInformation,
+    };
+
+    let handle = unsafe { libc::get_osfhandle(fd) };
+    if handle == INVALID_HANDLE_VALUE as isize {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    let flags = if inheritable { HANDLE_FLAG_INHERIT } else { 0 };
+    let result = unsafe { SetHandleInformation(handle as HANDLE, HANDLE_FLAG_INHERIT, flags) };
+    if result == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    Ok(())
+}

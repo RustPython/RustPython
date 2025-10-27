@@ -1198,6 +1198,7 @@ mod _socket {
         fn recv_into(
             &self,
             buf: ArgMemoryBuffer,
+            nbytes: OptionalArg<isize>,
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> Result<usize, IoOrPyException> {
@@ -1205,6 +1206,18 @@ mod _socket {
             let sock = self.sock()?;
             let mut buf = buf.borrow_buf_mut();
             let buf = &mut *buf;
+
+            // Handle nbytes parameter
+            let read_len = if let OptionalArg::Present(nbytes) = nbytes {
+                let nbytes = nbytes.to_usize().ok_or_else(|| {
+                    vm.new_value_error("negative buffersize in recv_into".to_owned())
+                })?;
+                nbytes.min(buf.len())
+            } else {
+                buf.len()
+            };
+
+            let buf = &mut buf[..read_len];
             self.sock_op(vm, SelectKind::Read, || {
                 sock.recv_with_flags(unsafe { slice_as_uninit(buf) }, flags)
             })
