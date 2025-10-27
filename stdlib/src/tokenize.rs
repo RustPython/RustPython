@@ -2,45 +2,51 @@ pub(crate) use _tokenize::make_module;
 
 #[pymodule]
 mod _tokenize {
-    use crate::vm::{
-        Py, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyStr, PyTypeRef},
-        convert::ToPyObject,
-        function::ArgCallable,
-        protocol::PyIterReturn,
-        types::{Constructor, IterNext, Iterable, SelfIter},
+    use crate::{
+        common::lock::PyRwLock,
+        vm::{
+            Py, PyPayload, PyResult, VirtualMachine,
+            builtins::{PyStr, PyTypeRef},
+            convert::ToPyObject,
+            function::ArgCallable,
+            protocol::PyIterReturn,
+            types::{Constructor, IterNext, Iterable, SelfIter},
+        },
     };
     use ruff_python_ast::PySourceType;
-    use ruff_python_parser::{TokenKind, Tokens, parse_unchecked_source};
+    use ruff_python_parser::{ParseError, Token, TokenKind, Tokens, parse_unchecked_source};
     use ruff_source_file::{LineIndex, LineRanges};
-    use std::{cmp::Ordering, fmt, sync::atomic};
+    use ruff_text_size::{Ranged, TextRange};
+    use std::{cmp::Ordering, fmt};
 
     #[pyattr]
     #[pyclass(name = "TokenizerIter")]
     #[derive(PyPayload)]
     pub struct PyTokenizerIter {
-        source: String,
-        tokens: Tokens,
-        token_count: usize,
-        token_idx: atomic::AtomicUsize,
-        line_index: LineIndex,
+        readline: ArgCallable,
+        extra_tokens: bool,
+        encoding: String,
+        state: PyRwLock<PyTokenizerIterState>,
     }
+
     impl PyTokenizerIter {
-        fn bump_token_idx(&self) {
-            let _ = self.token_idx.fetch_update(
-                atomic::Ordering::SeqCst,
-                atomic::Ordering::SeqCst,
-                |x| Some(x + 1),
-            );
+        fn readline(&self, vm: &VirtualMachine) -> PyResult<String> {
+            // TODO: Downcast to diffrent type based on encoding.
+            Ok(self
+                .readline
+                .invoke((), vm)?
+                .downcast::<PyStr>()
+                .map(|s| s.as_str().to_owned())
+                .map_err(|_| vm.new_type_error("readline() returned a non-string object"))?)
         }
     }
 
     impl fmt::Debug for PyTokenizerIter {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             f.debug_struct("PyTokenizerIter")
-                .field("source", &self.source)
-                .field("tokens", &self.tokens)
-                .field("token_idx", &self.token_idx)
+                .field("readline", &self.readline)
+                .field("encoding", &self.encoding)
+                .field("extra_tokens", &self.extra_tokens)
                 .finish()
         }
     }
@@ -54,37 +60,15 @@ mod _tokenize {
         fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
             let Self::Args {
                 readline,
-                extra_tokens: _,
-                encoding: _,
+                extra_tokens,
+                encoding,
             } = args;
 
-            // TODO: We should get the source lazily. But Ruff API doesn't really work as expected
-            // when dealing with incomplete source code.
-            // See: https://github.com/astral-sh/ruff/pull/21074
-            let mut source = String::new();
-            loop {
-                // TODO: Downcast to diffrent type based on encoding.
-                let line = readline
-                    .invoke((), vm)?
-                    .downcast::<PyStr>()
-                    .map_err(|_| vm.new_type_error("readline() returned a non-string object"))?;
-
-                if line.is_empty() {
-                    break;
-                }
-                source.push_str(line.as_str());
-            }
-
-            let line_index = LineIndex::from_source_text(&source);
-            let parsed = parse_unchecked_source(&source, PySourceType::Python);
-            let tokens = parsed.tokens();
-
             Self {
-                source,
-                tokens: tokens.clone(),
-                line_index,
-                token_count: tokens.len(),
-                token_idx: atomic::AtomicUsize::new(0),
+                readline,
+                extra_tokens,
+                encoding,
+                state: PyRwLock::new(PyTokenizerIterState::default()),
             }
             .into_ref_with_type(vm, cls)
             .map(Into::into)
@@ -95,62 +79,81 @@ mod _tokenize {
 
     impl IterNext for PyTokenizerIter {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let idx = zelf.token_idx.load(atomic::Ordering::SeqCst);
+            let mut state = {
+                let guard = zelf.state.read();
+                guard.clone()
+            };
 
-            let source = &zelf.source;
-            let line_index = &zelf.line_index;
-            Ok(match zelf.tokens.get(idx) {
-                Some(token) => {
-                    zelf.bump_token_idx();
+            if state.eof {
+                return Ok(PyIterReturn::StopIteration(None));
+            }
 
-                    let (token_kind, token_range) = token.as_tuple();
-                    let lc_start = line_index.line_column(token_range.start(), &source);
-                    let lc_end = line_index.line_column(token_range.end(), &source);
+            let token = loop {
+                // TODO: Check here for errors. Raise SyntaxError if needed
 
-                    let current_line = match token_kind {
-                        TokenKind::Newline => source.full_line_str(token_range.start()),
-                        _ => source.full_lines_str(token_range),
-                    };
+                if let Some(tok) = state.next_token() {
+                    break tok.clone();
+                }
 
+                let nline = zelf.readline(vm)?;
+                if nline.is_empty() {
+                    state.eof = true;
+                    *zelf.state.write() = state.clone();
+
+                    let line_num = &state.start().0;
                     let out = vm
                         .ctx
                         .new_tuple(vec![
-                            token_kind_value(token_kind).to_pyobject(vm),
-                            vm.ctx.new_str(source[token_range].trim()).into(),
+                            token_kind_value(TokenKind::EndOfFile).to_pyobject(vm),
+                            vm.ctx.new_str("").into(),
                             vm.ctx
-                                .new_tuple(vec![
-                                    lc_start.line.get().to_pyobject(vm),
-                                    lc_start.column.to_zero_indexed().to_pyobject(vm),
-                                ])
+                                .new_tuple(vec![line_num.to_pyobject(vm), (-1).to_pyobject(vm)])
                                 .into(),
                             vm.ctx
-                                .new_tuple(vec![
-                                    lc_end.line.get().to_pyobject(vm),
-                                    lc_end.column.to_zero_indexed().to_pyobject(vm),
-                                ])
+                                .new_tuple(vec![line_num.to_pyobject(vm), (-1).to_pyobject(vm)])
                                 .into(),
-                            vm.ctx.new_str(current_line).into(),
+                            vm.ctx.new_str(state.current_line()).into(),
                         ])
                         .into();
+                    return Ok(PyIterReturn::Return(out));
+                }
+                state.push_line(&nline);
+            };
 
-                    PyIterReturn::Return(out)
-                }
-                None => {
-                    match idx.cmp(&zelf.token_count) {
-                        Ordering::Less => unreachable!(),
-                        Ordering::Equal => {
-                            zelf.bump_token_idx();
-                            // TODO: EOF output
-                            PyIterReturn::StopIteration(None)
-                        }
-                        Ordering::Greater => PyIterReturn::StopIteration(None),
-                    }
-                }
-            })
+            *zelf.state.write() = state.clone();
+
+            let token_kind = token.kind();
+            let token_value = if zelf.extra_tokens && token_kind.is_operator() {
+                55 // token.OP
+            } else {
+                token_kind_value(token_kind)
+            };
+            let (start_x, start_y) = &state.start();
+            let (end_x, end_y) = &state.end();
+
+            let mut token_repr = &state.source[state.range()];
+            if !zelf.extra_tokens {
+                token_repr = token_repr.trim();
+            }
+
+            let out = vm
+                .ctx
+                .new_tuple(vec![
+                    token_value.to_pyobject(vm),
+                    vm.ctx.new_str(&*token_repr).into(),
+                    vm.ctx
+                        .new_tuple(vec![start_x.to_pyobject(vm), start_y.to_pyobject(vm)])
+                        .into(),
+                    vm.ctx
+                        .new_tuple(vec![end_x.to_pyobject(vm), end_y.to_pyobject(vm)])
+                        .into(),
+                    vm.ctx.new_str(state.current_line()).into(),
+                ])
+                .into();
+            Ok(PyIterReturn::Return(out))
         }
     }
 
-    #[allow(dead_code)]
     #[derive(FromArgs)]
     pub struct PyTokenizerIterArgs {
         #[pyarg(positional)]
@@ -159,6 +162,104 @@ mod _tokenize {
         extra_tokens: bool,
         #[pyarg(named, default = String::from("utf-8"))]
         encoding: String,
+    }
+
+    #[derive(Clone, Debug)]
+    struct PyTokenizerIterState {
+        /// Source code.
+        source: String,
+        prev_token: Option<Token>,
+        /// Tokens of `source`.
+        tokens: Tokens,
+        /// Errors of `source`
+        errors: Vec<ParseError>,
+        /// LineIndex of `source`.
+        line_index: LineIndex,
+        /// Marker that says we already emitted EOF, and needs to stop iterating.
+        eof: bool,
+    }
+
+    impl Ranged for PyTokenizerIterState {
+        fn range(&self) -> TextRange {
+            match self.prev_token {
+                Some(token) => token.range(),
+                None => TextRange::default(),
+            }
+        }
+    }
+
+    impl PyTokenizerIterState {
+        fn push_line(&mut self, line: &str) {
+            self.source.push_str(line);
+
+            let parsed = parse_unchecked_source(&self.source, PySourceType::Python);
+            self.tokens = parsed.tokens().clone();
+            self.errors = parsed.errors().to_vec();
+            self.line_index = LineIndex::from_source_text(&self.source);
+        }
+
+        #[must_use]
+        fn current_line(&self) -> &str {
+            let (kind, range) = match self.prev_token {
+                Some(token) => token.as_tuple(),
+                None => (TokenKind::Unknown, TextRange::default()),
+            };
+
+            match kind {
+                TokenKind::Newline => self.source.full_line_str(range.start()),
+                _ => self.source.full_lines_str(range),
+            }
+        }
+
+        #[must_use]
+        fn next_token(&mut self) -> Option<Token> {
+            for token in self.tokens.iter() {
+                let (kind, range) = token.as_tuple();
+
+                if matches!(kind, TokenKind::NonLogicalNewline) {
+                    continue;
+                }
+
+                if matches!(range.ordering(self.range()), Ordering::Greater) {
+                    self.prev_token = Some(*token);
+                    return self.prev_token;
+                }
+            }
+
+            None
+        }
+
+        #[must_use]
+        fn start(&self) -> (usize, usize) {
+            let lc = self
+                .line_index
+                .line_column(self.range().start(), &self.source);
+            (lc.line.get(), lc.column.to_zero_indexed())
+        }
+
+        #[must_use]
+        fn end(&self) -> (usize, usize) {
+            let lc = self
+                .line_index
+                .line_column(self.range().end(), &self.source);
+            (lc.line.get(), lc.column.to_zero_indexed())
+        }
+    }
+
+    impl Default for PyTokenizerIterState {
+        fn default() -> Self {
+            const SOURCE: &str = "";
+            let parsed = parse_unchecked_source(SOURCE, PySourceType::Python);
+
+            Self {
+                source: SOURCE.to_owned(),
+                prev_token: None,
+                tokens: parsed.tokens().clone(),
+                errors: parsed.errors().to_vec(),
+                line_index: LineIndex::from_source_text(SOURCE),
+                eof: false,
+            }
+        }
     }
 
     const fn token_kind_value(kind: TokenKind) -> u8 {

@@ -53,6 +53,7 @@ xml = "1.0"
 ruff_python_ast = { workspace = true }
 ruff_python_parser = { workspace = true }
 ruff_source_file = { workspace = true }
+ruff_text_size = { workspace = true }
 
 # random
 rand_core = { workspace = true }
