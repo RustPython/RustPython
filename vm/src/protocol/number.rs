@@ -443,117 +443,140 @@ impl<'a> PyNumber<'a> {
 
     // PyNumber_Check
     pub fn check(obj: &PyObject) -> bool {
-        let methods = &obj.class().slots.as_number;
-        methods.int.load().is_some()
-            || methods.index.load().is_some()
-            || methods.float.load().is_some()
-            || obj.downcastable::<PyComplex>()
+        let cls = &obj.class();
+        // TODO: when we finally have a proper slot inheritance, mro_find_map can be removed
+        //    methods.int.load().is_some()
+        //    || methods.index.load().is_some()
+        //    || methods.float.load().is_some()
+        //    || obj.downcastable::<PyComplex>()
+        let has_number = cls
+            .mro_find_map(|x| {
+                let methods = &x.slots.as_number;
+                if methods.int.load().is_some()
+                    || methods.index.load().is_some()
+                    || methods.float.load().is_some()
+                {
+                    Some(())
+                } else {
+                    None
+                }
+            })
+            .is_some();
+        has_number || obj.downcastable::<PyComplex>()
     }
 }
 
 impl PyNumber<'_> {
     // PyIndex_Check
     pub fn is_index(self) -> bool {
-        self.class().slots.as_number.index.load().is_some()
+        self.class()
+            .mro_find_map(|x| x.slots.as_number.index.load())
+            .is_some()
     }
 
     #[inline]
     pub fn int(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
-        self.class().slots.as_number.int.load().map(|f| {
-            let ret = f(self, vm)?;
+        self.class()
+            .mro_find_map(|x| x.slots.as_number.int.load())
+            .map(|f| {
+                let ret = f(self, vm)?;
 
-            if let Some(ret) = ret.downcast_ref_if_exact::<PyInt>(vm) {
-                return Ok(ret.to_owned());
-            }
+                if let Some(ret) = ret.downcast_ref_if_exact::<PyInt>(vm) {
+                    return Ok(ret.to_owned());
+                }
 
-            let ret_class = ret.class().to_owned();
-            if let Some(ret) = ret.downcast_ref::<PyInt>() {
-                warnings::warn(
-                    vm.ctx.exceptions.deprecation_warning,
-                    format!(
-                        "__int__ returned non-int (type {ret_class}).  \
+                let ret_class = ret.class().to_owned();
+                if let Some(ret) = ret.downcast_ref::<PyInt>() {
+                    warnings::warn(
+                        vm.ctx.exceptions.deprecation_warning,
+                        format!(
+                            "__int__ returned non-int (type {ret_class}).  \
                     The ability to return an instance of a strict subclass of int \
                     is deprecated, and may be removed in a future version of Python."
-                    ),
-                    1,
-                    vm,
-                )?;
+                        ),
+                        1,
+                        vm,
+                    )?;
 
-                Ok(ret.to_owned())
-            } else {
-                Err(vm.new_type_error(format!(
-                    "{}.__int__ returned non-int(type {})",
-                    self.class(),
-                    ret_class
-                )))
-            }
-        })
+                    Ok(ret.to_owned())
+                } else {
+                    Err(vm.new_type_error(format!(
+                        "{}.__int__ returned non-int(type {})",
+                        self.class(),
+                        ret_class
+                    )))
+                }
+            })
     }
 
     #[inline]
     pub fn index(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
-        self.class().slots.as_number.index.load().map(|f| {
-            let ret = f(self, vm)?;
+        self.class()
+            .mro_find_map(|x| x.slots.as_number.index.load())
+            .map(|f| {
+                let ret = f(self, vm)?;
 
-            if let Some(ret) = ret.downcast_ref_if_exact::<PyInt>(vm) {
-                return Ok(ret.to_owned());
-            }
+                if let Some(ret) = ret.downcast_ref_if_exact::<PyInt>(vm) {
+                    return Ok(ret.to_owned());
+                }
 
-            let ret_class = ret.class().to_owned();
-            if let Some(ret) = ret.downcast_ref::<PyInt>() {
-                warnings::warn(
-                    vm.ctx.exceptions.deprecation_warning,
-                    format!(
-                        "__index__ returned non-int (type {ret_class}).  \
+                let ret_class = ret.class().to_owned();
+                if let Some(ret) = ret.downcast_ref::<PyInt>() {
+                    warnings::warn(
+                        vm.ctx.exceptions.deprecation_warning,
+                        format!(
+                            "__index__ returned non-int (type {ret_class}).  \
                     The ability to return an instance of a strict subclass of int \
                     is deprecated, and may be removed in a future version of Python."
-                    ),
-                    1,
-                    vm,
-                )?;
+                        ),
+                        1,
+                        vm,
+                    )?;
 
-                Ok(ret.to_owned())
-            } else {
-                Err(vm.new_type_error(format!(
-                    "{}.__index__ returned non-int(type {})",
-                    self.class(),
-                    ret_class
-                )))
-            }
-        })
+                    Ok(ret.to_owned())
+                } else {
+                    Err(vm.new_type_error(format!(
+                        "{}.__index__ returned non-int(type {})",
+                        self.class(),
+                        ret_class
+                    )))
+                }
+            })
     }
 
     #[inline]
     pub fn float(self, vm: &VirtualMachine) -> Option<PyResult<PyRef<PyFloat>>> {
-        self.class().slots.as_number.float.load().map(|f| {
-            let ret = f(self, vm)?;
+        self.class()
+            .mro_find_map(|x| x.slots.as_number.float.load())
+            .map(|f| {
+                let ret = f(self, vm)?;
 
-            if let Some(ret) = ret.downcast_ref_if_exact::<PyFloat>(vm) {
-                return Ok(ret.to_owned());
-            }
+                if let Some(ret) = ret.downcast_ref_if_exact::<PyFloat>(vm) {
+                    return Ok(ret.to_owned());
+                }
 
-            let ret_class = ret.class().to_owned();
-            if let Some(ret) = ret.downcast_ref::<PyFloat>() {
-                warnings::warn(
-                    vm.ctx.exceptions.deprecation_warning,
-                    format!(
-                        "__float__ returned non-float (type {ret_class}).  \
+                let ret_class = ret.class().to_owned();
+                if let Some(ret) = ret.downcast_ref::<PyFloat>() {
+                    warnings::warn(
+                        vm.ctx.exceptions.deprecation_warning,
+                        format!(
+                            "__float__ returned non-float (type {ret_class}).  \
                     The ability to return an instance of a strict subclass of float \
                     is deprecated, and may be removed in a future version of Python."
-                    ),
-                    1,
-                    vm,
-                )?;
+                        ),
+                        1,
+                        vm,
+                    )?;
 
-                Ok(ret.to_owned())
-            } else {
-                Err(vm.new_type_error(format!(
-                    "{}.__float__ returned non-float(type {})",
-                    self.class(),
-                    ret_class
-                )))
-            }
-        })
+                    Ok(ret.to_owned())
+                } else {
+                    Err(vm.new_type_error(format!(
+                        "{}.__float__ returned non-float(type {})",
+                        self.class(),
+                        ret_class
+                    )))
+                }
+            })
     }
 }
 
