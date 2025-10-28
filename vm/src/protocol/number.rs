@@ -444,6 +444,11 @@ impl<'a> PyNumber<'a> {
     // PyNumber_Check
     pub fn check(obj: &PyObject) -> bool {
         let cls = &obj.class();
+        // TODO: when we finally have a proper slot inheritance, mro_find_map can be removed
+        //    methods.int.load().is_some()
+        //    || methods.index.load().is_some()
+        //    || methods.float.load().is_some()
+        //    || obj.downcastable::<PyComplex>()
         let has_number = cls
             .mro_find_map(|x| {
                 let methods = &x.slots.as_number;
