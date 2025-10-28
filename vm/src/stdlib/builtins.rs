@@ -535,6 +535,22 @@ mod builtins {
     }
 
     #[pyfunction]
+    fn anext(
+        aiter: PyObjectRef,
+        default_value: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let awaitable = vm.call_method(&aiter, "__anext__", ())?;
+
+        if default_value.is_missing() {
+            Ok(awaitable)
+        } else {
+            // TODO: Implement CPython like PyAnextAwaitable to properly handle the default value.
+            Ok(awaitable)
+        }
+    }
+
+    #[pyfunction]
     fn len(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         obj.length(vm)
     }
