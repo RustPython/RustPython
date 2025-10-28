@@ -145,7 +145,7 @@ jobs:
     needs: [build, build-wasm]
     steps:
       - name: Download Binary Artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           path: bin
           pattern: rustpython-*
