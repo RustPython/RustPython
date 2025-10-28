@@ -806,6 +806,47 @@ mod _ssl {
             self.check_hostname.store(ch);
         }
 
+        // PY_PROTO_MINIMUM_SUPPORTED = -2, PY_PROTO_MAXIMUM_SUPPORTED = -1
+        #[pygetset]
+        fn minimum_version(&self) -> i32 {
+            let ctx = self.ctx();
+            let version = unsafe { sys::SSL_CTX_get_min_proto_version(ctx.as_ptr()) };
+            if version == 0 {
+                -2 // PY_PROTO_MINIMUM_SUPPORTED
+            } else {
+                version
+            }
+        }
+        #[pygetset(setter)]
+        fn set_minimum_version(&self, value: i32, vm: &VirtualMachine) -> PyResult<()> {
+            let ctx = self.builder();
+            let result = unsafe { sys::SSL_CTX_set_min_proto_version(ctx.as_ptr(), value) };
+            if result == 0 {
+                return Err(vm.new_value_error("invalid protocol version"));
+            }
+            Ok(())
+        }
+
+        #[pygetset]
+        fn maximum_version(&self) -> i32 {
+            let ctx = self.ctx();
+            let version = unsafe { sys::SSL_CTX_get_max_proto_version(ctx.as_ptr()) };
+            if version == 0 {
+                -1 // PY_PROTO_MAXIMUM_SUPPORTED
+            } else {
+                version
+            }
+        }
+        #[pygetset(setter)]
+        fn set_maximum_version(&self, value: i32, vm: &VirtualMachine) -> PyResult<()> {
+            let ctx = self.builder();
+            let result = unsafe { sys::SSL_CTX_set_max_proto_version(ctx.as_ptr(), value) };
+            if result == 0 {
+                return Err(vm.new_value_error("invalid protocol version"));
+            }
+            Ok(())
+        }
+
         #[pymethod]
         fn set_default_verify_paths(&self, vm: &VirtualMachine) -> PyResult<()> {
             cfg_if::cfg_if! {
