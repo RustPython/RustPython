@@ -164,17 +164,15 @@ pub(crate) mod ssl_cert {
                             // IPv4
                             format!("{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3])
                         } else if ip.len() == 16 {
-                            // IPv6 - format like: "X:X:X:X:X:X:X:X" (not compressed)
+                            // IPv6 - format with all zeros visible (not compressed)
+                            let ip_addr = std::net::Ipv6Addr::from([
+                                ip[0], ip[1], ip[2], ip[3], ip[4], ip[5], ip[6], ip[7], ip[8],
+                                ip[9], ip[10], ip[11], ip[12], ip[13], ip[14], ip[15],
+                            ]);
+                            let s = ip_addr.segments();
                             format!(
                                 "{:X}:{:X}:{:X}:{:X}:{:X}:{:X}:{:X}:{:X}",
-                                (ip[0] as u16) << 8 | ip[1] as u16,
-                                (ip[2] as u16) << 8 | ip[3] as u16,
-                                (ip[4] as u16) << 8 | ip[5] as u16,
-                                (ip[6] as u16) << 8 | ip[7] as u16,
-                                (ip[8] as u16) << 8 | ip[9] as u16,
-                                (ip[10] as u16) << 8 | ip[11] as u16,
-                                (ip[12] as u16) << 8 | ip[13] as u16,
-                                (ip[14] as u16) << 8 | ip[15] as u16
+                                s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]
                             )
                         } else {
                             // Fallback for unexpected length
