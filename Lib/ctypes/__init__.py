@@ -299,9 +299,7 @@ def create_unicode_buffer(init, size=None):
         return buf
     elif isinstance(init, int):
         _sys.audit("ctypes.create_unicode_buffer", None, init)
-        # XXX: RUSTPYTHON
-        # buftype = c_wchar * init
-        buftype = c_wchar.__mul__(init)
+        buftype = c_wchar * init
         buf = buftype()
         return buf
     raise TypeError(init)
