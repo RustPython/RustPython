@@ -76,6 +76,7 @@ mod rustyline_readline {
         repl: rustyline::Editor<H, rustyline::history::DefaultHistory>,
     }
 
+    #[cfg(windows)]
     const EOF_CHAR: &str = "\u{001A}";
 
     impl<H: Helper> Readline<H> {
