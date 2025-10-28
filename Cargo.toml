@@ -127,11 +127,11 @@ members = [
     "jit",
     "vm",
     "vm/sre_engine",
-    "pylib",
     "stdlib",
     "derive-impl",
     "wtf8",
     "wasm/lib",
+    "crates/*",
 ]
 
 [workspace.package]
@@ -152,7 +152,7 @@ rustpython-derive-impl = { path = "derive-impl", version = "0.4.0" }
 rustpython-jit = { path = "jit", version = "0.4.0" }
 rustpython-literal = { path = "compiler/literal", version = "0.4.0" }
 rustpython-vm = { path = "vm", default-features = false, version = "0.4.0" }
-rustpython-pylib = { path = "pylib", version = "0.4.0" }
+rustpython-pylib = { path = "crates/rustpython_pylib", version = "0.4.0" }
 rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.4.0" }
 rustpython-sre_engine = { path = "vm/sre_engine", version = "0.4.0" }
 rustpython-wtf8 = { path = "wtf8", version = "0.4.0" }
