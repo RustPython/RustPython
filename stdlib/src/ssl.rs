@@ -633,6 +633,12 @@ mod _ssl {
             Ok(())
         }
 
+        #[cfg(ossl110)]
+        #[pygetset]
+        fn security_level(&self) -> i32 {
+            unsafe { SSL_CTX_get_security_level(self.ctx().as_ptr()) }
+        }
+
         #[pymethod]
         fn set_ciphers(&self, cipherlist: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
             let ciphers = cipherlist.as_str();
@@ -1838,6 +1844,11 @@ mod _ssl {
     #[cfg(ossl111)]
     unsafe extern "C" {
         fn SSL_verify_client_post_handshake(ssl: *const sys::SSL) -> libc::c_int;
+    }
+
+    #[cfg(ossl110)]
+    unsafe extern "C" {
+        fn SSL_CTX_get_security_level(ctx: *const sys::SSL_CTX) -> libc::c_int;
     }
 
     // OpenSSL BIO helper functions
