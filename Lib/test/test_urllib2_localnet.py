@@ -602,8 +602,6 @@ class TestUrlopen(unittest.TestCase):
                 self.urlopen("https://localhost:%s/bizarre" % handler.port,
                              cadefault=True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON, ValueError: illegal environment variable name")
     def test_https_sni(self):
         if ssl is None:
