@@ -1455,6 +1455,15 @@ impl SetAttr for PyType {
         value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        // Check if type is immutable
+        if zelf.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+            return Err(vm.new_type_error(format!(
+                "cannot set '{}' attribute of immutable type '{}'",
+                attr_name.as_str(),
+                zelf.name()
+            )));
+        }
+
         // TODO: pass PyRefExact instead of &str
         let attr_name = vm.ctx.intern_str(attr_name.as_str());
         if let Some(attr) = zelf.get_class_attr(attr_name) {
