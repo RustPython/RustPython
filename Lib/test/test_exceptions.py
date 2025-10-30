@@ -601,7 +601,6 @@ class ExceptionTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "state is not a dictionary"):
             e.__setstate__(42)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_notes(self):
         for e in [BaseException(1), Exception(2), ValueError(3)]:
             with self.subTest(e=e):

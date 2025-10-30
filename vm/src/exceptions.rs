@@ -4,7 +4,7 @@ use crate::object::{Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
-        PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
+        PyList, PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
         traceback::{PyTraceback, PyTracebackRef},
     },
     class::{PyClassImpl, StaticType},
@@ -650,6 +650,27 @@ impl PyRef<PyBaseException> {
     fn with_traceback(self, tb: Option<PyTracebackRef>) -> PyResult<Self> {
         *self.traceback.write() = tb;
         Ok(self)
+    }
+
+    #[pymethod]
+    fn add_note(self, note: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+        let dict = self
+            .as_object()
+            .dict()
+            .ok_or_else(|| vm.new_attribute_error("Exception object has no __dict__"))?;
+
+        let notes = dict
+            .get_item("__notes__", vm)
+            .or_else(|_| {
+                let new_notes = vm.ctx.new_list(vec![]);
+                dict.set_item("__notes__", new_notes.clone().into(), vm)?;
+                Ok(new_notes.into())
+            })?
+            .downcast::<PyList>()
+            .map_err(|_| vm.new_type_error("__notes__ must be a list"))?;
+
+        notes.borrow_vec_mut().push(note.into());
+        Ok(())
     }
 
     #[pymethod]
