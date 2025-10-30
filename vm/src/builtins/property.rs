@@ -143,6 +143,41 @@ impl PyProperty {
         self.deleter.read().clone()
     }
 
+    #[pygetset(name = "__name__")]
+    fn name_getter(&self, vm: &VirtualMachine) -> PyResult {
+        // If name was explicitly set via __set_name__ or direct assignment
+        // (even to None), return it as-is
+        if let Some(name) = self.name.read().as_ref() {
+            return Ok(name.clone());
+        }
+
+        // Fallback to getter's __name__ if available
+        if let Some(getter) = self.getter.read().as_ref() {
+            match getter.get_attr("__name__", vm) {
+                Ok(name) => Ok(name),
+                Err(e) => {
+                    // If it's an AttributeError from the getter, convert to property's AttributeError
+                    // Otherwise, propagate the original exception (e.g., RuntimeError)
+                    if e.class().is(vm.ctx.exceptions.attribute_error) {
+                        return Err(vm.new_attribute_error(
+                            "'property' object has no attribute '__name__'".to_owned(),
+                        ));
+                    }
+
+                    Err(e)
+                }
+            }
+        } else {
+            // If no getter, raise AttributeError
+            Err(vm.new_attribute_error("'property' object has no attribute '__name__'".to_owned()))
+        }
+    }
+
+    #[pygetset(name = "__name__", setter)]
+    fn name_setter(&self, value: PyObjectRef) {
+        *self.name.write() = Some(value);
+    }
+
     fn doc_getter(&self) -> Option<PyObjectRef> {
         self.doc.read().clone()
     }
