@@ -67,20 +67,30 @@ impl GetDescriptor for PyProperty {
 #[pyclass(with(Constructor, Initializer, GetDescriptor), flags(BASETYPE))]
 impl PyProperty {
     // Helper method to get property name
-    fn get_property_name(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
+    // Returns the name if available, None if not found, or propagates errors
+    fn get_property_name(&self, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
         // First check if name was set via __set_name__
         if let Some(name) = self.name.read().as_ref() {
-            return Some(name.clone());
+            return Ok(Some(name.clone()));
         }
 
         // Otherwise try to get __name__ from getter
-        if let Some(getter) = self.getter.read().as_ref()
-            && let Ok(name) = getter.get_attr("__name__", vm)
-        {
-            return Some(name);
+        if let Some(getter) = self.getter.read().as_ref() {
+            match getter.get_attr("__name__", vm) {
+                Ok(name) => Ok(Some(name)),
+                Err(e) => {
+                    // If it's an AttributeError from the getter, return None
+                    // Otherwise, propagate the original exception (e.g., RuntimeError)
+                    if e.class().is(vm.ctx.exceptions.attribute_error) {
+                        Ok(None)
+                    } else {
+                        Err(e)
+                    }
+                }
+            }
+        } else {
+            Ok(None)
         }
-
-        None
     }
 
     // Descriptor methods
@@ -145,31 +155,12 @@ impl PyProperty {
 
     #[pygetset(name = "__name__")]
     fn name_getter(&self, vm: &VirtualMachine) -> PyResult {
-        // If name was explicitly set via __set_name__ or direct assignment
-        // (even to None), return it as-is
-        if let Some(name) = self.name.read().as_ref() {
-            return Ok(name.clone());
-        }
-
-        // Fallback to getter's __name__ if available
-        if let Some(getter) = self.getter.read().as_ref() {
-            match getter.get_attr("__name__", vm) {
-                Ok(name) => Ok(name),
-                Err(e) => {
-                    // If it's an AttributeError from the getter, convert to property's AttributeError
-                    // Otherwise, propagate the original exception (e.g., RuntimeError)
-                    if e.class().is(vm.ctx.exceptions.attribute_error) {
-                        return Err(vm.new_attribute_error(
-                            "'property' object has no attribute '__name__'".to_owned(),
-                        ));
-                    }
-
-                    Err(e)
-                }
-            }
-        } else {
-            // If no getter, raise AttributeError
-            Err(vm.new_attribute_error("'property' object has no attribute '__name__'".to_owned()))
+        // Use get_property_name helper to get the name
+        match self.get_property_name(vm)? {
+            Some(name) => Ok(name),
+            None => Err(
+                vm.new_attribute_error("'property' object has no attribute '__name__'".to_owned())
+            ),
         }
     }
 
@@ -323,7 +314,7 @@ impl PyProperty {
         error_type: &str,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        let prop_name = self.get_property_name(vm);
+        let prop_name = self.get_property_name(vm)?;
         let obj_type = obj.class();
         let qualname = obj_type.__qualname__(vm);
 
