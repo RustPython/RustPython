@@ -15,7 +15,6 @@ use super::{
     ext::{AsObject, PyRefExact, PyResult},
     payload::PyPayload,
 };
-use crate::object::traverse_object::PyObjVTable;
 use crate::{
     builtins::{PyDictRef, PyType, PyTypeRef},
     common::{
@@ -24,6 +23,7 @@ use crate::{
         lock::{PyMutex, PyMutexGuard, PyRwLock},
         refcount::RefCount,
     },
+    object::{PyObjectPayload, traverse_object::PyObjVTable},
     vm::VirtualMachine,
 };
 use crate::{
@@ -105,8 +105,6 @@ pub(super) unsafe fn try_trace_obj<T: PyPayload>(x: &PyObject, tracer_fn: &mut T
 #[repr(C)]
 pub(super) struct PyInner<T> {
     pub(super) ref_count: RefCount,
-    // TODO: move typeid into vtable once TypeId::of is const
-    pub(super) typeid: TypeId,
     pub(super) vtable: &'static PyObjVTable,
 
     pub(super) typ: PyAtomicRef<PyType>, // __class__ member
@@ -449,7 +447,6 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
         let member_count = typ.slots.member_count;
         Box::new(Self {
             ref_count: RefCount::new(),
-            typeid: T::payload_type_id(),
             vtable: PyObjVTable::of::<T>(),
             typ: PyAtomicRef::from(typ),
             dict: dict.map(InstanceDict::new),
@@ -638,8 +635,8 @@ impl PyObject {
 
     #[deprecated(note = "use downcastable instead")]
     #[inline(always)]
-    pub fn payload_is<T: PyPayload>(&self) -> bool {
-        self.0.typeid == T::payload_type_id()
+    pub fn payload_is<T: PyObjectPayload>(&self) -> bool {
+        self.0.vtable.typeid == T::PAYLOAD_TYPE_ID
     }
 
     /// Force to return payload as T.
@@ -657,7 +654,7 @@ impl PyObject {
 
     #[deprecated(note = "use downcast_ref instead")]
     #[inline(always)]
-    pub fn payload<T: PyPayload>(&self) -> Option<&T> {
+    pub fn payload<T: PyPayload + std::fmt::Debug>(&self) -> Option<&T> {
         #[allow(deprecated)]
         if self.payload_is::<T>() {
             #[allow(deprecated)]
@@ -678,7 +675,10 @@ impl PyObject {
 
     #[deprecated(note = "use downcast_ref_if_exact instead")]
     #[inline(always)]
-    pub fn payload_if_exact<T: PyPayload>(&self, vm: &VirtualMachine) -> Option<&T> {
+    pub fn payload_if_exact<T: PyPayload + std::fmt::Debug>(
+        &self,
+        vm: &VirtualMachine,
+    ) -> Option<&T> {
         if self.class().is(T::class(&vm.ctx)) {
             #[allow(deprecated)]
             self.payload()
@@ -711,7 +711,10 @@ impl PyObject {
 
     #[deprecated(note = "use downcast_ref instead")]
     #[inline(always)]
-    pub fn payload_if_subclass<T: crate::PyPayload>(&self, vm: &VirtualMachine) -> Option<&T> {
+    pub fn payload_if_subclass<T: crate::PyPayload + std::fmt::Debug>(
+        &self,
+        vm: &VirtualMachine,
+    ) -> Option<&T> {
         if self.class().fast_issubclass(T::class(&vm.ctx)) {
             #[allow(deprecated)]
             self.payload()
@@ -722,7 +725,7 @@ impl PyObject {
 
     #[inline]
     pub(crate) fn typeid(&self) -> TypeId {
-        self.0.typeid
+        self.0.vtable.typeid
     }
 
     /// Check if this object can be downcast to T.
@@ -1276,7 +1279,6 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         let type_type_ptr = Box::into_raw(Box::new(partially_init!(
             PyInner::<PyType> {
                 ref_count: RefCount::new(),
-                typeid: TypeId::of::<PyType>(),
                 vtable: PyObjVTable::of::<PyType>(),
                 dict: None,
                 weak_list: WeakRefList::new(),
@@ -1288,7 +1290,6 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         let object_type_ptr = Box::into_raw(Box::new(partially_init!(
             PyInner::<PyType> {
                 ref_count: RefCount::new(),
-                typeid: TypeId::of::<PyType>(),
                 vtable: PyObjVTable::of::<PyType>(),
                 dict: None,
                 weak_list: WeakRefList::new(),
