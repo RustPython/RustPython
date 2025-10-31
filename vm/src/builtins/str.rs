@@ -1959,12 +1959,10 @@ impl PyPayload for PyUtf8Str {
         ctx.types.str_type
     }
 
-    fn payload_type_id() -> std::any::TypeId {
-        std::any::TypeId::of::<PyStr>()
-    }
+    const PAYLOAD_TYPE_ID: std::any::TypeId = std::any::TypeId::of::<PyStr>();
 
     fn downcastable_from(obj: &PyObject) -> bool {
-        obj.typeid() == Self::payload_type_id() && {
+        obj.typeid() == Self::PAYLOAD_TYPE_ID && {
             // SAFETY: we know the object is a PyStr in this context
             let wtf8 = unsafe { obj.downcast_unchecked_ref::<PyStr>() };
             wtf8.is_utf8()

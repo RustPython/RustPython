@@ -19,15 +19,12 @@ cfg_if::cfg_if! {
 pub trait PyPayload:
     std::fmt::Debug + MaybeTraverse + PyThreadingConstraint + Sized + 'static
 {
-    #[inline]
-    fn payload_type_id() -> std::any::TypeId {
-        std::any::TypeId::of::<Self>()
-    }
+    const PAYLOAD_TYPE_ID: std::any::TypeId = std::any::TypeId::of::<Self>();
 
     /// # Safety: this function should only be called if `payload_type_id` matches the type of `obj`.
     #[inline]
     fn downcastable_from(obj: &PyObject) -> bool {
-        obj.typeid() == Self::payload_type_id()
+        obj.typeid() == Self::PAYLOAD_TYPE_ID
     }
 
     fn try_downcast_from(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {

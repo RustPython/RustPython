@@ -103,8 +103,6 @@ pub(super) unsafe fn try_trace_obj<T: PyObjectPayload>(
 #[repr(C)]
 pub(super) struct PyInner<T> {
     pub(super) ref_count: RefCount,
-    // TODO: move typeid into vtable once TypeId::of is const
-    pub(super) typeid: TypeId,
     pub(super) vtable: &'static PyObjVTable,
 
     pub(super) typ: PyAtomicRef<PyType>, // __class__ member
@@ -446,7 +444,6 @@ impl<T: PyObjectPayload> PyInner<T> {
         let member_count = typ.slots.member_count;
         Box::new(Self {
             ref_count: RefCount::new(),
-            typeid: T::payload_type_id(),
             vtable: PyObjVTable::of::<T>(),
             typ: PyAtomicRef::from(typ),
             dict: dict.map(InstanceDict::new),
@@ -639,7 +636,7 @@ impl PyObject {
     #[deprecated(note = "use downcastable instead")]
     #[inline(always)]
     pub fn payload_is<T: PyObjectPayload>(&self) -> bool {
-        self.0.typeid == T::payload_type_id()
+        self.0.vtable.typeid == T::PAYLOAD_TYPE_ID
     }
 
     /// Force to return payload as T.
@@ -725,7 +722,7 @@ impl PyObject {
 
     #[inline]
     pub(crate) fn typeid(&self) -> TypeId {
-        self.0.typeid
+        self.0.vtable.typeid
     }
 
     /// Check if this object can be downcast to T.
@@ -1229,7 +1226,6 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         let type_type_ptr = Box::into_raw(Box::new(partially_init!(
             PyInner::<PyType> {
                 ref_count: RefCount::new(),
-                typeid: TypeId::of::<PyType>(),
                 vtable: PyObjVTable::of::<PyType>(),
                 dict: None,
                 weak_list: WeakRefList::new(),
@@ -1241,7 +1237,6 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         let object_type_ptr = Box::into_raw(Box::new(partially_init!(
             PyInner::<PyType> {
                 ref_count: RefCount::new(),
-                typeid: TypeId::of::<PyType>(),
                 vtable: PyObjVTable::of::<PyType>(),
                 dict: None,
                 weak_list: WeakRefList::new(),
