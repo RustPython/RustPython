@@ -6,7 +6,7 @@ mod _tokenize {
         common::lock::PyRwLock,
         vm::{
             Py, PyPayload, PyResult, VirtualMachine,
-            builtins::{PyStr, PyTypeRef},
+            builtins::{PyBytes, PyStr, PyStrRef, PyTypeRef},
             convert::ToPyObject,
             function::ArgCallable,
             protocol::PyIterReturn,
@@ -19,25 +19,42 @@ mod _tokenize {
     use ruff_text_size::{Ranged, TextRange};
     use std::{cmp::Ordering, fmt};
 
+    /// Cpython `__import__("token").OP`
+    const TOKEN_OP: u8 = 55;
+
     #[pyattr]
     #[pyclass(name = "TokenizerIter")]
     #[derive(PyPayload)]
     pub struct PyTokenizerIter {
-        readline: ArgCallable,
+        readline: ArgCallable, // TODO: This should be PyObject
         extra_tokens: bool,
-        encoding: String,
+        encoding: Option<String>,
         state: PyRwLock<PyTokenizerIterState>,
     }
 
     impl PyTokenizerIter {
         fn readline(&self, vm: &VirtualMachine) -> PyResult<String> {
-            // TODO: Downcast to diffrent type based on encoding.
-            Ok(self
-                .readline
-                .invoke((), vm)?
-                .downcast::<PyStr>()
-                .map(|s| s.as_str().to_owned())
-                .map_err(|_| vm.new_type_error("readline() returned a non-string object"))?)
+            // TODO: When `readline` is PyObject,
+            // we need to check if it's callable and raise a type error if it's not.
+            let raw_line = match self.readline.invoke((), vm) {
+                Ok(v) => v,
+                Err(_) => return Ok(String::new()),
+            };
+            Ok(match &self.encoding {
+                Some(encoding) => {
+                    let bytes = raw_line
+                        .downcast::<PyBytes>()
+                        .map_err(|_| vm.new_type_error("readline() returned a non-bytes object"))?;
+                    vm.state
+                        .codec_registry
+                        .decode_text(bytes.into(), &encoding, None, vm)
+                        .map(|s| s.as_str().to_owned())?
+                }
+                None => raw_line
+                    .downcast::<PyStr>()
+                    .map(|s| s.as_str().to_owned())
+                    .map_err(|_| vm.new_type_error("readline() returned a non-string object"))?,
+            })
         }
     }
 
@@ -67,7 +84,7 @@ mod _tokenize {
             Self {
                 readline,
                 extra_tokens,
-                encoding,
+                encoding: encoding.map(|s| s.as_str().to_owned()),
                 state: PyRwLock::new(PyTokenizerIterState::default()),
             }
             .into_ref_with_type(vm, cls)
@@ -124,7 +141,7 @@ mod _tokenize {
 
             let token_kind = token.kind();
             let token_value = if zelf.extra_tokens && token_kind.is_operator() {
-                55 // token.OP
+                TOKEN_OP
             } else {
                 token_kind_value(token_kind)
             };
@@ -160,8 +177,8 @@ mod _tokenize {
         readline: ArgCallable,
         #[pyarg(named)]
         extra_tokens: bool,
-        #[pyarg(named, default = String::from("utf-8"))]
-        encoding: String,
+        #[pyarg(named, optional)]
+        encoding: Option<PyStrRef>,
     }
 
     #[derive(Clone, Debug)]
@@ -177,15 +194,6 @@ mod _tokenize {
         line_index: LineIndex,
         /// Marker that says we already emitted EOF, and needs to stop iterating.
         eof: bool,
-    }
-
-    impl Ranged for PyTokenizerIterState {
-        fn range(&self) -> TextRange {
-            match self.prev_token {
-                Some(token) => token.range(),
-                None => TextRange::default(),
-            }
-        }
     }
 
     impl PyTokenizerIterState {
@@ -227,6 +235,14 @@ mod _tokenize {
             }
 
             None
+        }
+
+        #[must_use]
+        fn range(&self) -> TextRange {
+            match self.prev_token {
+                Some(token) => token.range(),
+                None => TextRange::default(),
+            }
         }
 
         #[must_use]

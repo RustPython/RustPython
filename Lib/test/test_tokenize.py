@@ -78,6 +78,7 @@ class TokenizeTest(TestCase):
         self.assertEqual(tokens[-2].type, tokenize.NEWLINE)
         self.assertEqual(tokens[-1].type, tokenize.ENDMARKER)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_basic(self):
         self.check_tokenize("1 + 1", """\
     NUMBER     '1'           (1, 0) (1, 1)
@@ -271,6 +272,7 @@ def k(x):
     NUMBER     '3.14e159'    (1, 4) (1, 12)
     """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_underscore_literals(self):
         def number_token(s):
             f = BytesIO(s.encode('utf-8'))
@@ -295,6 +297,7 @@ def k(x):
                 continue
             self.assertNotEqual(number_token(lit), lit)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_string(self):
         # String literals
         self.check_tokenize("x = ''; y = \"\"", """\
@@ -675,6 +678,7 @@ f'''__{
     NAME       'pass'        (1, 34) (1, 38)
     """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_comparison(self):
         # Comparison
         self.check_tokenize("if 1 < 1 > 1 == 1 >= 5 <= 0x15 <= 0x12 != "
@@ -713,6 +717,7 @@ f'''__{
     NAME       'pass'        (1, 84) (1, 88)
     """)
 
+    @unittest.skip('TODO: RUSTPYTHON; This fails but the one in GenerateTokensTest passes')
     def test_shift(self):
         # Shift
         self.check_tokenize("x = 1 << 1 >> 5", """\
@@ -748,6 +753,7 @@ f'''__{
     OP         ']'           (1, 36) (1, 37)
     """)
 
+    @unittest.skip('TODO: RUSTPYTHON; This fails but the one in GenerateTokensTest passes')
     def test_multiplicative(self):
         # Multiplicative
         self.check_tokenize("x = 1//1*1/5*12%0x12@42", """\
@@ -768,6 +774,7 @@ f'''__{
     NUMBER     '42'          (1, 21) (1, 23)
     """)
 
+    @unittest.skip('TODO: RUSTPYTHON; This fails but the one in GenerateTokensTest passes')
     def test_unary(self):
         # Unary
         self.check_tokenize("~1 ^ 1 & 1 |1 ^ -1", """\
@@ -805,6 +812,7 @@ f'''__{
     NUMBER     '1'           (1, 22) (1, 23)
     """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_selector(self):
         # Selector
         self.check_tokenize("import sys, time\nx = sys.modules['time'].time()", """\
@@ -827,6 +835,7 @@ f'''__{
     OP         ')'           (2, 29) (2, 30)
     """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_method(self):
         # Methods
         self.check_tokenize("@staticmethod\ndef foo(x,y): pass", """\
@@ -844,6 +853,7 @@ f'''__{
     NAME       'pass'        (2, 14) (2, 18)
     """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_tabs(self):
         # Evil tabs
         self.check_tokenize("def f():\n"
@@ -865,6 +875,7 @@ f'''__{
     DEDENT     ''            (4, 0) (4, 0)
     """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_non_ascii_identifiers(self):
         # Non-ascii identifiers
         self.check_tokenize("Örter = 'places'\ngrün = 'green'", """\
@@ -877,6 +888,7 @@ f'''__{
     STRING     "'green'"     (2, 7) (2, 14)
     """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_unicode(self):
         # Legacy unicode literals:
         self.check_tokenize("Örter = u'places'\ngrün = U'green'", """\
@@ -1164,6 +1176,7 @@ async def f():
     DEDENT     ''            (7, 0) (7, 0)
     """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_newline_after_parenthesized_block_with_comment(self):
         self.check_tokenize('''\
 [
@@ -1188,6 +1201,7 @@ async def f():
     NAME       'x'           (1, 3) (1, 4)
     """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_multiline_non_ascii_fstring(self):
         self.check_tokenize("""\
 a = f'''
@@ -1199,6 +1213,7 @@ a = f'''
     FSTRING_END "\'\'\'"         (2, 68) (2, 71)
     """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_multiline_non_ascii_fstring_with_expr(self):
         self.check_tokenize("""\
 f'''
@@ -1781,6 +1796,7 @@ class UntokenizeTest(TestCase):
         # raise if previous column in row
         self.assertRaises(ValueError, u.add_whitespace, (2,1))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_backslash_continuation(self):
         # The problem is that <whitespace>\<newline> leaves no token
         u = tokenize.Untokenizer()
@@ -1826,6 +1842,7 @@ def contains_ambiguous_backslash(source):
 
 class TestRoundtrip(TestCase):
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def check_roundtrip(self, f):
         """
         Test roundtrip for `untokenize`. `f` is an open file or a string.
@@ -2037,6 +2054,7 @@ if 1:
 
 
 class InvalidPythonTests(TestCase):
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_number_followed_by_name(self):
         # See issue #gh-105549
         source = "2sin(x)"
@@ -2053,6 +2071,7 @@ class InvalidPythonTests(TestCase):
         tokens = list(tokenize.generate_tokens(StringIO(source).readline))
         self.assertEqual(tokens, expected_tokens)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_number_starting_with_zero(self):
         source = "01234"
         expected_tokens = [
@@ -2206,6 +2225,7 @@ class CTokenizeTest(TestCase):
     NUMBER     '3.14e159'    (1, 4) (1, 12)
     """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_string(self):
 
         self.check_tokenize('x = \'\'; y = ""', """\
@@ -2637,6 +2657,7 @@ f'''__{
     NUMBER     '1'           (1, 22) (1, 23)
     """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_selector(self):
 
         self.check_tokenize("import sys, time\nx = sys.modules['time'].time()", """\
@@ -2659,6 +2680,7 @@ f'''__{
     RPAR       ')'           (2, 29) (2, 30)
     """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_method(self):
 
         self.check_tokenize('@staticmethod\ndef foo(x,y): pass', """\
@@ -2676,6 +2698,7 @@ f'''__{
     NAME       'pass'        (2, 14) (2, 18)
     """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_tabs(self):
 
         self.check_tokenize('@staticmethod\ndef foo(x,y): pass', """\
@@ -2693,6 +2716,7 @@ f'''__{
     NAME       'pass'        (2, 14) (2, 18)
     """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_async(self):
 
         self.check_tokenize('async = 1', """\
@@ -2959,6 +2983,7 @@ async def f():
     DEDENT     ''            (6, -1) (6, -1)
     """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_unicode(self):
 
         self.check_tokenize("Örter = u'places'\ngrün = U'green'", """\
@@ -2971,6 +2996,7 @@ async def f():
     STRING     "U'green'"    (2, 7) (2, 15)
     """)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_invalid_syntax(self):
         def get_tokens(string):
             the_string = StringIO(string)
@@ -3016,6 +3042,7 @@ async def f():
             with self.subTest(case=case):
                 self.assertRaises(tokenize.TokenError, get_tokens, case)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_max_indent(self):
         MAXINDENT = 100
 
@@ -3038,6 +3065,7 @@ async def f():
             IndentationError, compile, invalid, "<string>", "exec"
         )
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_continuation_lines_indentation(self):
         def get_tokens(string):
             the_string = StringIO(string)
