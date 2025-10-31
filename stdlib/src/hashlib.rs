@@ -97,7 +97,7 @@ pub mod _hashlib {
         }
     }
 
-    #[pyclass(with(Representable))]
+    #[pyclass(flags(IMMUTABLETYPE), with(Representable))]
     impl PyHasher {
         fn new(name: &str, d: HashWrapper) -> Self {
             Self {
@@ -170,7 +170,7 @@ pub mod _hashlib {
         }
     }
 
-    #[pyclass]
+    #[pyclass(flags(IMMUTABLETYPE))]
     impl PyHasherXof {
         fn new(name: &str, d: HashXofWrapper) -> Self {
             Self {

@@ -994,8 +994,6 @@ class HashLibTestCase(unittest.TestCase):
         support.check_disallow_instantiation(self, HASH)
         support.check_disallow_instantiation(self, HASHXOF)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_readonly_types(self):
         for algorithm, constructors in self.constructors_to_test.items():
             # all other types have DISALLOW_INSTANTIATION
