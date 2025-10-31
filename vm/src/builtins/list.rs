@@ -504,6 +504,8 @@ impl Representable for PyList {
     }
 }
 
+use crate::exceptions::types::PyBaseExceptionRef;
+use std::cmp::Ordering;
 fn do_sort(
     vm: &VirtualMachine,
     values: &mut Vec<PyObjectRef>,
@@ -515,20 +517,40 @@ fn do_sort(
     } else {
         PyComparisonOp::Gt
     };
-    let cmp = |a: &PyObjectRef, b: &PyObjectRef| a.rich_compare_bool(b, op, vm);
+
+    // If a PyException is encountered stop swapping elements and store the error.
+    let mut error_slot: Option<PyBaseExceptionRef> = None;
+    let mut cmp = |a: &PyObjectRef, b: &PyObjectRef| match a.rich_compare_bool(b, op, vm) {
+        Ok(res) => {
+            if res {
+                Ordering::Greater
+            } else {
+                Ordering::Less
+            }
+        }
+        Err(e) => {
+            error_slot = Some(e);
+            Ordering::Equal
+        }
+    };
 
     if let Some(ref key_func) = key_func {
         let mut items = values
             .iter()
             .map(|x| Ok((x.clone(), key_func.call((x.clone(),), vm)?)))
             .collect::<Result<Vec<_>, _>>()?;
-        timsort::try_sort_by_gt(&mut items, |a, b| cmp(&a.1, &b.1))?;
+        // timsort::try_sort_by_gt(&mut items, |a, b| cmp(&a.1, &b.1))?;
+        items.sort_unstable_by(|a, b| cmp(&a.1, &b.1));
         *values = items.into_iter().map(|(val, _)| val).collect();
     } else {
-        timsort::try_sort_by_gt(values, cmp)?;
+        values.sort_unstable_by(cmp);
     }
 
-    Ok(())
+    // After the sort is done, check if an error was captured.
+    match error_slot {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
 }
 
 #[pyclass(module = false, name = "list_iterator", traverse)]
