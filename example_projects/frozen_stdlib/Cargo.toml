@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 rustpython = { path = "../../", default-features = false, features = ["freeze-stdlib"] }
 rustpython-vm = { path = "../../vm", default-features = false, features = ["freeze-stdlib"] }
-rustpython-pylib = { path = "../../pylib", default-features = false, features = ["freeze-stdlib"] }
+rustpython-pylib = { path = "../../crates/rustpython_pylib", default-features = false, features = ["freeze-stdlib"] }
 
 [workspace]
 
