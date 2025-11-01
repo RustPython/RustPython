@@ -1,0 +1,14 @@
+[package]
+name = "rustpython_doc_db"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license-file = "LICENSE"
+
+[dependencies]
+phf = { workspace = true }
+
+[lints]
+workspace = true

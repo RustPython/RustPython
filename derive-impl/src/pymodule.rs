@@ -6,6 +6,7 @@ use crate::util::{
 };
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
 use quote::{ToTokens, quote, quote_spanned};
+use rustpython_doc_db::Database;
 use std::{collections::HashSet, str::FromStr};
 use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
 use syn_ext::ext::*;
@@ -101,7 +102,7 @@ pub fn impl_pymodule(attr: PunctuatedNestedMeta, module_item: Item) -> Result<To
     let function_items = context.function_items.validate()?;
     let attribute_items = context.attribute_items.validate()?;
     let doc = doc.or_else(|| {
-        crate::doc::Database::shared()
+        Database::shared()
             .try_path(module_name)
             .ok()
             .flatten()
@@ -464,7 +465,7 @@ impl ModuleItem for FunctionItem {
 
         let module = args.module_name();
         let doc = args.attrs.doc().or_else(|| {
-            crate::doc::Database::shared()
+            Database::shared()
                 .try_module_item(module, &py_name)
                 .ok() // TODO: doc must exist at least one of code or CPython
                 .flatten()
