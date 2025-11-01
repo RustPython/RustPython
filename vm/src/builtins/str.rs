@@ -890,10 +890,6 @@ impl PyStr {
         )
     }
 
-    /// Return a str with the given prefix string removed if present.
-    ///
-    /// If the string starts with the prefix string, return string[len(prefix):]
-    /// Otherwise, return a copy of the original string.
     #[pymethod]
     fn removeprefix(&self, pref: PyStrRef) -> Wtf8Buf {
         self.as_wtf8()
@@ -901,10 +897,6 @@ impl PyStr {
             .to_owned()
     }
 
-    /// Return a str with the given suffix string removed if present.
-    ///
-    /// If the string ends with the suffix string, return string[:len(suffix)]
-    /// Otherwise, return a copy of the original string.
     #[pymethod]
     fn removesuffix(&self, suffix: PyStrRef) -> Wtf8Buf {
         self.as_wtf8()
@@ -955,10 +947,6 @@ impl PyStr {
         format(&format_str, &args, vm)
     }
 
-    /// S.format_map(mapping) -> str
-    ///
-    /// Return a formatted version of S, using substitutions from mapping.
-    /// The substitutions are identified by braces ('{' and '}').
     #[pymethod]
     fn format_map(&self, mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let format_string =
@@ -989,8 +977,6 @@ impl PyStr {
         Ok(vm.ctx.new_str(s))
     }
 
-    /// Return a titlecased version of the string where words start with an
-    /// uppercase character and the remaining characters are lowercase.
     #[pymethod]
     fn title(&self) -> Wtf8Buf {
         let mut title = Wtf8Buf::with_capacity(self.data.len());
@@ -1066,21 +1052,6 @@ impl PyStr {
         }
     }
 
-    /// Return true if all characters in the string are printable or the string is empty,
-    /// false otherwise.  Nonprintable characters are those characters defined in the
-    /// Unicode character database as `Other` or `Separator`,
-    /// excepting the ASCII space (0x20) which is considered printable.
-    ///
-    /// All characters except those characters defined in the Unicode character
-    /// database as following categories are considered printable.
-    ///   * Cc (Other, Control)
-    ///   * Cf (Other, Format)
-    ///   * Cs (Other, Surrogate)
-    ///   * Co (Other, Private Use)
-    ///   * Cn (Other, Not Assigned)
-    ///   * Zl Separator, Line ('\u2028', LINE SEPARATOR)
-    ///   * Zp Separator, Paragraph ('\u2029', PARAGRAPH SEPARATOR)
-    ///   * Zs (Separator, Space) other than ASCII space('\x20').
     #[pymethod]
     fn isprintable(&self) -> bool {
         self.char_all(|c| c == '\u{0020}' || rustpython_literal::char::is_printable(c))
@@ -1246,8 +1217,6 @@ impl PyStr {
             .to_pyobject(vm))
     }
 
-    /// Return `true` if the sequence is ASCII titlecase and the sequence is not
-    /// empty, `false` otherwise.
     #[pymethod]
     fn istitle(&self) -> bool {
         if self.data.is_empty() {
