@@ -67,20 +67,30 @@ impl GetDescriptor for PyProperty {
 #[pyclass(with(Constructor, Initializer, GetDescriptor), flags(BASETYPE))]
 impl PyProperty {
     // Helper method to get property name
-    fn get_property_name(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
+    // Returns the name if available, None if not found, or propagates errors
+    fn get_property_name(&self, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
         // First check if name was set via __set_name__
         if let Some(name) = self.name.read().as_ref() {
-            return Some(name.clone());
+            return Ok(Some(name.clone()));
         }
 
-        // Otherwise try to get __name__ from getter
-        if let Some(getter) = self.getter.read().as_ref()
-            && let Ok(name) = getter.get_attr("__name__", vm)
-        {
-            return Some(name);
-        }
+        let getter = self.getter.read();
+        let Some(getter) = getter.as_ref() else {
+            return Ok(None);
+        };
 
-        None
+        match getter.get_attr("__name__", vm) {
+            Ok(name) => Ok(Some(name)),
+            Err(e) => {
+                // If it's an AttributeError from the getter, return None
+                // Otherwise, propagate the original exception (e.g., RuntimeError)
+                if e.class().is(vm.ctx.exceptions.attribute_error) {
+                    Ok(None)
+                } else {
+                    Err(e)
+                }
+            }
+        }
     }
 
     // Descriptor methods
@@ -141,6 +151,21 @@ impl PyProperty {
     #[pygetset]
     fn fdel(&self) -> Option<PyObjectRef> {
         self.deleter.read().clone()
+    }
+
+    #[pygetset(name = "__name__")]
+    fn name_getter(&self, vm: &VirtualMachine) -> PyResult {
+        match self.get_property_name(vm)? {
+            Some(name) => Ok(name),
+            None => Err(
+                vm.new_attribute_error("'property' object has no attribute '__name__'".to_owned())
+            ),
+        }
+    }
+
+    #[pygetset(name = "__name__", setter)]
+    fn name_setter(&self, value: PyObjectRef) {
+        *self.name.write() = Some(value);
     }
 
     fn doc_getter(&self) -> Option<PyObjectRef> {
@@ -288,7 +313,7 @@ impl PyProperty {
         error_type: &str,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        let prop_name = self.get_property_name(vm);
+        let prop_name = self.get_property_name(vm)?;
         let obj_type = obj.class();
         let qualname = obj_type.__qualname__(vm);
 

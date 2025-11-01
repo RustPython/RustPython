@@ -201,7 +201,6 @@ class PropertyTests(unittest.TestCase):
         self.assertIsNone(prop.fdel)
         self.assertAlmostEqual(gettotalrefcount() - refs_before, 0, delta=10)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_property_name(self):
         def getter(self):
             return 42

@@ -586,7 +586,6 @@ class BasicSocketTests(unittest.TestCase):
             del ss
         self.assertEqual(wr(), None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_wrapped_unconnected(self):
         # Methods on an unconnected SSLSocket propagate the original
         # OSError raise by the underlying socket object.
@@ -1400,7 +1399,6 @@ class ContextTests(unittest.TestCase):
         with self.assertRaises(ssl.SSLError) as cm:
             ctx.load_dh_params(CERTFILE)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_session_stats(self):
         for proto in {ssl.PROTOCOL_TLS_CLIENT, ssl.PROTOCOL_TLS_SERVER}:
             ctx = ssl.SSLContext(proto)
@@ -1461,7 +1459,6 @@ class ContextTests(unittest.TestCase):
         gc.collect()
         self.assertIs(wr(), None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_cert_store_stats(self):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         self.assertEqual(ctx.cert_store_stats(),
@@ -1521,7 +1518,6 @@ class ContextTests(unittest.TestCase):
         self.assertRaises(TypeError, ctx.load_default_certs, 'SERVER_AUTH')
 
     @unittest.skipIf(sys.platform == "win32", "not-Windows specific")
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_load_default_certs_env(self):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         with os_helper.EnvironmentVarGuard() as env:
@@ -1673,7 +1669,6 @@ class ContextTests(unittest.TestCase):
         self.assertFalse(ctx.check_hostname)
         self.assertEqual(ctx.verify_mode, ssl.CERT_NONE)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_context_custom_class(self):
         class MySSLSocket(ssl.SSLSocket):
             pass
@@ -1690,7 +1685,6 @@ class ContextTests(unittest.TestCase):
         obj = ctx.wrap_bio(ssl.MemoryBIO(), ssl.MemoryBIO(), server_side=True)
         self.assertIsInstance(obj, MySSLObject)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_num_tickest(self):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         self.assertEqual(ctx.num_tickets, 2)
@@ -1721,7 +1715,6 @@ class SSLErrorTests(unittest.TestCase):
         self.assertEqual(str(e), "foo")
         self.assertEqual(e.errno, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_lib_reason(self):
         # Test the library and reason attributes
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -1899,7 +1892,6 @@ class SimpleBackgroundTests(unittest.TestCase):
         self.enterContext(server)
         self.server_addr = (HOST, server.port)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_connect(self):
         with test_wrap_socket(socket.socket(socket.AF_INET),
                             cert_reqs=ssl.CERT_NONE) as s:
@@ -1966,7 +1958,6 @@ class SimpleBackgroundTests(unittest.TestCase):
         # SSL established
         self.assertTrue(s.getpeercert())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_connect_with_context(self):
         # Same as test_connect, but with a separately created context
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -2093,7 +2084,6 @@ class SimpleBackgroundTests(unittest.TestCase):
     def test_get_server_certificate(self):
         _test_get_server_certificate(self, *self.server_addr, cert=SIGNING_CA)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_get_server_certificate_sni(self):
         host, port = self.server_addr
         server_names = []
@@ -2120,7 +2110,6 @@ class SimpleBackgroundTests(unittest.TestCase):
         # independent test method
         _test_get_server_certificate_fail(self, *self.server_addr)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_get_server_certificate_timeout(self):
         def servername_cb(ssl_sock, server_name, initial_context):
             time.sleep(0.2)
@@ -2156,7 +2145,6 @@ class SimpleBackgroundTests(unittest.TestCase):
             self.assertTrue(cert)
         self.assertEqual(len(ctx.get_ca_certs()), 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_context_setget(self):
         # Check that the context of a connected socket can be replaced.
         ctx1 = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -3041,7 +3029,6 @@ class ThreadedTests(unittest.TestCase):
                 cert = s.getpeercert()
                 self.assertTrue(cert, "Can't get peer certificate.")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_check_hostname(self):
         if support.verbose:
             sys.stdout.write("\n")
@@ -3182,7 +3169,6 @@ class ThreadedTests(unittest.TestCase):
                 cipher = s.cipher()[0].split('-')
                 self.assertTrue(cipher[:2], ('ECDHE', 'ECDSA'))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_check_hostname_idn(self, warnings_filters=True):
         if support.verbose:
             sys.stdout.write("\n")
@@ -3370,7 +3356,6 @@ class ThreadedTests(unittest.TestCase):
         finally:
             t.join()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_ssl_cert_verify_error(self):
         if support.verbose:
             sys.stdout.write("\n")
@@ -3477,7 +3462,6 @@ class ThreadedTests(unittest.TestCase):
         try_protocol_combo(ssl.PROTOCOL_TLSv1_2, ssl.PROTOCOL_TLSv1_1, False)
 
     @requires_tls_version('TLSv1_2')
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_protocol_tlsv1_2(self):
         """Connecting to a TLSv1.2 server with various client options.
            Testing against older TLS versions."""
@@ -3924,7 +3908,6 @@ class ThreadedTests(unittest.TestCase):
                 sock.do_handshake()
             self.assertEqual(cm.exception.errno, errno.ENOTCONN)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_no_shared_ciphers(self):
         client_context, server_context, hostname = testing_context()
         # OpenSSL enables all TLS 1.3 ciphers, enforce TLS 1.2 for test
@@ -4156,7 +4139,6 @@ class ThreadedTests(unittest.TestCase):
                                    chatty=True, connectionchatty=True,
                                    sni_name=hostname)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_dh_params(self):
         # Check we can get a connection with ephemeral finite-field
         # Diffie-Hellman (if supported).
@@ -4755,7 +4737,6 @@ class TestPostHandshakeAuth(unittest.TestCase):
                 s.write(b'HASCERT')
                 self.assertEqual(s.recv(1024), b'TRUE\n')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pha_optional_nocert(self):
         if support.verbose:
             sys.stdout.write("\n")
@@ -4795,7 +4776,6 @@ class TestPostHandshakeAuth(unittest.TestCase):
                 s.write(b'PHA')
                 self.assertIn(b'extension not received', s.recv(1024))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pha_no_pha_server(self):
         # server doesn't have PHA enabled, cert is requested in handshake
         client_context, server_context, hostname = testing_context()
@@ -4816,7 +4796,6 @@ class TestPostHandshakeAuth(unittest.TestCase):
                 s.write(b'HASCERT')
                 self.assertEqual(s.recv(1024), b'TRUE\n')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pha_not_tls13(self):
         # TLS 1.2
         client_context, server_context, hostname = testing_context()

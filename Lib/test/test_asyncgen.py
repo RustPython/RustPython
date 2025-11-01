@@ -603,8 +603,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
             await awaitable
         return "completed"
 
-    # TODO: RUSTPYTHON, NameError: name 'anext' is not defined
-    @unittest.expectedFailure
     def test_anext_return_iterator(self):
         class WithIterAnext:
             def __aiter__(self):
@@ -614,8 +612,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         result = self.loop.run_until_complete(self.check_anext_returning_iterator(WithIterAnext))
         self.assertEqual(result, "completed")
 
-    # TODO: RUSTPYTHON, NameError: name 'anext' is not defined
-    @unittest.expectedFailure
     def test_anext_return_generator(self):
         class WithGenAnext:
             def __aiter__(self):
@@ -625,8 +621,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         result = self.loop.run_until_complete(self.check_anext_returning_iterator(WithGenAnext))
         self.assertEqual(result, "completed")
 
-    # TODO: RUSTPYTHON, NameError: name 'anext' is not defined
-    @unittest.expectedFailure
     def test_anext_await_raises(self):
         class RaisingAwaitable:
             def __await__(self):

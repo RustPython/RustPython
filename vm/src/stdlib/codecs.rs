@@ -67,10 +67,14 @@ mod _codecs {
     }
 
     #[pyfunction]
-    fn register_error(name: PyStrRef, handler: PyObjectRef, vm: &VirtualMachine) {
+    fn register_error(name: PyStrRef, handler: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if !handler.is_callable() {
+            return Err(vm.new_type_error("handler must be callable".to_owned()));
+        }
         vm.state
             .codec_registry
             .register_error(name.as_str().to_owned(), handler);
+        Ok(())
     }
 
     #[pyfunction]
