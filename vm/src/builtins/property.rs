@@ -74,22 +74,22 @@ impl PyProperty {
             return Ok(Some(name.clone()));
         }
 
-        // Otherwise try to get __name__ from getter
-        if let Some(getter) = self.getter.read().as_ref() {
-            match getter.get_attr("__name__", vm) {
-                Ok(name) => Ok(Some(name)),
-                Err(e) => {
-                    // If it's an AttributeError from the getter, return None
-                    // Otherwise, propagate the original exception (e.g., RuntimeError)
-                    if e.class().is(vm.ctx.exceptions.attribute_error) {
-                        Ok(None)
-                    } else {
-                        Err(e)
-                    }
+        let getter = self.getter.read();
+        let Some(getter) = getter.as_ref() else {
+            return Ok(None);
+        };
+
+        match getter.get_attr("__name__", vm) {
+            Ok(name) => Ok(Some(name)),
+            Err(e) => {
+                // If it's an AttributeError from the getter, return None
+                // Otherwise, propagate the original exception (e.g., RuntimeError)
+                if e.class().is(vm.ctx.exceptions.attribute_error) {
+                    Ok(None)
+                } else {
+                    Err(e)
                 }
             }
-        } else {
-            Ok(None)
         }
     }
 
@@ -155,7 +155,6 @@ impl PyProperty {
 
     #[pygetset(name = "__name__")]
     fn name_getter(&self, vm: &VirtualMachine) -> PyResult {
-        // Use get_property_name helper to get the name
         match self.get_property_name(vm)? {
             Some(name) => Ok(name),
             None => Err(
