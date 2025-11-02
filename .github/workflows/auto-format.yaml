@@ -1,0 +1,64 @@
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+
+name: Auto format
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  auto_format_commit:
+    permissions:
+      contents: write
+      pull-requests: write
+    name: Auto-format code
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' && !contains(github.event.workflow_run.head_commit.message, '[skip ci]') }}
+    concurrency:
+      group: fmt-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_branch }}
+          repository: ${{ github.event.workflow_run.head_repository.full_name }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Run cargo fmt
+        run: |
+          echo "Running cargo fmt --all"
+          cargo fmt --all
+
+      - name: Commit and push if changes
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain)" ]; then
+          git add -u
+            git commit -m "Auto-format code [skip ci]"
+            git push
+            echo "formatted=true" >> $GITHUB_OUTPUT
+          else
+            echo "formatted=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment on PR if formatting was applied
+        if: steps.commit.outputs.formatted == 'true' && github.event.workflow_run.event == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          message: |
+            Code has been automatically formatted.
+            No action needed.
+            the changes were committed with `[skip ci]`.

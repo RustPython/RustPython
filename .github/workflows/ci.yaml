@@ -307,15 +307,13 @@ jobs:
         run: python -I whats_left.py
 
   lint:
-    name: Check Rust code with rustfmt and clippy
+    name: Check Rust code with clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
-            components: rustfmt, clippy
-      - name: run rustfmt
-        run: cargo fmt --check
+            components: clippy
       - name: run clippy on wasm
         run: cargo clippy --manifest-path=wasm/lib/Cargo.toml -- -Dwarnings
       - uses: actions/setup-python@v6
