@@ -449,7 +449,7 @@ jobs:
       - name: run cpython unittest
         run: wasmer run --dir `pwd` target/wasm32-wasip1/release/rustpython.wasm -- `pwd`/Lib/test/test_int.py
 
-  auto_formate_commit:
+  auto_format_commit:
     needs: [rust_tests, exotic_targets, snippets_cpython, lint, miri, wasm, wasm-wasi]
     permissions:
       contents: write
