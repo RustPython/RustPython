@@ -73,6 +73,13 @@ opt-level = 3
 # https://github.com/rust-lang/rust/issues/92869
 # lto = "thin"
 
+# Doesn't change often
+[profile.dev.package.rustpython_doc_db]
+codegen-units = 1
+
+[profile.release.package.rustpython_doc_db]
+codegen-units = 1
+
 [profile.bench]
 lto = "thin"
 codegen-units = 1
