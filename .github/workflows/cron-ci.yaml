@@ -1,6 +1,6 @@
 on:
   schedule:
-    - cron: '0 0 * * 6'
+    - cron: "0 0 * * 6"
   workflow_dispatch:
   push:
     paths:
@@ -34,7 +34,7 @@ jobs:
         run: python scripts/cargo-llvm-cov.py
         continue-on-error: true
       - name: Run cargo-llvm-cov with Python test suite.
-        run: cargo llvm-cov --no-report run -- -m test -u all --slowest --fail-env-changed 
+        run: cargo llvm-cov --no-report run -- -m test -u all --slowest --fail-env-changed
         continue-on-error: true
       - name: Prepare code coverage data
         run: cargo llvm-cov report --lcov --output-path='codecov.lcov'
@@ -109,6 +109,23 @@ jobs:
           rm ./_data/whats_left/modules.csv
           echo -e "module" > ./_data/whats_left/modules.csv
           cat ./_data/whats_left.temp | grep "(entire module)" | cut -d ' ' -f 1 | sort >> ./_data/whats_left/modules.csv
+          awk -f - ./_data/whats_left.temp > ./_data/whats_left/builtin_items.csv <<'EOF'
+          BEGIN {
+              OFS=","
+              print "builtin,name,is_inherited"
+          }
+          /^# builtin items/ { in_section=1; next }
+          /^$/ { if (in_section) exit }
+          in_section {
+              split($1, a, ".")
+              rest = ""
+              idx = index($0, " ")
+              if (idx > 0) {
+                  rest = substr($0, idx+1)
+              }
+              print a[1], $1, rest
+          }
+          EOF
           git add -A
           if git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update what is left results" --author="$GITHUB_ACTOR"; then
             git push
