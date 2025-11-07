@@ -6,7 +6,7 @@ use crate::util::{
 };
 use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
 use quote::{ToTokens, quote, quote_spanned};
-use rustpython_doc_db::Database;
+use rustpython_doc_db::DB;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
@@ -316,10 +316,8 @@ fn generate_class_def(
 ) -> Result<TokenStream> {
     let doc = attrs.doc().or_else(|| {
         let module_name = module_name.unwrap_or("builtins");
-        Database::shared()
-            .try_module_item(module_name, name)
-            .ok()
-            .flatten()
+        DB.get(&format!("{module_name}.{name}"))
+            .copied()
             .map(str::to_owned)
     });
     let doc = if let Some(doc) = doc {
