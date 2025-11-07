@@ -10,5 +10,8 @@ license-file = "LICENSE"
 [dependencies]
 phf = { workspace = true }
 
+[lib]
+doctest = false # Crashes when true
+
 [lints]
 workspace = true
