@@ -74,9 +74,6 @@ opt-level = 3
 # lto = "thin"
 
 # Doesn't change often
-[profile.dev.package.rustpython_doc_db]
-codegen-units = 1
-
 [profile.release.package.rustpython_doc_db]
 codegen-units = 1
 
