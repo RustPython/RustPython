@@ -51,7 +51,6 @@ class TokenizeTest(TestCase):
                          ["    ENCODING   'utf-8'       (0, 0) (0, 0)"] +
                          expected.rstrip().splitlines())
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_invalid_readline(self):
         def gen():
             yield "sdfosdg"

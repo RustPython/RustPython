@@ -5,7 +5,7 @@ mod _tokenize {
     use crate::{
         common::lock::PyRwLock,
         vm::{
-            Py, PyPayload, PyResult, VirtualMachine,
+            AsObject, Py, PyPayload, PyResult, VirtualMachine,
             builtins::{PyBytes, PyStr, PyStrRef, PyTypeRef},
             convert::ToPyObject,
             function::ArgCallable,
@@ -38,7 +38,12 @@ mod _tokenize {
             // we need to check if it's callable and raise a type error if it's not.
             let raw_line = match self.readline.invoke((), vm) {
                 Ok(v) => v,
-                Err(_) => return Ok(String::new()),
+                Err(err) => {
+                    if err.fast_isinstance(vm.ctx.exceptions.stop_iteration) {
+                        return Ok(String::new());
+                    }
+                    return Err(err);
+                }
             };
             Ok(match &self.encoding {
                 Some(encoding) => {
