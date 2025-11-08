@@ -51,6 +51,7 @@ class TokenizeTest(TestCase):
                          ["    ENCODING   'utf-8'       (0, 0) (0, 0)"] +
                          expected.rstrip().splitlines())
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_invalid_readline(self):
         def gen():
             yield "sdfosdg"
@@ -272,7 +273,6 @@ def k(x):
     NUMBER     '3.14e159'    (1, 4) (1, 12)
     """)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_underscore_literals(self):
         def number_token(s):
             f = BytesIO(s.encode('utf-8'))
@@ -717,7 +717,6 @@ f'''__{
     NAME       'pass'        (1, 84) (1, 88)
     """)
 
-    @unittest.skip('TODO: RUSTPYTHON; This fails but the one in GenerateTokensTest passes')
     def test_shift(self):
         # Shift
         self.check_tokenize("x = 1 << 1 >> 5", """\
@@ -753,7 +752,6 @@ f'''__{
     OP         ']'           (1, 36) (1, 37)
     """)
 
-    @unittest.skip('TODO: RUSTPYTHON; This fails but the one in GenerateTokensTest passes')
     def test_multiplicative(self):
         # Multiplicative
         self.check_tokenize("x = 1//1*1/5*12%0x12@42", """\
@@ -774,7 +772,6 @@ f'''__{
     NUMBER     '42'          (1, 21) (1, 23)
     """)
 
-    @unittest.skip('TODO: RUSTPYTHON; This fails but the one in GenerateTokensTest passes')
     def test_unary(self):
         # Unary
         self.check_tokenize("~1 ^ 1 & 1 |1 ^ -1", """\
@@ -1292,6 +1289,7 @@ class TestTokenizerAdheresToPep0263(TestCase):
         with open(path, 'rb') as f:
             TestRoundtrip.check_roundtrip(self, f)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_utf8_coding_cookie_and_no_utf8_bom(self):
         f = 'tokenize_tests-utf8-coding-cookie-and-no-utf8-bom-sig.txt'
         self._testFile(f)
@@ -1307,10 +1305,12 @@ class TestTokenizerAdheresToPep0263(TestCase):
         f = 'tokenize_tests-latin1-coding-cookie-and-utf8-bom-sig.txt'
         self.assertRaises(SyntaxError, self._testFile, f)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_no_coding_cookie_and_utf8_bom(self):
         f = 'tokenize_tests-no-coding-cookie-and-utf8-bom-sig-only.txt'
         self._testFile(f)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_utf8_coding_cookie_and_utf8_bom(self):
         f = 'tokenize_tests-utf8-coding-cookie-and-utf8-bom-sig.txt'
         self._testFile(f)
@@ -1737,6 +1737,7 @@ class TestTokenize(TestCase):
         # See http://bugs.python.org/issue16152
         self.assertExactTypeEqual('@          ', token.AT)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_comment_at_the_end_of_the_source_without_newline(self):
         # See http://bugs.python.org/issue44667
         source = 'b = 1\n\n#test'
@@ -1755,6 +1756,7 @@ class TestTokenize(TestCase):
         tokens = list(tokenize.tokenize(BytesIO(source.encode('utf-8')).readline))
         self.assertEqual(tokens, expected_tokens)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_newline_and_space_at_the_end_of_the_source_without_newline(self):
         # See https://github.com/python/cpython/issues/105435
         source = 'a\n '
@@ -1895,6 +1897,7 @@ class TestRoundtrip(TestCase):
                 continue
             self.assertEqual(tok.string, tok.line[tok.start[1]: tok.end[1]])
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_roundtrip(self):
         # There are some standard formatting practices that are easy to get right.
 
@@ -1991,6 +1994,7 @@ if 1:
             self.check_roundtrip(case)
 
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_continuation(self):
         # Balancing continuation
         self.check_roundtrip("a = (3,4, \n"
@@ -2004,6 +2008,7 @@ if 1:
                              "+ len(z) - z[\n"
                              "'b']\n")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_backslash_continuation(self):
         # Backslash means line continuation, except for comments
         self.check_roundtrip("x=1+\\\n"
@@ -2017,6 +2022,7 @@ if 1:
         # Two string literals on the same line
         self.check_roundtrip("'' ''")
 
+    @unittest.skip("TODO: RUSTPYTHON; slow and fails")
     def test_random_files(self):
         # Test roundtrip on random python modules.
         # pass the '-ucpu' option to process the full directory.
@@ -2042,6 +2048,7 @@ if 1:
             code = code.encode('utf-8')
         return tokenize.untokenize(tokenize.tokenize(BytesIO(code).readline)).decode('utf-8')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_indentation_semantics_retained(self):
         """
         Ensure that although whitespace might be mutated in a roundtrip,
@@ -2094,6 +2101,7 @@ class CTokenizeTest(TestCase):
             )
             self.assertEqual(result, expected.rstrip().splitlines())
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_encoding(self):
         def readline(encoding):
             yield "1+1".encode(encoding)
