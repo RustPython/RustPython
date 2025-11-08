@@ -47,7 +47,7 @@ mod _tokenize {
                         .map_err(|_| vm.new_type_error("readline() returned a non-bytes object"))?;
                     vm.state
                         .codec_registry
-                        .decode_text(bytes.into(), &encoding, None, vm)
+                        .decode_text(bytes.into(), encoding, None, vm)
                         .map(|s| s.as_str().to_owned())?
                 }
                 None => raw_line
@@ -109,7 +109,7 @@ mod _tokenize {
                 // TODO: Check here for errors. Raise SyntaxError if needed
 
                 if let Some(tok) = state.next_token() {
-                    break tok.clone();
+                    break tok;
                 }
 
                 let nline = zelf.readline(vm)?;
@@ -157,7 +157,7 @@ mod _tokenize {
                 .ctx
                 .new_tuple(vec![
                     token_value.to_pyobject(vm),
-                    vm.ctx.new_str(&*token_repr).into(),
+                    vm.ctx.new_str(token_repr).into(),
                     vm.ctx
                         .new_tuple(vec![start_x.to_pyobject(vm), start_y.to_pyobject(vm)])
                         .into(),
