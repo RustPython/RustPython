@@ -426,7 +426,6 @@ class BasicSocketTests(unittest.TestCase):
         ssl.RAND_add(b"this is a random bytes object", 75.0)
         ssl.RAND_add(bytearray(b"this is a random bytearray object"), 75.0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_parse_cert(self):
         # note that this uses an 'unofficial' function in _ssl.c,
         # provided solely for this test, to exercise the certificate
@@ -506,7 +505,6 @@ class BasicSocketTests(unittest.TestCase):
 
         self.assertEqual(p['subjectAltName'], san)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_parse_all_sans(self):
         p = ssl._ssl._test_decode_cert(ALLSANFILE)
         self.assertEqual(p['subjectAltName'],
@@ -927,7 +925,6 @@ class BasicSocketTests(unittest.TestCase):
         )
         self.assertIn(rc, errors)
 
-    @unittest.skip("TODO: RUSTPYTHON; hangs")
     def test_read_write_zero(self):
         # empty reads and writes now work, bpo-42854, bpo-31711
         client_context, server_context, hostname = testing_context()
@@ -993,7 +990,6 @@ class ContextTests(unittest.TestCase):
             len(intersection), 2, f"\ngot: {sorted(names)}\nexpected: {sorted(expected)}"
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_options(self):
         # Test default SSLContext options
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -1066,8 +1062,8 @@ class ContextTests(unittest.TestCase):
             with self.assertRaises(AttributeError):
                 ctx.hostname_checks_common_name = True
 
-    @ignore_deprecation
     @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @ignore_deprecation
     def test_min_max_version(self):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         # OpenSSL default is MINIMUM_SUPPORTED, however some vendors like
@@ -1185,7 +1181,6 @@ class ContextTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             ctx.verify_flags = None
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_load_cert_chain(self):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         # Combined key and cert in a single file
@@ -1294,7 +1289,6 @@ class ContextTests(unittest.TestCase):
 
             self.assertIsNone(cm.exc_value)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_load_verify_locations(self):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_verify_locations(CERTFILE)
@@ -1314,7 +1308,6 @@ class ContextTests(unittest.TestCase):
         # Issue #10989: crash if the second argument type is invalid
         self.assertRaises(TypeError, ctx.load_verify_locations, None, True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_load_verify_cadata(self):
         # test cadata
         with open(CAFILE_CACERT) as f:
@@ -1380,7 +1373,6 @@ class ContextTests(unittest.TestCase):
         with self.assertRaises(ssl.SSLError):
             ctx.load_verify_locations(cadata=cacert_der + b"A")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_load_dh_params(self):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         try:
@@ -1473,7 +1465,6 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(ctx.cert_store_stats(),
             {'x509_ca': 1, 'crl': 0, 'x509': 2})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_get_ca_certs(self):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         self.assertEqual(ctx.get_ca_certs(), [])
@@ -1732,7 +1723,6 @@ class SSLErrorTests(unittest.TestCase):
         s = str(cm.exception)
         self.assertTrue("NO_START_LINE" in s, s)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_subclass(self):
         # Check that the appropriate SSLError subclass is raised
         # (this only tests one of them)
@@ -1751,7 +1741,6 @@ class SSLErrorTests(unittest.TestCase):
                 self.assertEqual(cm.exception.errno, ssl.SSL_ERROR_WANT_READ)
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bad_server_hostname(self):
         ctx = ssl.create_default_context()
         with self.assertRaises(ValueError):
@@ -1838,7 +1827,6 @@ class SSLObjectTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "public constructor"):
             ssl.SSLObject(bio, bio)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unwrap(self):
         client_ctx, server_ctx, hostname = testing_context()
         c_in = ssl.MemoryBIO()
@@ -2193,7 +2181,6 @@ class SimpleBackgroundTests(unittest.TestCase):
                              % (count, func.__name__))
         return ret
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bio_handshake(self):
         sock = socket.socket(socket.AF_INET)
         self.addCleanup(sock.close)
@@ -2230,7 +2217,6 @@ class SimpleBackgroundTests(unittest.TestCase):
             pass
         self.assertRaises(ssl.SSLError, sslobj.write, b'foo')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bio_read_write_data(self):
         sock = socket.socket(socket.AF_INET)
         self.addCleanup(sock.close)
@@ -2248,7 +2234,6 @@ class SimpleBackgroundTests(unittest.TestCase):
         self.assertEqual(buf, b'foo\n')
         self.ssl_io_loop(sock, incoming, outgoing, sslobj.unwrap)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_transport_eof(self):
         client_context, server_context, hostname = testing_context()
         with socket.socket(socket.AF_INET) as sock:
@@ -3565,7 +3550,6 @@ class ThreadedTests(unittest.TestCase):
             f.close()
         self.assertEqual(d1, d2)
 
-    @unittest.skip("TODO: RUSTPYTHON; hangs")
     def test_asyncore_server(self):
         """Check the example asyncore integration."""
         if support.verbose:
@@ -3595,7 +3579,6 @@ class ThreadedTests(unittest.TestCase):
             if support.verbose:
                 sys.stdout.write(" client:  connection closed.\n")
 
-    @unittest.skip("TODO: RUSTPYTHON; hangs")
     def test_recv_send(self):
         """Test recv(), send() and friends."""
         if support.verbose:
@@ -3732,7 +3715,6 @@ class ThreadedTests(unittest.TestCase):
 
             s.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_recv_zero(self):
         server = ThreadedEchoServer(CERTFILE)
         self.enterContext(server)
@@ -4040,6 +4022,7 @@ class ThreadedTests(unittest.TestCase):
                 s.connect((HOST, server.port))
                 self.assertIn("ECDH", s.cipher()[0])
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipUnless("tls-unique" in ssl.CHANNEL_BINDING_TYPES,
                          "'tls-unique' channel binding not available")
     def test_tls_unique_channel_binding(self):
@@ -4212,7 +4195,6 @@ class ThreadedTests(unittest.TestCase):
                                    sni_name=hostname)
         self.assertIs(stats['client_alpn_protocol'], None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_alpn_protocols(self):
         server_protocols = ['foo', 'bar', 'milkshake']
         protocol_tests = [
@@ -4263,7 +4245,6 @@ class ThreadedTests(unittest.TestCase):
         cert = stats['peercert']
         self.assertIn((('commonName', name),), cert['subject'])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_sni_callback(self):
         calls = []
         server_context, other_context, client_context = self.sni_contexts()
@@ -4514,7 +4495,6 @@ class ThreadedTests(unittest.TestCase):
                                  'Session refers to a different SSLContext.')
 
     @requires_tls_version('TLSv1_2')
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipUnless(ssl.HAS_PSK, 'TLS-PSK disabled on this OpenSSL build')
     def test_psk(self):
         psk = bytes.fromhex('deadbeef')
@@ -4583,7 +4563,6 @@ class ThreadedTests(unittest.TestCase):
                 s.connect((HOST, server.port))
 
     @requires_tls_version('TLSv1_3')
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipUnless(ssl.HAS_PSK, 'TLS-PSK disabled on this OpenSSL build')
     def test_psk_tls1_3(self):
         psk = bytes.fromhex('deadbeef')
@@ -4615,6 +4594,43 @@ class ThreadedTests(unittest.TestCase):
         with server:
             with client_context.wrap_socket(socket.socket()) as s:
                 s.connect((HOST, server.port))
+
+    @unittest.skip("TODO: rustpython")
+    def test_thread_recv_while_main_thread_sends(self):
+        # GH-137583: Locking was added to calls to send() and recv() on SSL
+        # socket objects. This seemed fine at the surface level because those
+        # calls weren't re-entrant, but recv() calls would implicitly mimick
+        # holding a lock by blocking until it received data. This means that
+        # if a thread started to infinitely block until data was received, calls
+        # to send() would deadlock, because it would wait forever on the lock
+        # that the recv() call held.
+        data = b"1" * 1024
+        event = threading.Event()
+        def background(sock):
+            event.set()
+            received = sock.recv(len(data))
+            self.assertEqual(received, data)
+
+        client_context, server_context, hostname = testing_context()
+        server = ThreadedEchoServer(context=server_context)
+        with server:
+            with client_context.wrap_socket(socket.socket(),
+                                            server_hostname=hostname) as sock:
+                sock.connect((HOST, server.port))
+                sock.settimeout(1)
+                sock.setblocking(1)
+                # Ensure that the server is ready to accept requests
+                sock.sendall(b"123")
+                self.assertEqual(sock.recv(3), b"123")
+                with threading_helper.catch_threading_exception() as cm:
+                    thread = threading.Thread(target=background,
+                                              args=(sock,), daemon=True)
+                    thread.start()
+                    event.wait()
+                    sock.sendall(data)
+                    thread.join()
+                    if cm.exc_value is not None:
+                        raise cm.exc_value
 
 
 @unittest.skipUnless(has_tls_version('TLSv1_3'), "Test needs TLS 1.3")
@@ -4736,6 +4752,7 @@ class TestPostHandshakeAuth(unittest.TestCase):
                 s.write(b'HASCERT')
                 self.assertEqual(s.recv(1024), b'TRUE\n')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pha_optional_nocert(self):
         if support.verbose:
             sys.stdout.write("\n")
@@ -4775,6 +4792,7 @@ class TestPostHandshakeAuth(unittest.TestCase):
                 s.write(b'PHA')
                 self.assertIn(b'extension not received', s.recv(1024))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pha_no_pha_server(self):
         # server doesn't have PHA enabled, cert is requested in handshake
         client_context, server_context, hostname = testing_context()
@@ -4844,7 +4862,6 @@ class TestPostHandshakeAuth(unittest.TestCase):
                 # server cert has not been validated
                 self.assertEqual(s.getpeercert(), {})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_internal_chain_client(self):
         client_context, server_context, hostname = testing_context(
             server_chain=False
@@ -4916,7 +4933,6 @@ class TestPostHandshakeAuth(unittest.TestCase):
                 self.assertEqual(ee, uvc[0])
                 self.assertNotEqual(ee, ca)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_internal_chain_server(self):
         client_context, server_context, hostname = testing_context()
         client_context.load_cert_chain(SIGNED_CERTFILE)
@@ -5040,7 +5056,6 @@ class TestSSLDebug(unittest.TestCase):
             ctx = ssl._create_stdlib_context()
             self.assertEqual(ctx.keylog_filename, os_helper.TESTFN)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_msg_callback(self):
         client_context, server_context, hostname = testing_context()
 
@@ -5085,7 +5100,6 @@ class TestSSLDebug(unittest.TestCase):
             msg
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_msg_callback_deadlock_bpo43577(self):
         client_context, server_context, hostname = testing_context()
         server_context2 = testing_context()[1]

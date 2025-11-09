@@ -141,7 +141,11 @@ __import__("io").TextIOWrapper(
 }
 
 fn install_pip(installer: InstallPipMode, scope: Scope, vm: &VirtualMachine) -> PyResult<()> {
-    if cfg!(not(feature = "ssl")) {
+    if cfg!(feature = "ssl") {
+        if cfg!(not(any(feature = "ssl-rustls", feature = "ssl-openssl"))) {
+            // TODO: something
+        }
+    } else {
         return Err(vm.new_exception_msg(
             vm.ctx.exceptions.system_error.to_owned(),
             "install-pip requires rustpython be build with '--features=ssl'".to_owned(),
