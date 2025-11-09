@@ -44,8 +44,8 @@ jobs:
 
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
-          name: doc-db-${{ env.PYTHON_VERSION }}-${{ matrix.os }}
+          name: doc-db-${{ inputs.python-version }}-${{ matrix.os }}
           path: ${{ steps.diff.outputs.diff }}
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 7
           overwrite: true
