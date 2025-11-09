@@ -161,7 +161,7 @@ def traverse(
         )
 
         is_func = any(
-            f(obj)
+            f(attr)
             for f in (inspect.isfunction, inspect.ismethod, inspect.ismethoddescriptor)
         )
 
