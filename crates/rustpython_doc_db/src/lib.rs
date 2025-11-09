@@ -1,11 +1,4 @@
-#[cfg(windows)]
-include!("./win32.inc.rs");
-
-#[cfg(any(target_os = "linux", target_os = "android"))]
-include!("./linux.inc.rs");
-
-#[cfg(any(target_os = "macos", target_os = "ios"))]
-include!("./darwin.inc.rs");
+include!("./data.inc.rs");
 
 #[cfg(test)]
 mod test {
