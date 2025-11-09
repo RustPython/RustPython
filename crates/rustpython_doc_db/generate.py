@@ -167,7 +167,7 @@ def traverse(
             yield DocEntry(new_parts, pydoc._getowndoc(attr))
 
 
-def find_doc_entires() -> "Iterable[DocEntry]":
+def find_doc_entries() -> "Iterable[DocEntry]":
     yield from (
         doc_entry
         for module in iter_c_modules()
@@ -201,7 +201,7 @@ def find_doc_entires() -> "Iterable[DocEntry]":
 def main():
     docs = {
         entry.key: entry.doc
-        for entry in find_doc_entires()
+        for entry in find_doc_entries()
         if entry.raw_doc is not None
     }
     dumped = json.dumps(docs, sort_keys=True, indent=4)
