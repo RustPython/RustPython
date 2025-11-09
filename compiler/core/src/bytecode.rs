@@ -1,13 +1,16 @@
 //! Implement python as a virtual machine with bytecode. This module
 //! implements bytecode structure.
 
-use crate::{OneIndexed, SourceLocation};
+use crate::{
+    marshal::MarshalError,
+    {OneIndexed, SourceLocation},
+};
 use bitflags::bitflags;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
-use std::{collections::BTreeSet, fmt, hash, marker::PhantomData, mem};
+use std::{collections::BTreeSet, fmt, hash, marker::PhantomData, mem, ops::Deref};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 #[repr(i8)]
@@ -254,6 +257,12 @@ pub struct OpArgByte(pub u8);
 impl OpArgByte {
     pub const fn null() -> Self {
         Self(0)
+    }
+}
+
+impl From<u8> for OpArgByte {
+    fn from(raw: u8) -> Self {
+        Self(raw)
     }
 }
 
@@ -808,14 +817,14 @@ impl From<Instruction> for u8 {
 }
 
 impl TryFrom<u8> for Instruction {
-    type Error = crate::marshal::MarshalError;
+    type Error = MarshalError;
 
     #[inline]
-    fn try_from(value: u8) -> Result<Self, crate::marshal::MarshalError> {
+    fn try_from(value: u8) -> Result<Self, MarshalError> {
         if value <= u8::from(LAST_INSTRUCTION) {
             Ok(unsafe { std::mem::transmute::<u8, Self>(value) })
         } else {
-            Err(crate::marshal::MarshalError::InvalidBytecode)
+            Err(MarshalError::InvalidBytecode)
         }
     }
 }
@@ -832,6 +841,47 @@ const _: () = assert!(mem::size_of::<CodeUnit>() == 2);
 impl CodeUnit {
     pub const fn new(op: Instruction, arg: OpArgByte) -> Self {
         Self { op, arg }
+    }
+}
+
+impl TryFrom<&[u8]> for CodeUnit {
+    type Error = MarshalError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        match bytes.len() {
+            2 => Ok(Self::new(bytes[0].try_into()?, bytes[1].into())),
+            _ => Err(Self::Error::InvalidBytecode),
+        }
+    }
+}
+
+pub struct CodeUnits(Box<[CodeUnit]>);
+
+impl TryFrom<&[u8]> for CodeUnits {
+    type Error = MarshalError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        bytes.chunks_exact(2).map(CodeUnit::try_from).collect()
+    }
+}
+
+impl<const N: usize> From<[CodeUnit; N]> for CodeUnits {
+    fn from(value: [CodeUnit; N]) -> Self {
+        Self(Box::from(value))
+    }
+}
+
+impl FromIterator<CodeUnit> for CodeUnits {
+    fn from_iter<T: IntoIterator<Item = CodeUnit>>(iter: T) -> Self {
+        Self(iter.into_iter().collect())
+    }
+}
+
+impl Deref for CodeUnits {
+    type Target = [CodeUnit];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
