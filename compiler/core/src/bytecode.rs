@@ -198,7 +198,7 @@ impl ConstantBag for BasicBag {
 /// a code object. Also a module has a code object.
 #[derive(Clone)]
 pub struct CodeObject<C: Constant = ConstantData> {
-    pub instructions: Box<[CodeUnit]>,
+    pub instructions: CodeUnits,
     pub locations: Box<[SourceLocation]>,
     pub flags: CodeFlags,
     /// Number of positional-only arguments
@@ -847,27 +847,38 @@ impl CodeUnit {
 impl TryFrom<&[u8]> for CodeUnit {
     type Error = MarshalError;
 
-    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        match bytes.len() {
-            2 => Ok(Self::new(bytes[0].try_into()?, bytes[1].into())),
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        match value.len() {
+            2 => Ok(Self::new(value[0].try_into()?, value[1].into())),
             _ => Err(Self::Error::InvalidBytecode),
         }
     }
 }
 
+#[derive(Clone)]
 pub struct CodeUnits(Box<[CodeUnit]>);
 
 impl TryFrom<&[u8]> for CodeUnits {
     type Error = MarshalError;
 
-    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        bytes.chunks_exact(2).map(CodeUnit::try_from).collect()
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        if !value.len().is_multiple_of(2) {
+            return Err(Self::Error::InvalidBytecode);
+        }
+
+        value.chunks_exact(2).map(CodeUnit::try_from).collect()
     }
 }
 
 impl<const N: usize> From<[CodeUnit; N]> for CodeUnits {
     fn from(value: [CodeUnit; N]) -> Self {
         Self(Box::from(value))
+    }
+}
+
+impl From<Vec<CodeUnit>> for CodeUnits {
+    fn from(value: Vec<CodeUnit>) -> Self {
+        Self(value.into_boxed_slice())
     }
 }
 

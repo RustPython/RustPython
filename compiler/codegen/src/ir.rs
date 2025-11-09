@@ -4,8 +4,8 @@ use crate::{IndexMap, IndexSet, error::InternalError};
 use rustpython_compiler_core::{
     OneIndexed, SourceLocation,
     bytecode::{
-        CodeFlags, CodeObject, CodeUnit, ConstantData, InstrDisplayContext, Instruction, Label,
-        OpArg, PyCodeLocationInfoKind,
+        CodeFlags, CodeObject, CodeUnit, CodeUnits, ConstantData, InstrDisplayContext, Instruction,
+        Label, OpArg, PyCodeLocationInfoKind,
     },
 };
 
@@ -214,7 +214,7 @@ impl CodeInfo {
             qualname: qualname.unwrap_or(obj_name),
 
             max_stackdepth,
-            instructions: instructions.into_boxed_slice(),
+            instructions: CodeUnits::from(instructions),
             locations: locations.into_boxed_slice(),
             constants: constants.into_iter().collect(),
             names: name_cache.into_iter().collect(),
