@@ -14,6 +14,7 @@ on:
 defaults:
   run:
     shell: bash
+    working-directory: ./crates/rustpython_doc_db
 
 jobs:
   generate:
@@ -35,17 +36,52 @@ jobs:
         with:
           python-version: ${{ inputs.python-version }}
 
-      - name: Generate (${{ matrix.os }})
-        run: python crates/rustpython_doc_db/generate.py
-
-      - name: Detect output file
-        id: diff
-        run: echo "diff=$(git diff --name-only)" >> $GITHUB_OUTPUT
+      - name: Generate docs
+        run: python ./generate.py
 
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: doc-db-${{ inputs.python-version }}-${{ matrix.os }}
-          path: ${{ steps.diff.outputs.diff }}
-          if-no-files-found: warn
+          path: "crates/rustpython_doc_db/generated/*.json"
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
+  merge:
+    runs-on: ubuntu-latest
+    needs: generate
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            crates/rustpython_doc_db
+
+      - name: Download generated doc DBs
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          pattern: "doc-db-${{ inputs.python-version }}-**"
+          path: crates/rustpython_doc_db/generated/
+          merge-multiple: true
+
+      - name: Transform JSON
+        run: |
+          # Merge all artifacts
+          jq -s "add" --sort-keys generated/*.json > generated/merged.json
+
+          # Format merged json for the phf macro
+          jq -r 'to_entries[] | "    \(.key | @json) => \(.value | @json),"' generated/merged.json > generated/raw_entries.txt
+
+          OUTPUT_FILE='src/data.inc.rs'
+
+          echo "pub static DB: phf::Map<&'static, &'static> = phf::phf_map! {" > $OUTPUT_FILE
+          cat generated/raw_entries.txt >> $OUTPUT_FILE
+          echo '};' >> $OUTPUT_FILE
+
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: doc-db-${{ inputs.python-version }}
+          path: "crates/rustpython_doc_db/src/data.inc.rs"
+          if-no-files-found: error
           retention-days: 7
           overwrite: true
