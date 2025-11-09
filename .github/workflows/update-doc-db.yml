@@ -82,7 +82,7 @@ jobs:
 
           echo '' >> $OUTPUT_FILE
 
-          echo "pub static DB: phf::Map<&'static, &'static> = phf::phf_map! {" >> $OUTPUT_FILE
+          echo "pub static DB: phf::Map<&'static str, &'static str> = phf::phf_map! {" >> $OUTPUT_FILE
           cat generated/raw_entries.txt >> $OUTPUT_FILE
           echo '};' >> $OUTPUT_FILE
 
