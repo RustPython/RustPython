@@ -47,6 +47,8 @@ class DocEntry(typing.NamedTuple):
 
     @property
     def doc(self) -> str:
+        assert self.raw_doc is not None
+
         return re.sub(UNICODE_ESCAPE, r"\\u{\1}", inspect.cleandoc(self.raw_doc))
 
 
