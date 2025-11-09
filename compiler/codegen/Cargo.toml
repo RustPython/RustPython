@@ -13,6 +13,9 @@ rustpython-compiler-core = { workspace = true }
 rustpython-literal = {workspace = true }
 rustpython-wtf8 = { workspace = true }
 ruff_python_ast = { workspace = true }
+ruff_python_parser = { workspace = true }
+ruff_python_codegen = { workspace = true }
+ruff_source_file = { workspace = true }
 ruff_text_size = { workspace = true }
 
 ahash = { workspace = true }

@@ -14,7 +14,6 @@ use crate::{
     error::{CodegenError, CodegenErrorType, InternalError, PatternUnreachableReason},
     ir::{self, BlockIdx},
     symboltable::{self, CompilerScope, SymbolFlags, SymbolScope, SymbolTable},
-    unparse::UnparseExpr,
 };
 use itertools::Itertools;
 use malachite_bigint::BigInt;
@@ -31,6 +30,7 @@ use ruff_python_ast::{
     PatternMatchStar, PatternMatchValue, Singleton, Stmt, StmtExpr, TypeParam, TypeParamParamSpec,
     TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams, UnaryOp, WithItem,
 };
+use ruff_source_file::LineEnding;
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_core::{
     Mode, OneIndexed, PositionEncoding, SourceFile, SourceLocation,
@@ -145,6 +145,15 @@ enum ComprehensionType {
     List,
     Set,
     Dict,
+}
+
+fn unparse_expr(expr: &Expr) -> String {
+    use ruff_python_ast::str::Quote;
+    use ruff_python_codegen::{Generator, Indentation};
+
+    Generator::new(&Indentation::default(), LineEnding::default())
+        .with_preferred_quote(Some(Quote::Single))
+        .expr(expr)
 }
 
 fn validate_duplicate_params(params: &Parameters) -> Result<(), CodegenErrorType> {
@@ -3609,7 +3618,7 @@ impl Compiler {
                         | Expr::NoneLiteral(_)
                 );
                 let key_repr = if is_literal {
-                    UnparseExpr::new(key, &self.source_file).to_string()
+                    unparse_expr(key)
                 } else if is_attribute {
                     String::new()
                 } else {
@@ -4163,9 +4172,7 @@ impl Compiler {
     fn compile_annotation(&mut self, annotation: &Expr) -> CompileResult<()> {
         if self.future_annotations {
             self.emit_load_const(ConstantData::Str {
-                value: UnparseExpr::new(annotation, &self.source_file)
-                    .to_string()
-                    .into(),
+                value: unparse_expr(annotation).into(),
             });
         } else {
             let was_in_annotation = self.in_annotation;
