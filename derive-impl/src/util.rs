@@ -187,6 +187,35 @@ impl ItemMetaInner {
         Ok(value)
     }
 
+    pub fn _optional_path(&self, key: &str) -> Result<Option<syn::Path>> {
+        let value = if let Some((_, meta)) = self.meta_map.get(key) {
+            let Meta::NameValue(syn::MetaNameValue { value, .. }) = meta else {
+                bail_span!(
+                    meta,
+                    "#[{}({} = ...)] must be a name-value pair",
+                    self.meta_name(),
+                    key
+                )
+            };
+
+            // Try to parse as a Path (identifier or path like Foo or foo::Bar)
+            match syn::parse2::<syn::Path>(value.to_token_stream()) {
+                Ok(path) => Some(path),
+                Err(_) => {
+                    bail_span!(
+                        value,
+                        "#[{}({} = ...)] must be a valid type path (e.g., PyBaseException)",
+                        self.meta_name(),
+                        key
+                    )
+                }
+            }
+        } else {
+            None
+        };
+        Ok(value)
+    }
+
     pub fn _has_key(&self, key: &str) -> Result<bool> {
         Ok(matches!(self.meta_map.get(key), Some((_, _))))
     }
@@ -384,8 +413,8 @@ impl ClassItemMeta {
         self.inner()._optional_str("ctx")
     }
 
-    pub fn base(&self) -> Result<Option<String>> {
-        self.inner()._optional_str("base")
+    pub fn base(&self) -> Result<Option<syn::Path>> {
+        self.inner()._optional_path("base")
     }
 
     pub fn unhashable(&self) -> Result<bool> {

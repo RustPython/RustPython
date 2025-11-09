@@ -8,7 +8,7 @@ use rustpython_vm::types::Constructor;
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-#[pyclass(module = "_ctypes", name = "Structure", base = "PyCData")]
+#[pyclass(module = "_ctypes", name = "Structure", base = PyCData)]
 #[derive(PyPayload, Debug)]
 pub struct PyCStructure {
     #[allow(dead_code)]

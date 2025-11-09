@@ -77,7 +77,7 @@ impl PyObjectRef {
     }
 }
 
-#[pyclass(name = "bool", module = false, base = "PyInt")]
+#[pyclass(name = "bool", module = false, base = PyInt)]
 pub struct PyBool;
 
 impl PyPayload for PyBool {

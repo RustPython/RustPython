@@ -246,7 +246,7 @@ mod _ssl {
 
     /// An error occurred in the SSL implementation.
     #[pyattr]
-    #[pyexception(name = "SSLError", base = "PyOSError")]
+    #[pyexception(name = "SSLError", base = PyOSError)]
     #[derive(Debug)]
     pub struct PySslError {}
 
@@ -269,7 +269,7 @@ mod _ssl {
 
     /// A certificate could not be verified.
     #[pyattr]
-    #[pyexception(name = "SSLCertVerificationError", base = "PySslError")]
+    #[pyexception(name = "SSLCertVerificationError", base = PySslError)]
     #[derive(Debug)]
     pub struct PySslCertVerificationError {}
 
@@ -278,7 +278,7 @@ mod _ssl {
 
     /// SSL/TLS session closed cleanly.
     #[pyattr]
-    #[pyexception(name = "SSLZeroReturnError", base = "PySslError")]
+    #[pyexception(name = "SSLZeroReturnError", base = PySslError)]
     #[derive(Debug)]
     pub struct PySslZeroReturnError {}
 
@@ -287,7 +287,7 @@ mod _ssl {
 
     /// Non-blocking SSL socket needs to read more data.
     #[pyattr]
-    #[pyexception(name = "SSLWantReadError", base = "PySslError")]
+    #[pyexception(name = "SSLWantReadError", base = PySslError)]
     #[derive(Debug)]
     pub struct PySslWantReadError {}
 
@@ -296,7 +296,7 @@ mod _ssl {
 
     /// Non-blocking SSL socket needs to write more data.
     #[pyattr]
-    #[pyexception(name = "SSLWantWriteError", base = "PySslError")]
+    #[pyexception(name = "SSLWantWriteError", base = PySslError)]
     #[derive(Debug)]
     pub struct PySslWantWriteError {}
 
@@ -305,7 +305,7 @@ mod _ssl {
 
     /// System error when attempting SSL operation.
     #[pyattr]
-    #[pyexception(name = "SSLSyscallError", base = "PySslError")]
+    #[pyexception(name = "SSLSyscallError", base = PySslError)]
     #[derive(Debug)]
     pub struct PySslSyscallError {}
 
@@ -314,7 +314,7 @@ mod _ssl {
 
     /// SSL/TLS connection terminated abruptly.
     #[pyattr]
-    #[pyexception(name = "SSLEOFError", base = "PySslError")]
+    #[pyexception(name = "SSLEOFError", base = PySslError)]
     #[derive(Debug)]
     pub struct PySslEOFError {}
 
