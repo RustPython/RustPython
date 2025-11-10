@@ -4,12 +4,10 @@ fn main() {
         let mut res = winresource::WindowsResource::new();
         if std::path::Path::new("logo.ico").exists() {
             res.set_icon("logo.ico");
-        } else {
-            println!("cargo:warning=logo.ico not found, skipping icon embedding");
+        } else {println!("cargo:warning=logo.ico not found, skipping icon embedding");
             return;
         }
-        res.compile()
-            .map_err(|e| {
+        res.compile().map_err(|e| {
                 println!("cargo:warning=Failed to compile Windows resources: {e}");
             })
             .ok();
