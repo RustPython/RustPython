@@ -336,7 +336,7 @@ jobs:
       - name: install extra dictionaries
         run: npm install @cspell/dict-en_us @cspell/dict-cpp @cspell/dict-python @cspell/dict-rust @cspell/dict-win32 @cspell/dict-shell
       - name: spell checker
-        uses: streetsidesoftware/cspell-action@v7
+        uses: streetsidesoftware/cspell-action@v8
         with:
           files: '**/*.rs'
           incremental_files_only: true
