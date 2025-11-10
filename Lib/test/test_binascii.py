@@ -490,7 +490,6 @@ class BinASCIITest(unittest.TestCase):
         restored = binascii.a2b_base64(self.type2test(converted))
         self.assertConversion(binary, converted, restored, newline=newline)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_c_contiguity(self):
         m = memoryview(bytearray(b'noncontig'))
         noncontig_writable = m[::-2]

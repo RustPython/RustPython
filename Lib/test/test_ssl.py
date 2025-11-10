@@ -1811,7 +1811,6 @@ class MemoryBIOTests(unittest.TestCase):
         bio.read()
         self.assertEqual(bio.pending, 0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_buffer_types(self):
         bio = ssl.MemoryBIO()
         bio.write(b'foo')
