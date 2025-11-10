@@ -148,7 +148,7 @@ impl Representable for PyNativeFunction {
 impl Unconstructible for PyNativeFunction {}
 
 // `PyCMethodObject` in CPython
-#[pyclass(name = "builtin_method", module = false, base = "PyNativeFunction")]
+#[pyclass(name = "builtin_method", module = false, base = PyNativeFunction)]
 pub struct PyNativeMethod {
     pub(crate) func: PyNativeFunction,
     pub(crate) class: &'static Py<PyType>, // TODO: the actual life is &'self

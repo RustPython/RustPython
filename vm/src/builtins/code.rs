@@ -1,12 +1,10 @@
-/*! Infamous code object. The python class `code`
-
-*/
+//! Infamous code object. The python class `code`
 
 use super::{PyBytesRef, PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     builtins::PyStrInterned,
-    bytecode::{self, AsBag, BorrowedConstant, CodeFlags, CodeUnit, Constant, ConstantBag},
+    bytecode::{self, AsBag, BorrowedConstant, CodeFlags, Constant, ConstantBag},
     class::{PyClassImpl, StaticType},
     convert::ToPyObject,
     frozen,
@@ -15,11 +13,7 @@ use crate::{
 };
 use malachite_bigint::BigInt;
 use num_traits::Zero;
-use rustpython_compiler_core::{
-    OneIndexed,
-    bytecode::PyCodeLocationInfoKind,
-    marshal::{MarshalError, parse_instructions_from_bytes},
-};
+use rustpython_compiler_core::{OneIndexed, bytecode::CodeUnits, bytecode::PyCodeLocationInfoKind};
 use std::{borrow::Borrow, fmt, ops::Deref};
 
 /// State for iterating through code address ranges
@@ -457,7 +451,7 @@ impl Constructor for PyCode {
 
         // Parse and validate bytecode from bytes
         let bytecode_bytes = args.co_code.as_bytes();
-        let instructions = parse_bytecode(bytecode_bytes)
+        let instructions = CodeUnits::try_from(bytecode_bytes)
             .map_err(|e| vm.new_value_error(format!("invalid bytecode: {}", e)))?;
 
         // Convert constants
@@ -925,7 +919,7 @@ impl PyCode {
         let instructions = match co_code {
             OptionalArg::Present(code_bytes) => {
                 // Parse and validate bytecode from bytes
-                parse_bytecode(code_bytes.as_bytes())
+                CodeUnits::try_from(code_bytes.as_bytes())
                     .map_err(|e| vm.new_value_error(format!("invalid bytecode: {}", e)))?
             }
             OptionalArg::Missing => self.code.instructions.clone(),
@@ -1031,19 +1025,6 @@ impl ToPyObject for bytecode::CodeObject {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_code(self).into()
     }
-}
-
-/// Validates and parses bytecode bytes into CodeUnit instructions.
-/// Returns MarshalError if bytecode is invalid (odd length or contains invalid opcodes).
-/// Note: Returning MarshalError is not necessary at this point because this is not a part of marshalling API.
-/// However, we (temporarily) reuse MarshalError for simplicity.
-fn parse_bytecode(bytecode_bytes: &[u8]) -> Result<Box<[CodeUnit]>, MarshalError> {
-    // Bytecode must have even length (each instruction is 2 bytes)
-    if !bytecode_bytes.len().is_multiple_of(2) {
-        return Err(MarshalError::InvalidBytecode);
-    }
-
-    parse_instructions_from_bytes(bytecode_bytes)
 }
 
 // Helper struct for reading linetable
