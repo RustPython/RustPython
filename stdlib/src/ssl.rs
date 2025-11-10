@@ -10,6 +10,8 @@
 //! - rustls-platform-verifier: Platform-native certificate verification
 //!
 //! DO NOT add openssl dependency here.
+//!
+//! Warning: This library contains AI-generated code and comments. Do not trust any code or comment without verification. Please have a qualified expert review the code and remove this notice after review.
 
 // OID (Object Identifier) management module
 mod oid;
