@@ -2529,10 +2529,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rustpython-compiler-core",
- "rustpython_doc_db",
+ "rustpython-doc",
  "syn",
  "syn-ext",
  "textwrap",
+]
+
+[[package]]
+name = "rustpython-doc"
+version = "0.4.0"
+dependencies = [
+ "phf 0.13.1",
 ]
 
 [[package]]
@@ -2745,13 +2752,6 @@ dependencies = [
  "bstr",
  "itertools 0.14.0",
  "memchr",
-]
-
-[[package]]
-name = "rustpython_doc_db"
-version = "0.4.0"
-dependencies = [
- "phf 0.13.1",
 ]
 
 [[package]]

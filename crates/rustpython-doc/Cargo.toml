@@ -1,5 +1,5 @@
 [package]
-name = "rustpython_doc_db"
+name = "rustpython-doc"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

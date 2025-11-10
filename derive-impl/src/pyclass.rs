@@ -6,7 +6,7 @@ use crate::util::{
 };
 use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
 use quote::{ToTokens, quote, quote_spanned};
-use rustpython_doc_db::DB;
+use rustpython_doc::DB;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
