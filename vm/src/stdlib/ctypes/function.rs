@@ -122,7 +122,7 @@ impl Function {
     }
 }
 
-#[pyclass(module = "_ctypes", name = "CFuncPtr", base = "PyCData")]
+#[pyclass(module = "_ctypes", name = "CFuncPtr", base = PyCData)]
 #[derive(PyPayload)]
 pub struct PyCFuncPtr {
     pub name: PyRwLock<String>,

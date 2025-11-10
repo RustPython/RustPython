@@ -1225,11 +1225,11 @@ pub(super) mod types {
         pub(super) args: PyRwLock<PyTupleRef>,
     }
 
-    #[pyexception(name, base = "PyBaseException", ctx = "system_exit", impl)]
+    #[pyexception(name, base = PyBaseException, ctx = "system_exit", impl)]
     #[derive(Debug)]
     pub struct PySystemExit {}
 
-    #[pyexception(name, base = "PyBaseException", ctx = "base_exception_group")]
+    #[pyexception(name, base = PyBaseException, ctx = "base_exception_group")]
     #[derive(Debug)]
     pub struct PyBaseExceptionGroup {}
 
@@ -1245,23 +1245,23 @@ pub(super) mod types {
         }
     }
 
-    #[pyexception(name, base = "PyBaseExceptionGroup", ctx = "exception_group", impl)]
+    #[pyexception(name, base = PyBaseExceptionGroup, ctx = "exception_group", impl)]
     #[derive(Debug)]
     pub struct PyExceptionGroup {}
 
-    #[pyexception(name, base = "PyBaseException", ctx = "generator_exit", impl)]
+    #[pyexception(name, base = PyBaseException, ctx = "generator_exit", impl)]
     #[derive(Debug)]
     pub struct PyGeneratorExit {}
 
-    #[pyexception(name, base = "PyBaseException", ctx = "keyboard_interrupt", impl)]
+    #[pyexception(name, base = PyBaseException, ctx = "keyboard_interrupt", impl)]
     #[derive(Debug)]
     pub struct PyKeyboardInterrupt {}
 
-    #[pyexception(name, base = "PyBaseException", ctx = "exception_type", impl)]
+    #[pyexception(name, base = PyBaseException, ctx = "exception_type", impl)]
     #[derive(Debug)]
     pub struct PyException {}
 
-    #[pyexception(name, base = "PyException", ctx = "stop_iteration")]
+    #[pyexception(name, base = PyException, ctx = "stop_iteration")]
     #[derive(Debug)]
     pub struct PyStopIteration {}
 
@@ -1279,31 +1279,31 @@ pub(super) mod types {
         }
     }
 
-    #[pyexception(name, base = "PyException", ctx = "stop_async_iteration", impl)]
+    #[pyexception(name, base = PyException, ctx = "stop_async_iteration", impl)]
     #[derive(Debug)]
     pub struct PyStopAsyncIteration {}
 
-    #[pyexception(name, base = "PyException", ctx = "arithmetic_error", impl)]
+    #[pyexception(name, base = PyException, ctx = "arithmetic_error", impl)]
     #[derive(Debug)]
     pub struct PyArithmeticError {}
 
-    #[pyexception(name, base = "PyArithmeticError", ctx = "floating_point_error", impl)]
+    #[pyexception(name, base = PyArithmeticError, ctx = "floating_point_error", impl)]
     #[derive(Debug)]
     pub struct PyFloatingPointError {}
 
-    #[pyexception(name, base = "PyArithmeticError", ctx = "overflow_error", impl)]
+    #[pyexception(name, base = PyArithmeticError, ctx = "overflow_error", impl)]
     #[derive(Debug)]
     pub struct PyOverflowError {}
 
-    #[pyexception(name, base = "PyArithmeticError", ctx = "zero_division_error", impl)]
+    #[pyexception(name, base = PyArithmeticError, ctx = "zero_division_error", impl)]
     #[derive(Debug)]
     pub struct PyZeroDivisionError {}
 
-    #[pyexception(name, base = "PyException", ctx = "assertion_error", impl)]
+    #[pyexception(name, base = PyException, ctx = "assertion_error", impl)]
     #[derive(Debug)]
     pub struct PyAssertionError {}
 
-    #[pyexception(name, base = "PyException", ctx = "attribute_error")]
+    #[pyexception(name, base = PyException, ctx = "attribute_error")]
     #[derive(Debug)]
     pub struct PyAttributeError {}
 
@@ -1330,15 +1330,15 @@ pub(super) mod types {
         }
     }
 
-    #[pyexception(name, base = "PyException", ctx = "buffer_error", impl)]
+    #[pyexception(name, base = PyException, ctx = "buffer_error", impl)]
     #[derive(Debug)]
     pub struct PyBufferError {}
 
-    #[pyexception(name, base = "PyException", ctx = "eof_error", impl)]
+    #[pyexception(name, base = PyException, ctx = "eof_error", impl)]
     #[derive(Debug)]
     pub struct PyEOFError {}
 
-    #[pyexception(name, base = "PyException", ctx = "import_error")]
+    #[pyexception(name, base = PyException, ctx = "import_error")]
     #[derive(Debug)]
     pub struct PyImportError {}
 
@@ -1383,19 +1383,19 @@ pub(super) mod types {
         }
     }
 
-    #[pyexception(name, base = "PyImportError", ctx = "module_not_found_error", impl)]
+    #[pyexception(name, base = PyImportError, ctx = "module_not_found_error", impl)]
     #[derive(Debug)]
     pub struct PyModuleNotFoundError {}
 
-    #[pyexception(name, base = "PyException", ctx = "lookup_error", impl)]
+    #[pyexception(name, base = PyException, ctx = "lookup_error", impl)]
     #[derive(Debug)]
     pub struct PyLookupError {}
 
-    #[pyexception(name, base = "PyLookupError", ctx = "index_error", impl)]
+    #[pyexception(name, base = PyLookupError, ctx = "index_error", impl)]
     #[derive(Debug)]
     pub struct PyIndexError {}
 
-    #[pyexception(name, base = "PyLookupError", ctx = "key_error")]
+    #[pyexception(name, base = PyLookupError, ctx = "key_error")]
     #[derive(Debug)]
     pub struct PyKeyError {}
 
@@ -1415,19 +1415,19 @@ pub(super) mod types {
         }
     }
 
-    #[pyexception(name, base = "PyException", ctx = "memory_error", impl)]
+    #[pyexception(name, base = PyException, ctx = "memory_error", impl)]
     #[derive(Debug)]
     pub struct PyMemoryError {}
 
-    #[pyexception(name, base = "PyException", ctx = "name_error", impl)]
+    #[pyexception(name, base = PyException, ctx = "name_error", impl)]
     #[derive(Debug)]
     pub struct PyNameError {}
 
-    #[pyexception(name, base = "PyNameError", ctx = "unbound_local_error", impl)]
+    #[pyexception(name, base = PyNameError, ctx = "unbound_local_error", impl)]
     #[derive(Debug)]
     pub struct PyUnboundLocalError {}
 
-    #[pyexception(name, base = "PyException", ctx = "os_error")]
+    #[pyexception(name, base = PyException, ctx = "os_error")]
     #[derive(Debug)]
     pub struct PyOSError {}
 
@@ -1558,25 +1558,25 @@ pub(super) mod types {
         }
     }
 
-    #[pyexception(name, base = "PyOSError", ctx = "blocking_io_error", impl)]
+    #[pyexception(name, base = PyOSError, ctx = "blocking_io_error", impl)]
     #[derive(Debug)]
     pub struct PyBlockingIOError {}
 
-    #[pyexception(name, base = "PyOSError", ctx = "child_process_error", impl)]
+    #[pyexception(name, base = PyOSError, ctx = "child_process_error", impl)]
     #[derive(Debug)]
     pub struct PyChildProcessError {}
 
-    #[pyexception(name, base = "PyOSError", ctx = "connection_error", impl)]
+    #[pyexception(name, base = PyOSError, ctx = "connection_error", impl)]
     #[derive(Debug)]
     pub struct PyConnectionError {}
 
-    #[pyexception(name, base = "PyConnectionError", ctx = "broken_pipe_error", impl)]
+    #[pyexception(name, base = PyConnectionError, ctx = "broken_pipe_error", impl)]
     #[derive(Debug)]
     pub struct PyBrokenPipeError {}
 
     #[pyexception(
         name,
-        base = "PyConnectionError",
+        base = PyConnectionError,
         ctx = "connection_aborted_error",
         impl
     )]
@@ -1585,66 +1585,66 @@ pub(super) mod types {
 
     #[pyexception(
         name,
-        base = "PyConnectionError",
+        base = PyConnectionError,
         ctx = "connection_refused_error",
         impl
     )]
     #[derive(Debug)]
     pub struct PyConnectionRefusedError {}
 
-    #[pyexception(name, base = "PyConnectionError", ctx = "connection_reset_error", impl)]
+    #[pyexception(name, base = PyConnectionError, ctx = "connection_reset_error", impl)]
     #[derive(Debug)]
     pub struct PyConnectionResetError {}
 
-    #[pyexception(name, base = "PyOSError", ctx = "file_exists_error", impl)]
+    #[pyexception(name, base = PyOSError, ctx = "file_exists_error", impl)]
     #[derive(Debug)]
     pub struct PyFileExistsError {}
 
-    #[pyexception(name, base = "PyOSError", ctx = "file_not_found_error", impl)]
+    #[pyexception(name, base = PyOSError, ctx = "file_not_found_error", impl)]
     #[derive(Debug)]
     pub struct PyFileNotFoundError {}
 
-    #[pyexception(name, base = "PyOSError", ctx = "interrupted_error", impl)]
+    #[pyexception(name, base = PyOSError, ctx = "interrupted_error", impl)]
     #[derive(Debug)]
     pub struct PyInterruptedError {}
 
-    #[pyexception(name, base = "PyOSError", ctx = "is_a_directory_error", impl)]
+    #[pyexception(name, base = PyOSError, ctx = "is_a_directory_error", impl)]
     #[derive(Debug)]
     pub struct PyIsADirectoryError {}
 
-    #[pyexception(name, base = "PyOSError", ctx = "not_a_directory_error", impl)]
+    #[pyexception(name, base = PyOSError, ctx = "not_a_directory_error", impl)]
     #[derive(Debug)]
     pub struct PyNotADirectoryError {}
 
-    #[pyexception(name, base = "PyOSError", ctx = "permission_error", impl)]
+    #[pyexception(name, base = PyOSError, ctx = "permission_error", impl)]
     #[derive(Debug)]
     pub struct PyPermissionError {}
 
-    #[pyexception(name, base = "PyOSError", ctx = "process_lookup_error", impl)]
+    #[pyexception(name, base = PyOSError, ctx = "process_lookup_error", impl)]
     #[derive(Debug)]
     pub struct PyProcessLookupError {}
 
-    #[pyexception(name, base = "PyOSError", ctx = "timeout_error", impl)]
+    #[pyexception(name, base = PyOSError, ctx = "timeout_error", impl)]
     #[derive(Debug)]
     pub struct PyTimeoutError {}
 
-    #[pyexception(name, base = "PyException", ctx = "reference_error", impl)]
+    #[pyexception(name, base = PyException, ctx = "reference_error", impl)]
     #[derive(Debug)]
     pub struct PyReferenceError {}
 
-    #[pyexception(name, base = "PyException", ctx = "runtime_error", impl)]
+    #[pyexception(name, base = PyException, ctx = "runtime_error", impl)]
     #[derive(Debug)]
     pub struct PyRuntimeError {}
 
-    #[pyexception(name, base = "PyRuntimeError", ctx = "not_implemented_error", impl)]
+    #[pyexception(name, base = PyRuntimeError, ctx = "not_implemented_error", impl)]
     #[derive(Debug)]
     pub struct PyNotImplementedError {}
 
-    #[pyexception(name, base = "PyRuntimeError", ctx = "recursion_error", impl)]
+    #[pyexception(name, base = PyRuntimeError, ctx = "recursion_error", impl)]
     #[derive(Debug)]
     pub struct PyRecursionError {}
 
-    #[pyexception(name, base = "PyException", ctx = "syntax_error")]
+    #[pyexception(name, base = PyException, ctx = "syntax_error")]
     #[derive(Debug)]
     pub struct PySyntaxError {}
 
@@ -1736,7 +1736,7 @@ pub(super) mod types {
 
     #[pyexception(
         name = "_IncompleteInputError",
-        base = "PySyntaxError",
+        base = PySyntaxError,
         ctx = "incomplete_input_error"
     )]
     #[derive(Debug)]
@@ -1756,31 +1756,31 @@ pub(super) mod types {
         }
     }
 
-    #[pyexception(name, base = "PySyntaxError", ctx = "indentation_error", impl)]
+    #[pyexception(name, base = PySyntaxError, ctx = "indentation_error", impl)]
     #[derive(Debug)]
     pub struct PyIndentationError {}
 
-    #[pyexception(name, base = "PyIndentationError", ctx = "tab_error", impl)]
+    #[pyexception(name, base = PyIndentationError, ctx = "tab_error", impl)]
     #[derive(Debug)]
     pub struct PyTabError {}
 
-    #[pyexception(name, base = "PyException", ctx = "system_error", impl)]
+    #[pyexception(name, base = PyException, ctx = "system_error", impl)]
     #[derive(Debug)]
     pub struct PySystemError {}
 
-    #[pyexception(name, base = "PyException", ctx = "type_error", impl)]
+    #[pyexception(name, base = PyException, ctx = "type_error", impl)]
     #[derive(Debug)]
     pub struct PyTypeError {}
 
-    #[pyexception(name, base = "PyException", ctx = "value_error", impl)]
+    #[pyexception(name, base = PyException, ctx = "value_error", impl)]
     #[derive(Debug)]
     pub struct PyValueError {}
 
-    #[pyexception(name, base = "PyValueError", ctx = "unicode_error", impl)]
+    #[pyexception(name, base = PyValueError, ctx = "unicode_error", impl)]
     #[derive(Debug)]
     pub struct PyUnicodeError {}
 
-    #[pyexception(name, base = "PyUnicodeError", ctx = "unicode_decode_error")]
+    #[pyexception(name, base = PyUnicodeError, ctx = "unicode_decode_error")]
     #[derive(Debug)]
     pub struct PyUnicodeDecodeError {}
 
@@ -1831,7 +1831,7 @@ pub(super) mod types {
         }
     }
 
-    #[pyexception(name, base = "PyUnicodeError", ctx = "unicode_encode_error")]
+    #[pyexception(name, base = PyUnicodeError, ctx = "unicode_encode_error")]
     #[derive(Debug)]
     pub struct PyUnicodeEncodeError {}
 
@@ -1882,7 +1882,7 @@ pub(super) mod types {
         }
     }
 
-    #[pyexception(name, base = "PyUnicodeError", ctx = "unicode_translate_error")]
+    #[pyexception(name, base = PyUnicodeError, ctx = "unicode_translate_error")]
     #[derive(Debug)]
     pub struct PyUnicodeTranslateError {}
 
@@ -1930,56 +1930,56 @@ pub(super) mod types {
 
     /// JIT error.
     #[cfg(feature = "jit")]
-    #[pyexception(name, base = "PyException", ctx = "jit_error", impl)]
+    #[pyexception(name, base = PyException, ctx = "jit_error", impl)]
     #[derive(Debug)]
     pub struct PyJitError {}
 
     // Warnings
-    #[pyexception(name, base = "PyException", ctx = "warning", impl)]
+    #[pyexception(name, base = PyException, ctx = "warning", impl)]
     #[derive(Debug)]
     pub struct PyWarning {}
 
-    #[pyexception(name, base = "PyWarning", ctx = "deprecation_warning", impl)]
+    #[pyexception(name, base = PyWarning, ctx = "deprecation_warning", impl)]
     #[derive(Debug)]
     pub struct PyDeprecationWarning {}
 
-    #[pyexception(name, base = "PyWarning", ctx = "pending_deprecation_warning", impl)]
+    #[pyexception(name, base = PyWarning, ctx = "pending_deprecation_warning", impl)]
     #[derive(Debug)]
     pub struct PyPendingDeprecationWarning {}
 
-    #[pyexception(name, base = "PyWarning", ctx = "runtime_warning", impl)]
+    #[pyexception(name, base = PyWarning, ctx = "runtime_warning", impl)]
     #[derive(Debug)]
     pub struct PyRuntimeWarning {}
 
-    #[pyexception(name, base = "PyWarning", ctx = "syntax_warning", impl)]
+    #[pyexception(name, base = PyWarning, ctx = "syntax_warning", impl)]
     #[derive(Debug)]
     pub struct PySyntaxWarning {}
 
-    #[pyexception(name, base = "PyWarning", ctx = "user_warning", impl)]
+    #[pyexception(name, base = PyWarning, ctx = "user_warning", impl)]
     #[derive(Debug)]
     pub struct PyUserWarning {}
 
-    #[pyexception(name, base = "PyWarning", ctx = "future_warning", impl)]
+    #[pyexception(name, base = PyWarning, ctx = "future_warning", impl)]
     #[derive(Debug)]
     pub struct PyFutureWarning {}
 
-    #[pyexception(name, base = "PyWarning", ctx = "import_warning", impl)]
+    #[pyexception(name, base = PyWarning, ctx = "import_warning", impl)]
     #[derive(Debug)]
     pub struct PyImportWarning {}
 
-    #[pyexception(name, base = "PyWarning", ctx = "unicode_warning", impl)]
+    #[pyexception(name, base = PyWarning, ctx = "unicode_warning", impl)]
     #[derive(Debug)]
     pub struct PyUnicodeWarning {}
 
-    #[pyexception(name, base = "PyWarning", ctx = "bytes_warning", impl)]
+    #[pyexception(name, base = PyWarning, ctx = "bytes_warning", impl)]
     #[derive(Debug)]
     pub struct PyBytesWarning {}
 
-    #[pyexception(name, base = "PyWarning", ctx = "resource_warning", impl)]
+    #[pyexception(name, base = PyWarning, ctx = "resource_warning", impl)]
     #[derive(Debug)]
     pub struct PyResourceWarning {}
 
-    #[pyexception(name, base = "PyWarning", ctx = "encoding_warning", impl)]
+    #[pyexception(name, base = PyWarning, ctx = "encoding_warning", impl)]
     #[derive(Debug)]
     pub struct PyEncodingWarning {}
 }
