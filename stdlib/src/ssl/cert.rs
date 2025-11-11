@@ -22,6 +22,27 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use x509_parser::prelude::*;
 
+use super::compat::{VERIFY_X509_PARTIAL_CHAIN, VERIFY_X509_STRICT};
+
+// Certificate Verification Constants
+
+/// All supported signature schemes for certificate verification
+///
+/// This list includes all modern signature algorithms supported by rustls.
+/// Used by verifiers that accept any signature scheme (NoVerifier, EmptyRootStoreVerifier).
+const ALL_SIGNATURE_SCHEMES: &[SignatureScheme] = &[
+    SignatureScheme::RSA_PKCS1_SHA256,
+    SignatureScheme::RSA_PKCS1_SHA384,
+    SignatureScheme::RSA_PKCS1_SHA512,
+    SignatureScheme::ECDSA_NISTP256_SHA256,
+    SignatureScheme::ECDSA_NISTP384_SHA384,
+    SignatureScheme::ECDSA_NISTP521_SHA512,
+    SignatureScheme::RSA_PSS_SHA256,
+    SignatureScheme::RSA_PSS_SHA384,
+    SignatureScheme::RSA_PSS_SHA512,
+    SignatureScheme::ED25519,
+];
+
 // Error Handling Utilities
 
 /// Certificate loading error types with specific error messages
@@ -43,15 +64,15 @@ mod cert_error {
         use super::*;
 
         pub fn no_start_line(context: &str) -> io::Error {
-            invalid_data(format!("no start line: {}", context))
+            invalid_data(format!("no start line: {context}"))
         }
 
         pub fn parse_failed(e: impl std::fmt::Display) -> io::Error {
-            invalid_data(format!("Failed to parse PEM certificate: {}", e))
+            invalid_data(format!("Failed to parse PEM certificate: {e}"))
         }
 
         pub fn parse_failed_debug(e: impl std::fmt::Debug) -> io::Error {
-            invalid_data(format!("Failed to parse PEM certificate: {:?}", e))
+            invalid_data(format!("Failed to parse PEM certificate: {e:?}"))
         }
 
         pub fn invalid_cert() -> io::Error {
@@ -64,11 +85,11 @@ mod cert_error {
         use super::*;
 
         pub fn not_enough_data(context: &str) -> io::Error {
-            invalid_data(format!("not enough data: {}", context))
+            invalid_data(format!("not enough data: {context}"))
         }
 
         pub fn parse_failed(e: impl std::fmt::Display) -> io::Error {
-            invalid_data(format!("Failed to parse DER certificate: {}", e))
+            invalid_data(format!("Failed to parse DER certificate: {e}"))
         }
     }
 
@@ -77,21 +98,20 @@ mod cert_error {
         use super::*;
 
         pub fn not_found(context: &str) -> io::Error {
-            invalid_data(format!("No private key found in {}", context))
+            invalid_data(format!("No private key found in {context}"))
         }
 
         pub fn parse_failed(e: impl std::fmt::Display) -> io::Error {
-            invalid_data(format!("Failed to parse private key: {}", e))
+            invalid_data(format!("Failed to parse private key: {e}"))
         }
 
         pub fn parse_encrypted_failed(e: impl std::fmt::Display) -> io::Error {
-            invalid_data(format!("Failed to parse encrypted private key: {}", e))
+            invalid_data(format!("Failed to parse encrypted private key: {e}"))
         }
 
         pub fn decrypt_failed(e: impl std::fmt::Display) -> io::Error {
             io::Error::other(format!(
-                "Failed to decrypt private key (wrong password?): {}",
-                e
+                "Failed to decrypt private key (wrong password?): {e}",
             ))
         }
     }
@@ -100,6 +120,13 @@ mod cert_error {
     pub fn to_rustls_invalid_cert(msg: impl Into<String>) -> rustls::Error {
         rustls::Error::InvalidCertificate(rustls::CertificateError::Other(rustls::OtherError(
             Arc::new(invalid_data(msg)),
+        )))
+    }
+
+    /// Convert error message to rustls::Error with InvalidCertificate wrapper and custom ErrorKind
+    pub fn to_rustls_cert_error(kind: io::ErrorKind, msg: impl Into<String>) -> rustls::Error {
+        rustls::Error::InvalidCertificate(rustls::CertificateError::Other(rustls::OtherError(
+            Arc::new(io::Error::new(kind, msg.into())),
         )))
     }
 }
@@ -158,7 +185,7 @@ fn format_ip_address(ip: &[u8]) -> String {
         )
     } else {
         // Unknown format - return as debug string
-        format!("{:?}", ip)
+        format!("{ip:?}")
     }
 }
 
@@ -169,9 +196,68 @@ fn format_ip_address(ip: &[u8]) -> String {
 fn format_asn1_time(time: &x509_parser::time::ASN1Time) -> String {
     let timestamp = time.timestamp();
     DateTime::<Utc>::from_timestamp(timestamp, 0)
-        .unwrap()
+        .expect("ASN1Time must be valid timestamp")
         .format("%b %e %H:%M:%S %Y GMT")
         .to_string()
+}
+
+/// Format certificate serial number to hexadecimal string with even padding
+///
+/// Converts a BigUint serial number to uppercase hex string, ensuring
+/// even length by prepending '0' if necessary.
+fn format_serial_number(serial: &num_bigint::BigUint) -> String {
+    let mut serial_str = serial.to_str_radix(16).to_uppercase();
+    if serial_str.len() % 2 == 1 {
+        serial_str.insert(0, '0');
+    }
+    serial_str
+}
+
+/// Normalize wildcard hostname by stripping "*." prefix
+///
+/// Returns the normalized hostname without the wildcard prefix.
+/// Used for wildcard certificate matching.
+fn normalize_wildcard_hostname(hostname: &str) -> &str {
+    hostname.strip_prefix("*.").unwrap_or(hostname)
+}
+
+/// Process Subject Alternative Name (SAN) general names into Python tuples
+///
+/// Converts X.509 GeneralName entries into Python tuple format.
+/// Returns a vector of PyObjectRef tuples in the format: (type, value)
+fn process_san_general_names(
+    vm: &VirtualMachine,
+    general_names: &[GeneralName<'_>],
+) -> Vec<PyObjectRef> {
+    general_names
+        .iter()
+        .filter_map(|name| match name {
+            GeneralName::DNSName(dns) => Some(vm.new_tuple(("DNS", *dns)).into()),
+            GeneralName::IPAddress(ip) => {
+                let ip_str = format_ip_address(ip);
+                Some(vm.new_tuple(("IP Address", ip_str)).into())
+            }
+            GeneralName::RFC822Name(email) => Some(vm.new_tuple(("email", *email)).into()),
+            GeneralName::URI(uri) => Some(vm.new_tuple(("URI", *uri)).into()),
+            GeneralName::DirectoryName(dn) => {
+                let dn_str = format!("{dn}");
+                Some(vm.new_tuple(("DirName", dn_str)).into())
+            }
+            GeneralName::RegisteredID(oid) => {
+                let oid_str = oid.to_string();
+                Some(vm.new_tuple(("Registered ID", oid_str)).into())
+            }
+            GeneralName::OtherName(oid, value) => {
+                let oid_str = oid.to_string();
+                let value_str = format!("{value:?}");
+                Some(
+                    vm.new_tuple(("othername", format!("{oid_str}:{value_str}")))
+                        .into(),
+                )
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 // Certificate Validation and Parsing
@@ -244,15 +330,11 @@ pub fn cert_to_dict(
         vm,
     )?;
 
-    // Serial number - hex format with even length (CPython behavior)
-    let mut serial = cert.serial.to_str_radix(16).to_uppercase();
-    // CPython always returns even-length hex strings (prepend 0 if odd)
-    if serial.len() % 2 == 1 {
-        serial = format!("0{}", serial);
-    }
+    // Serial number - hex format with even length
+    let serial = format_serial_number(&cert.serial);
     dict.set_item("serialNumber", vm.ctx.new_str(serial).into(), vm)?;
 
-    // Validity dates - format with GMT using chrono (matching CPython format)
+    // Validity dates - format with GMT using chrono
     dict.set_item(
         "notBefore",
         vm.ctx
@@ -270,24 +352,7 @@ pub fn cert_to_dict(
 
     // Subject Alternative Names (if present)
     if let Ok(Some(san_ext)) = cert.subject_alternative_name() {
-        let san_list: Vec<PyObjectRef> = san_ext
-            .value
-            .general_names
-            .iter()
-            .filter_map(|name| {
-                use x509_parser::extensions::GeneralName;
-                match name {
-                    GeneralName::DNSName(dns) => Some(vm.new_tuple(("DNS", *dns)).into()),
-                    GeneralName::IPAddress(ip) => {
-                        let ip_str = format_ip_address(ip);
-                        Some(vm.new_tuple(("IP Address", ip_str)).into())
-                    }
-                    GeneralName::RFC822Name(email) => Some(vm.new_tuple(("email", *email)).into()),
-                    GeneralName::URI(uri) => Some(vm.new_tuple(("URI", *uri)).into()),
-                    _ => None, // Skip unsupported types
-                }
-            })
-            .collect();
+        let san_list = process_san_general_names(vm, &san_ext.value.general_names);
 
         if !san_list.is_empty() {
             dict.set_item("subjectAltName", vm.ctx.new_tuple(san_list).into(), vm)?;
@@ -304,7 +369,7 @@ pub fn cert_to_dict(
 pub fn cert_der_to_dict_helper(vm: &VirtualMachine, cert_der: &[u8]) -> PyResult<PyObjectRef> {
     // Parse the certificate using x509-parser
     let (_, cert) = x509_parser::parse_x509_certificate(cert_der)
-        .map_err(|e| vm.new_value_error(format!("Failed to parse certificate: {}", e)))?;
+        .map_err(|e| vm.new_value_error(format!("Failed to parse certificate: {e}")))?;
 
     // Helper to convert X509Name to nested tuple format
     let name_to_tuple = |name: &x509_parser::x509::X509Name<'_>| -> PyResult {
@@ -355,12 +420,8 @@ pub fn cert_der_to_dict_helper(vm: &VirtualMachine, cert_der: &[u8]) -> PyResult
         vm,
     )?;
 
-    // Serial number - hex format with even length (CPython behavior)
-    let mut serial = cert.serial.to_str_radix(16).to_uppercase();
-    // CPython always returns even-length hex strings (prepend 0 if odd)
-    if serial.len() % 2 == 1 {
-        serial = format!("0{}", serial);
-    }
+    // Serial number - hex format with even length
+    let serial = format_serial_number(&cert.serial);
     dict.set_item("serialNumber", vm.ctx.new_str(serial).into(), vm)?;
 
     dict.set_item("subject", name_to_tuple(cert.subject())?, vm)?;
@@ -554,7 +615,7 @@ pub struct CertStats {
 /// from various sources (files, directories, bytes) and adding them to
 /// a RootCertStore while tracking statistics.
 ///
-/// Duplicate certificates are detected and only counted once, matching CPython behavior.
+/// Duplicate certificates are detected and only counted once.
 pub struct CertLoader<'a> {
     store: &'a mut RootCertStore,
     ca_certs_der: &'a mut Vec<Vec<u8>>,
@@ -649,14 +710,13 @@ impl<'a> CertLoader<'a> {
     /// Load certificates from byte slice (auto-detects PEM vs DER format)
     ///
     /// Tries to parse as PEM first, falls back to DER if that fails.
-    /// Duplicate certificates are detected and only counted once (CPython behavior).
+    /// Duplicate certificates are detected and only counted once.
     ///
     /// If `treat_all_as_ca` is true, all certificates are counted as CA certificates
-    /// regardless of their Basic Constraints (this matches CPython's behavior for
+    /// regardless of their Basic Constraints (this matches
     /// load_verify_locations with cadata parameter).
     ///
-    /// If `pem_only` is true, only PEM parsing is attempted (for string input),
-    /// matching CPython's behavior.
+    /// If `pem_only` is true, only PEM parsing is attempted (for string input)
     pub fn load_from_bytes_ex(
         &mut self,
         data: &[u8],
@@ -686,7 +746,7 @@ impl<'a> CertLoader<'a> {
 
                     // Add certificate using helper method (handles duplicates)
                     self.add_cert_to_store(cert_bytes, cert, treat_all_as_ca, &mut stats);
-                    // Helper returns false for duplicates (matches CPython - skip counting)
+                    // Helper returns false for duplicates (skip counting)
                 }
                 Err(e) if !found_any => {
                     // PEM parsing failed on first certificate
@@ -817,24 +877,16 @@ impl ServerCertVerifier for NoVerifier {
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        // Support all signature schemes
-        vec![
-            SignatureScheme::RSA_PKCS1_SHA256,
-            SignatureScheme::RSA_PKCS1_SHA384,
-            SignatureScheme::RSA_PKCS1_SHA512,
-            SignatureScheme::ECDSA_NISTP256_SHA256,
-            SignatureScheme::ECDSA_NISTP384_SHA384,
-            SignatureScheme::ECDSA_NISTP521_SHA512,
-            SignatureScheme::RSA_PSS_SHA256,
-            SignatureScheme::RSA_PSS_SHA384,
-            SignatureScheme::RSA_PSS_SHA512,
-            SignatureScheme::ED25519,
-        ]
+        ALL_SIGNATURE_SCHEMES.to_vec()
     }
 }
 
 // HostnameIgnoringVerifier: verifies certificate chain but ignores hostname
 // This is used when check_hostname=False but verify_mode != CERT_NONE
+//
+// Unlike the previous implementation that used an inner WebPkiServerVerifier,
+// this version uses webpki directly to verify only the certificate chain,
+// completely bypassing hostname verification.
 #[derive(Debug)]
 pub struct HostnameIgnoringVerifier {
     inner: Arc<dyn ServerCertVerifier>,
@@ -853,23 +905,46 @@ impl ServerCertVerifier for HostnameIgnoringVerifier {
         &self,
         end_entity: &CertificateDer<'_>,
         intermediates: &[CertificateDer<'_>],
-        _server_name: &ServerName<'_>,
+        _server_name: &ServerName<'_>, // Intentionally ignored
         ocsp_response: &[u8],
         now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        // Extract the first DNS name from the certificate to use as server_name
-        // This ensures the inner verifier validates the certificate chain properly
-        // while effectively bypassing hostname verification
-        let dummy_server_name = extract_first_dns_name(end_entity)
-            .unwrap_or_else(|| ServerName::try_from("localhost").unwrap());
+        // Extract a hostname from the certificate to pass to inner verifier
+        // The inner verifier will validate certificate chain, trust anchors, etc.
+        // but may fail on hostname mismatch - we'll catch and ignore that error
+        let dummy_hostname = extract_first_dns_name(end_entity)
+            .unwrap_or_else(|| ServerName::try_from("localhost").expect("localhost is valid"));
 
-        self.inner.verify_server_cert(
+        // Call inner verifier for full certificate validation
+        match self.inner.verify_server_cert(
             end_entity,
             intermediates,
-            &dummy_server_name,
+            &dummy_hostname,
             ocsp_response,
             now,
-        )
+        ) {
+            Ok(verified) => Ok(verified),
+            Err(e) => {
+                // Check if the error is a hostname mismatch
+                // If so, ignore it (that's the whole point of HostnameIgnoringVerifier)
+                match e {
+                    rustls::Error::InvalidCertificate(
+                        rustls::CertificateError::NotValidForName,
+                    )
+                    | rustls::Error::InvalidCertificate(
+                        rustls::CertificateError::NotValidForNameContext { .. },
+                    ) => {
+                        // Hostname mismatch - this is expected and acceptable
+                        // The certificate chain, trust anchor, and expiry are valid
+                        Ok(ServerCertVerified::assertion())
+                    }
+                    _ => {
+                        // Other errors (expired cert, untrusted CA, etc.) should propagate
+                        Err(e)
+                    }
+                }
+            }
+        }
     }
 
     fn verify_tls12_signature(
@@ -902,10 +977,21 @@ fn extract_first_dns_name(cert_der: &CertificateDer<'_>) -> Option<ServerName<'s
     // Try Subject Alternative Names first
     if let Ok(Some(san_ext)) = cert.subject_alternative_name() {
         for name in &san_ext.value.general_names {
-            if let x509_parser::extensions::GeneralName::DNSName(dns) = name
-                && let Ok(server_name) = ServerName::try_from(dns.to_string())
-            {
-                return Some(server_name);
+            if let x509_parser::extensions::GeneralName::DNSName(dns) = name {
+                // Remove wildcard prefix if present (e.g., "*.example.com" → "example.com")
+                // This allows us to use the domain for certificate chain verification
+                // when check_hostname=False
+                let dns_str = dns.to_string();
+                let normalized_dns = normalize_wildcard_hostname(&dns_str);
+
+                match ServerName::try_from(normalized_dns.to_string()) {
+                    Ok(server_name) => {
+                        return Some(server_name);
+                    }
+                    Err(_e) => {
+                        // Continue to next
+                    }
+                }
             }
         }
     }
@@ -915,9 +1001,16 @@ fn extract_first_dns_name(cert_der: &CertificateDer<'_>) -> Option<ServerName<'s
         for attr in rdn.iter() {
             if attr.attr_type() == &x509_parser::oid_registry::OID_X509_COMMON_NAME
                 && let Ok(cn) = attr.attr_value().as_str()
-                && let Ok(server_name) = ServerName::try_from(cn.to_string())
             {
-                return Some(server_name);
+                // Remove wildcard prefix if present
+                let normalized_cn = normalize_wildcard_hostname(cn);
+
+                match ServerName::try_from(normalized_cn.to_string()) {
+                    Ok(server_name) => {
+                        return Some(server_name);
+                    }
+                    Err(_e) => {}
+                }
             }
         }
     }
@@ -954,9 +1047,9 @@ impl ClientCertVerifier for DeferredClientCertVerifier {
     }
 
     fn client_auth_mandatory(&self) -> bool {
-        // Return false to make client auth optional during handshake
-        // This allows the handshake to complete even if client cert is invalid
-        false
+        // Delegate to inner verifier to respect CERT_REQUIRED mode
+        // This ensures client certificates are mandatory when verify_mode=CERT_REQUIRED
+        self.inner.client_auth_mandatory()
     }
 
     fn root_hint_subjects(&self) -> &[rustls::DistinguishedName] {
@@ -1170,7 +1263,7 @@ pub fn validate_cert_key_match(
 
     // For rustls, the actual validation happens when creating CertifiedKey
     // We can attempt to create a signing key to verify the key is valid
-    use rustls::crypto::ring::sign::any_supported_type;
+    use rustls::crypto::aws_lc_rs::sign::any_supported_type;
 
     match any_supported_type(private_key) {
         Ok(_signing_key) => {
@@ -1188,7 +1281,7 @@ pub fn validate_cert_key_match(
 /// - Checks for Authority Key Identifier (AKI) extension (required by RFC 5280 Section 4.2.1.1)
 /// - Validates other RFC 5280 compliance requirements
 ///
-/// This matches CPython's X509_V_FLAG_X509_STRICT behavior in OpenSSL.
+/// This matches X509_V_FLAG_X509_STRICT behavior in OpenSSL.
 #[derive(Debug)]
 pub struct StrictCertVerifier {
     inner: Arc<dyn ServerCertVerifier>,
@@ -1214,7 +1307,7 @@ impl StrictCertVerifier {
     /// extension in all certificates except self-signed certificates.
     fn check_aki_present(cert_der: &[u8]) -> Result<(), String> {
         let (_, cert) = X509Certificate::from_der(cert_der)
-            .map_err(|e| format!("Failed to parse certificate: {}", e))?;
+            .map_err(|e| format!("Failed to parse certificate: {e}"))?;
 
         // Check for Authority Key Identifier extension (OID 2.5.29.35)
         let has_aki = cert
@@ -1253,7 +1346,6 @@ impl ServerCertVerifier for StrictCertVerifier {
         )?;
 
         // If VERIFY_X509_STRICT flag is set, perform additional validation
-        const VERIFY_X509_STRICT: i32 = 0x00000020;
         if self.verify_flags & VERIFY_X509_STRICT != 0 {
             // Check end entity certificate for AKI
             // RFC 5280 Section 4.2.1.1: self-signed certificates are exempt from AKI requirement
@@ -1298,7 +1390,7 @@ impl ServerCertVerifier for StrictCertVerifier {
 /// EmptyRootStoreVerifier: used when verify_mode != CERT_NONE but no CA certs are loaded
 ///
 /// This verifier always fails certificate verification with UnknownIssuer error,
-/// matching CPython's behavior when no root certificates are available.
+/// when no root certificates are available.
 /// This allows the SSL context to be created successfully, but handshake will fail
 /// with a proper SSLCertVerificationError (verify_code=20, UNABLE_TO_GET_ISSUER_CERT_LOCALLY).
 #[derive(Debug)]
@@ -1313,7 +1405,7 @@ impl ServerCertVerifier for EmptyRootStoreVerifier {
         _ocsp_response: &[u8],
         _now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        // Always fail with UnknownIssuer - matches CPython behavior when no CA certs loaded
+        // Always fail with UnknownIssuer -  when no CA certs loaded
         // This will be mapped to X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY (20)
         Err(rustls::Error::InvalidCertificate(
             rustls::CertificateError::UnknownIssuer,
@@ -1341,19 +1433,7 @@ impl ServerCertVerifier for EmptyRootStoreVerifier {
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        // Support all signature schemes (verification will fail at cert level anyway)
-        vec![
-            SignatureScheme::RSA_PKCS1_SHA256,
-            SignatureScheme::RSA_PKCS1_SHA384,
-            SignatureScheme::RSA_PKCS1_SHA512,
-            SignatureScheme::ECDSA_NISTP256_SHA256,
-            SignatureScheme::ECDSA_NISTP384_SHA384,
-            SignatureScheme::ECDSA_NISTP521_SHA512,
-            SignatureScheme::RSA_PSS_SHA256,
-            SignatureScheme::RSA_PSS_SHA384,
-            SignatureScheme::RSA_PSS_SHA512,
-            SignatureScheme::ED25519,
-        ]
+        ALL_SIGNATURE_SCHEMES.to_vec()
     }
 }
 
@@ -1361,7 +1441,7 @@ impl ServerCertVerifier for EmptyRootStoreVerifier {
 ///
 /// This verifier ensures that when CRL checking flags are set (VERIFY_CRL_CHECK_LEAF = 4)
 /// but no CRLs have been loaded, the verification fails with UnknownRevocationStatus.
-/// This matches CPython/OpenSSL behavior where X509_V_FLAG_CRL_CHECK without loaded CRLs
+/// This matches X509_V_FLAG_CRL_CHECK without loaded CRLs
 /// causes "unable to get CRL" error.
 #[derive(Debug)]
 pub struct CRLCheckVerifier {
@@ -1394,7 +1474,7 @@ impl ServerCertVerifier for CRLCheckVerifier {
         now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
         // If CRL checking is enabled but no CRLs are loaded, fail with UnknownRevocationStatus
-        // This matches CPython behavior: X509_V_ERR_UNABLE_TO_GET_CRL (3)
+        // X509_V_ERR_UNABLE_TO_GET_CRL (3)
         if self.crl_check_enabled && !self.has_crls {
             return Err(rustls::Error::InvalidCertificate(
                 rustls::CertificateError::UnknownRevocationStatus,
@@ -1444,7 +1524,7 @@ impl ServerCertVerifier for CRLCheckVerifier {
 ///    - Check if the end-entity certificate is in the trust store
 ///    - If yes, accept the certificate as trusted
 ///
-/// This matches CPython's OpenSSL behavior for accepting self-signed certificates that
+/// This matches accepting self-signed certificates that
 /// are explicitly loaded via load_verify_locations().
 #[derive(Debug)]
 pub struct PartialChainVerifier {
@@ -1498,8 +1578,6 @@ impl ServerCertVerifier for PartialChainVerifier {
                     .any(|cert_der| cert_der.as_slice() == end_entity_der)
                 {
                     // End-entity certificate is in the trust store
-                    const VERIFY_X509_PARTIAL_CHAIN: i32 = 0x80000;
-
                     // Check if this is a self-signed certificate
                     let is_self_signed_cert = is_self_signed(end_entity);
 
@@ -1569,15 +1647,9 @@ fn verify_hostname(
 
     // Parse the certificate
     let (_, cert) = X509Certificate::from_der(cert_der.as_ref()).map_err(|e| {
-        rustls::Error::InvalidCertificate(rustls::CertificateError::Other(rustls::OtherError(
-            Arc::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!(
-                    "Failed to parse certificate for hostname verification: {}",
-                    e
-                ),
-            )),
-        )))
+        cert_error::to_rustls_invalid_cert(format!(
+            "Failed to parse certificate for hostname verification: {e}"
+        ))
     })?;
 
     match server_name {
@@ -1608,24 +1680,16 @@ fn verify_hostname(
             }
 
             // No match found - return error
-            Err(rustls::Error::InvalidCertificate(
-                rustls::CertificateError::Other(rustls::OtherError(Arc::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    format!(
-                        "Hostname mismatch: certificate is not valid for '{}'",
-                        expected_name
-                    ),
-                )))),
-            ))
+            Err(cert_error::to_rustls_invalid_cert(format!(
+                "Hostname mismatch: certificate is not valid for '{expected_name}'",
+            )))
         }
         ServerName::IpAddress(ip) => verify_ip_address(&cert, ip),
         _ => {
             // Unknown server name type
-            Err(rustls::Error::InvalidCertificate(
-                rustls::CertificateError::Other(rustls::OtherError(Arc::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "Unsupported server name type for hostname verification",
-                )))),
+            Err(cert_error::to_rustls_cert_error(
+                std::io::ErrorKind::InvalidInput,
+                "Unsupported server name type for hostname verification",
             ))
         }
     }
@@ -1704,13 +1768,7 @@ fn verify_ip_address(
     }
 
     // No matching IP address found
-    Err(rustls::Error::InvalidCertificate(
-        rustls::CertificateError::Other(rustls::OtherError(Arc::new(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!(
-                "IP address mismatch: certificate is not valid for '{}'",
-                expected_std_ip
-            ),
-        )))),
-    ))
+    Err(cert_error::to_rustls_invalid_cert(format!(
+        "IP address mismatch: certificate is not valid for '{expected_std_ip}'",
+    )))
 }

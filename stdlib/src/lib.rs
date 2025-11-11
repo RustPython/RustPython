@@ -80,6 +80,8 @@ mod sqlite;
 mod openssl;
 #[cfg(all(not(target_arch = "wasm32"), feature = "ssl-rustls"))]
 mod ssl;
+#[cfg(all(feature = "ssl-openssl", feature = "ssl-rustls"))]
+compile_error!("features \"ssl-openssl\" and \"ssl-rustls\" are mutually exclusive");
 
 #[cfg(all(unix, not(target_os = "redox"), not(target_os = "ios")))]
 mod termios;

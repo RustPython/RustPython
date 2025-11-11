@@ -7,7 +7,6 @@
 //! mappings for CPython compatibility.
 
 use oid_registry::asn1_rs::Oid;
-use once_cell::sync::Lazy;
 use std::collections::HashMap;
 
 /// OID entry with openssl-compatible metadata
@@ -133,7 +132,7 @@ impl OidTable {
 }
 
 /// Global OID table
-static OID_TABLE: Lazy<OidTable> = Lazy::new(OidTable::build);
+static OID_TABLE: std::sync::LazyLock<OidTable> = std::sync::LazyLock::new(OidTable::build);
 
 /// Macro to define OID entry using oid-registry constant
 macro_rules! oid_static {

@@ -74,7 +74,7 @@ pub(crate) mod ssl_cert {
             let format = format.unwrap_or(ENCODING_PEM);
 
             match format {
-                x if x == ENCODING_DER => {
+                ENCODING_DER => {
                     // DER encoding
                     let der = self
                         .cert
@@ -82,7 +82,7 @@ pub(crate) mod ssl_cert {
                         .map_err(|e| convert_openssl_error(vm, e))?;
                     Ok(vm.ctx.new_bytes(der).into())
                 }
-                x if x == ENCODING_PEM => {
+                ENCODING_PEM => {
                     // PEM encoding
                     let pem = self
                         .cert
@@ -90,7 +90,7 @@ pub(crate) mod ssl_cert {
                         .map_err(|e| convert_openssl_error(vm, e))?;
                     Ok(vm.ctx.new_bytes(pem).into())
                 }
-                _ => Err(vm.new_value_error("Unsupported format".to_owned())),
+                _ => Err(vm.new_value_error("Unsupported format")),
             }
         }
 
@@ -165,10 +165,7 @@ pub(crate) mod ssl_cert {
                             format!("{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3])
                         } else if ip.len() == 16 {
                             // IPv6 - format with all zeros visible (not compressed)
-                            let ip_addr = std::net::Ipv6Addr::from([
-                                ip[0], ip[1], ip[2], ip[3], ip[4], ip[5], ip[6], ip[7], ip[8],
-                                ip[9], ip[10], ip[11], ip[12], ip[13], ip[14], ip[15],
-                            ]);
+                            let ip_addr = std::net::Ipv6Addr::from(ip[0..16]);
                             let s = ip_addr.segments();
                             format!(
                                 "{:X}:{:X}:{:X}:{:X}:{:X}:{:X}:{:X}:{:X}",

@@ -1,4 +1,4 @@
-// spell-checker: ignore ssleof aesccm aesgcm getblocking setblocking
+// spell-checker: ignore ssleof aesccm aesgcm getblocking setblocking ENDTLS
 
 //! Pure Rust SSL/TLS implementation using rustls
 //!
@@ -76,7 +76,7 @@ mod _ssl {
     use super::compat::{
         ClientConfigOptions, MultiCertResolver, ProtocolSettings, ServerConfigOptions, SslError,
         TlsConnection, create_client_config, create_server_config, curve_name_to_kx_group,
-        get_cipher_encryption_desc, get_cipher_key_bits, is_blocking_io_error,
+        extract_cipher_info, get_cipher_encryption_desc, is_blocking_io_error,
         normalize_cipher_name, ssl_do_handshake,
     };
 
@@ -366,22 +366,6 @@ mod _ssl {
             } else {
                 args.as_object().str(vm)
             }
-        }
-
-        // library property - returns the library name where the error occurred (e.g., 'PEM', 'SSL')
-        #[pygetset]
-        fn library(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyObjectRef {
-            exc.as_object()
-                .get_attr("_library", vm)
-                .unwrap_or_else(|_| vm.ctx.none())
-        }
-
-        // reason property - returns the reason string for the error
-        #[pygetset]
-        fn reason(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyObjectRef {
-            exc.as_object()
-                .get_attr("_reason", vm)
-                .unwrap_or_else(|_| vm.ctx.none())
         }
     }
 
@@ -703,8 +687,7 @@ mod _ssl {
             // Check if we can read the length byte
             if offset + 1 > bytes.len() {
                 return Err(vm.new_value_error(format!(
-                    "Invalid ALPN protocol data: unexpected end at offset {}",
-                    offset
+                    "Invalid ALPN protocol data: unexpected end at offset {offset}",
                 )));
             }
 
@@ -742,10 +725,11 @@ mod _ssl {
     /// - "AES128" → filters for AES_128
     /// - "AES256" → filters for AES_256
     /// - "AES128:AES256" → both
+    /// - "ECDHE+AESGCM" → ECDHE AND AESGCM (both conditions must match)
     /// - "ALL" or "DEFAULT" → all available
     /// - "!MD5" → exclusion (ignored, rustls doesn't support weak ciphers anyway)
     fn parse_cipher_string(cipher_str: &str) -> Result<Vec<rustls::SupportedCipherSuite>, String> {
-        use rustls::crypto::ring::ALL_CIPHER_SUITES;
+        use rustls::crypto::aws_lc_rs::ALL_CIPHER_SUITES;
 
         if cipher_str.is_empty() {
             return Err("No cipher can be selected".to_string());
@@ -757,8 +741,13 @@ mod _ssl {
         for part in cipher_str.split(':') {
             let part = part.trim();
 
-            // Skip exclusions and priority markers (rustls doesn't support these)
-            if part.starts_with('!') || part.starts_with('+') {
+            // Skip exclusions (rustls doesn't support these)
+            if part.starts_with('!') {
+                continue;
+            }
+
+            // Skip priority markers starting with +
+            if part.starts_with('+') {
                 continue;
             }
 
@@ -769,26 +758,53 @@ mod _ssl {
                     selected.extend_from_slice(all_suites);
                 }
                 _ => {
-                    // General pattern matching: check if cipher suite name contains the pattern
-                    // This handles patterns like "ECDHE", "ECDSA", "AES128", "AES256", "CHACHA20", etc.
+                    // Check if this is a compound pattern with + (AND condition)
+                    // e.g., "ECDHE+AESGCM" means ECDHE AND AESGCM
+                    let patterns: Vec<&str> = part.split('+').collect();
+
                     let mut found_any = false;
                     for suite in all_suites {
                         let name = format!("{:?}", suite.suite());
-                        // Handle common OpenSSL pattern variations
-                        let matches = if part.contains("AES128") {
-                            name.contains("AES_128")
-                        } else if part.contains("AES256") {
-                            name.contains("AES_256")
-                        } else if part == "AESGCM" {
-                            // AESGCM: AES with GCM mode
-                            name.contains("AES") && name.contains("GCM")
-                        } else if part == "AESCCM" {
-                            // AESCCM: AES with CCM mode
-                            name.contains("AES") && name.contains("CCM")
-                        } else {
-                            // Direct substring match for other patterns (ECDHE, ECDSA, CHACHA20, etc.)
-                            name.contains(part)
-                        };
+
+                        // Check if all patterns match (AND condition)
+                        let matches = patterns.iter().all(|&pattern| {
+                            // Handle common OpenSSL pattern variations
+                            if pattern.contains("AES128") {
+                                name.contains("AES_128")
+                            } else if pattern.contains("AES256") {
+                                name.contains("AES_256")
+                            } else if pattern == "AESGCM" {
+                                // AESGCM: AES with GCM mode
+                                name.contains("AES") && name.contains("GCM")
+                            } else if pattern == "AESCCM" {
+                                // AESCCM: AES with CCM mode
+                                name.contains("AES") && name.contains("CCM")
+                            } else if pattern == "CHACHA20" {
+                                name.contains("CHACHA20")
+                            } else if pattern == "ECDHE" {
+                                name.contains("ECDHE")
+                            } else if pattern == "DHE" {
+                                // DHE but not ECDHE
+                                name.contains("DHE") && !name.contains("ECDHE")
+                            } else if pattern == "ECDH" {
+                                // ECDH but not ECDHE
+                                name.contains("ECDH") && !name.contains("ECDHE")
+                            } else if pattern == "DH" {
+                                // DH but not DHE or ECDH
+                                name.contains("DH")
+                                    && !name.contains("DHE")
+                                    && !name.contains("ECDH")
+                            } else if pattern == "RSA" {
+                                name.contains("RSA")
+                            } else if pattern == "AES" {
+                                name.contains("AES")
+                            } else if pattern == "ECDSA" {
+                                name.contains("ECDSA")
+                            } else {
+                                // Direct substring match for other patterns
+                                name.contains(pattern)
+                            }
+                        });
 
                         if matches {
                             selected.push(*suite);
@@ -1106,7 +1122,7 @@ mod _ssl {
                 && value != -1
                 && !(PROTO_SSLv3..=PROTO_TLSv1_3).contains(&value)
             {
-                return Err(vm.new_value_error(format!("invalid protocol version: {}", value)));
+                return Err(vm.new_value_error(format!("invalid protocol version: {value}")));
             }
             // Convert special values to rustls actual supported versions
             // MINIMUM_SUPPORTED (-2) -> 0 (auto-negotiate)
@@ -1137,7 +1153,7 @@ mod _ssl {
                 && value != -1
                 && !(PROTO_SSLv3..=PROTO_TLSv1_3).contains(&value)
             {
-                return Err(vm.new_value_error(format!("invalid protocol version: {}", value)));
+                return Err(vm.new_value_error(format!("invalid protocol version: {value}")));
             }
             // Convert special values to rustls actual supported versions
             // MAXIMUM_SUPPORTED (-1) -> 0 (auto-negotiate)
@@ -1172,8 +1188,7 @@ mod _ssl {
                 && pwd.len() > PEM_BUFSIZE
             {
                 return Err(vm.new_value_error(format!(
-                    "password cannot be longer than {} bytes",
-                    PEM_BUFSIZE
+                    "password cannot be longer than {PEM_BUFSIZE} bytes",
                 )));
             }
 
@@ -1209,8 +1224,7 @@ mod _ssl {
                 // Validate callable password length
                 if password_from_callable.len() > PEM_BUFSIZE {
                     return Err(vm.new_value_error(format!(
-                        "password cannot be longer than {} bytes",
-                        PEM_BUFSIZE
+                        "password cannot be longer than {PEM_BUFSIZE} bytes",
                     )));
                 }
 
@@ -1238,19 +1252,19 @@ mod _ssl {
                                 // Wrong password error
                                 vm.new_exception_msg(PySSLError::class(&vm.ctx).to_owned(), msg)
                             } else {
-                                // CPython: [SSL] PEM lib (_ssl.c:4044)
+                                // [SSL] PEM lib
                                 super::compat::SslError::create_ssl_error_with_reason(
                                     vm, "SSL", "", "PEM lib",
                                 )
                             }
                         }
-                        // PEM parsing errors - CPython: [SSL] PEM lib (_ssl.c:4044)
+                        // PEM parsing errors - [SSL] PEM lib
                         _ => super::compat::SslError::create_ssl_error_with_reason(
                             vm, "SSL", "", "PEM lib",
                         ),
                     }
                 } else {
-                    // Unknown error type - CPython: [SSL] PEM lib (_ssl.c:4044)
+                    // Unknown error type - [SSL] PEM lib
                     super::compat::SslError::create_ssl_error_with_reason(vm, "SSL", "", "PEM lib")
                 }
             })?;
@@ -1285,7 +1299,7 @@ mod _ssl {
 
             // Additional validation: Create CertifiedKey to ensure rustls accepts it
             let signing_key =
-                rustls::crypto::ring::sign::any_supported_type(&key).map_err(|_| {
+                rustls::crypto::aws_lc_rs::sign::any_supported_type(&key).map_err(|_| {
                     vm.new_exception_msg(
                         PySSLError::class(&vm.ctx).to_owned(),
                         "[SSL: KEY_VALUES_MISMATCH] key values mismatch".to_owned(),
@@ -1485,7 +1499,21 @@ mod _ssl {
 
             // Fallback to system certificates if environment variables didn't provide any
             if !loaded {
-                self.load_system_certificates(&mut store, vm)?;
+                let _ = self.load_system_certificates(&mut store, vm);
+            }
+
+            // If no certificates were loaded from system, fallback to webpki-roots (Mozilla CA bundle)
+            // This ensures we always have some trusted root certificates even if system cert loading fails
+            if *self.x509_cert_count.read() == 0 {
+                use webpki_roots;
+
+                // webpki_roots provides TLS_SERVER_ROOTS as &[TrustAnchor]
+                // We can use extend() to add them to the RootCertStore
+                let webpki_count = webpki_roots::TLS_SERVER_ROOTS.len();
+                store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
+                *self.x509_cert_count.write() += webpki_count;
+                *self.ca_cert_count.write() += webpki_count;
             }
 
             Ok(())
@@ -1528,41 +1556,27 @@ mod _ssl {
         fn get_ciphers(&self, vm: &VirtualMachine) -> PyResult<PyListRef> {
             // Dynamically generate cipher list from rustls ALL_CIPHER_SUITES
             // This automatically includes all cipher suites supported by the current rustls version
-            use rustls::crypto::ring::ALL_CIPHER_SUITES;
+            use rustls::crypto::aws_lc_rs::ALL_CIPHER_SUITES;
 
             let cipher_list = ALL_CIPHER_SUITES
                 .iter()
                 .map(|suite| {
-                    let rustls_name = format!("{:?}", suite.suite());
-
-                    // Convert rustls cipher name to OpenSSL/CPython format
-                    // e.g., "TLS13_AES_256_GCM_SHA384" -> "TLS_AES_256_GCM_SHA384"
-                    // e.g., "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256" -> "ECDHE-RSA-AES128-GCM-SHA256"
-                    let (cipher_name, protocol) = if rustls_name.starts_with("TLS13_") {
-                        // TLS 1.3 cipher: TLS13_xxx -> TLS_xxx
-                        let name = rustls_name.replace("TLS13_", "TLS_");
-                        (name, "TLSv1.3")
-                    } else {
-                        // TLS 1.2 cipher
-                        (rustls_name.clone(), "TLSv1.2")
-                    };
+                    // Extract cipher information using unified helper
+                    let cipher_info = extract_cipher_info(suite);
 
                     // Convert to OpenSSL-style name
                     // e.g., "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256" -> "ECDHE-RSA-AES128-GCM-SHA256"
-                    let openssl_name = normalize_cipher_name(&cipher_name);
-
-                    // Extract cipher strength (bits)
-                    let bits = get_cipher_key_bits(&cipher_name);
+                    let openssl_name = normalize_cipher_name(&cipher_info.name);
 
                     // Determine key exchange and auth methods
-                    let (kx, auth) = if protocol == "TLSv1.3" {
+                    let (kx, auth) = if cipher_info.protocol == "TLSv1.3" {
                         // TLS 1.3 doesn't distinguish - all use modern algos
                         ("any", "any")
-                    } else if cipher_name.contains("ECDHE") {
+                    } else if cipher_info.name.contains("ECDHE") {
                         // TLS 1.2 with ECDHE
-                        let auth = if cipher_name.contains("ECDSA") {
+                        let auth = if cipher_info.name.contains("ECDSA") {
                             "ECDSA"
-                        } else if cipher_name.contains("RSA") {
+                        } else if cipher_info.name.contains("RSA") {
                             "RSA"
                         } else {
                             "any"
@@ -1578,19 +1592,19 @@ mod _ssl {
 
                     let description = format!(
                         "{} {} Kx={} Au={} Enc={} Mac=AEAD",
-                        openssl_name, protocol, kx, auth, enc
+                        openssl_name, cipher_info.protocol, kx, auth, enc
                     );
 
                     // Create cipher dict
                     let dict = vm.ctx.new_dict();
                     dict.set_item("name", vm.ctx.new_str(openssl_name).into(), vm)
                         .unwrap();
-                    dict.set_item("protocol", vm.ctx.new_str(protocol).into(), vm)
+                    dict.set_item("protocol", vm.ctx.new_str(cipher_info.protocol).into(), vm)
                         .unwrap();
                     dict.set_item("id", vm.ctx.new_int(0).into(), vm).unwrap(); // Placeholder ID
-                    dict.set_item("strength_bits", vm.ctx.new_int(bits).into(), vm)
+                    dict.set_item("strength_bits", vm.ctx.new_int(cipher_info.bits).into(), vm)
                         .unwrap();
-                    dict.set_item("alg_bits", vm.ctx.new_int(bits).into(), vm)
+                    dict.set_item("alg_bits", vm.ctx.new_int(cipher_info.bits).into(), vm)
                         .unwrap();
                     dict.set_item("description", vm.ctx.new_str(description).into(), vm)
                         .unwrap();
@@ -1799,7 +1813,7 @@ mod _ssl {
                 && !contents.contains("BEGIN X9.42 DH PARAMETERS")
             {
                 // File exists but doesn't contain DH parameters - raise SSLError
-                // CPython: [PEM: NO_START_LINE] no start line (_ssl.c:4341)
+                // [PEM: NO_START_LINE] no start line
                 return Err(super::compat::SslError::create_ssl_error_with_reason(
                     vm,
                     "PEM",
@@ -1845,7 +1859,7 @@ mod _ssl {
             ];
 
             if !valid_curves.contains(&curve_name.as_str()) {
-                return Err(vm.new_value_error(format!("unknown curve name '{}'", curve_name)));
+                return Err(vm.new_value_error(format!("unknown curve name '{curve_name}'")));
             }
 
             // Store the curve name to be used during handshake
@@ -2111,13 +2125,13 @@ mod _ssl {
                     // Preserve specific error messages from cert.rs
                     let err_msg = e.to_string();
                     if err_msg.contains("no start line") {
-                        // CPython: no start line: cadata does not contain a certificate (_ssl.c:4159)
+                        // no start line: cadata does not contain a certificate
                         vm.new_exception_msg(
                             PySSLError::class(&vm.ctx).to_owned(),
                             "no start line: cadata does not contain a certificate".to_string(),
                         )
                     } else if err_msg.contains("not enough data") {
-                        // CPython: not enough data: cadata does not contain a certificate
+                        // not enough data: cadata does not contain a certificate
                         vm.new_exception_msg(
                             PySSLError::class(&vm.ctx).to_owned(),
                             "not enough data: cadata does not contain a certificate".to_string(),
@@ -2203,9 +2217,7 @@ mod _ssl {
                     ));
                 }
                 _ => {
-                    return Err(
-                        vm.new_value_error(format!("invalid protocol version: {}", protocol))
-                    );
+                    return Err(vm.new_value_error(format!("invalid protocol version: {protocol}")));
                 }
             }
 
@@ -2235,7 +2247,6 @@ mod _ssl {
             // Both PROTOCOL_TLS_CLIENT and PROTOCOL_TLS_SERVER only set VERIFY_X509_TRUSTED_FIRST
             // Note: VERIFY_X509_PARTIAL_CHAIN and VERIFY_X509_STRICT are NOT set here
             // - they're only added by create_default_context() in Python's ssl.py
-            // This matches CPython's behavior (see Modules/_ssl.c line 3239)
             let default_verify_flags = VERIFY_DEFAULT | VERIFY_X509_TRUSTED_FIRST;
 
             // Set minimum and maximum protocol versions based on protocol constant
@@ -2288,7 +2299,7 @@ mod _ssl {
                 rustls_server_session_store: rustls::server::ServerSessionMemoryCache::new(
                     SSL_SESSION_CACHE_SIZE,
                 ),
-                server_ticketer: rustls::crypto::ring::Ticketer::new()
+                server_ticketer: rustls::crypto::aws_lc_rs::Ticketer::new()
                     .expect("Failed to create shared ticketer for TLS 1.2 session resumption"),
                 accept_count: AtomicUsize::new(0),
                 session_hits: AtomicUsize::new(0),
@@ -2496,14 +2507,14 @@ mod _ssl {
             // Note: Server usually doesn't send the root CA, so we check the last cert's issuer
             let top_cert_der = peer_certs.last().unwrap();
             let (_, top_cert) = x509_parser::parse_x509_certificate(top_cert_der)
-                .map_err(|e| format!("Failed to parse top cert: {}", e))?;
+                .map_err(|e| format!("Failed to parse top cert: {e}"))?;
 
             let top_issuer = top_cert.issuer();
 
             // Find matching CA in capath certs
             for ca_der in capath_certs.iter() {
                 let (_, ca) = x509_parser::parse_x509_certificate(ca_der)
-                    .map_err(|e| format!("Failed to parse CA: {}", e))?;
+                    .map_err(|e| format!("Failed to parse CA: {e}"))?;
 
                 // Check if this CA is self-signed and matches the issuer
                 if ca.subject() == ca.issuer() // Self-signed (root CA)
@@ -2581,10 +2592,10 @@ mod _ssl {
             let py_socket: PyRef<PySocket> = self.sock.clone().try_into_value(vm)?;
             let socket = py_socket
                 .sock()
-                .map_err(|e| vm.new_os_error(format!("Failed to get socket: {}", e)))?;
+                .map_err(|e| vm.new_os_error(format!("Failed to get socket: {e}")))?;
 
             let timed_out = sock_select(&socket, kind, timeout)
-                .map_err(|e| vm.new_os_error(format!("select failed: {}", e)))?;
+                .map_err(|e| vm.new_os_error(format!("select failed: {e}")))?;
 
             Ok(timed_out)
         }
@@ -2677,7 +2688,7 @@ mod _ssl {
                         "SNI callback returned invalid type".to_owned(),
                     );
                     let _ = exc.as_object().set_attr(
-                        "_reason",
+                        "reason",
                         vm.ctx.new_str("TLSV1_ALERT_INTERNAL_ERROR"),
                         vm,
                     );
@@ -2725,43 +2736,6 @@ mod _ssl {
             // Call socket.socket.send(self.sock, data)
             let send_method = socket_class.get_attr("send", vm)?;
             send_method.call((self.sock.clone(), vm.ctx.new_bytes(data)), vm)
-        }
-
-        /// Try to send data in non-blocking mode
-        /// Returns Ok(true) if sent successfully, Ok(false) if would block
-        /// Used to avoid deadlock when sending optional NewSessionTicket
-        pub(crate) fn try_send_nonblocking(
-            &self,
-            data: Vec<u8>,
-            vm: &VirtualMachine,
-        ) -> PyResult<bool> {
-            // BIO mode doesn't block, always succeed
-            if self.outgoing_bio.is_some() {
-                self.sock_send(data, vm)?;
-                return Ok(true);
-            }
-
-            // Save current blocking mode using Python method
-            let getblocking_method = self.sock.get_attr("getblocking", vm)?;
-            let was_blocking_obj = getblocking_method.call((), vm)?;
-            let was_blocking: bool = was_blocking_obj.try_to_value(vm)?;
-
-            // Set to non-blocking using Python method
-            let setblocking_method = self.sock.get_attr("setblocking", vm)?;
-            setblocking_method.call((false,), vm)?;
-
-            // Try to send
-            let result = self.sock_send(data, vm);
-
-            // Restore blocking mode (best effort, ignore errors)
-            let _ = setblocking_method.call((was_blocking,), vm);
-
-            // Check result
-            match result {
-                Ok(_) => Ok(true),                                   // Sent successfully
-                Err(e) if is_blocking_io_error(&e, vm) => Ok(false), // Would block
-                Err(e) => Err(e),                                    // Real error
-            }
         }
 
         #[pymethod]
@@ -2836,7 +2810,7 @@ mod _ssl {
             if let Some(ref curve_name) = ecdh_curve {
                 match curve_name_to_kx_group(curve_name) {
                     Ok(groups) => Ok(Some(groups)),
-                    Err(e) => Err(vm.new_value_error(format!("Failed to set ECDH curve: {}", e))),
+                    Err(e) => Err(vm.new_value_error(format!("Failed to set ECDH curve: {e}"))),
                 }
             } else {
                 Ok(None)
@@ -3038,7 +3012,7 @@ mod _ssl {
             };
 
             let conn = ServerConnection::new(config_arc).map_err(|e| {
-                vm.new_value_error(format!("Failed to create server connection: {}", e))
+                vm.new_value_error(format!("Failed to create server connection: {e}"))
             })?;
 
             *conn_guard = Some(TlsConnection::Server(conn));
@@ -3148,23 +3122,24 @@ mod _ssl {
                     // Parse server name for SNI
                     // Convert to ServerName
                     use rustls::pki_types::ServerName;
-                    let server_name = if let Some(ref hostname) = *self.server_hostname.read() {
+                    let hostname_opt = self.server_hostname.read().clone();
+
+                    let server_name = if let Some(ref hostname) = hostname_opt {
                         // Use the provided hostname for SNI
                         ServerName::try_from(hostname.clone()).map_err(|e| {
-                            vm.new_value_error(format!("Invalid server hostname: {:?}", e))
+                            vm.new_value_error(format!("Invalid server hostname: {e:?}"))
                         })?
                     } else {
                         // When server_hostname=None, use an IP address to suppress SNI
                         // no hostname = no SNI extension
-                        use std::net::IpAddr;
                         ServerName::IpAddress(
-                            IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)).into(),
+                            std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)).into(),
                         )
                     };
 
                     let conn = ClientConnection::new(Arc::new(config), server_name.clone())
                         .map_err(|e| {
-                            vm.new_value_error(format!("Failed to create client connection: {}", e))
+                            vm.new_value_error(format!("Failed to create client connection: {e}"))
                         })?;
 
                     *conn_guard = Some(TlsConnection::Client(conn));
@@ -3361,17 +3336,26 @@ mod _ssl {
         #[pymethod]
         fn pending(&self) -> PyResult<usize> {
             // Returns the number of already decrypted bytes available for read
-            // This is used by asyncore to check if data is buffered
-            let conn_guard = self.connection.lock();
-            if conn_guard.is_none() {
-                return Ok(0);
-            }
+            // This is critical for asyncore's readable() method which checks socket.pending() > 0
+            let mut conn_guard = self.connection.lock();
+            let conn = match conn_guard.as_mut() {
+                Some(c) => c,
+                None => return Ok(0), // No connection established yet
+            };
 
-            // For rustls, we need to check if there's plaintext available in the reader
-            // Since we can't directly query rustls's internal buffer, we return 0
-            // This matches the current ssl_pending() implementation
-            // TODO: Track plaintext buffer separately if needed for better asyncore support
-            Ok(0)
+            // Use rustls Reader's fill_buf() to check buffered plaintext
+            // fill_buf() returns a reference to buffered data without consuming it
+            // This matches OpenSSL's SSL_pending() behavior
+            use std::io::BufRead;
+            let mut reader = conn.reader();
+            match reader.fill_buf() {
+                Ok(buf) => Ok(buf.len()),
+                Err(_) => {
+                    // WouldBlock or other errors mean no data available
+                    // Return 0 like OpenSSL does when buffer is empty
+                    Ok(0)
+                }
+            }
         }
 
         #[pymethod]
@@ -3411,37 +3395,41 @@ mod _ssl {
             let mut writer = conn.writer();
             writer
                 .write_all(data_bytes.as_ref())
-                .map_err(|e| vm.new_os_error(format!("Write failed: {}", e)))?;
+                .map_err(|e| vm.new_os_error(format!("Write failed: {e}")))?;
 
             // Flush to get TLS-encrypted data (writer automatically flushed on drop)
             // Send encrypted data to socket
             if conn.wants_write() {
-                let mut buf = Vec::new();
-                conn.write_tls(&mut buf)
-                    .map_err(|e| vm.new_os_error(format!("TLS write failed: {}", e)))?;
+                let is_bio = self.is_bio_mode();
 
-                if !buf.is_empty() {
-                    // Wait for socket to be ready for writing
-                    let is_bio = self.is_bio_mode();
-                    if !is_bio {
-                        // PERFORMANCE FIX: Use false to avoid 10ms timeout on blocking sockets
-                        // This matches the fix applied to handshake and read paths
+                if is_bio {
+                    // BIO mode: Write ALL pending TLS data to outgoing BIO
+                    // This prevents hangs where Python's ssl_io_loop waits for data
+                    self.write_pending_tls(conn, vm)?;
+                } else {
+                    // Socket mode: Try once and may return SSLWantWriteError
+                    let mut buf = Vec::new();
+                    conn.write_tls(&mut buf)
+                        .map_err(|e| vm.new_os_error(format!("TLS write failed: {e}")))?;
+
+                    if !buf.is_empty() {
+                        // Wait for socket to be ready for writing
                         let timed_out = self.sock_wait_for_io_impl(SelectKind::Write, vm)?;
                         if timed_out {
                             return Err(vm.new_os_error("Write operation timed out"));
                         }
-                    }
 
-                    // Send encrypted data to socket
-                    // Convert BlockingIOError to SSLWantWriteError
-                    match self.sock_send(buf, vm) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            if is_blocking_io_error(&e, vm) {
-                                // Non-blocking socket would block - return SSLWantWriteError
-                                return Err(create_ssl_want_write_error(vm));
+                        // Send encrypted data to socket
+                        // Convert BlockingIOError to SSLWantWriteError
+                        match self.sock_send(buf, vm) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                if is_blocking_io_error(&e, vm) {
+                                    // Non-blocking socket would block - return SSLWantWriteError
+                                    return Err(create_ssl_want_write_error(vm));
+                                }
+                                return Err(e);
                             }
-                            return Err(e);
                         }
                     }
                 }
@@ -3498,7 +3486,7 @@ mod _ssl {
             // Parse DER certificate and convert to dict
             let der_bytes = cert_der.as_ref();
             let (_, cert) = x509_parser::parse_x509_certificate(der_bytes)
-                .map_err(|e| vm.new_value_error(format!("Failed to parse certificate: {}", e)))?;
+                .map_err(|e| vm.new_value_error(format!("Failed to parse certificate: {e}")))?;
 
             cert::cert_to_dict(vm, &cert).map(Some)
         }
@@ -3510,29 +3498,16 @@ mod _ssl {
 
             let suite = conn.negotiated_cipher_suite()?;
 
-            // Get cipher suite information
-            // rustls returns CipherSuite enum with Debug format like "TLS13_AES_256_GCM_SHA384"
-            // We need to convert to IANA standard format like "TLS_AES_256_GCM_SHA384"
-            let rustls_name = format!("{:?}", suite.suite());
-            let cipher_name = if rustls_name.starts_with("TLS13_") {
-                // Convert TLS13_ prefix to TLS_ for TLS 1.3 ciphers
-                rustls_name.replace("TLS13_", "TLS_")
-            } else {
-                rustls_name
-            };
-
-            let protocol_version = match suite.version().version {
-                rustls::ProtocolVersion::TLSv1_2 => "TLSv1.2",
-                rustls::ProtocolVersion::TLSv1_3 => "TLSv1.3",
-                _ => "Unknown",
-            };
-
-            // rustls doesn't expose key size directly, estimate based on cipher name
-            let bits = get_cipher_key_bits(&cipher_name);
+            // Extract cipher information using unified helper
+            let cipher_info = extract_cipher_info(&suite);
 
             // Note: returns a 3-tuple (name, protocol_version, bits)
             // The 'description' field is part of get_ciphers() output, not cipher()
-            Some((cipher_name, protocol_version.to_string(), bits))
+            Some((
+                cipher_info.name,
+                cipher_info.protocol.to_string(),
+                cipher_info.bits,
+            ))
         }
 
         #[pymethod]
@@ -3806,38 +3781,27 @@ mod _ssl {
                     // In BIO mode: non-blocking read attempt
                     let _ = self.try_read_close_notify(conn, vm);
                 } else if is_blocking {
-                    // In blocking socket mode: try once to read peer's close_notify
-                    // This matches SSL_shutdown() internally reads from the socket
-                    // We only attempt once because:
-                    // 1. If peer has already sent close_notify, we'll receive it
-                    // 2. If peer hasn't sent it yet, we would block indefinitely
-                    // 3. Empty data means peer has closed the socket
-                    match self.sock_recv(SSL3_RT_MAX_PLAIN_LENGTH, vm) {
-                        Ok(bytes_obj) => {
-                            let bytes = ArgBytesLike::try_from_object(vm, bytes_obj)?;
-                            let data = bytes.borrow_buf();
-
-                            if !data.is_empty() {
-                                // Feed data to TLS connection
-                                let data_slice: &[u8] = data.as_ref();
-                                let mut cursor = std::io::Cursor::new(data_slice);
-                                let _ = conn.read_tls(&mut cursor);
-
-                                // Process packets
-                                let _ = conn.process_new_packets();
-                            }
-                            // If data is empty, peer may have closed the socket
-                            // Continue to check peer_has_closed() below
-                        }
-                        Err(_e) => {
-                            // Socket error (e.g., connection reset, timeout)
-                            // CPython ignores certain errors during shutdown
-                            // We'll continue to check peer_has_closed() below
-                        }
-                    }
+                    // Blocking socket mode: Return immediately without waiting for peer
+                    //
+                    // Reasons we don't read from socket here:
+                    // 1. STARTTLS scenario: application data may arrive before/instead of close_notify
+                    //    - Example: client sends ENDTLS, immediately sends plain "msg 5"
+                    //    - Server's unwrap() would read "msg 5" and try to parse as TLS → FAIL
+                    // 2. CPython's SSL_shutdown() typically returns immediately without waiting
+                    // 3. Bidirectional shutdown is the application's responsibility
+                    // 4. Reading from socket would consume application data incorrectly
+                    //
+                    // Therefore: Just send our close_notify and return success immediately.
+                    // The peer's close_notify (if any) will remain in the socket buffer.
+                    //
+                    // Mark shutdown as complete and return the underlying socket
+                    drop(conn_guard);
+                    *self.shutdown_state.lock() = ShutdownState::Completed;
+                    *self.connection.lock() = None;
+                    return Ok(self.sock.clone());
                 }
 
-                // Step 3: Check again if peer has sent close_notify
+                // Step 3: Check again if peer has sent close_notify (non-blocking/BIO mode only)
                 peer_closed = self.check_peer_closed(conn, vm)?;
             }
 
@@ -3846,7 +3810,7 @@ mod _ssl {
             if !peer_closed {
                 // Still waiting for peer's close-notify
                 // Raise SSLWantReadError to signal app needs to transfer data
-                // This is correct for non-blocking sockets
+                // This is correct for non-blocking sockets and BIO mode
                 return Err(create_ssl_want_read_error(vm));
             }
             // Both close-notify exchanged, shutdown complete
@@ -3868,7 +3832,7 @@ mod _ssl {
                 let mut buf = vec![0u8; SSL3_RT_MAX_PLAIN_LENGTH];
                 let written = conn
                     .write_tls(&mut buf.as_mut_slice())
-                    .map_err(|e| vm.new_os_error(format!("TLS write failed: {}", e)))?;
+                    .map_err(|e| vm.new_os_error(format!("TLS write failed: {e}")))?;
 
                 if written == 0 {
                     break;
@@ -3921,7 +3885,7 @@ mod _ssl {
             // Process any remaining packets and check peer_has_closed
             let io_state = conn
                 .process_new_packets()
-                .map_err(|e| vm.new_os_error(format!("Failed to process packets: {}", e)))?;
+                .map_err(|e| vm.new_os_error(format!("Failed to process packets: {e}")))?;
 
             Ok(io_state.peer_has_closed())
         }
@@ -3944,33 +3908,14 @@ mod _ssl {
 
             let suite = conn.negotiated_cipher_suite()?;
 
-            // Extract cipher information
-            // rustls returns CipherSuite enum with Debug format like "TLS13_AES_256_GCM_SHA384"
-            // We need to convert to IANA standard format like "TLS_AES_256_GCM_SHA384"
-            let rustls_name = format!("{:?}", suite.suite());
-            let cipher_name = if rustls_name.starts_with("TLS13_") {
-                // Convert TLS13_ prefix to TLS_ for TLS 1.3 ciphers
-                rustls_name.replace("TLS13_", "TLS_")
-            } else {
-                rustls_name
-            };
-            let version = suite.version();
-            let tls_version = if version == &TLS12 {
-                "TLSv1.2"
-            } else if version == &TLS13 {
-                "TLSv1.3"
-            } else {
-                "unknown"
-            };
-
-            // Determine key bits based on cipher name
-            let bits = get_cipher_key_bits(&cipher_name);
+            // Extract cipher information using unified helper
+            let cipher_info = extract_cipher_info(&suite);
 
             // Return as list with single tuple (name, version, bits)
             let tuple = vm.ctx.new_tuple(vec![
-                vm.ctx.new_str(cipher_name).into(),
-                vm.ctx.new_str(tls_version).into(),
-                vm.ctx.new_int(bits).into(),
+                vm.ctx.new_str(cipher_info.name).into(),
+                vm.ctx.new_str(cipher_info.protocol).into(),
+                vm.ctx.new_int(cipher_info.bits).into(),
             ]);
             Some(vm.ctx.new_list(vec![tuple.into()]))
         }
@@ -4060,8 +4005,7 @@ mod _ssl {
 
             if cb_type_str != "tls-unique" {
                 return Err(vm.new_value_error(format!(
-                    "Unsupported channel binding type '{}'",
-                    cb_type_str
+                    "Unsupported channel binding type '{cb_type_str}'",
                 )));
             }
 
@@ -4106,7 +4050,7 @@ mod _ssl {
             let read_len = match len {
                 OptionalArg::Present(n) if n >= 0 => n as usize,
                 OptionalArg::Present(n) => {
-                    return Err(vm.new_value_error(format!("negative read length: {}", n)));
+                    return Err(vm.new_value_error(format!("negative read length: {n}")));
                 }
                 OptionalArg::Missing => buffer.len(), // Read all available
             };
@@ -4283,7 +4227,7 @@ mod _ssl {
             None
         };
 
-        let entry = entry.ok_or_else(|| vm.new_value_error(format!("unknown object '{}'", txt)))?;
+        let entry = entry.ok_or_else(|| vm.new_value_error(format!("unknown object '{txt}'")))?;
 
         // Return tuple: (nid, shortname, longname, oid)
         Ok(vm
@@ -4299,7 +4243,7 @@ mod _ssl {
     #[pyfunction]
     fn nid2obj(nid: i32, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let entry = oid::find_by_nid(nid)
-            .ok_or_else(|| vm.new_value_error(format!("unknown NID {}", nid)))?;
+            .ok_or_else(|| vm.new_value_error(format!("unknown NID {nid}")))?;
 
         // Return tuple: (nid, shortname, longname, oid)
         Ok(vm
@@ -4356,18 +4300,18 @@ mod _ssl {
 
     #[pyfunction]
     fn RAND_status() -> i32 {
-        1 // Always have good randomness with ring
+        1 // Always have good randomness with aws-lc-rs
     }
 
     #[pyfunction]
     fn RAND_add(_string: PyObjectRef, _entropy: f64) {
-        // No-op: ring handles its own entropy
+        // No-op: aws-lc-rs handles its own entropy
         // Accept any type (str, bytes, bytearray)
     }
 
     #[pyfunction]
     fn RAND_bytes(n: i64, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-        use ring::rand::{SecureRandom, SystemRandom};
+        use aws_lc_rs::rand::{SecureRandom, SystemRandom};
 
         // Validate n is not negative
         if n < 0 {
@@ -4384,7 +4328,7 @@ mod _ssl {
 
     #[pyfunction]
     fn RAND_pseudo_bytes(n: i64, vm: &VirtualMachine) -> PyResult<(PyBytesRef, bool)> {
-        // In rustls/ring, all random bytes are cryptographically strong
+        // In rustls/aws-lc-rs, all random bytes are cryptographically strong
         let bytes = RAND_bytes(n, vm)?;
         Ok((bytes, true))
     }
@@ -4431,7 +4375,7 @@ mod _ssl {
 
         // Use pem-rfc7468 for RFC 7468 compliant PEM encoding
         let pem_str = encode_string("CERTIFICATE", LineEnding::LF, bytes_slice)
-            .map_err(|e| vm.new_value_error(format!("PEM encoding failed: {}", e)))?;
+            .map_err(|e| vm.new_value_error(format!("PEM encoding failed: {e}")))?;
 
         Ok(vm.ctx.new_str(pem_str))
     }
@@ -4465,7 +4409,7 @@ mod _ssl {
         fn parse(&self) -> Result<x509_parser::certificate::X509Certificate<'_>, String> {
             match x509_parser::parse_x509_certificate(&self.der_bytes) {
                 Ok((_, cert)) => Ok(cert),
-                Err(e) => Err(format!("Failed to parse certificate: {}", e)),
+                Err(e) => Err(format!("Failed to parse certificate: {e}")),
             }
         }
     }
@@ -4488,7 +4432,7 @@ mod _ssl {
                 x if x == ENCODING_PEM => {
                     // Convert DER to PEM using RFC 7468 compliant encoding
                     let pem_str = encode_string("CERTIFICATE", LineEnding::LF, &self.der_bytes)
-                        .map_err(|e| vm.new_value_error(format!("PEM encoding failed: {}", e)))?;
+                        .map_err(|e| vm.new_value_error(format!("PEM encoding failed: {e}")))?;
                     Ok(vm.ctx.new_str(pem_str).into())
                 }
                 _ => Err(vm.new_value_error("Unsupported format")),
@@ -4546,7 +4490,7 @@ mod _ssl {
                         .next()
                         .and_then(|attr| attr.as_str().ok())
                         .unwrap_or("Unknown");
-                    Ok(format!("<Certificate(subject=CN={})>", cn))
+                    Ok(format!("<Certificate(subject=CN={cn})>"))
                 }
                 Err(_) => Ok("<Certificate(invalid)>".to_owned()),
             }

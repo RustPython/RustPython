@@ -60,6 +60,7 @@ VARKEYWORDS
 varkwarg
 wbits
 weakreflist
+webpki
 withitem
 withs
 xstat

@@ -834,8 +834,6 @@ mod _ssl {
         post_handshake_auth: PyMutex<bool>,
         sni_callback: PyMutex<Option<PyObjectRef>>,
         msg_callback: PyMutex<Option<PyObjectRef>>,
-        psk_client_callback: PyMutex<Option<PyObjectRef>>,
-        psk_server_callback: PyMutex<Option<PyObjectRef>>,
     }
 
     impl fmt::Debug for PySslContext {
@@ -940,8 +938,6 @@ mod _ssl {
                 post_handshake_auth: PyMutex::new(false),
                 sni_callback: PyMutex::new(None),
                 msg_callback: PyMutex::new(None),
-                psk_client_callback: PyMutex::new(None),
-                psk_server_callback: PyMutex::new(None),
             }
             .into_ref_with_type(vm, cls)
             .map(Into::into)
@@ -1235,7 +1231,6 @@ mod _ssl {
             }
             #[cfg(not(ossl110))]
             {
-                let _ = vm;
                 Ok(0)
             }
         }
@@ -1670,8 +1665,6 @@ mod _ssl {
             ctx_ref: PyRef<PySslContext>,
             server_side: bool,
             server_hostname: Option<PyStrRef>,
-            owner: Option<PyObjectRef>,
-            session: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<(ssl::Ssl, SslServerOrClient, Option<PyStrRef>)> {
             // Validate socket type and context protocol
@@ -1778,14 +1771,8 @@ mod _ssl {
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
             // Use common helper function
-            let (ssl, socket_type, server_hostname) = Self::new_py_ssl_socket(
-                zelf.clone(),
-                args.server_side,
-                args.server_hostname,
-                args.owner.clone(),
-                args.session.clone(),
-                vm,
-            )?;
+            let (ssl, socket_type, server_hostname) =
+                Self::new_py_ssl_socket(zelf.clone(), args.server_side, args.server_hostname, vm)?;
 
             // Create SslStream with socket
             let stream = ssl::SslStream::new(ssl, SocketStream(args.sock.clone()))
@@ -1838,14 +1825,8 @@ mod _ssl {
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
             // Use common helper function
-            let (ssl, socket_type, server_hostname) = Self::new_py_ssl_socket(
-                zelf.clone(),
-                args.server_side,
-                args.server_hostname,
-                args.owner.clone(),
-                args.session.clone(),
-                vm,
-            )?;
+            let (ssl, socket_type, server_hostname) =
+                Self::new_py_ssl_socket(zelf.clone(), args.server_side, args.server_hostname, vm)?;
 
             // Create BioStream wrapper
             let bio_stream = BioStream {
@@ -2623,7 +2604,6 @@ mod _ssl {
             let stream = self.connection.read();
             unsafe {
                 // Use SSL_get1_session which returns an owned reference (ref count already incremented)
-                // This matches CPython's behavior in _ssl.c:2890
                 let session_ptr = SSL_get1_session(stream.ssl().as_ptr());
                 if session_ptr.is_null() {
                     Ok(None)
@@ -2892,6 +2872,7 @@ mod _ssl {
     }
 
     // Message callback type
+    #[allow(non_camel_case_types)]
     type SSL_CTX_msg_callback = Option<
         unsafe extern "C" fn(
             write_p: libc::c_int,
@@ -3060,16 +3041,10 @@ mod _ssl {
     // These are typically macros in OpenSSL, implemented via BIO_ctrl
     const BIO_CTRL_PENDING: libc::c_int = 10;
     const BIO_CTRL_SET_EOF: libc::c_int = 2;
-    const BIO_CTRL_EOF: libc::c_int = 2;
 
     #[allow(non_snake_case)]
     unsafe fn BIO_ctrl_pending(bio: *mut sys::BIO) -> usize {
         unsafe { sys::BIO_ctrl(bio, BIO_CTRL_PENDING, 0, std::ptr::null_mut()) as usize }
-    }
-
-    #[allow(non_snake_case)]
-    unsafe fn BIO_eof(bio: *mut sys::BIO) -> libc::c_int {
-        unsafe { sys::BIO_ctrl(bio, BIO_CTRL_EOF, 0, std::ptr::null_mut()) as libc::c_int }
     }
 
     #[allow(non_snake_case)]
@@ -3489,7 +3464,7 @@ mod _ssl {
             }
 
             // Successfully loaded at least one certificate from DER data.
-            // Clear any trailing errors from EOF (matches CPython behavior).
+            // Clear any trailing errors from EOF.
             // CPython clears errors when:
             // - DER: was_bio_eof is set (EOF reached)
             // - PEM: PEM_R_NO_START_LINE error (normal EOF)
