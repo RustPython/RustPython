@@ -8,6 +8,8 @@ fn main() {
             println!("cargo:warning=logo.ico not found, skipping icon embedding");
             return;
         }
-res.compile().map_err(|e| println!("cargo:warning=Failed to compile Windows resources: {e}")).ok();
+        res.compile()
+            .map_err(|e| println!("cargo:warning=Failed to compile Windows resources: {e}"))
+            .ok();
     }
 }
