@@ -659,13 +659,15 @@ impl PyRef<PyBaseException> {
             .dict()
             .ok_or_else(|| vm.new_attribute_error("Exception object has no __dict__"))?;
 
-        let notes = dict
-            .get_item("__notes__", vm)
-            .or_else(|_| {
-                let new_notes = vm.ctx.new_list(vec![]);
-                dict.set_item("__notes__", new_notes.clone().into(), vm)?;
-                Ok(new_notes.into())
-            })?
+        let notes = if let Ok(notes) = dict.get_item("__notes__", vm) {
+            notes
+        } else {
+            let new_notes = vm.ctx.new_list(vec![]);
+            dict.set_item("__notes__", new_notes.clone().into(), vm)?;
+            new_notes.into()
+        };
+
+        let notes = notes
             .downcast::<PyList>()
             .map_err(|_| vm.new_type_error("__notes__ must be a list"))?;
 
