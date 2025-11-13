@@ -12,6 +12,7 @@ cellvar
 cellvars
 cmpop
 denom
+deopt
 dictoffset
 elts
 excepthandler
