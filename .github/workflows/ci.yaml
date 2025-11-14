@@ -140,10 +140,10 @@ jobs:
         run: cargo clippy ${{ env.CARGO_ARGS }} --workspace --all-targets --exclude rustpython_wasm --exclude rustpython-compiler-source -- -Dwarnings
 
       - name: run rust tests
-        run: cargo test --workspace --exclude rustpython_wasm --verbose --features threading ${{ env.CARGO_ARGS }}
+        run: cargo test --workspace --exclude rustpython_wasm --exclude rustpython-compiler-source --verbose --features threading ${{ env.CARGO_ARGS }}
         if: runner.os != 'macOS'
       - name: run rust tests
-        run: cargo test --workspace --exclude rustpython_wasm --exclude rustpython-jit --verbose --features threading  ${{ env.CARGO_ARGS }}
+        run: cargo test --workspace --exclude rustpython_wasm --exclude rustpython-jit --exclude rustpython-compiler-source --verbose --features threading  ${{ env.CARGO_ARGS }}
         if: runner.os == 'macOS'
 
       - name: check compilation without threading
