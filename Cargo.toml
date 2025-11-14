@@ -130,7 +130,6 @@ members = [
     "derive",
     "jit",
     "vm",
-    "vm/sre_engine",
     "pylib",
     "stdlib",
     "derive-impl",
@@ -159,7 +158,7 @@ rustpython-literal = { path = "compiler/literal", version = "0.4.0" }
 rustpython-vm = { path = "vm", default-features = false, version = "0.4.0" }
 rustpython-pylib = { path = "pylib", version = "0.4.0" }
 rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.4.0" }
-rustpython-sre_engine = { path = "vm/sre_engine", version = "0.4.0" }
+rustpython-sre_engine = { path = "crates/sre_engine", version = "0.4.0" }
 rustpython-wtf8 = { path = "wtf8", version = "0.4.0" }
 rustpython-doc = { path = "crates/doc", version = "0.4.0" }
 
