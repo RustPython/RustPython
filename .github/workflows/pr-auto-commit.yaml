@@ -1,12 +1,11 @@
 name: PR Auto-format
 
-# This workflow triggers when a PR is opened/updated
 on:
-  pull_request_target:
-    types: [opened, synchronize, reopened]
-    branches:
-      - main
-      - release
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
 
 concurrency:
   group: pr-fmt-${{ github.event.pull_request.number }}
@@ -15,6 +14,8 @@ concurrency:
 jobs:
   auto_format:
     if: |
+      github.event_name == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
       !contains(github.event.pull_request.labels.*.name, 'skip:ci') &&
       !contains(github.event.pull_request.head.sha, '[skip ci]')
     permissions:
@@ -32,18 +33,6 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
-
-      # Wait for all PR check runs to complete
-      - name: Wait for all checks to complete
-        uses: poseidon/wait-for-status-checks@v0.6.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          delay: 60
-          interval: 30
-          timeout: 7200
-
-      - name: CI completed successfully
-        run: echo "CI workflow completed successfully - proceeding with auto-format"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable

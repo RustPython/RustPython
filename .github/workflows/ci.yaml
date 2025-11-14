@@ -1,3 +1,5 @@
+name: CI
+
 on:
   push:
     branches: [main, release]
@@ -5,8 +7,6 @@ on:
     types: [unlabeled, opened, synchronize, reopened]
   merge_group:
   workflow_dispatch:
-
-name: CI
 
 # Cancel previous workflows if they are the same workflow on same ref (branch/tags)
 # with the same event (push/pull_request) even they are in progress.
