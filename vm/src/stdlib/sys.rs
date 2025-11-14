@@ -229,11 +229,13 @@ mod sys {
 
     #[pyattr]
     fn implementation(vm: &VirtualMachine) -> PyRef<PyNamespace> {
-        // TODO: Add crate version to this namespace
+        const NAME: &str = "rustpython";
+
+        let cache_tag = format!("{NAME}-{}{}", version::MAJOR, version::MINOR);
         let ctx = &vm.ctx;
         py_namespace!(vm, {
-            "name" => ctx.new_str(ascii!("rustpython")),
-            "cache_tag" => ctx.new_str(ascii!("rustpython-01")),
+            "name" => ctx.new_str(NAME),
+            "cache_tag" => ctx.new_str(cache_tag),
             "_multiarch" => ctx.new_str(MULTIARCH.to_owned()),
             "version" => version_info(vm),
             "hexversion" => ctx.new_int(version::VERSION_HEX),
