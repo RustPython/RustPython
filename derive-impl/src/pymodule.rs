@@ -6,6 +6,7 @@ use crate::util::{
 };
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
 use quote::{ToTokens, quote, quote_spanned};
+use rustpython_doc::DB;
 use std::{collections::HashSet, str::FromStr};
 use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
 use syn_ext::ext::*;
@@ -100,13 +101,7 @@ pub fn impl_pymodule(attr: PunctuatedNestedMeta, module_item: Item) -> Result<To
     let module_name = context.name.as_str();
     let function_items = context.function_items.validate()?;
     let attribute_items = context.attribute_items.validate()?;
-    let doc = doc.or_else(|| {
-        crate::doc::Database::shared()
-            .try_path(module_name)
-            .ok()
-            .flatten()
-            .map(str::to_owned)
-    });
+    let doc = doc.or_else(|| DB.get(module_name).copied().map(str::to_owned));
     let doc = if let Some(doc) = doc {
         quote!(Some(#doc))
     } else {
@@ -463,11 +458,10 @@ impl ModuleItem for FunctionItem {
         let sig_doc = text_signature(func.sig(), &py_name);
 
         let module = args.module_name();
+        // TODO: doc must exist at least one of code or CPython
         let doc = args.attrs.doc().or_else(|| {
-            crate::doc::Database::shared()
-                .try_module_item(module, &py_name)
-                .ok() // TODO: doc must exist at least one of code or CPython
-                .flatten()
+            DB.get(&format!("{module}.{py_name}"))
+                .copied()
                 .map(str::to_owned)
         });
         let doc = if let Some(doc) = doc {

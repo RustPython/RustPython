@@ -23,7 +23,6 @@ mod pytraverse;
 use error::Diagnostic;
 use proc_macro2::TokenStream;
 use quote::ToTokens;
-use rustpython_doc as doc;
 use syn::{DeriveInput, Item};
 use syn_ext::types::PunctuatedNestedMeta;
 
