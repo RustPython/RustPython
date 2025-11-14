@@ -127,7 +127,6 @@ members = [
     "compiler/literal",
     ".",
     "common",
-    "derive",
     "jit",
     "vm",
     "vm/sre_engine",
@@ -152,7 +151,7 @@ rustpython-compiler-core = { path = "compiler/core", version = "0.4.0" }
 rustpython-compiler = { path = "compiler", version = "0.4.0" }
 rustpython-codegen = { path = "compiler/codegen", version = "0.4.0" }
 rustpython-common = { path = "common", version = "0.4.0" }
-rustpython-derive = { path = "derive", version = "0.4.0" }
+rustpython-derive = { path = "crates/derive", version = "0.4.0" }
 rustpython-derive-impl = { path = "derive-impl", version = "0.4.0" }
 rustpython-jit = { path = "jit", version = "0.4.0" }
 rustpython-literal = { path = "compiler/literal", version = "0.4.0" }
