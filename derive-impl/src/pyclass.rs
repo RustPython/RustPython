@@ -308,7 +308,7 @@ fn generate_class_def(
     ident: &Ident,
     name: &str,
     module_name: Option<&str>,
-    base: Option<String>,
+    base: Option<syn::Path>,
     metaclass: Option<String>,
     unhashable: bool,
     attrs: &[Attribute],
@@ -358,7 +358,6 @@ fn generate_class_def(
         Some(quote! { rustpython_vm::builtins::PyTuple })
     } else {
         base.as_ref().map(|typ| {
-            let typ = Ident::new(typ, ident.span());
             quote_spanned! { ident.span() => #typ }
         })
     }
@@ -382,7 +381,6 @@ fn generate_class_def(
     });
 
     let base_or_object = if let Some(base) = base {
-        let base = Ident::new(&base, ident.span());
         quote! { #base }
     } else {
         quote! { ::rustpython_vm::builtins::PyBaseObject }

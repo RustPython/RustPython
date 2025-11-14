@@ -307,15 +307,13 @@ jobs:
         run: python -I whats_left.py
 
   lint:
-    name: Check Rust code with rustfmt and clippy
+    name: Check Rust code with clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
-            components: rustfmt, clippy
-      - name: run rustfmt
-        run: cargo fmt --check
+            components: clippy
       - name: run clippy on wasm
         run: cargo clippy --manifest-path=wasm/lib/Cargo.toml -- -Dwarnings
       - uses: actions/setup-python@v6
@@ -338,7 +336,7 @@ jobs:
       - name: install extra dictionaries
         run: npm install @cspell/dict-en_us @cspell/dict-cpp @cspell/dict-python @cspell/dict-rust @cspell/dict-win32 @cspell/dict-shell
       - name: spell checker
-        uses: streetsidesoftware/cspell-action@v7
+        uses: streetsidesoftware/cspell-action@v8
         with:
           files: '**/*.rs'
           incremental_files_only: true

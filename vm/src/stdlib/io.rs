@@ -607,7 +607,7 @@ mod _io {
     }
 
     #[pyattr]
-    #[pyclass(name = "_RawIOBase", base = "_IOBase")]
+    #[pyclass(name = "_RawIOBase", base = _IOBase)]
     pub(super) struct _RawIOBase;
 
     #[pyclass(flags(BASETYPE, HAS_DICT))]
@@ -665,7 +665,7 @@ mod _io {
     }
 
     #[pyattr]
-    #[pyclass(name = "_BufferedIOBase", base = "_IOBase")]
+    #[pyclass(name = "_BufferedIOBase", base = _IOBase)]
     struct _BufferedIOBase;
 
     #[pyclass(flags(BASETYPE))]
@@ -728,7 +728,7 @@ mod _io {
 
     // TextIO Base has no public constructor
     #[pyattr]
-    #[pyclass(name = "_TextIOBase", base = "_IOBase")]
+    #[pyclass(name = "_TextIOBase", base = _IOBase)]
     #[derive(Debug, PyPayload)]
     struct _TextIOBase;
 
@@ -1728,7 +1728,7 @@ mod _io {
     }
 
     #[pyattr]
-    #[pyclass(name = "BufferedReader", base = "_BufferedIOBase")]
+    #[pyclass(name = "BufferedReader", base = _BufferedIOBase)]
     #[derive(Debug, Default, PyPayload)]
     struct BufferedReader {
         data: PyThreadMutex<BufferedData>,
@@ -1785,7 +1785,7 @@ mod _io {
     }
 
     #[pyattr]
-    #[pyclass(name = "BufferedWriter", base = "_BufferedIOBase")]
+    #[pyclass(name = "BufferedWriter", base = _BufferedIOBase)]
     #[derive(Debug, Default, PyPayload)]
     struct BufferedWriter {
         data: PyThreadMutex<BufferedData>,
@@ -1818,7 +1818,7 @@ mod _io {
     impl DefaultConstructor for BufferedWriter {}
 
     #[pyattr]
-    #[pyclass(name = "BufferedRandom", base = "_BufferedIOBase")]
+    #[pyclass(name = "BufferedRandom", base = _BufferedIOBase)]
     #[derive(Debug, Default, PyPayload)]
     struct BufferedRandom {
         data: PyThreadMutex<BufferedData>,
@@ -1860,7 +1860,7 @@ mod _io {
     impl DefaultConstructor for BufferedRandom {}
 
     #[pyattr]
-    #[pyclass(name = "BufferedRWPair", base = "_BufferedIOBase")]
+    #[pyclass(name = "BufferedRWPair", base = _BufferedIOBase)]
     #[derive(Debug, Default, PyPayload)]
     struct BufferedRWPair {
         read: BufferedReader,
@@ -2274,7 +2274,7 @@ mod _io {
     }
 
     #[pyattr]
-    #[pyclass(name = "TextIOWrapper", base = "_TextIOBase")]
+    #[pyclass(name = "TextIOWrapper", base = _TextIOBase)]
     #[derive(Debug, Default, PyPayload)]
     struct TextIOWrapper {
         data: PyThreadMutex<Option<TextIOData>>,
@@ -3460,7 +3460,7 @@ mod _io {
     }
 
     #[pyattr]
-    #[pyclass(name = "StringIO", base = "_TextIOBase")]
+    #[pyclass(name = "StringIO", base = _TextIOBase)]
     #[derive(Debug, PyPayload)]
     struct StringIO {
         buffer: PyRwLock<BufferedIO>,
@@ -3605,7 +3605,7 @@ mod _io {
     }
 
     #[pyattr]
-    #[pyclass(name = "BytesIO", base = "_BufferedIOBase")]
+    #[pyclass(name = "BytesIO", base = _BufferedIOBase)]
     #[derive(Debug, PyPayload)]
     struct BytesIO {
         buffer: PyRwLock<BufferedIO>,
@@ -4241,7 +4241,7 @@ mod fileio {
     }
 
     #[pyattr]
-    #[pyclass(module = "io", name, base = "_RawIOBase")]
+    #[pyclass(module = "io", name, base = _RawIOBase)]
     #[derive(Debug, PyPayload)]
     pub(super) struct FileIO {
         fd: AtomicCell<i32>,

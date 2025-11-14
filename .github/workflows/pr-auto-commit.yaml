@@ -1,0 +1,99 @@
+name: PR Auto-format
+
+# This workflow triggers when a PR is opened/updated
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+      - release
+
+concurrency:
+  group: pr-fmt-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto_format:
+    if: |
+      !contains(github.event.pull_request.labels.*.name, 'skip:ci') &&
+      !contains(github.event.pull_request.head.sha, '[skip ci]')
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      # Wait for all PR check runs to complete
+      - name: Wait for all checks to complete
+        uses: poseidon/wait-for-status-checks@v0.6.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          delay: 60
+          interval: 30
+          timeout: 7200
+
+      - name: CI completed successfully
+        run: echo "CI workflow completed successfully - proceeding with auto-format"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Run cargo fmt
+        run: |
+          echo "Running cargo fmt --all on PR #${{ github.event.pull_request.number }}"
+          cargo fmt --all
+
+      - name: Check for formatting changes
+        id: check_changes
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and push formatting changes
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add -u
+          git commit -m "Auto-format code [skip ci]"
+          
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+
+      - name: Comment on PR
+        if: steps.check_changes.outputs.has_changes == 'true'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          number: ${{ github.event.pull_request.number }}
+          message: |
+            **Code has been automatically formatted**
+            
+            The code in this PR has been formatted using `cargo fmt`.
+            The changes have been committed with `[skip ci]` to avoid triggering another CI run.
+            
+            **Triggered by commit:** `${{ github.event.pull_request.head.sha }}`  
+            **Last formatted:** ${{ github.event.pull_request.updated_at }}
+            
+            You may need to pull the latest changes before pushing again:
+            ```bash
+            git pull origin ${{ github.event.pull_request.head.ref }}
+            ```
+
+      - name: No formatting needed
+        if: steps.check_changes.outputs.has_changes == 'false'
+        run: echo "Code is already properly formatted"

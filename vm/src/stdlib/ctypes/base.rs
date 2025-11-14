@@ -157,7 +157,7 @@ pub struct PyCData {
 #[pyclass]
 impl PyCData {}
 
-#[pyclass(module = "_ctypes", name = "PyCSimpleType", base = "PyType")]
+#[pyclass(module = "_ctypes", name = "PyCSimpleType", base = PyType)]
 pub struct PyCSimpleType {}
 
 #[pyclass(flags(BASETYPE))]
@@ -176,7 +176,7 @@ impl PyCSimpleType {
 #[pyclass(
     module = "_ctypes",
     name = "_SimpleCData",
-    base = "PyCData",
+    base = PyCData,
     metaclass = "PyCSimpleType"
 )]
 #[derive(PyPayload)]
