@@ -123,7 +123,6 @@ resolver = "2"
 members = [
     "compiler",
     "compiler/codegen",
-    "compiler/literal",
     ".",
     "derive",
     "jit",
@@ -151,7 +150,7 @@ rustpython-common = { path = "crates/common", version = "0.4.0" }
 rustpython-derive = { path = "derive", version = "0.4.0" }
 rustpython-derive-impl = { path = "derive-impl", version = "0.4.0" }
 rustpython-jit = { path = "jit", version = "0.4.0" }
-rustpython-literal = { path = "compiler/literal", version = "0.4.0" }
+rustpython-literal = { path = "crates/literal", version = "0.4.0" }
 rustpython-vm = { path = "vm", default-features = false, version = "0.4.0" }
 rustpython-pylib = { path = "crates/pylib", version = "0.4.0" }
 rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.4.0" }
