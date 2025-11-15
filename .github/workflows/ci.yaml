@@ -145,7 +145,7 @@ jobs:
         continue-on-error: true # Will fail if nothing to commit
 
       - name: Comment on PR
-        if: ${{ steps.git_commit.outcome == 'success' }}
+        if: ${{ steps.git-commit.outcome == 'success' }}
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           number: ${{ github.event.pull_request.number }}
@@ -164,14 +164,16 @@ jobs:
             **Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
       - name: git push
-        run: git push origin HEAD:${{ github.event.pull_request.head.ref }}
+        run: git push origin HEAD:${{ env.HEAD_REF }}
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         if: steps.git-commit.outcome == 'success'
 
       # This step is not really needed as the earlier push should cancel this run anyways.
       # But we are making sure that we abort if we had badly formatted files.
       - name: Exit if changed
         run: exit 1
-        if: ${{ steps.git_commit.outcome == 'success' }}
+        if: ${{ steps.git-commit.outcome == 'success' }}
 
   rust_tests:
     if: ${{ !cancelled() && !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
