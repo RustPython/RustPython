@@ -125,7 +125,6 @@ members = [
     ".",
     "derive",
     "vm",
-    "vm/sre_engine",
     "stdlib",
     "wasm/lib",
     "crates/*",
@@ -151,7 +150,7 @@ rustpython-literal = { path = "crates/literal", version = "0.4.0" }
 rustpython-vm = { path = "vm", default-features = false, version = "0.4.0" }
 rustpython-pylib = { path = "crates/pylib", version = "0.4.0" }
 rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.4.0" }
-rustpython-sre_engine = { path = "vm/sre_engine", version = "0.4.0" }
+rustpython-sre_engine = { path = "crates/sre_engine", version = "0.4.0" }
 rustpython-wtf8 = { path = "crates/wtf8", version = "0.4.0" }
 rustpython-doc = { path = "crates/doc", version = "0.4.0" }
 
