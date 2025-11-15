@@ -2440,6 +2440,11 @@ mod _io {
         }
 
         #[pymethod]
+        fn detach(_zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
+            todo!()
+        }
+
+        #[pymethod]
         fn seekable(&self, vm: &VirtualMachine) -> PyResult {
             let textio = self.lock(vm)?;
             vm.call_method(&textio.buffer, "seekable", ())
