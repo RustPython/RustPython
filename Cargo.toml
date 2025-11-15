@@ -121,7 +121,6 @@ template = "installer-config/installer.wxs"
 [workspace]
 resolver = "2"
 members = [
-    "compiler",
     ".",
     "derive",
     "vm",
@@ -140,7 +139,7 @@ license = "MIT"
 
 [workspace.dependencies]
 rustpython-compiler-core = { path = "crates/compiler-core", version = "0.4.0" }
-rustpython-compiler = { path = "compiler", version = "0.4.0" }
+rustpython-compiler = { path = "crates/compiler", version = "0.4.0" }
 rustpython-codegen = { path = "crates/codegen", version = "0.4.0" }
 rustpython-common = { path = "crates/common", version = "0.4.0" }
 rustpython-derive = { path = "derive", version = "0.4.0" }
