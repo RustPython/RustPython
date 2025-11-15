@@ -129,7 +129,6 @@ members = [
     "vm",
     "vm/sre_engine",
     "stdlib",
-    "wtf8",
     "wasm/lib",
     "crates/*",
 ]
