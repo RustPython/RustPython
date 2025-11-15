@@ -1522,7 +1522,7 @@ pub(super) mod types {
                 let msg = exc.get_arg(1).unwrap().str(vm)?;
 
                 let s = match obj.get_attr("filename", vm) {
-                    Ok(filename) => match obj.get_attr("filename2", vm) {
+                    Ok(filename) if !vm.is_none(&filename) => match obj.get_attr("filename2", vm) {
                         Ok(filename2) if !vm.is_none(&filename2) => format!(
                             "[Errno {}] {}: '{}' -> '{}'",
                             errno,
@@ -1532,7 +1532,7 @@ pub(super) mod types {
                         ),
                         _ => format!("[Errno {}] {}: '{}'", errno, msg, filename.str(vm)?),
                     },
-                    Err(_) => {
+                    _ => {
                         format!("[Errno {errno}] {msg}")
                     }
                 };

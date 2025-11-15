@@ -1,10 +1,12 @@
-fn main() {
-    process_python_libs("../vm/Lib/python_builtins/*");
+const CRATE_ROOT: &str = "../..";
 
-    process_python_libs("../vm/Lib/core_modules/*");
+fn main() {
+    process_python_libs(format!("{CRATE_ROOT}/vm/Lib/python_builtins/*").as_str());
+    process_python_libs(format!("{CRATE_ROOT}/vm/Lib/core_modules/*").as_str());
+
     #[cfg(feature = "freeze-stdlib")]
     if cfg!(windows) {
-        process_python_libs("../Lib/**/*");
+        process_python_libs(format!("{CRATE_ROOT}/Lib/**/*").as_str());
     } else {
         process_python_libs("./Lib/**/*");
     }
