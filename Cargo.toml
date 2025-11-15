@@ -121,7 +121,6 @@ template = "installer-config/installer.wxs"
 [workspace]
 resolver = "2"
 members = [
-    "compiler/codegen",
     ".",
     "derive",
     "vm",
