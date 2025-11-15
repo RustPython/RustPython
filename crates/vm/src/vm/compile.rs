@@ -69,6 +69,7 @@ impl VirtualMachine {
                 self.ctx.new_str(path).into(),
                 self,
             )?;
+            module_dict.set_item(identifier!(self, __cached__), self.ctx.none(), self)?;
         }
 
         // Consider to use enum to distinguish `path`

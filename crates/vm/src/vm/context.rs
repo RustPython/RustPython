@@ -98,6 +98,7 @@ declare_const_name! {
     __build_class__,
     __builtins__,
     __bytes__,
+    __cached__,
     __call__,
     __ceil__,
     __cformat__,
