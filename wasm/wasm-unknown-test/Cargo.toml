@@ -8,7 +8,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 getrandom = "0.3"
-rustpython-vm = { path = "../../vm", default-features = false, features = ["compiler"] }
+rustpython-vm = { path = "../../crates/vm", default-features = false, features = ["compiler"] }
 
 [workspace]
 
