@@ -46,7 +46,7 @@ bitflags = { workspace = true }
 bstr = { workspace = true }
 cfg-if = { workspace = true }
 crossbeam-utils = { workspace = true }
-chrono = { workspace = true, features = ["wasmbind"] }
+chrono = { workspace = true }
 constant_time_eq = { workspace = true }
 flame = { workspace = true, optional = true }
 getrandom = { workspace = true }
@@ -148,8 +148,10 @@ features = [
   "Win32_UI_WindowsAndMessaging",
 ]
 
-[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+[target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = { workspace = true, optional = true }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 getrandom = { workspace = true }
 
 [build-dependencies]

@@ -162,7 +162,7 @@ ascii = "1.1"
 bitflags = "2.9.4"
 bstr = "1"
 cfg-if = "1.0"
-chrono = "0.4.42"
+chrono = { version = "0.4.42", default-features = false, features = ["clock", "oldtime", "std"] }
 constant_time_eq = "0.4"
 criterion = { version = "0.7", features = ["html_reports"] }
 crossbeam-utils = "0.8.21"
