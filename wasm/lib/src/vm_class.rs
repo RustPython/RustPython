@@ -25,19 +25,6 @@ pub(crate) struct StoredVirtualMachine {
     held_objects: RefCell<Vec<PyObjectRef>>,
 }
 
-#[pymodule]
-mod _window {}
-
-fn init_window_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    let module = _window::make_module(vm);
-
-    extend_module!(vm, &module, {
-        "window" => js_module::PyJsValue::new(wasm_builtins::window()).into_ref(&vm.ctx),
-    });
-
-    module
-}
-
 impl StoredVirtualMachine {
     fn new(id: String, inject_browser_module: bool) -> StoredVirtualMachine {
         let mut scope = None;
@@ -54,7 +41,6 @@ impl StoredVirtualMachine {
 
             js_module::setup_js_module(vm);
             if inject_browser_module {
-                vm.add_native_module("_window".to_owned(), Box::new(init_window_module));
                 setup_browser_module(vm);
             }
 
