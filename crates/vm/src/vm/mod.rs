@@ -1036,7 +1036,9 @@ fn test_nested_frozen() {
 
     vm::Interpreter::with_init(Default::default(), |vm| {
         // vm.add_native_modules(rustpython_stdlib::get_module_inits());
-        vm.add_frozen(rustpython_vm::py_freeze!(dir = "../extra_tests/snippets"));
+        vm.add_frozen(rustpython_vm::py_freeze!(
+            dir = "../../extra_tests/snippets"
+        ));
     })
     .enter(|vm| {
         let scope = vm.new_scope_with_builtins();

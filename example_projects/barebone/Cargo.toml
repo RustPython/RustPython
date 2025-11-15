@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rustpython-vm = { path = "../../vm", default-features = false }
+rustpython-vm = { path = "../../crates/vm", default-features = false }
 
 [workspace]
 
