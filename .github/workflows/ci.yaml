@@ -16,7 +16,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl
+  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls
+  CARGO_ARGS_NO_SSL: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite
   # Skip additional tests on Windows. They are checked on Linux and MacOS.
   # test_glob: many failing tests
   # test_io: many failing tests
@@ -169,7 +170,7 @@ jobs:
           target: aarch64-apple-ios
         if: runner.os == 'macOS'
       - name: Check compilation for iOS
-        run: cargo check --target aarch64-apple-ios
+        run: cargo check --target aarch64-apple-ios ${{ env.CARGO_ARGS_NO_SSL }}
         if: runner.os == 'macOS'
 
   exotic_targets:
@@ -186,14 +187,14 @@ jobs:
       - name: Install gcc-multilib and musl-tools
         run: sudo apt-get update && sudo apt-get install gcc-multilib musl-tools
       - name: Check compilation for x86 32bit
-        run: cargo check --target i686-unknown-linux-gnu
+        run: cargo check --target i686-unknown-linux-gnu ${{ env.CARGO_ARGS_NO_SSL }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: aarch64-linux-android
 
       - name: Check compilation for android
-        run: cargo check --target aarch64-linux-android
+        run: cargo check --target aarch64-linux-android ${{ env.CARGO_ARGS_NO_SSL }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -202,28 +203,28 @@ jobs:
       - name: Install gcc-aarch64-linux-gnu
         run: sudo apt install gcc-aarch64-linux-gnu
       - name: Check compilation for aarch64 linux gnu
-        run: cargo check --target aarch64-unknown-linux-gnu
+        run: cargo check --target aarch64-unknown-linux-gnu ${{ env.CARGO_ARGS_NO_SSL }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: i686-unknown-linux-musl
 
       - name: Check compilation for musl
-        run: cargo check --target i686-unknown-linux-musl
+        run: cargo check --target i686-unknown-linux-musl ${{ env.CARGO_ARGS_NO_SSL }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: x86_64-unknown-freebsd
 
       - name: Check compilation for freebsd
-        run: cargo check --target x86_64-unknown-freebsd
+        run: cargo check --target x86_64-unknown-freebsd ${{ env.CARGO_ARGS_NO_SSL }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: x86_64-unknown-freebsd
 
       - name: Check compilation for freeBSD
-        run: cargo check --target x86_64-unknown-freebsd
+        run: cargo check --target x86_64-unknown-freebsd ${{ env.CARGO_ARGS_NO_SSL }}
 
       # - name: Prepare repository for redox compilation
       #   run: bash scripts/redox/uncomment-cargo.sh

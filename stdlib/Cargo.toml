@@ -15,8 +15,12 @@ default = ["compiler"]
 compiler = ["rustpython-vm/compiler"]
 threading = ["rustpython-common/threading", "rustpython-vm/threading"]
 sqlite = ["dep:libsqlite3-sys"]
-ssl = ["openssl", "openssl-sys", "foreign-types-shared", "openssl-probe"]
-ssl-vendor = ["ssl", "openssl/vendored"]
+# SSL backends - default to rustls
+ssl = []
+ssl-rustls = ["ssl", "rustls", "rustls-native-certs", "rustls-pemfile", "rustls-platform-verifier", "x509-cert", "x509-parser", "der", "pem-rfc7468", "webpki-roots", "aws-lc-rs", "oid-registry", "pkcs8"]
+ssl-rustls-fips = ["ssl-rustls", "aws-lc-rs/fips"]
+ssl-openssl = ["ssl", "openssl", "openssl-sys", "foreign-types-shared", "openssl-probe"]
+ssl-vendor = ["ssl-openssl", "openssl/vendored"]
 tkinter = ["dep:tk-sys", "dep:tcl-sys"]
 
 [dependencies]
@@ -86,6 +90,7 @@ bzip2 = "0.6"
 # tkinter
 tk-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0", optional = true }
 tcl-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0", optional = true }
+chrono.workspace = true
 
 # uuid
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32", target_os = "redox")))'.dependencies]
@@ -107,10 +112,26 @@ rustix = { workspace = true }
 gethostname = "1.0.2"
 socket2 = { version = "0.6.0", features = ["all"] }
 dns-lookup = "3.0"
+
+# OpenSSL dependencies (optional, for ssl-openssl feature)
 openssl = { version = "0.10.72", optional = true }
 openssl-sys = { version = "0.9.110", optional = true }
 openssl-probe = { version = "0.1.5", optional = true }
 foreign-types-shared = { version = "0.1.1", optional = true }
+
+# Rustls dependencies (optional, for ssl-rustls feature)
+rustls = { version = "0.23.35", default-features = false, features = ["std", "tls12", "aws_lc_rs"], optional = true }
+rustls-native-certs = { version = "0.8", optional = true }
+rustls-pemfile = { version = "2.2", optional = true }
+rustls-platform-verifier = { version = "0.6", optional = true }
+x509-cert = { version = "0.2.5", features = ["pem", "builder"], optional = true }
+x509-parser = { version = "0.16", optional = true }
+der = { version = "0.7", features = ["alloc", "oid"], optional = true }
+pem-rfc7468 = { version = "0.7", optional = true }
+webpki-roots = { version = "0.26", optional = true }
+aws-lc-rs = { version = "1.14.1", optional = true }
+oid-registry = { version = "0.7", features = ["x509", "pkcs1", "nist_algs"], optional = true }
+pkcs8 = { version = "0.10", features = ["encryption", "pkcs5", "pem"], optional = true }
 
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
 libsqlite3-sys = { version = "0.28", features = ["bundled"], optional = true }

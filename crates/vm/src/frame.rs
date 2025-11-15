@@ -520,7 +520,7 @@ impl ExecutingFrame<'_> {
             trace!("  {:#?}", self);
             trace!(
                 "  Executing op code: {}",
-                instruction.display(arg, &self.code.code).to_string()
+                instruction.display(arg, &self.code.code)
             );
             trace!("=======");
         }

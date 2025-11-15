@@ -75,8 +75,14 @@ mod select;
     not(any(target_os = "android", target_arch = "wasm32"))
 ))]
 mod sqlite;
-#[cfg(all(not(target_arch = "wasm32"), feature = "ssl"))]
+
+#[cfg(all(not(target_arch = "wasm32"), feature = "ssl-openssl"))]
+mod openssl;
+#[cfg(all(not(target_arch = "wasm32"), feature = "ssl-rustls"))]
 mod ssl;
+#[cfg(all(feature = "ssl-openssl", feature = "ssl-rustls"))]
+compile_error!("features \"ssl-openssl\" and \"ssl-rustls\" are mutually exclusive");
+
 #[cfg(all(unix, not(target_os = "redox"), not(target_os = "ios")))]
 mod termios;
 #[cfg(not(any(
@@ -167,9 +173,13 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         {
             "_sqlite3" => sqlite::make_module,
         }
-        #[cfg(feature = "ssl")]
+        #[cfg(all(not(target_arch = "wasm32"), feature = "ssl-rustls"))]
         {
             "_ssl" => ssl::make_module,
+        }
+        #[cfg(all(not(target_arch = "wasm32"), feature = "ssl-openssl"))]
+        {
+            "_ssl" => openssl::make_module,
         }
         #[cfg(windows)]
         {
