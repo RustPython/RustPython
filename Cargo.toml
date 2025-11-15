@@ -122,18 +122,13 @@ template = "installer-config/installer.wxs"
 resolver = "2"
 members = [
     "compiler",
-    "compiler/core",
     "compiler/codegen",
-    "compiler/literal",
     ".",
-    "common",
     "derive",
     "jit",
     "vm",
-    "pylib",
     "stdlib",
     "derive-impl",
-    "wtf8",
     "wasm/lib",
     "crates/*",
 ]
@@ -147,19 +142,19 @@ repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 
 [workspace.dependencies]
-rustpython-compiler-core = { path = "compiler/core", version = "0.4.0" }
+rustpython-compiler-core = { path = "crates/compiler-core", version = "0.4.0" }
 rustpython-compiler = { path = "compiler", version = "0.4.0" }
 rustpython-codegen = { path = "compiler/codegen", version = "0.4.0" }
-rustpython-common = { path = "common", version = "0.4.0" }
+rustpython-common = { path = "crates/common", version = "0.4.0" }
 rustpython-derive = { path = "derive", version = "0.4.0" }
 rustpython-derive-impl = { path = "derive-impl", version = "0.4.0" }
 rustpython-jit = { path = "jit", version = "0.4.0" }
-rustpython-literal = { path = "compiler/literal", version = "0.4.0" }
+rustpython-literal = { path = "crates/literal", version = "0.4.0" }
 rustpython-vm = { path = "vm", default-features = false, version = "0.4.0" }
-rustpython-pylib = { path = "pylib", version = "0.4.0" }
+rustpython-pylib = { path = "crates/pylib", version = "0.4.0" }
 rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.4.0" }
 rustpython-sre_engine = { path = "crates/sre_engine", version = "0.4.0" }
-rustpython-wtf8 = { path = "wtf8", version = "0.4.0" }
+rustpython-wtf8 = { path = "crates/wtf8", version = "0.4.0" }
 rustpython-doc = { path = "crates/doc", version = "0.4.0" }
 
 ruff_python_parser = { git = "https://github.com/astral-sh/ruff.git", tag = "0.14.1" }
