@@ -107,11 +107,79 @@ env:
   PYTHON_VERSION: "3.13.1"
 
 jobs:
+  auto_format_pr:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          token: ${{ github.token }}
+          fetch-depth: 0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Run cargo fmt
+        run: cargo fmt --all
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: git add
+        run: git add -u
+
+      - name: git commit
+        id: git-commit
+        run: git commit -m "run `cargo fmt --all`"
+        continue-on-error: true # Will fail if nothing to commit
+
+      - name: Comment on PR
+        if: ${{ steps.git_commit.outcome == 'success' }}
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          number: ${{ github.event.pull_request.number }}
+          message: |
+            **Code has been automatically formatted**
+
+            The code in this PR has been formatted using `cargo fmt --all`.
+
+            You may need to pull the latest changes before pushing again:
+            ```bash
+            git pull origin ${{ github.event.pull_request.head.ref }}
+            ```
+
+            **Triggered by commit:** `${{ github.event.pull_request.head.sha }}`
+            **Last formatted:** ${{ github.event.pull_request.updated_at }}
+            **Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: git push
+        run: git push origin HEAD:${{ github.event.pull_request.head.ref }}
+        if: steps.git-commit.outcome == 'success'
+
+      # This step is not really needed as the earlier push should cancel this run anyways.
+      # But we are making sure that we abort if we had badly formatted files.
+      - name: Exit if changed
+        run: exit 1
+        if: ${{ steps.git_commit.outcome == 'success' }}
+
   rust_tests:
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    if: ${{ !cancelled() && !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     env:
       RUST_BACKTRACE: full
     name: Run rust tests
+    needs:
+      - auto_format_pr
     runs-on:  ${{ matrix.os }}
     timeout-minutes: ${{ contains(matrix.os, 'windows') && 45 || 35 }}
     strategy:
@@ -173,8 +241,10 @@ jobs:
         if: runner.os == 'macOS'
 
   exotic_targets:
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    if: ${{ !cancelled() && !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Ensure compilation on various targets
+    needs:
+      - auto_format_pr
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -234,10 +304,12 @@ jobs:
       #     args: --ignore-rust-version
 
   snippets_cpython:
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    if: ${{ !cancelled() && !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     env:
       RUST_BACKTRACE: full
     name: Run snippets and cpython tests
+    needs:
+      - auto_format_pr
     runs-on:  ${{ matrix.os }}
     timeout-minutes: ${{ contains(matrix.os, 'windows') && 45 || 35 }}
     strategy:
@@ -308,6 +380,8 @@ jobs:
 
   lint:
     name: Check Rust code with clippy
+    needs:
+      - auto_format_pr
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -342,8 +416,10 @@ jobs:
           incremental_files_only: true
 
   miri:
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    if: ${{ !cancelled() && !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Run tests under miri
+    needs:
+      - auto_format_pr
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -366,8 +442,10 @@ jobs:
           MIRIFLAGS: '-Zmiri-ignore-leaks'
 
   wasm:
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    if: ${{ !cancelled() && !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Check the WASM package and demo
+    needs:
+      - auto_format_pr
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -427,8 +505,10 @@ jobs:
           PUBLISH_BRANCH: master
 
   wasm-wasi:
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    if: ${{ !cancelled() && !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Run snippets and cpython tests on wasm-wasi
+    needs:
+      - auto_format_pr
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
