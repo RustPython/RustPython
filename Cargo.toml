@@ -127,7 +127,6 @@ members = [
     "vm",
     "vm/sre_engine",
     "stdlib",
-    "derive-impl",
     "wasm/lib",
     "crates/*",
 ]
@@ -146,7 +145,7 @@ rustpython-compiler = { path = "compiler", version = "0.4.0" }
 rustpython-codegen = { path = "crates/codegen", version = "0.4.0" }
 rustpython-common = { path = "crates/common", version = "0.4.0" }
 rustpython-derive = { path = "derive", version = "0.4.0" }
-rustpython-derive-impl = { path = "derive-impl", version = "0.4.0" }
+rustpython-derive-impl = { path = "crates/derive-impl", version = "0.4.0" }
 rustpython-jit = { path = "crates/jit", version = "0.4.0" }
 rustpython-literal = { path = "crates/literal", version = "0.4.0" }
 rustpython-vm = { path = "vm", default-features = false, version = "0.4.0" }
