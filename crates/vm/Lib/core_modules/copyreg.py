@@ -1,1 +1,1 @@
-../../../Lib/copyreg.py
+../../../../Lib/copyreg.py
