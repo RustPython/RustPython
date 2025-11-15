@@ -122,7 +122,6 @@ template = "installer-config/installer.wxs"
 resolver = "2"
 members = [
     ".",
-    "derive",
     "stdlib",
     "wasm/lib",
     "crates/*",
@@ -141,7 +140,7 @@ rustpython-compiler-core = { path = "crates/compiler-core", version = "0.4.0" }
 rustpython-compiler = { path = "crates/compiler", version = "0.4.0" }
 rustpython-codegen = { path = "crates/codegen", version = "0.4.0" }
 rustpython-common = { path = "crates/common", version = "0.4.0" }
-rustpython-derive = { path = "derive", version = "0.4.0" }
+rustpython-derive = { path = "crates/derive", version = "0.4.0" }
 rustpython-derive-impl = { path = "crates/derive-impl", version = "0.4.0" }
 rustpython-jit = { path = "crates/jit", version = "0.4.0" }
 rustpython-literal = { path = "crates/literal", version = "0.4.0" }
