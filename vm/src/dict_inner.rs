@@ -574,6 +574,7 @@ impl<T: Clone> Dict<T> {
     ) -> PyResult<LookupResult> {
         let mut idxs = None;
         let mut free_slot = None;
+        let original_size = self.size();
         let ret = 'outer: loop {
             let (entry_key, ret) = {
                 let inner = lock.take().unwrap_or_else(|| self.read());
@@ -582,9 +583,12 @@ impl<T: Clone> Dict<T> {
                 });
                 loop {
                     let index_index = idxs.next();
-                    let index_entry = *unsafe {
-                        // Safety: index_index is generated
-                        inner.indices.get_unchecked(index_index)
+                    let index_entry = match inner.indices.get(index_index) {
+                        None => {
+                            // Dictionary was modified under our hands, see TestMethodsMutating.
+                            return Err(vm.new_runtime_error("set changed size during iteration"));
+                        }
+                        Some(v) => *v,
                     };
                     match index_entry {
                         IndexEntry::DUMMY => {
@@ -597,6 +601,11 @@ impl<T: Clone> Dict<T> {
                                 Some(free) => (IndexEntry::DUMMY, free),
                                 None => (IndexEntry::FREE, index_index),
                             };
+                            if self.has_changed_size(&original_size) {
+                                return Err(
+                                    vm.new_runtime_error("set changed size during iteration")
+                                );
+                            }
                             return Ok(idxs);
                         }
                         idx => {
@@ -628,6 +637,9 @@ impl<T: Clone> Dict<T> {
 
             // warn!("Perturb value: {}", i);
         };
+        if self.has_changed_size(&original_size) {
+            return Err(vm.new_runtime_error("set changed size during iteration"));
+        }
         Ok(ret)
     }
 
