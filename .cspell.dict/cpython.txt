@@ -2,11 +2,14 @@ argtypes
 asdl
 asname
 augassign
+badcert
 badsyntax
 basetype
 boolop
 bxor
 cached_tsver
+cadata
+cafile
 cellarg
 cellvar
 cellvars
@@ -23,8 +26,8 @@ freevars
 fromlist
 heaptype
 HIGHRES
-Itertool
 IMMUTABLETYPE
+Itertool
 kwonlyarg
 kwonlyargs
 lasti
@@ -47,6 +50,7 @@ stackdepth
 stringlib
 structseq
 subparams
+ticketer
 tok_oldval
 tvars
 unaryop
@@ -56,6 +60,7 @@ VARKEYWORDS
 varkwarg
 wbits
 weakreflist
+webpki
 withitem
 withs
 xstat
