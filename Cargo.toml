@@ -124,7 +124,6 @@ template = "installer-config/installer.wxs"
 resolver = "2"
 members = [
     ".",
-    "stdlib",
     "wasm/lib",
     "crates/*",
 ]
@@ -148,7 +147,7 @@ rustpython-jit = { path = "crates/jit", version = "0.4.0" }
 rustpython-literal = { path = "crates/literal", version = "0.4.0" }
 rustpython-vm = { path = "crates/vm", default-features = false, version = "0.4.0" }
 rustpython-pylib = { path = "crates/pylib", version = "0.4.0" }
-rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.4.0" }
+rustpython-stdlib = { path = "crates/stdlib", default-features = false, version = "0.4.0" }
 rustpython-sre_engine = { path = "crates/sre_engine", version = "0.4.0" }
 rustpython-wtf8 = { path = "crates/wtf8", version = "0.4.0" }
 rustpython-doc = { path = "crates/doc", version = "0.4.0" }
