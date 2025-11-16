@@ -930,8 +930,6 @@ class SpecSignatureTest(unittest.TestCase):
         check_data_descriptor(foo.desc)
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_autospec_on_bound_builtin_function(self):
         meth = types.MethodType(time.ctime, time.time())
         self.assertIsInstance(meth(), str)
