@@ -1,1 +1,0 @@
-../../../Lib/copyreg.py

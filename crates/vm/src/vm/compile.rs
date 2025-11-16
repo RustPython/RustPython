@@ -26,7 +26,9 @@ impl VirtualMachine {
         compiler::compile(source, mode, &source_path, opts).map(|code| self.ctx.new_code(code))
     }
 
+    // pymain_run_file_obj
     pub fn run_script(&self, scope: Scope, path: &str) -> PyResult<()> {
+        // when pymain_run_module?
         if get_importer(path, self)?.is_some() {
             self.insert_sys_path(self.new_pyobj(path))?;
             let runpy = self.import("runpy", 0)?;
@@ -35,6 +37,7 @@ impl VirtualMachine {
             return Ok(());
         }
 
+        // TODO: check if this is proper place
         if !self.state.settings.safe_path {
             let dir = std::path::Path::new(path)
                 .parent()
@@ -44,19 +47,62 @@ impl VirtualMachine {
             self.insert_sys_path(self.new_pyobj(dir))?;
         }
 
-        match std::fs::read_to_string(path) {
-            Ok(source) => {
-                self.run_code_string(scope, &source, path.to_owned())?;
+        self.run_any_file(scope, path)
+    }
+
+    // = _PyRun_AnyFileObject
+    fn run_any_file(&self, scope: Scope, path: &str) -> PyResult<()> {
+        let path = if path.is_empty() { "???" } else { path };
+
+        self.run_simple_file(scope, path)
+    }
+
+    // = _PyRun_SimpleFileObject
+    fn run_simple_file(&self, scope: Scope, path: &str) -> PyResult<()> {
+        // __main__ is given by scope
+        let sys_modules = self.sys_module.get_attr(identifier!(self, modules), self)?;
+        let main_module = sys_modules.get_item(identifier!(self, __main__), self)?;
+        let module_dict = main_module.dict().expect("main module must have __dict__");
+        if !module_dict.contains_key(identifier!(self, __file__), self) {
+            module_dict.set_item(
+                identifier!(self, __file__),
+                self.ctx.new_str(path).into(),
+                self,
+            )?;
+            module_dict.set_item(identifier!(self, __cached__), self.ctx.none(), self)?;
+        }
+
+        // Consider to use enum to distinguish `path`
+        // https://github.com/RustPython/RustPython/pull/6276#discussion_r2529849479
+
+        // TODO: check .pyc here
+        let pyc = false;
+        if pyc {
+            todo!("running pyc is not implemented yet");
+        } else {
+            if path != "<stdin>" {
+                // TODO: set_main_loader(dict, filename, "SourceFileLoader");
             }
-            Err(err) => {
-                error!("Failed reading file '{path}': {err}");
-                // TODO: Need to change to ExitCode or Termination
-                std::process::exit(1);
+            // TODO: replace to something equivalent to py_run_file
+            match std::fs::read_to_string(path) {
+                Ok(source) => {
+                    let code_obj = self
+                        .compile(&source, compiler::Mode::Exec, path.to_owned())
+                        .map_err(|err| self.new_syntax_error(&err, Some(&source)))?;
+                    // trace!("Code object: {:?}", code_obj.borrow());
+                    self.run_code_obj(code_obj, scope)?;
+                }
+                Err(err) => {
+                    error!("Failed reading file '{path}': {err}");
+                    // TODO: Need to change to ExitCode or Termination
+                    std::process::exit(1);
+                }
             }
         }
         Ok(())
     }
 
+    // TODO: deprecate or reimplement using other primitive functions
     pub fn run_code_string(&self, scope: Scope, source: &str, source_path: String) -> PyResult {
         let code_obj = self
             .compile(source, compiler::Mode::Exec, source_path.clone())

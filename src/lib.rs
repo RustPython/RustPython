@@ -154,6 +154,7 @@ fn install_pip(installer: InstallPipMode, scope: Scope, vm: &VirtualMachine) -> 
     }
 }
 
+// pymain_run_python
 fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     #[cfg(feature = "flame-it")]
     let main_guard = flame::start_guard("RustPython main");
@@ -206,9 +207,10 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
             vm.run_module(&module)
         }
         RunMode::InstallPip(installer) => install_pip(installer, scope.clone(), vm),
-        RunMode::Script(script) => {
-            debug!("Running script {}", &script);
-            vm.run_script(scope.clone(), &script)
+        RunMode::Script(script_path) => {
+            // pymain_run_file
+            debug!("Running script {}", &script_path);
+            vm.run_script(scope.clone(), &script_path)
         }
         RunMode::Repl => Ok(()),
     };
