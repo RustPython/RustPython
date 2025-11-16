@@ -46,7 +46,7 @@ bitflags = { workspace = true }
 bstr = { workspace = true }
 cfg-if = { workspace = true }
 crossbeam-utils = { workspace = true }
-chrono = { workspace = true, features = ["wasmbind"] }
+chrono = { workspace = true }
 constant_time_eq = { workspace = true }
 flame = { workspace = true, optional = true }
 getrandom = { workspace = true }
@@ -150,7 +150,6 @@ features = [
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen = { workspace = true, optional = true }
-getrandom = { workspace = true }
 
 [build-dependencies]
 glob = { workspace = true }
