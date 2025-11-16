@@ -150,7 +150,6 @@ features = [
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen = { workspace = true, optional = true }
-getrandom = { workspace = true }
 
 [build-dependencies]
 glob = { workspace = true }
