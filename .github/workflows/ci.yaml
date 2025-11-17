@@ -404,11 +404,13 @@ jobs:
         with: { wabt-version: "1.0.36" }
       - name: check wasm32-unknown without js
         run: |
-          cd wasm/wasm-unknown-test
-          cargo build --release --verbose
-          if wasm-objdump -xj Import target/wasm32-unknown-unknown/release/wasm_unknown_test.wasm; then
-            echo "ERROR: wasm32-unknown module expects imports from the host environment" >2
+          cd example_projects/wasm32_without_js/rustpython-without-js
+          cargo build
+          cd ..
+          if wasm-objdump -xj Import rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm; then
+            echo "ERROR: wasm32-unknown module expects imports from the host environment" >&2
           fi
+          cargo run --release --manifest-path wasm-runtime/Cargo.toml rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm
       - name: build notebook demo
         if: github.ref == 'refs/heads/release'
         run: |
