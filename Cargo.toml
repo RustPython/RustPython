@@ -124,7 +124,6 @@ template = "installer-config/installer.wxs"
 resolver = "2"
 members = [
     ".",
-    "wasm/lib",
     "crates/*",
 ]
 

@@ -316,7 +316,7 @@ jobs:
         with:
             components: clippy
       - name: run clippy on wasm
-        run: cargo clippy --manifest-path=wasm/lib/Cargo.toml -- -Dwarnings
+        run: cargo clippy --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
