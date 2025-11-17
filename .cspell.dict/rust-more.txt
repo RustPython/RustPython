@@ -82,6 +82,7 @@ unsync
 wasip1
 wasip2
 wasmbind
+wasmer
 wasmtime
 widestring
 winapi
