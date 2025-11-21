@@ -573,8 +573,6 @@ class ConnectionTests(unittest.TestCase):
         self.assertTrue(all(isinstance(r, sqlite.Row) for r in rows))
         self.assertEqual([r[0] for r in rows], ["2", "3"])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_connection_bad_reinit(self):
         cx = sqlite.connect(":memory:")
         with cx:
