@@ -736,12 +736,10 @@ impl SymbolTableBuilder {
         if let Stmt::ImportFrom(StmtImportFrom { module, names, .. }) = &statement
             && module.as_ref().map(|id| id.as_str()) == Some("__future__")
         {
-            for feature in names {
-                if &feature.name == "annotations" {
-                    self.future_annotations = true;
-                }
-            }
+            self.future_annotations =
+                self.future_annotations || names.iter().any(|future| &future.name == "annotations");
         }
+
         match &statement {
             Stmt::Global(StmtGlobal { names, .. }) => {
                 for name in names {

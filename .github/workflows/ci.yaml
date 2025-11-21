@@ -16,7 +16,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl
+  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls
+  CARGO_ARGS_NO_SSL: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite
   # Skip additional tests on Windows. They are checked on Linux and MacOS.
   # test_glob: many failing tests
   # test_io: many failing tests
@@ -137,13 +138,13 @@ jobs:
         if: runner.os == 'macOS'
 
       - name: run clippy
-        run: cargo clippy ${{ env.CARGO_ARGS }} --workspace --all-targets --exclude rustpython_wasm -- -Dwarnings
+        run: cargo clippy ${{ env.CARGO_ARGS }} --workspace --all-targets --exclude rustpython_wasm --exclude rustpython-compiler-source -- -Dwarnings
 
       - name: run rust tests
-        run: cargo test --workspace --exclude rustpython_wasm --verbose --features threading ${{ env.CARGO_ARGS }}
+        run: cargo test --workspace --exclude rustpython_wasm --exclude rustpython-compiler-source --verbose --features threading ${{ env.CARGO_ARGS }}
         if: runner.os != 'macOS'
       - name: run rust tests
-        run: cargo test --workspace --exclude rustpython_wasm --exclude rustpython-jit --verbose --features threading  ${{ env.CARGO_ARGS }}
+        run: cargo test --workspace --exclude rustpython_wasm --exclude rustpython-jit --exclude rustpython-compiler-source --verbose --features threading  ${{ env.CARGO_ARGS }}
         if: runner.os == 'macOS'
 
       - name: check compilation without threading
@@ -169,7 +170,7 @@ jobs:
           target: aarch64-apple-ios
         if: runner.os == 'macOS'
       - name: Check compilation for iOS
-        run: cargo check --target aarch64-apple-ios
+        run: cargo check --target aarch64-apple-ios ${{ env.CARGO_ARGS_NO_SSL }}
         if: runner.os == 'macOS'
 
   exotic_targets:
@@ -186,14 +187,14 @@ jobs:
       - name: Install gcc-multilib and musl-tools
         run: sudo apt-get update && sudo apt-get install gcc-multilib musl-tools
       - name: Check compilation for x86 32bit
-        run: cargo check --target i686-unknown-linux-gnu
+        run: cargo check --target i686-unknown-linux-gnu ${{ env.CARGO_ARGS_NO_SSL }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: aarch64-linux-android
 
       - name: Check compilation for android
-        run: cargo check --target aarch64-linux-android
+        run: cargo check --target aarch64-linux-android ${{ env.CARGO_ARGS_NO_SSL }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -202,28 +203,28 @@ jobs:
       - name: Install gcc-aarch64-linux-gnu
         run: sudo apt install gcc-aarch64-linux-gnu
       - name: Check compilation for aarch64 linux gnu
-        run: cargo check --target aarch64-unknown-linux-gnu
+        run: cargo check --target aarch64-unknown-linux-gnu ${{ env.CARGO_ARGS_NO_SSL }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: i686-unknown-linux-musl
 
       - name: Check compilation for musl
-        run: cargo check --target i686-unknown-linux-musl
+        run: cargo check --target i686-unknown-linux-musl ${{ env.CARGO_ARGS_NO_SSL }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: x86_64-unknown-freebsd
 
       - name: Check compilation for freebsd
-        run: cargo check --target x86_64-unknown-freebsd
+        run: cargo check --target x86_64-unknown-freebsd ${{ env.CARGO_ARGS_NO_SSL }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: x86_64-unknown-freebsd
 
       - name: Check compilation for freeBSD
-        run: cargo check --target x86_64-unknown-freebsd
+        run: cargo check --target x86_64-unknown-freebsd ${{ env.CARGO_ARGS_NO_SSL }}
 
       # - name: Prepare repository for redox compilation
       #   run: bash scripts/redox/uncomment-cargo.sh
@@ -315,7 +316,7 @@ jobs:
         with:
             components: clippy
       - name: run clippy on wasm
-        run: cargo clippy --manifest-path=wasm/lib/Cargo.toml -- -Dwarnings
+        run: cargo clippy --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -403,11 +404,13 @@ jobs:
         with: { wabt-version: "1.0.36" }
       - name: check wasm32-unknown without js
         run: |
-          cd wasm/wasm-unknown-test
-          cargo build --release --verbose
-          if wasm-objdump -xj Import target/wasm32-unknown-unknown/release/wasm_unknown_test.wasm; then
-            echo "ERROR: wasm32-unknown module expects imports from the host environment" >2
+          cd example_projects/wasm32_without_js/rustpython-without-js
+          cargo build
+          cd ..
+          if wasm-objdump -xj Import rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm; then
+            echo "ERROR: wasm32-unknown module expects imports from the host environment" >&2
           fi
+          cargo run --release --manifest-path wasm-runtime/Cargo.toml rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm
       - name: build notebook demo
         if: github.ref == 'refs/heads/release'
         run: |

@@ -10,7 +10,7 @@ repository.workspace = true
 license.workspace = true
 
 [features]
-default = ["threading", "stdlib", "stdio", "importlib"]
+default = ["threading", "stdlib", "stdio", "importlib", "ssl-rustls"]
 importlib = ["rustpython-vm/importlib"]
 encodings = ["rustpython-vm/encodings"]
 stdio = ["rustpython-vm/stdio"]
@@ -20,8 +20,10 @@ freeze-stdlib = ["stdlib", "rustpython-vm/freeze-stdlib", "rustpython-pylib?/fre
 jit = ["rustpython-vm/jit"]
 threading = ["rustpython-vm/threading", "rustpython-stdlib/threading"]
 sqlite = ["rustpython-stdlib/sqlite"]
-ssl = ["rustpython-stdlib/ssl"]
-ssl-vendor = ["ssl", "rustpython-stdlib/ssl-vendor"]
+ssl = []
+ssl-rustls = ["ssl", "rustpython-stdlib/ssl-rustls"]
+ssl-openssl = ["ssl", "rustpython-stdlib/ssl-openssl"]
+ssl-vendor = ["ssl-openssl", "rustpython-stdlib/ssl-vendor"]
 tkinter = ["rustpython-stdlib/tkinter"]
 
 [build-dependencies]
@@ -122,10 +124,6 @@ template = "installer-config/installer.wxs"
 resolver = "2"
 members = [
     ".",
-    "derive",
-    "vm",
-    "stdlib",
-    "wasm/lib",
     "crates/*",
 ]
 
@@ -142,13 +140,13 @@ rustpython-compiler-core = { path = "crates/compiler-core", version = "0.4.0" }
 rustpython-compiler = { path = "crates/compiler", version = "0.4.0" }
 rustpython-codegen = { path = "crates/codegen", version = "0.4.0" }
 rustpython-common = { path = "crates/common", version = "0.4.0" }
-rustpython-derive = { path = "derive", version = "0.4.0" }
+rustpython-derive = { path = "crates/derive", version = "0.4.0" }
 rustpython-derive-impl = { path = "crates/derive-impl", version = "0.4.0" }
 rustpython-jit = { path = "crates/jit", version = "0.4.0" }
 rustpython-literal = { path = "crates/literal", version = "0.4.0" }
-rustpython-vm = { path = "vm", default-features = false, version = "0.4.0" }
+rustpython-vm = { path = "crates/vm", default-features = false, version = "0.4.0" }
 rustpython-pylib = { path = "crates/pylib", version = "0.4.0" }
-rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.4.0" }
+rustpython-stdlib = { path = "crates/stdlib", default-features = false, version = "0.4.0" }
 rustpython-sre_engine = { path = "crates/sre_engine", version = "0.4.0" }
 rustpython-wtf8 = { path = "crates/wtf8", version = "0.4.0" }
 rustpython-doc = { path = "crates/doc", version = "0.4.0" }
@@ -164,7 +162,7 @@ ascii = "1.1"
 bitflags = "2.9.4"
 bstr = "1"
 cfg-if = "1.0"
-chrono = "0.4.42"
+chrono = { version = "0.4.42", default-features = false, features = ["clock", "oldtime", "std"] }
 constant_time_eq = "0.4"
 criterion = { version = "0.7", features = ["html_reports"] }
 crossbeam-utils = "0.8.21"
