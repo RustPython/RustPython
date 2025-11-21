@@ -833,10 +833,10 @@ mod _sqlite {
     #[derive(PyPayload)]
     struct Connection {
         db: PyMutex<Option<Sqlite>>,
-        detect_types: c_int,
+        detect_types: PyAtomic<c_int>,
         isolation_level: PyAtomicRef<Option<PyStr>>,
-        check_same_thread: bool,
-        thread_ident: ThreadId,
+        check_same_thread: PyAtomic<bool>,
+        thread_ident: PyMutex<ThreadId>,
         row_factory: PyAtomicRef<Option<PyObject>>,
         text_factory: PyAtomicRef<PyObject>,
     }
@@ -867,10 +867,10 @@ mod _sqlite {
 
             let conn = Self {
                 db: PyMutex::new(db),
-                detect_types: args.detect_types,
+                detect_types: Radium::new(args.detect_types),
                 isolation_level: PyAtomicRef::from(args.isolation_level),
-                check_same_thread: args.check_same_thread,
-                thread_ident: std::thread::current().id(),
+                check_same_thread: Radium::new(args.check_same_thread),
+                thread_ident: PyMutex::new(std::thread::current().id()),
                 row_factory: PyAtomicRef::from(None),
                 text_factory: PyAtomicRef::from(text_factory),
             };
@@ -899,13 +899,35 @@ mod _sqlite {
         type Args = ConnectArgs;
 
         fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            let mut guard = zelf.db.lock();
-            if guard.is_some() {
-                // Already initialized
-                return Ok(());
+            {
+                // Always drop the current database handle so __init__ can fully reconfigure it.
+                let mut guard = zelf.db.lock();
+                guard.take();
             }
 
+            // Reset factories to their defaults, matching CPython's behavior.
+            let default_text_factory = PyStr::class(&vm.ctx).to_owned().into_object();
+            let _ = unsafe { zelf.row_factory.swap(None) };
+            let _ = unsafe { zelf.text_factory.swap(default_text_factory) };
+
+            // Attempt to open the new database before mutating other state so failures leave
+            // the connection uninitialized (and subsequent operations raise ProgrammingError).
             let db = Self::initialize_db(&args, vm)?;
+
+            let ConnectArgs {
+                detect_types,
+                isolation_level,
+                check_same_thread,
+                ..
+            } = args;
+
+            zelf.detect_types.store(detect_types, Ordering::Relaxed);
+            zelf.check_same_thread
+                .store(check_same_thread, Ordering::Relaxed);
+            *zelf.thread_ident.lock() = std::thread::current().id();
+            let _ = unsafe { zelf.isolation_level.swap(isolation_level) };
+
+            let mut guard = zelf.db.lock();
             *guard = Some(db);
             Ok(())
         }
@@ -1446,15 +1468,17 @@ mod _sqlite {
         }
 
         fn check_thread(&self, vm: &VirtualMachine) -> PyResult<()> {
-            if self.check_same_thread && (std::thread::current().id() != self.thread_ident) {
-                Err(new_programming_error(
-                    vm,
-                    "SQLite objects created in a thread can only be used in that same thread."
-                        .to_owned(),
-                ))
-            } else {
-                Ok(())
+            if self.check_same_thread.load(Ordering::Relaxed) {
+                let creator_id = *self.thread_ident.lock();
+                if std::thread::current().id() != creator_id {
+                    return Err(new_programming_error(
+                        vm,
+                        "SQLite objects created in a thread can only be used in that same thread."
+                            .to_owned(),
+                    ));
+                }
             }
+            Ok(())
         }
 
         #[pygetset]
@@ -1628,7 +1652,8 @@ mod _sqlite {
 
             inner.row_cast_map = zelf.build_row_cast_map(&st, vm)?;
 
-            inner.description = st.columns_description(zelf.connection.detect_types, vm)?;
+            let detect_types = zelf.connection.detect_types.load(Ordering::Relaxed);
+            inner.description = st.columns_description(detect_types, vm)?;
 
             if ret == SQLITE_ROW {
                 drop(st);
@@ -1676,7 +1701,8 @@ mod _sqlite {
                 ));
             }
 
-            inner.description = st.columns_description(zelf.connection.detect_types, vm)?;
+            let detect_types = zelf.connection.detect_types.load(Ordering::Relaxed);
+            inner.description = st.columns_description(detect_types, vm)?;
 
             inner.rowcount = if stmt.is_dml { 0 } else { -1 };
 
@@ -1841,7 +1867,8 @@ mod _sqlite {
             st: &SqliteStatementRaw,
             vm: &VirtualMachine,
         ) -> PyResult<Vec<Option<PyObjectRef>>> {
-            if self.connection.detect_types == 0 {
+            let detect_types = self.connection.detect_types.load(Ordering::Relaxed);
+            if detect_types == 0 {
                 return Ok(vec![]);
             }
 
@@ -1849,7 +1876,7 @@ mod _sqlite {
             let num_cols = st.column_count();
 
             for i in 0..num_cols {
-                if self.connection.detect_types & PARSE_COLNAMES != 0 {
+                if detect_types & PARSE_COLNAMES != 0 {
                     let col_name = st.column_name(i);
                     let col_name = ptr_to_str(col_name, vm)?;
                     let col_name = col_name
@@ -1864,7 +1891,7 @@ mod _sqlite {
                         continue;
                     }
                 }
-                if self.connection.detect_types & PARSE_DECLTYPES != 0 {
+                if detect_types & PARSE_DECLTYPES != 0 {
                     let decltype = st.column_decltype(i);
                     let decltype = ptr_to_str(decltype, vm)?;
                     if let Some(decltype) = decltype.split_terminator(&[' ', '(']).next() {
