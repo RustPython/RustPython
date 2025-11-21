@@ -833,6 +833,7 @@ mod _sqlite {
     #[derive(PyPayload)]
     struct Connection {
         db: PyMutex<Option<Sqlite>>,
+        initialized: PyAtomic<bool>,
         detect_types: PyAtomic<c_int>,
         isolation_level: PyAtomicRef<Option<PyStr>>,
         check_same_thread: PyAtomic<bool>,
@@ -865,8 +866,11 @@ mod _sqlite {
                 None
             };
 
+            let initialized = db.is_some();
+
             let conn = Self {
                 db: PyMutex::new(db),
+                initialized: Radium::new(initialized),
                 detect_types: Radium::new(args.detect_types),
                 isolation_level: PyAtomicRef::from(args.isolation_level),
                 check_same_thread: Radium::new(args.check_same_thread),
@@ -899,16 +903,14 @@ mod _sqlite {
         type Args = ConnectArgs;
 
         fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            {
-                // Always drop the current database handle so __init__ can fully reconfigure it.
-                let mut guard = zelf.db.lock();
-                guard.take();
-            }
+            let was_initialized = zelf.initialized.swap(false, Ordering::Relaxed);
 
             // Reset factories to their defaults, matching CPython's behavior.
-            let default_text_factory = PyStr::class(&vm.ctx).to_owned().into_object();
-            let _ = unsafe { zelf.row_factory.swap(None) };
-            let _ = unsafe { zelf.text_factory.swap(default_text_factory) };
+            zelf.reset_factories(vm);
+
+            if was_initialized {
+                zelf.drop_db();
+            }
 
             // Attempt to open the new database before mutating other state so failures leave
             // the connection uninitialized (and subsequent operations raise ProgrammingError).
@@ -929,12 +931,23 @@ mod _sqlite {
 
             let mut guard = zelf.db.lock();
             *guard = Some(db);
+            zelf.initialized.store(true, Ordering::Relaxed);
             Ok(())
         }
     }
 
     #[pyclass(with(Constructor, Callable, Initializer), flags(BASETYPE))]
     impl Connection {
+        fn drop_db(&self) {
+            self.db.lock().take();
+        }
+
+        fn reset_factories(&self, vm: &VirtualMachine) {
+            let default_text_factory = PyStr::class(&vm.ctx).to_owned().into_object();
+            let _ = unsafe { self.row_factory.swap(None) };
+            let _ = unsafe { self.text_factory.swap(default_text_factory) };
+        }
+
         fn initialize_db(args: &ConnectArgs, vm: &VirtualMachine) -> PyResult<Sqlite> {
             let path = args.database.to_cstring(vm)?;
             let db = Sqlite::from(SqliteRaw::open(path.as_ptr(), args.uri, vm)?);
@@ -1025,7 +1038,7 @@ mod _sqlite {
         #[pymethod]
         fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
             self.check_thread(vm)?;
-            self.db.lock().take();
+            self.drop_db();
             Ok(())
         }
 
