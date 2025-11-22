@@ -1007,6 +1007,10 @@ mod _sqlite {
             Ok(())
         }
 
+        fn is_closed(&self) -> bool {
+            self.db.lock().is_none()
+        }
+
         #[pymethod]
         fn commit(&self, vm: &VirtualMachine) -> PyResult<()> {
             self.db_lock(vm)?.implicit_commit(vm)
@@ -2169,6 +2173,13 @@ mod _sqlite {
             length: OptionalArg<c_int>,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<PyBytes>> {
+            if self.connection.is_closed() {
+                return Err(new_programming_error(
+                    vm,
+                    "Cannot operate on a closed database".to_owned(),
+                ));
+            }
+
             let mut length = length.unwrap_or(-1);
             let mut inner = self.inner(vm)?;
             let blob_len = inner.blob.bytes();

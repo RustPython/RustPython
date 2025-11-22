@@ -1469,8 +1469,6 @@ class BlobTests(unittest.TestCase):
             with self.assertRaisesRegex(sqlite.ProgrammingError, msg):
                 blob[0] = b""
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_blob_closed_db_read(self):
         with memory_database() as cx:
             cx.execute("create table test(b blob)")
