@@ -837,7 +837,7 @@ mod _sqlite {
         detect_types: PyAtomic<c_int>,
         isolation_level: PyAtomicRef<Option<PyStr>>,
         check_same_thread: PyAtomic<bool>,
-        thread_ident: PyMutex<ThreadId>,  // TODO: Use atomic
+        thread_ident: PyMutex<ThreadId>, // TODO: Use atomic
         row_factory: PyAtomicRef<Option<PyObject>>,
         text_factory: PyAtomicRef<PyObject>,
     }
