@@ -903,7 +903,7 @@ mod _sqlite {
         type Args = ConnectArgs;
 
         fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            let was_initialized = Radium::swap(&zelf.initialized, false, Ordering::Relaxed);
+            let was_initialized = Radium::swap(&zelf.initialized, false, Ordering::AcqRel);
 
             // Reset factories to their defaults, matching CPython's behavior.
             zelf.reset_factories(vm);
@@ -931,7 +931,7 @@ mod _sqlite {
 
             let mut guard = zelf.db.lock();
             *guard = Some(db);
-            Radium::store(&zelf.initialized, true, Ordering::Relaxed);
+            Radium::store(&zelf.initialized, true, Ordering::Release);
             Ok(())
         }
     }
