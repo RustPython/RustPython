@@ -4756,9 +4756,9 @@ dependencies = [
 
 [[package]]
 name = "xml"
-version = "1.0.1"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58a4274c410d957424a1502b21126915b45d9956b2f80a88d4f6f906af29facc"
+checksum = "2df5825faced2427b2da74d9100f1e2e93c533fff063506a81ede1cf517b2e7e"
 
 [[package]]
 name = "xz2"

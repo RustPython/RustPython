@@ -51,7 +51,7 @@ base64 = "0.22"
 csv-core = "0.1.11"
 dyn-clone = "1.0.10"
 pymath = { workspace = true }
-xml = "1.0"
+xml = "1.2"
 
 # random
 rand_core = { workspace = true }
