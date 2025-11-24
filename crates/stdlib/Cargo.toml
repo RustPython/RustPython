@@ -117,7 +117,7 @@ dns-lookup = "3.0"
 openssl = { version = "0.10.72", optional = true }
 openssl-sys = { version = "0.9.110", optional = true }
 openssl-probe = { version = "0.1.5", optional = true }
-foreign-types-shared = { version = "0.1.1", optional = true }
+foreign-types-shared = { version = "0.3.1", optional = true }
 
 # Rustls dependencies (optional, for ssl-rustls feature)
 rustls = { version = "0.23.35", default-features = false, features = ["std", "tls12", "aws_lc_rs"], optional = true }
