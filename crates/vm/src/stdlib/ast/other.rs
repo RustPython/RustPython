@@ -14,13 +14,10 @@ impl Node for ruff::ConversionFlag {
     ) -> PyResult<Self> {
         i32::try_from_object(vm, object)?
             .to_u32()
-            .and_then(
-                bytecode::ConversionFlag::from_op_arg)
+            .and_then(bytecode::ConversionFlag::from_op_arg)
             .map(|flag| match flag {
-                bytecode::ConversionFlag::None =>
-                 Self::None,
-                bytecode::ConversionFlag::Str => 
-                Self::Str,
+                bytecode::ConversionFlag::None => Self::None,
+                bytecode::ConversionFlag::Str => Self::Str,
                 bytecode::ConversionFlag::Ascii => Self::Ascii,
                 bytecode::ConversionFlag::Repr => Self::Repr,
             })
