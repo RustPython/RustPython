@@ -202,8 +202,7 @@ pub mod module {
     #[pyattr]
     use libc::{
         CLD_CONTINUED, CLD_DUMPED, CLD_EXITED, CLD_KILLED, CLD_STOPPED, CLD_TRAPPED, F_LOCK,
-        F_TEST, F_TLOCK, F_ULOCK, O_NDELAY, O_NOCTTY, O_SYNC, P_ALL, P_PGID, P_PID, SCHED_FIFO,
-        SCHED_RR,
+        F_TEST, F_TLOCK, F_ULOCK, O_SYNC, P_ALL, P_PGID, P_PID, SCHED_FIFO, SCHED_RR,
     };
 
     #[cfg(any(
@@ -217,7 +216,8 @@ pub mod module {
         target_os = "redox"
     ))]
     #[pyattr]
-    use libc::{O_ASYNC, WEXITED, WNOWAIT, WSTOPPED};
+    use libc::{O_ASYNC, O_NDELAY, O_NOCTTY, WEXITED, WNOWAIT, WSTOPPED};
+
     #[pyattr]
     const EX_OK: i8 = exitcode::OK as i8;
 
