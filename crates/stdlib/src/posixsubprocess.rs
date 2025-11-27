@@ -441,15 +441,14 @@ fn close_dir_fds(keep: KeepFds<'_>) -> nix::Result<()> {
 fn close_filetable_fds(keep: KeepFds<'_>) -> nix::Result<()> {
     use nix::fcntl;
     use std::os::fd::{FromRawFd, OwnedFd};
-    let fd = fcntl::open(
+    let filetable = fcntl::open(
         c"/scheme/thisproc/current/filetable",
         fcntl::OFlag::O_RDONLY,
         nix::sys::stat::Mode::empty(),
     )?;
-    let filetable = unsafe { OwnedFd::from_raw_fd(fd) };
     let read_one = || -> nix::Result<_> {
         let mut byte = 0;
-        let n = nix::unistd::read(filetable.as_raw_fd(), std::slice::from_mut(&mut byte))?;
+        let n = nix::unistd::read(&filetable, std::slice::from_mut(&mut byte))?;
         Ok((n > 0).then_some(byte))
     };
     while let Some(c) = read_one()? {
