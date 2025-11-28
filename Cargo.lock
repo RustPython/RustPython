@@ -2943,7 +2943,7 @@ dependencies = [
  "pyo3",
  "ruff_python_parser",
  "rustpython-compiler",
- "rustpython-cpython",
+ "rustpython-module_pyo3",
  "rustpython-pylib",
  "rustpython-stdlib",
  "rustpython-vm",
@@ -3037,16 +3037,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustpython-cpython"
-version = "0.4.0"
-dependencies = [
- "crossbeam-utils",
- "pyo3",
- "rustpython-derive",
- "rustpython-vm",
-]
-
-[[package]]
 name = "rustpython-derive"
 version = "0.4.0"
 dependencies = [
@@ -3103,6 +3093,16 @@ dependencies = [
  "rand 0.9.2",
  "rustpython-wtf8",
  "unic-ucd-category",
+]
+
+[[package]]
+name = "rustpython-module_pyo3"
+version = "0.4.0"
+dependencies = [
+ "crossbeam-utils",
+ "pyo3",
+ "rustpython-derive",
+ "rustpython-vm",
 ]
 
 [[package]]

@@ -108,9 +108,9 @@ pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
     }
     config = config.init_hook(Box::new(init));
 
-    #[cfg(feature = "cpython")]
+    #[cfg(feature = "pyo3")]
     {
-        config = config.add_native_module("_cpython".to_owned(), rustpython_cpython::make_module);
+        config = config.add_native_module("pyo3".to_owned(), rustpython_module_pyo3::make_module);
     }
 
     let interp = config.interpreter();

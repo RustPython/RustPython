@@ -65,16 +65,16 @@ mod _cpython {
     };
 
     /// Wrapper class for executing functions in CPython.
-    /// Used as a decorator: @_cpython.call
+    /// Used as a decorator: @cpython.wraps
     #[pyattr]
-    #[pyclass(name = "call")]
+    #[pyclass(name = "wraps")]
     #[derive(Debug, PyPayload)]
-    struct CPythonCall {
+    struct CPythonWraps {
         source: String,
         func_name: String,
     }
 
-    impl Constructor for CPythonCall {
+    impl Constructor for CPythonWraps {
         type Args = PyObjectRef;
 
         fn py_new(cls: PyTypeRef, func: Self::Args, vm: &VirtualMachine) -> PyResult {
@@ -171,7 +171,7 @@ mod _cpython {
             .join("\n")
     }
 
-    impl Callable for CPythonCall {
+    impl Callable for CPythonWraps {
         type Args = FuncArgs;
 
         fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -199,14 +199,14 @@ mod _cpython {
         }
     }
 
-    impl Representable for CPythonCall {
+    impl Representable for CPythonWraps {
         fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            Ok(format!("<_cpython.call wrapper for '{}'>", zelf.func_name))
+            Ok(format!("<_cpython.wraps wrapper for '{}'>", zelf.func_name))
         }
     }
 
     #[pyclass(with(Constructor, Callable, Representable))]
-    impl CPythonCall {}
+    impl CPythonWraps {}
 
     /// Internal implementation for executing Python code in CPython.
     fn execute_impl(
@@ -217,7 +217,7 @@ mod _cpython {
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         // Build the CPython code to execute
-        let cpython_code = format!(
+        let pyo3_code = format!(
             r#"
 import pickle as __pickle
 
@@ -252,7 +252,7 @@ __pickled_result__ = __pickle.dumps(__result__, protocol=4)
             let exec_fn = builtins.getattr("exec")?;
 
             // Compile the code
-            let code = compile.call1((&cpython_code, "<cpython_bridge>", "exec"))?;
+            let code = compile.call1((&pyo3_code, "<pyo3_bridge>", "exec"))?;
 
             // Execute with globals
             exec_fn.call1((code, &globals))?;
@@ -323,7 +323,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
             let compile = builtins.getattr("compile")?;
             let exec_fn = builtins.getattr("exec")?;
 
-            let code = compile.call1((&wrapper_code, "<cpython_bridge>", "exec"))?;
+            let code = compile.call1((&wrapper_code, "<pyo3_bridge>", "exec"))?;
             exec_fn.call1((code, &globals))?;
 
             let result = globals.get_item("__pickled_result__")?;
@@ -358,50 +358,47 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         pickle.call_method1("loads", (Pyo3Bytes::new(py, bytes),))
     }
 
-    /// Create a CPythonObject from a pyo3 object, attempting to pickle it.
-    fn create_cpython_object(
-        py: pyo3::Python<'_>,
-        obj: &pyo3::Bound<'_, pyo3::PyAny>,
-    ) -> CPythonObject {
+    /// Create a Pyo3Ref from a pyo3 object, attempting to pickle it.
+    fn create_pyo3_object(py: pyo3::Python<'_>, obj: &pyo3::Bound<'_, pyo3::PyAny>) -> Pyo3Ref {
         let pickled = pickle_in_cpython(py, obj).ok();
-        CPythonObject {
+        Pyo3Ref {
             py_obj: obj.clone().unbind(),
             pickled,
         }
     }
 
-    /// Convert a CPythonObject to RustPython object.
+    /// Convert a Pyo3Ref to RustPython object.
     /// If pickled bytes exist, tries to unpickle to native RustPython object.
-    /// Falls back to returning the CPythonObject wrapper.
-    fn cpython_to_rustpython(cpython_obj: CPythonObject, vm: &VirtualMachine) -> PyResult {
-        if let Some(ref bytes) = cpython_obj.pickled {
+    /// Falls back to returning the Pyo3Ref wrapper.
+    fn pyo3_to_rustpython(pyo3_obj: Pyo3Ref, vm: &VirtualMachine) -> PyResult {
+        if let Some(ref bytes) = pyo3_obj.pickled {
             if let Ok(unpickled) = rustpython_pickle_loads(bytes, vm) {
                 return Ok(unpickled);
             }
             // Unpickle failed (e.g., numpy arrays need numpy module)
-            // Fall through to return CPythonObject wrapper
+            // Fall through to return Pyo3Ref wrapper
         }
-        Ok(cpython_obj.into_ref(&vm.ctx).into())
+        Ok(pyo3_obj.into_ref(&vm.ctx).into())
     }
 
     /// Get attribute from a CPython object
-    fn cpython_getattr_impl(
+    fn pyo3_getattr_impl(
         py_obj: &pyo3::Py<pyo3::PyAny>,
         name: &str,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let cpython_obj = pyo3::Python::attach(|py| -> Result<CPythonObject, PyErr> {
+        let pyo3_obj = pyo3::Python::attach(|py| -> Result<Pyo3Ref, PyErr> {
             let obj = py_obj.bind(py);
             let attr = obj.getattr(name)?;
-            Ok(create_cpython_object(py, &attr))
+            Ok(create_pyo3_object(py, &attr))
         })
         .map_err(|e| vm.new_attribute_error(format!("CPython getattr error: {}", e)))?;
 
-        cpython_to_rustpython(cpython_obj, vm)
+        pyo3_to_rustpython(pyo3_obj, vm)
     }
 
     /// Call a CPython object
-    fn cpython_call_impl(
+    fn pyo3_call_impl(
         py_obj: &pyo3::Py<pyo3::PyAny>,
         args: FuncArgs,
         vm: &VirtualMachine,
@@ -416,7 +413,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         let args_bytes = rustpython_pickle_dumps(args_tuple.into(), vm)?;
         let kwargs_bytes = rustpython_pickle_dumps(kwargs_dict.into(), vm)?;
 
-        let cpython_obj = pyo3::Python::attach(|py| -> Result<CPythonObject, PyErr> {
+        let pyo3_obj = pyo3::Python::attach(|py| -> Result<Pyo3Ref, PyErr> {
             let obj = py_obj.bind(py);
 
             // Unpickle args/kwargs in CPython
@@ -426,114 +423,108 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
             // Call the object
             let call_result = obj.call(args_py.downcast()?, Some(kwargs_py.downcast()?))?;
 
-            Ok(create_cpython_object(py, &call_result))
+            Ok(create_pyo3_object(py, &call_result))
         })
         .map_err(|e| vm.new_runtime_error(format!("CPython call error: {}", e)))?;
 
-        cpython_to_rustpython(cpython_obj, vm)
+        pyo3_to_rustpython(pyo3_obj, vm)
     }
 
     /// Represents an object to be passed into CPython.
     /// Either already a CPython object (Native) or pickled RustPython object (Pickled).
-    enum ToCPythonObject<'a> {
+    enum ToPyo3Ref<'a> {
         Native(&'a pyo3::Py<pyo3::PyAny>),
         Pickled(PyRef<RustPyBytes>),
     }
 
-    impl ToCPythonObject<'_> {
+    impl ToPyo3Ref<'_> {
         fn to_pyo3<'py>(
             &self,
             py: pyo3::Python<'py>,
         ) -> Result<pyo3::Bound<'py, pyo3::PyAny>, PyErr> {
             match self {
-                ToCPythonObject::Native(obj) => Ok(obj.bind(py).clone()),
-                ToCPythonObject::Pickled(bytes) => unpickle_in_cpython(py, bytes.as_bytes()),
+                ToPyo3Ref::Native(obj) => Ok(obj.bind(py).clone()),
+                ToPyo3Ref::Pickled(bytes) => unpickle_in_cpython(py, bytes.as_bytes()),
             }
         }
     }
 
-    /// Convert a RustPython object to ToCPythonObject for passing into CPython
-    fn to_cpython_object<'a>(
-        obj: &'a PyObject,
-        vm: &VirtualMachine,
-    ) -> PyResult<ToCPythonObject<'a>> {
-        if let Some(cpython_obj) = obj.downcast_ref::<CPythonObject>() {
-            Ok(ToCPythonObject::Native(&cpython_obj.py_obj))
+    /// Convert a RustPython object to ToPyo3Ref for passing into CPython
+    fn to_pyo3_object<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> PyResult<ToPyo3Ref<'a>> {
+        if let Some(pyo3_obj) = obj.downcast_ref::<Pyo3Ref>() {
+            Ok(ToPyo3Ref::Native(&pyo3_obj.py_obj))
         } else {
             let pickled = rustpython_pickle_dumps(obj.to_owned(), vm)?;
-            Ok(ToCPythonObject::Pickled(pickled))
+            Ok(ToPyo3Ref::Pickled(pickled))
         }
     }
 
     /// Execute binary operation on CPython objects
-    fn cpython_binary_op(a: &PyObject, b: &PyObject, op: &str, vm: &VirtualMachine) -> PyResult {
-        // If neither is CPythonObject, return NotImplemented
-        if a.downcast_ref::<CPythonObject>().is_none()
-            && b.downcast_ref::<CPythonObject>().is_none()
-        {
+    fn pyo3_binary_op(a: &PyObject, b: &PyObject, op: &str, vm: &VirtualMachine) -> PyResult {
+        // If neither is Pyo3Ref, return NotImplemented
+        if a.downcast_ref::<Pyo3Ref>().is_none() && b.downcast_ref::<Pyo3Ref>().is_none() {
             return Ok(vm.ctx.not_implemented());
         }
 
-        let a_obj = to_cpython_object(a, vm)?;
-        let b_obj = to_cpython_object(b, vm)?;
+        let a_obj = to_pyo3_object(a, vm)?;
+        let b_obj = to_pyo3_object(b, vm)?;
 
-        let result =
-            pyo3::Python::attach(|py| -> Result<PyArithmeticValue<CPythonObject>, PyErr> {
-                let a_py = a_obj.to_pyo3(py)?;
-                let b_py = b_obj.to_pyo3(py)?;
+        let result = pyo3::Python::attach(|py| -> Result<PyArithmeticValue<Pyo3Ref>, PyErr> {
+            let a_py = a_obj.to_pyo3(py)?;
+            let b_py = b_obj.to_pyo3(py)?;
 
-                let result_obj = a_py.call_method1(op, (&b_py,))?;
+            let result_obj = a_py.call_method1(op, (&b_py,))?;
 
-                if result_obj.is(&py.NotImplemented()) {
-                    return Ok(PyArithmeticValue::NotImplemented);
-                }
+            if result_obj.is(&py.NotImplemented()) {
+                return Ok(PyArithmeticValue::NotImplemented);
+            }
 
-                Ok(PyArithmeticValue::Implemented(create_cpython_object(
-                    py,
-                    &result_obj,
-                )))
-            })
-            .map_err(|e| vm.new_runtime_error(format!("CPython binary op error: {}", e)))?;
+            Ok(PyArithmeticValue::Implemented(create_pyo3_object(
+                py,
+                &result_obj,
+            )))
+        })
+        .map_err(|e| vm.new_runtime_error(format!("CPython binary op error: {}", e)))?;
 
         match result {
             PyArithmeticValue::NotImplemented => Ok(vm.ctx.not_implemented()),
-            PyArithmeticValue::Implemented(cpython_obj) => cpython_to_rustpython(cpython_obj, vm),
+            PyArithmeticValue::Implemented(pyo3_obj) => pyo3_to_rustpython(pyo3_obj, vm),
         }
     }
 
     /// Wrapper for CPython objects
     #[pyattr]
-    #[pyclass(name = "Object")]
+    #[pyclass(name = "ref")]
     #[derive(PyPayload)]
-    struct CPythonObject {
+    struct Pyo3Ref {
         py_obj: pyo3::Py<pyo3::PyAny>,
         /// Pickled bytes for potential unpickling to native RustPython object
         pickled: Option<Vec<u8>>,
     }
 
-    impl std::fmt::Debug for CPythonObject {
+    impl std::fmt::Debug for Pyo3Ref {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.debug_struct("CPythonObject")
+            f.debug_struct("Pyo3Ref")
                 .field("py_obj", &"<CPython object>")
                 .finish()
         }
     }
 
-    impl GetAttr for CPythonObject {
+    impl GetAttr for Pyo3Ref {
         fn getattro(zelf: &Py<Self>, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-            cpython_getattr_impl(&zelf.py_obj, name.as_str(), vm)
+            pyo3_getattr_impl(&zelf.py_obj, name.as_str(), vm)
         }
     }
 
-    impl Callable for CPythonObject {
+    impl Callable for Pyo3Ref {
         type Args = FuncArgs;
 
         fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            cpython_call_impl(&zelf.py_obj, args, vm)
+            pyo3_call_impl(&zelf.py_obj, args, vm)
         }
     }
 
-    impl Representable for CPythonObject {
+    impl Representable for Pyo3Ref {
         fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
             // Get repr from CPython directly
             let result = pyo3::Python::attach(|py| -> Result<String, PyErr> {
@@ -548,23 +539,23 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         }
     }
 
-    impl AsNumber for CPythonObject {
+    impl AsNumber for Pyo3Ref {
         fn as_number() -> &'static PyNumberMethods {
             static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-                add: Some(|a, b, vm| cpython_binary_op(a, b, "__add__", vm)),
-                subtract: Some(|a, b, vm| cpython_binary_op(a, b, "__sub__", vm)),
-                multiply: Some(|a, b, vm| cpython_binary_op(a, b, "__mul__", vm)),
-                remainder: Some(|a, b, vm| cpython_binary_op(a, b, "__mod__", vm)),
-                divmod: Some(|a, b, vm| cpython_binary_op(a, b, "__divmod__", vm)),
-                floor_divide: Some(|a, b, vm| cpython_binary_op(a, b, "__floordiv__", vm)),
-                true_divide: Some(|a, b, vm| cpython_binary_op(a, b, "__truediv__", vm)),
+                add: Some(|a, b, vm| pyo3_binary_op(a, b, "__add__", vm)),
+                subtract: Some(|a, b, vm| pyo3_binary_op(a, b, "__sub__", vm)),
+                multiply: Some(|a, b, vm| pyo3_binary_op(a, b, "__mul__", vm)),
+                remainder: Some(|a, b, vm| pyo3_binary_op(a, b, "__mod__", vm)),
+                divmod: Some(|a, b, vm| pyo3_binary_op(a, b, "__divmod__", vm)),
+                floor_divide: Some(|a, b, vm| pyo3_binary_op(a, b, "__floordiv__", vm)),
+                true_divide: Some(|a, b, vm| pyo3_binary_op(a, b, "__truediv__", vm)),
                 ..PyNumberMethods::NOT_IMPLEMENTED
             };
             &AS_NUMBER
         }
     }
 
-    impl Comparable for CPythonObject {
+    impl Comparable for Pyo3Ref {
         fn cmp(
             zelf: &Py<Self>,
             other: &PyObject,
@@ -580,7 +571,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
                 PyComparisonOp::Ge => "__ge__",
             };
 
-            let other_obj = to_cpython_object(other, vm)?;
+            let other_obj = to_pyo3_object(other, vm)?;
 
             let result = pyo3::Python::attach(|py| -> Result<PyComparisonValue, PyErr> {
                 let obj = zelf.py_obj.bind(py);
@@ -605,7 +596,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
     }
 
     /// Helper to get len from CPython object
-    fn cpython_len(py_obj: &pyo3::Py<pyo3::PyAny>, vm: &VirtualMachine) -> PyResult<usize> {
+    fn pyo3_len(py_obj: &pyo3::Py<pyo3::PyAny>, vm: &VirtualMachine) -> PyResult<usize> {
         pyo3::Python::attach(|py| -> Result<usize, PyErr> {
             let obj = py_obj.bind(py);
             let builtins = py.import("builtins")?;
@@ -617,34 +608,34 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
     }
 
     /// Helper to get item by index from CPython object
-    fn cpython_getitem_by_index(
+    fn pyo3_getitem_by_index(
         py_obj: &pyo3::Py<pyo3::PyAny>,
         index: isize,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let cpython_obj = pyo3::Python::attach(|py| -> Result<CPythonObject, PyErr> {
+        let pyo3_obj = pyo3::Python::attach(|py| -> Result<Pyo3Ref, PyErr> {
             let obj = py_obj.bind(py);
             let item = obj.get_item(index)?;
-            Ok(create_cpython_object(py, &item))
+            Ok(create_pyo3_object(py, &item))
         })
         .map_err(|e| vm.new_index_error(format!("CPython getitem error: {}", e)))?;
 
-        cpython_to_rustpython(cpython_obj, vm)
+        pyo3_to_rustpython(pyo3_obj, vm)
     }
 
     /// Helper to get item by key from CPython object
-    fn cpython_getitem(
+    fn pyo3_getitem(
         py_obj: &pyo3::Py<pyo3::PyAny>,
         key: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let key_obj = to_cpython_object(key, vm)?;
+        let key_obj = to_pyo3_object(key, vm)?;
 
-        let cpython_obj = pyo3::Python::attach(|py| -> Result<CPythonObject, PyErr> {
+        let pyo3_obj = pyo3::Python::attach(|py| -> Result<Pyo3Ref, PyErr> {
             let obj = py_obj.bind(py);
             let key_py = key_obj.to_pyo3(py)?;
             let item = obj.get_item(&key_py)?;
-            Ok(create_cpython_object(py, &item))
+            Ok(create_pyo3_object(py, &item))
         })
         .map_err(|e| {
             vm.new_key_error(
@@ -654,21 +645,18 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
             )
         })?;
 
-        cpython_to_rustpython(cpython_obj, vm)
+        pyo3_to_rustpython(pyo3_obj, vm)
     }
 
     /// Helper to set item in CPython object
-    fn cpython_setitem(
+    fn pyo3_setitem(
         py_obj: &pyo3::Py<pyo3::PyAny>,
         key: &PyObject,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let key_obj = to_cpython_object(key, vm)?;
-        let value_obj = value
-            .as_ref()
-            .map(|v| to_cpython_object(v, vm))
-            .transpose()?;
+        let key_obj = to_pyo3_object(key, vm)?;
+        let value_obj = value.as_ref().map(|v| to_pyo3_object(v, vm)).transpose()?;
 
         pyo3::Python::attach(|py| -> Result<(), PyErr> {
             let obj = py_obj.bind(py);
@@ -689,12 +677,12 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
     }
 
     /// Helper to check if item is in CPython object
-    fn cpython_contains(
+    fn pyo3_contains(
         py_obj: &pyo3::Py<pyo3::PyAny>,
         target: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        let target_obj = to_cpython_object(target, vm)?;
+        let target_obj = to_pyo3_object(target, vm)?;
 
         pyo3::Python::attach(|py| -> Result<bool, PyErr> {
             let obj = py_obj.bind(py);
@@ -704,23 +692,23 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         .map_err(|e| vm.new_runtime_error(format!("CPython contains error: {}", e)))
     }
 
-    impl AsSequence for CPythonObject {
+    impl AsSequence for Pyo3Ref {
         fn as_sequence() -> &'static PySequenceMethods {
             static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
                 length: AtomicCell::new(Some(|seq, vm| {
-                    let zelf = CPythonObject::sequence_downcast(seq);
-                    cpython_len(&zelf.py_obj, vm)
+                    let zelf = Pyo3Ref::sequence_downcast(seq);
+                    pyo3_len(&zelf.py_obj, vm)
                 })),
                 concat: AtomicCell::new(None),
                 repeat: AtomicCell::new(None),
                 item: AtomicCell::new(Some(|seq, i, vm| {
-                    let zelf = CPythonObject::sequence_downcast(seq);
-                    cpython_getitem_by_index(&zelf.py_obj, i, vm)
+                    let zelf = Pyo3Ref::sequence_downcast(seq);
+                    pyo3_getitem_by_index(&zelf.py_obj, i, vm)
                 })),
                 ass_item: AtomicCell::new(None),
                 contains: AtomicCell::new(Some(|seq, target, vm| {
-                    let zelf = CPythonObject::sequence_downcast(seq);
-                    cpython_contains(&zelf.py_obj, target, vm)
+                    let zelf = Pyo3Ref::sequence_downcast(seq);
+                    pyo3_contains(&zelf.py_obj, target, vm)
                 })),
                 inplace_concat: AtomicCell::new(None),
                 inplace_repeat: AtomicCell::new(None),
@@ -729,39 +717,39 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         }
     }
 
-    impl AsMapping for CPythonObject {
+    impl AsMapping for Pyo3Ref {
         fn as_mapping() -> &'static PyMappingMethods {
             static AS_MAPPING: PyMappingMethods = PyMappingMethods {
                 length: AtomicCell::new(Some(|mapping, vm| {
-                    let zelf = CPythonObject::mapping_downcast(mapping);
-                    cpython_len(&zelf.py_obj, vm)
+                    let zelf = Pyo3Ref::mapping_downcast(mapping);
+                    pyo3_len(&zelf.py_obj, vm)
                 })),
                 subscript: AtomicCell::new(Some(|mapping, needle, vm| {
-                    let zelf = CPythonObject::mapping_downcast(mapping);
-                    cpython_getitem(&zelf.py_obj, needle, vm)
+                    let zelf = Pyo3Ref::mapping_downcast(mapping);
+                    pyo3_getitem(&zelf.py_obj, needle, vm)
                 })),
                 ass_subscript: AtomicCell::new(Some(|mapping, needle, value, vm| {
-                    let zelf = CPythonObject::mapping_downcast(mapping);
-                    cpython_setitem(&zelf.py_obj, needle, value, vm)
+                    let zelf = Pyo3Ref::mapping_downcast(mapping);
+                    pyo3_setitem(&zelf.py_obj, needle, value, vm)
                 })),
             };
             &AS_MAPPING
         }
     }
 
-    impl Iterable for CPythonObject {
+    impl Iterable for Pyo3Ref {
         fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            let cpython_obj = pyo3::Python::attach(|py| -> Result<CPythonObject, PyErr> {
+            let pyo3_obj = pyo3::Python::attach(|py| -> Result<Pyo3Ref, PyErr> {
                 let obj = zelf.py_obj.bind(py);
                 let builtins = py.import("builtins")?;
                 let iter_fn = builtins.getattr("iter")?;
                 let iter_result = iter_fn.call1((obj,))?;
-                Ok(create_cpython_object(py, &iter_result))
+                Ok(create_pyo3_object(py, &iter_result))
             })
             .map_err(|e| vm.new_type_error(format!("CPython iter error: {}", e)))?;
 
-            // Iterators should stay as CPythonObject, don't try to unpickle
-            Ok(cpython_obj.into_ref(&vm.ctx).into())
+            // Iterators should stay as Pyo3Ref, don't try to unpickle
+            Ok(pyo3_obj.into_ref(&vm.ctx).into())
         }
     }
 
@@ -775,7 +763,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         AsMapping,
         Iterable
     ))]
-    impl CPythonObject {}
+    impl Pyo3Ref {}
 
     /// Import a module from CPython and return a wrapper object.
     ///
@@ -783,14 +771,14 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
     /// * `name` - The name of the module to import
     ///
     /// # Returns
-    /// A CPythonObject wrapping the imported module
+    /// A Pyo3Ref wrapping the imported module
     #[pyfunction]
     fn import_module(name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let module_name = name.as_str().to_owned();
 
-        let cpython_obj = pyo3::Python::attach(|py| -> Result<CPythonObject, PyErr> {
+        let pyo3_obj = pyo3::Python::attach(|py| -> Result<Pyo3Ref, PyErr> {
             let module = py.import(&*module_name)?;
-            Ok(create_cpython_object(py, module.as_any()))
+            Ok(create_pyo3_object(py, module.as_any()))
         })
         .map_err(|e| {
             vm.new_import_error(
@@ -799,7 +787,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
             )
         })?;
 
-        // Modules should stay as CPythonObject, don't try to unpickle
-        Ok(cpython_obj.into_ref(&vm.ctx).into())
+        // Modules should stay as Pyo3Ref, don't try to unpickle
+        Ok(pyo3_obj.into_ref(&vm.ctx).into())
     }
 }

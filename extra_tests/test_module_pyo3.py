@@ -1,22 +1,22 @@
 """
-Tests for the _cpython module - RustPython to CPython bridge.
+Tests for the pyo3 module - RustPython to CPython bridge.
 
-This module requires the `cpython` feature to be enabled:
-    cargo build --release --features cpython
+This module requires the `pyo3` feature to be enabled:
+    cargo build --release --features pyo3
 
 Run with:
-    ./target/release/rustpython extra_tests/test_cpython.py
+    ./target/release/rustpython extra_tests/test_pyo3.py
 """
 
-import _cpython
+import pyo3
 
 
-# Test 1: @_cpython.call decorator
+# Test 1: @pyo3.wraps decorator
 
-print("Test 1: @_cpython.call decorator")
+print("Test 1: @pyo3.wraps decorator")
 
 
-@_cpython.call
+@pyo3.wraps
 def get_decimal_max_prec():
     """Get _decimal.MAX_PREC from CPython."""
     import _decimal
@@ -33,7 +33,7 @@ print("OK!\n")
 
 print("Test 2: import_module() with _decimal")
 
-_decimal = _cpython.import_module('_decimal')
+_decimal = pyo3.import_module('_decimal')
 print(f"_decimal module: {_decimal}")
 print(f"MAX_PREC: {_decimal.MAX_PREC}")
 
@@ -53,7 +53,7 @@ print("OK!\n")
 print("Test 3: numpy via import_module()")
 
 try:
-    np = _cpython.import_module('numpy')
+    np = pyo3.import_module('numpy')
     print(f"numpy version: {np.__version__}")
 
     # Basic array operations
@@ -84,8 +84,8 @@ except Exception as e:
 print("Test 4: Advanced numpy examples via import_module()")
 
 try:
-    np = _cpython.import_module('numpy')
-    assert isinstance(np, _cpython.Object)
+    np = pyo3.import_module('numpy')
+    assert isinstance(np, pyo3.ref)
 
     # Matrix operations - create and use methods directly
     matrix = np.array([[1, 2], [3, 4]])
@@ -123,7 +123,7 @@ except Exception as e:
 print("Test 5: Comparison operators")
 
 try:
-    np = _cpython.import_module('numpy')
+    np = pyo3.import_module('numpy')
 
     arr1 = np.array([1, 2, 3])
     arr2 = np.array([1, 2, 3])
@@ -138,7 +138,7 @@ try:
     print(f"arr1 != arr3: {ne_result}")
 
     # Decimal comparison
-    _decimal = _cpython.import_module('_decimal')
+    _decimal = pyo3.import_module('_decimal')
     d1 = _decimal.Decimal('1.5')
     d2 = _decimal.Decimal('2.5')
     d3 = _decimal.Decimal('1.5')
@@ -158,7 +158,7 @@ except Exception as e:
 print("Test 6: Container protocol (len, getitem, contains)")
 
 try:
-    np = _cpython.import_module('numpy')
+    np = pyo3.import_module('numpy')
 
     arr = np.array([10, 20, 30, 40, 50])
 
@@ -188,7 +188,7 @@ except Exception as e:
 print("Test 7: Iteration")
 
 try:
-    np = _cpython.import_module('numpy')
+    np = pyo3.import_module('numpy')
 
     arr = np.array([1, 2, 3, 4, 5])
 
@@ -210,7 +210,7 @@ print("Test 8: Contains check")
 
 try:
     # Use a Python list via CPython
-    @_cpython.call
+    @pyo3.wraps
     def make_list():
         return [1, 2, 3, 4, 5]
 

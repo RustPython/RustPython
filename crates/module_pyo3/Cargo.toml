@@ -1,6 +1,6 @@
 [package]
-name = "rustpython-cpython"
-description = "RustPython to CPython bridge via PyO3"
+name = "rustpython-module_pyo3"
+description = "RustPython pyo3 module - bridge to CPython via PyO3"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
