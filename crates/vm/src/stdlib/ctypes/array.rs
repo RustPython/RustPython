@@ -393,6 +393,170 @@ impl PyCArray {
             Err(vm.new_type_error("expected bytes".to_owned()))
         }
     }
+
+    #[pyclassmethod]
+    fn from_address(cls: PyTypeRef, address: isize, vm: &VirtualMachine) -> PyResult {
+        use crate::function::Either;
+        use crate::stdlib::ctypes::_ctypes::size_of;
+
+        // Get size from cls
+        let size = size_of(Either::A(cls.clone()), vm)?;
+
+        // Create instance with data from address
+        if address != 0 && size > 0 {
+            unsafe {
+                let ptr = address as *const u8;
+                let bytes = std::slice::from_raw_parts(ptr, size);
+                // Get element type and length from cls
+                let element_type = cls.as_object().get_attr("_type_", vm)?;
+                let element_type: PyTypeRef = element_type
+                    .downcast()
+                    .map_err(|_| vm.new_type_error("_type_ must be a type".to_owned()))?;
+                let length = cls
+                    .as_object()
+                    .get_attr("_length_", vm)?
+                    .try_int(vm)?
+                    .as_bigint()
+                    .to_usize()
+                    .unwrap_or(0);
+                let element_size = if length > 0 { size / length } else { 0 };
+
+                Ok(PyCArray {
+                    typ: PyRwLock::new(element_type),
+                    length: AtomicCell::new(length),
+                    element_size: AtomicCell::new(element_size),
+                    buffer: PyRwLock::new(bytes.to_vec()),
+                }
+                .into_pyobject(vm))
+            }
+        } else {
+            Err(vm.new_value_error("NULL pointer access".to_owned()))
+        }
+    }
+
+    #[pyclassmethod]
+    fn from_buffer(
+        cls: PyTypeRef,
+        source: PyObjectRef,
+        offset: crate::function::OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        use crate::TryFromObject;
+        use crate::function::Either;
+        use crate::protocol::PyBuffer;
+        use crate::stdlib::ctypes::_ctypes::size_of;
+
+        let offset = offset.unwrap_or(0);
+        if offset < 0 {
+            return Err(vm.new_value_error("offset cannot be negative".to_owned()));
+        }
+        let offset = offset as usize;
+
+        // Get buffer from source
+        let buffer = PyBuffer::try_from_object(vm, source.clone())?;
+
+        // Check if buffer is writable
+        if buffer.desc.readonly {
+            return Err(vm.new_type_error("underlying buffer is not writable".to_owned()));
+        }
+
+        // Get size from cls
+        let size = size_of(Either::A(cls.clone()), vm)?;
+
+        // Check if buffer is large enough
+        let buffer_len = buffer.desc.len;
+        if offset + size > buffer_len {
+            return Err(vm.new_value_error(format!(
+                "Buffer size too small ({} instead of at least {} bytes)",
+                buffer_len,
+                offset + size
+            )));
+        }
+
+        // Read bytes from buffer at offset
+        let bytes = buffer.obj_bytes();
+        let data = &bytes[offset..offset + size];
+
+        // Get element type and length from cls
+        let element_type = cls.as_object().get_attr("_type_", vm)?;
+        let element_type: PyTypeRef = element_type
+            .downcast()
+            .map_err(|_| vm.new_type_error("_type_ must be a type".to_owned()))?;
+        let length = cls
+            .as_object()
+            .get_attr("_length_", vm)?
+            .try_int(vm)?
+            .as_bigint()
+            .to_usize()
+            .unwrap_or(0);
+        let element_size = if length > 0 { size / length } else { 0 };
+
+        Ok(PyCArray {
+            typ: PyRwLock::new(element_type),
+            length: AtomicCell::new(length),
+            element_size: AtomicCell::new(element_size),
+            buffer: PyRwLock::new(data.to_vec()),
+        }
+        .into_pyobject(vm))
+    }
+
+    #[pyclassmethod]
+    fn from_buffer_copy(
+        cls: PyTypeRef,
+        source: crate::function::ArgBytesLike,
+        offset: crate::function::OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        use crate::function::Either;
+        use crate::stdlib::ctypes::_ctypes::size_of;
+
+        let offset = offset.unwrap_or(0);
+        if offset < 0 {
+            return Err(vm.new_value_error("offset cannot be negative".to_owned()));
+        }
+        let offset = offset as usize;
+
+        // Get size from cls
+        let size = size_of(Either::A(cls.clone()), vm)?;
+
+        // Borrow bytes from source
+        let source_bytes = source.borrow_buf();
+        let buffer_len = source_bytes.len();
+
+        // Check if buffer is large enough
+        if offset + size > buffer_len {
+            return Err(vm.new_value_error(format!(
+                "Buffer size too small ({} instead of at least {} bytes)",
+                buffer_len,
+                offset + size
+            )));
+        }
+
+        // Copy bytes from buffer at offset
+        let data = &source_bytes[offset..offset + size];
+
+        // Get element type and length from cls
+        let element_type = cls.as_object().get_attr("_type_", vm)?;
+        let element_type: PyTypeRef = element_type
+            .downcast()
+            .map_err(|_| vm.new_type_error("_type_ must be a type".to_owned()))?;
+        let length = cls
+            .as_object()
+            .get_attr("_length_", vm)?
+            .try_int(vm)?
+            .as_bigint()
+            .to_usize()
+            .unwrap_or(0);
+        let element_size = if length > 0 { size / length } else { 0 };
+
+        Ok(PyCArray {
+            typ: PyRwLock::new(element_type),
+            length: AtomicCell::new(length),
+            element_size: AtomicCell::new(element_size),
+            buffer: PyRwLock::new(data.to_vec()),
+        }
+        .into_pyobject(vm))
+    }
 }
 
 impl PyCArray {

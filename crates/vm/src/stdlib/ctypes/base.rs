@@ -1,15 +1,17 @@
+use super::_ctypes::bytes_to_pyobject;
 use super::array::{PyCArray, PyCArrayType};
 use crate::builtins::PyType;
 use crate::builtins::{PyBytes, PyFloat, PyInt, PyNone, PyStr, PyTypeRef};
 use crate::convert::ToPyObject;
-use crate::function::{Either, OptionalArg};
-use crate::protocol::PyNumberMethods;
+use crate::function::{ArgBytesLike, Either, OptionalArg};
+use crate::protocol::{PyBuffer, PyNumberMethods};
 use crate::stdlib::ctypes::_ctypes::new_simple_type;
 use crate::types::{AsNumber, Constructor};
 use crate::{AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine};
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
+use std::ffi::{c_uint, c_ulong, c_ulonglong, c_ushort};
 use std::fmt::Debug;
 
 pub fn ffi_type_from_str(_type_: &str) -> Option<libffi::middle::Type> {
@@ -102,7 +104,8 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
         )),
         "B" => {
             if value.clone().downcast_exact::<PyInt>(vm).is_ok() {
-                Ok(vm.new_pyobj(u8::try_from_object(vm, value.clone())?))
+                // Store as-is, conversion to unsigned happens in the getter
+                Ok(value.clone())
             } else {
                 Err(vm.new_type_error(format!("int expected instead of {}", value.class().name())))
             }
@@ -288,7 +291,47 @@ impl PyCSimple {
         let zelf: &Py<Self> = instance
             .downcast_ref()
             .ok_or_else(|| vm.new_type_error("cannot get value of instance"))?;
-        Ok(unsafe { (*zelf.value.as_ptr()).clone() })
+        let raw_value = unsafe { (*zelf.value.as_ptr()).clone() };
+
+        // Convert to unsigned if needed for unsigned types
+        match zelf._type_.as_str() {
+            "B" | "H" | "I" | "L" | "Q" => {
+                if let Ok(int_val) = raw_value.try_int(vm) {
+                    let n = int_val.as_bigint();
+                    // Use platform-specific C types for correct unsigned conversion
+                    match zelf._type_.as_str() {
+                        "B" => {
+                            if let Some(v) = n.to_i64() {
+                                return Ok(vm.ctx.new_int((v as u8) as u64).into());
+                            }
+                        }
+                        "H" => {
+                            if let Some(v) = n.to_i64() {
+                                return Ok(vm.ctx.new_int((v as c_ushort) as u64).into());
+                            }
+                        }
+                        "I" => {
+                            if let Some(v) = n.to_i64() {
+                                return Ok(vm.ctx.new_int((v as c_uint) as u64).into());
+                            }
+                        }
+                        "L" => {
+                            if let Some(v) = n.to_i128() {
+                                return Ok(vm.ctx.new_int(v as c_ulong).into());
+                            }
+                        }
+                        "Q" => {
+                            if let Some(v) = n.to_i128() {
+                                return Ok(vm.ctx.new_int(v as c_ulonglong).into());
+                            }
+                        }
+                        _ => {}
+                    };
+                }
+                Ok(raw_value)
+            }
+            _ => Ok(raw_value),
+        }
     }
 
     #[pygetset(name = "value", setter)]
@@ -331,6 +374,131 @@ impl PyCSimple {
             },
         }
         .to_pyobject(vm))
+    }
+
+    #[pyclassmethod]
+    fn from_address(cls: PyTypeRef, address: isize, vm: &VirtualMachine) -> PyResult {
+        use super::_ctypes::get_size;
+        // Get _type_ attribute directly
+        let type_attr = cls
+            .as_object()
+            .get_attr("_type_", vm)
+            .map_err(|_| vm.new_type_error(format!("'{}' has no _type_ attribute", cls.name())))?;
+        let type_str = type_attr.str(vm)?.to_string();
+        let size = get_size(&type_str);
+
+        // Create instance with value read from address
+        let value = if address != 0 && size > 0 {
+            // Safety: This is inherently unsafe - reading from arbitrary memory address
+            // CPython does the same thing without safety checks
+            unsafe {
+                let ptr = address as *const u8;
+                let bytes = std::slice::from_raw_parts(ptr, size);
+                // Convert bytes to appropriate Python value based on type
+                bytes_to_pyobject(&cls, bytes, vm)?
+            }
+        } else {
+            vm.ctx.none()
+        };
+
+        // Create instance using the type's constructor
+        let instance = PyCSimple::py_new(cls.clone(), (OptionalArg::Present(value),), vm)?;
+        Ok(instance)
+    }
+
+    #[pyclassmethod]
+    fn from_buffer(
+        cls: PyTypeRef,
+        source: PyObjectRef,
+        offset: OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        use super::_ctypes::get_size;
+        let offset = offset.unwrap_or(0);
+        if offset < 0 {
+            return Err(vm.new_value_error("offset cannot be negative".to_owned()));
+        }
+        let offset = offset as usize;
+
+        // Get buffer from source
+        let buffer = PyBuffer::try_from_object(vm, source.clone())?;
+
+        // Check if buffer is writable
+        if buffer.desc.readonly {
+            return Err(vm.new_type_error("underlying buffer is not writable".to_owned()));
+        }
+
+        // Get _type_ attribute directly
+        let type_attr = cls
+            .as_object()
+            .get_attr("_type_", vm)
+            .map_err(|_| vm.new_type_error(format!("'{}' has no _type_ attribute", cls.name())))?;
+        let type_str = type_attr.str(vm)?.to_string();
+        let size = get_size(&type_str);
+
+        // Check if buffer is large enough
+        let buffer_len = buffer.desc.len;
+        if offset + size > buffer_len {
+            return Err(vm.new_value_error(format!(
+                "Buffer size too small ({} instead of at least {} bytes)",
+                buffer_len,
+                offset + size
+            )));
+        }
+
+        // Read bytes from buffer at offset
+        let bytes = buffer.obj_bytes();
+        let data = &bytes[offset..offset + size];
+        let value = bytes_to_pyobject(&cls, data, vm)?;
+
+        // Create instance
+        let instance = PyCSimple::py_new(cls.clone(), (OptionalArg::Present(value),), vm)?;
+
+        // TODO: Store reference to source in _objects to keep buffer alive
+        Ok(instance)
+    }
+
+    #[pyclassmethod]
+    fn from_buffer_copy(
+        cls: PyTypeRef,
+        source: ArgBytesLike,
+        offset: OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        use super::_ctypes::get_size;
+        let offset = offset.unwrap_or(0);
+        if offset < 0 {
+            return Err(vm.new_value_error("offset cannot be negative".to_owned()));
+        }
+        let offset = offset as usize;
+
+        // Get _type_ attribute directly for simple types
+        let type_attr = cls
+            .as_object()
+            .get_attr("_type_", vm)
+            .map_err(|_| vm.new_type_error(format!("'{}' has no _type_ attribute", cls.name())))?;
+        let type_str = type_attr.str(vm)?.to_string();
+        let size = get_size(&type_str);
+
+        // Borrow bytes from source
+        let source_bytes = source.borrow_buf();
+        let buffer_len = source_bytes.len();
+
+        // Check if buffer is large enough
+        if offset + size > buffer_len {
+            return Err(vm.new_value_error(format!(
+                "Buffer size too small ({} instead of at least {} bytes)",
+                buffer_len,
+                offset + size
+            )));
+        }
+
+        // Copy bytes from buffer at offset
+        let data = &source_bytes[offset..offset + size];
+        let value = bytes_to_pyobject(&cls, data, vm)?;
+
+        // Create instance (independent copy, no reference tracking)
+        PyCSimple::py_new(cls.clone(), (OptionalArg::Present(value),), vm)
     }
 }
 

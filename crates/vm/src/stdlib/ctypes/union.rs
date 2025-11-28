@@ -114,7 +114,93 @@ impl PyCUnionType {}
 
 /// PyCUnion - base class for Union
 #[pyclass(module = "_ctypes", name = "Union", base = PyCData, metaclass = "PyCUnionType")]
+#[derive(Debug, PyPayload)]
 pub struct PyCUnion {}
 
 #[pyclass(flags(BASETYPE, IMMUTABLETYPE))]
-impl PyCUnion {}
+impl PyCUnion {
+    #[pyclassmethod]
+    fn from_address(cls: PyTypeRef, address: isize, vm: &VirtualMachine) -> PyResult {
+        use crate::function::Either;
+        use crate::stdlib::ctypes::_ctypes::size_of;
+
+        // Get size from cls
+        let size = size_of(Either::A(cls.clone()), vm)?;
+
+        if address != 0 && size > 0 {
+            // Create instance (Union doesn't have internal buffer in current impl)
+            Ok(PyCUnion {}.into_ref_with_type(vm, cls)?.into())
+        } else {
+            Err(vm.new_value_error("NULL pointer access".to_owned()))
+        }
+    }
+
+    #[pyclassmethod]
+    fn from_buffer(
+        cls: PyTypeRef,
+        source: PyObjectRef,
+        offset: crate::function::OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        use crate::TryFromObject;
+        use crate::function::Either;
+        use crate::protocol::PyBuffer;
+        use crate::stdlib::ctypes::_ctypes::size_of;
+
+        let offset = offset.unwrap_or(0);
+        if offset < 0 {
+            return Err(vm.new_value_error("offset cannot be negative".to_owned()));
+        }
+        let offset = offset as usize;
+
+        let buffer = PyBuffer::try_from_object(vm, source.clone())?;
+
+        if buffer.desc.readonly {
+            return Err(vm.new_type_error("underlying buffer is not writable".to_owned()));
+        }
+
+        let size = size_of(Either::A(cls.clone()), vm)?;
+        let buffer_len = buffer.desc.len;
+
+        if offset + size > buffer_len {
+            return Err(vm.new_value_error(format!(
+                "Buffer size too small ({} instead of at least {} bytes)",
+                buffer_len,
+                offset + size
+            )));
+        }
+
+        Ok(PyCUnion {}.into_ref_with_type(vm, cls)?.into())
+    }
+
+    #[pyclassmethod]
+    fn from_buffer_copy(
+        cls: PyTypeRef,
+        source: crate::function::ArgBytesLike,
+        offset: crate::function::OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        use crate::function::Either;
+        use crate::stdlib::ctypes::_ctypes::size_of;
+
+        let offset = offset.unwrap_or(0);
+        if offset < 0 {
+            return Err(vm.new_value_error("offset cannot be negative".to_owned()));
+        }
+        let offset = offset as usize;
+
+        let size = size_of(Either::A(cls.clone()), vm)?;
+        let source_bytes = source.borrow_buf();
+        let buffer_len = source_bytes.len();
+
+        if offset + size > buffer_len {
+            return Err(vm.new_value_error(format!(
+                "Buffer size too small ({} instead of at least {} bytes)",
+                buffer_len,
+                offset + size
+            )));
+        }
+
+        Ok(PyCUnion {}.into_ref_with_type(vm, cls)?.into())
+    }
+}

@@ -310,4 +310,130 @@ impl PyCStructure {
         // Return the _fields_ from the class, not instance
         vm.ctx.none()
     }
+
+    #[pyclassmethod]
+    fn from_address(cls: PyTypeRef, address: isize, vm: &VirtualMachine) -> PyResult {
+        use crate::function::Either;
+        use crate::stdlib::ctypes::_ctypes::size_of;
+
+        // Get size from cls
+        let size = size_of(Either::A(cls.clone()), vm)?;
+
+        // Read data from address
+        if address != 0 && size > 0 {
+            let data = unsafe {
+                let ptr = address as *const u8;
+                std::slice::from_raw_parts(ptr, size).to_vec()
+            };
+
+            // Create instance
+            Ok(PyCStructure {
+                buffer: PyRwLock::new(data),
+                fields: PyRwLock::new(HashMap::new()),
+                size: AtomicCell::new(size),
+            }
+            .into_ref_with_type(vm, cls)?
+            .into())
+        } else {
+            Err(vm.new_value_error("NULL pointer access".to_owned()))
+        }
+    }
+
+    #[pyclassmethod]
+    fn from_buffer(
+        cls: PyTypeRef,
+        source: PyObjectRef,
+        offset: crate::function::OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        use crate::TryFromObject;
+        use crate::function::Either;
+        use crate::protocol::PyBuffer;
+        use crate::stdlib::ctypes::_ctypes::size_of;
+
+        let offset = offset.unwrap_or(0);
+        if offset < 0 {
+            return Err(vm.new_value_error("offset cannot be negative".to_owned()));
+        }
+        let offset = offset as usize;
+
+        // Get buffer from source
+        let buffer = PyBuffer::try_from_object(vm, source.clone())?;
+
+        // Check if buffer is writable
+        if buffer.desc.readonly {
+            return Err(vm.new_type_error("underlying buffer is not writable".to_owned()));
+        }
+
+        // Get size from cls
+        let size = size_of(Either::A(cls.clone()), vm)?;
+
+        // Check if buffer is large enough
+        let buffer_len = buffer.desc.len;
+        if offset + size > buffer_len {
+            return Err(vm.new_value_error(format!(
+                "Buffer size too small ({} instead of at least {} bytes)",
+                buffer_len,
+                offset + size
+            )));
+        }
+
+        // Read bytes from buffer at offset
+        let bytes = buffer.obj_bytes();
+        let data = bytes[offset..offset + size].to_vec();
+
+        // Create instance
+        Ok(PyCStructure {
+            buffer: PyRwLock::new(data),
+            fields: PyRwLock::new(HashMap::new()),
+            size: AtomicCell::new(size),
+        }
+        .into_ref_with_type(vm, cls)?
+        .into())
+    }
+
+    #[pyclassmethod]
+    fn from_buffer_copy(
+        cls: PyTypeRef,
+        source: crate::function::ArgBytesLike,
+        offset: crate::function::OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        use crate::function::Either;
+        use crate::stdlib::ctypes::_ctypes::size_of;
+
+        let offset = offset.unwrap_or(0);
+        if offset < 0 {
+            return Err(vm.new_value_error("offset cannot be negative".to_owned()));
+        }
+        let offset = offset as usize;
+
+        // Get size from cls
+        let size = size_of(Either::A(cls.clone()), vm)?;
+
+        // Borrow bytes from source
+        let source_bytes = source.borrow_buf();
+        let buffer_len = source_bytes.len();
+
+        // Check if buffer is large enough
+        if offset + size > buffer_len {
+            return Err(vm.new_value_error(format!(
+                "Buffer size too small ({} instead of at least {} bytes)",
+                buffer_len,
+                offset + size
+            )));
+        }
+
+        // Copy bytes from buffer at offset
+        let data = source_bytes[offset..offset + size].to_vec();
+
+        // Create instance
+        Ok(PyCStructure {
+            buffer: PyRwLock::new(data),
+            fields: PyRwLock::new(HashMap::new()),
+            size: AtomicCell::new(size),
+        }
+        .into_ref_with_type(vm, cls)?
+        .into())
+    }
 }

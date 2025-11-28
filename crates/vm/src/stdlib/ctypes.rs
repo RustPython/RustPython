@@ -158,6 +158,165 @@ pub(crate) mod _ctypes {
         }
     }
 
+    /// Get the size of a ctypes type from its type object
+    pub fn get_size_from_type(cls: &PyTypeRef, vm: &VirtualMachine) -> PyResult<usize> {
+        // Try to get _type_ attribute for simple types
+        if let Ok(type_attr) = cls.as_object().get_attr("_type_", vm) {
+            if let Ok(s) = type_attr.str(vm) {
+                let s = s.to_string();
+                if s.len() == 1 && SIMPLE_TYPE_CHARS.contains(s.as_str()) {
+                    return Ok(get_size(&s));
+                }
+            }
+        }
+        // Fall back to sizeof
+        size_of(Either::A(cls.clone()), vm)
+    }
+
+    /// Convert bytes to appropriate Python object based on ctypes type
+    pub fn bytes_to_pyobject(
+        cls: &PyTypeRef,
+        bytes: &[u8],
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        // Try to get _type_ attribute
+        if let Ok(type_attr) = cls.as_object().get_attr("_type_", vm) {
+            if let Ok(s) = type_attr.str(vm) {
+                let ty = s.to_string();
+                return match ty.as_str() {
+                    "c" => {
+                        // c_char - single byte
+                        Ok(vm.ctx.new_bytes(bytes.to_vec()).into())
+                    }
+                    "b" => {
+                        // c_byte - signed char
+                        let val = if !bytes.is_empty() { bytes[0] as i8 } else { 0 };
+                        Ok(vm.ctx.new_int(val).into())
+                    }
+                    "B" => {
+                        // c_ubyte - unsigned char
+                        let val = if !bytes.is_empty() { bytes[0] } else { 0 };
+                        Ok(vm.ctx.new_int(val).into())
+                    }
+                    "h" => {
+                        // c_short
+                        let val = if bytes.len() >= 2 {
+                            i16::from_ne_bytes([bytes[0], bytes[1]])
+                        } else {
+                            0
+                        };
+                        Ok(vm.ctx.new_int(val).into())
+                    }
+                    "H" => {
+                        // c_ushort
+                        let val = if bytes.len() >= 2 {
+                            u16::from_ne_bytes([bytes[0], bytes[1]])
+                        } else {
+                            0
+                        };
+                        Ok(vm.ctx.new_int(val).into())
+                    }
+                    "i" | "l" => {
+                        // c_int, c_long (assuming 32-bit)
+                        let val = if bytes.len() >= 4 {
+                            i32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
+                        } else {
+                            0
+                        };
+                        Ok(vm.ctx.new_int(val).into())
+                    }
+                    "I" | "L" => {
+                        // c_uint, c_ulong (assuming 32-bit)
+                        let val = if bytes.len() >= 4 {
+                            u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
+                        } else {
+                            0
+                        };
+                        Ok(vm.ctx.new_int(val).into())
+                    }
+                    "q" => {
+                        // c_longlong
+                        let val = if bytes.len() >= 8 {
+                            i64::from_ne_bytes([
+                                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5],
+                                bytes[6], bytes[7],
+                            ])
+                        } else {
+                            0
+                        };
+                        Ok(vm.ctx.new_int(val).into())
+                    }
+                    "Q" => {
+                        // c_ulonglong
+                        let val = if bytes.len() >= 8 {
+                            u64::from_ne_bytes([
+                                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5],
+                                bytes[6], bytes[7],
+                            ])
+                        } else {
+                            0
+                        };
+                        Ok(vm.ctx.new_int(val).into())
+                    }
+                    "f" => {
+                        // c_float
+                        let val = if bytes.len() >= 4 {
+                            f32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
+                        } else {
+                            0.0
+                        };
+                        Ok(vm.ctx.new_float(val as f64).into())
+                    }
+                    "d" | "g" => {
+                        // c_double
+                        let val = if bytes.len() >= 8 {
+                            f64::from_ne_bytes([
+                                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5],
+                                bytes[6], bytes[7],
+                            ])
+                        } else {
+                            0.0
+                        };
+                        Ok(vm.ctx.new_float(val).into())
+                    }
+                    "?" => {
+                        // c_bool
+                        let val = !bytes.is_empty() && bytes[0] != 0;
+                        Ok(vm.ctx.new_bool(val).into())
+                    }
+                    "P" | "z" | "Z" => {
+                        // Pointer types - return as integer address
+                        let val = if bytes.len() >= mem::size_of::<usize>() {
+                            let mut arr = [0u8; 8];
+                            arr[..bytes.len().min(8)].copy_from_slice(&bytes[..bytes.len().min(8)]);
+                            usize::from_ne_bytes(arr)
+                        } else {
+                            0
+                        };
+                        Ok(vm.ctx.new_int(val).into())
+                    }
+                    "u" => {
+                        // c_wchar - wide character
+                        let val = if bytes.len() >= mem::size_of::<WideChar>() {
+                            let wc = if mem::size_of::<WideChar>() == 2 {
+                                u16::from_ne_bytes([bytes[0], bytes[1]]) as u32
+                            } else {
+                                u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
+                            };
+                            char::from_u32(wc).unwrap_or('\0')
+                        } else {
+                            '\0'
+                        };
+                        Ok(vm.ctx.new_str(val.to_string()).into())
+                    }
+                    _ => Ok(vm.ctx.none()),
+                };
+            }
+        }
+        // Default: return bytes as-is
+        Ok(vm.ctx.new_bytes(bytes.to_vec()).into())
+    }
+
     const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfguzZPqQ?O";
 
     pub fn new_simple_type(

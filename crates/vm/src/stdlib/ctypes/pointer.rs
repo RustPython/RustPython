@@ -7,7 +7,7 @@ use crate::convert::ToPyObject;
 use crate::protocol::PyNumberMethods;
 use crate::stdlib::ctypes::PyCData;
 use crate::types::AsNumber;
-use crate::{AsObject, PyObjectRef, PyResult, VirtualMachine};
+use crate::{AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 
 #[pyclass(name = "PyCPointerType", base = PyType, module = "_ctypes")]
 #[derive(PyPayload, Debug)]
@@ -81,5 +81,125 @@ impl PyCPointer {
     fn set_contents(&self, contents: PyObjectRef) -> PyResult<()> {
         *self.contents.write() = contents;
         Ok(())
+    }
+
+    #[pyclassmethod]
+    fn from_address(cls: PyTypeRef, address: isize, vm: &VirtualMachine) -> PyResult {
+        if address != 0 {
+            // Pointer just stores the address value
+            Ok(PyCPointer {
+                contents: PyRwLock::new(vm.ctx.new_int(address).into()),
+            }
+            .into_ref_with_type(vm, cls)?
+            .into())
+        } else {
+            Err(vm.new_value_error("NULL pointer access".to_owned()))
+        }
+    }
+
+    #[pyclassmethod]
+    fn from_buffer(
+        cls: PyTypeRef,
+        source: PyObjectRef,
+        offset: crate::function::OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        use crate::TryFromObject;
+        use crate::protocol::PyBuffer;
+
+        let offset = offset.unwrap_or(0);
+        if offset < 0 {
+            return Err(vm.new_value_error("offset cannot be negative".to_owned()));
+        }
+        let offset = offset as usize;
+        let size = std::mem::size_of::<usize>();
+
+        let buffer = PyBuffer::try_from_object(vm, source.clone())?;
+
+        if buffer.desc.readonly {
+            return Err(vm.new_type_error("underlying buffer is not writable".to_owned()));
+        }
+
+        let buffer_len = buffer.desc.len;
+        if offset + size > buffer_len {
+            return Err(vm.new_value_error(format!(
+                "Buffer size too small ({} instead of at least {} bytes)",
+                buffer_len,
+                offset + size
+            )));
+        }
+
+        // Read pointer value from buffer
+        let bytes = buffer.obj_bytes();
+        let ptr_bytes = &bytes[offset..offset + size];
+        let ptr_val = if size == 8 {
+            usize::from_ne_bytes([
+                ptr_bytes[0],
+                ptr_bytes[1],
+                ptr_bytes[2],
+                ptr_bytes[3],
+                ptr_bytes[4],
+                ptr_bytes[5],
+                ptr_bytes[6],
+                ptr_bytes[7],
+            ])
+        } else {
+            u32::from_ne_bytes([ptr_bytes[0], ptr_bytes[1], ptr_bytes[2], ptr_bytes[3]]) as usize
+        };
+
+        Ok(PyCPointer {
+            contents: PyRwLock::new(vm.ctx.new_int(ptr_val).into()),
+        }
+        .into_ref_with_type(vm, cls)?
+        .into())
+    }
+
+    #[pyclassmethod]
+    fn from_buffer_copy(
+        cls: PyTypeRef,
+        source: crate::function::ArgBytesLike,
+        offset: crate::function::OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let offset = offset.unwrap_or(0);
+        if offset < 0 {
+            return Err(vm.new_value_error("offset cannot be negative".to_owned()));
+        }
+        let offset = offset as usize;
+        let size = std::mem::size_of::<usize>();
+
+        let source_bytes = source.borrow_buf();
+        let buffer_len = source_bytes.len();
+
+        if offset + size > buffer_len {
+            return Err(vm.new_value_error(format!(
+                "Buffer size too small ({} instead of at least {} bytes)",
+                buffer_len,
+                offset + size
+            )));
+        }
+
+        // Read pointer value from buffer
+        let ptr_bytes = &source_bytes[offset..offset + size];
+        let ptr_val = if size == 8 {
+            usize::from_ne_bytes([
+                ptr_bytes[0],
+                ptr_bytes[1],
+                ptr_bytes[2],
+                ptr_bytes[3],
+                ptr_bytes[4],
+                ptr_bytes[5],
+                ptr_bytes[6],
+                ptr_bytes[7],
+            ])
+        } else {
+            u32::from_ne_bytes([ptr_bytes[0], ptr_bytes[1], ptr_bytes[2], ptr_bytes[3]]) as usize
+        };
+
+        Ok(PyCPointer {
+            contents: PyRwLock::new(vm.ctx.new_int(ptr_val).into()),
+        }
+        .into_ref_with_type(vm, cls)?
+        .into())
     }
 }
