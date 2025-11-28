@@ -36,7 +36,7 @@ use rustpython_compiler_core::{
     Mode, OneIndexed, PositionEncoding, SourceFile, SourceLocation,
     bytecode::{
         self, Arg as OpArgMarker, BinaryOperator, CodeObject, ComparisonOperator, ConstantData,
-        Instruction, OpArg, OpArgType, UnpackExArgs,
+        Instruction, Invert, OpArg, OpArgType, UnpackExArgs,
     },
 };
 use rustpython_wtf8::Wtf8Buf;
@@ -2034,20 +2034,7 @@ impl Compiler {
 
                 // Check exception type:
                 self.compile_expression(exc_type)?;
-                emit!(
-                    self,
-                    Instruction::TestOperation {
-                        op: bytecode::TestOperator::ExceptionMatch,
-                    }
-                );
-
-                // We cannot handle this exception type:
-                emit!(
-                    self,
-                    Instruction::PopJumpIfFalse {
-                        target: next_handler,
-                    }
-                );
+                emit!(self, Instruction::JumpIfNotExcMatch(next_handler));
 
                 // We have a match, store in name (except x as y)
                 if let Some(alias) = name {
@@ -3477,12 +3464,7 @@ impl Compiler {
         // 4. Load None.
         self.emit_load_const(ConstantData::None);
         // 5. Compare with IS_OP 1.
-        emit!(
-            self,
-            Instruction::TestOperation {
-                op: bytecode::TestOperator::IsNot
-            }
-        );
+        emit!(self, Instruction::IsOp(Invert::Yes));
 
         // At this point the TOS is a tuple of (nargs + n_attrs) attributes (or None).
         pc.on_top += 1;
@@ -3648,12 +3630,8 @@ impl Compiler {
 
         // Check if copy is None (consumes the copy like POP_JUMP_IF_NONE)
         self.emit_load_const(ConstantData::None);
-        emit!(
-            self,
-            Instruction::TestOperation {
-                op: bytecode::TestOperator::IsNot
-            }
-        );
+        emit!(self, Instruction::IsOp(Invert::Yes));
+
         // Stack: [subject, keys_tuple, values_tuple, bool]
         self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
         // Stack: [subject, keys_tuple, values_tuple]
@@ -3948,12 +3926,7 @@ impl Compiler {
             Singleton::True => ConstantData::Boolean { value: true },
         });
         // Compare using the "Is" operator.
-        emit!(
-            self,
-            Instruction::TestOperation {
-                op: bytecode::TestOperator::Is
-            }
-        );
+        emit!(self, Instruction::IsOp(Invert::No));
         // Jump to the failure label if the comparison is false.
         self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
         Ok(())
@@ -4082,7 +4055,6 @@ impl Compiler {
         let (last_val, mid_exprs) = exprs.split_last().unwrap();
 
         use bytecode::ComparisonOperator::*;
-        use bytecode::TestOperator::*;
         let compile_cmpop = |c: &mut Self, op: &CmpOp| match op {
             CmpOp::Eq => emit!(c, Instruction::CompareOperation { op: Equal }),
             CmpOp::NotEq => emit!(c, Instruction::CompareOperation { op: NotEqual }),
@@ -4092,10 +4064,10 @@ impl Compiler {
             CmpOp::GtE => {
                 emit!(c, Instruction::CompareOperation { op: GreaterOrEqual })
             }
-            CmpOp::In => emit!(c, Instruction::TestOperation { op: In }),
-            CmpOp::NotIn => emit!(c, Instruction::TestOperation { op: NotIn }),
-            CmpOp::Is => emit!(c, Instruction::TestOperation { op: Is }),
-            CmpOp::IsNot => emit!(c, Instruction::TestOperation { op: IsNot }),
+            CmpOp::In => emit!(c, Instruction::ContainsOp(Invert::No)),
+            CmpOp::NotIn => emit!(c, Instruction::ContainsOp(Invert::Yes)),
+            CmpOp::Is => emit!(c, Instruction::IsOp(Invert::No)),
+            CmpOp::IsNot => emit!(c, Instruction::IsOp(Invert::Yes)),
         };
 
         // a == b == c == d

@@ -884,7 +884,52 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::StoreAttr { idx } => self.store_attr(vm, idx.get(arg)),
             bytecode::Instruction::DeleteAttr { idx } => self.delete_attr(vm, idx.get(arg)),
             bytecode::Instruction::UnaryOperation { op } => self.execute_unary_op(vm, op.get(arg)),
-            bytecode::Instruction::TestOperation { op } => self.execute_test(vm, op.get(arg)),
+            bytecode::Instruction::IsOp(invert) => {
+                let b = self.pop_value();
+                let a = self.pop_value();
+                let res = a.is(&b);
+
+                let value = match invert.get(arg) {
+                    bytecode::Invert::No => res,
+                    bytecode::Invert::Yes => !res,
+                };
+                self.push_value(vm.ctx.new_bool(value).into());
+                Ok(None)
+            }
+            bytecode::Instruction::ContainsOp(invert) => {
+                let b = self.pop_value();
+                let a = self.pop_value();
+
+                let value = match invert.get(arg) {
+                    bytecode::Invert::No => self._in(vm, &a, &b)?,
+                    bytecode::Invert::Yes => self._not_in(vm, &a, &b)?,
+                };
+                self.push_value(vm.ctx.new_bool(value).into());
+                Ok(None)
+            }
+            bytecode::Instruction::JumpIfNotExcMatch(target) => {
+                let b = self.pop_value();
+                let a = self.pop_value();
+                if let Some(tuple_of_exceptions) = b.downcast_ref::<PyTuple>() {
+                    for exception in tuple_of_exceptions {
+                        if !exception
+                            .is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)?
+                        {
+                            return Err(vm.new_type_error(
+                                "catching classes that do not inherit from BaseException is not allowed",
+                            ));
+                        }
+                    }
+                } else if !b.is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)? {
+                    return Err(vm.new_type_error(
+                        "catching classes that do not inherit from BaseException is not allowed",
+                    ));
+                }
+
+                let value = a.is_instance(&b, vm)?;
+                self.push_value(vm.ctx.new_bool(value).into());
+                self.pop_jump_if(vm, target.get(arg), false)
+            }
             bytecode::Instruction::CompareOperation { op } => self.execute_compare(vm, op.get(arg)),
             bytecode::Instruction::ReturnValue => {
                 let value = self.pop_value();
@@ -2232,40 +2277,6 @@ impl ExecutingFrame<'_> {
         haystack: &PyObject,
     ) -> PyResult<bool> {
         Ok(!self._in(vm, needle, haystack)?)
-    }
-
-    #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn execute_test(&mut self, vm: &VirtualMachine, op: bytecode::TestOperator) -> FrameResult {
-        let b = self.pop_value();
-        let a = self.pop_value();
-        let value = match op {
-            bytecode::TestOperator::Is => a.is(&b),
-            bytecode::TestOperator::IsNot => !a.is(&b),
-            bytecode::TestOperator::In => self._in(vm, &a, &b)?,
-            bytecode::TestOperator::NotIn => self._not_in(vm, &a, &b)?,
-            bytecode::TestOperator::ExceptionMatch => {
-                if let Some(tuple_of_exceptions) = b.downcast_ref::<PyTuple>() {
-                    for exception in tuple_of_exceptions {
-                        if !exception
-                            .is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)?
-                        {
-                            return Err(vm.new_type_error(
-                                "catching classes that do not inherit from BaseException is not allowed",
-                            ));
-                        }
-                    }
-                } else if !b.is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)? {
-                    return Err(vm.new_type_error(
-                        "catching classes that do not inherit from BaseException is not allowed",
-                    ));
-                }
-
-                a.is_instance(&b, vm)?
-            }
-        };
-
-        self.push_value(vm.ctx.new_bool(value).into());
-        Ok(None)
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
