@@ -21,6 +21,7 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
     array::PyCArrayType::make_class(ctx);
     field::PyCFieldType::make_class(ctx);
     pointer::PyCPointerType::make_class(ctx);
+    structure::PyCStructType::make_class(ctx);
     extend_module!(vm, module, {
         "_CData" => PyCData::make_class(ctx),
         "_SimpleCData" => PyCSimple::make_class(ctx),
@@ -46,9 +47,10 @@ pub(crate) mod _ctypes {
     use super::base::PyCSimple;
     use crate::builtins::PyTypeRef;
     use crate::class::StaticType;
+    use crate::convert::ToPyObject;
     use crate::function::{Either, FuncArgs, OptionalArg};
     use crate::stdlib::ctypes::library;
-    use crate::{AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine};
+    use crate::{AsObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine};
     use crossbeam_utils::atomic::AtomicCell;
     use std::ffi::{
         c_double, c_float, c_int, c_long, c_longlong, c_schar, c_short, c_uchar, c_uint, c_ulong,
@@ -56,6 +58,22 @@ pub(crate) mod _ctypes {
     };
     use std::mem;
     use widestring::WideChar;
+
+    /// CArgObject - returned by byref()
+    #[pyclass(name = "CArgObject", module = "_ctypes", no_attr)]
+    #[derive(Debug, PyPayload)]
+    pub struct CArgObject {
+        pub obj: PyObjectRef,
+        pub offset: isize,
+    }
+
+    #[pyclass]
+    impl CArgObject {
+        #[pygetset]
+        fn _obj(&self) -> PyObjectRef {
+            self.obj.clone()
+        }
+    }
 
     #[pyattr(name = "__version__")]
     const __VERSION__: &str = "1.1.0";
@@ -322,9 +340,27 @@ pub(crate) mod _ctypes {
     }
 
     #[pyfunction]
-    fn byref(_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        // TODO: RUSTPYTHON
-        Err(vm.new_value_error("not implemented"))
+    fn byref(obj: PyObjectRef, offset: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
+        use super::base::PyCData;
+        use crate::class::StaticType;
+
+        // Check if obj is a ctypes instance
+        if !obj.fast_isinstance(PyCData::static_type())
+            && !obj.fast_isinstance(PyCSimple::static_type())
+        {
+            return Err(vm.new_type_error(
+                "byref() argument must be a ctypes instance, not 'int'".to_string(),
+            ));
+        }
+
+        let offset_val = offset.unwrap_or(0);
+
+        // Create CArgObject to hold the reference
+        Ok(CArgObject {
+            obj,
+            offset: offset_val,
+        }
+        .to_pyobject(vm))
     }
 
     #[pyfunction]
@@ -378,6 +414,21 @@ pub(crate) mod _ctypes {
     fn _string_at_addr(_vm: &VirtualMachine) -> usize {
         let f = libc::strnlen;
         f as usize
+    }
+
+    #[pyattr]
+    fn _wstring_at_addr(_vm: &VirtualMachine) -> usize {
+        // Return address of wcsnlen or similar wide string function
+        #[cfg(not(target_os = "windows"))]
+        {
+            let f = libc::wcslen;
+            f as usize
+        }
+        #[cfg(target_os = "windows")]
+        {
+            // On Windows, use wcslen from ucrt
+            0
+        }
     }
 
     #[pyattr]

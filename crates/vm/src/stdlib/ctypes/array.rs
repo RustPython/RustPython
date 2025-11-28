@@ -1,5 +1,7 @@
 use crate::builtins::PyBytes;
-use crate::types::Callable;
+use crate::convert::ToPyObject;
+use crate::protocol::PyNumberMethods;
+use crate::types::{AsNumber, Callable};
 use crate::{Py, PyObjectRef, PyPayload};
 use crate::{
     PyResult, VirtualMachine,
@@ -7,6 +9,7 @@ use crate::{
     types::Constructor,
 };
 use crossbeam_utils::atomic::AtomicCell;
+use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
 use rustpython_vm::stdlib::ctypes::base::PyCData;
 
@@ -44,8 +47,49 @@ impl Constructor for PyCArrayType {
     }
 }
 
-#[pyclass(flags(IMMUTABLETYPE), with(Callable, Constructor))]
-impl PyCArrayType {}
+#[pyclass(flags(IMMUTABLETYPE), with(Callable, Constructor, AsNumber))]
+impl PyCArrayType {
+    #[pymethod]
+    fn __mul__(zelf: &Py<Self>, n: isize, vm: &VirtualMachine) -> PyResult {
+        if n < 0 {
+            return Err(vm.new_value_error(format!("Array length must be >= 0, not {n}")));
+        }
+        // Create a nested array type: (inner_type * inner_length) * n
+        // The new array's element type is the current array type
+        let inner_type = zelf.inner.typ.read().clone();
+        let inner_length = zelf.inner.length.load();
+
+        // Create a new array type where the element is the current array
+        Ok(PyCArrayType {
+            inner: PyCArray {
+                typ: PyRwLock::new(inner_type),
+                length: AtomicCell::new(inner_length * n as usize),
+                value: PyRwLock::new(vm.ctx.none()),
+            },
+        }
+        .to_pyobject(vm))
+    }
+}
+
+impl AsNumber for PyCArrayType {
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            multiply: Some(|a, b, vm| {
+                let zelf = a
+                    .downcast_ref::<PyCArrayType>()
+                    .ok_or_else(|| vm.new_type_error("expected PyCArrayType".to_owned()))?;
+                let n = b
+                    .try_index(vm)?
+                    .as_bigint()
+                    .to_isize()
+                    .ok_or_else(|| vm.new_overflow_error("array size too large".to_owned()))?;
+                PyCArrayType::__mul__(zelf, n, vm)
+            }),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        };
+        &AS_NUMBER
+    }
+}
 
 #[pyclass(
     name = "Array",

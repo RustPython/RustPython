@@ -1,60 +1,362 @@
 use super::base::PyCData;
-use crate::builtins::{PyList, PyStr, PyTuple, PyTypeRef};
+use super::field::PyCField;
+use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef};
+use crate::convert::ToPyObject;
 use crate::function::FuncArgs;
-use crate::types::GetAttr;
-use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
+use crate::protocol::PyNumberMethods;
+use crate::stdlib::ctypes::_ctypes::get_size;
+use crate::types::{AsNumber, Constructor};
+use crate::{AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
+use crossbeam_utils::atomic::AtomicCell;
+use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
-use rustpython_vm::types::Constructor;
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-#[pyclass(module = "_ctypes", name = "Structure", base = PyCData)]
-#[derive(PyPayload, Debug)]
+/// PyCStructType - metaclass for Structure
+#[pyclass(name = "PyCStructType", base = PyType, module = "_ctypes")]
+#[derive(Debug, PyPayload)]
+pub struct PyCStructType {}
+
+impl Constructor for PyCStructType {
+    type Args = FuncArgs;
+
+    fn py_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // 1. Create the new class using PyType::py_new
+        let new_class = crate::builtins::type_::PyType::py_new(metatype, args, vm)?;
+
+        // 2. Process _fields_ if defined on the new class
+        let new_type = new_class
+            .clone()
+            .downcast::<PyType>()
+            .map_err(|_| vm.new_type_error("expected type"))?;
+
+        // Only process _fields_ if defined directly on this class (not inherited)
+        if let Some(fields_attr) = new_type.get_direct_attr(vm.ctx.intern_str("_fields_")) {
+            Self::process_fields(&new_type, fields_attr, vm)?;
+        }
+
+        Ok(new_class)
+    }
+}
+
+#[pyclass(flags(BASETYPE), with(AsNumber, Constructor))]
+impl PyCStructType {
+    /// Called when a new Structure subclass is created
+    #[pyclassmethod]
+    fn __init_subclass__(cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<()> {
+        // Check if _fields_ is defined
+        if let Some(fields_attr) = cls.get_direct_attr(vm.ctx.intern_str("_fields_")) {
+            Self::process_fields(&cls, fields_attr, vm)?;
+        }
+        Ok(())
+    }
+
+    /// Process _fields_ and create CField descriptors
+    fn process_fields(
+        cls: &PyTypeRef,
+        fields_attr: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        // Try to downcast to list or tuple
+        let fields: Vec<PyObjectRef> = if let Some(list) = fields_attr.downcast_ref::<PyList>() {
+            list.borrow_vec().to_vec()
+        } else if let Some(tuple) = fields_attr.downcast_ref::<PyTuple>() {
+            tuple.to_vec()
+        } else {
+            return Err(vm.new_type_error("_fields_ must be a list or tuple".to_string()));
+        };
+
+        let mut offset = 0usize;
+        for (index, field) in fields.iter().enumerate() {
+            let field_tuple = field
+                .downcast_ref::<PyTuple>()
+                .ok_or_else(|| vm.new_type_error("_fields_ must contain tuples".to_string()))?;
+
+            if field_tuple.len() < 2 {
+                return Err(vm.new_type_error(
+                    "_fields_ tuple must have at least 2 elements (name, type)".to_string(),
+                ));
+            }
+
+            let name = field_tuple
+                .first()
+                .unwrap()
+                .downcast_ref::<PyStr>()
+                .ok_or_else(|| vm.new_type_error("field name must be a string".to_string()))?
+                .to_string();
+
+            let field_type = field_tuple.get(1).unwrap().clone();
+
+            // Get size of the field type
+            let size = Self::get_field_size(&field_type, vm)?;
+
+            // Create CField descriptor (accepts any ctypes type including arrays)
+            let cfield = PyCField::new(name.clone(), field_type, offset, size, index);
+
+            // Set the CField as a class attribute
+            cls.set_attr(vm.ctx.intern_str(name), cfield.to_pyobject(vm));
+
+            offset += size;
+        }
+
+        Ok(())
+    }
+
+    /// Get the size of a ctypes type
+    fn get_field_size(field_type: &PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        // Try to get _type_ attribute for simple types
+        if let Some(size) = field_type
+            .get_attr("_type_", vm)
+            .ok()
+            .and_then(|type_attr| type_attr.str(vm).ok())
+            .and_then(|type_str| {
+                let s = type_str.to_string();
+                (s.len() == 1).then(|| get_size(&s))
+            })
+        {
+            return Ok(size);
+        }
+
+        // Try sizeof for other types
+        if let Some(s) = field_type
+            .get_attr("size_of_instances", vm)
+            .ok()
+            .and_then(|size_method| size_method.call((), vm).ok())
+            .and_then(|size| size.try_int(vm).ok())
+            .and_then(|n| n.as_bigint().to_usize())
+        {
+            return Ok(s);
+        }
+
+        // Default to pointer size for unknown types
+        Ok(std::mem::size_of::<usize>())
+    }
+
+    #[pymethod]
+    fn __mul__(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
+        use super::array::{PyCArray, PyCArrayType};
+        if n < 0 {
+            return Err(vm.new_value_error(format!("Array length must be >= 0, not {n}")));
+        }
+        // For structures, element size is the structure size (sum of field sizes)
+        let element_size = std::mem::size_of::<usize>(); // Default, should calculate from fields
+        Ok(PyCArrayType {
+            inner: PyCArray {
+                typ: PyRwLock::new(cls),
+                length: AtomicCell::new(n as usize),
+                element_size: AtomicCell::new(element_size),
+                buffer: PyRwLock::new(vec![]),
+            },
+        }
+        .to_pyobject(vm))
+    }
+}
+
+impl AsNumber for PyCStructType {
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            multiply: Some(|a, b, vm| {
+                let cls = a
+                    .downcast_ref::<PyType>()
+                    .ok_or_else(|| vm.new_type_error("expected type".to_owned()))?;
+                let n = b
+                    .try_index(vm)?
+                    .as_bigint()
+                    .to_isize()
+                    .ok_or_else(|| vm.new_overflow_error("array size too large".to_owned()))?;
+                PyCStructType::__mul__(cls.to_owned(), n, vm)
+            }),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        };
+        &AS_NUMBER
+    }
+}
+
+/// Structure field info stored in instance
+#[derive(Debug, Clone)]
+pub struct FieldInfo {
+    pub name: String,
+    pub offset: usize,
+    pub size: usize,
+    pub type_ref: PyTypeRef,
+}
+
+/// PyCStructure - base class for Structure instances
+#[pyclass(
+    module = "_ctypes",
+    name = "Structure",
+    base = PyCData,
+    metaclass = "PyCStructType"
+)]
+#[derive(PyPayload)]
 pub struct PyCStructure {
-    #[allow(dead_code)]
-    field_data: PyRwLock<HashMap<String, PyObjectRef>>,
-    data: PyRwLock<HashMap<String, PyObjectRef>>,
+    /// Raw memory buffer for the structure
+    pub(super) buffer: PyRwLock<Vec<u8>>,
+    /// Field information (name -> FieldInfo)
+    pub(super) fields: PyRwLock<HashMap<String, FieldInfo>>,
+    /// Total size of the structure
+    pub(super) size: AtomicCell<usize>,
+}
+
+impl Debug for PyCStructure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PyCStructure")
+            .field("size", &self.size.load())
+            .finish()
+    }
 }
 
 impl Constructor for PyCStructure {
     type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        let fields_attr = cls
-            .get_class_attr(vm.ctx.interned_str("_fields_").unwrap())
-            .ok_or_else(|| vm.new_attribute_error("Structure must have a _fields_ attribute"))?;
-        // downcast into list
-        let fields = fields_attr
-            .downcast_ref::<PyList>()
-            .ok_or_else(|| vm.new_type_error("Structure _fields_ attribute must be a list"))?;
-        let fields = fields.borrow_vec();
-        let mut field_data = HashMap::new();
-        for field in fields.iter() {
-            let field = field
-                .downcast_ref::<PyTuple>()
-                .ok_or_else(|| vm.new_type_error("Field must be a tuple"))?;
-            let name = field
-                .first()
-                .unwrap()
-                .downcast_ref::<PyStr>()
-                .ok_or_else(|| vm.new_type_error("Field name must be a string"))?;
-            let typ = field.get(1).unwrap().clone();
-            field_data.insert(name.to_string(), typ);
+    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        // Get _fields_ from the class using get_attr to properly search MRO
+        let fields_attr = cls.as_object().get_attr("_fields_", vm).ok();
+
+        let mut fields_map = HashMap::new();
+        let mut total_size = 0usize;
+
+        if let Some(fields_attr) = fields_attr {
+            let fields: Vec<PyObjectRef> = if let Some(list) = fields_attr.downcast_ref::<PyList>()
+            {
+                list.borrow_vec().to_vec()
+            } else if let Some(tuple) = fields_attr.downcast_ref::<PyTuple>() {
+                tuple.to_vec()
+            } else {
+                vec![]
+            };
+
+            let mut offset = 0usize;
+            for field in fields.iter() {
+                let Some(field_tuple) = field.downcast_ref::<PyTuple>() else {
+                    continue;
+                };
+                if field_tuple.len() < 2 {
+                    continue;
+                }
+                let Some(name) = field_tuple.first().unwrap().downcast_ref::<PyStr>() else {
+                    continue;
+                };
+                let name = name.to_string();
+                let field_type = field_tuple.get(1).unwrap().clone();
+                let size = PyCStructType::get_field_size(&field_type, vm)?;
+
+                let type_ref = field_type
+                    .downcast::<PyType>()
+                    .unwrap_or_else(|_| vm.ctx.types.object_type.to_owned());
+
+                fields_map.insert(
+                    name.clone(),
+                    FieldInfo {
+                        name,
+                        offset,
+                        size,
+                        type_ref,
+                    },
+                );
+
+                offset += size;
+            }
+            total_size = offset;
         }
-        todo!("Implement PyCStructure::py_new")
+
+        // Initialize buffer with zeros
+        let buffer = vec![0u8; total_size];
+
+        let instance = PyCStructure {
+            buffer: PyRwLock::new(buffer),
+            fields: PyRwLock::new(fields_map.clone()),
+            size: AtomicCell::new(total_size),
+        };
+
+        // Handle keyword arguments for field initialization
+        let py_instance = instance.into_ref_with_type(vm, cls.clone())?;
+        let py_obj: PyObjectRef = py_instance.clone().into();
+
+        // Set field values from kwargs using standard attribute setting
+        for (key, value) in args.kwargs.iter() {
+            if fields_map.contains_key(key.as_str()) {
+                py_obj.set_attr(vm.ctx.intern_str(key.as_str()), value.clone(), vm)?;
+            }
+        }
+
+        // Set field values from positional args
+        let field_names: Vec<String> = fields_map.keys().cloned().collect();
+        for (i, value) in args.args.iter().enumerate() {
+            if i < field_names.len() {
+                py_obj.set_attr(
+                    vm.ctx.intern_str(field_names[i].as_str()),
+                    value.clone(),
+                    vm,
+                )?;
+            }
+        }
+
+        Ok(py_instance.into())
     }
 }
 
-impl GetAttr for PyCStructure {
-    fn getattro(zelf: &Py<Self>, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-        let name = name.to_string();
-        let data = zelf.data.read();
-        match data.get(&name) {
-            Some(value) => Ok(value.clone()),
-            None => Err(vm.new_attribute_error(format!("No attribute named {name}"))),
+// Note: GetAttr and SetAttr are not implemented here.
+// Field access is handled by CField descriptors registered on the class.
+
+impl PyCStructure {
+    /// Convert bytes to a Python value
+    fn bytes_to_value(bytes: &[u8], _type_ref: &PyTypeRef, vm: &VirtualMachine) -> PyResult {
+        match bytes.len() {
+            1 => Ok(vm.ctx.new_int(bytes[0] as i8).into()),
+            2 => {
+                let val = i16::from_ne_bytes([bytes[0], bytes[1]]);
+                Ok(vm.ctx.new_int(val).into())
+            }
+            4 => {
+                let val = i32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+                Ok(vm.ctx.new_int(val).into())
+            }
+            8 => {
+                let val = i64::from_ne_bytes([
+                    bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                ]);
+                Ok(vm.ctx.new_int(val).into())
+            }
+            _ => Ok(vm.ctx.new_int(0).into()),
+        }
+    }
+
+    /// Convert a Python value to bytes
+    fn value_to_bytes(value: &PyObjectRef, size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        if let Ok(int_val) = value.try_int(vm) {
+            let i = int_val.as_bigint();
+            match size {
+                1 => {
+                    let val = i.to_i8().unwrap_or(0);
+                    Ok(val.to_ne_bytes().to_vec())
+                }
+                2 => {
+                    let val = i.to_i16().unwrap_or(0);
+                    Ok(val.to_ne_bytes().to_vec())
+                }
+                4 => {
+                    let val = i.to_i32().unwrap_or(0);
+                    Ok(val.to_ne_bytes().to_vec())
+                }
+                8 => {
+                    let val = i.to_i64().unwrap_or(0);
+                    Ok(val.to_ne_bytes().to_vec())
+                }
+                _ => Ok(vec![0u8; size]),
+            }
+        } else {
+            Ok(vec![0u8; size])
         }
     }
 }
 
-#[pyclass(flags(BASETYPE, IMMUTABLETYPE))]
-impl PyCStructure {}
+#[pyclass(flags(BASETYPE, IMMUTABLETYPE), with(Constructor))]
+impl PyCStructure {
+    #[pygetset]
+    fn _fields_(&self, vm: &VirtualMachine) -> PyObjectRef {
+        // Return the _fields_ from the class, not instance
+        vm.ctx.none()
+    }
+}

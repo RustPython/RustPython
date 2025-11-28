@@ -1,9 +1,10 @@
-use crate::builtins::PyType;
-use crate::builtins::PyTypeRef;
-use crate::stdlib::ctypes::PyCData;
-use crate::types::Constructor;
-use crate::types::Representable;
-use crate::{Py, PyResult, VirtualMachine};
+use crate::builtins::{PyType, PyTypeRef};
+use crate::function::PySetterValue;
+use crate::types::{Constructor, GetDescriptor, Representable};
+use crate::{AsObject, Py, PyObjectRef, PyResult, VirtualMachine};
+use num_traits::ToPrimitive;
+
+use super::structure::PyCStructure;
 
 #[pyclass(name = "PyCFieldType", base = PyType, module = "_ctypes")]
 #[derive(PyPayload, Debug)]
@@ -15,28 +16,55 @@ pub struct PyCFieldType {
 #[pyclass]
 impl PyCFieldType {}
 
-#[pyclass(
-    name = "CField",
-    base = PyCData,
-    metaclass = "PyCFieldType",
-    module = "_ctypes"
-)]
+#[pyclass(name = "CField", module = "_ctypes")]
 #[derive(Debug, PyPayload)]
 pub struct PyCField {
-    byte_offset: usize,
-    byte_size: usize,
+    pub(super) byte_offset: usize,
+    pub(super) byte_size: usize,
     #[allow(unused)]
-    index: usize,
-    proto: PyTypeRef,
-    anonymous: bool,
-    bitfield_size: bool,
-    bit_offset: u8,
-    name: String,
+    pub(super) index: usize,
+    /// The ctypes type for this field (can be any ctypes type including arrays)
+    pub(super) proto: PyObjectRef,
+    pub(super) anonymous: bool,
+    pub(super) bitfield_size: bool,
+    pub(super) bit_offset: u8,
+    pub(super) name: String,
+}
+
+impl PyCField {
+    pub fn new(
+        name: String,
+        proto: PyObjectRef,
+        byte_offset: usize,
+        byte_size: usize,
+        index: usize,
+    ) -> Self {
+        Self {
+            name,
+            proto,
+            byte_offset,
+            byte_size,
+            index,
+            anonymous: false,
+            bitfield_size: false,
+            bit_offset: 0,
+        }
+    }
 }
 
 impl Representable for PyCField {
-    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        let tp_name = zelf.proto.name().to_string();
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        // Get type name from the proto object
+        let tp_name = if let Some(name_attr) = vm
+            .ctx
+            .interned_str("__name__")
+            .and_then(|s| zelf.proto.get_attr(s, vm).ok())
+        {
+            name_attr.str(vm)?.to_string()
+        } else {
+            zelf.proto.class().name().to_string()
+        };
+
         if zelf.bitfield_size {
             Ok(format!(
                 "<{} type={}, ofs={byte_offset}, bit_size={bitfield_size}, bit_offset={bit_offset}",
@@ -71,8 +99,149 @@ impl Constructor for PyCField {
     }
 }
 
-#[pyclass(flags(BASETYPE, IMMUTABLETYPE), with(Constructor, Representable))]
+impl GetDescriptor for PyCField {
+    fn descr_get(
+        zelf: PyObjectRef,
+        obj: Option<PyObjectRef>,
+        _cls: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let zelf = zelf
+            .downcast::<PyCField>()
+            .map_err(|_| vm.new_type_error("expected CField".to_owned()))?;
+
+        // If obj is None, return the descriptor itself (class attribute access)
+        let obj = match obj {
+            Some(obj) if !vm.is_none(&obj) => obj,
+            _ => return Ok(zelf.into()),
+        };
+
+        // Instance attribute access - read value from the structure's buffer
+        if let Some(structure) = obj.payload::<PyCStructure>() {
+            let buffer = structure.buffer.read();
+            let offset = zelf.byte_offset;
+            let size = zelf.byte_size;
+
+            if offset + size <= buffer.len() {
+                let bytes = &buffer[offset..offset + size];
+                return PyCField::bytes_to_value(bytes, size, vm);
+            }
+        }
+
+        // Fallback: return 0 for uninitialized or unsupported types
+        Ok(vm.ctx.new_int(0).into())
+    }
+}
+
 impl PyCField {
+    /// Convert bytes to a Python value based on size
+    fn bytes_to_value(bytes: &[u8], size: usize, vm: &VirtualMachine) -> PyResult {
+        match size {
+            1 => Ok(vm.ctx.new_int(bytes[0] as i8).into()),
+            2 => {
+                let val = i16::from_ne_bytes([bytes[0], bytes[1]]);
+                Ok(vm.ctx.new_int(val).into())
+            }
+            4 => {
+                let val = i32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+                Ok(vm.ctx.new_int(val).into())
+            }
+            8 => {
+                let val = i64::from_ne_bytes([
+                    bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                ]);
+                Ok(vm.ctx.new_int(val).into())
+            }
+            _ => Ok(vm.ctx.new_int(0).into()),
+        }
+    }
+
+    /// Convert a Python value to bytes
+    fn value_to_bytes(value: &PyObjectRef, size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        if let Ok(int_val) = value.try_int(vm) {
+            let i = int_val.as_bigint();
+            match size {
+                1 => {
+                    let val = i.to_i8().unwrap_or(0);
+                    Ok(val.to_ne_bytes().to_vec())
+                }
+                2 => {
+                    let val = i.to_i16().unwrap_or(0);
+                    Ok(val.to_ne_bytes().to_vec())
+                }
+                4 => {
+                    let val = i.to_i32().unwrap_or(0);
+                    Ok(val.to_ne_bytes().to_vec())
+                }
+                8 => {
+                    let val = i.to_i64().unwrap_or(0);
+                    Ok(val.to_ne_bytes().to_vec())
+                }
+                _ => Ok(vec![0u8; size]),
+            }
+        } else {
+            Ok(vec![0u8; size])
+        }
+    }
+}
+
+#[pyclass(
+    flags(BASETYPE, IMMUTABLETYPE),
+    with(Constructor, Representable, GetDescriptor)
+)]
+impl PyCField {
+    #[pyslot]
+    fn descr_set(
+        zelf: &crate::PyObject,
+        obj: PyObjectRef,
+        value: PySetterValue<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let zelf = zelf
+            .downcast_ref::<PyCField>()
+            .ok_or_else(|| vm.new_type_error("expected CField".to_owned()))?;
+
+        // Get the structure instance - use payload() to access the struct data
+        if let Some(structure) = obj.payload::<PyCStructure>() {
+            match value {
+                PySetterValue::Assign(value) => {
+                    let offset = zelf.byte_offset;
+                    let size = zelf.byte_size;
+                    let bytes = PyCField::value_to_bytes(&value, size, vm)?;
+
+                    let mut buffer = structure.buffer.write();
+                    if offset + size <= buffer.len() {
+                        buffer[offset..offset + size].copy_from_slice(&bytes);
+                    }
+                    Ok(())
+                }
+                PySetterValue::Delete => {
+                    Err(vm.new_type_error("cannot delete structure field".to_owned()))
+                }
+            }
+        } else {
+            Err(vm.new_type_error(format!(
+                "descriptor works only on Structure instances, got {}",
+                obj.class().name()
+            )))
+        }
+    }
+
+    #[pymethod]
+    fn __set__(
+        zelf: PyObjectRef,
+        obj: PyObjectRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        Self::descr_set(&zelf, obj, PySetterValue::Assign(value), vm)
+    }
+
+    #[pymethod]
+    fn __delete__(zelf: PyObjectRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        Self::descr_set(&zelf, obj, PySetterValue::Delete, vm)
+    }
+
     #[pygetset]
     fn size(&self) -> usize {
         self.byte_size
@@ -99,7 +268,7 @@ impl PyCField {
     }
 
     #[pygetset(name = "type")]
-    fn type_(&self) -> PyTypeRef {
+    fn type_(&self) -> PyObjectRef {
         self.proto.clone()
     }
 
