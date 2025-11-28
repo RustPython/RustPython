@@ -244,8 +244,18 @@ impl Constructor for PyCSimple {
         let attributes = cls.get_attributes();
         let _type_ = attributes
             .iter()
-            .find(|(k, _)| k.to_object().str(vm).unwrap().to_string() == *"_type_")
-            .unwrap()
+            .find(|(k, _)| {
+                k.to_object()
+                    .str(vm)
+                    .map(|s| s.to_string() == "_type_")
+                    .unwrap_or(false)
+            })
+            .ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "cannot create '{}' instances: no _type_ attribute",
+                    cls.name()
+                ))
+            })?
             .1
             .str(vm)?
             .to_string();
