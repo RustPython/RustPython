@@ -9,7 +9,6 @@ pub(crate) mod pointer;
 pub(crate) mod structure;
 pub(crate) mod thunk;
 pub(crate) mod union;
-pub(crate) mod util;
 
 use crate::builtins::PyModule;
 use crate::class::PyClassImpl;

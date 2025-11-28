@@ -8,6 +8,7 @@ use crate::{Py, PyResult, VirtualMachine};
 #[pyclass(name = "PyCFieldType", base = PyType, module = "_ctypes")]
 #[derive(PyPayload, Debug)]
 pub struct PyCFieldType {
+    #[allow(dead_code)]
     pub(super) inner: PyCField,
 }
 
@@ -121,14 +122,4 @@ impl PyCField {
     fn bit_offset(&self) -> u8 {
         self.bit_offset
     }
-}
-
-#[inline(always)]
-pub const fn low_bit(offset: usize) -> usize {
-    offset & 0xFFFF
-}
-
-#[inline(always)]
-pub const fn high_bit(offset: usize) -> usize {
-    offset >> 16
 }

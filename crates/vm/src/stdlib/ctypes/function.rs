@@ -102,10 +102,12 @@ impl ReturnType for PyNone {
 pub struct PyCFuncPtr {
     pub name: PyRwLock<Option<String>>,
     pub ptr: PyRwLock<Option<CodePtr>>,
+    #[allow(dead_code)]
     pub needs_free: AtomicCell<bool>,
     pub arg_types: PyRwLock<Option<Vec<PyTypeRef>>>,
     pub res_type: PyRwLock<Option<PyObjectRef>>,
     pub _flags_: AtomicCell<i32>,
+    #[allow(dead_code)]
     pub handler: PyObjectRef,
 }
 

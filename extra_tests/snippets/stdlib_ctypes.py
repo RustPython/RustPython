@@ -338,9 +338,9 @@ if _os.name == "posix":
         libc = cdll.LoadLibrary("libc.dylib")
         libc.rand()
         i = c_int(1)
-        print("start srand")
-        print(libc.srand(i))
-        print(test_byte_array)
+        # print("start srand")
+        # print(libc.srand(i))
+        # print(test_byte_array)
 else:
     import os
 
@@ -348,9 +348,9 @@ else:
     libc.rand()
     i = c_int(1)
     print("start srand")
-    print(libc.srand(i))
-    print(test_byte_array)
-    print(test_byte_array._type_)
+    # print(libc.srand(i))
+    # print(test_byte_array)
+    # print(test_byte_array._type_)
     # print("start printf")
     # libc.printf(test_byte_array)
 
