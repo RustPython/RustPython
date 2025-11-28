@@ -719,27 +719,16 @@ impl ExecutingFrame<'_> {
                 self.state.stack.swap(i, j);
                 Ok(None)
             }
-            // bytecode::Instruction::ToBool => {
-            //     dbg!("Shouldn't be called outside of match statements for now")
-            //     let value = self.pop_value();
-            //     // call __bool__
-            //     let result = value.try_to_bool(vm)?;
-            //     self.push_value(vm.ctx.new_bool(result).into());
-            //     Ok(None)
-            // }
-            bytecode::Instruction::Duplicate => {
-                // Duplicate top of stack
-                let value = self.top_value();
-                self.push_value(value.to_owned());
-                Ok(None)
+            /*
+             bytecode::Instruction::ToBool => {
+                 dbg!("Shouldn't be called outside of match statements for now")
+                 let value = self.pop_value();
+                 // call __bool__
+                 let result = value.try_to_bool(vm)?;
+                 self.push_value(vm.ctx.new_bool(result).into());
+                 Ok(None)
             }
-            bytecode::Instruction::Duplicate2 => {
-                // Duplicate top 2 of stack
-                let len = self.state.stack.len();
-                self.push_value(self.state.stack[len - 2].clone());
-                self.push_value(self.state.stack[len - 1].clone());
-                Ok(None)
-            }
+            */
             // splitting the instructions like this offloads the cost of "dynamic" dispatch (on the
             // amount to rotate) to the opcode dispatcher, and generates optimized code for the
             // concrete cases we actually have
