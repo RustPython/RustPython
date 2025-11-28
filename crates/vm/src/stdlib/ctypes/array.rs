@@ -79,7 +79,7 @@ impl Constructor for PyCArray {
             value: PyRwLock::new(vm.ctx.none()),
         }
         .into_ref_with_type(vm, cls)
-            .map(Into::into)
+        .map(Into::into)
     }
 }
 

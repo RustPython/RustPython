@@ -120,61 +120,106 @@ impl Debug for PyCFuncPtr {
 }
 
 impl Constructor for PyCFuncPtr {
-    type Args = (PyTupleRef, FuncArgs);
+    type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, (tuple, _args): Self::Args, vm: &VirtualMachine) -> PyResult {
-        let name = tuple
-            .first()
-            .ok_or(vm.new_type_error("Expected a tuple with at least 2 elements"))?
-            .downcast_ref::<PyStr>()
-            .ok_or(vm.new_type_error("Expected a string"))?
-            .to_string();
-        let handler = tuple
-            .into_iter()
-            .nth(1)
-            .ok_or(vm.new_type_error("Expected a tuple with at least 2 elements"))?
-            .clone();
-        let handle = handler.try_int(vm);
-        let handle = match handle {
-            Ok(handle) => handle.as_bigint().clone(),
-            Err(_) => handler
-                .get_attr("_handle", vm)?
-                .try_int(vm)?
-                .as_bigint()
-                .clone(),
-        };
-        let library_cache = crate::stdlib::ctypes::library::libcache().read();
-        let library = library_cache
-            .get_lib(
-                handle
-                    .to_usize()
-                    .ok_or(vm.new_value_error("Invalid handle".to_string()))?,
-            )
-            .ok_or_else(|| vm.new_value_error("Library not found".to_string()))?;
-        let inner_lib = library.lib.lock();
+    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        // Handle different argument forms like CPython:
+        // 1. Empty args: create uninitialized
+        // 2. One integer argument: function address
+        // 3. Tuple argument: (name, dll) form
 
-        let terminated = format!("{}\0", &name);
-        let code_ptr = if let Some(lib) = &*inner_lib {
-            let pointer: Symbol<'_, FP> = unsafe {
-                lib.get(terminated.as_bytes())
-                    .map_err(|err| err.to_string())
-                    .map_err(|err| vm.new_attribute_error(err))?
-            };
-            Some(CodePtr(*pointer as *mut _))
-        } else {
-            None
-        };
-        Self {
-            ptr: PyRwLock::new(code_ptr),
-            needs_free: AtomicCell::new(false),
-            arg_types: PyRwLock::new(None),
-            _flags_: AtomicCell::new(0),
-            res_type: PyRwLock::new(None),
-            name: PyRwLock::new(Some(name)),
-            handler,
+        if args.args.is_empty() {
+            return Self {
+                ptr: PyRwLock::new(None),
+                needs_free: AtomicCell::new(false),
+                arg_types: PyRwLock::new(None),
+                _flags_: AtomicCell::new(0),
+                res_type: PyRwLock::new(None),
+                name: PyRwLock::new(None),
+                handler: vm.ctx.none(),
+            }
+            .into_ref_with_type(vm, cls)
+            .map(Into::into);
         }
-        .into_ref_with_type(vm, cls)
-        .map(Into::into)
+
+        let first_arg = &args.args[0];
+
+        // Check if first argument is an integer (function address)
+        if let Ok(addr) = first_arg.try_int(vm) {
+            let ptr_val = addr.as_bigint().to_usize().unwrap_or(0);
+            return Self {
+                ptr: PyRwLock::new(Some(CodePtr(ptr_val as *mut _))),
+                needs_free: AtomicCell::new(false),
+                arg_types: PyRwLock::new(None),
+                _flags_: AtomicCell::new(0),
+                res_type: PyRwLock::new(None),
+                name: PyRwLock::new(Some(format!("CFuncPtr@{:#x}", ptr_val))),
+                handler: vm.ctx.new_int(ptr_val).into(),
+            }
+            .into_ref_with_type(vm, cls)
+            .map(Into::into);
+        }
+
+        // Check if first argument is a tuple (name, dll) form
+        if let Some(tuple) = first_arg.downcast_ref::<PyTuple>() {
+            let name = tuple
+                .first()
+                .ok_or(vm.new_type_error("Expected a tuple with at least 2 elements"))?
+                .downcast_ref::<PyStr>()
+                .ok_or(vm.new_type_error("Expected a string"))?
+                .to_string();
+            let handler = tuple
+                .iter()
+                .nth(1)
+                .ok_or(vm.new_type_error("Expected a tuple with at least 2 elements"))?
+                .clone();
+
+            // Get library handle and load function
+            let handle = handler.try_int(vm);
+            let handle = match handle {
+                Ok(handle) => handle.as_bigint().clone(),
+                Err(_) => handler
+                    .get_attr("_handle", vm)?
+                    .try_int(vm)?
+                    .as_bigint()
+                    .clone(),
+            };
+            let library_cache = crate::stdlib::ctypes::library::libcache().read();
+            let library = library_cache
+                .get_lib(
+                    handle
+                        .to_usize()
+                        .ok_or(vm.new_value_error("Invalid handle".to_string()))?,
+                )
+                .ok_or_else(|| vm.new_value_error("Library not found".to_string()))?;
+            let inner_lib = library.lib.lock();
+
+            let terminated = format!("{}\0", &name);
+            let code_ptr = if let Some(lib) = &*inner_lib {
+                let pointer: Symbol<'_, FP> = unsafe {
+                    lib.get(terminated.as_bytes())
+                        .map_err(|err| err.to_string())
+                        .map_err(|err| vm.new_attribute_error(err))?
+                };
+                Some(CodePtr(*pointer as *mut _))
+            } else {
+                None
+            };
+
+            return Self {
+                ptr: PyRwLock::new(code_ptr),
+                needs_free: AtomicCell::new(false),
+                arg_types: PyRwLock::new(None),
+                _flags_: AtomicCell::new(0),
+                res_type: PyRwLock::new(None),
+                name: PyRwLock::new(Some(name)),
+                handler,
+            }
+            .into_ref_with_type(vm, cls)
+            .map(Into::into);
+        }
+
+        Err(vm.new_type_error("Expected an integer address or a tuple"))
     }
 }
 
