@@ -72,13 +72,14 @@ impl std::fmt::Debug for PyCArray {
 impl Constructor for PyCArray {
     type Args = (PyTypeRef, usize);
 
-    fn py_new(_cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        Ok(Self {
+    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        Self {
             typ: PyRwLock::new(args.0),
             length: AtomicCell::new(args.1),
             value: PyRwLock::new(vm.ctx.none()),
         }
-        .into_pyobject(vm))
+        .into_ref_with_type(vm, cls)
+        .map(Into::into)
     }
 }
 

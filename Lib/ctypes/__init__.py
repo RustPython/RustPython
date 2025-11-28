@@ -347,6 +347,19 @@ class CDLL(object):
                  use_errno=False,
                  use_last_error=False,
                  winmode=None):
+        if name:
+            name = _os.fspath(name)
+
+            # If the filename that has been provided is an iOS/tvOS/watchOS
+            # .fwork file, dereference the location to the true origin of the
+            # binary.
+            if name.endswith(".fwork"):
+                with open(name) as f:
+                    name = _os.path.join(
+                        _os.path.dirname(_sys.executable),
+                        f.read().strip()
+                    )
+
         self._name = name
         flags = self._func_flags_
         if use_errno:
@@ -467,6 +480,8 @@ pydll = LibraryLoader(PyDLL)
 
 if _os.name == "nt":
     pythonapi = PyDLL("python dll", None, _sys.dllhandle)
+elif _sys.platform == "android":
+    pythonapi = PyDLL("libpython%d.%d.so" % _sys.version_info[:2])
 elif _sys.platform == "cygwin":
     pythonapi = PyDLL("libpython%d.%d.dll" % _sys.version_info[:2])
 else:
@@ -498,15 +513,14 @@ elif sizeof(c_ulonglong) == sizeof(c_void_p):
     c_ssize_t = c_longlong
 
 # functions
+
 from _ctypes import _memmove_addr, _memset_addr, _string_at_addr, _cast_addr
 
 ## void *memmove(void *, const void *, size_t);
-# XXX: RUSTPYTHON
-# memmove = CFUNCTYPE(c_void_p, c_void_p, c_void_p, c_size_t)(_memmove_addr)
+memmove = CFUNCTYPE(c_void_p, c_void_p, c_void_p, c_size_t)(_memmove_addr)
 
 ## void *memset(void *, int, size_t)
-# XXX: RUSTPYTHON
-# memset = CFUNCTYPE(c_void_p, c_void_p, c_int, c_size_t)(_memset_addr)
+memset = CFUNCTYPE(c_void_p, c_void_p, c_int, c_size_t)(_memset_addr)
 
 def PYFUNCTYPE(restype, *argtypes):
     class CFunctionType(_CFuncPtr):
@@ -515,17 +529,15 @@ def PYFUNCTYPE(restype, *argtypes):
         _flags_ = _FUNCFLAG_CDECL | _FUNCFLAG_PYTHONAPI
     return CFunctionType
 
-# XXX: RUSTPYTHON
-# _cast = PYFUNCTYPE(py_object, c_void_p, py_object, py_object)(_cast_addr)
+_cast = PYFUNCTYPE(py_object, c_void_p, py_object, py_object)(_cast_addr)
 def cast(obj, typ):
     return _cast(obj, obj, typ)
 
-# XXX: RUSTPYTHON
-# _string_at = PYFUNCTYPE(py_object, c_void_p, c_int)(_string_at_addr)
+_string_at = PYFUNCTYPE(py_object, c_void_p, c_int)(_string_at_addr)
 def string_at(ptr, size=-1):
-    """string_at(addr[, size]) -> string
+    """string_at(ptr[, size]) -> string
 
-    Return the string at addr."""
+    Return the byte string at void *ptr."""
     return _string_at(ptr, size)
 
 try:
@@ -533,12 +545,11 @@ try:
 except ImportError:
     pass
 else:
-    # XXX: RUSTPYTHON
-    # _wstring_at = PYFUNCTYPE(py_object, c_void_p, c_int)(_wstring_at_addr)
+    _wstring_at = PYFUNCTYPE(py_object, c_void_p, c_int)(_wstring_at_addr)
     def wstring_at(ptr, size=-1):
-        """wstring_at(addr[, size]) -> string
+        """wstring_at(ptr[, size]) -> string
 
-        Return the string at addr."""
+        Return the wide-character string at void *ptr."""
         return _wstring_at(ptr, size)
 
 
