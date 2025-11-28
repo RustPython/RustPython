@@ -2,10 +2,12 @@
 
 pub(crate) mod array;
 pub(crate) mod base;
+pub(crate) mod field;
 pub(crate) mod function;
 pub(crate) mod library;
 pub(crate) mod pointer;
 pub(crate) mod structure;
+pub(crate) mod thunk;
 pub(crate) mod union;
 
 use crate::builtins::PyModule;
@@ -17,14 +19,18 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
     let ctx = &vm.ctx;
     PyCSimpleType::make_class(ctx);
     array::PyCArrayType::make_class(ctx);
+    field::PyCFieldType::make_class(ctx);
+    pointer::PyCPointerType::make_class(ctx);
     extend_module!(vm, module, {
         "_CData" => PyCData::make_class(ctx),
         "_SimpleCData" => PyCSimple::make_class(ctx),
         "Array" => array::PyCArray::make_class(ctx),
+        "CField" => field::PyCField::make_class(ctx),
         "CFuncPtr" => function::PyCFuncPtr::make_class(ctx),
         "_Pointer" => pointer::PyCPointer::make_class(ctx),
         "_pointer_type_cache" => ctx.new_dict(),
         "Structure" => structure::PyCStructure::make_class(ctx),
+        "CThunkObject" => thunk::PyCThunk::make_class(ctx),
         "Union" => union::PyCUnion::make_class(ctx),
     })
 }
@@ -207,7 +213,9 @@ pub(crate) mod _ctypes {
         // TODO: load_flags
         let cache = library::libcache();
         let mut cache_write = cache.write();
-        let (id, _) = cache_write.get_or_insert_lib(&name, vm).unwrap();
+        let (id, _) = cache_write
+            .get_or_insert_lib(&name, vm)
+            .map_err(|e| vm.new_os_error(e.to_string()))?;
         Ok(id)
     }
 
