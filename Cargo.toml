@@ -25,6 +25,7 @@ ssl-rustls = ["ssl", "rustpython-stdlib/ssl-rustls"]
 ssl-openssl = ["ssl", "rustpython-stdlib/ssl-openssl"]
 ssl-vendor = ["ssl-openssl", "rustpython-stdlib/ssl-vendor"]
 tkinter = ["rustpython-stdlib/tkinter"]
+cpython = ["dep:rustpython-cpython"]
 
 [build-dependencies]
 winresource = "0.1"
@@ -34,6 +35,7 @@ rustpython-compiler = { workspace = true }
 rustpython-pylib = { workspace = true, optional = true }
 rustpython-stdlib = { workspace = true, optional = true, features = ["compiler"] }
 rustpython-vm = { workspace = true, features = ["compiler"] }
+rustpython-cpython = { workspace = true, optional = true }
 ruff_python_parser = { workspace = true }
 
 cfg-if = { workspace = true }
@@ -150,6 +152,7 @@ rustpython-stdlib = { path = "crates/stdlib", default-features = false, version 
 rustpython-sre_engine = { path = "crates/sre_engine", version = "0.4.0" }
 rustpython-wtf8 = { path = "crates/wtf8", version = "0.4.0" }
 rustpython-doc = { path = "crates/doc", version = "0.4.0" }
+rustpython-cpython = { path = "crates/cpython", version = "0.4.0" }
 
 ruff_python_parser = { git = "https://github.com/astral-sh/ruff.git", tag = "0.14.1" }
 ruff_python_ast = { git = "https://github.com/astral-sh/ruff.git", tag = "0.14.1" }

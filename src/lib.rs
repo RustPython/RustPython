@@ -108,6 +108,11 @@ pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
     }
     config = config.init_hook(Box::new(init));
 
+    #[cfg(feature = "cpython")]
+    {
+        config = config.add_native_module("_cpython".to_owned(), rustpython_cpython::make_module);
+    }
+
     let interp = config.interpreter();
     let exitcode = interp.run(move |vm| run_rustpython(vm, run_mode));
 

@@ -1,0 +1,17 @@
+[package]
+name = "rustpython-cpython"
+description = "RustPython to CPython bridge via PyO3"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+rustpython-vm = { workspace = true }
+rustpython-derive = { workspace = true }
+pyo3 = { version = "0.26", features = ["auto-initialize"] }
+
+[lints]
+workspace = true
