@@ -36,7 +36,7 @@ pub struct PyCField {
 impl Representable for PyCField {
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
         let tp_name = zelf.proto.name().to_string();
-        if zelf.bitfield_size != false {
+        if zelf.bitfield_size {
             Ok(format!(
                 "<{} type={}, ofs={byte_offset}, bit_size={bitfield_size}, bit_offset={bit_offset}",
                 zelf.name,

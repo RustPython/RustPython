@@ -218,11 +218,12 @@ impl Constructor for PyCSimple {
                 _ => vm.ctx.none(), // "z" | "Z" | "P"
             }
         };
-        Ok(PyCSimple {
+        PyCSimple {
             _type_,
             value: AtomicCell::new(value),
         }
-        .to_pyobject(vm))
+        .into_ref_with_type(vm, cls)
+        .map(Into::into)
     }
 }
 

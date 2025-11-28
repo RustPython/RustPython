@@ -13,7 +13,7 @@ use libffi::middle::{Arg, Cif, CodePtr, Type};
 use libloading::Symbol;
 use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
-use std::ffi::{self, CString, c_void};
+use std::ffi::{self, c_void};
 use std::fmt::Debug;
 
 // See also: https://github.com/python/cpython/blob/4f8bb3947cfbc20f970ff9d9531e1132a9e95396/Modules/_ctypes/callproc.c#L15
@@ -61,6 +61,7 @@ impl ArgumentType for PyTypeRef {
 
 pub trait ReturnType {
     fn to_ffi_type(&self) -> Option<Type>;
+    #[allow(clippy::wrong_self_convention)]
     fn from_ffi_type(
         &self,
         value: *mut ffi::c_void,
@@ -197,9 +198,8 @@ impl Callable for PyCFuncPtr {
         let return_type = zelf.res_type.read();
         let ffi_return_type = return_type
             .as_ref()
-            .map(|t| ReturnType::to_ffi_type(&t.clone().downcast::<PyType>().unwrap()))
-            .flatten()
-            .unwrap_or_else(|| Type::i32());
+            .and_then(|t| ReturnType::to_ffi_type(&t.clone().downcast::<PyType>().unwrap()))
+            .unwrap_or_else(Type::i32);
         let cif = Cif::new(ffi_arg_types, ffi_return_type);
 
         // Call the function
@@ -243,12 +243,12 @@ impl Representable for PyCFuncPtr {
         let index = zelf.ptr.read();
         let index = index.map(|ptr| ptr.0 as usize).unwrap_or(0);
         let type_name = zelf.class().name();
-        #[cfg(windows)]
-        {
+        if cfg!(windows) {
             let index = index - 0x1000;
-            return Ok(format!("<COM method offset {index:#x} {type_name}>"));
+            Ok(format!("<COM method offset {index:#x} {type_name}>"))
+        } else {
+            Ok(format!("<{type_name} object at {index:#x}>"))
         }
-        Ok(format!("<{type_name} object at {index:#x}>"))
     }
 }
 
