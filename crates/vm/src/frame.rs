@@ -719,32 +719,16 @@ impl ExecutingFrame<'_> {
                 self.state.stack.swap(i, j);
                 Ok(None)
             }
-            // bytecode::Instruction::ToBool => {
-            //     dbg!("Shouldn't be called outside of match statements for now")
-            //     let value = self.pop_value();
-            //     // call __bool__
-            //     let result = value.try_to_bool(vm)?;
-            //     self.push_value(vm.ctx.new_bool(result).into());
-            //     Ok(None)
-            // }
-            bytecode::Instruction::Duplicate => {
-                // Duplicate top of stack
-                let value = self.top_value();
-                self.push_value(value.to_owned());
-                Ok(None)
+            /*
+             bytecode::Instruction::ToBool => {
+                 dbg!("Shouldn't be called outside of match statements for now")
+                 let value = self.pop_value();
+                 // call __bool__
+                 let result = value.try_to_bool(vm)?;
+                 self.push_value(vm.ctx.new_bool(result).into());
+                 Ok(None)
             }
-            bytecode::Instruction::Duplicate2 => {
-                // Duplicate top 2 of stack
-                let len = self.state.stack.len();
-                self.push_value(self.state.stack[len - 2].clone());
-                self.push_value(self.state.stack[len - 1].clone());
-                Ok(None)
-            }
-            // splitting the instructions like this offloads the cost of "dynamic" dispatch (on the
-            // amount to rotate) to the opcode dispatcher, and generates optimized code for the
-            // concrete cases we actually have
-            bytecode::Instruction::Rotate2 => self.execute_rotate(2),
-            bytecode::Instruction::Rotate3 => self.execute_rotate(3),
+            */
             bytecode::Instruction::BuildString { size } => {
                 let s = self
                     .pop_multiple(size.get(arg) as usize)
@@ -1683,13 +1667,6 @@ impl ExecutingFrame<'_> {
                 self.fatal("break or continue must occur within a loop block.")
             } // UnwindReason::NoWorries => Ok(None),
         }
-    }
-
-    #[inline(always)]
-    fn execute_rotate(&mut self, amount: usize) -> FrameResult {
-        let i = self.state.stack.len() - amount;
-        self.state.stack[i..].rotate_right(1);
-        Ok(None)
     }
 
     fn execute_subscript(&mut self, vm: &VirtualMachine) -> FrameResult {

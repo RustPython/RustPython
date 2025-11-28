@@ -49,7 +49,7 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
              39 WithCleanupFinish
              40 PopBlock
              41 Jump                 (59)
-        >>   42 Duplicate
+        >>   42 CopyItem             (1)
 
   6          43 LoadNameAny          (7, Exception)
              44 TestOperation        (ExceptionMatch)

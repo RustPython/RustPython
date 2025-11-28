@@ -614,10 +614,6 @@ pub enum Instruction {
         index: Arg<u32>,
     },
     ToBool,
-    Rotate2,
-    Rotate3,
-    Duplicate,
-    Duplicate2,
     GetIter,
     GetLen,
     CallIntrinsic1 {
@@ -1475,9 +1471,6 @@ impl Instruction {
             Pop => -1,
             Swap { .. } => 0,
             ToBool => 0,
-            Rotate2 | Rotate3 => 0,
-            Duplicate => 1,
-            Duplicate2 => 2,
             GetIter => 0,
             GetLen => 1,
             CallIntrinsic1 { .. } => 0,  // Takes 1, pushes 1
@@ -1678,10 +1671,6 @@ impl Instruction {
             Pop => w!(Pop),
             Swap { index } => w!(Swap, index),
             ToBool => w!(ToBool),
-            Rotate2 => w!(Rotate2),
-            Rotate3 => w!(Rotate3),
-            Duplicate => w!(Duplicate),
-            Duplicate2 => w!(Duplicate2),
             GetIter => w!(GetIter),
             // GET_LEN
             GetLen => w!(GetLen),

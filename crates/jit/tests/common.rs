@@ -164,18 +164,6 @@ impl StackMachine {
                     self.stack.push(StackValue::Function(func));
                 }
             }
-            Instruction::Duplicate => {
-                let value = self.stack.last().unwrap().clone();
-                self.stack.push(value);
-            }
-            Instruction::Rotate2 => {
-                let i = self.stack.len() - 2;
-                self.stack[i..].rotate_right(1);
-            }
-            Instruction::Rotate3 => {
-                let i = self.stack.len() - 3;
-                self.stack[i..].rotate_right(1);
-            }
             Instruction::ReturnConst { idx } => {
                 let idx = idx.get(arg);
                 self.stack.push(constants[idx as usize].clone().into());

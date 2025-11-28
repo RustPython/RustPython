@@ -1063,7 +1063,7 @@ impl Compiler {
 
             if let Stmt::Expr(StmtExpr { value, .. }) = &last {
                 self.compile_expression(value)?;
-                emit!(self, Instruction::Duplicate);
+                emit!(self, Instruction::CopyItem { index: 1_u32 });
                 emit!(self, Instruction::PrintExpr);
             } else {
                 self.compile_statement(last)?;
@@ -1094,7 +1094,7 @@ impl Compiler {
                 Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
                     let pop_instructions = self.current_block().instructions.pop();
                     let store_inst = compiler_unwrap_option(self, pop_instructions); // pop Instruction::Store
-                    emit!(self, Instruction::Duplicate);
+                    emit!(self, Instruction::CopyItem { index: 1_u32 });
                     self.current_block().instructions.push(store_inst);
                 }
                 _ => self.emit_load_const(ConstantData::None),
@@ -1656,7 +1656,7 @@ impl Compiler {
 
                 for (i, target) in targets.iter().enumerate() {
                     if i + 1 != targets.len() {
-                        emit!(self, Instruction::Duplicate);
+                        emit!(self, Instruction::CopyItem { index: 1_u32 });
                     }
                     self.compile_store(target)?;
                 }
@@ -1917,7 +1917,7 @@ impl Compiler {
                         );
                     }
 
-                    emit!(self, Instruction::Duplicate);
+                    emit!(self, Instruction::CopyItem { index: 1_u32 });
                     self.store_name(name.as_ref())?;
                 }
                 TypeParam::ParamSpec(TypeParamParamSpec { name, default, .. }) => {
@@ -1943,7 +1943,7 @@ impl Compiler {
                         );
                     }
 
-                    emit!(self, Instruction::Duplicate);
+                    emit!(self, Instruction::CopyItem { index: 1_u32 });
                     self.store_name(name.as_ref())?;
                 }
                 TypeParam::TypeVarTuple(TypeParamTypeVarTuple { name, default, .. }) => {
@@ -1970,7 +1970,7 @@ impl Compiler {
                         );
                     }
 
-                    emit!(self, Instruction::Duplicate);
+                    emit!(self, Instruction::CopyItem { index: 1_u32 });
                     self.store_name(name.as_ref())?;
                 }
             };
@@ -2030,7 +2030,7 @@ impl Compiler {
             // check if this handler can handle the exception:
             if let Some(exc_type) = type_ {
                 // Duplicate exception for test:
-                emit!(self, Instruction::Duplicate);
+                emit!(self, Instruction::CopyItem { index: 1_u32 });
 
                 // Check exception type:
                 self.compile_expression(exc_type)?;
@@ -2251,11 +2251,11 @@ impl Compiler {
 
         // Handle docstring if present
         if let Some(doc) = doc_str {
-            emit!(self, Instruction::Duplicate);
+            emit!(self, Instruction::CopyItem { index: 1_u32 });
             self.emit_load_const(ConstantData::Str {
                 value: doc.to_string().into(),
             });
-            emit!(self, Instruction::Rotate2);
+            emit!(self, Instruction::Swap { index: 2 });
             let doc_attr = self.name("__doc__");
             emit!(self, Instruction::StoreAttr { idx: doc_attr });
         }
@@ -2726,7 +2726,7 @@ impl Compiler {
 
         if let Some(classcell_idx) = classcell_idx {
             emit!(self, Instruction::LoadClosure(classcell_idx.to_u32()));
-            emit!(self, Instruction::Duplicate);
+            emit!(self, Instruction::CopyItem { index: 1_u32 });
             let classcell = self.name("__classcell__");
             emit!(self, Instruction::StoreLocal(classcell));
         } else {
@@ -4121,8 +4121,8 @@ impl Compiler {
         for (op, val) in mid_ops.iter().zip(mid_exprs) {
             self.compile_expression(val)?;
             // store rhs for the next comparison in chain
-            emit!(self, Instruction::Duplicate);
-            emit!(self, Instruction::Rotate3);
+            emit!(self, Instruction::Swap { index: 2 });
+            emit!(self, Instruction::CopyItem { index: 2_u32 });
 
             compile_cmpop(self, op);
 
@@ -4151,7 +4151,7 @@ impl Compiler {
 
             // early exit left us with stack: `rhs, comparison_result`. We need to clean up rhs.
             self.switch_to_block(break_block);
-            emit!(self, Instruction::Rotate2);
+            emit!(self, Instruction::Swap { index: 2 });
             emit!(self, Instruction::Pop);
 
             self.switch_to_block(after_block);
@@ -4322,7 +4322,8 @@ impl Compiler {
                 // But we can't use compile_subscript directly because we need DUP_TOP2
                 self.compile_expression(value)?;
                 self.compile_expression(slice)?;
-                emit!(self, Instruction::Duplicate2);
+                emit!(self, Instruction::CopyItem { index: 2_u32 });
+                emit!(self, Instruction::CopyItem { index: 2_u32 });
                 emit!(self, Instruction::Subscript);
                 AugAssignKind::Subscript
             }
@@ -4330,7 +4331,7 @@ impl Compiler {
                 let attr = attr.as_str();
                 self.check_forbidden_name(attr, NameUsage::Store)?;
                 self.compile_expression(value)?;
-                emit!(self, Instruction::Duplicate);
+                emit!(self, Instruction::CopyItem { index: 1_u32 });
                 let idx = self.name(attr);
                 emit!(self, Instruction::LoadAttr { idx });
                 AugAssignKind::Attr { idx }
@@ -4350,12 +4351,13 @@ impl Compiler {
             }
             AugAssignKind::Subscript => {
                 // stack: CONTAINER SLICE RESULT
-                emit!(self, Instruction::Rotate3);
+                emit!(self, Instruction::Swap { index: 3 });
+                emit!(self, Instruction::Swap { index: 2 });
                 emit!(self, Instruction::StoreSubscript);
             }
             AugAssignKind::Attr { idx } => {
                 // stack: CONTAINER RESULT
-                emit!(self, Instruction::Rotate2);
+                emit!(self, Instruction::Swap { index: 2 });
                 emit!(self, Instruction::StoreAttr { idx });
             }
         }
@@ -4896,7 +4898,7 @@ impl Compiler {
                 range: _,
             }) => {
                 self.compile_expression(value)?;
-                emit!(self, Instruction::Duplicate);
+                emit!(self, Instruction::CopyItem { index: 1_u32 });
                 self.compile_store(target)?;
             }
             Expr::FString(fstring) => {
