@@ -171,6 +171,21 @@ impl PyCSimpleType {
                 .clone(),
         ))
     }
+
+    #[pyclassmethod]
+    fn from_param(cls: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        // If the value is already an instance of the requested type, return it
+        if value.fast_isinstance(&cls) {
+            return Ok(value);
+        }
+
+        // Check for _as_parameter_ attribute
+        let Ok(as_parameter) = value.get_attr("_as_parameter_", vm) else {
+            return Err(vm.new_type_error("wrong type"));
+        };
+
+        PyCSimpleType::from_param(cls, as_parameter, vm)
+    }
 }
 
 #[pyclass(

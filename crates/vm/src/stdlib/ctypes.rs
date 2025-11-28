@@ -189,6 +189,7 @@ pub(crate) mod _ctypes {
         }
     }
 
+    #[cfg(windows)]
     #[pyfunction(name = "LoadLibrary")]
     fn load_library_windows(
         name: String,
@@ -203,20 +204,33 @@ pub(crate) mod _ctypes {
         Ok(id)
     }
 
+    #[cfg(not(windows))]
     #[pyfunction(name = "dlopen")]
     fn load_library_unix(
-        name: String,
+        name: Option<String>,
         _load_flags: OptionalArg<i32>,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         // TODO: audit functions first
         // TODO: load_flags
-        let cache = library::libcache();
-        let mut cache_write = cache.write();
-        let (id, _) = cache_write
-            .get_or_insert_lib(&name, vm)
-            .map_err(|e| vm.new_os_error(e.to_string()))?;
-        Ok(id)
+        match name {
+            Some(name) => {
+                let cache = library::libcache();
+                let mut cache_write = cache.write();
+                let (id, _) = cache_write
+                    .get_or_insert_lib(&name, vm)
+                    .map_err(|e| vm.new_os_error(e.to_string()))?;
+                Ok(id)
+            }
+            None => {
+                // If None, call libc::dlopen(null, mode) to get the current process handle
+                let handle = unsafe { libc::dlopen(std::ptr::null(), libc::RTLD_NOW) };
+                if handle.is_null() {
+                    return Err(vm.new_os_error("dlopen() error"));
+                }
+                Ok(handle as usize)
+            }
+        }
     }
 
     #[pyfunction(name = "FreeLibrary")]
@@ -228,10 +242,57 @@ pub(crate) mod _ctypes {
     }
 
     #[pyfunction(name = "POINTER")]
-    pub fn pointer(_cls: PyTypeRef) {}
+    pub fn create_pointer_type(cls: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        // Get the _pointer_type_cache
+        let ctypes_module = vm.import("_ctypes", 0)?;
+        let cache = ctypes_module.get_attr("_pointer_type_cache", vm)?;
+
+        // Check if already in cache using __getitem__
+        if let Ok(cached) = vm.call_method(&cache, "__getitem__", (cls.clone(),))
+            && !vm.is_none(&cached)
+        {
+            return Ok(cached);
+        }
+
+        // Get the _Pointer base class
+        let pointer_base = ctypes_module.get_attr("_Pointer", vm)?;
+
+        // Create the name for the pointer type
+        let name = if let Ok(type_obj) = cls.get_attr("__name__", vm) {
+            format!("LP_{}", type_obj.str(vm)?)
+        } else if let Ok(s) = cls.str(vm) {
+            format!("LP_{}", s)
+        } else {
+            "LP_unknown".to_string()
+        };
+
+        // Create a new type that inherits from _Pointer
+        let type_type = &vm.ctx.types.type_type;
+        let bases = vm.ctx.new_tuple(vec![pointer_base]);
+        let dict = vm.ctx.new_dict();
+        dict.set_item("_type_", cls.clone(), vm)?;
+
+        let new_type = type_type
+            .as_object()
+            .call((vm.ctx.new_str(name), bases, dict), vm)?;
+
+        // Store in cache using __setitem__
+        vm.call_method(&cache, "__setitem__", (cls, new_type.clone()))?;
+
+        Ok(new_type)
+    }
 
     #[pyfunction(name = "pointer")]
-    pub fn pointer_fn(_inst: PyObjectRef) {}
+    pub fn create_pointer_inst(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        // Get the type of the object
+        let obj_type = obj.class().to_owned();
+
+        // Create pointer type for this object's type
+        let ptr_type = create_pointer_type(obj_type.into(), vm)?;
+
+        // Create an instance of the pointer type with the object
+        ptr_type.call((obj,), vm)
+    }
 
     #[pyfunction]
     fn _pointer_type_cache() -> PyObjectRef {

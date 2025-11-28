@@ -122,7 +122,7 @@ impl Debug for PyCFuncPtr {
 impl Constructor for PyCFuncPtr {
     type Args = (PyTupleRef, FuncArgs);
 
-    fn py_new(_cls: PyTypeRef, (tuple, _args): Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn py_new(cls: PyTypeRef, (tuple, _args): Self::Args, vm: &VirtualMachine) -> PyResult {
         let name = tuple
             .first()
             .ok_or(vm.new_type_error("Expected a tuple with at least 2 elements"))?
@@ -164,7 +164,7 @@ impl Constructor for PyCFuncPtr {
         } else {
             None
         };
-        Ok(Self {
+        Self {
             ptr: PyRwLock::new(code_ptr),
             needs_free: AtomicCell::new(false),
             arg_types: PyRwLock::new(None),
@@ -173,7 +173,8 @@ impl Constructor for PyCFuncPtr {
             name: PyRwLock::new(Some(name)),
             handler,
         }
-        .to_pyobject(vm))
+        .into_ref_with_type(vm, cls)
+        .map(Into::into)
     }
 }
 
