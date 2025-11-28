@@ -1405,6 +1405,7 @@ impl Instruction {
     pub const fn label_arg(&self) -> Option<Arg<Label>> {
         match self {
             Jump { target: l }
+            | JumpIfNotExcMatch(l)
             | PopJumpIfTrue { target: l }
             | PopJumpIfFalse { target: l }
             | JumpIfTrueOrPop { target: l }
