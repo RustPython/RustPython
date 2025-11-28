@@ -2255,7 +2255,7 @@ impl Compiler {
             self.emit_load_const(ConstantData::Str {
                 value: doc.to_string().into(),
             });
-            emit!(self, Instruction::Rotate2);
+            emit!(self, Instruction::Swap { index: 2 });
             let doc_attr = self.name("__doc__");
             emit!(self, Instruction::StoreAttr { idx: doc_attr });
         }
@@ -4121,8 +4121,8 @@ impl Compiler {
         for (op, val) in mid_ops.iter().zip(mid_exprs) {
             self.compile_expression(val)?;
             // store rhs for the next comparison in chain
-            emit!(self, Instruction::CopyItem { index: 1_u32 });
-            emit!(self, Instruction::Rotate3);
+            emit!(self, Instruction::Swap { index: 2 });
+            emit!(self, Instruction::CopyItem { index: 2_u32 });
 
             compile_cmpop(self, op);
 
@@ -4151,7 +4151,7 @@ impl Compiler {
 
             // early exit left us with stack: `rhs, comparison_result`. We need to clean up rhs.
             self.switch_to_block(break_block);
-            emit!(self, Instruction::Rotate2);
+            emit!(self, Instruction::Swap { index: 2 });
             emit!(self, Instruction::Pop);
 
             self.switch_to_block(after_block);
@@ -4351,12 +4351,13 @@ impl Compiler {
             }
             AugAssignKind::Subscript => {
                 // stack: CONTAINER SLICE RESULT
-                emit!(self, Instruction::Rotate3);
+                emit!(self, Instruction::Swap { index: 3 });
+                emit!(self, Instruction::Swap { index: 2 });
                 emit!(self, Instruction::StoreSubscript);
             }
             AugAssignKind::Attr { idx } => {
                 // stack: CONTAINER RESULT
-                emit!(self, Instruction::Rotate2);
+                emit!(self, Instruction::Swap { index: 2 });
                 emit!(self, Instruction::StoreAttr { idx });
             }
         }

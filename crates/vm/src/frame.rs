@@ -729,11 +729,6 @@ impl ExecutingFrame<'_> {
                  Ok(None)
             }
             */
-            // splitting the instructions like this offloads the cost of "dynamic" dispatch (on the
-            // amount to rotate) to the opcode dispatcher, and generates optimized code for the
-            // concrete cases we actually have
-            bytecode::Instruction::Rotate2 => self.execute_rotate(2),
-            bytecode::Instruction::Rotate3 => self.execute_rotate(3),
             bytecode::Instruction::BuildString { size } => {
                 let s = self
                     .pop_multiple(size.get(arg) as usize)
@@ -1672,13 +1667,6 @@ impl ExecutingFrame<'_> {
                 self.fatal("break or continue must occur within a loop block.")
             } // UnwindReason::NoWorries => Ok(None),
         }
-    }
-
-    #[inline(always)]
-    fn execute_rotate(&mut self, amount: usize) -> FrameResult {
-        let i = self.state.stack.len() - amount;
-        self.state.stack[i..].rotate_right(1);
-        Ok(None)
     }
 
     fn execute_subscript(&mut self, vm: &VirtualMachine) -> FrameResult {
