@@ -3,8 +3,9 @@ use crate::builtins::PyType;
 use crate::builtins::{PyBytes, PyFloat, PyInt, PyNone, PyStr, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::function::{Either, OptionalArg};
+use crate::protocol::PyNumberMethods;
 use crate::stdlib::ctypes::_ctypes::new_simple_type;
-use crate::types::Constructor;
+use crate::types::{AsNumber, Constructor};
 use crate::{AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine};
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
@@ -158,9 +159,10 @@ pub struct PyCData {
 impl PyCData {}
 
 #[pyclass(module = "_ctypes", name = "PyCSimpleType", base = PyType)]
+#[derive(Debug, PyPayload)]
 pub struct PyCSimpleType {}
 
-#[pyclass(flags(BASETYPE))]
+#[pyclass(flags(BASETYPE), with(AsNumber))]
 impl PyCSimpleType {
     #[allow(clippy::new_ret_no_self)]
     #[pymethod]
@@ -185,6 +187,33 @@ impl PyCSimpleType {
         };
 
         PyCSimpleType::from_param(cls, as_parameter, vm)
+    }
+
+    #[pymethod]
+    fn __mul__(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
+        PyCSimple::repeat(cls, n, vm)
+    }
+}
+
+impl AsNumber for PyCSimpleType {
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            multiply: Some(|a, b, vm| {
+                // a is a PyCSimpleType instance (type object like c_char)
+                // b is int (array size)
+                let cls = a
+                    .downcast_ref::<PyType>()
+                    .ok_or_else(|| vm.new_type_error("expected type".to_owned()))?;
+                let n = b
+                    .try_index(vm)?
+                    .as_bigint()
+                    .to_isize()
+                    .ok_or_else(|| vm.new_overflow_error("array size too large".to_owned()))?;
+                PyCSimple::repeat(cls.to_owned(), n, vm)
+            }),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        };
+        &AS_NUMBER
     }
 }
 
@@ -275,11 +304,6 @@ impl PyCSimple {
             },
         }
         .to_pyobject(vm))
-    }
-
-    #[pyclassmethod]
-    fn __mul__(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
-        PyCSimple::repeat(cls, n, vm)
     }
 }
 
