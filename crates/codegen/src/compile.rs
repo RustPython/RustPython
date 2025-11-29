@@ -456,12 +456,12 @@ impl Compiler {
             match ctx {
                 ExprContext::Load => {
                     // CPython uses BINARY_SLICE
-                    emit!(self, Instruction::BuildSlice { step: n == 3 });
+                    emit!(self, Instruction::BuildSlice(n == 3));
                     emit!(self, Instruction::Subscript);
                 }
                 ExprContext::Store => {
                     // CPython uses STORE_SLICE
-                    emit!(self, Instruction::BuildSlice { step: n == 3 });
+                    emit!(self, Instruction::BuildSlice(n == 3));
                     emit!(self, Instruction::StoreSubscript);
                 }
                 _ => unreachable!(),
@@ -508,28 +508,28 @@ impl Compiler {
             match collection_type {
                 CollectionType::Tuple => {
                     if size > 1 || pushed > 0 {
-                        emit!(self, Instruction::BuildTupleFromTuples { size });
+                        emit!(self, Instruction::BuildTupleFromTuples(size));
                     }
                     // If size == 1 and pushed == 0, the single tuple is already on the stack
                 }
                 CollectionType::List => {
-                    emit!(self, Instruction::BuildListFromTuples { size });
+                    emit!(self, Instruction::BuildListFromTuples(size));
                 }
                 CollectionType::Set => {
-                    emit!(self, Instruction::BuildSetFromTuples { size });
+                    emit!(self, Instruction::BuildSetFromTuples(size));
                 }
             }
         } else {
             // No starred elements
             match collection_type {
                 CollectionType::Tuple => {
-                    emit!(self, Instruction::BuildTuple { size });
+                    emit!(self, Instruction::BuildTuple(size));
                 }
                 CollectionType::List => {
-                    emit!(self, Instruction::BuildList { size });
+                    emit!(self, Instruction::BuildList(size));
                 }
                 CollectionType::Set => {
-                    emit!(self, Instruction::BuildSet { size });
+                    emit!(self, Instruction::BuildSet(size));
                 }
             }
         }
@@ -795,9 +795,7 @@ impl Compiler {
         self.current_source_range = TextRange::default();
         emit!(
             self,
-            Instruction::Resume {
-                arg: bytecode::ResumeType::AtFuncStart as u32
-            }
+            Instruction::Resume(bytecode::ResumeType::AtFuncStart as u32)
         );
 
         if scope_type == CompilerScope::Module {
@@ -1063,7 +1061,7 @@ impl Compiler {
 
             if let Stmt::Expr(StmtExpr { value, .. }) = &last {
                 self.compile_expression(value)?;
-                emit!(self, Instruction::CopyItem { index: 1_u32 });
+                emit!(self, Instruction::CopyItem(1_u32));
                 emit!(self, Instruction::PrintExpr);
             } else {
                 self.compile_statement(last)?;
@@ -1094,7 +1092,7 @@ impl Compiler {
                 Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
                     let pop_instructions = self.current_block().instructions.pop();
                     let store_inst = compiler_unwrap_option(self, pop_instructions); // pop Instruction::Store
-                    emit!(self, Instruction::CopyItem { index: 1_u32 });
+                    emit!(self, Instruction::CopyItem(1_u32));
                     self.current_block().instructions.push(store_inst);
                 }
                 _ => self.emit_load_const(ConstantData::None),
@@ -1313,11 +1311,11 @@ impl Compiler {
                     });
                     self.emit_load_const(ConstantData::None);
                     let idx = self.name(&name.name);
-                    emit!(self, Instruction::ImportName { idx });
+                    emit!(self, Instruction::ImportName(idx));
                     if let Some(alias) = &name.asname {
                         for part in name.name.split('.').skip(1) {
                             let idx = self.name(part);
-                            emit!(self, Instruction::LoadAttr { idx });
+                            emit!(self, Instruction::LoadAttr(idx));
                         }
                         self.store_name(alias.as_str())?
                     } else {
@@ -1360,7 +1358,7 @@ impl Compiler {
                     elements: from_list,
                 });
                 if let Some(idx) = module_idx {
-                    emit!(self, Instruction::ImportName { idx });
+                    emit!(self, Instruction::ImportName(idx));
                 } else {
                     emit!(self, Instruction::ImportNameless);
                 }
@@ -1369,9 +1367,7 @@ impl Compiler {
                     // from .... import *
                     emit!(
                         self,
-                        Instruction::CallIntrinsic1 {
-                            func: bytecode::IntrinsicFunction1::ImportStar
-                        }
+                        Instruction::CallIntrinsic1(bytecode::IntrinsicFunction1::ImportStar)
                     );
                 } else {
                     // from mod import a, b as c
@@ -1380,7 +1376,7 @@ impl Compiler {
                         let name = &name;
                         let idx = self.name(name.name.as_str());
                         // import symbol from module:
-                        emit!(self, Instruction::ImportFrom { idx });
+                        emit!(self, Instruction::ImportFrom(idx));
 
                         // Store module under proper name:
                         if let Some(alias) = &name.asname {
@@ -1424,12 +1420,7 @@ impl Compiler {
 
                         self.compile_jump_if(test, false, next_block)?;
                         self.compile_statements(body)?;
-                        emit!(
-                            self,
-                            Instruction::Jump {
-                                target: after_block
-                            }
-                        );
+                        emit!(self, Instruction::Jump(after_block));
 
                         for clause in rest {
                             self.switch_to_block(next_block);
@@ -1440,12 +1431,7 @@ impl Compiler {
                                 unreachable!() // must be elif
                             }
                             self.compile_statements(&clause.body)?;
-                            emit!(
-                                self,
-                                Instruction::Jump {
-                                    target: after_block
-                                }
-                            );
+                            emit!(self, Instruction::Jump(after_block));
                         }
 
                         self.switch_to_block(next_block);
@@ -1489,7 +1475,7 @@ impl Compiler {
                     }
                     None => bytecode::RaiseKind::Reraise,
                 };
-                emit!(self, Instruction::Raise { kind });
+                emit!(self, Instruction::Raise(kind));
             }
             Stmt::Try(StmtTry {
                 body,
@@ -1552,18 +1538,13 @@ impl Compiler {
                     match msg {
                         Some(e) => {
                             self.compile_expression(e)?;
-                            emit!(self, Instruction::CallFunctionPositional { nargs: 1 });
+                            emit!(self, Instruction::CallFunctionPositional(1));
                         }
                         None => {
-                            emit!(self, Instruction::CallFunctionPositional { nargs: 0 });
+                            emit!(self, Instruction::CallFunctionPositional(0));
                         }
                     }
-                    emit!(
-                        self,
-                        Instruction::Raise {
-                            kind: bytecode::RaiseKind::Raise,
-                        }
-                    );
+                    emit!(self, Instruction::Raise(bytecode::RaiseKind::Raise));
 
                     self.switch_to_block(after_block);
                 }
@@ -1587,7 +1568,7 @@ impl Compiler {
 
                 match found_loop {
                     Some(exit_block) => {
-                        emit!(self, Instruction::Break { target: exit_block });
+                        emit!(self, Instruction::Break(exit_block));
                     }
                     None => {
                         return Err(
@@ -1615,7 +1596,7 @@ impl Compiler {
 
                 match found_loop {
                     Some(loop_block) => {
-                        emit!(self, Instruction::Continue { target: loop_block });
+                        emit!(self, Instruction::Continue(loop_block));
                     }
                     None => {
                         return Err(
@@ -1656,7 +1637,7 @@ impl Compiler {
 
                 for (i, target) in targets.iter().enumerate() {
                     if i + 1 != targets.len() {
-                        emit!(self, Instruction::CopyItem { index: 1_u32 });
+                        emit!(self, Instruction::CopyItem(1_u32));
                     }
                     self.compile_store(target)?;
                 }
@@ -1725,12 +1706,10 @@ impl Compiler {
                 }
 
                 // Build tuple of 3 elements and call intrinsic
-                emit!(self, Instruction::BuildTuple { size: 3 });
+                emit!(self, Instruction::BuildTuple(3));
                 emit!(
                     self,
-                    Instruction::CallIntrinsic1 {
-                        func: bytecode::IntrinsicFunction1::TypeAlias
-                    }
+                    Instruction::CallIntrinsic1(bytecode::IntrinsicFunction1::TypeAlias)
                 );
                 self.store_name(&name_string)?;
             }
@@ -1747,7 +1726,7 @@ impl Compiler {
                 self.check_forbidden_name(attr.as_str(), NameUsage::Delete)?;
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
-                emit!(self, Instruction::DeleteAttr { idx });
+                emit!(self, Instruction::DeleteAttr(idx));
             }
             Expr::Subscript(ExprSubscript {
                 value, slice, ctx, ..
@@ -1819,7 +1798,7 @@ impl Compiler {
     fn apply_decorators(&mut self, decorator_list: &[Decorator]) {
         // Apply decorators:
         for _ in decorator_list {
-            emit!(self, Instruction::CallFunctionPositional { nargs: 1 });
+            emit!(self, Instruction::CallFunctionPositional(1));
         }
     }
 
@@ -1844,7 +1823,7 @@ impl Compiler {
         if allow_starred && matches!(expr, Expr::Starred(_)) {
             if let Expr::Starred(starred) = expr {
                 self.compile_expression(&starred.value)?;
-                emit!(self, Instruction::UnpackSequence { size: 1 });
+                emit!(self, Instruction::UnpackSequence(1));
             }
         } else {
             self.compile_expression(expr)?;
@@ -1861,7 +1840,7 @@ impl Compiler {
         self.make_closure(code, bytecode::MakeFunctionFlags::empty())?;
 
         // Call the function immediately
-        emit!(self, Instruction::CallFunctionPositional { nargs: 0 });
+        emit!(self, Instruction::CallFunctionPositional(0));
 
         Ok(())
     }
@@ -1895,13 +1874,11 @@ impl Compiler {
                         } else {
                             bytecode::IntrinsicFunction2::TypeVarWithBound
                         };
-                        emit!(self, Instruction::CallIntrinsic2 { func: intrinsic });
+                        emit!(self, Instruction::CallIntrinsic2(intrinsic));
                     } else {
                         emit!(
                             self,
-                            Instruction::CallIntrinsic1 {
-                                func: bytecode::IntrinsicFunction1::TypeVar
-                            }
+                            Instruction::CallIntrinsic1(bytecode::IntrinsicFunction1::TypeVar)
                         );
                     }
 
@@ -1911,13 +1888,13 @@ impl Compiler {
                         self.compile_type_param_bound_or_default(default_expr, &scope_name, false)?;
                         emit!(
                             self,
-                            Instruction::CallIntrinsic2 {
-                                func: bytecode::IntrinsicFunction2::SetTypeparamDefault
-                            }
+                            Instruction::CallIntrinsic2(
+                                bytecode::IntrinsicFunction2::SetTypeparamDefault
+                            )
                         );
                     }
 
-                    emit!(self, Instruction::CopyItem { index: 1_u32 });
+                    emit!(self, Instruction::CopyItem(1_u32));
                     self.store_name(name.as_ref())?;
                 }
                 TypeParam::ParamSpec(TypeParamParamSpec { name, default, .. }) => {
@@ -1926,9 +1903,7 @@ impl Compiler {
                     });
                     emit!(
                         self,
-                        Instruction::CallIntrinsic1 {
-                            func: bytecode::IntrinsicFunction1::ParamSpec
-                        }
+                        Instruction::CallIntrinsic1(bytecode::IntrinsicFunction1::ParamSpec)
                     );
 
                     // Handle default value if present (PEP 695)
@@ -1937,13 +1912,13 @@ impl Compiler {
                         self.compile_type_param_bound_or_default(default_expr, &scope_name, false)?;
                         emit!(
                             self,
-                            Instruction::CallIntrinsic2 {
-                                func: bytecode::IntrinsicFunction2::SetTypeparamDefault
-                            }
+                            Instruction::CallIntrinsic2(
+                                bytecode::IntrinsicFunction2::SetTypeparamDefault
+                            )
                         );
                     }
 
-                    emit!(self, Instruction::CopyItem { index: 1_u32 });
+                    emit!(self, Instruction::CopyItem(1_u32));
                     self.store_name(name.as_ref())?;
                 }
                 TypeParam::TypeVarTuple(TypeParamTypeVarTuple { name, default, .. }) => {
@@ -1952,9 +1927,7 @@ impl Compiler {
                     });
                     emit!(
                         self,
-                        Instruction::CallIntrinsic1 {
-                            func: bytecode::IntrinsicFunction1::TypeVarTuple
-                        }
+                        Instruction::CallIntrinsic1(bytecode::IntrinsicFunction1::TypeVarTuple)
                     );
 
                     // Handle default value if present (PEP 695)
@@ -1964,22 +1937,20 @@ impl Compiler {
                         self.compile_type_param_bound_or_default(default_expr, &scope_name, true)?;
                         emit!(
                             self,
-                            Instruction::CallIntrinsic2 {
-                                func: bytecode::IntrinsicFunction2::SetTypeparamDefault
-                            }
+                            Instruction::CallIntrinsic2(
+                                bytecode::IntrinsicFunction2::SetTypeparamDefault
+                            )
                         );
                     }
 
-                    emit!(self, Instruction::CopyItem { index: 1_u32 });
+                    emit!(self, Instruction::CopyItem(1_u32));
                     self.store_name(name.as_ref())?;
                 }
             };
         }
         emit!(
             self,
-            Instruction::BuildTuple {
-                size: u32::try_from(type_params.len()).unwrap(),
-            }
+            Instruction::BuildTuple(u32::try_from(type_params.len()).unwrap())
         );
         Ok(())
     }
@@ -1996,26 +1967,16 @@ impl Compiler {
 
         // Setup a finally block if we have a finally statement.
         if !finalbody.is_empty() {
-            emit!(
-                self,
-                Instruction::SetupFinally {
-                    handler: finally_block,
-                }
-            );
+            emit!(self, Instruction::SetupFinally(finally_block));
         }
 
         let else_block = self.new_block();
 
         // try:
-        emit!(
-            self,
-            Instruction::SetupExcept {
-                handler: handler_block,
-            }
-        );
+        emit!(self, Instruction::SetupExcept(handler_block));
         self.compile_statements(body)?;
         emit!(self, Instruction::PopBlock);
-        emit!(self, Instruction::Jump { target: else_block });
+        emit!(self, Instruction::Jump(else_block));
 
         // except handlers:
         self.switch_to_block(handler_block);
@@ -2030,7 +1991,7 @@ impl Compiler {
             // check if this handler can handle the exception:
             if let Some(exc_type) = type_ {
                 // Duplicate exception for test:
-                emit!(self, Instruction::CopyItem { index: 1_u32 });
+                emit!(self, Instruction::CopyItem(1_u32));
 
                 // Check exception type:
                 self.compile_expression(exc_type)?;
@@ -2067,12 +2028,7 @@ impl Compiler {
                 emit!(self, Instruction::EnterFinally);
             }
 
-            emit!(
-                self,
-                Instruction::Jump {
-                    target: finally_block,
-                }
-            );
+            emit!(self, Instruction::Jump(finally_block));
 
             // Emit a new label for the next handler
             self.switch_to_block(next_handler);
@@ -2080,12 +2036,7 @@ impl Compiler {
 
         // If code flows here, we have an unhandled exception,
         // raise the exception again!
-        emit!(
-            self,
-            Instruction::Raise {
-                kind: bytecode::RaiseKind::Reraise,
-            }
-        );
+        emit!(self, Instruction::Raise(bytecode::RaiseKind::Reraise));
 
         // We successfully ran the try block:
         // else:
@@ -2143,12 +2094,7 @@ impl Compiler {
             for default in &defaults {
                 self.compile_expression(default)?;
             }
-            emit!(
-                self,
-                Instruction::BuildTuple {
-                    size: defaults.len().to_u32()
-                }
-            );
+            emit!(self, Instruction::BuildTuple(defaults.len().to_u32()));
             funcflags |= bytecode::MakeFunctionFlags::DEFAULTS;
         }
 
@@ -2168,12 +2114,7 @@ impl Compiler {
                 });
                 self.compile_expression(default)?;
             }
-            emit!(
-                self,
-                Instruction::BuildMap {
-                    size: kw_with_defaults.len().to_u32(),
-                }
-            );
+            emit!(self, Instruction::BuildMap(kw_with_defaults.len().to_u32()));
             funcflags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
         }
 
@@ -2238,13 +2179,13 @@ impl Compiler {
 
         // Handle docstring if present
         if let Some(doc) = doc_str {
-            emit!(self, Instruction::CopyItem { index: 1_u32 });
+            emit!(self, Instruction::CopyItem(1_u32));
             self.emit_load_const(ConstantData::Str {
                 value: doc.to_string().into(),
             });
-            emit!(self, Instruction::Swap { index: 2 });
+            emit!(self, Instruction::Swap(2));
             let doc_attr = self.name("__doc__");
-            emit!(self, Instruction::StoreAttr { idx: doc_attr });
+            emit!(self, Instruction::StoreAttr(doc_attr));
         }
 
         Ok(())
@@ -2321,7 +2262,7 @@ impl Compiler {
 
             // SWAP if we have both
             if num_typeparam_args == 2 {
-                emit!(self, Instruction::Swap { index: 2 });
+                emit!(self, Instruction::Swap(2));
             }
 
             // Enter type params scope
@@ -2364,12 +2305,7 @@ impl Compiler {
         let num_annotations = self.visit_annotations(parameters, returns)?;
         if num_annotations > 0 {
             annotations_flag = bytecode::MakeFunctionFlags::ANNOTATIONS;
-            emit!(
-                self,
-                Instruction::BuildMap {
-                    size: num_annotations,
-                }
-            );
+            emit!(self, Instruction::BuildMap(num_annotations,));
         }
 
         // Compile function body
@@ -2380,14 +2316,12 @@ impl Compiler {
         if is_generic {
             // SWAP to get function on top
             // Stack: [type_params_tuple, function] -> [function, type_params_tuple]
-            emit!(self, Instruction::Swap { index: 2 });
+            emit!(self, Instruction::Swap(2));
 
             // Call INTRINSIC_SET_FUNCTION_TYPE_PARAMS
             emit!(
                 self,
-                Instruction::CallIntrinsic2 {
-                    func: bytecode::IntrinsicFunction2::SetFunctionTypeParams,
-                }
+                Instruction::CallIntrinsic2(bytecode::IntrinsicFunction2::SetFunctionTypeParams)
             );
 
             // Return the function object from type params scope
@@ -2404,21 +2338,14 @@ impl Compiler {
 
             // Call the closure
             if num_typeparam_args > 0 {
+                emit!(self, Instruction::Swap((num_typeparam_args + 1) as u32));
                 emit!(
                     self,
-                    Instruction::Swap {
-                        index: (num_typeparam_args + 1) as u32
-                    }
-                );
-                emit!(
-                    self,
-                    Instruction::CallFunctionPositional {
-                        nargs: num_typeparam_args as u32
-                    }
+                    Instruction::CallFunctionPositional(num_typeparam_args as u32)
                 );
             } else {
                 // No arguments, just call the closure
-                emit!(self, Instruction::CallFunctionPositional { nargs: 0 });
+                emit!(self, Instruction::CallFunctionPositional(0));
             }
         }
 
@@ -2521,12 +2448,7 @@ impl Compiler {
             }
 
             // Build tuple of closure variables
-            emit!(
-                self,
-                Instruction::BuildTuple {
-                    size: code.freevars.len().to_u32(),
-                }
-            );
+            emit!(self, Instruction::BuildTuple(code.freevars.len().to_u32()));
         }
 
         // load code object and create function
@@ -2545,9 +2467,7 @@ impl Compiler {
             // Closure tuple is already on stack
             emit!(
                 self,
-                Instruction::SetFunctionAttribute {
-                    attr: bytecode::MakeFunctionFlags::CLOSURE
-                }
+                Instruction::SetFunctionAttribute(bytecode::MakeFunctionFlags::CLOSURE)
             );
         }
 
@@ -2556,9 +2476,7 @@ impl Compiler {
             // Annotations dict is already on stack
             emit!(
                 self,
-                Instruction::SetFunctionAttribute {
-                    attr: bytecode::MakeFunctionFlags::ANNOTATIONS
-                }
+                Instruction::SetFunctionAttribute(bytecode::MakeFunctionFlags::ANNOTATIONS)
             );
         }
 
@@ -2567,9 +2485,7 @@ impl Compiler {
             // kwdefaults dict is already on stack
             emit!(
                 self,
-                Instruction::SetFunctionAttribute {
-                    attr: bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS
-                }
+                Instruction::SetFunctionAttribute(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS)
             );
         }
 
@@ -2578,9 +2494,7 @@ impl Compiler {
             // defaults tuple is already on stack
             emit!(
                 self,
-                Instruction::SetFunctionAttribute {
-                    attr: bytecode::MakeFunctionFlags::DEFAULTS
-                }
+                Instruction::SetFunctionAttribute(bytecode::MakeFunctionFlags::DEFAULTS)
             );
         }
 
@@ -2589,9 +2503,7 @@ impl Compiler {
             // type_params tuple is already on stack
             emit!(
                 self,
-                Instruction::SetFunctionAttribute {
-                    attr: bytecode::MakeFunctionFlags::TYPE_PARAMS
-                }
+                Instruction::SetFunctionAttribute(bytecode::MakeFunctionFlags::TYPE_PARAMS)
             );
         }
 
@@ -2713,7 +2625,7 @@ impl Compiler {
 
         if let Some(classcell_idx) = classcell_idx {
             emit!(self, Instruction::LoadClosure(classcell_idx.to_u32()));
-            emit!(self, Instruction::CopyItem { index: 1_u32 });
+            emit!(self, Instruction::CopyItem(1_u32));
             let classcell = self.name("__classcell__");
             emit!(self, Instruction::StoreLocal(classcell));
         } else {
@@ -2780,9 +2692,7 @@ impl Compiler {
             emit!(self, Instruction::LoadNameAny(dot_type_params));
             emit!(
                 self,
-                Instruction::CallIntrinsic1 {
-                    func: bytecode::IntrinsicFunction1::SubscriptGeneric
-                }
+                Instruction::CallIntrinsic1(bytecode::IntrinsicFunction1::SubscriptGeneric)
             );
             emit!(self, Instruction::StoreLocal(dot_generic_base));
 
@@ -2827,14 +2737,14 @@ impl Compiler {
                 }
                 emit!(
                     self,
-                    Instruction::CallFunctionKeyword {
-                        nargs: nargs
+                    Instruction::CallFunctionKeyword(
+                        nargs
                             + u32::try_from(arguments.keywords.len())
                                 .expect("too many keyword arguments")
-                    }
+                    )
                 );
             } else {
-                emit!(self, Instruction::CallFunctionPositional { nargs });
+                emit!(self, Instruction::CallFunctionPositional(nargs));
             }
 
             // Return the created class
@@ -2845,7 +2755,7 @@ impl Compiler {
 
             // Execute the type params function
             self.make_closure(type_params_code, bytecode::MakeFunctionFlags::empty())?;
-            emit!(self, Instruction::CallFunctionPositional { nargs: 0 });
+            emit!(self, Instruction::CallFunctionPositional(0));
         } else {
             // Non-generic class: standard path
             emit!(self, Instruction::LoadBuildClass);
@@ -2894,12 +2804,7 @@ impl Compiler {
         let was_in_loop = self.ctx.loop_data.replace((while_block, after_block));
         self.compile_statements(body)?;
         self.ctx.loop_data = was_in_loop;
-        emit!(
-            self,
-            Instruction::Jump {
-                target: while_block,
-            }
-        );
+        emit!(self, Instruction::Jump(while_block));
         self.switch_to_block(else_block);
 
         // Pop fblock
@@ -2934,13 +2839,11 @@ impl Compiler {
                 emit!(self, Instruction::YieldFrom);
                 emit!(
                     self,
-                    Instruction::Resume {
-                        arg: bytecode::ResumeType::AfterAwait as u32
-                    }
+                    Instruction::Resume(bytecode::ResumeType::AfterAwait as u32)
                 );
-                emit!(self, Instruction::SetupAsyncWith { end: final_block });
+                emit!(self, Instruction::SetupAsyncWith(final_block));
             } else {
-                emit!(self, Instruction::SetupWith { end: final_block });
+                emit!(self, Instruction::SetupWith(final_block));
             }
 
             match &item.optional_vars {
@@ -2981,9 +2884,7 @@ impl Compiler {
             emit!(self, Instruction::YieldFrom);
             emit!(
                 self,
-                Instruction::Resume {
-                    arg: bytecode::ResumeType::AfterAwait as u32
-                }
+                Instruction::Resume(bytecode::ResumeType::AfterAwait as u32)
             );
         }
 
@@ -3018,20 +2919,13 @@ impl Compiler {
             // Push fblock for async for loop
             self.push_fblock(FBlockType::ForLoop, for_block, after_block)?;
 
-            emit!(
-                self,
-                Instruction::SetupExcept {
-                    handler: else_block,
-                }
-            );
+            emit!(self, Instruction::SetupExcept(else_block,));
             emit!(self, Instruction::GetANext);
             self.emit_load_const(ConstantData::None);
             emit!(self, Instruction::YieldFrom);
             emit!(
                 self,
-                Instruction::Resume {
-                    arg: bytecode::ResumeType::AfterAwait as u32
-                }
+                Instruction::Resume(bytecode::ResumeType::AfterAwait as u32)
             );
             self.compile_store(target)?;
             emit!(self, Instruction::PopBlock);
@@ -3044,7 +2938,7 @@ impl Compiler {
             // Push fblock for for loop
             self.push_fblock(FBlockType::ForLoop, for_block, after_block)?;
 
-            emit!(self, Instruction::ForIter { target: else_block });
+            emit!(self, Instruction::ForIter(else_block));
 
             // Start of loop iteration, set targets:
             self.compile_store(target)?;
@@ -3053,7 +2947,7 @@ impl Compiler {
         let was_in_loop = self.ctx.loop_data.replace((for_block, after_block));
         self.compile_statements(body)?;
         self.ctx.loop_data = was_in_loop;
-        emit!(self, Instruction::Jump { target: for_block });
+        emit!(self, Instruction::Jump(for_block));
 
         self.switch_to_block(else_block);
 
@@ -3111,20 +3005,10 @@ impl Compiler {
         // Emit a jump using the jump target stored at index `pops`.
         match op {
             JumpOp::Jump => {
-                emit!(
-                    self,
-                    Instruction::Jump {
-                        target: pc.fail_pop[pops]
-                    }
-                );
+                emit!(self, Instruction::Jump(pc.fail_pop[pops]));
             }
             JumpOp::PopJumpIfFalse => {
-                emit!(
-                    self,
-                    Instruction::PopJumpIfFalse {
-                        target: pc.fail_pop[pops]
-                    }
-                );
+                emit!(self, Instruction::PopJumpIfFalse(pc.fail_pop[pops]));
             }
         }
         Ok(())
@@ -3161,12 +3045,7 @@ impl Compiler {
         // For count=3, swap TOS with item 2 positions down, then with item 1 position down
         while count > 1 {
             // Emit a SWAP instruction with the current count.
-            emit!(
-                self,
-                Instruction::Swap {
-                    index: u32::try_from(count).unwrap()
-                }
-            );
+            emit!(self, Instruction::Swap(u32::try_from(count).unwrap()));
             count -= 1;
         }
         Ok(())
@@ -3228,7 +3107,7 @@ impl Compiler {
                         before: u8::try_from(i).unwrap(),
                         after: u8::try_from(n - i - 1).unwrap(),
                     };
-                    emit!(self, Instruction::UnpackEx { args });
+                    emit!(self, Instruction::UnpackEx(args));
                     seen_star = true;
                 } else {
                     // TODO: Fix error msg
@@ -3238,12 +3117,7 @@ impl Compiler {
             }
         }
         if !seen_star {
-            emit!(
-                self,
-                Instruction::UnpackSequence {
-                    size: u32::try_from(n).unwrap()
-                }
-            );
+            emit!(self, Instruction::UnpackSequence(u32::try_from(n).unwrap()));
         }
         Ok(())
     }
@@ -3286,7 +3160,7 @@ impl Compiler {
                 continue;
             }
             // Duplicate the subject.
-            emit!(self, Instruction::CopyItem { index: 1_u32 });
+            emit!(self, Instruction::CopyItem(1_u32));
             if i < star {
                 // For indices before the star, use a nonnegative index equal to i.
                 self.emit_load_const(ConstantData::Integer { value: i.into() });
@@ -3298,12 +3172,7 @@ impl Compiler {
                     value: (patterns.len() - i).into(),
                 });
                 // Subtract to compute the correct index.
-                emit!(
-                    self,
-                    Instruction::BinaryOperation {
-                        op: BinaryOperator::Subtract
-                    }
-                );
+                emit!(self, Instruction::BinaryOperation(BinaryOperator::Subtract));
             }
             // Use BINARY_OP/NB_SUBSCR to extract the element.
             emit!(self, Instruction::BinarySubscript);
@@ -3359,7 +3228,7 @@ impl Compiler {
 
         // Otherwise, there is a sub-pattern. Duplicate the object on top of the stack.
         pc.on_top += 1;
-        emit!(self, Instruction::CopyItem { index: 1_u32 });
+        emit!(self, Instruction::CopyItem(1_u32));
         // Compile the sub-pattern.
         self.compile_pattern(p.pattern.as_ref().unwrap(), pc)?;
         // After success, decrement the on_top counter.
@@ -3460,7 +3329,7 @@ impl Compiler {
         // 2. Emit MATCH_CLASS with nargs.
         emit!(self, Instruction::MatchClass(u32::try_from(nargs).unwrap()));
         // 3. Duplicate the top of the stack.
-        emit!(self, Instruction::CopyItem { index: 1_u32 });
+        emit!(self, Instruction::CopyItem(1_u32));
         // 4. Load None.
         self.emit_load_const(ConstantData::None);
         // 5. Compare with IS_OP 1.
@@ -3474,9 +3343,7 @@ impl Compiler {
         let total = nargs + n_attrs;
         emit!(
             self,
-            Instruction::UnpackSequence {
-                size: u32::try_from(total).unwrap()
-            }
+            Instruction::UnpackSequence(u32::try_from(total).unwrap())
         );
         pc.on_top += total;
         pc.on_top -= 1;
@@ -3559,9 +3426,7 @@ impl Compiler {
             // Stack: [subject, len, size]
             emit!(
                 self,
-                Instruction::CompareOperation {
-                    op: ComparisonOperator::GreaterOrEqual
-                }
+                Instruction::CompareOperation(ComparisonOperator::GreaterOrEqual)
             );
             self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
             // Stack: [subject]
@@ -3616,7 +3481,7 @@ impl Compiler {
         // Stack: [subject, key1, key2, ..., key_n]
 
         // Build tuple of keys (empty tuple if size==0)
-        emit!(self, Instruction::BuildTuple { size });
+        emit!(self, Instruction::BuildTuple(size));
         // Stack: [subject, keys_tuple]
 
         // Match keys
@@ -3625,7 +3490,7 @@ impl Compiler {
         pc.on_top += 2; // subject and keys_tuple are underneath
 
         // Check if match succeeded
-        emit!(self, Instruction::CopyItem { index: 1_u32 });
+        emit!(self, Instruction::CopyItem(1_u32));
         // Stack: [subject, keys_tuple, values_tuple, values_tuple_copy]
 
         // Check if copy is None (consumes the copy like POP_JUMP_IF_NONE)
@@ -3637,7 +3502,7 @@ impl Compiler {
         // Stack: [subject, keys_tuple, values_tuple]
 
         // Unpack values (the original values_tuple)
-        emit!(self, Instruction::UnpackSequence { size });
+        emit!(self, Instruction::UnpackSequence(size));
         // Stack after unpack: [subject, keys_tuple, ...unpacked values...]
         pc.on_top += size as usize; // Unpacked size values, tuple replaced by values
         pc.on_top -= 1;
@@ -3659,16 +3524,16 @@ impl Compiler {
             // Stack: [subject, keys_tuple]
 
             // Build rest dict exactly
-            emit!(self, Instruction::BuildMap { size: 0 });
+            emit!(self, Instruction::BuildMap(0));
             // Stack: [subject, keys_tuple, {}]
-            emit!(self, Instruction::Swap { index: 3 });
+            emit!(self, Instruction::Swap(3));
             // Stack: [{}, keys_tuple, subject]
-            emit!(self, Instruction::DictUpdate { index: 2 });
+            emit!(self, Instruction::DictUpdate(2));
             // Stack after DICT_UPDATE: [rest_dict, keys_tuple]
             // DICT_UPDATE consumes source (subject) and leaves dict in place
 
             // Unpack keys and delete from rest_dict
-            emit!(self, Instruction::UnpackSequence { size });
+            emit!(self, Instruction::UnpackSequence(size));
             // Stack: [rest_dict, k1, k2, ..., kn] (if size==0, nothing pushed)
 
             // Delete each key from rest_dict (skipped when size==0)
@@ -3676,14 +3541,9 @@ impl Compiler {
             let mut remaining = size;
             while remaining > 0 {
                 // Copy rest_dict which is at position (1 + remaining) from TOS
-                emit!(
-                    self,
-                    Instruction::CopyItem {
-                        index: 1 + remaining
-                    }
-                );
+                emit!(self, Instruction::CopyItem(1 + remaining));
                 // Stack: [rest_dict, k1, ..., kn, rest_dict]
-                emit!(self, Instruction::Swap { index: 2 });
+                emit!(self, Instruction::Swap(2));
                 // Stack: [rest_dict, k1, ..., kn-1, rest_dict, kn]
                 emit!(self, Instruction::DeleteSubscript);
                 // Stack: [rest_dict, k1, ..., kn-1] (removed kn from rest_dict)
@@ -3735,7 +3595,7 @@ impl Compiler {
             pc.fail_pop.clear();
             pc.on_top = 0;
             // Emit a COPY(1) instruction before compiling the alternative.
-            emit!(self, Instruction::CopyItem { index: 1_u32 });
+            emit!(self, Instruction::CopyItem(1_u32));
             self.compile_pattern(alt, pc)?;
 
             let n_stores = pc.stores.len();
@@ -3779,7 +3639,7 @@ impl Compiler {
                 }
             }
             // Emit a jump to the common end label and reset any failure jump targets.
-            emit!(self, Instruction::Jump { target: end });
+            emit!(self, Instruction::Jump(end));
             self.emit_and_reset_fail_pop(pc)?;
         }
 
@@ -3863,9 +3723,7 @@ impl Compiler {
             self.emit_load_const(ConstantData::Integer { value: size.into() });
             emit!(
                 self,
-                Instruction::CompareOperation {
-                    op: ComparisonOperator::Equal
-                }
+                Instruction::CompareOperation(ComparisonOperator::Equal)
             );
             self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
         } else if size > 1 {
@@ -3876,9 +3734,7 @@ impl Compiler {
             });
             emit!(
                 self,
-                Instruction::CompareOperation {
-                    op: ComparisonOperator::GreaterOrEqual
-                }
+                Instruction::CompareOperation(ComparisonOperator::GreaterOrEqual)
             );
             self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
         }
@@ -3905,9 +3761,7 @@ impl Compiler {
         self.compile_expression(&p.value)?;
         emit!(
             self,
-            Instruction::CompareOperation {
-                op: bytecode::ComparisonOperator::Equal
-            }
+            Instruction::CompareOperation(bytecode::ComparisonOperator::Equal)
         );
         // emit!(self, Instruction::ToBool);
         self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
@@ -3982,7 +3836,7 @@ impl Compiler {
         for (i, m) in cases.iter().enumerate().take(case_count) {
             // Only copy the subject if not on the last case
             if i != case_count - 1 {
-                emit!(self, Instruction::CopyItem { index: 1_u32 });
+                emit!(self, Instruction::CopyItem(1_u32));
             }
 
             pattern_context.stores = Vec::with_capacity(1);
@@ -4004,9 +3858,7 @@ impl Compiler {
                 emit!(self, Instruction::ToBool);
                 emit!(
                     self,
-                    Instruction::PopJumpIfFalse {
-                        target: pattern_context.fail_pop[0]
-                    }
+                    Instruction::PopJumpIfFalse(pattern_context.fail_pop[0])
                 );
             }
 
@@ -4015,7 +3867,7 @@ impl Compiler {
             }
 
             self.compile_statements(&m.body)?;
-            emit!(self, Instruction::Jump { target: end });
+            emit!(self, Instruction::Jump(end));
             self.emit_and_reset_fail_pop(pattern_context)?;
         }
 
@@ -4029,7 +3881,7 @@ impl Compiler {
             if let Some(ref guard) = m.guard {
                 // Compile guard and jump to end if false
                 self.compile_expression(guard)?;
-                emit!(self, Instruction::JumpIfFalseOrPop { target: end });
+                emit!(self, Instruction::JumpIfFalseOrPop(end));
             }
             self.compile_statements(&m.body)?;
         }
@@ -4056,14 +3908,12 @@ impl Compiler {
 
         use bytecode::ComparisonOperator::*;
         let compile_cmpop = |c: &mut Self, op: &CmpOp| match op {
-            CmpOp::Eq => emit!(c, Instruction::CompareOperation { op: Equal }),
-            CmpOp::NotEq => emit!(c, Instruction::CompareOperation { op: NotEqual }),
-            CmpOp::Lt => emit!(c, Instruction::CompareOperation { op: Less }),
-            CmpOp::LtE => emit!(c, Instruction::CompareOperation { op: LessOrEqual }),
-            CmpOp::Gt => emit!(c, Instruction::CompareOperation { op: Greater }),
-            CmpOp::GtE => {
-                emit!(c, Instruction::CompareOperation { op: GreaterOrEqual })
-            }
+            CmpOp::Eq => emit!(c, Instruction::CompareOperation(Equal)),
+            CmpOp::NotEq => emit!(c, Instruction::CompareOperation(NotEqual)),
+            CmpOp::Lt => emit!(c, Instruction::CompareOperation(Less)),
+            CmpOp::LtE => emit!(c, Instruction::CompareOperation(LessOrEqual)),
+            CmpOp::Gt => emit!(c, Instruction::CompareOperation(Greater)),
+            CmpOp::GtE => emit!(c, Instruction::CompareOperation(GreaterOrEqual)),
             CmpOp::In => emit!(c, Instruction::ContainsOp(Invert::No)),
             CmpOp::NotIn => emit!(c, Instruction::ContainsOp(Invert::Yes)),
             CmpOp::Is => emit!(c, Instruction::IsOp(Invert::No)),
@@ -4093,19 +3943,14 @@ impl Compiler {
         for (op, val) in mid_ops.iter().zip(mid_exprs) {
             self.compile_expression(val)?;
             // store rhs for the next comparison in chain
-            emit!(self, Instruction::Swap { index: 2 });
-            emit!(self, Instruction::CopyItem { index: 2_u32 });
+            emit!(self, Instruction::Swap(2));
+            emit!(self, Instruction::CopyItem(2_u32));
 
             compile_cmpop(self, op);
 
             // if comparison result is false, we break with this value; if true, try the next one.
             if let Some((break_block, _)) = end_blocks {
-                emit!(
-                    self,
-                    Instruction::JumpIfFalseOrPop {
-                        target: break_block,
-                    }
-                );
+                emit!(self, Instruction::JumpIfFalseOrPop(break_block));
             }
         }
 
@@ -4114,16 +3959,11 @@ impl Compiler {
         compile_cmpop(self, last_op);
 
         if let Some((break_block, after_block)) = end_blocks {
-            emit!(
-                self,
-                Instruction::Jump {
-                    target: after_block,
-                }
-            );
+            emit!(self, Instruction::Jump(after_block));
 
             // early exit left us with stack: `rhs, comparison_result`. We need to clean up rhs.
             self.switch_to_block(break_block);
-            emit!(self, Instruction::Swap { index: 2 });
+            emit!(self, Instruction::Swap(2));
             emit!(self, Instruction::Pop);
 
             self.switch_to_block(after_block);
@@ -4150,7 +3990,7 @@ impl Compiler {
                     // *args: *Ts (where Ts is a TypeVarTuple).
                     // Do [annotation_value] = [*Ts].
                     self.compile_expression(value)?;
-                    emit!(self, Instruction::UnpackSequence { size: 1 });
+                    emit!(self, Instruction::UnpackSequence(1));
                     Ok(())
                 }
                 _ => self.compile_expression(annotation),
@@ -4209,7 +4049,7 @@ impl Compiler {
                 self.check_forbidden_name(attr.as_str(), NameUsage::Store)?;
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
-                emit!(self, Instruction::StoreAttr { idx });
+                emit!(self, Instruction::StoreAttr(idx));
             }
             Expr::List(ExprList { elts, .. }) | Expr::Tuple(ExprTuple { elts, .. }) => {
                 let mut seen_star = false;
@@ -4231,18 +4071,13 @@ impl Compiler {
                                     )
                                 })?;
                             let args = bytecode::UnpackExArgs { before, after };
-                            emit!(self, Instruction::UnpackEx { args });
+                            emit!(self, Instruction::UnpackEx(args));
                         }
                     }
                 }
 
                 if !seen_star {
-                    emit!(
-                        self,
-                        Instruction::UnpackSequence {
-                            size: elts.len().to_u32(),
-                        }
-                    );
+                    emit!(self, Instruction::UnpackSequence(elts.len().to_u32()));
                 }
 
                 for element in elts {
@@ -4294,8 +4129,8 @@ impl Compiler {
                 // But we can't use compile_subscript directly because we need DUP_TOP2
                 self.compile_expression(value)?;
                 self.compile_expression(slice)?;
-                emit!(self, Instruction::CopyItem { index: 2_u32 });
-                emit!(self, Instruction::CopyItem { index: 2_u32 });
+                emit!(self, Instruction::CopyItem(2_u32));
+                emit!(self, Instruction::CopyItem(2_u32));
                 emit!(self, Instruction::Subscript);
                 AugAssignKind::Subscript
             }
@@ -4303,9 +4138,9 @@ impl Compiler {
                 let attr = attr.as_str();
                 self.check_forbidden_name(attr, NameUsage::Store)?;
                 self.compile_expression(value)?;
-                emit!(self, Instruction::CopyItem { index: 1_u32 });
+                emit!(self, Instruction::CopyItem(1_u32));
                 let idx = self.name(attr);
-                emit!(self, Instruction::LoadAttr { idx });
+                emit!(self, Instruction::LoadAttr(idx));
                 AugAssignKind::Attr { idx }
             }
             _ => {
@@ -4323,14 +4158,14 @@ impl Compiler {
             }
             AugAssignKind::Subscript => {
                 // stack: CONTAINER SLICE RESULT
-                emit!(self, Instruction::Swap { index: 3 });
-                emit!(self, Instruction::Swap { index: 2 });
+                emit!(self, Instruction::Swap(3));
+                emit!(self, Instruction::Swap(2));
                 emit!(self, Instruction::StoreSubscript);
             }
             AugAssignKind::Attr { idx } => {
                 // stack: CONTAINER RESULT
-                emit!(self, Instruction::Swap { index: 2 });
-                emit!(self, Instruction::StoreAttr { idx });
+                emit!(self, Instruction::Swap(2));
+                emit!(self, Instruction::StoreAttr(idx));
             }
         }
 
@@ -4354,9 +4189,9 @@ impl Compiler {
             Operator::BitAnd => bytecode::BinaryOperator::And,
         };
         if inplace {
-            emit!(self, Instruction::BinaryOperationInplace { op })
+            emit!(self, Instruction::BinaryOperationInplace(op))
         } else {
-            emit!(self, Instruction::BinaryOperation { op })
+            emit!(self, Instruction::BinaryOperation(op))
         }
     }
 
@@ -4433,19 +4268,9 @@ impl Compiler {
                 // Fall back case which always will work!
                 self.compile_expression(expression)?;
                 if condition {
-                    emit!(
-                        self,
-                        Instruction::PopJumpIfTrue {
-                            target: target_block,
-                        }
-                    );
+                    emit!(self, Instruction::PopJumpIfTrue(target_block));
                 } else {
-                    emit!(
-                        self,
-                        Instruction::PopJumpIfFalse {
-                            target: target_block,
-                        }
-                    );
+                    emit!(self, Instruction::PopJumpIfFalse(target_block));
                 }
             }
         }
@@ -4463,20 +4288,10 @@ impl Compiler {
 
             match op {
                 BoolOp::And => {
-                    emit!(
-                        self,
-                        Instruction::JumpIfFalseOrPop {
-                            target: after_block,
-                        }
-                    );
+                    emit!(self, Instruction::JumpIfFalseOrPop(after_block));
                 }
                 BoolOp::Or => {
-                    emit!(
-                        self,
-                        Instruction::JumpIfTrueOrPop {
-                            target: after_block,
-                        }
-                    );
+                    emit!(self, Instruction::JumpIfTrueOrPop(after_block));
                 }
             }
         }
@@ -4497,11 +4312,11 @@ impl Compiler {
             self.compile_expression(&item.value)?;
             size += 1;
         }
-        emit!(self, Instruction::BuildMap { size });
+        emit!(self, Instruction::BuildMap(size));
 
         for item in unpacked {
             self.compile_expression(&item.value)?;
-            emit!(self, Instruction::DictUpdate { index: 1 });
+            emit!(self, Instruction::DictUpdate(1));
         }
 
         Ok(())
@@ -4542,12 +4357,12 @@ impl Compiler {
                     UnaryOp::Not => bytecode::UnaryOperator::Not,
                     UnaryOp::Invert => bytecode::UnaryOperator::Invert,
                 };
-                emit!(self, Instruction::UnaryOperation { op });
+                emit!(self, Instruction::UnaryOperation(op));
             }
             Expr::Attribute(ExprAttribute { value, attr, .. }) => {
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
-                emit!(self, Instruction::LoadAttr { idx });
+                emit!(self, Instruction::LoadAttr(idx));
             }
             Expr::Compare(ExprCompare {
                 left,
@@ -4588,7 +4403,7 @@ impl Compiler {
                     self.compile_expression(step)?;
                 }
                 let step = step.is_some();
-                emit!(self, Instruction::BuildSlice { step });
+                emit!(self, Instruction::BuildSlice(step));
             }
             Expr::Yield(ExprYield { value, .. }) => {
                 if !self.ctx.in_func() {
@@ -4602,9 +4417,7 @@ impl Compiler {
                 emit!(self, Instruction::YieldValue);
                 emit!(
                     self,
-                    Instruction::Resume {
-                        arg: bytecode::ResumeType::AfterYield as u32
-                    }
+                    Instruction::Resume(bytecode::ResumeType::AfterYield as u32)
                 );
             }
             Expr::Await(ExprAwait { value, .. }) => {
@@ -4617,9 +4430,7 @@ impl Compiler {
                 emit!(self, Instruction::YieldFrom);
                 emit!(
                     self,
-                    Instruction::Resume {
-                        arg: bytecode::ResumeType::AfterAwait as u32
-                    }
+                    Instruction::Resume(bytecode::ResumeType::AfterAwait as u32)
                 );
             }
             Expr::YieldFrom(ExprYieldFrom { value, .. }) => {
@@ -4639,9 +4450,7 @@ impl Compiler {
                 emit!(self, Instruction::YieldFrom);
                 emit!(
                     self,
-                    Instruction::Resume {
-                        arg: bytecode::ResumeType::AfterYieldFrom as u32
-                    }
+                    Instruction::Resume(bytecode::ResumeType::AfterYieldFrom as u32)
                 );
             }
             Expr::Name(ExprName { id, .. }) => self.load_name(id.as_str())?,
@@ -4668,7 +4477,7 @@ impl Compiler {
                     for element in &defaults {
                         self.compile_expression(element)?;
                     }
-                    emit!(self, Instruction::BuildTuple { size });
+                    emit!(self, Instruction::BuildTuple(size));
                 }
 
                 // Prepare keyword-only defaults
@@ -4688,12 +4497,7 @@ impl Compiler {
                         });
                         self.compile_expression(default)?;
                     }
-                    emit!(
-                        self,
-                        Instruction::BuildMap {
-                            size: default_kw_count.to_u32(),
-                        }
-                    );
+                    emit!(self, Instruction::BuildMap(default_kw_count.to_u32()));
                 }
 
                 self.enter_function(&name, params)?;
@@ -4733,18 +4537,11 @@ impl Compiler {
             }) => {
                 self.compile_comprehension(
                     "<listcomp>",
-                    Some(Instruction::BuildList {
-                        size: OpArgMarker::marker(),
-                    }),
+                    Some(Instruction::BuildList(OpArgMarker::marker())),
                     generators,
                     &|compiler| {
                         compiler.compile_comprehension_element(elt)?;
-                        emit!(
-                            compiler,
-                            Instruction::ListAppend {
-                                i: generators.len().to_u32(),
-                            }
-                        );
+                        emit!(compiler, Instruction::ListAppend(generators.len().to_u32()));
                         Ok(())
                     },
                     ComprehensionType::List,
@@ -4756,18 +4553,11 @@ impl Compiler {
             }) => {
                 self.compile_comprehension(
                     "<setcomp>",
-                    Some(Instruction::BuildSet {
-                        size: OpArgMarker::marker(),
-                    }),
+                    Some(Instruction::BuildSet(OpArgMarker::marker())),
                     generators,
                     &|compiler| {
                         compiler.compile_comprehension_element(elt)?;
-                        emit!(
-                            compiler,
-                            Instruction::SetAdd {
-                                i: generators.len().to_u32(),
-                            }
-                        );
+                        emit!(compiler, Instruction::SetAdd(generators.len().to_u32()));
                         Ok(())
                     },
                     ComprehensionType::Set,
@@ -4782,21 +4572,14 @@ impl Compiler {
             }) => {
                 self.compile_comprehension(
                     "<dictcomp>",
-                    Some(Instruction::BuildMap {
-                        size: OpArgMarker::marker(),
-                    }),
+                    Some(Instruction::BuildMap(OpArgMarker::marker())),
                     generators,
                     &|compiler| {
                         // changed evaluation order for Py38 named expression PEP 572
                         compiler.compile_expression(key)?;
                         compiler.compile_expression(value)?;
 
-                        emit!(
-                            compiler,
-                            Instruction::MapAdd {
-                                i: generators.len().to_u32(),
-                            }
-                        );
+                        emit!(compiler, Instruction::MapAdd(generators.len().to_u32()));
 
                         Ok(())
                     },
@@ -4817,9 +4600,7 @@ impl Compiler {
                         emit!(compiler, Instruction::YieldValue);
                         emit!(
                             compiler,
-                            Instruction::Resume {
-                                arg: bytecode::ResumeType::AfterYield as u32
-                            }
+                            Instruction::Resume(bytecode::ResumeType::AfterYield as u32)
                         );
                         emit!(compiler, Instruction::Pop);
 
@@ -4848,12 +4629,7 @@ impl Compiler {
 
                 // True case
                 self.compile_expression(body)?;
-                emit!(
-                    self,
-                    Instruction::Jump {
-                        target: after_block,
-                    }
-                );
+                emit!(self, Instruction::Jump(after_block));
 
                 // False case
                 self.switch_to_block(else_block);
@@ -4870,7 +4646,7 @@ impl Compiler {
                 range: _,
             }) => {
                 self.compile_expression(value)?;
-                emit!(self, Instruction::CopyItem { index: 1_u32 });
+                emit!(self, Instruction::CopyItem(1_u32));
                 self.compile_store(target)?;
             }
             Expr::FString(fstring) => {
@@ -4953,12 +4729,12 @@ impl Compiler {
                         sub_size += 1;
                     }
                 }
-                emit!(self, Instruction::BuildMap { size: sub_size });
+                emit!(self, Instruction::BuildMap(sub_size));
                 size += 1;
             }
         }
         if size > 1 {
-            emit!(self, Instruction::BuildMapForCall { size });
+            emit!(self, Instruction::BuildMapForCall(size));
         }
         Ok(())
     }
@@ -4967,7 +4743,7 @@ impl Compiler {
         let method = if let Expr::Attribute(ExprAttribute { value, attr, .. }) = &func {
             self.compile_expression(value)?;
             let idx = self.name(attr.as_str());
-            emit!(self, Instruction::LoadMethod { idx });
+            emit!(self, Instruction::LoadMethod(idx));
             true
         } else {
             self.compile_expression(func)?;
@@ -4985,19 +4761,19 @@ impl Compiler {
     fn compile_normal_call(&mut self, ty: CallType) {
         match ty {
             CallType::Positional { nargs } => {
-                emit!(self, Instruction::CallFunctionPositional { nargs })
+                emit!(self, Instruction::CallFunctionPositional(nargs))
             }
-            CallType::Keyword { nargs } => emit!(self, Instruction::CallFunctionKeyword { nargs }),
-            CallType::Ex { has_kwargs } => emit!(self, Instruction::CallFunctionEx { has_kwargs }),
+            CallType::Keyword { nargs } => emit!(self, Instruction::CallFunctionKeyword(nargs)),
+            CallType::Ex { has_kwargs } => emit!(self, Instruction::CallFunctionEx(has_kwargs)),
         }
     }
     fn compile_method_call(&mut self, ty: CallType) {
         match ty {
             CallType::Positional { nargs } => {
-                emit!(self, Instruction::CallMethodPositional { nargs })
+                emit!(self, Instruction::CallMethodPositional(nargs))
             }
-            CallType::Keyword { nargs } => emit!(self, Instruction::CallMethodKeyword { nargs }),
-            CallType::Ex { has_kwargs } => emit!(self, Instruction::CallMethodEx { has_kwargs }),
+            CallType::Keyword { nargs } => emit!(self, Instruction::CallMethodKeyword(nargs)),
+            CallType::Ex { has_kwargs } => emit!(self, Instruction::CallMethodEx(has_kwargs)),
         }
     }
 
@@ -5021,9 +4797,9 @@ impl Compiler {
         let call = if unpack || has_double_star {
             // Create a tuple with positional args:
             if unpack {
-                emit!(self, Instruction::BuildTupleFromTuples { size });
+                emit!(self, Instruction::BuildTupleFromTuples(size));
             } else {
-                emit!(self, Instruction::BuildTuple { size });
+                emit!(self, Instruction::BuildTuple(size));
             }
 
             // Create an optional map with kw-args:
@@ -5070,7 +4846,7 @@ impl Compiler {
 
             loop {
                 if iter.peek().is_none_or(|e| matches!(e, Expr::Starred(_))) {
-                    emit!(self, Instruction::BuildTuple { size: run_size });
+                    emit!(self, Instruction::BuildTuple(run_size));
                     run_size = 0;
                     size += 1;
                 }
@@ -5214,30 +4990,18 @@ impl Compiler {
             loop_labels.push((loop_block, after_block));
             self.switch_to_block(loop_block);
             if generator.is_async {
-                emit!(
-                    self,
-                    Instruction::SetupExcept {
-                        handler: after_block,
-                    }
-                );
+                emit!(self, Instruction::SetupExcept(after_block));
                 emit!(self, Instruction::GetANext);
                 self.emit_load_const(ConstantData::None);
                 emit!(self, Instruction::YieldFrom);
                 emit!(
                     self,
-                    Instruction::Resume {
-                        arg: bytecode::ResumeType::AfterAwait as u32
-                    }
+                    Instruction::Resume(bytecode::ResumeType::AfterAwait as u32)
                 );
                 self.compile_store(&generator.target)?;
                 emit!(self, Instruction::PopBlock);
             } else {
-                emit!(
-                    self,
-                    Instruction::ForIter {
-                        target: after_block,
-                    }
-                );
+                emit!(self, Instruction::ForIter(after_block));
                 self.compile_store(&generator.target)?;
             }
 
@@ -5251,7 +5015,7 @@ impl Compiler {
 
         for (loop_block, after_block) in loop_labels.iter().rev().copied() {
             // Repeat:
-            emit!(self, Instruction::Jump { target: loop_block });
+            emit!(self, Instruction::Jump(loop_block));
 
             // End of for loop:
             self.switch_to_block(after_block);
@@ -5286,7 +5050,7 @@ impl Compiler {
         };
 
         // Call just created <listcomp> function:
-        emit!(self, Instruction::CallFunctionPositional { nargs: 1 });
+        emit!(self, Instruction::CallFunctionPositional(1));
         if is_async_list_set_dict_comprehension {
             // async, but not a generator and not an async for
             // in this case, we end up with an awaitable
@@ -5296,9 +5060,7 @@ impl Compiler {
             emit!(self, Instruction::YieldFrom);
             emit!(
                 self,
-                Instruction::Resume {
-                    arg: bytecode::ResumeType::AfterAwait as u32
-                }
+                Instruction::Resume(bytecode::ResumeType::AfterAwait as u32)
             );
         }
 
@@ -5365,19 +5127,19 @@ impl Compiler {
 
     fn emit_load_const(&mut self, constant: ConstantData) {
         let idx = self.arg_constant(constant);
-        self.emit_arg(idx, |idx| Instruction::LoadConst { idx })
+        self.emit_arg(idx, |idx| Instruction::LoadConst(idx))
     }
 
     fn emit_return_const(&mut self, constant: ConstantData) {
         let idx = self.arg_constant(constant);
-        self.emit_arg(idx, |idx| Instruction::ReturnConst { idx })
+        self.emit_arg(idx, |idx| Instruction::ReturnConst(idx))
     }
 
     fn emit_return_value(&mut self) {
         if let Some(inst) = self.current_block().instructions.last_mut()
-            && let Instruction::LoadConst { idx } = inst.instr
+            && let Instruction::LoadConst(idx) = inst.instr
         {
-            inst.instr = Instruction::ReturnConst { idx };
+            inst.instr = Instruction::ReturnConst(idx);
             return;
         }
         emit!(self, Instruction::ReturnValue)
@@ -5575,7 +5337,7 @@ impl Compiler {
             .try_into()
             .expect("BuildString size overflowed");
         if part_count > 1 {
-            emit!(self, Instruction::BuildString { size: part_count });
+            emit!(self, Instruction::BuildString(part_count));
         }
 
         Ok(())
@@ -5671,7 +5433,7 @@ impl Compiler {
                         ConversionFlag::Ascii => bytecode::ConversionFlag::Ascii,
                         ConversionFlag::Repr => bytecode::ConversionFlag::Repr,
                     };
-                    emit!(self, Instruction::FormatValue { conversion });
+                    emit!(self, Instruction::FormatValue(conversion));
                 }
             }
         }
@@ -5682,12 +5444,7 @@ impl Compiler {
                 value: Wtf8Buf::new(),
             });
         } else if element_count > 1 {
-            emit!(
-                self,
-                Instruction::BuildString {
-                    size: element_count
-                }
-            );
+            emit!(self, Instruction::BuildString(element_count));
         }
 
         Ok(())
