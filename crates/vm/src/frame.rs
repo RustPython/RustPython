@@ -532,11 +532,11 @@ impl ExecutingFrame<'_> {
 
         match instruction {
             bytecode::Instruction::Nop => Ok(None),
-            bytecode::Instruction::LoadConst { idx } => {
+            bytecode::Instruction::LoadConst(idx) => {
                 self.push_value(self.code.constants[idx.get(arg) as usize].clone().into());
                 Ok(None)
             }
-            bytecode::Instruction::ImportName { idx } => {
+            bytecode::Instruction::ImportName(idx) => {
                 self.import(vm, Some(self.code.names[idx.get(arg) as usize]))?;
                 Ok(None)
             }
@@ -544,7 +544,7 @@ impl ExecutingFrame<'_> {
                 self.import(vm, None)?;
                 Ok(None)
             }
-            bytecode::Instruction::ImportFrom { idx } => {
+            bytecode::Instruction::ImportFrom(idx) => {
                 let obj = self.import_from(vm, idx.get(arg))?;
                 self.push_value(obj);
                 Ok(None)
@@ -682,7 +682,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::Subscript => self.execute_subscript(vm),
             bytecode::Instruction::StoreSubscript => self.execute_store_subscript(vm),
             bytecode::Instruction::DeleteSubscript => self.execute_delete_subscript(vm),
-            bytecode::Instruction::CopyItem { index } => {
+            bytecode::Instruction::CopyItem(index) => {
                 // CopyItem { index: 1 } copies TOS
                 // CopyItem { index: 2 } copies second from top
                 // This is 1-indexed to match CPython
@@ -702,7 +702,7 @@ impl ExecutingFrame<'_> {
                 self.pop_value();
                 Ok(None)
             }
-            bytecode::Instruction::Swap { index } => {
+            bytecode::Instruction::Swap(index) => {
                 let len = self.state.stack.len();
                 debug_assert!(len > 0, "stack underflow in SWAP");
                 let i = len - 1; // TOS index
@@ -729,7 +729,7 @@ impl ExecutingFrame<'_> {
                  Ok(None)
             }
             */
-            bytecode::Instruction::BuildString { size } => {
+            bytecode::Instruction::BuildString(size) => {
                 let s = self
                     .pop_multiple(size.get(arg) as usize)
                     .as_slice()
@@ -740,20 +740,20 @@ impl ExecutingFrame<'_> {
                 self.push_value(str_obj.into());
                 Ok(None)
             }
-            bytecode::Instruction::BuildList { size } => {
+            bytecode::Instruction::BuildList(size) => {
                 let elements = self.pop_multiple(size.get(arg) as usize).collect();
                 let list_obj = vm.ctx.new_list(elements);
                 self.push_value(list_obj.into());
                 Ok(None)
             }
-            bytecode::Instruction::BuildListFromTuples { size } => {
+            bytecode::Instruction::BuildListFromTuples(size) => {
                 // SAFETY: compiler guarantees `size` tuples are on the stack
                 let elements = unsafe { self.flatten_tuples(size.get(arg) as usize) };
                 let list_obj = vm.ctx.new_list(elements);
                 self.push_value(list_obj.into());
                 Ok(None)
             }
-            bytecode::Instruction::BuildSet { size } => {
+            bytecode::Instruction::BuildSet(size) => {
                 let set = PySet::default().into_ref(&vm.ctx);
                 for element in self.pop_multiple(size.get(arg) as usize) {
                     set.add(element, vm)?;
@@ -761,7 +761,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(set.into());
                 Ok(None)
             }
-            bytecode::Instruction::BuildSetFromTuples { size } => {
+            bytecode::Instruction::BuildSetFromTuples(size) => {
                 let set = PySet::default().into_ref(&vm.ctx);
                 for element in self.pop_multiple(size.get(arg) as usize) {
                     // SAFETY: trust compiler
@@ -773,13 +773,13 @@ impl ExecutingFrame<'_> {
                 self.push_value(set.into());
                 Ok(None)
             }
-            bytecode::Instruction::BuildTuple { size } => {
+            bytecode::Instruction::BuildTuple(size) => {
                 let elements = self.pop_multiple(size.get(arg) as usize).collect();
                 let list_obj = vm.ctx.new_tuple(elements);
                 self.push_value(list_obj.into());
                 Ok(None)
             }
-            bytecode::Instruction::BuildTupleFromTuples { size } => {
+            bytecode::Instruction::BuildTupleFromTuples(size) => {
                 // SAFETY: compiler guarantees `size` tuples are on the stack
                 let elements = unsafe { self.flatten_tuples(size.get(arg) as usize) };
                 let list_obj = vm.ctx.new_tuple(elements);
@@ -794,11 +794,12 @@ impl ExecutingFrame<'_> {
                 }
                 Ok(None)
             }
-            bytecode::Instruction::BuildMap { size } => self.execute_build_map(vm, size.get(arg)),
-            bytecode::Instruction::BuildMapForCall { size } => {
+            bytecode::Instruction::BuildMap(size) => self.execute_build_map(vm, size.get(arg)),
+            bytecode::Instruction::BuildMapForCall(size) => {
                 self.execute_build_map_for_call(vm, size.get(arg))
             }
-            bytecode::Instruction::DictUpdate { index } => {
+
+            bytecode::Instruction::DictUpdate(index) => {
                 // Stack before: [..., dict, ..., source]  (source at TOS)
                 // Stack after:  [..., dict, ...]  (source consumed)
                 // The dict to update is at position TOS-i (before popping source)
@@ -834,10 +835,8 @@ impl ExecutingFrame<'_> {
                 dict.merge_object(source, vm)?;
                 Ok(None)
             }
-            bytecode::Instruction::BuildSlice { step } => {
-                self.execute_build_slice(vm, step.get(arg))
-            }
-            bytecode::Instruction::ListAppend { i } => {
+            bytecode::Instruction::BuildSlice(step) => self.execute_build_slice(vm, step.get(arg)),
+            bytecode::Instruction::ListAppend(i) => {
                 let item = self.pop_value();
                 let obj = self.nth_value(i.get(arg));
                 let list: &Py<PyList> = unsafe {
@@ -847,7 +846,7 @@ impl ExecutingFrame<'_> {
                 list.append(item);
                 Ok(None)
             }
-            bytecode::Instruction::SetAdd { i } => {
+            bytecode::Instruction::SetAdd(i) => {
                 let item = self.pop_value();
                 let obj = self.nth_value(i.get(arg));
                 let set: &Py<PySet> = unsafe {
@@ -857,7 +856,7 @@ impl ExecutingFrame<'_> {
                 set.add(item, vm)?;
                 Ok(None)
             }
-            bytecode::Instruction::MapAdd { i } => {
+            bytecode::Instruction::MapAdd(i) => {
                 let value = self.pop_value();
                 let key = self.pop_value();
                 let obj = self.nth_value(i.get(arg));
@@ -868,8 +867,8 @@ impl ExecutingFrame<'_> {
                 dict.set_item(&*key, value, vm)?;
                 Ok(None)
             }
-            bytecode::Instruction::BinaryOperation { op } => self.execute_bin_op(vm, op.get(arg)),
-            bytecode::Instruction::BinaryOperationInplace { op } => {
+            bytecode::Instruction::BinaryOperation(op) => self.execute_bin_op(vm, op.get(arg)),
+            bytecode::Instruction::BinaryOperationInplace(op) => {
                 self.execute_bin_op_inplace(vm, op.get(arg))
             }
             bytecode::Instruction::BinarySubscript => {
@@ -880,10 +879,10 @@ impl ExecutingFrame<'_> {
                     .push(container.get_item(key.as_object(), vm)?);
                 Ok(None)
             }
-            bytecode::Instruction::LoadAttr { idx } => self.load_attr(vm, idx.get(arg)),
-            bytecode::Instruction::StoreAttr { idx } => self.store_attr(vm, idx.get(arg)),
-            bytecode::Instruction::DeleteAttr { idx } => self.delete_attr(vm, idx.get(arg)),
-            bytecode::Instruction::UnaryOperation { op } => self.execute_unary_op(vm, op.get(arg)),
+            bytecode::Instruction::LoadAttr(idx) => self.load_attr(vm, idx.get(arg)),
+            bytecode::Instruction::StoreAttr(idx) => self.store_attr(vm, idx.get(arg)),
+            bytecode::Instruction::DeleteAttr(idx) => self.delete_attr(vm, idx.get(arg)),
+            bytecode::Instruction::UnaryOperation(op) => self.execute_unary_op(vm, op.get(arg)),
             bytecode::Instruction::IsOp(invert) => {
                 let b = self.pop_value();
                 let a = self.pop_value();
@@ -930,12 +929,12 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(value).into());
                 self.pop_jump_if(vm, target.get(arg), false)
             }
-            bytecode::Instruction::CompareOperation { op } => self.execute_compare(vm, op.get(arg)),
+            bytecode::Instruction::CompareOperation(op) => self.execute_compare(vm, op.get(arg)),
             bytecode::Instruction::ReturnValue => {
                 let value = self.pop_value();
                 self.unwind_blocks(vm, UnwindReason::Returning { value })
             }
-            bytecode::Instruction::ReturnConst { idx } => {
+            bytecode::Instruction::ReturnConst(idx) => {
                 let value = self.code.constants[idx.get(arg) as usize].clone().into();
                 self.unwind_blocks(vm, UnwindReason::Returning { value })
             }
@@ -949,7 +948,7 @@ impl ExecutingFrame<'_> {
                 Ok(Some(ExecutionResult::Yield(value)))
             }
             bytecode::Instruction::YieldFrom => self.execute_yield_from(vm),
-            bytecode::Instruction::Resume { arg: resume_arg } => {
+            bytecode::Instruction::Resume(resume_arg) => {
                 // Resume execution after yield, await, or at function start
                 // In CPython, this checks instrumentation and eval breaker
                 // For now, we just check for signals/interrupts
@@ -966,13 +965,13 @@ impl ExecutingFrame<'_> {
                 self.push_block(BlockType::Loop);
                 Ok(None)
             }
-            bytecode::Instruction::SetupExcept { handler } => {
+            bytecode::Instruction::SetupExcept(handler) => {
                 self.push_block(BlockType::TryExcept {
                     handler: handler.get(arg),
                 });
                 Ok(None)
             }
-            bytecode::Instruction::SetupFinally { handler } => {
+            bytecode::Instruction::SetupFinally(handler) => {
                 self.push_block(BlockType::Finally {
                     handler: handler.get(arg),
                 });
@@ -1003,7 +1002,7 @@ impl ExecutingFrame<'_> {
                     );
                 }
             }
-            bytecode::Instruction::SetupWith { end } => {
+            bytecode::Instruction::SetupWith(end) => {
                 let context_manager = self.pop_value();
                 let error_string = || -> String {
                     format!(
@@ -1055,7 +1054,7 @@ impl ExecutingFrame<'_> {
 
                 Ok(None)
             }
-            bytecode::Instruction::SetupAsyncWith { end } => {
+            bytecode::Instruction::SetupAsyncWith(end) => {
                 let enter_res = self.pop_value();
                 self.push_block(BlockType::Finally {
                     handler: end.get(arg),
@@ -1128,13 +1127,13 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(bool_val).into());
                 Ok(None)
             }
-            bytecode::Instruction::CallIntrinsic1 { func } => {
+            bytecode::Instruction::CallIntrinsic1(func) => {
                 let value = self.pop_value();
                 let result = self.call_intrinsic_1(func.get(arg), value, vm)?;
                 self.push_value(result);
                 Ok(None)
             }
-            bytecode::Instruction::CallIntrinsic2 { func } => {
+            bytecode::Instruction::CallIntrinsic2(func) => {
                 let value2 = self.pop_value();
                 let value1 = self.pop_value();
                 let result = self.call_intrinsic_2(func.get(arg), value1, value2, vm)?;
@@ -1224,24 +1223,24 @@ impl ExecutingFrame<'_> {
                     Err(exc.downcast().unwrap())
                 }
             }
-            bytecode::Instruction::ForIter { target } => self.execute_for_iter(vm, target.get(arg)),
+            bytecode::Instruction::ForIter(target) => self.execute_for_iter(vm, target.get(arg)),
             bytecode::Instruction::MakeFunction => self.execute_make_function(vm),
-            bytecode::Instruction::SetFunctionAttribute { attr } => {
+            bytecode::Instruction::SetFunctionAttribute(attr) => {
                 self.execute_set_function_attribute(vm, attr.get(arg))
             }
-            bytecode::Instruction::CallFunctionPositional { nargs } => {
+            bytecode::Instruction::CallFunctionPositional(nargs) => {
                 let args = self.collect_positional_args(nargs.get(arg));
                 self.execute_call(args, vm)
             }
-            bytecode::Instruction::CallFunctionKeyword { nargs } => {
+            bytecode::Instruction::CallFunctionKeyword(nargs) => {
                 let args = self.collect_keyword_args(nargs.get(arg));
                 self.execute_call(args, vm)
             }
-            bytecode::Instruction::CallFunctionEx { has_kwargs } => {
+            bytecode::Instruction::CallFunctionEx(has_kwargs) => {
                 let args = self.collect_ex_args(vm, has_kwargs.get(arg))?;
                 self.execute_call(args, vm)
             }
-            bytecode::Instruction::LoadMethod { idx } => {
+            bytecode::Instruction::LoadMethod(idx) => {
                 let obj = self.pop_value();
                 let method_name = self.code.names[idx.get(arg) as usize];
                 let method = PyMethod::get(obj, method_name, vm)?;
@@ -1256,44 +1255,44 @@ impl ExecutingFrame<'_> {
                 self.push_value(func);
                 Ok(None)
             }
-            bytecode::Instruction::CallMethodPositional { nargs } => {
+            bytecode::Instruction::CallMethodPositional(nargs) => {
                 let args = self.collect_positional_args(nargs.get(arg));
                 self.execute_method_call(args, vm)
             }
-            bytecode::Instruction::CallMethodKeyword { nargs } => {
+            bytecode::Instruction::CallMethodKeyword(nargs) => {
                 let args = self.collect_keyword_args(nargs.get(arg));
                 self.execute_method_call(args, vm)
             }
-            bytecode::Instruction::CallMethodEx { has_kwargs } => {
+            bytecode::Instruction::CallMethodEx(has_kwargs) => {
                 let args = self.collect_ex_args(vm, has_kwargs.get(arg))?;
                 self.execute_method_call(args, vm)
             }
-            bytecode::Instruction::Jump { target } => {
+            bytecode::Instruction::Jump(target) => {
                 self.jump(target.get(arg));
                 Ok(None)
             }
-            bytecode::Instruction::PopJumpIfTrue { target } => {
+            bytecode::Instruction::PopJumpIfTrue(target) => {
                 self.pop_jump_if(vm, target.get(arg), true)
             }
-            bytecode::Instruction::PopJumpIfFalse { target } => {
+            bytecode::Instruction::PopJumpIfFalse(target) => {
                 self.pop_jump_if(vm, target.get(arg), false)
             }
-            bytecode::Instruction::JumpIfTrueOrPop { target } => {
+            bytecode::Instruction::JumpIfTrueOrPop(target) => {
                 self.jump_if_or_pop(vm, target.get(arg), true)
             }
-            bytecode::Instruction::JumpIfFalseOrPop { target } => {
+            bytecode::Instruction::JumpIfFalseOrPop(target) => {
                 self.jump_if_or_pop(vm, target.get(arg), false)
             }
 
-            bytecode::Instruction::Raise { kind } => self.execute_raise(vm, kind.get(arg)),
+            bytecode::Instruction::Raise(kind) => self.execute_raise(vm, kind.get(arg)),
 
-            bytecode::Instruction::Break { target } => self.unwind_blocks(
+            bytecode::Instruction::Break(target) => self.unwind_blocks(
                 vm,
                 UnwindReason::Break {
                     target: target.get(arg),
                 },
             ),
-            bytecode::Instruction::Continue { target } => self.unwind_blocks(
+            bytecode::Instruction::Continue(target) => self.unwind_blocks(
                 vm,
                 UnwindReason::Continue {
                     target: target.get(arg),
@@ -1304,14 +1303,12 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.builtins.get_attr(identifier!(vm, __build_class__), vm)?);
                 Ok(None)
             }
-            bytecode::Instruction::UnpackSequence { size } => {
-                self.unpack_sequence(size.get(arg), vm)
-            }
-            bytecode::Instruction::UnpackEx { args } => {
+            bytecode::Instruction::UnpackSequence(size) => self.unpack_sequence(size.get(arg), vm),
+            bytecode::Instruction::UnpackEx(args) => {
                 let args = args.get(arg);
                 self.execute_unpack_ex(vm, args.before, args.after)
             }
-            bytecode::Instruction::FormatValue { conversion } => {
+            bytecode::Instruction::FormatValue(conversion) => {
                 self.format_value(conversion.get(arg), vm)
             }
             bytecode::Instruction::PopException => {
@@ -1323,7 +1320,7 @@ impl ExecutingFrame<'_> {
                     self.fatal("block type must be ExceptHandler here.")
                 }
             }
-            bytecode::Instruction::Reverse { amount } => {
+            bytecode::Instruction::Reverse(amount) => {
                 let stack_len = self.state.stack.len();
                 self.state.stack[stack_len - amount.get(arg) as usize..stack_len].reverse();
                 Ok(None)
