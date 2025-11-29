@@ -24,11 +24,14 @@ impl PyCPointerType {
         if n < 0 {
             return Err(vm.new_value_error(format!("Array length must be >= 0, not {n}")));
         }
+        // Pointer size
+        let element_size = std::mem::size_of::<usize>();
         Ok(PyCArrayType {
             inner: PyCArray {
                 typ: PyRwLock::new(cls),
                 length: AtomicCell::new(n as usize),
-                value: PyRwLock::new(vm.ctx.none()),
+                element_size: AtomicCell::new(element_size),
+                buffer: PyRwLock::new(vec![]),
             },
         }
         .to_pyobject(vm))
