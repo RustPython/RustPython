@@ -65,6 +65,7 @@ pub(crate) mod _ctypes {
     #[derive(Debug, PyPayload)]
     pub struct CArgObject {
         pub obj: PyObjectRef,
+        #[allow(dead_code)]
         pub offset: isize,
     }
 

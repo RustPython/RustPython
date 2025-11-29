@@ -174,6 +174,7 @@ impl AsNumber for PyCStructType {
 }
 
 /// Structure field info stored in instance
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct FieldInfo {
     pub name: String,
@@ -194,6 +195,7 @@ pub struct PyCStructure {
     /// Raw memory buffer for the structure
     pub(super) buffer: PyRwLock<Vec<u8>>,
     /// Field information (name -> FieldInfo)
+    #[allow(dead_code)]
     pub(super) fields: PyRwLock<HashMap<String, FieldInfo>>,
     /// Total size of the structure
     pub(super) size: AtomicCell<usize>,
@@ -299,58 +301,6 @@ impl Constructor for PyCStructure {
 
 // Note: GetAttr and SetAttr are not implemented here.
 // Field access is handled by CField descriptors registered on the class.
-
-impl PyCStructure {
-    /// Convert bytes to a Python value
-    fn bytes_to_value(bytes: &[u8], _type_ref: &PyTypeRef, vm: &VirtualMachine) -> PyResult {
-        match bytes.len() {
-            1 => Ok(vm.ctx.new_int(bytes[0] as i8).into()),
-            2 => {
-                let val = i16::from_ne_bytes([bytes[0], bytes[1]]);
-                Ok(vm.ctx.new_int(val).into())
-            }
-            4 => {
-                let val = i32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-                Ok(vm.ctx.new_int(val).into())
-            }
-            8 => {
-                let val = i64::from_ne_bytes([
-                    bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-                ]);
-                Ok(vm.ctx.new_int(val).into())
-            }
-            _ => Ok(vm.ctx.new_int(0).into()),
-        }
-    }
-
-    /// Convert a Python value to bytes
-    fn value_to_bytes(value: &PyObjectRef, size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        if let Ok(int_val) = value.try_int(vm) {
-            let i = int_val.as_bigint();
-            match size {
-                1 => {
-                    let val = i.to_i8().unwrap_or(0);
-                    Ok(val.to_ne_bytes().to_vec())
-                }
-                2 => {
-                    let val = i.to_i16().unwrap_or(0);
-                    Ok(val.to_ne_bytes().to_vec())
-                }
-                4 => {
-                    let val = i.to_i32().unwrap_or(0);
-                    Ok(val.to_ne_bytes().to_vec())
-                }
-                8 => {
-                    let val = i.to_i64().unwrap_or(0);
-                    Ok(val.to_ne_bytes().to_vec())
-                }
-                _ => Ok(vec![0u8; size]),
-            }
-        } else {
-            Ok(vec![0u8; size])
-        }
-    }
-}
 
 #[pyclass(flags(BASETYPE, IMMUTABLETYPE), with(Constructor))]
 impl PyCStructure {
