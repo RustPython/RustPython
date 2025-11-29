@@ -550,42 +550,42 @@ pub type NameIdx = u32;
 #[repr(u8)]
 pub enum Instruction {
     BeforeAsyncWith,
-    BinaryOperation(Arg<BinaryOperator>),
-    BinaryOperationInplace(Arg<BinaryOperator>),
+    BinaryOperation(Arg<BinaryOperator>),        // op
+    BinaryOperationInplace(Arg<BinaryOperator>), // op
     BinarySubscript,
-    Break(Arg<Label>),
-    BuildList(Arg<u32>),
-    BuildListFromTuples(Arg<u32>),
-    BuildMap(Arg<u32>),
-    BuildMapForCall(Arg<u32>),
-    BuildSet(Arg<u32>),
-    BuildSetFromTuples(Arg<u32>),
+    Break(Arg<Label>),             // target
+    BuildList(Arg<u32>),           // size
+    BuildListFromTuples(Arg<u32>), // size
+    BuildMap(Arg<u32>),            // size
+    BuildMapForCall(Arg<u32>),     // size
+    BuildSet(Arg<u32>),            // size
+    BuildSetFromTuples(Arg<u32>),  // size
     /// When holds `true` it will build a slice with a third step argument.
-    BuildSlice(Arg<bool>),
-    BuildString(Arg<u32>),
-    BuildTuple(Arg<u32>),
+    BuildSlice(Arg<bool>), // step
+    BuildString(Arg<u32>),         // size
+    BuildTuple(Arg<u32>),          // size
     BuildTupleFromIter,
-    BuildTupleFromTuples(Arg<u32>),
+    BuildTupleFromTuples(Arg<u32>), // size
     CallFunctionEx(Arg<bool>),
     CallFunctionKeyword(Arg<u32>),
     CallFunctionPositional(Arg<u32>),
     CallIntrinsic1(Arg<IntrinsicFunction1>),
     CallIntrinsic2(Arg<IntrinsicFunction2>),
-    CallMethodEx(Arg<bool>),
-    CallMethodKeyword(Arg<u32>),
-    CallMethodPositional(Arg<u32>),
-    CompareOperation(Arg<ComparisonOperator>),
+    CallMethodEx(Arg<bool>),                   // has_kwargs
+    CallMethodKeyword(Arg<u32>),               // nargs
+    CallMethodPositional(Arg<u32>),            // nargs
+    CompareOperation(Arg<ComparisonOperator>), // op
     /// Performs `in` comparison, or `not in` if `invert` is 1.
     ContainsOp(Arg<Invert>),
-    Continue(Arg<Label>),
-    CopyItem(Arg<u32>),
-    DeleteAttr(Arg<NameIdx>),
+    Continue(Arg<Label>),     // target
+    CopyItem(Arg<u32>),       // index
+    DeleteAttr(Arg<NameIdx>), // idx
     DeleteDeref(Arg<NameIdx>),
     DeleteFast(Arg<NameIdx>),
     DeleteGlobal(Arg<NameIdx>),
     DeleteLocal(Arg<NameIdx>),
     DeleteSubscript,
-    DictUpdate(Arg<u32>),
+    DictUpdate(Arg<u32>), // index
     EndAsyncFor,
     /// Marker bytecode for the end of a finally sequence.
     /// When this bytecode is executed, the eval loop does one of those things:
@@ -597,7 +597,7 @@ pub enum Instruction {
     /// Enter a finally block, without returning, excepting, just because we are there.
     EnterFinally,
     ExtendedArg,
-    ForIter(Arg<Label>),
+    ForIter(Arg<Label>), // target
     FormatValue(Arg<ConversionFlag>),
     GetAIter,
     GetANext,
@@ -605,35 +605,35 @@ pub enum Instruction {
     GetIter,
     GetLen,
     /// from ... import ...
-    ImportFrom(Arg<NameIdx>),
+    ImportFrom(Arg<NameIdx>), // idx
     /// Importing by name
-    ImportName(Arg<NameIdx>),
+    ImportName(Arg<NameIdx>), // idx
     /// Importing without name
     ImportNameless,
     /// Performs `is` comparison, or `is not` if `invert` is 1.
     IsOp(Arg<Invert>),
-    Jump(Arg<Label>),
+    Jump(Arg<Label>), // target
     /// Peek at the top of the stack, and jump if this value is false.
     /// Otherwise, pop top of stack.
-    JumpIfFalseOrPop(Arg<Label>),
+    JumpIfFalseOrPop(Arg<Label>), // target
     /// Performs exception matching for except.
     /// Tests whether the STACK[-2] is an exception matching STACK[-1].
     /// Pops STACK[-1] and pushes the boolean result of the test.
-    JumpIfNotExcMatch(Arg<Label>),
+    JumpIfNotExcMatch(Arg<Label>), // target
     /// Peek at the top of the stack, and jump if this value is true.
     /// Otherwise, pop top of stack.
-    JumpIfTrueOrPop(Arg<Label>),
+    JumpIfTrueOrPop(Arg<Label>), // target
     ListAppend(Arg<u32>),
-    LoadAttr(Arg<NameIdx>),
+    LoadAttr(Arg<NameIdx>), // idx
     LoadBuildClass,
     LoadClassDeref(Arg<NameIdx>),
     LoadClosure(Arg<NameIdx>),
     /// Holds an index into constants vec.
-    LoadConst(Arg<u32>),
+    LoadConst(Arg<u32>), // idx
     LoadDeref(Arg<NameIdx>),
     LoadFast(Arg<NameIdx>),
     LoadGlobal(Arg<NameIdx>),
-    LoadMethod(Arg<NameIdx>),
+    LoadMethod(Arg<NameIdx>), // idx
     LoadNameAny(Arg<NameIdx>),
     MakeFunction,
     MapAdd(Arg<u32>),
@@ -646,40 +646,40 @@ pub enum Instruction {
     PopBlock,
     PopException,
     /// Pop the top of the stack, and jump if this value is false.
-    PopJumpIfFalse(Arg<Label>),
+    PopJumpIfFalse(Arg<Label>), // target
     /// Pop the top of the stack, and jump if this value is true.
-    PopJumpIfTrue(Arg<Label>),
+    PopJumpIfTrue(Arg<Label>), // target
     PrintExpr,
     Raise(Arg<RaiseKind>),
     /// Resume execution (e.g., at function start, after yield, etc.)
     Resume(Arg<u32>),
-    ReturnConst(Arg<u32>),
+    ReturnConst(Arg<u32>), // idx
     ReturnValue,
-    Reverse(Arg<u32>),
+    Reverse(Arg<u32>), // amount
     SetAdd(Arg<u32>),
-    SetFunctionAttribute(Arg<MakeFunctionFlags>),
+    SetFunctionAttribute(Arg<MakeFunctionFlags>), // attr
     SetupAnnotation,
-    SetupAsyncWith(Arg<Label>),
-    SetupExcept(Arg<Label>),
+    SetupAsyncWith(Arg<Label>), // end
+    SetupExcept(Arg<Label>),    // handler
     /// Setup a finally handler, which will be called whenever one of this events occurs:
     /// - the block is popped
     /// - the function returns
     /// - an exception is returned
-    SetupFinally(Arg<Label>),
+    SetupFinally(Arg<Label>), // handler
     SetupLoop,
-    SetupWith(Arg<Label>),
-    StoreAttr(Arg<NameIdx>),
+    SetupWith(Arg<Label>),   // end
+    StoreAttr(Arg<NameIdx>), // idx
     StoreDeref(Arg<NameIdx>),
     StoreFast(Arg<NameIdx>),
     StoreGlobal(Arg<NameIdx>),
     StoreLocal(Arg<NameIdx>),
     StoreSubscript,
     Subscript,
-    Swap(Arg<u32>),
+    Swap(Arg<u32>), // index
     ToBool,
     UnaryOperation(Arg<UnaryOperator>),
-    UnpackEx(Arg<UnpackExArgs>),
-    UnpackSequence(Arg<u32>),
+    UnpackEx(Arg<UnpackExArgs>), // args
+    UnpackSequence(Arg<u32>),    // size
     WithCleanupFinish,
     WithCleanupStart,
     YieldFrom,
