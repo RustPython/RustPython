@@ -50,6 +50,7 @@ stackdepth
 stringlib
 structseq
 subparams
+swappedbytes
 ticketer
 tok_oldval
 tvars

@@ -5,9 +5,10 @@ use crate::convert::ToPyObject;
 use crate::function::FuncArgs;
 use crate::stdlib::ctypes::PyCData;
 use crate::stdlib::ctypes::base::{PyCSimple, ffi_type_from_str};
+use crate::stdlib::ctypes::thunk::PyCThunk;
 use crate::types::Representable;
 use crate::types::{Callable, Constructor};
-use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
+use crate::{AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
 use crossbeam_utils::atomic::AtomicCell;
 use libffi::middle::{Arg, Cif, CodePtr, Type};
 use libloading::Symbol;
@@ -76,10 +77,73 @@ impl ReturnType for PyTypeRef {
 
     fn from_ffi_type(
         &self,
-        _value: *mut ffi::c_void,
-        _vm: &VirtualMachine,
+        value: *mut ffi::c_void,
+        vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        todo!()
+        // Get the type code from _type_ attribute
+        let type_code = self
+            .get_class_attr(vm.ctx.intern_str("_type_"))
+            .and_then(|t| t.downcast_ref::<PyStr>().map(|s| s.to_string()));
+
+        let result = match type_code.as_deref() {
+            Some("b") => vm
+                .ctx
+                .new_int(unsafe { *(value as *const i8) } as i32)
+                .into(),
+            Some("B") => vm
+                .ctx
+                .new_int(unsafe { *(value as *const u8) } as i32)
+                .into(),
+            Some("c") => vm
+                .ctx
+                .new_bytes(vec![unsafe { *(value as *const u8) }])
+                .into(),
+            Some("h") => vm
+                .ctx
+                .new_int(unsafe { *(value as *const i16) } as i32)
+                .into(),
+            Some("H") => vm
+                .ctx
+                .new_int(unsafe { *(value as *const u16) } as i32)
+                .into(),
+            Some("i") => vm.ctx.new_int(unsafe { *(value as *const i32) }).into(),
+            Some("I") => vm.ctx.new_int(unsafe { *(value as *const u32) }).into(),
+            Some("l") => vm
+                .ctx
+                .new_int(unsafe { *(value as *const libc::c_long) })
+                .into(),
+            Some("L") => vm
+                .ctx
+                .new_int(unsafe { *(value as *const libc::c_ulong) })
+                .into(),
+            Some("q") => vm
+                .ctx
+                .new_int(unsafe { *(value as *const libc::c_longlong) })
+                .into(),
+            Some("Q") => vm
+                .ctx
+                .new_int(unsafe { *(value as *const libc::c_ulonglong) })
+                .into(),
+            Some("f") => vm
+                .ctx
+                .new_float(unsafe { *(value as *const f32) } as f64)
+                .into(),
+            Some("d") => vm.ctx.new_float(unsafe { *(value as *const f64) }).into(),
+            Some("P") | Some("z") | Some("Z") => vm.ctx.new_int(value as usize).into(),
+            Some("?") => vm
+                .ctx
+                .new_bool(unsafe { *(value as *const u8) } != 0)
+                .into(),
+            None => {
+                // No _type_ attribute, try to create an instance of the type
+                // This handles cases like Structure or Array return types
+                return Ok(Some(
+                    vm.ctx.new_int(unsafe { *(value as *const i32) }).into(),
+                ));
+            }
+            _ => return Err(vm.new_type_error("Unsupported return type".to_string())),
+        };
+        Ok(Some(result))
     }
 }
 
@@ -219,6 +283,49 @@ impl Constructor for PyCFuncPtr {
             .map(Into::into);
         }
 
+        // Check if first argument is a Python callable (callback creation)
+        if first_arg.is_callable() {
+            // Get argument types and result type from the class
+            let argtypes = cls.get_attr(vm.ctx.intern_str("_argtypes_"));
+            let restype = cls.get_attr(vm.ctx.intern_str("_restype_"));
+
+            // Create the thunk (C-callable wrapper for the Python function)
+            let thunk = PyCThunk::new(first_arg.clone(), argtypes.clone(), restype.clone(), vm)?;
+            let code_ptr = thunk.code_ptr();
+
+            // Parse argument types for storage
+            let arg_type_vec: Option<Vec<PyTypeRef>> = if let Some(ref args) = argtypes {
+                if vm.is_none(args) {
+                    None
+                } else {
+                    let mut types = Vec::new();
+                    for item in args.try_to_value::<Vec<PyObjectRef>>(vm)? {
+                        types.push(item.downcast::<PyType>().map_err(|_| {
+                            vm.new_type_error("_argtypes_ must be a sequence of types".to_string())
+                        })?);
+                    }
+                    Some(types)
+                }
+            } else {
+                None
+            };
+
+            // Store the thunk as a Python object to keep it alive
+            let thunk_ref: PyRef<PyCThunk> = thunk.into_ref(&vm.ctx);
+
+            return Self {
+                ptr: PyRwLock::new(Some(code_ptr)),
+                needs_free: AtomicCell::new(true),
+                arg_types: PyRwLock::new(arg_type_vec),
+                _flags_: AtomicCell::new(0),
+                res_type: PyRwLock::new(restype),
+                name: PyRwLock::new(Some("<callback>".to_string())),
+                handler: thunk_ref.into(),
+            }
+            .into_ref_with_type(vm, cls)
+            .map(Into::into);
+        }
+
         Err(vm.new_type_error("Expected an integer address or a tuple"))
     }
 }
@@ -246,7 +353,8 @@ impl Callable for PyCFuncPtr {
         let return_type = zelf.res_type.read();
         let ffi_return_type = return_type
             .as_ref()
-            .and_then(|t| ReturnType::to_ffi_type(&t.clone().downcast::<PyType>().unwrap()))
+            .and_then(|t| t.clone().downcast::<PyType>().ok())
+            .and_then(|t| ReturnType::to_ffi_type(&t))
             .unwrap_or_else(Type::i32);
         let cif = Cif::new(ffi_arg_types, ffi_return_type);
 
@@ -269,14 +377,8 @@ impl Callable for PyCFuncPtr {
         let mut output: c_void = unsafe { cif.call(*code_ptr, &ffi_args) };
         let return_type = return_type
             .as_ref()
-            .map(|f| {
-                f.clone()
-                    .downcast::<PyType>()
-                    .unwrap()
-                    .from_ffi_type(&mut output, vm)
-                    .ok()
-                    .flatten()
-            })
+            .and_then(|f| f.clone().downcast::<PyType>().ok())
+            .map(|f| f.from_ffi_type(&mut output, vm).ok().flatten())
             .unwrap_or_else(|| Some(vm.ctx.new_int(output as i32).as_object().to_pyobject(vm)));
         if let Some(return_type) = return_type {
             Ok(return_type)
