@@ -12,8 +12,9 @@ pub(crate) mod union;
 
 use crate::builtins::PyModule;
 use crate::class::PyClassImpl;
-use crate::stdlib::ctypes::base::{PyCData, PyCSimple, PyCSimpleType};
 use crate::{Py, PyRef, VirtualMachine};
+
+pub use crate::stdlib::ctypes::base::{CDataObject, PyCData, PyCSimple, PyCSimpleType};
 
 pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
     let ctx = &vm.ctx;
@@ -621,5 +622,54 @@ pub(crate) mod _ctypes {
     fn _cast_addr(_vm: &VirtualMachine) -> usize {
         // todo!("Implement _cast_addr")
         0
+    }
+
+    #[pyfunction(name = "_cast")]
+    pub fn pycfunction_cast(
+        obj: PyObjectRef,
+        _obj2: PyObjectRef,
+        ctype: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        use super::array::PyCArray;
+        use super::base::PyCData;
+        use super::pointer::PyCPointer;
+        use crate::class::StaticType;
+
+        // Python signature: _cast(obj, obj, ctype)
+        // Python passes the same object twice (obj and _obj2 are the same)
+        // We ignore _obj2 as it's redundant
+
+        // Check if this is a pointer type (has _type_ attribute)
+        if ctype.get_attr("_type_", vm).is_err() {
+            return Err(vm.new_type_error("cast() argument 2 must be a pointer type".to_string()));
+        }
+
+        // Create an instance of the target pointer type with no arguments
+        let result = ctype.call((), vm)?;
+
+        // Get the pointer value from the source object
+        // If obj is a CData instance (including arrays), use the object itself
+        // If obj is an integer, use it directly as the pointer value
+        let ptr_value: PyObjectRef = if obj.fast_isinstance(PyCData::static_type())
+            || obj.fast_isinstance(PyCArray::static_type())
+            || obj.fast_isinstance(PyCPointer::static_type())
+        {
+            // For CData objects (including arrays and pointers), store the object itself
+            obj.clone()
+        } else if let Ok(int_val) = obj.try_int(vm) {
+            // For integers, treat as pointer address
+            vm.ctx.new_int(int_val.as_bigint().clone()).into()
+        } else {
+            return Err(vm.new_type_error(format!(
+                "cast() argument 1 must be a ctypes instance or an integer, not {}",
+                obj.class().name()
+            )));
+        };
+
+        // Set the contents of the pointer by setting the attribute
+        result.set_attr("contents", ptr_value, vm)?;
+
+        Ok(result)
     }
 }

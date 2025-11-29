@@ -301,6 +301,11 @@ impl Constructor for PyCStructure {
 #[pyclass(flags(BASETYPE, IMMUTABLETYPE), with(Constructor))]
 impl PyCStructure {
     #[pygetset]
+    fn _objects(&self) -> Option<PyObjectRef> {
+        self.cdata.read().objects.clone()
+    }
+
+    #[pygetset]
     fn _fields_(&self, vm: &VirtualMachine) -> PyObjectRef {
         // Return the _fields_ from the class, not instance
         vm.ctx.none()

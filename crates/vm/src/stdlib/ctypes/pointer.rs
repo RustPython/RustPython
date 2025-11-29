@@ -5,9 +5,8 @@ use rustpython_common::lock::PyRwLock;
 use crate::builtins::{PyType, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::protocol::PyNumberMethods;
-use crate::stdlib::ctypes::PyCData;
-use crate::stdlib::ctypes::base::CDataObject;
-use crate::types::AsNumber;
+use crate::stdlib::ctypes::{CDataObject, PyCData};
+use crate::types::{AsNumber, Constructor};
 use crate::{AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 
 #[pyclass(name = "PyCPointerType", base = PyType, module = "_ctypes")]
@@ -70,7 +69,23 @@ pub struct PyCPointer {
     contents: PyRwLock<PyObjectRef>,
 }
 
-#[pyclass(flags(BASETYPE, IMMUTABLETYPE))]
+impl Constructor for PyCPointer {
+    type Args = (crate::function::OptionalArg<PyObjectRef>,);
+
+    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        // Get the initial contents value if provided
+        let initial_contents = args.0.into_option().unwrap_or_else(|| vm.ctx.none());
+
+        // Create a new PyCPointer instance with the provided value
+        PyCPointer {
+            contents: PyRwLock::new(initial_contents),
+        }
+        .into_ref_with_type(vm, cls)
+        .map(Into::into)
+    }
+}
+
+#[pyclass(flags(BASETYPE, IMMUTABLETYPE), with(Constructor))]
 impl PyCPointer {
     // TODO: not correct
     #[pygetset]
@@ -79,8 +94,25 @@ impl PyCPointer {
         Ok(contents)
     }
     #[pygetset(setter)]
-    fn set_contents(&self, contents: PyObjectRef) -> PyResult<()> {
+    fn set_contents(&self, contents: PyObjectRef, _vm: &VirtualMachine) -> PyResult<()> {
+        // Validate that the contents is a CData instance if we have a _type_
+        // For now, just store it
         *self.contents.write() = contents;
+        Ok(())
+    }
+
+    #[pymethod]
+    fn __init__(
+        &self,
+        value: crate::function::OptionalArg<PyObjectRef>,
+        _vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        // Pointer can be initialized with 0 or 1 argument
+        // If 1 argument is provided, it should be a CData instance
+        if let crate::function::OptionalArg::Present(val) = value {
+            *self.contents.write() = val;
+        }
+
         Ok(())
     }
 

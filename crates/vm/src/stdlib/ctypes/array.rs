@@ -245,6 +245,11 @@ impl AsSequence for PyCArray {
     with(Constructor, AsSequence, AsBuffer)
 )]
 impl PyCArray {
+    #[pygetset]
+    fn _objects(&self) -> Option<PyObjectRef> {
+        self.cdata.read().objects.clone()
+    }
+
     fn int_to_bytes(i: &malachite_bigint::BigInt, size: usize) -> Vec<u8> {
         match size {
             1 => vec![i.to_i8().unwrap_or(0) as u8],

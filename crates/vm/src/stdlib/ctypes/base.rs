@@ -483,6 +483,11 @@ impl Constructor for PyCSimple {
 
 #[pyclass(flags(BASETYPE), with(Constructor, AsBuffer))]
 impl PyCSimple {
+    #[pygetset]
+    fn _objects(&self) -> Option<PyObjectRef> {
+        self.cdata.read().objects.clone()
+    }
+
     #[pygetset(name = "value")]
     pub fn value(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let zelf: &Py<Self> = instance
