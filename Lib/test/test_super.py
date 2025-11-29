@@ -162,8 +162,6 @@ class TestSuper(unittest.TestCase):
 
         self.assertIs(test_class, A)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test___class___delayed(self):
         # See issue #23722
         test_namespace = None
@@ -236,8 +234,6 @@ class TestSuper(unittest.TestCase):
         with self.assertRaises(AttributeError):
             WithClassRef.__classcell__
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test___classcell___missing(self):
         # See issue #23722
         # Some metaclasses may not pass the original namespace to type.__new__

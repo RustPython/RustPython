@@ -479,8 +479,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertEqual(a[2], 102)
         self.assertEqual(a[100:200], (100,200))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_metaclass(self):
         # Testing metaclasses...
         class C(metaclass=type):
