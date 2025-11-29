@@ -1,12 +1,13 @@
-use super::base::PyCData;
+use super::base::{CDataObject, PyCData};
 use super::field::PyCField;
+use super::util::StgInfo;
 use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::function::FuncArgs;
-use crate::protocol::PyNumberMethods;
+use crate::protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyNumberMethods};
 use crate::stdlib::ctypes::_ctypes::get_size;
-use crate::types::{AsNumber, Constructor};
-use crate::{AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
+use crate::types::{AsBuffer, AsNumber, Constructor};
+use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use crossbeam_utils::atomic::AtomicCell;
 use indexmap::IndexMap;
 use num_traits::ToPrimitive;
@@ -16,7 +17,10 @@ use std::fmt::Debug;
 /// PyCStructType - metaclass for Structure
 #[pyclass(name = "PyCStructType", base = PyType, module = "_ctypes")]
 #[derive(Debug, PyPayload)]
-pub struct PyCStructType {}
+pub struct PyCStructType {
+    #[allow(dead_code)]
+    pub stg_info: StgInfo,
+}
 
 impl Constructor for PyCStructType {
     type Args = FuncArgs;
@@ -92,10 +96,10 @@ impl PyCStructType {
             let size = Self::get_field_size(&field_type, vm)?;
 
             // Create CField descriptor (accepts any ctypes type including arrays)
-            let cfield = PyCField::new(name.clone(), field_type, offset, size, index);
+            let c_field = PyCField::new(name.clone(), field_type, offset, size, index);
 
             // Set the CField as a class attribute
-            cls.set_attr(vm.ctx.intern_str(name), cfield.to_pyobject(vm));
+            cls.set_attr(vm.ctx.intern_str(name), c_field.to_pyobject(vm));
 
             offset += size;
         }
@@ -133,22 +137,46 @@ impl PyCStructType {
         Ok(std::mem::size_of::<usize>())
     }
 
+    /// Get the alignment of a ctypes type
+    fn get_field_align(field_type: &PyObjectRef, vm: &VirtualMachine) -> usize {
+        // Try to get _type_ attribute for simple types
+        if let Some(align) = field_type
+            .get_attr("_type_", vm)
+            .ok()
+            .and_then(|type_attr| type_attr.str(vm).ok())
+            .and_then(|type_str| {
+                let s = type_str.to_string();
+                (s.len() == 1).then(|| get_size(&s)) // alignment == size for simple types
+            })
+        {
+            return align;
+        }
+        // Default alignment
+        1
+    }
+
     #[pymethod]
     fn __mul__(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
-        use super::array::{PyCArray, PyCArrayType};
+        use super::array::PyCArrayType;
+        use crate::stdlib::ctypes::_ctypes::size_of;
+
         if n < 0 {
             return Err(vm.new_value_error(format!("Array length must be >= 0, not {n}")));
         }
-        // TODO: Calculate element size properly
-        // For structures, element size is the structure size (sum of field sizes)
-        let element_size = std::mem::size_of::<usize>(); // Default, should calculate from fields
+
+        // Calculate element size from the Structure type
+        let element_size = size_of(cls.clone().into(), vm)?;
+
+        let total_size = element_size
+            .checked_mul(n as usize)
+            .ok_or_else(|| vm.new_overflow_error("array size too large".to_owned()))?;
+        let mut stg_info = super::util::StgInfo::new(total_size, element_size);
+        stg_info.length = n as usize;
         Ok(PyCArrayType {
-            inner: PyCArray {
-                typ: PyRwLock::new(cls),
-                length: AtomicCell::new(n as usize),
-                element_size: AtomicCell::new(element_size),
-                buffer: PyRwLock::new(vec![]),
-            },
+            stg_info,
+            typ: PyRwLock::new(cls.clone().into()),
+            length: AtomicCell::new(n as usize),
+            element_size: AtomicCell::new(element_size),
         }
         .to_pyobject(vm))
     }
@@ -193,19 +221,17 @@ pub struct FieldInfo {
 )]
 #[derive(PyPayload)]
 pub struct PyCStructure {
-    /// Raw memory buffer for the structure
-    pub(super) buffer: PyRwLock<Vec<u8>>,
+    /// Common CDataObject for memory buffer
+    pub(super) cdata: PyRwLock<CDataObject>,
     /// Field information (name -> FieldInfo)
     #[allow(dead_code)]
     pub(super) fields: PyRwLock<IndexMap<String, FieldInfo>>,
-    /// Total size of the structure
-    pub(super) size: AtomicCell<usize>,
 }
 
 impl Debug for PyCStructure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PyCStructure")
-            .field("size", &self.size.load())
+            .field("size", &self.cdata.read().size())
             .finish()
     }
 }
@@ -219,6 +245,7 @@ impl Constructor for PyCStructure {
 
         let mut fields_map = IndexMap::new();
         let mut total_size = 0usize;
+        let mut max_align = 1usize;
 
         if let Some(fields_attr) = fields_attr {
             let fields: Vec<PyObjectRef> = if let Some(list) = fields_attr.downcast_ref::<PyList>()
@@ -244,6 +271,8 @@ impl Constructor for PyCStructure {
                 let name = name.to_string();
                 let field_type = field_tuple.get(1).unwrap().clone();
                 let size = PyCStructType::get_field_size(&field_type, vm)?;
+                let field_align = PyCStructType::get_field_align(&field_type, vm);
+                max_align = max_align.max(field_align);
 
                 let type_ref = field_type
                     .downcast::<PyType>()
@@ -265,12 +294,11 @@ impl Constructor for PyCStructure {
         }
 
         // Initialize buffer with zeros
-        let buffer = vec![0u8; total_size];
-
+        let mut stg_info = StgInfo::new(total_size, max_align);
+        stg_info.length = fields_map.len();
         let instance = PyCStructure {
-            buffer: PyRwLock::new(buffer),
+            cdata: PyRwLock::new(CDataObject::from_stg_info(&stg_info)),
             fields: PyRwLock::new(fields_map.clone()),
-            size: AtomicCell::new(total_size),
         };
 
         // Handle keyword arguments for field initialization
@@ -306,8 +334,169 @@ impl Constructor for PyCStructure {
 #[pyclass(flags(BASETYPE, IMMUTABLETYPE), with(Constructor))]
 impl PyCStructure {
     #[pygetset]
+    fn _objects(&self) -> Option<PyObjectRef> {
+        self.cdata.read().objects.clone()
+    }
+
+    #[pygetset]
     fn _fields_(&self, vm: &VirtualMachine) -> PyObjectRef {
         // Return the _fields_ from the class, not instance
         vm.ctx.none()
+    }
+
+    #[pyclassmethod]
+    fn from_address(cls: PyTypeRef, address: isize, vm: &VirtualMachine) -> PyResult {
+        use crate::stdlib::ctypes::_ctypes::size_of;
+
+        // Get size from cls
+        let size = size_of(cls.clone().into(), vm)?;
+
+        // Read data from address
+        if address == 0 || size == 0 {
+            return Err(vm.new_value_error("NULL pointer access".to_owned()));
+        }
+        let data = unsafe {
+            let ptr = address as *const u8;
+            std::slice::from_raw_parts(ptr, size).to_vec()
+        };
+
+        // Create instance
+        Ok(PyCStructure {
+            cdata: PyRwLock::new(CDataObject::from_bytes(data, None)),
+            fields: PyRwLock::new(IndexMap::new()),
+        }
+        .into_ref_with_type(vm, cls)?
+        .into())
+    }
+
+    #[pyclassmethod]
+    fn from_buffer(
+        cls: PyTypeRef,
+        source: PyObjectRef,
+        offset: crate::function::OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        use crate::TryFromObject;
+        use crate::protocol::PyBuffer;
+        use crate::stdlib::ctypes::_ctypes::size_of;
+
+        let offset = offset.unwrap_or(0);
+        if offset < 0 {
+            return Err(vm.new_value_error("offset cannot be negative".to_owned()));
+        }
+        let offset = offset as usize;
+
+        // Get buffer from source
+        let buffer = PyBuffer::try_from_object(vm, source.clone())?;
+
+        // Check if buffer is writable
+        if buffer.desc.readonly {
+            return Err(vm.new_type_error("underlying buffer is not writable".to_owned()));
+        }
+
+        // Get size from cls
+        let size = size_of(cls.clone().into(), vm)?;
+
+        // Check if buffer is large enough
+        let buffer_len = buffer.desc.len;
+        if offset + size > buffer_len {
+            return Err(vm.new_value_error(format!(
+                "Buffer size too small ({} instead of at least {} bytes)",
+                buffer_len,
+                offset + size
+            )));
+        }
+
+        // Read bytes from buffer at offset
+        let bytes = buffer.obj_bytes();
+        let data = bytes[offset..offset + size].to_vec();
+
+        // Create instance
+        Ok(PyCStructure {
+            cdata: PyRwLock::new(CDataObject::from_bytes(data, Some(source))),
+            fields: PyRwLock::new(IndexMap::new()),
+        }
+        .into_ref_with_type(vm, cls)?
+        .into())
+    }
+
+    #[pyclassmethod]
+    fn from_buffer_copy(
+        cls: PyTypeRef,
+        source: crate::function::ArgBytesLike,
+        offset: crate::function::OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        use crate::stdlib::ctypes::_ctypes::size_of;
+
+        let offset = offset.unwrap_or(0);
+        if offset < 0 {
+            return Err(vm.new_value_error("offset cannot be negative".to_owned()));
+        }
+        let offset = offset as usize;
+
+        // Get size from cls
+        let size = size_of(cls.clone().into(), vm)?;
+
+        // Borrow bytes from source
+        let source_bytes = source.borrow_buf();
+        let buffer_len = source_bytes.len();
+
+        // Check if buffer is large enough
+        if offset + size > buffer_len {
+            return Err(vm.new_value_error(format!(
+                "Buffer size too small ({} instead of at least {} bytes)",
+                buffer_len,
+                offset + size
+            )));
+        }
+
+        // Copy bytes from buffer at offset
+        let data = source_bytes[offset..offset + size].to_vec();
+
+        // Create instance
+        Ok(PyCStructure {
+            cdata: PyRwLock::new(CDataObject::from_bytes(data, None)),
+            fields: PyRwLock::new(IndexMap::new()),
+        }
+        .into_ref_with_type(vm, cls)?
+        .into())
+    }
+}
+
+static STRUCTURE_BUFFER_METHODS: BufferMethods = BufferMethods {
+    obj_bytes: |buffer| {
+        rustpython_common::lock::PyMappedRwLockReadGuard::map(
+            rustpython_common::lock::PyRwLockReadGuard::map(
+                buffer.obj_as::<PyCStructure>().cdata.read(),
+                |x: &CDataObject| x,
+            ),
+            |x: &CDataObject| x.buffer.as_slice(),
+        )
+        .into()
+    },
+    obj_bytes_mut: |buffer| {
+        rustpython_common::lock::PyMappedRwLockWriteGuard::map(
+            rustpython_common::lock::PyRwLockWriteGuard::map(
+                buffer.obj_as::<PyCStructure>().cdata.write(),
+                |x: &mut CDataObject| x,
+            ),
+            |x: &mut CDataObject| x.buffer.as_mut_slice(),
+        )
+        .into()
+    },
+    release: |_| {},
+    retain: |_| {},
+};
+
+impl AsBuffer for PyCStructure {
+    fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        let buffer_len = zelf.cdata.read().buffer.len();
+        let buf = PyBuffer::new(
+            zelf.to_owned().into(),
+            BufferDescriptor::simple(buffer_len, false), // readonly=false for ctypes
+            &STRUCTURE_BUFFER_METHODS,
+        );
+        Ok(buf)
     }
 }

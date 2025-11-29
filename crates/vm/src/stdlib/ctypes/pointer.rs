@@ -6,33 +6,36 @@ use crate::builtins::{PyType, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::protocol::PyNumberMethods;
 use crate::stdlib::ctypes::PyCData;
-use crate::types::AsNumber;
-use crate::{PyObjectRef, PyResult, VirtualMachine};
+use crate::types::{AsNumber, Constructor};
+use crate::{AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
+
+use super::util::StgInfo;
 
 #[pyclass(name = "PyCPointerType", base = PyType, module = "_ctypes")]
 #[derive(PyPayload, Debug)]
 pub struct PyCPointerType {
     #[allow(dead_code)]
-    pub(crate) inner: PyCPointer,
+    pub stg_info: StgInfo,
 }
 
 #[pyclass(flags(IMMUTABLETYPE), with(AsNumber))]
 impl PyCPointerType {
     #[pymethod]
     fn __mul__(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
-        use super::array::{PyCArray, PyCArrayType};
+        use super::array::PyCArrayType;
         if n < 0 {
             return Err(vm.new_value_error(format!("Array length must be >= 0, not {n}")));
         }
         // Pointer size
         let element_size = std::mem::size_of::<usize>();
+        let total_size = element_size * (n as usize);
+        let mut stg_info = super::util::StgInfo::new(total_size, element_size);
+        stg_info.length = n as usize;
         Ok(PyCArrayType {
-            inner: PyCArray {
-                typ: PyRwLock::new(cls),
-                length: AtomicCell::new(n as usize),
-                element_size: AtomicCell::new(element_size),
-                buffer: PyRwLock::new(vec![]),
-            },
+            stg_info,
+            typ: PyRwLock::new(cls.as_object().to_owned()),
+            length: AtomicCell::new(n as usize),
+            element_size: AtomicCell::new(element_size),
         }
         .to_pyobject(vm))
     }
@@ -69,7 +72,23 @@ pub struct PyCPointer {
     contents: PyRwLock<PyObjectRef>,
 }
 
-#[pyclass(flags(BASETYPE, IMMUTABLETYPE))]
+impl Constructor for PyCPointer {
+    type Args = (crate::function::OptionalArg<PyObjectRef>,);
+
+    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        // Get the initial contents value if provided
+        let initial_contents = args.0.into_option().unwrap_or_else(|| vm.ctx.none());
+
+        // Create a new PyCPointer instance with the provided value
+        PyCPointer {
+            contents: PyRwLock::new(initial_contents),
+        }
+        .into_ref_with_type(vm, cls)
+        .map(Into::into)
+    }
+}
+
+#[pyclass(flags(BASETYPE, IMMUTABLETYPE), with(Constructor))]
 impl PyCPointer {
     // TODO: not correct
     #[pygetset]
@@ -78,8 +97,173 @@ impl PyCPointer {
         Ok(contents)
     }
     #[pygetset(setter)]
-    fn set_contents(&self, contents: PyObjectRef) -> PyResult<()> {
+    fn set_contents(&self, contents: PyObjectRef, _vm: &VirtualMachine) -> PyResult<()> {
+        // Validate that the contents is a CData instance if we have a _type_
+        // For now, just store it
         *self.contents.write() = contents;
         Ok(())
+    }
+
+    #[pymethod]
+    fn __init__(
+        &self,
+        value: crate::function::OptionalArg<PyObjectRef>,
+        _vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        // Pointer can be initialized with 0 or 1 argument
+        // If 1 argument is provided, it should be a CData instance
+        if let crate::function::OptionalArg::Present(val) = value {
+            *self.contents.write() = val;
+        }
+
+        Ok(())
+    }
+
+    #[pyclassmethod]
+    fn from_address(cls: PyTypeRef, address: isize, vm: &VirtualMachine) -> PyResult {
+        if address == 0 {
+            return Err(vm.new_value_error("NULL pointer access".to_owned()));
+        }
+        // Pointer just stores the address value
+        Ok(PyCPointer {
+            contents: PyRwLock::new(vm.ctx.new_int(address).into()),
+        }
+        .into_ref_with_type(vm, cls)?
+        .into())
+    }
+
+    #[pyclassmethod]
+    fn from_buffer(
+        cls: PyTypeRef,
+        source: PyObjectRef,
+        offset: crate::function::OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        use crate::TryFromObject;
+        use crate::protocol::PyBuffer;
+
+        let offset = offset.unwrap_or(0);
+        if offset < 0 {
+            return Err(vm.new_value_error("offset cannot be negative".to_owned()));
+        }
+        let offset = offset as usize;
+        let size = std::mem::size_of::<usize>();
+
+        let buffer = PyBuffer::try_from_object(vm, source.clone())?;
+
+        if buffer.desc.readonly {
+            return Err(vm.new_type_error("underlying buffer is not writable".to_owned()));
+        }
+
+        let buffer_len = buffer.desc.len;
+        if offset + size > buffer_len {
+            return Err(vm.new_value_error(format!(
+                "Buffer size too small ({} instead of at least {} bytes)",
+                buffer_len,
+                offset + size
+            )));
+        }
+
+        // Read pointer value from buffer
+        let bytes = buffer.obj_bytes();
+        let ptr_bytes = &bytes[offset..offset + size];
+        let ptr_val = usize::from_ne_bytes(ptr_bytes.try_into().expect("size is checked above"));
+
+        Ok(PyCPointer {
+            contents: PyRwLock::new(vm.ctx.new_int(ptr_val).into()),
+        }
+        .into_ref_with_type(vm, cls)?
+        .into())
+    }
+
+    #[pyclassmethod]
+    fn from_buffer_copy(
+        cls: PyTypeRef,
+        source: crate::function::ArgBytesLike,
+        offset: crate::function::OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let offset = offset.unwrap_or(0);
+        if offset < 0 {
+            return Err(vm.new_value_error("offset cannot be negative".to_owned()));
+        }
+        let offset = offset as usize;
+        let size = std::mem::size_of::<usize>();
+
+        let source_bytes = source.borrow_buf();
+        let buffer_len = source_bytes.len();
+
+        if offset + size > buffer_len {
+            return Err(vm.new_value_error(format!(
+                "Buffer size too small ({} instead of at least {} bytes)",
+                buffer_len,
+                offset + size
+            )));
+        }
+
+        // Read pointer value from buffer
+        let ptr_bytes = &source_bytes[offset..offset + size];
+        let ptr_val = usize::from_ne_bytes(ptr_bytes.try_into().expect("size is checked above"));
+
+        Ok(PyCPointer {
+            contents: PyRwLock::new(vm.ctx.new_int(ptr_val).into()),
+        }
+        .into_ref_with_type(vm, cls)?
+        .into())
+    }
+
+    #[pyclassmethod]
+    fn in_dll(
+        cls: PyTypeRef,
+        dll: PyObjectRef,
+        name: crate::builtins::PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        use libloading::Symbol;
+
+        // Get the library handle from dll object
+        let handle = if let Ok(int_handle) = dll.try_int(vm) {
+            // dll is an integer handle
+            int_handle
+                .as_bigint()
+                .to_usize()
+                .ok_or_else(|| vm.new_value_error("Invalid library handle".to_owned()))?
+        } else {
+            // dll is a CDLL/PyDLL/WinDLL object with _handle attribute
+            dll.get_attr("_handle", vm)?
+                .try_int(vm)?
+                .as_bigint()
+                .to_usize()
+                .ok_or_else(|| vm.new_value_error("Invalid library handle".to_owned()))?
+        };
+
+        // Get the library from cache
+        let library_cache = crate::stdlib::ctypes::library::libcache().read();
+        let library = library_cache
+            .get_lib(handle)
+            .ok_or_else(|| vm.new_attribute_error("Library not found".to_owned()))?;
+
+        // Get symbol address from library
+        let symbol_name = format!("{}\0", name.as_str());
+        let inner_lib = library.lib.lock();
+
+        let symbol_address = if let Some(lib) = &*inner_lib {
+            unsafe {
+                // Try to get the symbol from the library
+                let symbol: Symbol<'_, *mut u8> = lib.get(symbol_name.as_bytes()).map_err(|e| {
+                    vm.new_attribute_error(format!("{}: symbol '{}' not found", e, name.as_str()))
+                })?;
+                *symbol as usize
+            }
+        } else {
+            return Err(vm.new_attribute_error("Library is closed".to_owned()));
+        };
+
+        // For pointer types, we return a pointer to the symbol address
+        Ok(PyCPointer {
+            contents: PyRwLock::new(vm.ctx.new_int(symbol_address).into()),
+        }
+        .into_ref_with_type(vm, cls)?
+        .into())
     }
 }

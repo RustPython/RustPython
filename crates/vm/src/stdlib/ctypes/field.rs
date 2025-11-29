@@ -5,6 +5,7 @@ use crate::{AsObject, Py, PyObjectRef, PyResult, VirtualMachine};
 use num_traits::ToPrimitive;
 
 use super::structure::PyCStructure;
+use super::union::PyCUnion;
 
 #[pyclass(name = "PyCFieldType", base = PyType, module = "_ctypes")]
 #[derive(PyPayload, Debug)]
@@ -102,14 +103,23 @@ impl GetDescriptor for PyCField {
             _ => return Ok(zelf.into()),
         };
 
-        // Instance attribute access - read value from the structure's buffer
+        // Instance attribute access - read value from the structure/union's buffer
         if let Some(structure) = obj.downcast_ref::<PyCStructure>() {
-            let buffer = structure.buffer.read();
+            let cdata = structure.cdata.read();
             let offset = zelf.byte_offset;
             let size = zelf.byte_size;
 
-            if offset + size <= buffer.len() {
-                let bytes = &buffer[offset..offset + size];
+            if offset + size <= cdata.buffer.len() {
+                let bytes = &cdata.buffer[offset..offset + size];
+                return PyCField::bytes_to_value(bytes, size, vm);
+            }
+        } else if let Some(union) = obj.downcast_ref::<PyCUnion>() {
+            let cdata = union.cdata.read();
+            let offset = zelf.byte_offset;
+            let size = zelf.byte_size;
+
+            if offset + size <= cdata.buffer.len() {
+                let bytes = &cdata.buffer[offset..offset + size];
                 return PyCField::bytes_to_value(bytes, size, vm);
             }
         }
@@ -187,7 +197,7 @@ impl PyCField {
             .downcast_ref::<PyCField>()
             .ok_or_else(|| vm.new_type_error("expected CField".to_owned()))?;
 
-        // Get the structure instance - use downcast_ref() to access the struct data
+        // Get the structure/union instance - use downcast_ref() to access the struct data
         if let Some(structure) = obj.downcast_ref::<PyCStructure>() {
             match value {
                 PySetterValue::Assign(value) => {
@@ -195,9 +205,9 @@ impl PyCField {
                     let size = zelf.byte_size;
                     let bytes = PyCField::value_to_bytes(&value, size, vm)?;
 
-                    let mut buffer = structure.buffer.write();
-                    if offset + size <= buffer.len() {
-                        buffer[offset..offset + size].copy_from_slice(&bytes);
+                    let mut cdata = structure.cdata.write();
+                    if offset + size <= cdata.buffer.len() {
+                        cdata.buffer[offset..offset + size].copy_from_slice(&bytes);
                     }
                     Ok(())
                 }
@@ -205,9 +215,26 @@ impl PyCField {
                     Err(vm.new_type_error("cannot delete structure field".to_owned()))
                 }
             }
+        } else if let Some(union) = obj.downcast_ref::<PyCUnion>() {
+            match value {
+                PySetterValue::Assign(value) => {
+                    let offset = zelf.byte_offset;
+                    let size = zelf.byte_size;
+                    let bytes = PyCField::value_to_bytes(&value, size, vm)?;
+
+                    let mut cdata = union.cdata.write();
+                    if offset + size <= cdata.buffer.len() {
+                        cdata.buffer[offset..offset + size].copy_from_slice(&bytes);
+                    }
+                    Ok(())
+                }
+                PySetterValue::Delete => {
+                    Err(vm.new_type_error("cannot delete union field".to_owned()))
+                }
+            }
         } else {
             Err(vm.new_type_error(format!(
-                "descriptor works only on Structure instances, got {}",
+                "descriptor works only on Structure or Union instances, got {}",
                 obj.class().name()
             )))
         }

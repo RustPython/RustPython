@@ -44,7 +44,7 @@ cargo run -- script.py
 cargo run
 
 # With specific features
-cargo run --features ssl
+cargo run --features jit
 
 # Release mode (recommended for better performance)
 cargo run --release -- script.py
@@ -174,13 +174,6 @@ cargo build --target wasm32-wasip1 --no-default-features --features freeze-stdli
 ```bash
 # Enable JIT support
 cargo run --features jit
-```
-
-### SSL Support
-
-```bash
-# Enable SSL support
-cargo run --features ssl
 ```
 
 ## Test Code Modification Rules
