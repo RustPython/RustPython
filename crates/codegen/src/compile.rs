@@ -236,12 +236,6 @@ pub fn compile_expression(
 }
 
 macro_rules! emit {
-    ($c:expr, Instruction::$op:ident { $arg:ident$(,)? }$(,)?) => {
-        $c.emit_arg($arg, |x| Instruction::$op { $arg: x })
-    };
-    ($c:expr, Instruction::$op:ident { $arg:ident : $arg_val:expr $(,)? }$(,)?) => {
-        $c.emit_arg($arg_val, |x| Instruction::$op { $arg: x })
-    };
     ($c:expr, Instruction::$op:ident( $arg_val:expr $(,)? )$(,)?) => {
         $c.emit_arg($arg_val, Instruction::$op)
     };
@@ -5127,12 +5121,12 @@ impl Compiler {
 
     fn emit_load_const(&mut self, constant: ConstantData) {
         let idx = self.arg_constant(constant);
-        self.emit_arg(idx, |idx| Instruction::LoadConst(idx))
+        self.emit_arg(idx, Instruction::LoadConst)
     }
 
     fn emit_return_const(&mut self, constant: ConstantData) {
         let idx = self.arg_constant(constant);
-        self.emit_arg(idx, |idx| Instruction::ReturnConst(idx))
+        self.emit_arg(idx, Instruction::ReturnConst)
     }
 
     fn emit_return_value(&mut self) {
