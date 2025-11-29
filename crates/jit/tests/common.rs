@@ -92,23 +92,6 @@ impl StackMachine {
         names: &[String],
     ) -> ControlFlow<()> {
         match instruction {
-            Instruction::LoadConst(idx) => {
-                let idx = idx.get(arg);
-                self.stack.push(constants[idx as usize].clone().into())
-            }
-            Instruction::LoadNameAny(idx) => self
-                .stack
-                .push(StackValue::String(names[idx.get(arg) as usize].clone())),
-            Instruction::StoreLocal(idx) => {
-                let idx = idx.get(arg);
-                self.locals
-                    .insert(names[idx as usize].clone(), self.stack.pop().unwrap());
-            }
-            Instruction::StoreAttr(_) => {
-                // Do nothing except throw away the stack values
-                self.stack.pop().unwrap();
-                self.stack.pop().unwrap();
-            }
             Instruction::BuildMap(size) => {
                 let mut map = HashMap::new();
                 for _ in 0..size.get(arg) {
@@ -122,6 +105,14 @@ impl StackMachine {
                 }
                 self.stack.push(StackValue::Map(map));
             }
+            Instruction::ExtendedArg => {}
+            Instruction::LoadConst(idx) => {
+                let idx = idx.get(arg);
+                self.stack.push(constants[idx as usize].clone().into())
+            }
+            Instruction::LoadNameAny(idx) => self
+                .stack
+                .push(StackValue::String(names[idx.get(arg) as usize].clone())),
             Instruction::MakeFunction => {
                 let code = if let Some(StackValue::Code(code)) = self.stack.pop() {
                     code
@@ -134,6 +125,12 @@ impl StackMachine {
                     annotations: HashMap::new(), // empty annotations, will be set later if needed
                 }));
             }
+            Instruction::ReturnConst(idx) => {
+                let idx = idx.get(arg);
+                self.stack.push(constants[idx as usize].clone().into());
+                return ControlFlow::Break(());
+            }
+            Instruction::ReturnValue => return ControlFlow::Break(()),
             Instruction::SetFunctionAttribute(attr) => {
                 // Stack: [..., attr_value, func] -> [..., func]
                 let func = if let Some(StackValue::Function(func)) = self.stack.pop() {
@@ -164,13 +161,16 @@ impl StackMachine {
                     self.stack.push(StackValue::Function(func));
                 }
             }
-            Instruction::ReturnConst(idx) => {
-                let idx = idx.get(arg);
-                self.stack.push(constants[idx as usize].clone().into());
-                return ControlFlow::Break(());
+            Instruction::StoreAttr(_) => {
+                // Do nothing except throw away the stack values
+                self.stack.pop().unwrap();
+                self.stack.pop().unwrap();
             }
-            Instruction::ReturnValue => return ControlFlow::Break(()),
-            Instruction::ExtendedArg => {}
+            Instruction::StoreLocal(idx) => {
+                let idx = idx.get(arg);
+                self.locals
+                    .insert(names[idx as usize].clone(), self.stack.pop().unwrap());
+            }
             _ => unimplemented!(
                 "instruction {:?} isn't yet supported in py_function!",
                 instruction
