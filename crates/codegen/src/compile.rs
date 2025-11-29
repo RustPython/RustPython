@@ -401,7 +401,7 @@ impl Compiler {
 
     /// Compile a slice expression
     // = compiler_slice
-    fn compile_slice(&mut self, s: &ExprSlice) -> CompileResult<u32> {
+    fn compile_slice(&mut self, s: &ExprSlice) -> CompileResult<BuildSliceArgCount> {
         // Compile lower
         if let Some(lower) = &s.lower {
             self.compile_expression(lower)?;
@@ -416,13 +416,14 @@ impl Compiler {
             self.emit_load_const(ConstantData::None);
         }
 
-        // Compile step if present
-        if let Some(step) = &s.step {
-            self.compile_expression(step)?;
-            Ok(3) // Three values on stack
-        } else {
-            Ok(2) // Two values on stack
-        }
+        Ok(match &s.step {
+            Some(step) => {
+                // Compile step if present
+                self.compile_expression(step)?;
+                BuildSliceArgCount::Three
+            }
+            None => BuildSliceArgCount::Two,
+        })
     }
 
     /// Compile a subscript expression
@@ -449,29 +450,19 @@ impl Compiler {
 
         // Handle two-element slice (for Load/Store, not Del)
         if Self::is_two_element_slice(slice) && !matches!(ctx, ExprContext::Del) {
-            let n = match slice {
+            let argc = match slice {
                 Expr::Slice(s) => self.compile_slice(s)?,
                 _ => unreachable!("is_two_element_slice should only return true for Expr::Slice"),
             };
             match ctx {
                 ExprContext::Load => {
                     // CPython uses BINARY_SLICE
-                    emit!(
-                        self,
-                        Instruction::BuildSlice {
-                            argc: BuildSliceArgCount::from_op_arg(n).unwrap()
-                        }
-                    );
+                    emit!(self, Instruction::BuildSlice { argc });
                     emit!(self, Instruction::Subscript);
                 }
                 ExprContext::Store => {
                     // CPython uses STORE_SLICE
-                    emit!(
-                        self,
-                        Instruction::BuildSlice {
-                            argc: BuildSliceArgCount::from_op_arg(n).unwrap()
-                        }
-                    );
+                    emit!(self, Instruction::BuildSlice { argc });
                     emit!(self, Instruction::StoreSubscript);
                 }
                 _ => unreachable!(),
