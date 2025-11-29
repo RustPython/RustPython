@@ -1341,124 +1341,124 @@ impl Instruction {
     ///
     pub fn stack_effect(&self, arg: OpArg, jump: bool) -> i32 {
         match self {
-            Nop => 0,
-            ImportName { .. } | ImportNameless => -1,
-            ImportFrom { .. } => 1,
-            LoadFast(_) | LoadNameAny(_) | LoadGlobal(_) | LoadDeref(_) | LoadClassDeref(_) => 1,
-            StoreFast(_) | StoreLocal(_) | StoreGlobal(_) | StoreDeref(_) => -1,
-            DeleteFast(_) | DeleteLocal(_) | DeleteGlobal(_) | DeleteDeref(_) => 0,
-            LoadClosure(_) => 1,
-            Subscript => -1,
-            StoreSubscript => -3,
-            DeleteSubscript => -2,
-            LoadAttr { .. } => 0,
-            StoreAttr { .. } => -2,
-            DeleteAttr { .. } => -1,
-            LoadConst { .. } => 1,
-            UnaryOperation { .. } => 0,
-            BinaryOperation { .. } | BinaryOperationInplace { .. } | CompareOperation { .. } => -1,
+            BeforeAsyncWith => 1,
+            BinaryOperation(_) | BinaryOperationInplace(_) | CompareOperation(_) => -1,
             BinarySubscript => -1,
-            CopyItem { .. } => 1,
-            Pop => -1,
-            Swap { .. } => 0,
-            ToBool => 0,
-            GetIter => 0,
-            GetLen => 1,
-            CallIntrinsic1 { .. } => 0,  // Takes 1, pushes 1
-            CallIntrinsic2 { .. } => -1, // Takes 2, pushes 1
-            Continue { .. } => 0,
-            Break { .. } => 0,
-            Jump { .. } => 0,
-            PopJumpIfTrue { .. } | PopJumpIfFalse { .. } => -1,
-            JumpIfTrueOrPop { .. } | JumpIfFalseOrPop { .. } => {
-                if jump {
-                    0
-                } else {
-                    -1
-                }
+            Break(_) => 0,
+            BuildList(size)
+            | BuildListFromTuples(size)
+            | BuildSet(size)
+            | BuildSetFromTuples(size)
+            | BuildString(size)
+            | BuildTuple(size)
+            | BuildTupleFromTuples(size) => -(size.get(arg) as i32) + 1,
+            BuildMap(size) => {
+                let nargs = size.get(arg) * 2;
+                -(nargs as i32) + 1
             }
-            MakeFunction => {
-                // CPython 3.13 style: MakeFunction only pops code object
-                -1 + 1 // pop code, push function
+            BuildMapForCall(size) => {
+                let nargs = size.get(arg);
+                -(nargs as i32) + 1
             }
-            SetFunctionAttribute { .. } => {
-                // pops attribute value and function, pushes function back
-                -2 + 1
-            }
-            CallFunctionPositional { nargs } => -(nargs.get(arg) as i32) - 1 + 1,
-            CallMethodPositional { nargs } => -(nargs.get(arg) as i32) - 3 + 1,
-            CallFunctionKeyword { nargs } => -1 - (nargs.get(arg) as i32) - 1 + 1,
-            CallMethodKeyword { nargs } => -1 - (nargs.get(arg) as i32) - 3 + 1,
-            CallFunctionEx { has_kwargs } => -1 - (has_kwargs.get(arg) as i32) - 1 + 1,
-            CallMethodEx { has_kwargs } => -1 - (has_kwargs.get(arg) as i32) - 3 + 1,
-            LoadMethod { .. } => -1 + 3,
-            ForIter { .. } => {
+            BuildSlice(step) => -2 - (step.get(arg) as i32) + 1,
+            BuildTupleFromIter => 0,
+            CallFunctionEx(has_kwargs) => -1 - (has_kwargs.get(arg) as i32) - 1 + 1,
+            CallFunctionKeyword(nargs) => -1 - (nargs.get(arg) as i32) - 1 + 1,
+            CallFunctionPositional(nargs) => -(nargs.get(arg) as i32) - 1 + 1,
+            CallIntrinsic1(_) => 0,  // Takes 1, pushes 1
+            CallIntrinsic2(_) => -1, // Takes 2, pushes 1
+            CallMethodEx(has_kwargs) => -1 - (has_kwargs.get(arg) as i32) - 3 + 1,
+            CallMethodKeyword(nargs) => -1 - (nargs.get(arg) as i32) - 3 + 1,
+            CallMethodPositional(nargs) => -(nargs.get(arg) as i32) - 3 + 1,
+            ContainsOp(_) | IsOp(_) => -1,
+            Continue(_) => 0,
+            CopyItem(_) => 1,
+            DeleteAttr(_) => -1,
+            DeleteFast(_) | DeleteLocal(_) | DeleteGlobal(_) | DeleteDeref(_) => 0,
+            DeleteSubscript => -2,
+            DictUpdate(_) => -1,
+            EndAsyncFor => -2,
+            EndFinally | EnterFinally | SetupAnnotation | SetupFinally(_) | SetupLoop => 0,
+            ExtendedArg => 0,
+            ForIter(_) => {
                 if jump {
                     -1
                 } else {
                     1
                 }
             }
-            IsOp(_) | ContainsOp(_) => -1,
-            JumpIfNotExcMatch(_) => -2,
-            ReturnValue => -1,
-            ReturnConst { .. } => 0,
-            Resume { .. } => 0,
-            YieldValue => 0,
-            YieldFrom => -1,
-            SetupAnnotation | SetupLoop | SetupFinally { .. } | EnterFinally | EndFinally => 0,
-            SetupExcept { .. } => jump as i32,
-            SetupWith { .. } => (!jump) as i32,
-            WithCleanupStart => 0,
-            WithCleanupFinish => -1,
-            PopBlock => 0,
-            Raise { kind } => -(kind.get(arg) as u8 as i32),
-            BuildString { size }
-            | BuildTuple { size, .. }
-            | BuildTupleFromTuples { size, .. }
-            | BuildList { size, .. }
-            | BuildListFromTuples { size, .. }
-            | BuildSet { size, .. }
-            | BuildSetFromTuples { size, .. } => -(size.get(arg) as i32) + 1,
-            BuildTupleFromIter => 0,
-            BuildMap { size } => {
-                let nargs = size.get(arg) * 2;
-                -(nargs as i32) + 1
-            }
-            BuildMapForCall { size } => {
-                let nargs = size.get(arg);
-                -(nargs as i32) + 1
-            }
-            DictUpdate { .. } => -1,
-            BuildSlice { step } => -2 - (step.get(arg) as i32) + 1,
-            ListAppend { .. } | SetAdd { .. } => -1,
-            MapAdd { .. } => -2,
-            PrintExpr => -1,
-            LoadBuildClass => 1,
-            UnpackSequence { size } => -1 + size.get(arg) as i32,
-            UnpackEx { args } => {
-                let UnpackExArgs { before, after } = args.get(arg);
-                -1 + before as i32 + 1 + after as i32
-            }
-            FormatValue { .. } => -1,
-            PopException => 0,
-            Reverse { .. } => 0,
+            FormatValue(_) => -1,
+            GetAIter => 0,
+            GetANext => 1,
             GetAwaitable => 0,
-            BeforeAsyncWith => 1,
-            SetupAsyncWith { .. } => {
+            GetIter => 0,
+            GetLen => 1,
+            ImportFrom(_) => 1,
+            ImportName(_) | ImportNameless => -1,
+            Jump(_) => 0,
+            JumpIfNotExcMatch(_) => -2,
+            ListAppend(_) | SetAdd(_) => -1,
+            LoadAttr(_) => 0,
+            LoadBuildClass => 1,
+            LoadClassDeref(_) | LoadDeref(_) | LoadFast(_) | LoadGlobal(_) | LoadNameAny(_) => 1,
+            LoadClosure(_) => 1,
+            LoadConst(_) => 1,
+            LoadMethod(_) => -1 + 3,
+            MakeFunction => {
+                // CPython 3.13 style: MakeFunction only pops code object
+                -1 + 1 // pop code, push function
+            }
+            MapAdd(_) => -2,
+            MatchClass(_) => -2,
+            MatchKeys => 1, // Pop 2 (subject, keys), push 3 (subject, keys_or_none, values_or_none)
+            MatchMapping | MatchSequence => 1, // Push bool result
+            Nop => 0,
+            Pop => -1,
+            PopBlock => 0,
+            PopException => 0,
+            PopJumpIfFalse(_) | PopJumpIfTrue(_) => -1,
+            PrintExpr => -1,
+            Raise(kind) => -(kind.get(arg) as u8 as i32),
+            Resume(_) => 0,
+            ReturnConst(_) => 0,
+            ReturnValue => -1,
+            Reverse(_) => 0,
+            SetFunctionAttribute(_) => {
+                // pops attribute value and function, pushes function back
+                -2 + 1
+            }
+            SetupAsyncWith(_) => {
                 if jump {
                     -1
                 } else {
                     0
                 }
             }
-            GetAIter => 0,
-            GetANext => 1,
-            EndAsyncFor => -2,
-            MatchMapping | MatchSequence => 1, // Push bool result
-            MatchKeys => 1, // Pop 2 (subject, keys), push 3 (subject, keys_or_none, values_or_none)
-            MatchClass(_) => -2,
-            ExtendedArg => 0,
+            SetupExcept(_) => jump as i32,
+            SetupWith(_) => (!jump) as i32,
+            StoreAttr(_) => -2,
+            StoreDeref(_) | StoreFast(_) | StoreGlobal(_) | StoreLocal(_) => -1,
+            StoreSubscript => -3,
+            Subscript => -1,
+            Swap(_) => 0,
+            ToBool => 0,
+            UnaryOperation(_) => 0,
+            UnpackSequence(size) => -1 + size.get(arg) as i32,
+            WithCleanupFinish => -1,
+            WithCleanupStart => 0,
+            YieldFrom => -1,
+            YieldValue => 0,
+            JumpIfFalseOrPop(_) | JumpIfTrueOrPop(_) => {
+                if jump {
+                    0
+                } else {
+                    -1
+                }
+            }
+            UnpackEx(args) => {
+                let UnpackExArgs { before, after } = args.get(arg);
+                -1 + before as i32 + 1 + after as i32
+            }
         }
     }
 
@@ -1529,113 +1529,113 @@ impl Instruction {
             };
 
         match self {
-            Nop => w!(Nop),
-            ImportName(idx) => w!(ImportName, name = idx),
-            ImportNameless => w!(ImportNameless),
-            ImportFrom(idx) => w!(ImportFrom, name = idx),
-            LoadFast(idx) => w!(LoadFast, varname = idx),
-            LoadNameAny(idx) => w!(LoadNameAny, name = idx),
-            LoadGlobal(idx) => w!(LoadGlobal, name = idx),
-            LoadDeref(idx) => w!(LoadDeref, cell_name = idx),
-            LoadClassDeref(idx) => w!(LoadClassDeref, cell_name = idx),
-            StoreFast(idx) => w!(StoreFast, varname = idx),
-            StoreLocal(idx) => w!(StoreLocal, name = idx),
-            StoreGlobal(idx) => w!(StoreGlobal, name = idx),
-            StoreDeref(idx) => w!(StoreDeref, cell_name = idx),
-            DeleteFast(idx) => w!(DeleteFast, varname = idx),
-            DeleteLocal(idx) => w!(DeleteLocal, name = idx),
-            DeleteGlobal(idx) => w!(DeleteGlobal, name = idx),
-            DeleteDeref(idx) => w!(DeleteDeref, cell_name = idx),
-            LoadClosure(i) => w!(LoadClosure, cell_name = i),
-            IsOp(inv) => w!(IS_OP, ?inv),
-            ContainsOp(inv) => w!(CONTAINS_OP, ?inv),
-            JumpIfNotExcMatch(target) => w!(JUMP_IF_NOT_EXC_MATCH, target),
-            Subscript => w!(Subscript),
-            StoreSubscript => w!(StoreSubscript),
-            DeleteSubscript => w!(DeleteSubscript),
-            StoreAttr(idx) => w!(StoreAttr, name = idx),
-            DeleteAttr(idx) => w!(DeleteAttr, name = idx),
-            LoadConst(idx) => fmt_const("LoadConst", arg, f, idx),
-            UnaryOperation(op) => w!(UnaryOperation, ?op),
+            BeforeAsyncWith => w!(BeforeAsyncWith),
             BinaryOperation(op) => w!(BinaryOperation, ?op),
             BinaryOperationInplace(op) => w!(BinaryOperationInplace, ?op),
             BinarySubscript => w!(BinarySubscript),
-            LoadAttr(idx) => w!(LoadAttr, name = idx),
-            CompareOperation(op) => w!(CompareOperation, ?op),
-            CopyItem(index) => w!(CopyItem, index),
-            Pop => w!(Pop),
-            Swap(index) => w!(Swap, index),
-            ToBool => w!(ToBool),
-            GetIter => w!(GetIter),
-            GetLen => w!(GetLen),
-            CallIntrinsic1(func) => w!(CallIntrinsic1, ?func),
-            CallIntrinsic2(func) => w!(CallIntrinsic2, ?func),
-            Continue(target) => w!(Continue, target),
             Break(target) => w!(Break, target),
-            Jump(target) => w!(Jump, target),
-            PopJumpIfTrue(target) => w!(PopJumpIfTrue, target),
-            PopJumpIfFalse(target) => w!(PopJumpIfFalse, target),
-            JumpIfTrueOrPop(target) => w!(JumpIfTrueOrPop, target),
-            JumpIfFalseOrPop(target) => w!(JumpIfFalseOrPop, target),
-            MakeFunction => w!(MakeFunction),
-            SetFunctionAttribute(attr) => w!(SetFunctionAttribute, ?attr),
-            CallFunctionPositional(nargs) => w!(CallFunctionPositional, nargs),
-            CallFunctionKeyword(nargs) => w!(CallFunctionKeyword, nargs),
-            CallFunctionEx(has_kwargs) => w!(CallFunctionEx, has_kwargs),
-            LoadMethod(idx) => w!(LoadMethod, name = idx),
-            CallMethodPositional(nargs) => w!(CallMethodPositional, nargs),
-            CallMethodKeyword(nargs) => w!(CallMethodKeyword, nargs),
-            CallMethodEx(has_kwargs) => w!(CallMethodEx, has_kwargs),
-            ForIter(target) => w!(ForIter, target),
-            ReturnValue => w!(ReturnValue),
-            ReturnConst(idx) => fmt_const("ReturnConst", arg, f, idx),
-            Resume(arg) => w!(Resume, arg),
-            YieldValue => w!(YieldValue),
-            YieldFrom => w!(YieldFrom),
-            SetupAnnotation => w!(SetupAnnotation),
-            SetupLoop => w!(SetupLoop),
-            SetupExcept(handler) => w!(SetupExcept, handler),
-            SetupFinally(handler) => w!(SetupFinally, handler),
-            EnterFinally => w!(EnterFinally),
-            EndFinally => w!(EndFinally),
-            SetupWith(end) => w!(SetupWith, end),
-            WithCleanupStart => w!(WithCleanupStart),
-            WithCleanupFinish => w!(WithCleanupFinish),
-            BeforeAsyncWith => w!(BeforeAsyncWith),
-            SetupAsyncWith(end) => w!(SetupAsyncWith, end),
-            PopBlock => w!(PopBlock),
-            Raise(kind) => w!(Raise, ?kind),
-            BuildString(size) => w!(BuildString, size),
-            BuildTuple(size) => w!(BuildTuple, size),
-            BuildTupleFromTuples(size) => w!(BuildTupleFromTuples, size),
-            BuildTupleFromIter => w!(BuildTupleFromIter),
             BuildList(size) => w!(BuildList, size),
             BuildListFromTuples(size) => w!(BuildListFromTuples, size),
-            BuildSet(size) => w!(BuildSet, size),
-            BuildSetFromTuples(size) => w!(BuildSetFromTuples, size),
             BuildMap(size) => w!(BuildMap, size),
             BuildMapForCall(size) => w!(BuildMapForCall, size),
-            DictUpdate(index) => w!(DictUpdate, index),
+            BuildSet(size) => w!(BuildSet, size),
+            BuildSetFromTuples(size) => w!(BuildSetFromTuples, size),
             BuildSlice(step) => w!(BuildSlice, step),
-            ListAppend(i) => w!(ListAppend, i),
-            SetAdd(i) => w!(SetAdd, i),
-            MapAdd(i) => w!(MapAdd, i),
-            PrintExpr => w!(PrintExpr),
-            LoadBuildClass => w!(LoadBuildClass),
-            UnpackSequence(size) => w!(UnpackSequence, size),
-            UnpackEx(args) => w!(UnpackEx, args),
+            BuildString(size) => w!(BuildString, size),
+            BuildTuple(size) => w!(BuildTuple, size),
+            BuildTupleFromIter => w!(BuildTupleFromIter),
+            BuildTupleFromTuples(size) => w!(BuildTupleFromTuples, size),
+            CallFunctionEx(has_kwargs) => w!(CallFunctionEx, has_kwargs),
+            CallFunctionKeyword(nargs) => w!(CallFunctionKeyword, nargs),
+            CallFunctionPositional(nargs) => w!(CallFunctionPositional, nargs),
+            CallIntrinsic1(func) => w!(CallIntrinsic1, ?func),
+            CallIntrinsic2(func) => w!(CallIntrinsic2, ?func),
+            CallMethodEx(has_kwargs) => w!(CallMethodEx, has_kwargs),
+            CallMethodKeyword(nargs) => w!(CallMethodKeyword, nargs),
+            CallMethodPositional(nargs) => w!(CallMethodPositional, nargs),
+            CompareOperation(op) => w!(CompareOperation, ?op),
+            ContainsOp(inv) => w!(CONTAINS_OP, ?inv),
+            Continue(target) => w!(Continue, target),
+            CopyItem(index) => w!(CopyItem, index),
+            DeleteAttr(idx) => w!(DeleteAttr, name = idx),
+            DeleteDeref(idx) => w!(DeleteDeref, cell_name = idx),
+            DeleteFast(idx) => w!(DeleteFast, varname = idx),
+            DeleteGlobal(idx) => w!(DeleteGlobal, name = idx),
+            DeleteLocal(idx) => w!(DeleteLocal, name = idx),
+            DeleteSubscript => w!(DeleteSubscript),
+            DictUpdate(index) => w!(DictUpdate, index),
+            EndAsyncFor => w!(EndAsyncFor),
+            EndFinally => w!(EndFinally),
+            EnterFinally => w!(EnterFinally),
+            ExtendedArg => w!(ExtendedArg, Arg::<u32>::marker()),
+            ForIter(target) => w!(ForIter, target),
             FormatValue(conversion) => w!(FormatValue, ?conversion),
-            PopException => w!(PopException),
-            Reverse(amount) => w!(Reverse, amount),
-            GetAwaitable => w!(GetAwaitable),
             GetAIter => w!(GetAIter),
             GetANext => w!(GetANext),
-            EndAsyncFor => w!(EndAsyncFor),
+            GetAwaitable => w!(GetAwaitable),
+            GetIter => w!(GetIter),
+            GetLen => w!(GetLen),
+            ImportFrom(idx) => w!(ImportFrom, name = idx),
+            ImportName(idx) => w!(ImportName, name = idx),
+            ImportNameless => w!(ImportNameless),
+            IsOp(inv) => w!(IS_OP, ?inv),
+            Jump(target) => w!(Jump, target),
+            JumpIfFalseOrPop(target) => w!(JumpIfFalseOrPop, target),
+            JumpIfNotExcMatch(target) => w!(JUMP_IF_NOT_EXC_MATCH, target),
+            JumpIfTrueOrPop(target) => w!(JumpIfTrueOrPop, target),
+            ListAppend(i) => w!(ListAppend, i),
+            LoadAttr(idx) => w!(LoadAttr, name = idx),
+            LoadBuildClass => w!(LoadBuildClass),
+            LoadClassDeref(idx) => w!(LoadClassDeref, cell_name = idx),
+            LoadClosure(i) => w!(LoadClosure, cell_name = i),
+            LoadConst(idx) => fmt_const("LoadConst", arg, f, idx),
+            LoadDeref(idx) => w!(LoadDeref, cell_name = idx),
+            LoadFast(idx) => w!(LoadFast, varname = idx),
+            LoadGlobal(idx) => w!(LoadGlobal, name = idx),
+            LoadMethod(idx) => w!(LoadMethod, name = idx),
+            LoadNameAny(idx) => w!(LoadNameAny, name = idx),
+            MakeFunction => w!(MakeFunction),
+            MapAdd(i) => w!(MapAdd, i),
+            MatchClass(arg) => w!(MatchClass, arg),
+            MatchKeys => w!(MatchKeys),
             MatchMapping => w!(MatchMapping),
             MatchSequence => w!(MatchSequence),
-            MatchKeys => w!(MatchKeys),
-            MatchClass(arg) => w!(MatchClass, arg),
-            ExtendedArg => w!(ExtendedArg, Arg::<u32>::marker()),
+            Nop => w!(Nop),
+            Pop => w!(Pop),
+            PopBlock => w!(PopBlock),
+            PopException => w!(PopException),
+            PopJumpIfFalse(target) => w!(PopJumpIfFalse, target),
+            PopJumpIfTrue(target) => w!(PopJumpIfTrue, target),
+            PrintExpr => w!(PrintExpr),
+            Raise(kind) => w!(Raise, ?kind),
+            Resume(arg) => w!(Resume, arg),
+            ReturnConst(idx) => fmt_const("ReturnConst", arg, f, idx),
+            ReturnValue => w!(ReturnValue),
+            Reverse(amount) => w!(Reverse, amount),
+            SetAdd(i) => w!(SetAdd, i),
+            SetFunctionAttribute(attr) => w!(SetFunctionAttribute, ?attr),
+            SetupAnnotation => w!(SetupAnnotation),
+            SetupAsyncWith(end) => w!(SetupAsyncWith, end),
+            SetupExcept(handler) => w!(SetupExcept, handler),
+            SetupFinally(handler) => w!(SetupFinally, handler),
+            SetupLoop => w!(SetupLoop),
+            SetupWith(end) => w!(SetupWith, end),
+            StoreAttr(idx) => w!(StoreAttr, name = idx),
+            StoreDeref(idx) => w!(StoreDeref, cell_name = idx),
+            StoreFast(idx) => w!(StoreFast, varname = idx),
+            StoreGlobal(idx) => w!(StoreGlobal, name = idx),
+            StoreLocal(idx) => w!(StoreLocal, name = idx),
+            StoreSubscript => w!(StoreSubscript),
+            Subscript => w!(Subscript),
+            Swap(index) => w!(Swap, index),
+            ToBool => w!(ToBool),
+            UnaryOperation(op) => w!(UnaryOperation, ?op),
+            UnpackEx(args) => w!(UnpackEx, args),
+            UnpackSequence(size) => w!(UnpackSequence, size),
+            WithCleanupFinish => w!(WithCleanupFinish),
+            WithCleanupStart => w!(WithCleanupStart),
+            YieldFrom => w!(YieldFrom),
+            YieldValue => w!(YieldValue),
         }
     }
 }
