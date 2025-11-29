@@ -303,14 +303,31 @@ impl PyCSimple {
 
     #[pyclassmethod]
     fn repeat(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
+        use super::_ctypes::get_size;
         if n < 0 {
             return Err(vm.new_value_error(format!("Array length must be >= 0, not {n}")));
         }
+        // Get element size from cls
+        let element_size = if let Ok(type_attr) = cls.as_object().get_attr("_type_", vm) {
+            if let Ok(s) = type_attr.str(vm) {
+                let s = s.to_string();
+                if s.len() == 1 {
+                    get_size(&s)
+                } else {
+                    std::mem::size_of::<usize>()
+                }
+            } else {
+                std::mem::size_of::<usize>()
+            }
+        } else {
+            std::mem::size_of::<usize>()
+        };
         Ok(PyCArrayType {
             inner: PyCArray {
                 typ: PyRwLock::new(cls),
                 length: AtomicCell::new(n as usize),
-                value: PyRwLock::new(vm.ctx.none()),
+                element_size: AtomicCell::new(element_size),
+                buffer: PyRwLock::new(vec![]),
             },
         }
         .to_pyobject(vm))

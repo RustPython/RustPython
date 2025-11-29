@@ -117,7 +117,7 @@ impl GetDescriptor for PyCField {
         };
 
         // Instance attribute access - read value from the structure's buffer
-        if let Some(structure) = obj.payload::<PyCStructure>() {
+        if let Some(structure) = obj.downcast_ref::<PyCStructure>() {
             let buffer = structure.buffer.read();
             let offset = zelf.byte_offset;
             let size = zelf.byte_size;
@@ -201,8 +201,8 @@ impl PyCField {
             .downcast_ref::<PyCField>()
             .ok_or_else(|| vm.new_type_error("expected CField".to_owned()))?;
 
-        // Get the structure instance - use payload() to access the struct data
-        if let Some(structure) = obj.payload::<PyCStructure>() {
+        // Get the structure instance - use downcast_ref() to access the struct data
+        if let Some(structure) = obj.downcast_ref::<PyCStructure>() {
             match value {
                 PySetterValue::Assign(value) => {
                     let offset = zelf.byte_offset;
