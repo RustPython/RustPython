@@ -15,6 +15,7 @@ import weakref
 from copy import deepcopy
 from contextlib import redirect_stdout
 from test import support
+from test.support.testcase import ExtraAssertions
 
 try:
     import _testcapi
@@ -403,15 +404,7 @@ class OperatorsTest(unittest.TestCase):
         self.assertEqual(range(sys.maxsize).__len__(), sys.maxsize)
 
 
-class ClassPropertiesAndMethods(unittest.TestCase):
-
-    def assertHasAttr(self, obj, name):
-        self.assertTrue(hasattr(obj, name),
-                        '%r has no attribute %r' % (obj, name))
-
-    def assertNotHasAttr(self, obj, name):
-        self.assertFalse(hasattr(obj, name),
-                         '%r has unexpected attribute %r' % (obj, name))
+class ClassPropertiesAndMethods(unittest.TestCase, ExtraAssertions):
 
     def test_python_dicts(self):
         # Testing Python subclass of dict...
@@ -989,8 +982,8 @@ class ClassPropertiesAndMethods(unittest.TestCase):
 
     def test_mro_disagreement(self):
         # Testing error messages for MRO disagreement...
-        mro_err_msg = """Cannot create a consistent method resolution
-order (MRO) for bases """
+        mro_err_msg = ("Cannot create a consistent method resolution "
+                       "order (MRO) for bases ")
 
         def raises(exc, expected, callable, *args):
             try:
@@ -1109,8 +1102,7 @@ order (MRO) for bases """
         with self.assertRaises(TypeError):
             frozenset().__class__ = MyFrozenSet
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_slots(self):
         # Testing __slots__...
         class C0(object):
@@ -1199,10 +1191,9 @@ order (MRO) for bases """
             pass
         else:
             self.fail("[''] slots not caught")
-        class C(object):
+
+        class WithValidIdentifiers(object):
             __slots__ = ["a", "a_b", "_a", "A0123456789Z"]
-        # XXX(nnorwitz): was there supposed to be something tested
-        # from the class above?
 
         # Test a single string is not expanded as a sequence.
         class C(object):
@@ -1316,7 +1307,7 @@ order (MRO) for bases """
         # Inherit from object on purpose to check some backwards compatibility paths
         class X(object):
             __slots__ = "a"
-        with self.assertRaisesRegex(AttributeError, "'X' object has no attribute 'a'"):
+        with self.assertRaisesRegex(AttributeError, "'test.test_descr.ClassPropertiesAndMethods.test_slots.<locals>.X' object has no attribute 'a'"):
             X().a
 
         # Test string subclass in `__slots__`, see gh-98783
@@ -1328,8 +1319,7 @@ order (MRO) for bases """
         with self.assertRaisesRegex(AttributeError, "'X' object has no attribute 'a'"):
             X().a
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_slots_special(self):
         # Testing __dict__ and __weakref__ in __slots__...
         class D(object):
@@ -1368,8 +1358,7 @@ order (MRO) for bases """
         a.foo = 42
         self.assertEqual(a.__dict__, {"foo": 42})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_slots_special2(self):
         # Testing __qualname__ and __classcell__ in __slots__
         class Meta(type):
@@ -1410,8 +1399,7 @@ order (MRO) for bases """
                 __qualname__ = object()
                 __slots__ = ["__qualname__"]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_slots_descriptor(self):
         # Issue2115: slot descriptors did not correctly check
         # the type of the given object
@@ -1602,7 +1590,11 @@ order (MRO) for bases """
 
         cm = classmethod(f)
         cm_dict = {'__annotations__': {},
-                   '__doc__': "f docstring",
+                   '__doc__': (
+                       "f docstring"
+                       if support.HAVE_PY_DOCSTRINGS
+                       else None
+                    ),
                    '__module__': __name__,
                    '__name__': 'f',
                    '__qualname__': f.__qualname__}
@@ -1674,8 +1666,6 @@ order (MRO) for bases """
             spam_cm.__get__(None, list)
         self.assertEqual(str(cm.exception), expected_errmsg)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_staticmethods(self):
         # Testing static methods...
         class C(object):
@@ -1693,10 +1683,10 @@ order (MRO) for bases """
         self.assertEqual(d.foo(1), (d, 1))
         self.assertEqual(D.foo(d, 1), (d, 1))
         sm = staticmethod(None)
-        self.assertEqual(sm.__dict__, {'__doc__': None})
+        self.assertEqual(sm.__dict__, {'__doc__': None.__doc__})
         sm.x = 42
         self.assertEqual(sm.x, 42)
-        self.assertEqual(sm.__dict__, {"x" : 42, '__doc__': None})
+        self.assertEqual(sm.__dict__, {"x" : 42, '__doc__': None.__doc__})
         del sm.x
         self.assertNotHasAttr(sm, "x")
 
@@ -1811,8 +1801,7 @@ order (MRO) for bases """
             __new__ = object.__new__
         self.assertRaises(TypeError, C)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_object_new(self):
         class A(object):
             pass
@@ -1847,6 +1836,8 @@ order (MRO) for bases """
         object.__init__(A(3))
         self.assertRaises(TypeError, object.__init__, A(3), 5)
 
+    @unittest.skip('TODO: RUSTPYTHON; This passes, but the `expectedFailure` here is from CPython, so this test is an "UNEXPECTED SUCCESS" (not good)')
+    @unittest.expectedFailure
     def test_restored_object_new(self):
         class A(object):
             def __new__(cls, *args, **kwargs):
@@ -1870,8 +1861,7 @@ order (MRO) for bases """
         self.assertEqual(b.foo, 3)
         self.assertEqual(b.__class__, B)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_altmro(self):
         # Testing mro() and overriding it...
         class A(object):
@@ -2050,8 +2040,7 @@ order (MRO) for bases """
             set_add.__get__(0)
         self.assertEqual(cm.exception.args[0], expected_errmsg)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_special_method_lookup(self):
         # The lookup of special methods bypasses __getattr__ and
         # __getattribute__, but they still can be descriptors.
@@ -2254,8 +2243,7 @@ order (MRO) for bases """
             self.assertIn(i, p10)
         self.assertNotIn(10, p10)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_weakrefs(self):
         # Testing weak references...
         import weakref
@@ -2287,8 +2275,7 @@ order (MRO) for bases """
         self.assertEqual(r(), None)
         del r
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_properties(self):
         # Testing property...
         class C(object):
@@ -2616,8 +2603,7 @@ order (MRO) for bases """
 
         dir(C()) # This used to segfault
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_supers(self):
         # Testing super...
 
@@ -2730,8 +2716,7 @@ order (MRO) for bases """
         with self.assertRaises(TypeError):
             super(Base, kw=1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_basic_inheritance(self):
         # Testing inheritance from basic types...
 
@@ -3064,8 +3049,7 @@ order (MRO) for bases """
         ##         pass
         ##     os_helper.unlink(os_helper.TESTFN)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_keywords(self):
         # Testing keyword args to basic type constructors ...
         with self.assertRaisesRegex(TypeError, 'keyword argument'):
@@ -3268,8 +3252,7 @@ order (MRO) for bases """
                                          eval("x %s y" % op),
                                          "x=%d, y=%d" % (x, y))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_descrdoc(self):
         # Testing descriptor doc strings...
         from _io import FileIO
@@ -3293,8 +3276,7 @@ order (MRO) for bases """
         self.assertEqual(NewClass.__doc__, 'object=None; type=NewClass')
         self.assertEqual(NewClass().__doc__, 'object=NewClass instance; type=NewClass')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_set_class(self):
         # Testing __class__ assignment...
         class C(object): pass
@@ -3384,8 +3366,7 @@ order (MRO) for bases """
         l = [A() for x in range(100)]
         del l
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_set_dict(self):
         # Testing __dict__ assignment...
         class C(object): pass
@@ -3644,7 +3625,7 @@ order (MRO) for bases """
                            encoding='latin1', errors='replace')
         self.assertEqual(ba, b'abc\xbd?')
 
-    @unittest.skip("TODO: RUSTPYTHON, rustpython segmentation fault")
+    @unittest.skip('TODO: RUSTPYTHON; rustpython segmentation fault')
     def test_recursive_call(self):
         # Testing recursive __call__() by setting to instance of class...
         class A(object):
@@ -3763,8 +3744,7 @@ order (MRO) for bases """
         m.foo = 1
         self.assertEqual(m.__dict__, {"foo": 1})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_funny_new(self):
         # Testing __new__ returning something unexpected...
         class C(object):
@@ -3926,7 +3906,7 @@ order (MRO) for bases """
         # it as a leak.
         del C.__del__
 
-    @unittest.skip("TODO: RUSTPYTHON, rustpython segmentation fault")
+    @unittest.skip('TODO: RUSTPYTHON; rustpython segmentation fault')
     def test_slots_trash(self):
         # Testing slot trash...
         # Deallocating deeply nested slotted trash caused stack overflows
@@ -3939,8 +3919,7 @@ order (MRO) for bases """
             o = trash(o)
         del o
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_slots_multiple_inheritance(self):
         # SF bug 575229, multiple inheritance w/ slots dumps core
         class A(object):
@@ -4085,8 +4064,7 @@ order (MRO) for bases """
         else:
             self.fail("shouldn't be able to create inheritance cycles")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_builtin_bases(self):
         # Make sure all the builtin types can have their base queried without
         # segfaulting. See issue #5787.
@@ -4131,8 +4109,7 @@ order (MRO) for bases """
         else:
             self.fail("best_base calculation found wanting")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_unsubclassable_types(self):
         with self.assertRaises(TypeError):
             class X(type(None)):
@@ -4165,8 +4142,7 @@ order (MRO) for bases """
         with self.assertRaises(TypeError):
             X.__bases__ = type(None), O
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_mutable_bases_with_failing_mro(self):
         # Testing mutable bases with failing mro...
         class WorkOnce(type):
@@ -4273,8 +4249,7 @@ order (MRO) for bases """
         C.__name__ = Nasty("abc")
         C.__name__ = "normal"
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_subclass_right_op(self):
         # Testing correct dispatch of subclass overloading __r<op>__...
 
@@ -4409,8 +4384,7 @@ order (MRO) for bases """
         self.assertIsInstance(a, C)  # Baseline
         self.assertIsInstance(pa, C) # Test
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_proxy_super(self):
         # Testing super() for a proxy object...
         class Proxy(object):
@@ -4434,8 +4408,7 @@ order (MRO) for bases """
         p = Proxy(obj)
         self.assertEqual(C.__dict__["f"](p), "B.f->C.f")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_carloverre(self):
         # Testing prohibition of Carlo Verre's hack...
         try:
@@ -4468,8 +4441,7 @@ order (MRO) for bases """
         except TypeError:
             self.fail("setattr through direct base types should be legal")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_carloverre_multi_inherit_invalid(self):
         class A(type):
             def __setattr__(cls, key, value):
@@ -4507,8 +4479,8 @@ order (MRO) for bases """
         o = Oops()
         o.whatever = Provoker(o)
         del o
-        
-    @unittest.skip("TODO: RUSTPYTHON, rustpython segmentation fault")
+
+    @unittest.skip('TODO: RUSTPYTHON; rustpython segmentation fault')
     @support.requires_resource('cpu')
     def test_wrapper_segfault(self):
         # SF 927248: deeply nested wrappers could cause stack overflow
@@ -4583,8 +4555,7 @@ order (MRO) for bases """
         with self.assertRaises(TypeError):
             a >= b
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_method_wrapper(self):
         # Testing method-wrapper objects...
         # <type 'method-wrapper'> did not support any reflection before 2.5
@@ -4644,18 +4615,16 @@ order (MRO) for bases """
     def test_not_implemented(self):
         # Testing NotImplemented...
         # all binary methods should be able to return a NotImplemented
-        import operator
 
         def specialmethod(self, other):
             return NotImplemented
 
         def check(expr, x, y):
-            try:
-                exec(expr, {'x': x, 'y': y, 'operator': operator})
-            except TypeError:
-                pass
-            else:
-                self.fail("no TypeError from %r" % (expr,))
+            with (
+                self.subTest(expr=expr, x=x, y=y),
+                self.assertRaises(TypeError),
+            ):
+                exec(expr, {'x': x, 'y': y})
 
         N1 = sys.maxsize + 1    # might trigger OverflowErrors instead of
                                 # TypeErrors
@@ -4676,12 +4645,23 @@ order (MRO) for bases """
                 ('__and__',      'x & y',                   'x &= y'),
                 ('__or__',       'x | y',                   'x |= y'),
                 ('__xor__',      'x ^ y',                   'x ^= y')]:
-            rname = '__r' + name[2:]
+            # Defines 'left' magic method:
             A = type('A', (), {name: specialmethod})
             a = A()
             check(expr, a, a)
             check(expr, a, N1)
             check(expr, a, N2)
+            # Defines 'right' magic method:
+            rname = '__r' + name[2:]
+            B = type('B', (), {rname: specialmethod})
+            b = B()
+            check(expr, b, b)
+            check(expr, a, b)
+            check(expr, b, a)
+            check(expr, b, N1)
+            check(expr, b, N2)
+            check(expr, N1, b)
+            check(expr, N2, b)
             if iexpr:
                 check(iexpr, a, a)
                 check(iexpr, a, N1)
@@ -4788,6 +4768,21 @@ order (MRO) for bases """
         with self.assertRaises(AttributeError):
             del X.__abstractmethods__
 
+    @unittest.skip('TODO: RUSTPYTHON; crash. "dict has non-string keys: [PyObject PyInt { value: 1 }]"')
+    def test_gh55664(self):
+        # gh-55664: issue a warning when the
+        # __dict__ of a class contains non-string keys
+        with self.assertWarnsRegex(RuntimeWarning, 'MyClass'):
+            MyClass = type('MyClass', (), {1: 2})
+
+        class meta(type):
+            def __new__(mcls, name, bases, ns):
+                ns[1] = 2
+                return super().__new__(mcls, name, bases, ns)
+
+        with self.assertWarnsRegex(RuntimeWarning, 'MyClass'):
+            MyClass = meta('MyClass', (), {})
+
     def test_proxy_call(self):
         class FakeStr:
             __class__ = str
@@ -4811,24 +4806,24 @@ order (MRO) for bases """
         thing = Thing()
         for i in range(20):
             with self.assertRaises(TypeError):
-                # PRECALL_METHOD_DESCRIPTOR_FAST_WITH_KEYWORDS
+                # CALL_METHOD_DESCRIPTOR_FAST_WITH_KEYWORDS
                 list.sort(thing)
         for i in range(20):
             with self.assertRaises(TypeError):
-                # PRECALL_METHOD_DESCRIPTOR_FAST_WITH_KEYWORDS
+                # CALL_METHOD_DESCRIPTOR_FAST_WITH_KEYWORDS
                 str.split(thing)
         for i in range(20):
             with self.assertRaises(TypeError):
-                # PRECALL_NO_KW_METHOD_DESCRIPTOR_NOARGS
+                # CALL_METHOD_DESCRIPTOR_NOARGS
                 str.upper(thing)
         for i in range(20):
             with self.assertRaises(TypeError):
-                # PRECALL_NO_KW_METHOD_DESCRIPTOR_FAST
+                # CALL_METHOD_DESCRIPTOR_FAST
                 str.strip(thing)
         from collections import deque
         for i in range(20):
             with self.assertRaises(TypeError):
-                # PRECALL_NO_KW_METHOD_DESCRIPTOR_O
+                # CALL_METHOD_DESCRIPTOR_O
                 deque.append(thing, thing)
 
     def test_repr_as_str(self):
@@ -4862,8 +4857,7 @@ order (MRO) for bases """
         with self.assertRaises(TypeError):
             a + a
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_slot_shadows_class_variable(self):
         with self.assertRaises(ValueError) as cm:
             class X:
@@ -4872,8 +4866,7 @@ order (MRO) for bases """
         m = str(cm.exception)
         self.assertEqual("'foo' in __slots__ conflicts with class variable", m)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_set_doc(self):
         class X:
             "elephant"
@@ -4889,8 +4882,7 @@ order (MRO) for bases """
         self.assertIn("cannot delete '__doc__' attribute of immutable type 'X'", str(cm.exception))
         self.assertEqual(X.__doc__, "banana")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_qualname(self):
         descriptors = [str.lower, complex.real, float.real, int.__add__]
         types = ['method', 'member', 'getset', 'wrapper']
@@ -4923,8 +4915,7 @@ order (MRO) for bases """
         self.assertEqual(Y.__qualname__, 'Y')
         self.assertEqual(Y.Inside.__qualname__, 'Y.Inside')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_qualname_dict(self):
         ns = {'__qualname__': 'some.name'}
         tp = type('Foo', (), ns)
@@ -4935,8 +4926,7 @@ order (MRO) for bases """
         ns = {'__qualname__': 1}
         self.assertRaises(TypeError, type, 'Foo', (), ns)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_cycle_through_dict(self):
         # See bug #1469629
         class X(dict):
@@ -4952,8 +4942,7 @@ order (MRO) for bases """
         for o in gc.get_objects():
             self.assertIsNot(type(o), X)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_object_new_and_init_with_parameters(self):
         # See issue #1683368
         class OverrideNeither:
@@ -4974,8 +4963,7 @@ order (MRO) for bases """
             self.assertRaises(TypeError, case, 1, 2, 3)
             self.assertRaises(TypeError, case, 1, 2, foo=3)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_subclassing_does_not_duplicate_dict_descriptors(self):
         class Base:
             pass
@@ -5055,6 +5043,7 @@ order (MRO) for bases """
                 cls.lst = [2**i for i in range(10000)]
         X.descr
 
+    @support.suppress_immortalization()
     def test_remove_subclass(self):
         # bpo-46417: when the last subclass of a type is deleted,
         # remove_subclass() clears the internal dictionary of subclasses:
@@ -5071,6 +5060,22 @@ order (MRO) for bases """
         del Child
         gc.collect()
         self.assertEqual(Parent.__subclasses__(), [])
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_instance_method_get_behavior(self):
+        # test case for gh-113157
+
+        class A:
+            def meth(self):
+                return self
+
+        class B:
+            pass
+
+        a = A()
+        b = B()
+        b.meth = a.meth.__get__(b, B)
+        self.assertEqual(b.meth(), a)
 
     def test_attr_raise_through_property(self):
         # test case for gh-103272
@@ -5106,8 +5111,7 @@ class DictProxyTests(unittest.TestCase):
                 pass
         self.C = C
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                         'trace function introduces __local__')
     def test_iter_keys(self):
@@ -5116,9 +5120,12 @@ class DictProxyTests(unittest.TestCase):
         self.assertNotIsInstance(it, list)
         keys = list(it)
         keys.sort()
-        self.assertEqual(keys, ['__dict__', '__doc__', '__module__',
-                                '__weakref__', 'meth'])
+        self.assertEqual(keys, ['__dict__', '__doc__', '__firstlineno__',
+                                '__module__',
+                                '__static_attributes__', '__weakref__',
+                                'meth'])
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: 5 != 7
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                         'trace function introduces __local__')
     def test_iter_values(self):
@@ -5126,10 +5133,9 @@ class DictProxyTests(unittest.TestCase):
         it = self.C.__dict__.values()
         self.assertNotIsInstance(it, list)
         values = list(it)
-        self.assertEqual(len(values), 5)
+        self.assertEqual(len(values), 7)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                         'trace function introduces __local__')
     def test_iter_items(self):
@@ -5138,8 +5144,10 @@ class DictProxyTests(unittest.TestCase):
         self.assertNotIsInstance(it, list)
         keys = [item[0] for item in it]
         keys.sort()
-        self.assertEqual(keys, ['__dict__', '__doc__', '__module__',
-                                '__weakref__', 'meth'])
+        self.assertEqual(keys, ['__dict__', '__doc__', '__firstlineno__',
+                                '__module__',
+                                '__static_attributes__', '__weakref__',
+                                'meth'])
 
     def test_dict_type_with_metaclass(self):
         # Testing type of __dict__ when metaclass set...
@@ -5189,7 +5197,7 @@ class AAAPTypesLongInitTest(unittest.TestCase):
 
 
 class MiscTests(unittest.TestCase):
-    @unittest.skip("TODO: RUSTPYTHON, rustpython panicked at 'dict has non-string keys: [PyObject PyBaseObject]'")
+    @unittest.skip("TODO: RUSTPYTHON; rustpython panicked at 'dict has non-string keys: [PyObject PyBaseObject]'")
     def test_type_lookup_mro_reference(self):
         # Issue #14199: _PyType_Lookup() has to keep a strong reference to
         # the type MRO because it may be modified during the lookup, if
@@ -5209,11 +5217,17 @@ class MiscTests(unittest.TestCase):
             mykey = 'from Base2'
             mykey2 = 'from Base2'
 
-        X = type('X', (Base,), {MyKey(): 5})
+        with self.assertWarnsRegex(RuntimeWarning, 'X'):
+            X = type('X', (Base,), {MyKey(): 5})
+
+        # Note that the access below uses getattr() rather than normally
+        # accessing the attribute.  That is done to avoid the bytecode
+        # specializer activating on repeated runs of the test.
+
         # mykey is read from Base
-        self.assertEqual(X.mykey, 'from Base')
+        self.assertEqual(getattr(X, 'mykey'), 'from Base')
         # mykey2 is read from Base2 because MyKey.__eq__ has set __bases__
-        self.assertEqual(X.mykey2, 'from Base2')
+        self.assertEqual(getattr(X, 'mykey2'), 'from Base2')
 
 
 class PicklingTests(unittest.TestCase):
@@ -5248,8 +5262,7 @@ class PicklingTests(unittest.TestCase):
             self.assertEqual(obj.__reduce_ex__(proto), reduce_value)
             self.assertEqual(obj.__reduce__(), reduce_value)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_reduce(self):
         protocols = range(pickle.HIGHEST_PROTOCOL + 1)
         args = (-101, "spam")
@@ -5373,8 +5386,7 @@ class PicklingTests(unittest.TestCase):
         for proto in protocols:
             self._check_reduce(proto, obj, listitems=list(obj))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_special_method_lookup(self):
         protocols = range(pickle.HIGHEST_PROTOCOL + 1)
         class Picky:
@@ -5507,8 +5519,7 @@ class PicklingTests(unittest.TestCase):
                 y = pickle_copier.copy(x)
                 self._assert_is_copy(x, y)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_reduce_copying(self):
         # Tests pickling and copying new-style classes and objects.
         global C1
@@ -5633,7 +5644,7 @@ class PicklingTests(unittest.TestCase):
                     objcopy2 = deepcopy(objcopy)
                     self._assert_is_copy(obj, objcopy2)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip('TODO: RUSTPYTHON')
     def test_issue24097(self):
         # Slot name is freed inside __getattr__ and is later used.
         class S(str):  # Not interned
@@ -5774,8 +5785,7 @@ class MroTest(unittest.TestCase):
         class C(B):
             pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_reent_set_bases_tp_base_cycle(self):
         """
         type_set_bases must check for an inheritance cycle not only through
@@ -5812,8 +5822,7 @@ class MroTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             B1.__bases__ += ()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_tp_subclasses_cycle_in_update_slots(self):
         """
         type_set_bases must check for reentrancy upon finishing its job
@@ -5850,8 +5859,7 @@ class MroTest(unittest.TestCase):
         self.assertEqual(B1.__bases__, (C,))
         self.assertEqual(C.__subclasses__(), [B1])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_tp_subclasses_cycle_error_return_path(self):
         """
         The same as test_tp_subclasses_cycle_in_update_slots, but tests
@@ -5920,8 +5928,7 @@ class MroTest(unittest.TestCase):
         class A(metaclass=M):
             pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_disappearing_custom_mro(self):
         """
         gh-92112: A custom mro() returning a result conflicting with
