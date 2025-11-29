@@ -1,5 +1,5 @@
 ---
-source: compiler/codegen/src/compile.rs
+source: crates/codegen/src/compile.rs
 expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):\n    with self.subTest(type=type(stop_exc)):\n        try:\n            async with egg():\n                raise stop_exc\n        except Exception as ex:\n            self.assertIs(ex, stop_exc)\n        else:\n            self.fail(f'{stop_exc} was suppressed')\n\")"
 ---
   1           0 SetupLoop
@@ -11,7 +11,7 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
               6 CallFunctionPositional(1)
               7 BuildTuple           (2)
               8 GetIter
-        >>    9 ForIter              (73)
+        >>    9 ForIter              (72)
              10 StoreLocal           (2, stop_exc)
 
   2          11 LoadNameAny          (3, self)
@@ -21,7 +21,7 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
              15 CallFunctionPositional(1)
              16 LoadConst            (("type"))
              17 CallMethodKeyword    (1)
-             18 SetupWith            (70)
+             18 SetupWith            (69)
              19 Pop
 
   3          20 SetupExcept          (42)
@@ -48,41 +48,40 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
              38 Resume               (3)
              39 WithCleanupFinish
              40 PopBlock
-             41 Jump                 (59)
+             41 Jump                 (58)
         >>   42 CopyItem             (1)
 
   6          43 LoadNameAny          (7, Exception)
-             44 TestOperation        (ExceptionMatch)
-             45 PopJumpIfFalse       (58)
-             46 StoreLocal           (8, ex)
+             44 JUMP_IF_NOT_EXC_MATCH(57)
+             45 StoreLocal           (8, ex)
 
-  7          47 LoadNameAny          (3, self)
-             48 LoadMethod           (9, assertIs)
-             49 LoadNameAny          (8, ex)
-             50 LoadNameAny          (2, stop_exc)
-             51 CallMethodPositional (2)
-             52 Pop
-             53 PopException
-             54 LoadConst            (None)
-             55 StoreLocal           (8, ex)
-             56 DeleteLocal          (8, ex)
-             57 Jump                 (68)
-        >>   58 Raise                (Reraise)
+  7          46 LoadNameAny          (3, self)
+             47 LoadMethod           (9, assertIs)
+             48 LoadNameAny          (8, ex)
+             49 LoadNameAny          (2, stop_exc)
+             50 CallMethodPositional (2)
+             51 Pop
+             52 PopException
+             53 LoadConst            (None)
+             54 StoreLocal           (8, ex)
+             55 DeleteLocal          (8, ex)
+             56 Jump                 (67)
+        >>   57 Raise                (Reraise)
 
-  9     >>   59 LoadNameAny          (3, self)
-             60 LoadMethod           (10, fail)
-             61 LoadConst            ("")
-             62 LoadNameAny          (2, stop_exc)
-             63 FormatValue          (None)
-             64 LoadConst            (" was suppressed")
-             65 BuildString          (2)
-             66 CallMethodPositional (1)
-             67 Pop
+  9     >>   58 LoadNameAny          (3, self)
+             59 LoadMethod           (10, fail)
+             60 LoadConst            ("")
+             61 LoadNameAny          (2, stop_exc)
+             62 FormatValue          (None)
+             63 LoadConst            (" was suppressed")
+             64 BuildString          (2)
+             65 CallMethodPositional (1)
+             66 Pop
 
-  2     >>   68 PopBlock
-             69 EnterFinally
-        >>   70 WithCleanupStart
-             71 WithCleanupFinish
-             72 Jump                 (9)
-        >>   73 PopBlock
-             74 ReturnConst          (None)
+  2     >>   67 PopBlock
+             68 EnterFinally
+        >>   69 WithCleanupStart
+             70 WithCleanupFinish
+             71 Jump                 (9)
+        >>   72 PopBlock
+             73 ReturnConst          (None)

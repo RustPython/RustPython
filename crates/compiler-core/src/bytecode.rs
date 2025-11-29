@@ -577,6 +577,10 @@ pub enum Instruction {
     Subscript,
     StoreSubscript,
     DeleteSubscript,
+    /// Performs `is` comparison, or `is not` if `invert` is 1.
+    IsOp(Arg<Invert>),
+    /// Performs `in` comparison, or `not in` if `invert` is 1.
+    ContainsOp(Arg<Invert>),
     StoreAttr {
         idx: Arg<NameIdx>,
     },
@@ -599,9 +603,6 @@ pub enum Instruction {
     BinarySubscript,
     LoadAttr {
         idx: Arg<NameIdx>,
-    },
-    TestOperation {
-        op: Arg<TestOperator>,
     },
     CompareOperation {
         op: Arg<ComparisonOperator>,
@@ -628,6 +629,10 @@ pub enum Instruction {
     Break {
         target: Arg<Label>,
     },
+    /// Performs exception matching for except.
+    /// Tests whether the STACK[-2] is an exception matching STACK[-1].
+    /// Pops STACK[-1] and pushes the boolean result of the test.
+    JumpIfNotExcMatch(Arg<Label>),
     Jump {
         target: Arg<Label>,
     },
@@ -1089,19 +1094,6 @@ op_arg_enum!(
 );
 
 op_arg_enum!(
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-    #[repr(u8)]
-    pub enum TestOperator {
-        In = 0,
-        NotIn = 1,
-        Is = 2,
-        IsNot = 3,
-        /// two exceptions that match?
-        ExceptionMatch = 4,
-    }
-);
-
-op_arg_enum!(
     /// The possible Binary operators
     /// # Examples
     ///
@@ -1138,6 +1130,24 @@ op_arg_enum!(
         Invert = 1,
         Minus = 2,
         Plus = 3,
+    }
+);
+
+op_arg_enum!(
+    /// Whether or not to invert the operation.
+    #[repr(u8)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub enum Invert {
+        /// ```py
+        /// foo is bar
+        /// x in lst
+        /// ```
+        No = 0,
+        /// ```py
+        /// foo is not bar
+        /// x not in lst
+        /// ```
+        Yes = 1,
     }
 );
 
@@ -1395,6 +1405,7 @@ impl Instruction {
     pub const fn label_arg(&self) -> Option<Arg<Label>> {
         match self {
             Jump { target: l }
+            | JumpIfNotExcMatch(l)
             | PopJumpIfTrue { target: l }
             | PopJumpIfFalse { target: l }
             | JumpIfTrueOrPop { target: l }
@@ -1462,10 +1473,7 @@ impl Instruction {
             DeleteAttr { .. } => -1,
             LoadConst { .. } => 1,
             UnaryOperation { .. } => 0,
-            BinaryOperation { .. }
-            | BinaryOperationInplace { .. }
-            | TestOperation { .. }
-            | CompareOperation { .. } => -1,
+            BinaryOperation { .. } | BinaryOperationInplace { .. } | CompareOperation { .. } => -1,
             BinarySubscript => -1,
             CopyItem { .. } => 1,
             Pop => -1,
@@ -1508,6 +1516,8 @@ impl Instruction {
                     1
                 }
             }
+            IsOp(_) | ContainsOp(_) => -1,
+            JumpIfNotExcMatch(_) => -2,
             ReturnValue => -1,
             ReturnConst { .. } => 0,
             Resume { .. } => 0,
@@ -1654,6 +1664,9 @@ impl Instruction {
             DeleteGlobal(idx) => w!(DeleteGlobal, name = idx),
             DeleteDeref(idx) => w!(DeleteDeref, cell_name = idx),
             LoadClosure(i) => w!(LoadClosure, cell_name = i),
+            IsOp(inv) => w!(IS_OP, ?inv),
+            ContainsOp(inv) => w!(CONTAINS_OP, ?inv),
+            JumpIfNotExcMatch(target) => w!(JUMP_IF_NOT_EXC_MATCH, target),
             Subscript => w!(Subscript),
             StoreSubscript => w!(StoreSubscript),
             DeleteSubscript => w!(DeleteSubscript),
@@ -1665,7 +1678,6 @@ impl Instruction {
             BinaryOperationInplace { op } => w!(BinaryOperationInplace, ?op),
             BinarySubscript => w!(BinarySubscript),
             LoadAttr { idx } => w!(LoadAttr, name = idx),
-            TestOperation { op } => w!(TestOperation, ?op),
             CompareOperation { op } => w!(CompareOperation, ?op),
             CopyItem { index } => w!(CopyItem, index),
             Pop => w!(Pop),
