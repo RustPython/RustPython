@@ -239,10 +239,10 @@ impl Representable for PySuper {
 }
 
 fn super_check(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTypeRef> {
-    let is_type = match obj.clone().downcast::<PyType>() {
+    let typ = match obj.clone().downcast::<PyType>() {
         Ok(cls) if cls.fast_issubclass(&ty) => return Ok(cls),
-        Ok(_) => true,
-        Err(_) => false,
+        Ok(cls) => Some(cls),
+        Err(_) => None,
     };
 
     if obj.fast_isinstance(&ty) {
@@ -257,13 +257,9 @@ fn super_check(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult
         return Ok(cls);
     }
 
-    let (type_or_instance, obj_str) = if is_type {
-        // SAFETY: This is will always be successful as we already checked at the begining of
-        // the function.
-        let typ = unsafe { obj.downcast::<PyType>().unwrap_unchecked() };
-        ("type", typ.name().to_owned())
-    } else {
-        ("instance of", obj.class().name().to_owned())
+    let (type_or_instance, obj_str) = match typ {
+        Some(t) => ("type", t.name().to_owned()),
+        None => ("instance of", obj.class().name().to_owned()),
     };
 
     Err(vm.new_type_error(format!(
