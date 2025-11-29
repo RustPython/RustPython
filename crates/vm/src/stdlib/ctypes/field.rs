@@ -1,6 +1,6 @@
-use crate::builtins::{PyType, PyTypeRef};
+use crate::builtins::PyType;
 use crate::function::PySetterValue;
-use crate::types::{Constructor, GetDescriptor, Representable};
+use crate::types::{GetDescriptor, Representable, Unconstructible};
 use crate::{AsObject, Py, PyObjectRef, PyResult, VirtualMachine};
 use num_traits::ToPrimitive;
 
@@ -83,21 +83,7 @@ impl Representable for PyCField {
     }
 }
 
-#[derive(Debug, FromArgs)]
-pub struct PyCFieldConstructorArgs {
-    // PyObject *name, PyObject *proto,
-    //               Py_ssize_t byte_size, Py_ssize_t byte_offset,
-    //               Py_ssize_t index, int _internal_use,
-    //               PyObject *bit_size_obj, PyObject *bit_offset_obj
-}
-
-impl Constructor for PyCField {
-    type Args = PyCFieldConstructorArgs;
-
-    fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_type_error("Cannot instantiate a PyCField".to_string()))
-    }
-}
+impl Unconstructible for PyCField {}
 
 impl GetDescriptor for PyCField {
     fn descr_get(
@@ -186,8 +172,8 @@ impl PyCField {
 }
 
 #[pyclass(
-    flags(BASETYPE, IMMUTABLETYPE),
-    with(Constructor, Representable, GetDescriptor)
+    flags(DISALLOW_INSTANTIATION, IMMUTABLETYPE),
+    with(Unconstructible, Representable, GetDescriptor)
 )]
 impl PyCField {
     #[pyslot]
