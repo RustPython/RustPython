@@ -35,8 +35,8 @@ use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_core::{
     Mode, OneIndexed, PositionEncoding, SourceFile, SourceLocation,
     bytecode::{
-        self, Arg as OpArgMarker, BinaryOperator, CodeObject, ComparisonOperator, ConstantData,
-        Instruction, Invert, OpArg, OpArgType, UnpackExArgs,
+        self, Arg as OpArgMarker, BinaryOperator, BuildSliceArgCount, CodeObject,
+        ComparisonOperator, ConstantData, Instruction, Invert, OpArg, OpArgType, UnpackExArgs,
     },
 };
 use rustpython_wtf8::Wtf8Buf;
@@ -456,12 +456,22 @@ impl Compiler {
             match ctx {
                 ExprContext::Load => {
                     // CPython uses BINARY_SLICE
-                    emit!(self, Instruction::BuildSlice { step: n == 3 });
+                    emit!(
+                        self,
+                        Instruction::BuildSlice {
+                            argc: BuildSliceArgCount::from_op_arg(n).unwrap()
+                        }
+                    );
                     emit!(self, Instruction::Subscript);
                 }
                 ExprContext::Store => {
                     // CPython uses STORE_SLICE
-                    emit!(self, Instruction::BuildSlice { step: n == 3 });
+                    emit!(
+                        self,
+                        Instruction::BuildSlice {
+                            argc: BuildSliceArgCount::from_op_arg(n).unwrap()
+                        }
+                    );
                     emit!(self, Instruction::StoreSubscript);
                 }
                 _ => unreachable!(),
@@ -4587,8 +4597,11 @@ impl Compiler {
                 if let Some(step) = step {
                     self.compile_expression(step)?;
                 }
-                let step = step.is_some();
-                emit!(self, Instruction::BuildSlice { step });
+                let argc = match step {
+                    Some(_) => BuildSliceArgCount::Three,
+                    None => BuildSliceArgCount::Two,
+                };
+                emit!(self, Instruction::BuildSlice { argc });
             }
             Expr::Yield(ExprYield { value, .. }) => {
                 if !self.ctx.in_func() {

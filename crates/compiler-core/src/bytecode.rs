@@ -760,8 +760,7 @@ pub enum Instruction {
         index: Arg<u32>,
     },
     BuildSlice {
-        /// whether build a slice with a third step argument
-        step: Arg<bool>,
+        argc: Arg<BuildSliceArgCount>,
     },
     ListAppend {
         i: Arg<u32>,
@@ -1148,6 +1147,22 @@ op_arg_enum!(
         /// x not in lst
         /// ```
         Yes = 1,
+    }
+);
+
+op_arg_enum!(
+    /// Specifies if a slice is built with either 2 or 3 arguments.
+    #[repr(u8)]
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum BuildSliceArgCount {
+        /// ```py
+        /// x[5:10]
+        /// ```
+        Two = 2,
+        /// ```py
+        /// x[5:10:2]
+        /// ```
+        Three = 3,
     }
 );
 
@@ -1547,7 +1562,11 @@ impl Instruction {
                 -(nargs as i32) + 1
             }
             DictUpdate { .. } => -1,
-            BuildSlice { step } => -2 - (step.get(arg) as i32) + 1,
+            BuildSlice { argc } => {
+                // push 1
+                // pops either 2/3
+                1 - (argc.get(arg) as i32)
+            }
             ListAppend { .. } | SetAdd { .. } => -1,
             MapAdd { .. } => -2,
             PrintExpr => -1,
@@ -1734,7 +1753,7 @@ impl Instruction {
             BuildMap { size } => w!(BuildMap, size),
             BuildMapForCall { size } => w!(BuildMapForCall, size),
             DictUpdate { index } => w!(DictUpdate, index),
-            BuildSlice { step } => w!(BuildSlice, step),
+            BuildSlice { argc } => w!(BuildSlice, ?argc),
             ListAppend { i } => w!(ListAppend, i),
             SetAdd { i } => w!(SetAdd, i),
             MapAdd { i } => w!(MapAdd, i),
