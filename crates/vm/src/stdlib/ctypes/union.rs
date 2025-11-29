@@ -1,5 +1,6 @@
 use super::base::{CDataObject, PyCData};
 use super::field::PyCField;
+use super::util::StgInfo;
 use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::function::FuncArgs;
@@ -13,7 +14,17 @@ use rustpython_common::lock::PyRwLock;
 /// PyCUnionType - metaclass for Union
 #[pyclass(name = "UnionType", base = PyType, module = "_ctypes")]
 #[derive(Debug, PyPayload)]
-pub struct PyCUnionType {}
+pub struct PyCUnionType {
+    pub stg_info: StgInfo,
+}
+
+impl Default for PyCUnionType {
+    fn default() -> Self {
+        PyCUnionType {
+            stg_info: StgInfo::new(0, 1),
+        }
+    }
+}
 
 impl Constructor for PyCUnionType {
     type Args = FuncArgs;
@@ -76,9 +87,9 @@ impl PyCUnionType {
 
             // For Union, all fields start at offset 0
             // Create CField descriptor (accepts any ctypes type including arrays)
-            let cfield = PyCField::new(name.clone(), field_type, 0, size, index);
+            let c_field = PyCField::new(name.clone(), field_type, 0, size, index);
 
-            cls.set_attr(vm.ctx.intern_str(name), cfield.to_pyobject(vm));
+            cls.set_attr(vm.ctx.intern_str(name), c_field.to_pyobject(vm));
         }
 
         Ok(())
@@ -137,8 +148,9 @@ impl Constructor for PyCUnion {
         // Get _fields_ from the class
         let fields_attr = cls.as_object().get_attr("_fields_", vm).ok();
 
-        // Calculate union size (max of all field sizes)
+        // Calculate union size (max of all field sizes) and alignment
         let mut max_size = 0usize;
+        let mut max_align = 1usize;
 
         if let Some(fields_attr) = fields_attr {
             let fields: Vec<PyObjectRef> = if let Some(list) = fields_attr.downcast_ref::<PyList>()
@@ -160,12 +172,15 @@ impl Constructor for PyCUnion {
                 let field_type = field_tuple.get(1).unwrap().clone();
                 let size = PyCUnionType::get_field_size(&field_type, vm)?;
                 max_size = max_size.max(size);
+                // For simple types, alignment == size
+                max_align = max_align.max(size);
             }
         }
 
         // Initialize buffer with zeros
+        let stg_info = StgInfo::new(max_size, max_align);
         PyCUnion {
-            cdata: PyRwLock::new(CDataObject::new(max_size)),
+            cdata: PyRwLock::new(CDataObject::from_stg_info(&stg_info)),
         }
         .into_ref_with_type(vm, cls)
         .map(Into::into)
@@ -190,9 +205,9 @@ impl PyCUnion {
         if address == 0 || size == 0 {
             return Err(vm.new_value_error("NULL pointer access".to_owned()));
         }
-
+        let stg_info = StgInfo::new(size, 1);
         Ok(PyCUnion {
-            cdata: PyRwLock::new(CDataObject::new(size)),
+            cdata: PyRwLock::new(CDataObject::from_stg_info(&stg_info)),
         }
         .into_ref_with_type(vm, cls)?
         .into())

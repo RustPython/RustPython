@@ -1,5 +1,6 @@
 use super::_ctypes::bytes_to_pyobject;
-use super::array::{PyCArray, PyCArrayType};
+use super::array::PyCArrayType;
+use super::util::StgInfo;
 use crate::builtins::{PyBytes, PyFloat, PyInt, PyNone, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::function::{ArgBytesLike, Either, OptionalArg};
@@ -12,6 +13,14 @@ use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
 use std::ffi::{c_uint, c_ulong, c_ulonglong, c_ushort};
 use std::fmt::Debug;
+
+/// Get the type code string from a ctypes type (e.g., "i" for c_int)
+pub fn get_type_code(cls: &PyTypeRef, vm: &VirtualMachine) -> Option<String> {
+    cls.as_object()
+        .get_attr("_type_", vm)
+        .ok()
+        .and_then(|t| t.downcast_ref::<PyStr>().map(|s| s.to_string()))
+}
 
 pub fn ffi_type_from_str(_type_: &str) -> Option<libffi::middle::Type> {
     match _type_ {
@@ -92,7 +101,10 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
             }
         }
         "f" | "d" | "g" => {
-            if value.clone().downcast_exact::<PyFloat>(vm).is_ok() {
+            // float allows int
+            if value.clone().downcast_exact::<PyFloat>(vm).is_ok()
+                || value.clone().downcast_exact::<PyInt>(vm).is_ok()
+            {
                 Ok(value.clone())
             } else {
                 Err(vm.new_type_error(format!("must be real number, not {}", value.class().name())))
@@ -160,10 +172,10 @@ pub struct CDataObject {
 }
 
 impl CDataObject {
-    /// Create new owned buffer with zero-initialized memory
-    pub fn new(size: usize) -> Self {
+    /// Create from StgInfo (PyCData_MallocBuffer pattern)
+    pub fn from_stg_info(stg_info: &StgInfo) -> Self {
         CDataObject {
-            buffer: vec![0u8; size],
+            buffer: vec![0u8; stg_info.size],
             base: None,
             index: 0,
             objects: None,
@@ -182,7 +194,13 @@ impl CDataObject {
 
     /// Create from base object (copies data from base's buffer at offset)
     #[allow(dead_code)]
-    pub fn from_base(base: PyObjectRef, _offset: usize, size: usize, index: usize, objects: Option<PyObjectRef>) -> Self {
+    pub fn from_base(
+        base: PyObjectRef,
+        _offset: usize,
+        size: usize,
+        index: usize,
+        objects: Option<PyObjectRef>,
+    ) -> Self {
         CDataObject {
             buffer: vec![0u8; size],
             base: Some(base),
@@ -212,11 +230,28 @@ impl PyCData {
 }
 
 #[pyclass(module = "_ctypes", name = "PyCSimpleType", base = PyType)]
-#[derive(Debug, PyPayload)]
-pub struct PyCSimpleType {}
+#[derive(Debug, PyPayload, Default)]
+pub struct PyCSimpleType {
+    #[allow(dead_code)]
+    pub stg_info: StgInfo,
+}
 
 #[pyclass(flags(BASETYPE), with(AsNumber))]
 impl PyCSimpleType {
+    /// Get stg_info for a simple type by reading _type_ attribute
+    pub fn get_stg_info(cls: &PyTypeRef, vm: &VirtualMachine) -> StgInfo {
+        if let Ok(type_attr) = cls.as_object().get_attr("_type_", vm)
+            && let Ok(type_str) = type_attr.str(vm)
+        {
+            let tp_str = type_str.to_string();
+            if tp_str.len() == 1 {
+                let size = super::_ctypes::get_size(&tp_str);
+                let align = super::_ctypes::get_align(&tp_str);
+                return StgInfo::new(size, align);
+            }
+        }
+        StgInfo::default()
+    }
     #[allow(clippy::new_ret_no_self)]
     #[pymethod]
     fn new(cls: PyTypeRef, _: OptionalArg, vm: &VirtualMachine) -> PyResult {
@@ -229,17 +264,122 @@ impl PyCSimpleType {
 
     #[pyclassmethod]
     fn from_param(cls: PyTypeRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        // If the value is already an instance of the requested type, return it
+        // 1. If the value is already an instance of the requested type, return it
         if value.fast_isinstance(&cls) {
             return Ok(value);
         }
 
-        // Check for _as_parameter_ attribute
-        let Ok(as_parameter) = value.get_attr("_as_parameter_", vm) else {
-            return Err(vm.new_type_error("wrong type"));
-        };
+        // 2. Get the type code to determine conversion rules
+        let type_code = get_type_code(&cls, vm);
 
-        PyCSimpleType::from_param(cls, as_parameter, vm)
+        // 3. Handle None for pointer types (c_char_p, c_wchar_p, c_void_p)
+        if vm.is_none(&value) && matches!(type_code.as_deref(), Some("z") | Some("Z") | Some("P")) {
+            return Ok(value);
+        }
+
+        // 4. Try to convert value based on type code
+        match type_code.as_deref() {
+            // Integer types: accept integers
+            Some("b" | "B" | "h" | "H" | "i" | "I" | "l" | "L" | "q" | "Q") => {
+                if value.try_int(vm).is_ok() {
+                    let simple = new_simple_type(Either::B(&cls), vm)?;
+                    simple.value.store(value.clone());
+                    return simple.into_ref_with_type(vm, cls.clone()).map(Into::into);
+                }
+            }
+            // Float types: accept numbers
+            Some("f" | "d" | "g") => {
+                if value.try_float(vm).is_ok() || value.try_int(vm).is_ok() {
+                    let simple = new_simple_type(Either::B(&cls), vm)?;
+                    simple.value.store(value.clone());
+                    return simple.into_ref_with_type(vm, cls.clone()).map(Into::into);
+                }
+            }
+            // c_char: 1 byte character
+            Some("c") => {
+                if let Some(bytes) = value.downcast_ref::<PyBytes>()
+                    && bytes.len() == 1
+                {
+                    let simple = new_simple_type(Either::B(&cls), vm)?;
+                    simple.value.store(value.clone());
+                    return simple.into_ref_with_type(vm, cls.clone()).map(Into::into);
+                }
+                if let Ok(int_val) = value.try_int(vm)
+                    && int_val.as_bigint().to_u8().is_some()
+                {
+                    let simple = new_simple_type(Either::B(&cls), vm)?;
+                    simple.value.store(value.clone());
+                    return simple.into_ref_with_type(vm, cls.clone()).map(Into::into);
+                }
+                return Err(vm.new_type_error(
+                    "one character bytes, bytearray or integer expected".to_string(),
+                ));
+            }
+            // c_wchar: 1 unicode character
+            Some("u") => {
+                if let Some(s) = value.downcast_ref::<PyStr>()
+                    && s.as_str().chars().count() == 1
+                {
+                    let simple = new_simple_type(Either::B(&cls), vm)?;
+                    simple.value.store(value.clone());
+                    return simple.into_ref_with_type(vm, cls.clone()).map(Into::into);
+                }
+                return Err(vm.new_type_error("one character unicode string expected".to_string()));
+            }
+            // c_char_p: bytes pointer
+            Some("z") => {
+                if value.downcast_ref::<PyBytes>().is_some() {
+                    let simple = new_simple_type(Either::B(&cls), vm)?;
+                    simple.value.store(value.clone());
+                    return simple.into_ref_with_type(vm, cls.clone()).map(Into::into);
+                }
+            }
+            // c_wchar_p: unicode pointer
+            Some("Z") => {
+                if value.downcast_ref::<PyStr>().is_some() {
+                    let simple = new_simple_type(Either::B(&cls), vm)?;
+                    simple.value.store(value.clone());
+                    return simple.into_ref_with_type(vm, cls.clone()).map(Into::into);
+                }
+            }
+            // c_void_p: most flexible - accepts int, bytes, str
+            Some("P") => {
+                if value.try_int(vm).is_ok()
+                    || value.downcast_ref::<PyBytes>().is_some()
+                    || value.downcast_ref::<PyStr>().is_some()
+                {
+                    let simple = new_simple_type(Either::B(&cls), vm)?;
+                    simple.value.store(value.clone());
+                    return simple.into_ref_with_type(vm, cls.clone()).map(Into::into);
+                }
+            }
+            // c_bool
+            Some("?") => {
+                let bool_val = value.is_true(vm)?;
+                let simple = new_simple_type(Either::B(&cls), vm)?;
+                simple.value.store(vm.ctx.new_bool(bool_val).into());
+                return simple.into_ref_with_type(vm, cls.clone()).map(Into::into);
+            }
+            _ => {}
+        }
+
+        // 5. Check for _as_parameter_ attribute
+        if let Ok(as_parameter) = value.get_attr("_as_parameter_", vm) {
+            return PyCSimpleType::from_param(cls, as_parameter, vm);
+        }
+
+        // 6. Type-specific error messages
+        match type_code.as_deref() {
+            Some("z") => Err(vm.new_type_error(format!(
+                "'{}' object cannot be interpreted as ctypes.c_char_p",
+                value.class().name()
+            ))),
+            Some("Z") => Err(vm.new_type_error(format!(
+                "'{}' object cannot be interpreted as ctypes.c_wchar_p",
+                value.class().name()
+            ))),
+            _ => Err(vm.new_type_error("wrong type".to_string())),
+        }
     }
 
     #[pymethod]
@@ -291,8 +431,31 @@ impl Debug for PyCSimple {
     }
 }
 
-/// Convert a Python value to bytes based on ctypes type
-fn value_to_bytes(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> Vec<u8> {
+fn value_to_bytes_endian(
+    _type_: &str,
+    value: &PyObjectRef,
+    swapped: bool,
+    vm: &VirtualMachine,
+) -> Vec<u8> {
+    // Helper macro for endian conversion
+    macro_rules! to_bytes {
+        ($val:expr) => {
+            if swapped {
+                // Use opposite endianness
+                #[cfg(target_endian = "little")]
+                {
+                    $val.to_be_bytes().to_vec()
+                }
+                #[cfg(target_endian = "big")]
+                {
+                    $val.to_le_bytes().to_vec()
+                }
+            } else {
+                $val.to_ne_bytes().to_vec()
+            }
+        };
+    }
+
     match _type_ {
         "c" => {
             // c_char - single byte
@@ -313,7 +476,7 @@ fn value_to_bytes(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> Vec
             if let Ok(s) = value.str(vm)
                 && let Some(c) = s.as_str().chars().next()
             {
-                return (c as u32).to_ne_bytes().to_vec();
+                return to_bytes!(c as u32);
             }
             vec![0; 4]
         }
@@ -340,7 +503,7 @@ fn value_to_bytes(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> Vec
             if let Ok(int_val) = value.try_int(vm)
                 && let Some(v) = int_val.as_bigint().to_i16()
             {
-                return v.to_ne_bytes().to_vec();
+                return to_bytes!(v);
             }
             vec![0; 2]
         }
@@ -349,7 +512,7 @@ fn value_to_bytes(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> Vec
             if let Ok(int_val) = value.try_int(vm)
                 && let Some(v) = int_val.as_bigint().to_u16()
             {
-                return v.to_ne_bytes().to_vec();
+                return to_bytes!(v);
             }
             vec![0; 2]
         }
@@ -358,7 +521,7 @@ fn value_to_bytes(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> Vec
             if let Ok(int_val) = value.try_int(vm)
                 && let Some(v) = int_val.as_bigint().to_i32()
             {
-                return v.to_ne_bytes().to_vec();
+                return to_bytes!(v);
             }
             vec![0; 4]
         }
@@ -367,14 +530,14 @@ fn value_to_bytes(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> Vec
             if let Ok(int_val) = value.try_int(vm)
                 && let Some(v) = int_val.as_bigint().to_u32()
             {
-                return v.to_ne_bytes().to_vec();
+                return to_bytes!(v);
             }
             vec![0; 4]
         }
         "l" => {
             // c_long (platform dependent)
             if let Ok(int_val) = value.try_to_value::<libc::c_long>(vm) {
-                return int_val.to_ne_bytes().to_vec();
+                return to_bytes!(int_val);
             }
             const SIZE: usize = std::mem::size_of::<libc::c_long>();
             vec![0; SIZE]
@@ -382,7 +545,7 @@ fn value_to_bytes(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> Vec
         "L" => {
             // c_ulong (platform dependent)
             if let Ok(int_val) = value.try_to_value::<libc::c_ulong>(vm) {
-                return int_val.to_ne_bytes().to_vec();
+                return to_bytes!(int_val);
             }
             const SIZE: usize = std::mem::size_of::<libc::c_ulong>();
             vec![0; SIZE]
@@ -392,7 +555,7 @@ fn value_to_bytes(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> Vec
             if let Ok(int_val) = value.try_int(vm)
                 && let Some(v) = int_val.as_bigint().to_i64()
             {
-                return v.to_ne_bytes().to_vec();
+                return to_bytes!(v);
             }
             vec![0; 8]
         }
@@ -401,21 +564,31 @@ fn value_to_bytes(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> Vec
             if let Ok(int_val) = value.try_int(vm)
                 && let Some(v) = int_val.as_bigint().to_u64()
             {
-                return v.to_ne_bytes().to_vec();
+                return to_bytes!(v);
             }
             vec![0; 8]
         }
         "f" => {
-            // c_float (4 bytes)
+            // c_float (4 bytes) - int도 허용
             if let Ok(float_val) = value.try_float(vm) {
-                return (float_val.to_f64() as f32).to_ne_bytes().to_vec();
+                return to_bytes!(float_val.to_f64() as f32);
+            }
+            if let Ok(int_val) = value.try_int(vm)
+                && let Some(v) = int_val.as_bigint().to_f64()
+            {
+                return to_bytes!(v as f32);
             }
             vec![0; 4]
         }
         "d" | "g" => {
-            // c_double (8 bytes)
+            // c_double (8 bytes) - int도 허용
             if let Ok(float_val) = value.try_float(vm) {
-                return float_val.to_f64().to_ne_bytes().to_vec();
+                return to_bytes!(float_val.to_f64());
+            }
+            if let Ok(int_val) = value.try_int(vm)
+                && let Some(v) = int_val.as_bigint().to_f64()
+            {
+                return to_bytes!(v);
             }
             vec![0; 8]
         }
@@ -469,7 +642,15 @@ impl Constructor for PyCSimple {
                 _ => vm.ctx.none(), // "z" | "Z" | "P"
             }
         };
-        let buffer = value_to_bytes(&_type_, &value, vm);
+
+        // Check if this is a swapped endian type
+        let swapped = cls
+            .as_object()
+            .get_attr("_swappedbytes_", vm)
+            .map(|v| v.is_true(vm).unwrap_or(false))
+            .unwrap_or(false);
+
+        let buffer = value_to_bytes_endian(&_type_, &value, swapped, vm);
         PyCSimple {
             _type_,
             value: AtomicCell::new(value),
@@ -538,11 +719,21 @@ impl PyCSimple {
     #[pygetset(name = "value", setter)]
     fn set_value(instance: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let zelf: PyRef<Self> = instance
+            .clone()
             .downcast()
             .map_err(|_| vm.new_type_error("cannot set value of instance"))?;
         let content = set_primitive(zelf._type_.as_str(), &value, vm)?;
+
+        // Check if this is a swapped endian type
+        let swapped = instance
+            .class()
+            .as_object()
+            .get_attr("_swappedbytes_", vm)
+            .map(|v| v.is_true(vm).unwrap_or(false))
+            .unwrap_or(false);
+
         // Update buffer when value changes
-        let buffer_bytes = value_to_bytes(&zelf._type_, &content, vm);
+        let buffer_bytes = value_to_bytes_endian(&zelf._type_, &content, swapped, vm);
         zelf.cdata.write().buffer = buffer_bytes;
         zelf.value.store(content);
         Ok(())
@@ -569,13 +760,13 @@ impl PyCSimple {
         } else {
             std::mem::size_of::<usize>()
         };
+        let total_size = element_size * (n as usize);
+        let stg_info = super::util::StgInfo::new(total_size, element_size);
         Ok(PyCArrayType {
-            inner: PyCArray {
-                typ: PyRwLock::new(cls.clone().into()),
-                length: AtomicCell::new(n as usize),
-                element_size: AtomicCell::new(element_size),
-                cdata: PyRwLock::new(CDataObject::new(0)),
-            },
+            stg_info,
+            typ: PyRwLock::new(cls.clone().into()),
+            length: AtomicCell::new(n as usize),
+            element_size: AtomicCell::new(element_size),
         }
         .to_pyobject(vm))
     }
@@ -594,7 +785,6 @@ impl PyCSimple {
         // Create instance with value read from address
         let value = if address != 0 && size > 0 {
             // Safety: This is inherently unsafe - reading from arbitrary memory address
-            // CPython does the same thing without safety checks
             unsafe {
                 let ptr = address as *const u8;
                 let bytes = std::slice::from_raw_parts(ptr, size);
@@ -759,7 +949,6 @@ impl PyCSimple {
         // Read value from symbol address
         let value = if symbol_address != 0 && size > 0 {
             // Safety: Reading from a symbol address provided by dlsym
-            // This is the same as CPython's implementation
             unsafe {
                 let ptr = symbol_address as *const u8;
                 let bytes = std::slice::from_raw_parts(ptr, size);
@@ -772,7 +961,7 @@ impl PyCSimple {
         // Create instance
         let instance = PyCSimple::py_new(cls.clone(), (OptionalArg::Present(value),), vm)?;
 
-        // Store base reference to keep dll alive (like CPython does)
+        // Store base reference to keep dll alive
         if let Ok(simple_ref) = instance.clone().downcast::<PyCSimple>() {
             simple_ref.cdata.write().base = Some(dll);
         }

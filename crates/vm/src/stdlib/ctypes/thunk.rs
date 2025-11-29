@@ -14,22 +14,6 @@ use std::ffi::c_void;
 use std::fmt::Debug;
 
 use super::base::ffi_type_from_str;
-
-// CPython structure for reference:
-// typedef struct {
-//     PyObject_VAR_HEAD
-//     ffi_closure *pcl_write; /* the C callable, writeable */
-//     void *pcl_exec;         /* the C callable, executable */
-//     ffi_cif cif;
-//     int flags;
-//     PyObject *converters;
-//     PyObject *callable;
-//     PyObject *restype;
-//     SETFUNC setfunc;
-//     ffi_type *ffi_restype;
-//     ffi_type *atypes[1];
-// } CThunkObject;
-
 /// Userdata passed to the libffi callback.
 /// This contains everything needed to invoke the Python callable.
 pub struct ThunkUserData {
@@ -60,10 +44,10 @@ fn ffi_to_python(ty: &PyTypeRef, ptr: *const c_void, vm: &VirtualMachine) -> PyO
             Some("H") => vm.ctx.new_int(*(ptr as *const u16) as i32).into(),
             Some("i") => vm.ctx.new_int(*(ptr as *const i32)).into(),
             Some("I") => vm.ctx.new_int(*(ptr as *const u32)).into(),
-            Some("l") => vm.ctx.new_int(*(ptr as *const i64)).into(),
-            Some("L") => vm.ctx.new_int(*(ptr as *const u64)).into(),
-            Some("q") => vm.ctx.new_int(*(ptr as *const i64)).into(),
-            Some("Q") => vm.ctx.new_int(*(ptr as *const u64)).into(),
+            Some("l") => vm.ctx.new_int(*(ptr as *const libc::c_long)).into(),
+            Some("L") => vm.ctx.new_int(*(ptr as *const libc::c_ulong)).into(),
+            Some("q") => vm.ctx.new_int(*(ptr as *const libc::c_longlong)).into(),
+            Some("Q") => vm.ctx.new_int(*(ptr as *const libc::c_ulonglong)).into(),
             Some("f") => vm.ctx.new_float(*(ptr as *const f32) as f64).into(),
             Some("d") => vm.ctx.new_float(*(ptr as *const f64)).into(),
             Some("P") | Some("z") | Some("Z") => vm.ctx.new_int(ptr as usize).into(),
@@ -182,6 +166,7 @@ unsafe extern "C" fn thunk_callback(
 /// Holds the closure and userdata together to ensure proper lifetime.
 /// The userdata is leaked to create a 'static reference that the closure can use.
 struct ThunkData {
+    #[allow(dead_code)]
     closure: Closure<'static>,
     /// Raw pointer to the leaked userdata, for cleanup
     userdata_ptr: *mut ThunkUserData,
@@ -249,17 +234,18 @@ impl PyCThunk {
         };
 
         // Parse result type
-        let res_type_ref: Option<PyTypeRef> = if let Some(ref rt) = res_type {
-            if vm.is_none(rt) {
-                None
+        let res_type_ref: Option<PyTypeRef> =
+            if let Some(ref rt) = res_type {
+                if vm.is_none(rt) {
+                    None
+                } else {
+                    Some(rt.clone().downcast::<PyType>().map_err(|_| {
+                        vm.new_type_error("restype must be a ctypes type".to_string())
+                    })?)
+                }
             } else {
-                Some(rt.clone().downcast::<PyType>().map_err(|_| {
-                    vm.new_type_error("restype must be a ctypes type".to_string())
-                })?)
-            }
-        } else {
-            None
-        };
+                None
+            };
 
         // Build FFI types
         let ffi_arg_types: Vec<Type> = arg_type_vec

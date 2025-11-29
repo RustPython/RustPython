@@ -9,12 +9,13 @@ pub(crate) mod pointer;
 pub(crate) mod structure;
 pub(crate) mod thunk;
 pub(crate) mod union;
+pub(crate) mod util;
 
 use crate::builtins::PyModule;
 use crate::class::PyClassImpl;
 use crate::{Py, PyRef, VirtualMachine};
 
-pub use crate::stdlib::ctypes::base::{CDataObject, PyCData, PyCSimple, PyCSimpleType};
+pub use crate::stdlib::ctypes::base::{PyCData, PyCSimple, PyCSimpleType};
 
 pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
     let ctx = &vm.ctx;
@@ -52,7 +53,7 @@ pub(crate) mod _ctypes {
     use crate::convert::ToPyObject;
     use crate::function::{Either, FuncArgs, OptionalArg};
     use crate::stdlib::ctypes::library;
-    use crate::{AsObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine};
+    use crate::{AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
     use crossbeam_utils::atomic::AtomicCell;
     use std::ffi::{
         c_double, c_float, c_int, c_long, c_longlong, c_schar, c_short, c_uchar, c_uint, c_ulong,
@@ -157,6 +158,11 @@ pub(crate) mod _ctypes {
             "O" => mem::size_of::<PyObjectRef>(),
             _ => unreachable!(),
         }
+    }
+
+    /// Get alignment for a simple type - for C types, alignment equals size
+    pub fn get_align(ty: &str) -> usize {
+        get_size(ty)
     }
 
     /// Get the size of a ctypes type from its type object
@@ -366,7 +372,10 @@ pub(crate) mod _ctypes {
                     Ok(PyCSimple {
                         _type_: tp_str,
                         value: AtomicCell::new(vm.ctx.none()),
-                        cdata: rustpython_common::lock::PyRwLock::new(CDataObject::new(size)),
+                        cdata: rustpython_common::lock::PyRwLock::new(CDataObject::from_bytes(
+                            vec![0u8; size],
+                            None,
+                        )),
                     })
                 }
             } else {
@@ -378,98 +387,117 @@ pub(crate) mod _ctypes {
     }
 
     /// Get the size of a ctypes type or instance
-    ///
-    /// This function accepts:
-    /// - A ctypes type (e.g., c_int, Structure subclass)
-    /// - A ctypes instance (e.g., c_int(5))
     #[pyfunction(name = "sizeof")]
     pub fn size_of(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        use super::array::PyCArray;
+        use super::array::{PyCArray, PyCArrayType};
         use super::pointer::PyCPointer;
-        use super::structure::PyCStructure;
-        use super::union::PyCUnion;
+        use super::structure::{PyCStructType, PyCStructure};
+        use super::union::{PyCUnion, PyCUnionType};
 
-        // Check if obj is a type
-        if let Ok(type_ref) = obj.clone().downcast::<crate::builtins::PyType>() {
-            // It's a type - check what kind of ctypes type it is
-
-            // Simple types (c_int, c_char, etc.)
-            if type_ref.fast_issubclass(PyCSimple::static_type()) {
-                let zelf = new_simple_type(Either::B(&type_ref), vm)?;
-                return Ok(get_size(zelf._type_.as_str()));
+        // 1. Instances with stg_info
+        if obj.fast_isinstance(PyCArray::static_type()) {
+            // Get stg_info from the type
+            if let Some(type_obj) = obj.class().as_object().downcast_ref::<PyCArrayType>() {
+                return Ok(type_obj.stg_info.size);
             }
-
-            // Array types
-            if type_ref.fast_issubclass(PyCArray::static_type()) {
-                // Get _length_ and element size
-                if let Ok(length) = type_ref.as_object().get_attr("_length_", vm) {
-                    let length = usize::try_from_object(vm, length)?;
-                    if let Ok(elem_type) = type_ref.as_object().get_attr("_type_", vm) {
-                        let elem_size = size_of(elem_type, vm)?;
-                        return Ok(length * elem_size);
-                    }
-                }
-            }
-
-            // Structure types - check for size_of_instances method
-            if type_ref.fast_issubclass(PyCStructure::static_type())
-                || type_ref.fast_issubclass(PyCUnion::static_type())
-            {
-                if let Ok(size_method) = type_ref.as_object().get_attr("size_of_instances", vm) {
-                    let size = size_method.call(vec![], vm)?;
-                    return Ok(usize::try_from_object(vm, size)?);
-                }
-            }
-
-            // Pointer types
-            if type_ref.fast_issubclass(PyCPointer::static_type()) {
-                return Ok(std::mem::size_of::<usize>());
-            }
-
-            // Check for size_of_instances as a fallback
-            if let Ok(size_method) = type_ref.as_object().get_attr("size_of_instances", vm) {
-                let size = size_method.call(vec![], vm)?;
-                return Ok(usize::try_from_object(vm, size)?);
-            }
-
-            return Err(vm.new_type_error("this type has no size"));
         }
-
-        // It's an instance - get size from instance or its class
-
-        // Simple type instance
-        if let Ok(simple) = obj.clone().downcast::<PyCSimple>() {
-            return Ok(get_size(simple._type_.as_str()));
-        }
-
-        // Array instance
-        if let Ok(array) = obj.clone().downcast::<PyCArray>() {
-            return Ok(array.cdata.read().size());
-        }
-
-        // Structure instance
-        if let Ok(structure) = obj.clone().downcast::<PyCStructure>() {
+        if let Some(structure) = obj.downcast_ref::<PyCStructure>() {
             return Ok(structure.cdata.read().size());
         }
-
-        // Union instance
-        if let Ok(union) = obj.clone().downcast::<PyCUnion>() {
-            return Ok(union.cdata.read().size());
+        if obj.fast_isinstance(PyCUnion::static_type()) {
+            // Get stg_info from the type
+            if let Some(type_obj) = obj.class().as_object().downcast_ref::<PyCUnionType>() {
+                return Ok(type_obj.stg_info.size);
+            }
         }
-
-        // Pointer instance
+        if let Some(simple) = obj.downcast_ref::<PyCSimple>() {
+            return Ok(simple.cdata.read().size());
+        }
         if obj.fast_isinstance(PyCPointer::static_type()) {
             return Ok(std::mem::size_of::<usize>());
         }
 
-        // Check if the object has size_of_instances method (for custom types)
-        if obj.has_attr("size_of_instances", vm)? {
-            let size_method = obj.get_attr("size_of_instances", vm)?;
-            let size = size_method.call(vec![], vm)?;
-            return Ok(usize::try_from_object(vm, size)?);
+        // 2. Types (metatypes with stg_info)
+        if let Some(array_type) = obj.downcast_ref::<PyCArrayType>() {
+            return Ok(array_type.stg_info.size);
+        }
+
+        // 3. Type objects
+        if let Ok(type_ref) = obj.clone().downcast::<crate::builtins::PyType>() {
+            // Structure types - check if metaclass is or inherits from PyCStructType
+            if type_ref
+                .class()
+                .fast_issubclass(PyCStructType::static_type())
+            {
+                return calculate_struct_size(&type_ref, vm);
+            }
+            // Union types - check if metaclass is or inherits from PyCUnionType
+            if type_ref
+                .class()
+                .fast_issubclass(PyCUnionType::static_type())
+            {
+                return calculate_union_size(&type_ref, vm);
+            }
+            // Simple types (c_int, c_char, etc.)
+            if type_ref.fast_issubclass(PyCSimple::static_type()) {
+                let instance = new_simple_type(Either::B(&type_ref), vm)?;
+                return Ok(get_size(&instance._type_));
+            }
+            // Pointer types
+            if type_ref.fast_issubclass(PyCPointer::static_type()) {
+                return Ok(std::mem::size_of::<usize>());
+            }
         }
 
         Err(vm.new_type_error("this type has no size"))
+    }
+
+    /// Calculate Structure type size from _fields_ (sum of field sizes)
+    fn calculate_struct_size(
+        cls: &crate::builtins::PyTypeRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        use crate::AsObject;
+
+        if let Ok(fields_attr) = cls.as_object().get_attr("_fields_", vm) {
+            let fields: Vec<PyObjectRef> = fields_attr.try_to_value(vm).unwrap_or_default();
+            let mut total_size = 0usize;
+
+            for field in fields.iter() {
+                if let Some(tuple) = field.downcast_ref::<crate::builtins::PyTuple>()
+                    && let Some(field_type) = tuple.get(1)
+                {
+                    // Recursively calculate field type size
+                    total_size += size_of(field_type.clone(), vm)?;
+                }
+            }
+            return Ok(total_size);
+        }
+        Ok(0)
+    }
+
+    /// Calculate Union type size from _fields_ (max field size)
+    fn calculate_union_size(
+        cls: &crate::builtins::PyTypeRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        use crate::AsObject;
+
+        if let Ok(fields_attr) = cls.as_object().get_attr("_fields_", vm) {
+            let fields: Vec<PyObjectRef> = fields_attr.try_to_value(vm).unwrap_or_default();
+            let mut max_size = 0usize;
+
+            for field in fields.iter() {
+                if let Some(tuple) = field.downcast_ref::<crate::builtins::PyTuple>()
+                    && let Some(field_type) = tuple.get(1)
+                {
+                    let field_size = size_of(field_type.clone(), vm)?;
+                    max_size = max_size.max(field_size);
+                }
+            }
+            return Ok(max_size);
+        }
+        Ok(0)
     }
 
     #[cfg(windows)]
@@ -630,9 +658,100 @@ pub(crate) mod _ctypes {
     }
 
     #[pyfunction]
-    fn alignment(_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        // TODO: RUSTPYTHON
-        Err(vm.new_value_error("not implemented"))
+    fn alignment(tp: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> PyResult<usize> {
+        use super::array::{PyCArray, PyCArrayType};
+        use super::base::PyCSimpleType;
+        use super::pointer::PyCPointer;
+        use super::structure::PyCStructure;
+        use super::union::PyCUnion;
+
+        let obj = match &tp {
+            Either::A(t) => t.as_object(),
+            Either::B(o) => o.as_ref(),
+        };
+
+        // Try to get alignment from stg_info directly (for instances)
+        if let Some(array_type) = obj.downcast_ref::<PyCArrayType>() {
+            return Ok(array_type.stg_info.align);
+        }
+        if obj.fast_isinstance(PyCSimple::static_type()) {
+            // Get stg_info from the type by reading _type_ attribute
+            let cls = obj.class().to_owned();
+            let stg_info = PyCSimpleType::get_stg_info(&cls, vm);
+            return Ok(stg_info.align);
+        }
+        if obj.fast_isinstance(PyCArray::static_type()) {
+            // Get stg_info from the type
+            if let Some(type_obj) = obj.class().as_object().downcast_ref::<PyCArrayType>() {
+                return Ok(type_obj.stg_info.align);
+            }
+        }
+        if obj.fast_isinstance(PyCStructure::static_type()) {
+            // Calculate alignment from _fields_
+            let cls = obj.class();
+            return alignment(Either::A(cls.to_owned()), vm);
+        }
+        if obj.fast_isinstance(PyCPointer::static_type()) {
+            // Pointer alignment is always pointer size
+            return Ok(std::mem::align_of::<usize>());
+        }
+        if obj.fast_isinstance(PyCUnion::static_type()) {
+            // Calculate alignment from _fields_
+            let cls = obj.class();
+            return alignment(Either::A(cls.to_owned()), vm);
+        }
+
+        // Get the type object to check
+        let type_obj: PyObjectRef = match &tp {
+            Either::A(t) => t.clone().into(),
+            Either::B(obj) => obj.class().to_owned().into(),
+        };
+
+        // For type objects, try to get alignment from _type_ attribute
+        if let Ok(type_attr) = type_obj.get_attr("_type_", vm) {
+            // Array/Pointer: _type_ is the element type (a PyType)
+            if let Ok(elem_type) = type_attr.clone().downcast::<crate::builtins::PyType>() {
+                return alignment(Either::A(elem_type), vm);
+            }
+            // Simple type: _type_ is a single character string
+            if let Ok(s) = type_attr.str(vm) {
+                let ty = s.to_string();
+                if ty.len() == 1 && SIMPLE_TYPE_CHARS.contains(ty.as_str()) {
+                    return Ok(get_align(&ty));
+                }
+            }
+        }
+
+        // Structure/Union: max alignment of fields
+        if let Ok(fields_attr) = type_obj.get_attr("_fields_", vm)
+            && let Ok(fields) = fields_attr.try_to_value::<Vec<PyObjectRef>>(vm)
+        {
+            let mut max_align = 1usize;
+            for field in fields.iter() {
+                if let Some(tuple) = field.downcast_ref::<crate::builtins::PyTuple>()
+                    && let Some(field_type) = tuple.get(1)
+                {
+                    let align =
+                        if let Ok(ft) = field_type.clone().downcast::<crate::builtins::PyType>() {
+                            alignment(Either::A(ft), vm).unwrap_or(1)
+                        } else {
+                            1
+                        };
+                    max_align = max_align.max(align);
+                }
+            }
+            return Ok(max_align);
+        }
+
+        // For instances, delegate to their class
+        if let Either::B(obj) = &tp
+            && !obj.class().is(vm.ctx.types.type_type.as_ref())
+        {
+            return alignment(Either::A(obj.class().to_owned()), vm);
+        }
+
+        // No alignment info found
+        Err(vm.new_type_error("no alignment info"))
     }
 
     #[pyfunction]

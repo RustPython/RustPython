@@ -1,5 +1,6 @@
 use super::base::{CDataObject, PyCData};
 use super::field::PyCField;
+use super::util::StgInfo;
 use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::function::FuncArgs;
@@ -16,7 +17,10 @@ use std::fmt::Debug;
 /// PyCStructType - metaclass for Structure
 #[pyclass(name = "PyCStructType", base = PyType, module = "_ctypes")]
 #[derive(Debug, PyPayload)]
-pub struct PyCStructType {}
+pub struct PyCStructType {
+    #[allow(dead_code)]
+    pub stg_info: StgInfo,
+}
 
 impl Constructor for PyCStructType {
     type Args = FuncArgs;
@@ -92,10 +96,10 @@ impl PyCStructType {
             let size = Self::get_field_size(&field_type, vm)?;
 
             // Create CField descriptor (accepts any ctypes type including arrays)
-            let cfield = PyCField::new(name.clone(), field_type, offset, size, index);
+            let c_field = PyCField::new(name.clone(), field_type, offset, size, index);
 
             // Set the CField as a class attribute
-            cls.set_attr(vm.ctx.intern_str(name), cfield.to_pyobject(vm));
+            cls.set_attr(vm.ctx.intern_str(name), c_field.to_pyobject(vm));
 
             offset += size;
         }
@@ -133,22 +137,46 @@ impl PyCStructType {
         Ok(std::mem::size_of::<usize>())
     }
 
+    /// Get the alignment of a ctypes type
+    fn get_field_align(field_type: &PyObjectRef, vm: &VirtualMachine) -> usize {
+        // Try to get _type_ attribute for simple types
+        if let Some(align) = field_type
+            .get_attr("_type_", vm)
+            .ok()
+            .and_then(|type_attr| type_attr.str(vm).ok())
+            .and_then(|type_str| {
+                let s = type_str.to_string();
+                (s.len() == 1).then(|| get_size(&s)) // alignment == size for simple types
+            })
+        {
+            return align;
+        }
+        // Default alignment
+        1
+    }
+
     #[pymethod]
     fn __mul__(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
-        use super::array::{PyCArray, PyCArrayType};
+        use super::array::PyCArrayType;
+        use crate::stdlib::ctypes::_ctypes::size_of;
+
         if n < 0 {
             return Err(vm.new_value_error(format!("Array length must be >= 0, not {n}")));
         }
-        // TODO: Calculate element size properly
-        // For structures, element size is the structure size (sum of field sizes)
-        let element_size = std::mem::size_of::<usize>(); // Default, should calculate from fields
+
+        // Calculate element size from the Structure type
+        let element_size = size_of(cls.clone().into(), vm)?;
+
+        let total_size = element_size
+            .checked_mul(n as usize)
+            .ok_or_else(|| vm.new_overflow_error("array size too large".to_owned()))?;
+        let mut stg_info = super::util::StgInfo::new(total_size, element_size);
+        stg_info.length = n as usize;
         Ok(PyCArrayType {
-            inner: PyCArray {
-                typ: PyRwLock::new(cls.clone().into()),
-                length: AtomicCell::new(n as usize),
-                element_size: AtomicCell::new(element_size),
-                cdata: PyRwLock::new(CDataObject::new(0)),
-            },
+            stg_info,
+            typ: PyRwLock::new(cls.clone().into()),
+            length: AtomicCell::new(n as usize),
+            element_size: AtomicCell::new(element_size),
         }
         .to_pyobject(vm))
     }
@@ -217,6 +245,7 @@ impl Constructor for PyCStructure {
 
         let mut fields_map = IndexMap::new();
         let mut total_size = 0usize;
+        let mut max_align = 1usize;
 
         if let Some(fields_attr) = fields_attr {
             let fields: Vec<PyObjectRef> = if let Some(list) = fields_attr.downcast_ref::<PyList>()
@@ -242,6 +271,8 @@ impl Constructor for PyCStructure {
                 let name = name.to_string();
                 let field_type = field_tuple.get(1).unwrap().clone();
                 let size = PyCStructType::get_field_size(&field_type, vm)?;
+                let field_align = PyCStructType::get_field_align(&field_type, vm);
+                max_align = max_align.max(field_align);
 
                 let type_ref = field_type
                     .downcast::<PyType>()
@@ -263,8 +294,10 @@ impl Constructor for PyCStructure {
         }
 
         // Initialize buffer with zeros
+        let mut stg_info = StgInfo::new(total_size, max_align);
+        stg_info.length = fields_map.len();
         let instance = PyCStructure {
-            cdata: PyRwLock::new(CDataObject::new(total_size)),
+            cdata: PyRwLock::new(CDataObject::from_stg_info(&stg_info)),
             fields: PyRwLock::new(fields_map.clone()),
         };
 
@@ -380,7 +413,7 @@ impl PyCStructure {
 
         // Create instance
         Ok(PyCStructure {
-            cdata: PyRwLock::new(CDataObject::from_bytes(data, None)),
+            cdata: PyRwLock::new(CDataObject::from_bytes(data, Some(source))),
             fields: PyRwLock::new(IndexMap::new()),
         }
         .into_ref_with_type(vm, cls)?

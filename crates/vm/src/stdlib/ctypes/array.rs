@@ -6,6 +6,7 @@ use crate::protocol::{
     BufferDescriptor, BufferMethods, PyBuffer, PyNumberMethods, PySequenceMethods,
 };
 use crate::stdlib::ctypes::base::CDataObject;
+use crate::stdlib::ctypes::util::StgInfo;
 use crate::types::{AsBuffer, AsNumber, AsSequence, Callable};
 use crate::{AsObject, Py, PyObjectRef, PyPayload};
 use crate::{
@@ -22,13 +23,17 @@ use rustpython_vm::stdlib::ctypes::base::PyCData;
 #[pyclass(name = "PyCArrayType", base = PyType, module = "_ctypes")]
 #[derive(PyPayload)]
 pub struct PyCArrayType {
-    pub(super) inner: PyCArray,
+    pub(super) stg_info: StgInfo,
+    pub(super) typ: PyRwLock<PyObjectRef>,
+    pub(super) length: AtomicCell<usize>,
+    pub(super) element_size: AtomicCell<usize>,
 }
 
 impl std::fmt::Debug for PyCArrayType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PyCArrayType")
-            .field("inner", &self.inner)
+            .field("typ", &self.typ)
+            .field("length", &self.length)
             .finish()
     }
 }
@@ -37,9 +42,9 @@ impl Callable for PyCArrayType {
     type Args = FuncArgs;
     fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult {
         // Create an instance of the array
-        let element_type = zelf.inner.typ.read().clone();
-        let length = zelf.inner.length.load();
-        let element_size = zelf.inner.element_size.load();
+        let element_type = zelf.typ.read().clone();
+        let length = zelf.length.load();
+        let element_size = zelf.element_size.load();
         let total_size = element_size * length;
         let mut buffer = vec![0u8; total_size];
 
@@ -79,12 +84,12 @@ impl Constructor for PyCArrayType {
 impl PyCArrayType {
     #[pygetset(name = "_type_")]
     fn typ(&self) -> PyObjectRef {
-        self.inner.typ.read().clone()
+        self.typ.read().clone()
     }
 
     #[pygetset(name = "_length_")]
     fn length(&self) -> usize {
-        self.inner.length.load()
+        self.length.load()
     }
 
     #[pymethod]
@@ -95,22 +100,22 @@ impl PyCArrayType {
         // Create a nested array type: (inner_type * inner_length) * n
         // The new array has n elements, each element is the current array type
         // e.g., (c_int * 5) * 3 = Array of 3 elements, each is (c_int * 5)
-        let inner_length = zelf.inner.length.load();
-        let inner_element_size = zelf.inner.element_size.load();
+        let inner_length = zelf.length.load();
+        let inner_element_size = zelf.element_size.load();
 
         // The element type of the new array is the current array type itself
         let current_array_type: PyObjectRef = zelf.as_object().to_owned();
 
         // Element size is the total size of the inner array
         let new_element_size = inner_length * inner_element_size;
+        let total_size = new_element_size * (n as usize);
+        let stg_info = StgInfo::new(total_size, inner_element_size);
 
         Ok(PyCArrayType {
-            inner: PyCArray {
-                typ: PyRwLock::new(current_array_type),
-                length: AtomicCell::new(n as usize),
-                element_size: AtomicCell::new(new_element_size),
-                cdata: PyRwLock::new(CDataObject::new(0)),
-            },
+            stg_info,
+            typ: PyRwLock::new(current_array_type),
+            length: AtomicCell::new(n as usize),
+            element_size: AtomicCell::new(new_element_size),
         }
         .to_pyobject(vm))
     }
@@ -164,8 +169,8 @@ impl PyCArrayType {
         };
 
         // Get size from the array type
-        let element_type = zelf.inner.typ.read().clone();
-        let length = zelf.inner.length.load();
+        let element_type = zelf.typ.read().clone();
+        let length = zelf.length.load();
         let element_size = size_of(element_type.clone(), vm)?;
         let total_size = element_size * length;
 
@@ -184,7 +189,7 @@ impl PyCArrayType {
             typ: PyRwLock::new(element_type),
             length: AtomicCell::new(length),
             element_size: AtomicCell::new(element_size),
-            cdata: PyRwLock::new(CDataObject::from_bytes(data)),
+            cdata: PyRwLock::new(CDataObject::from_bytes(data, None)),
         }
         .into_pyobject(vm);
 
@@ -729,7 +734,7 @@ impl PyCArray {
             typ: PyRwLock::new(element_type.into()),
             length: AtomicCell::new(length),
             element_size: AtomicCell::new(element_size),
-            cdata: PyRwLock::new(CDataObject::from_bytes(data)),
+            cdata: PyRwLock::new(CDataObject::from_bytes(data, None)),
         }
         .into_pyobject(vm);
 

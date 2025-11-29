@@ -5,34 +5,37 @@ use rustpython_common::lock::PyRwLock;
 use crate::builtins::{PyType, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::protocol::PyNumberMethods;
-use crate::stdlib::ctypes::{CDataObject, PyCData};
+use crate::stdlib::ctypes::PyCData;
 use crate::types::{AsNumber, Constructor};
 use crate::{AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
+
+use super::util::StgInfo;
 
 #[pyclass(name = "PyCPointerType", base = PyType, module = "_ctypes")]
 #[derive(PyPayload, Debug)]
 pub struct PyCPointerType {
     #[allow(dead_code)]
-    pub(crate) inner: PyCPointer,
+    pub stg_info: StgInfo,
 }
 
 #[pyclass(flags(IMMUTABLETYPE), with(AsNumber))]
 impl PyCPointerType {
     #[pymethod]
     fn __mul__(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
-        use super::array::{PyCArray, PyCArrayType};
+        use super::array::PyCArrayType;
         if n < 0 {
             return Err(vm.new_value_error(format!("Array length must be >= 0, not {n}")));
         }
         // Pointer size
         let element_size = std::mem::size_of::<usize>();
+        let total_size = element_size * (n as usize);
+        let mut stg_info = super::util::StgInfo::new(total_size, element_size);
+        stg_info.length = n as usize;
         Ok(PyCArrayType {
-            inner: PyCArray {
-                typ: PyRwLock::new(cls.as_object().to_owned()),
-                length: AtomicCell::new(n as usize),
-                element_size: AtomicCell::new(element_size),
-                cdata: PyRwLock::new(CDataObject::new(0)),
-            },
+            stg_info,
+            typ: PyRwLock::new(cls.as_object().to_owned()),
+            length: AtomicCell::new(n as usize),
+            element_size: AtomicCell::new(element_size),
         }
         .to_pyobject(vm))
     }

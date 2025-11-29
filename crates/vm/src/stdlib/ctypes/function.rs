@@ -86,25 +86,60 @@ impl ReturnType for PyTypeRef {
             .and_then(|t| t.downcast_ref::<PyStr>().map(|s| s.to_string()));
 
         let result = match type_code.as_deref() {
-            Some("b") => vm.ctx.new_int(unsafe { *(value as *const i8) } as i32).into(),
-            Some("B") => vm.ctx.new_int(unsafe { *(value as *const u8) } as i32).into(),
-            Some("c") => vm.ctx.new_bytes(vec![unsafe { *(value as *const u8) }]).into(),
-            Some("h") => vm.ctx.new_int(unsafe { *(value as *const i16) } as i32).into(),
-            Some("H") => vm.ctx.new_int(unsafe { *(value as *const u16) } as i32).into(),
+            Some("b") => vm
+                .ctx
+                .new_int(unsafe { *(value as *const i8) } as i32)
+                .into(),
+            Some("B") => vm
+                .ctx
+                .new_int(unsafe { *(value as *const u8) } as i32)
+                .into(),
+            Some("c") => vm
+                .ctx
+                .new_bytes(vec![unsafe { *(value as *const u8) }])
+                .into(),
+            Some("h") => vm
+                .ctx
+                .new_int(unsafe { *(value as *const i16) } as i32)
+                .into(),
+            Some("H") => vm
+                .ctx
+                .new_int(unsafe { *(value as *const u16) } as i32)
+                .into(),
             Some("i") => vm.ctx.new_int(unsafe { *(value as *const i32) }).into(),
             Some("I") => vm.ctx.new_int(unsafe { *(value as *const u32) }).into(),
-            Some("l") => vm.ctx.new_int(unsafe { *(value as *const i64) }).into(),
-            Some("L") => vm.ctx.new_int(unsafe { *(value as *const u64) }).into(),
-            Some("q") => vm.ctx.new_int(unsafe { *(value as *const i64) }).into(),
-            Some("Q") => vm.ctx.new_int(unsafe { *(value as *const u64) }).into(),
-            Some("f") => vm.ctx.new_float(unsafe { *(value as *const f32) } as f64).into(),
+            Some("l") => vm
+                .ctx
+                .new_int(unsafe { *(value as *const libc::c_long) })
+                .into(),
+            Some("L") => vm
+                .ctx
+                .new_int(unsafe { *(value as *const libc::c_ulong) })
+                .into(),
+            Some("q") => vm
+                .ctx
+                .new_int(unsafe { *(value as *const libc::c_longlong) })
+                .into(),
+            Some("Q") => vm
+                .ctx
+                .new_int(unsafe { *(value as *const libc::c_ulonglong) })
+                .into(),
+            Some("f") => vm
+                .ctx
+                .new_float(unsafe { *(value as *const f32) } as f64)
+                .into(),
             Some("d") => vm.ctx.new_float(unsafe { *(value as *const f64) }).into(),
             Some("P") | Some("z") | Some("Z") => vm.ctx.new_int(value as usize).into(),
-            Some("?") => vm.ctx.new_bool(unsafe { *(value as *const u8) } != 0).into(),
+            Some("?") => vm
+                .ctx
+                .new_bool(unsafe { *(value as *const u8) } != 0)
+                .into(),
             None => {
                 // No _type_ attribute, try to create an instance of the type
                 // This handles cases like Structure or Array return types
-                return Ok(Some(vm.ctx.new_int(unsafe { *(value as *const i32) }).into()));
+                return Ok(Some(
+                    vm.ctx.new_int(unsafe { *(value as *const i32) }).into(),
+                ));
             }
             _ => return Err(vm.new_type_error("Unsupported return type".to_string())),
         };
