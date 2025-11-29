@@ -22,6 +22,7 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
     field::PyCFieldType::make_class(ctx);
     pointer::PyCPointerType::make_class(ctx);
     structure::PyCStructType::make_class(ctx);
+    union::PyCUnionType::make_class(ctx);
     extend_module!(vm, module, {
         "_CData" => PyCData::make_class(ctx),
         "_SimpleCData" => PyCSimple::make_class(ctx),
