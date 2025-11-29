@@ -7,7 +7,7 @@ use crate::convert::ToPyObject;
 use crate::protocol::PyNumberMethods;
 use crate::stdlib::ctypes::PyCData;
 use crate::types::AsNumber;
-use crate::{PyObjectRef, PyResult, VirtualMachine};
+use crate::{AsObject, PyObjectRef, PyResult, VirtualMachine};
 
 #[pyclass(name = "PyCPointerType", base = PyType, module = "_ctypes")]
 #[derive(PyPayload, Debug)]
@@ -28,7 +28,7 @@ impl PyCPointerType {
         let element_size = std::mem::size_of::<usize>();
         Ok(PyCArrayType {
             inner: PyCArray {
-                typ: PyRwLock::new(cls),
+                typ: PyRwLock::new(cls.as_object().to_owned()),
                 length: AtomicCell::new(n as usize),
                 element_size: AtomicCell::new(element_size),
                 buffer: PyRwLock::new(vec![]),

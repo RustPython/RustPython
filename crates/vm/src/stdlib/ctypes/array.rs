@@ -75,7 +75,7 @@ impl Constructor for PyCArrayType {
 #[pyclass(flags(IMMUTABLETYPE), with(Callable, Constructor, AsNumber))]
 impl PyCArrayType {
     #[pygetset(name = "_type_")]
-    fn typ(&self) -> PyTypeRef {
+    fn typ(&self) -> PyObjectRef {
         self.inner.typ.read().clone()
     }
 
@@ -96,10 +96,7 @@ impl PyCArrayType {
         let inner_element_size = zelf.inner.element_size.load();
 
         // The element type of the new array is the current array type itself
-        let obj_ref: PyObjectRef = zelf.to_owned().into();
-        let current_array_type = obj_ref
-            .downcast::<PyType>()
-            .expect("PyCArrayType should be a PyType");
+        let current_array_type: PyObjectRef = zelf.as_object().to_owned();
 
         // Element size is the total size of the inner array
         let new_element_size = inner_length * inner_element_size;
@@ -144,7 +141,8 @@ impl AsNumber for PyCArrayType {
 )]
 #[derive(PyPayload)]
 pub struct PyCArray {
-    pub(super) typ: PyRwLock<PyTypeRef>,
+    /// Element type - can be a simple type (c_int) or an array type (c_int * 5)
+    pub(super) typ: PyRwLock<PyObjectRef>,
     pub(super) length: AtomicCell<usize>,
     pub(super) element_size: AtomicCell<usize>,
     pub(super) buffer: PyRwLock<Vec<u8>>,
@@ -207,12 +205,8 @@ impl Constructor for PyCArray {
             }
         }
 
-        let element_type_ref = element_type
-            .downcast::<PyType>()
-            .unwrap_or_else(|_| vm.ctx.types.object_type.to_owned());
-
         PyCArray {
-            typ: PyRwLock::new(element_type_ref),
+            typ: PyRwLock::new(element_type),
             length: AtomicCell::new(length),
             element_size: AtomicCell::new(element_size),
             buffer: PyRwLock::new(buffer),
@@ -354,7 +348,7 @@ impl PyCArray {
     }
 
     #[pygetset(name = "_type_")]
-    fn typ(&self) -> PyTypeRef {
+    fn typ(&self) -> PyObjectRef {
         self.typ.read().clone()
     }
 

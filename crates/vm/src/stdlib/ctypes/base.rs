@@ -324,7 +324,7 @@ impl PyCSimple {
         };
         Ok(PyCArrayType {
             inner: PyCArray {
-                typ: PyRwLock::new(cls),
+                typ: PyRwLock::new(cls.clone().into()),
                 length: AtomicCell::new(n as usize),
                 element_size: AtomicCell::new(element_size),
                 buffer: PyRwLock::new(vec![]),
