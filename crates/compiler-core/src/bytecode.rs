@@ -1287,19 +1287,19 @@ impl Instruction {
     #[inline]
     pub const fn label_arg(&self) -> Option<Arg<Label>> {
         match self {
-            Jump { target: l }
-            | JumpIfNotExcMatch(l)
-            | PopJumpIfTrue { target: l }
-            | PopJumpIfFalse { target: l }
-            | JumpIfTrueOrPop { target: l }
-            | JumpIfFalseOrPop { target: l }
-            | ForIter { target: l }
-            | SetupFinally { handler: l }
-            | SetupExcept { handler: l }
-            | SetupWith { end: l }
-            | SetupAsyncWith { end: l }
-            | Break { target: l }
-            | Continue { target: l } => Some(*l),
+            Break(label)
+            | Continue(label)
+            | ForIter(label)
+            | Jump(label)
+            | JumpIfFalseOrPop(label)
+            | JumpIfNotExcMatch(label)
+            | JumpIfTrueOrPop(label)
+            | PopJumpIfFalse(label)
+            | PopJumpIfTrue(label)
+            | SetupAsyncWith(label)
+            | SetupExcept(label)
+            | SetupFinally(label)
+            | SetupWith(label) => Some(*label),
             _ => None,
         }
     }
