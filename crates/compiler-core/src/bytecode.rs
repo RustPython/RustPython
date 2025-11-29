@@ -549,165 +549,44 @@ pub type NameIdx = u32;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Instruction {
-    Nop,
-    /// Importing by name
-    ImportName {
-        idx: Arg<NameIdx>,
-    },
-    /// Importing without name
-    ImportNameless,
-    /// from ... import ...
-    ImportFrom {
-        idx: Arg<NameIdx>,
-    },
-    LoadFast(Arg<NameIdx>),
-    LoadNameAny(Arg<NameIdx>),
-    LoadGlobal(Arg<NameIdx>),
-    LoadDeref(Arg<NameIdx>),
-    LoadClassDeref(Arg<NameIdx>),
-    StoreFast(Arg<NameIdx>),
-    StoreLocal(Arg<NameIdx>),
-    StoreGlobal(Arg<NameIdx>),
-    StoreDeref(Arg<NameIdx>),
-    DeleteFast(Arg<NameIdx>),
-    DeleteLocal(Arg<NameIdx>),
-    DeleteGlobal(Arg<NameIdx>),
-    DeleteDeref(Arg<NameIdx>),
-    LoadClosure(Arg<NameIdx>),
-    Subscript,
-    StoreSubscript,
-    DeleteSubscript,
-    /// Performs `is` comparison, or `is not` if `invert` is 1.
-    IsOp(Arg<Invert>),
+    BeforeAsyncWith,
+    BinaryOperation(Arg<BinaryOperator>),
+    BinaryOperationInplace(Arg<BinaryOperator>),
+    BinarySubscript,
+    Break(Arg<Label>),
+    BuildList(Arg<u32>),
+    BuildListFromTuples(Arg<u32>),
+    BuildMap(Arg<u32>),
+    BuildMapForCall(Arg<u32>),
+    BuildSet(Arg<u32>),
+    BuildSetFromTuples(Arg<u32>),
+    /// When holds `true` it will build a slice with a third step argument.
+    BuildSlice(Arg<bool>),
+    BuildString(Arg<u32>),
+    BuildTuple(Arg<u32>),
+    BuildTupleFromIter,
+    BuildTupleFromTuples(Arg<u32>),
+    CallFunctionEx(Arg<bool>),
+    CallFunctionKeyword(Arg<u32>),
+    CallFunctionPositional(Arg<u32>),
+    CallIntrinsic1(Arg<IntrinsicFunction1>),
+    CallIntrinsic2(Arg<IntrinsicFunction2>),
+    CallMethodEx(Arg<bool>),
+    CallMethodKeyword(Arg<u32>),
+    CallMethodPositional(Arg<u32>),
+    CompareOperation(Arg<ComparisonOperator>),
     /// Performs `in` comparison, or `not in` if `invert` is 1.
     ContainsOp(Arg<Invert>),
-    StoreAttr {
-        idx: Arg<NameIdx>,
-    },
-    DeleteAttr {
-        idx: Arg<NameIdx>,
-    },
-    LoadConst {
-        /// index into constants vec
-        idx: Arg<u32>,
-    },
-    UnaryOperation {
-        op: Arg<UnaryOperator>,
-    },
-    BinaryOperation {
-        op: Arg<BinaryOperator>,
-    },
-    BinaryOperationInplace {
-        op: Arg<BinaryOperator>,
-    },
-    BinarySubscript,
-    LoadAttr {
-        idx: Arg<NameIdx>,
-    },
-    CompareOperation {
-        op: Arg<ComparisonOperator>,
-    },
-    CopyItem {
-        index: Arg<u32>,
-    },
-    Pop,
-    Swap {
-        index: Arg<u32>,
-    },
-    ToBool,
-    GetIter,
-    GetLen,
-    CallIntrinsic1 {
-        func: Arg<IntrinsicFunction1>,
-    },
-    CallIntrinsic2 {
-        func: Arg<IntrinsicFunction2>,
-    },
-    Continue {
-        target: Arg<Label>,
-    },
-    Break {
-        target: Arg<Label>,
-    },
-    /// Performs exception matching for except.
-    /// Tests whether the STACK[-2] is an exception matching STACK[-1].
-    /// Pops STACK[-1] and pushes the boolean result of the test.
-    JumpIfNotExcMatch(Arg<Label>),
-    Jump {
-        target: Arg<Label>,
-    },
-    /// Pop the top of the stack, and jump if this value is true.
-    PopJumpIfTrue {
-        target: Arg<Label>,
-    },
-    /// Pop the top of the stack, and jump if this value is false.
-    PopJumpIfFalse {
-        target: Arg<Label>,
-    },
-    /// Peek at the top of the stack, and jump if this value is true.
-    /// Otherwise, pop top of stack.
-    JumpIfTrueOrPop {
-        target: Arg<Label>,
-    },
-    /// Peek at the top of the stack, and jump if this value is false.
-    /// Otherwise, pop top of stack.
-    JumpIfFalseOrPop {
-        target: Arg<Label>,
-    },
-    MakeFunction,
-    SetFunctionAttribute {
-        attr: Arg<MakeFunctionFlags>,
-    },
-    CallFunctionPositional {
-        nargs: Arg<u32>,
-    },
-    CallFunctionKeyword {
-        nargs: Arg<u32>,
-    },
-    CallFunctionEx {
-        has_kwargs: Arg<bool>,
-    },
-    LoadMethod {
-        idx: Arg<NameIdx>,
-    },
-    CallMethodPositional {
-        nargs: Arg<u32>,
-    },
-    CallMethodKeyword {
-        nargs: Arg<u32>,
-    },
-    CallMethodEx {
-        has_kwargs: Arg<bool>,
-    },
-    ForIter {
-        target: Arg<Label>,
-    },
-    ReturnValue,
-    ReturnConst {
-        idx: Arg<u32>,
-    },
-    YieldValue,
-    YieldFrom,
-
-    /// Resume execution (e.g., at function start, after yield, etc.)
-    Resume {
-        arg: Arg<u32>,
-    },
-
-    SetupAnnotation,
-    SetupLoop,
-
-    /// Setup a finally handler, which will be called whenever one of this events occurs:
-    /// - the block is popped
-    /// - the function returns
-    /// - an exception is returned
-    SetupFinally {
-        handler: Arg<Label>,
-    },
-
-    /// Enter a finally block, without returning, excepting, just because we are there.
-    EnterFinally,
-
+    Continue(Arg<Label>),
+    CopyItem(Arg<u32>),
+    DeleteAttr(Arg<NameIdx>),
+    DeleteDeref(Arg<NameIdx>),
+    DeleteFast(Arg<NameIdx>),
+    DeleteGlobal(Arg<NameIdx>),
+    DeleteLocal(Arg<NameIdx>),
+    DeleteSubscript,
+    DictUpdate(Arg<u32>),
+    EndAsyncFor,
     /// Marker bytecode for the end of a finally sequence.
     /// When this bytecode is executed, the eval loop does one of those things:
     /// - Continue at a certain bytecode position
@@ -715,97 +594,101 @@ pub enum Instruction {
     /// - Return from a function
     /// - Do nothing at all, just continue
     EndFinally,
-
-    SetupExcept {
-        handler: Arg<Label>,
-    },
-    SetupWith {
-        end: Arg<Label>,
-    },
-    WithCleanupStart,
-    WithCleanupFinish,
-    PopBlock,
-    Raise {
-        kind: Arg<RaiseKind>,
-    },
-    BuildString {
-        size: Arg<u32>,
-    },
-    BuildTuple {
-        size: Arg<u32>,
-    },
-    BuildTupleFromTuples {
-        size: Arg<u32>,
-    },
-    BuildTupleFromIter,
-    BuildList {
-        size: Arg<u32>,
-    },
-    BuildListFromTuples {
-        size: Arg<u32>,
-    },
-    BuildSet {
-        size: Arg<u32>,
-    },
-    BuildSetFromTuples {
-        size: Arg<u32>,
-    },
-    BuildMap {
-        size: Arg<u32>,
-    },
-    BuildMapForCall {
-        size: Arg<u32>,
-    },
-    DictUpdate {
-        index: Arg<u32>,
-    },
-    BuildSlice {
-        /// whether build a slice with a third step argument
-        step: Arg<bool>,
-    },
-    ListAppend {
-        i: Arg<u32>,
-    },
-    SetAdd {
-        i: Arg<u32>,
-    },
-    MapAdd {
-        i: Arg<u32>,
-    },
-
-    PrintExpr,
-    LoadBuildClass,
-    UnpackSequence {
-        size: Arg<u32>,
-    },
-    UnpackEx {
-        args: Arg<UnpackExArgs>,
-    },
-    FormatValue {
-        conversion: Arg<ConversionFlag>,
-    },
-    PopException,
-    Reverse {
-        amount: Arg<u32>,
-    },
-    GetAwaitable,
-    BeforeAsyncWith,
-    SetupAsyncWith {
-        end: Arg<Label>,
-    },
+    /// Enter a finally block, without returning, excepting, just because we are there.
+    EnterFinally,
+    ExtendedArg,
+    ForIter(Arg<Label>),
+    FormatValue(Arg<ConversionFlag>),
     GetAIter,
     GetANext,
-    EndAsyncFor,
+    GetAwaitable,
+    GetIter,
+    GetLen,
+    /// from ... import ...
+    ImportFrom(Arg<NameIdx>),
+    /// Importing by name
+    ImportName(Arg<NameIdx>),
+    /// Importing without name
+    ImportNameless,
+    /// Performs `is` comparison, or `is not` if `invert` is 1.
+    IsOp(Arg<Invert>),
+    Jump(Arg<Label>),
+    /// Peek at the top of the stack, and jump if this value is false.
+    /// Otherwise, pop top of stack.
+    JumpIfFalseOrPop(Arg<Label>),
+    /// Performs exception matching for except.
+    /// Tests whether the STACK[-2] is an exception matching STACK[-1].
+    /// Pops STACK[-1] and pushes the boolean result of the test.
+    JumpIfNotExcMatch(Arg<Label>),
+    /// Peek at the top of the stack, and jump if this value is true.
+    /// Otherwise, pop top of stack.
+    JumpIfTrueOrPop(Arg<Label>),
+    ListAppend(Arg<u32>),
+    LoadAttr(Arg<NameIdx>),
+    LoadBuildClass,
+    LoadClassDeref(Arg<NameIdx>),
+    LoadClosure(Arg<NameIdx>),
+    /// Holds an index into constants vec.
+    LoadConst(Arg<u32>),
+    LoadDeref(Arg<NameIdx>),
+    LoadFast(Arg<NameIdx>),
+    LoadGlobal(Arg<NameIdx>),
+    LoadMethod(Arg<NameIdx>),
+    LoadNameAny(Arg<NameIdx>),
+    MakeFunction,
+    MapAdd(Arg<u32>),
+    MatchClass(Arg<u32>),
+    MatchKeys,
     MatchMapping,
     MatchSequence,
-    MatchKeys,
-    MatchClass(Arg<u32>),
-    ExtendedArg,
+    Nop,
+    Pop,
+    PopBlock,
+    PopException,
+    /// Pop the top of the stack, and jump if this value is false.
+    PopJumpIfFalse(Arg<Label>),
+    /// Pop the top of the stack, and jump if this value is true.
+    PopJumpIfTrue(Arg<Label>),
+    PrintExpr,
+    Raise(Arg<RaiseKind>),
+    /// Resume execution (e.g., at function start, after yield, etc.)
+    Resume(Arg<u32>),
+    ReturnConst(Arg<u32>),
+    ReturnValue,
+    Reverse(Arg<u32>),
+    SetAdd(Arg<u32>),
+    SetFunctionAttribute(Arg<MakeFunctionFlags>),
+    SetupAnnotation,
+    SetupAsyncWith(Arg<Label>),
+    SetupExcept(Arg<Label>),
+    /// Setup a finally handler, which will be called whenever one of this events occurs:
+    /// - the block is popped
+    /// - the function returns
+    /// - an exception is returned
+    SetupFinally(Arg<Label>),
+    SetupLoop,
+    SetupWith(Arg<Label>),
+    StoreAttr(Arg<NameIdx>),
+    StoreDeref(Arg<NameIdx>),
+    StoreFast(Arg<NameIdx>),
+    StoreGlobal(Arg<NameIdx>),
+    StoreLocal(Arg<NameIdx>),
+    StoreSubscript,
+    Subscript,
+    Swap(Arg<u32>),
+    ToBool,
+    UnaryOperation(Arg<UnaryOperator>),
+    UnpackEx(Arg<UnpackExArgs>),
+    UnpackSequence(Arg<u32>),
+    WithCleanupFinish,
+    WithCleanupStart,
+    YieldFrom,
+    YieldValue,
     // If you add a new instruction here, be sure to keep LAST_INSTRUCTION updated
 }
 
 // This must be kept up to date to avoid marshaling errors
-const LAST_INSTRUCTION: Instruction = Instruction::ExtendedArg;
+const LAST_INSTRUCTION: Instruction = Instruction::YieldValue;
 
 const _: () = assert!(mem::size_of::<Instruction>() == 1);
 
