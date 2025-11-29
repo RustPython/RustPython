@@ -92,7 +92,7 @@ impl StackMachine {
         names: &[String],
     ) -> ControlFlow<()> {
         match instruction {
-            Instruction::LoadConst { idx } => {
+            Instruction::LoadConst(idx) => {
                 let idx = idx.get(arg);
                 self.stack.push(constants[idx as usize].clone().into())
             }
@@ -104,12 +104,12 @@ impl StackMachine {
                 self.locals
                     .insert(names[idx as usize].clone(), self.stack.pop().unwrap());
             }
-            Instruction::StoreAttr { .. } => {
+            Instruction::StoreAttr(_) => {
                 // Do nothing except throw away the stack values
                 self.stack.pop().unwrap();
                 self.stack.pop().unwrap();
             }
-            Instruction::BuildMap { size, .. } => {
+            Instruction::BuildMap(size) => {
                 let mut map = HashMap::new();
                 for _ in 0..size.get(arg) {
                     let value = self.stack.pop().unwrap();
@@ -134,7 +134,7 @@ impl StackMachine {
                     annotations: HashMap::new(), // empty annotations, will be set later if needed
                 }));
             }
-            Instruction::SetFunctionAttribute { attr } => {
+            Instruction::SetFunctionAttribute(attr) => {
                 // Stack: [..., attr_value, func] -> [..., func]
                 let func = if let Some(StackValue::Function(func)) = self.stack.pop() {
                     func
@@ -164,7 +164,7 @@ impl StackMachine {
                     self.stack.push(StackValue::Function(func));
                 }
             }
-            Instruction::ReturnConst { idx } => {
+            Instruction::ReturnConst(idx) => {
                 let idx = idx.get(arg);
                 self.stack.push(constants[idx as usize].clone().into());
                 return ControlFlow::Break(());
