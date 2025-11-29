@@ -404,7 +404,10 @@ impl PyCArray {
 impl PyCArray {
     #[allow(unused)]
     pub fn to_arg(&self, _vm: &VirtualMachine) -> PyResult<libffi::middle::Arg> {
+        // TODO: This needs a different approach to ensure buffer lifetime
+        // The buffer must outlive the Arg returned here
         let buffer = self.buffer.read();
-        Ok(libffi::middle::Arg::new(&buffer.clone()))
+        let ptr = buffer.as_ptr();
+        Ok(libffi::middle::Arg::new(&ptr))
     }
 }

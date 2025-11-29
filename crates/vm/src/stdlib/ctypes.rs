@@ -350,9 +350,10 @@ pub(crate) mod _ctypes {
         if !obj.fast_isinstance(PyCData::static_type())
             && !obj.fast_isinstance(PyCSimple::static_type())
         {
-            return Err(vm.new_type_error(
-                "byref() argument must be a ctypes instance, not 'int'".to_string(),
-            ));
+            return Err(vm.new_type_error(format!(
+                "byref() argument must be a ctypes instance, not '{}'",
+                obj.class().name()
+            )));
         }
 
         let offset_val = offset.unwrap_or(0);
@@ -428,14 +429,14 @@ pub(crate) mod _ctypes {
         }
         #[cfg(target_os = "windows")]
         {
-            // On Windows, use wcslen from ucrt
+            // FIXME: On Windows, use wcslen from ucrt
             0
         }
     }
 
     #[pyattr]
     fn _cast_addr(_vm: &VirtualMachine) -> usize {
-        // TODO: RUSTPYTHON
+        // todo!("Implement _cast_addr")
         0
     }
 }

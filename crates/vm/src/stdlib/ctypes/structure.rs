@@ -8,9 +8,9 @@ use crate::stdlib::ctypes::_ctypes::get_size;
 use crate::types::{AsNumber, Constructor};
 use crate::{AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use crossbeam_utils::atomic::AtomicCell;
+use indexmap::IndexMap;
 use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
-use std::collections::HashMap;
 use std::fmt::Debug;
 
 /// PyCStructType - metaclass for Structure
@@ -139,6 +139,7 @@ impl PyCStructType {
         if n < 0 {
             return Err(vm.new_value_error(format!("Array length must be >= 0, not {n}")));
         }
+        // TODO: Calculate element size properly
         // For structures, element size is the structure size (sum of field sizes)
         let element_size = std::mem::size_of::<usize>(); // Default, should calculate from fields
         Ok(PyCArrayType {
@@ -196,7 +197,7 @@ pub struct PyCStructure {
     pub(super) buffer: PyRwLock<Vec<u8>>,
     /// Field information (name -> FieldInfo)
     #[allow(dead_code)]
-    pub(super) fields: PyRwLock<HashMap<String, FieldInfo>>,
+    pub(super) fields: PyRwLock<IndexMap<String, FieldInfo>>,
     /// Total size of the structure
     pub(super) size: AtomicCell<usize>,
 }
@@ -216,7 +217,7 @@ impl Constructor for PyCStructure {
         // Get _fields_ from the class using get_attr to properly search MRO
         let fields_attr = cls.as_object().get_attr("_fields_", vm).ok();
 
-        let mut fields_map = HashMap::new();
+        let mut fields_map = IndexMap::new();
         let mut total_size = 0usize;
 
         if let Some(fields_attr) = fields_attr {
