@@ -114,6 +114,87 @@ impl PyCArrayType {
         }
         .to_pyobject(vm))
     }
+
+    #[pyclassmethod]
+    fn in_dll(
+        zelf: &Py<Self>,
+        dll: PyObjectRef,
+        name: crate::builtins::PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        use crate::stdlib::ctypes::_ctypes::size_of;
+        use libloading::Symbol;
+
+        // Get the library handle from dll object
+        let handle = if let Ok(int_handle) = dll.try_int(vm) {
+            // dll is an integer handle
+            int_handle
+                .as_bigint()
+                .to_usize()
+                .ok_or_else(|| vm.new_value_error("Invalid library handle".to_owned()))?
+        } else {
+            // dll is a CDLL/PyDLL/WinDLL object with _handle attribute
+            dll.get_attr("_handle", vm)?
+                .try_int(vm)?
+                .as_bigint()
+                .to_usize()
+                .ok_or_else(|| vm.new_value_error("Invalid library handle".to_owned()))?
+        };
+
+        // Get the library from cache
+        let library_cache = crate::stdlib::ctypes::library::libcache().read();
+        let library = library_cache
+            .get_lib(handle)
+            .ok_or_else(|| vm.new_attribute_error("Library not found".to_owned()))?;
+
+        // Get symbol address from library
+        let symbol_name = format!("{}\0", name.as_str());
+        let inner_lib = library.lib.lock();
+
+        let symbol_address = if let Some(lib) = &*inner_lib {
+            unsafe {
+                // Try to get the symbol from the library
+                let symbol: Symbol<'_, *mut u8> = lib.get(symbol_name.as_bytes()).map_err(|e| {
+                    vm.new_attribute_error(format!("{}: symbol '{}' not found", e, name.as_str()))
+                })?;
+                *symbol as usize
+            }
+        } else {
+            return Err(vm.new_attribute_error("Library is closed".to_owned()));
+        };
+
+        // Get size from the array type
+        let element_type = zelf.inner.typ.read().clone();
+        let length = zelf.inner.length.load();
+        let element_size = size_of(element_type.clone(), vm)?;
+        let total_size = element_size * length;
+
+        // Read data from symbol address
+        let data = if symbol_address != 0 && total_size > 0 {
+            unsafe {
+                let ptr = symbol_address as *const u8;
+                std::slice::from_raw_parts(ptr, total_size).to_vec()
+            }
+        } else {
+            vec![0; total_size]
+        };
+
+        // Create instance
+        let instance = PyCArray {
+            typ: PyRwLock::new(element_type),
+            length: AtomicCell::new(length),
+            element_size: AtomicCell::new(element_size),
+            cdata: PyRwLock::new(CDataObject::from_bytes(data)),
+        }
+        .into_pyobject(vm);
+
+        // Store base reference to keep dll alive
+        if let Ok(array_ref) = instance.clone().downcast::<PyCArray>() {
+            array_ref.cdata.write().base = Some(dll);
+        }
+
+        Ok(instance)
+    }
 }
 
 impl AsNumber for PyCArrayType {
@@ -407,11 +488,10 @@ impl PyCArray {
 
     #[pyclassmethod]
     fn from_address(cls: PyTypeRef, address: isize, vm: &VirtualMachine) -> PyResult {
-        use crate::function::Either;
         use crate::stdlib::ctypes::_ctypes::size_of;
 
         // Get size from cls
-        let size = size_of(Either::A(cls.clone()), vm)?;
+        let size = size_of(cls.clone().into(), vm)?;
 
         // Create instance with data from address
         if address == 0 || size == 0 {
@@ -452,7 +532,6 @@ impl PyCArray {
         vm: &VirtualMachine,
     ) -> PyResult {
         use crate::TryFromObject;
-        use crate::function::Either;
         use crate::protocol::PyBuffer;
         use crate::stdlib::ctypes::_ctypes::size_of;
 
@@ -471,7 +550,7 @@ impl PyCArray {
         }
 
         // Get size from cls
-        let size = size_of(Either::A(cls.clone()), vm)?;
+        let size = size_of(cls.clone().into(), vm)?;
 
         // Check if buffer is large enough
         let buffer_len = buffer.desc.len;
@@ -520,7 +599,6 @@ impl PyCArray {
         offset: crate::function::OptionalArg<isize>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        use crate::function::Either;
         use crate::stdlib::ctypes::_ctypes::size_of;
 
         let offset = offset.unwrap_or(0);
@@ -530,7 +608,7 @@ impl PyCArray {
         let offset = offset as usize;
 
         // Get size from cls
-        let size = size_of(Either::A(cls.clone()), vm)?;
+        let size = size_of(cls.clone().into(), vm)?;
 
         // Borrow bytes from source
         let source_bytes = source.borrow_buf();
@@ -569,6 +647,98 @@ impl PyCArray {
             cdata: PyRwLock::new(CDataObject::from_bytes(data.to_vec(), None)),
         }
         .into_pyobject(vm))
+    }
+
+    #[pyclassmethod]
+    fn in_dll(
+        cls: PyTypeRef,
+        dll: PyObjectRef,
+        name: crate::builtins::PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        use crate::stdlib::ctypes::_ctypes::size_of;
+        use libloading::Symbol;
+
+        // Get the library handle from dll object
+        let handle = if let Ok(int_handle) = dll.try_int(vm) {
+            // dll is an integer handle
+            int_handle
+                .as_bigint()
+                .to_usize()
+                .ok_or_else(|| vm.new_value_error("Invalid library handle".to_owned()))?
+        } else {
+            // dll is a CDLL/PyDLL/WinDLL object with _handle attribute
+            dll.get_attr("_handle", vm)?
+                .try_int(vm)?
+                .as_bigint()
+                .to_usize()
+                .ok_or_else(|| vm.new_value_error("Invalid library handle".to_owned()))?
+        };
+
+        // Get the library from cache
+        let library_cache = crate::stdlib::ctypes::library::libcache().read();
+        let library = library_cache
+            .get_lib(handle)
+            .ok_or_else(|| vm.new_attribute_error("Library not found".to_owned()))?;
+
+        // Get symbol address from library
+        let symbol_name = format!("{}\0", name.as_str());
+        let inner_lib = library.lib.lock();
+
+        let symbol_address = if let Some(lib) = &*inner_lib {
+            unsafe {
+                // Try to get the symbol from the library
+                let symbol: Symbol<'_, *mut u8> = lib.get(symbol_name.as_bytes()).map_err(|e| {
+                    vm.new_attribute_error(format!("{}: symbol '{}' not found", e, name.as_str()))
+                })?;
+                *symbol as usize
+            }
+        } else {
+            return Err(vm.new_attribute_error("Library is closed".to_owned()));
+        };
+
+        // Get size from cls
+        let size = size_of(cls.clone().into(), vm)?;
+
+        // Read data from symbol address
+        let data = if symbol_address != 0 && size > 0 {
+            unsafe {
+                let ptr = symbol_address as *const u8;
+                std::slice::from_raw_parts(ptr, size).to_vec()
+            }
+        } else {
+            vec![0; size]
+        };
+
+        // Get element type and length from cls
+        let element_type = cls.as_object().get_attr("_type_", vm)?;
+        let element_type: PyTypeRef = element_type
+            .downcast()
+            .map_err(|_| vm.new_type_error("_type_ must be a type".to_owned()))?;
+        let length = cls
+            .as_object()
+            .get_attr("_length_", vm)?
+            .try_int(vm)?
+            .as_bigint()
+            .to_usize()
+            .unwrap_or(0);
+        let element_size = if length > 0 { size / length } else { 0 };
+
+        // Create instance
+        let instance = PyCArray {
+            typ: PyRwLock::new(element_type.into()),
+            length: AtomicCell::new(length),
+            element_size: AtomicCell::new(element_size),
+            cdata: PyRwLock::new(CDataObject::from_bytes(data)),
+        }
+        .into_pyobject(vm);
+
+        // Store base reference to keep dll alive
+        if let Ok(array_ref) = instance.clone().downcast::<PyCArray>() {
+            array_ref.cdata.write().base = Some(dll);
+        }
+
+        Ok(instance)
     }
 }
 

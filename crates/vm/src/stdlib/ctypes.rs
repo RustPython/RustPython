@@ -172,7 +172,7 @@ pub(crate) mod _ctypes {
             }
         }
         // Fall back to sizeof
-        size_of(Either::A(cls.clone()), vm)
+        size_of(cls.clone().into(), vm)
     }
 
     /// Convert bytes to appropriate Python object based on ctypes type
@@ -377,20 +377,99 @@ pub(crate) mod _ctypes {
         }
     }
 
+    /// Get the size of a ctypes type or instance
+    ///
+    /// This function accepts:
+    /// - A ctypes type (e.g., c_int, Structure subclass)
+    /// - A ctypes instance (e.g., c_int(5))
     #[pyfunction(name = "sizeof")]
-    pub fn size_of(tp: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> PyResult<usize> {
-        match tp {
-            Either::A(type_) if type_.fast_issubclass(PyCSimple::static_type()) => {
-                let zelf = new_simple_type(Either::B(&type_), vm)?;
-                Ok(get_size(zelf._type_.as_str()))
+    pub fn size_of(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        use super::array::PyCArray;
+        use super::pointer::PyCPointer;
+        use super::structure::PyCStructure;
+        use super::union::PyCUnion;
+
+        // Check if obj is a type
+        if let Ok(type_ref) = obj.clone().downcast::<crate::builtins::PyType>() {
+            // It's a type - check what kind of ctypes type it is
+
+            // Simple types (c_int, c_char, etc.)
+            if type_ref.fast_issubclass(PyCSimple::static_type()) {
+                let zelf = new_simple_type(Either::B(&type_ref), vm)?;
+                return Ok(get_size(zelf._type_.as_str()));
             }
-            Either::B(obj) if obj.has_attr("size_of_instances", vm)? => {
-                let size_of_method = obj.get_attr("size_of_instances", vm)?;
-                let size_of_return = size_of_method.call(vec![], vm)?;
-                Ok(usize::try_from_object(vm, size_of_return)?)
+
+            // Array types
+            if type_ref.fast_issubclass(PyCArray::static_type()) {
+                // Get _length_ and element size
+                if let Ok(length) = type_ref.as_object().get_attr("_length_", vm) {
+                    let length = usize::try_from_object(vm, length)?;
+                    if let Ok(elem_type) = type_ref.as_object().get_attr("_type_", vm) {
+                        let elem_size = size_of(elem_type, vm)?;
+                        return Ok(length * elem_size);
+                    }
+                }
             }
-            _ => Err(vm.new_type_error("this type has no size")),
+
+            // Structure types - check for size_of_instances method
+            if type_ref.fast_issubclass(PyCStructure::static_type())
+                || type_ref.fast_issubclass(PyCUnion::static_type())
+            {
+                if let Ok(size_method) = type_ref.as_object().get_attr("size_of_instances", vm) {
+                    let size = size_method.call(vec![], vm)?;
+                    return Ok(usize::try_from_object(vm, size)?);
+                }
+            }
+
+            // Pointer types
+            if type_ref.fast_issubclass(PyCPointer::static_type()) {
+                return Ok(std::mem::size_of::<usize>());
+            }
+
+            // Check for size_of_instances as a fallback
+            if let Ok(size_method) = type_ref.as_object().get_attr("size_of_instances", vm) {
+                let size = size_method.call(vec![], vm)?;
+                return Ok(usize::try_from_object(vm, size)?);
+            }
+
+            return Err(vm.new_type_error("this type has no size"));
         }
+
+        // It's an instance - get size from instance or its class
+
+        // Simple type instance
+        if let Ok(simple) = obj.clone().downcast::<PyCSimple>() {
+            return Ok(get_size(simple._type_.as_str()));
+        }
+
+        // Array instance
+        if let Ok(array) = obj.clone().downcast::<PyCArray>() {
+            return Ok(array.cdata.read().size());
+        }
+
+        // Structure instance
+        if let Ok(structure) = obj.clone().downcast::<PyCStructure>() {
+            return Ok(structure.cdata.read().size());
+        }
+
+        // Union instance
+        if let Ok(union) = obj.clone().downcast::<PyCUnion>() {
+            return Ok(union.cdata.read().size());
+        }
+
+        // Pointer instance
+        if obj.fast_isinstance(PyCPointer::static_type()) {
+            return Ok(std::mem::size_of::<usize>());
+        }
+
+        // Check if the object has size_of_instances method (for custom types)
+        if obj.has_attr("size_of_instances", vm)? {
+            let size_method = obj.get_attr("size_of_instances", vm)?;
+            let size = size_method.call(vec![], vm)?;
+            return Ok(usize::try_from_object(vm, size)?);
+        }
+
+        Err(vm.new_type_error("this type has no size"))
     }
 
     #[cfg(windows)]

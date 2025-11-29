@@ -208,4 +208,59 @@ impl PyCPointer {
         .into_ref_with_type(vm, cls)?
         .into())
     }
+
+    #[pyclassmethod]
+    fn in_dll(
+        cls: PyTypeRef,
+        dll: PyObjectRef,
+        name: crate::builtins::PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        use libloading::Symbol;
+
+        // Get the library handle from dll object
+        let handle = if let Ok(int_handle) = dll.try_int(vm) {
+            // dll is an integer handle
+            int_handle
+                .as_bigint()
+                .to_usize()
+                .ok_or_else(|| vm.new_value_error("Invalid library handle".to_owned()))?
+        } else {
+            // dll is a CDLL/PyDLL/WinDLL object with _handle attribute
+            dll.get_attr("_handle", vm)?
+                .try_int(vm)?
+                .as_bigint()
+                .to_usize()
+                .ok_or_else(|| vm.new_value_error("Invalid library handle".to_owned()))?
+        };
+
+        // Get the library from cache
+        let library_cache = crate::stdlib::ctypes::library::libcache().read();
+        let library = library_cache
+            .get_lib(handle)
+            .ok_or_else(|| vm.new_attribute_error("Library not found".to_owned()))?;
+
+        // Get symbol address from library
+        let symbol_name = format!("{}\0", name.as_str());
+        let inner_lib = library.lib.lock();
+
+        let symbol_address = if let Some(lib) = &*inner_lib {
+            unsafe {
+                // Try to get the symbol from the library
+                let symbol: Symbol<'_, *mut u8> = lib.get(symbol_name.as_bytes()).map_err(|e| {
+                    vm.new_attribute_error(format!("{}: symbol '{}' not found", e, name.as_str()))
+                })?;
+                *symbol as usize
+            }
+        } else {
+            return Err(vm.new_attribute_error("Library is closed".to_owned()));
+        };
+
+        // For pointer types, we return a pointer to the symbol address
+        Ok(PyCPointer {
+            contents: PyRwLock::new(vm.ctx.new_int(symbol_address).into()),
+        }
+        .into_ref_with_type(vm, cls)?
+        .into())
+    }
 }

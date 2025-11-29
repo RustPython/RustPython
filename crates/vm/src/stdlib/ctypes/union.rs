@@ -6,7 +6,7 @@ use crate::function::FuncArgs;
 use crate::protocol::{BufferDescriptor, BufferMethods, PyBuffer as ProtocolPyBuffer};
 use crate::stdlib::ctypes::_ctypes::get_size;
 use crate::types::{AsBuffer, Constructor};
-use crate::{Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
+use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
 
@@ -130,15 +130,61 @@ impl std::fmt::Debug for PyCUnion {
     }
 }
 
-#[pyclass(flags(BASETYPE, IMMUTABLETYPE), with(AsBuffer))]
+impl Constructor for PyCUnion {
+    type Args = FuncArgs;
+
+    fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        // Get _fields_ from the class
+        let fields_attr = cls.as_object().get_attr("_fields_", vm).ok();
+
+        // Calculate union size (max of all field sizes)
+        let mut max_size = 0usize;
+
+        if let Some(fields_attr) = fields_attr {
+            let fields: Vec<PyObjectRef> = if let Some(list) = fields_attr.downcast_ref::<PyList>()
+            {
+                list.borrow_vec().to_vec()
+            } else if let Some(tuple) = fields_attr.downcast_ref::<PyTuple>() {
+                tuple.to_vec()
+            } else {
+                vec![]
+            };
+
+            for field in fields.iter() {
+                let Some(field_tuple) = field.downcast_ref::<PyTuple>() else {
+                    continue;
+                };
+                if field_tuple.len() < 2 {
+                    continue;
+                }
+                let field_type = field_tuple.get(1).unwrap().clone();
+                let size = PyCUnionType::get_field_size(&field_type, vm)?;
+                max_size = max_size.max(size);
+            }
+        }
+
+        // Initialize buffer with zeros
+        PyCUnion {
+            cdata: PyRwLock::new(CDataObject::new(max_size)),
+        }
+        .into_ref_with_type(vm, cls)
+        .map(Into::into)
+    }
+}
+
+#[pyclass(flags(BASETYPE, IMMUTABLETYPE), with(Constructor, AsBuffer))]
 impl PyCUnion {
+    #[pygetset]
+    fn _objects(&self) -> Option<PyObjectRef> {
+        self.cdata.read().objects.clone()
+    }
+
     #[pyclassmethod]
     fn from_address(cls: PyTypeRef, address: isize, vm: &VirtualMachine) -> PyResult {
-        use crate::function::Either;
         use crate::stdlib::ctypes::_ctypes::size_of;
 
         // Get size from cls
-        let size = size_of(Either::A(cls.clone()), vm)?;
+        let size = size_of(cls.clone().into(), vm)?;
 
         // Create instance with data from address
         if address == 0 || size == 0 {
@@ -160,7 +206,6 @@ impl PyCUnion {
         vm: &VirtualMachine,
     ) -> PyResult {
         use crate::TryFromObject;
-        use crate::function::Either;
         use crate::protocol::PyBuffer;
         use crate::stdlib::ctypes::_ctypes::size_of;
 
@@ -176,7 +221,7 @@ impl PyCUnion {
             return Err(vm.new_type_error("underlying buffer is not writable".to_owned()));
         }
 
-        let size = size_of(Either::A(cls.clone()), vm)?;
+        let size = size_of(cls.clone().into(), vm)?;
         let buffer_len = buffer.desc.len;
 
         if offset + size > buffer_len {
@@ -205,7 +250,6 @@ impl PyCUnion {
         offset: crate::function::OptionalArg<isize>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        use crate::function::Either;
         use crate::stdlib::ctypes::_ctypes::size_of;
 
         let offset = offset.unwrap_or(0);
@@ -214,7 +258,7 @@ impl PyCUnion {
         }
         let offset = offset as usize;
 
-        let size = size_of(Either::A(cls.clone()), vm)?;
+        let size = size_of(cls.clone().into(), vm)?;
         let source_bytes = source.borrow_buf();
         let buffer_len = source_bytes.len();
 

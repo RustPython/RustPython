@@ -1,7 +1,6 @@
 use super::_ctypes::bytes_to_pyobject;
 use super::array::{PyCArray, PyCArrayType};
-use crate::builtins::PyType;
-use crate::builtins::{PyBytes, PyFloat, PyInt, PyNone, PyStr, PyTypeRef};
+use crate::builtins::{PyBytes, PyFloat, PyInt, PyNone, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::function::{ArgBytesLike, Either, OptionalArg};
 use crate::protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyNumberMethods};
@@ -704,6 +703,81 @@ impl PyCSimple {
 
         // Create instance (independent copy, no reference tracking)
         PyCSimple::py_new(cls.clone(), (OptionalArg::Present(value),), vm)
+    }
+
+    #[pyclassmethod]
+    fn in_dll(cls: PyTypeRef, dll: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        use super::_ctypes::get_size;
+        use libloading::Symbol;
+
+        // Get the library handle from dll object
+        let handle = if let Ok(int_handle) = dll.try_int(vm) {
+            // dll is an integer handle
+            int_handle
+                .as_bigint()
+                .to_usize()
+                .ok_or_else(|| vm.new_value_error("Invalid library handle".to_owned()))?
+        } else {
+            // dll is a CDLL/PyDLL/WinDLL object with _handle attribute
+            dll.get_attr("_handle", vm)?
+                .try_int(vm)?
+                .as_bigint()
+                .to_usize()
+                .ok_or_else(|| vm.new_value_error("Invalid library handle".to_owned()))?
+        };
+
+        // Get the library from cache
+        let library_cache = crate::stdlib::ctypes::library::libcache().read();
+        let library = library_cache
+            .get_lib(handle)
+            .ok_or_else(|| vm.new_attribute_error("Library not found".to_owned()))?;
+
+        // Get symbol address from library
+        let symbol_name = format!("{}\0", name.as_str());
+        let inner_lib = library.lib.lock();
+
+        let symbol_address = if let Some(lib) = &*inner_lib {
+            unsafe {
+                // Try to get the symbol from the library
+                let symbol: Symbol<'_, *mut u8> = lib.get(symbol_name.as_bytes()).map_err(|e| {
+                    vm.new_attribute_error(format!("{}: symbol '{}' not found", e, name.as_str()))
+                })?;
+                *symbol as usize
+            }
+        } else {
+            return Err(vm.new_attribute_error("Library is closed".to_owned()));
+        };
+
+        // Get _type_ attribute and size
+        let type_attr = cls
+            .as_object()
+            .get_attr("_type_", vm)
+            .map_err(|_| vm.new_type_error(format!("'{}' has no _type_ attribute", cls.name())))?;
+        let type_str = type_attr.str(vm)?.to_string();
+        let size = get_size(&type_str);
+
+        // Read value from symbol address
+        let value = if symbol_address != 0 && size > 0 {
+            // Safety: Reading from a symbol address provided by dlsym
+            // This is the same as CPython's implementation
+            unsafe {
+                let ptr = symbol_address as *const u8;
+                let bytes = std::slice::from_raw_parts(ptr, size);
+                bytes_to_pyobject(&cls, bytes, vm)?
+            }
+        } else {
+            vm.ctx.none()
+        };
+
+        // Create instance
+        let instance = PyCSimple::py_new(cls.clone(), (OptionalArg::Present(value),), vm)?;
+
+        // Store base reference to keep dll alive (like CPython does)
+        if let Ok(simple_ref) = instance.clone().downcast::<PyCSimple>() {
+            simple_ref.cdata.write().base = Some(dll);
+        }
+
+        Ok(instance)
     }
 }
 

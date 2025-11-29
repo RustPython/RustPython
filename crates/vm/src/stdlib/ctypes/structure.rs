@@ -313,11 +313,10 @@ impl PyCStructure {
 
     #[pyclassmethod]
     fn from_address(cls: PyTypeRef, address: isize, vm: &VirtualMachine) -> PyResult {
-        use crate::function::Either;
         use crate::stdlib::ctypes::_ctypes::size_of;
 
         // Get size from cls
-        let size = size_of(Either::A(cls.clone()), vm)?;
+        let size = size_of(cls.clone().into(), vm)?;
 
         // Read data from address
         if address == 0 || size == 0 {
@@ -345,7 +344,6 @@ impl PyCStructure {
         vm: &VirtualMachine,
     ) -> PyResult {
         use crate::TryFromObject;
-        use crate::function::Either;
         use crate::protocol::PyBuffer;
         use crate::stdlib::ctypes::_ctypes::size_of;
 
@@ -364,7 +362,7 @@ impl PyCStructure {
         }
 
         // Get size from cls
-        let size = size_of(Either::A(cls.clone()), vm)?;
+        let size = size_of(cls.clone().into(), vm)?;
 
         // Check if buffer is large enough
         let buffer_len = buffer.desc.len;
@@ -396,7 +394,6 @@ impl PyCStructure {
         offset: crate::function::OptionalArg<isize>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        use crate::function::Either;
         use crate::stdlib::ctypes::_ctypes::size_of;
 
         let offset = offset.unwrap_or(0);
@@ -406,7 +403,7 @@ impl PyCStructure {
         let offset = offset as usize;
 
         // Get size from cls
-        let size = size_of(Either::A(cls.clone()), vm)?;
+        let size = size_of(cls.clone().into(), vm)?;
 
         // Borrow bytes from source
         let source_bytes = source.borrow_buf();
