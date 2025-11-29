@@ -485,7 +485,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.builder.ins().jump(target_block, &[]);
                 Ok(())
             }
-            Instruction::LoadConst { idx } => {
+            Instruction::LoadConst(idx) => {
                 let val = self
                     .prepare_const(bytecode.constants[idx.get(arg) as usize].borrow_constant())?;
                 self.stack.push(val);
