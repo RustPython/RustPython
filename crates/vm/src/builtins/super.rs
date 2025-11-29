@@ -239,14 +239,16 @@ impl Representable for PySuper {
 }
 
 fn super_check(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTypeRef> {
-    if let Ok(cls) = obj.clone().downcast::<PyType>()
-        && cls.fast_issubclass(&ty)
-    {
-        return Ok(cls);
-    }
+    let is_type = match obj.clone().downcast::<PyType>() {
+        Ok(cls) if cls.fast_issubclass(&ty) => return Ok(cls),
+        Ok(_) => true,
+        Err(_) => false,
+    };
+
     if obj.fast_isinstance(&ty) {
         return Ok(obj.class().to_owned());
     }
+
     let class_attr = obj.get_attr("__class__", vm)?;
     if let Ok(cls) = class_attr.downcast::<PyType>()
         && !cls.is(&ty)
@@ -254,7 +256,22 @@ fn super_check(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult
     {
         return Ok(cls);
     }
-    Err(vm.new_type_error("super(type, obj): obj must be an instance or subtype of type"))
+
+    let (type_or_instance, obj_str) = if is_type {
+        // SAFETY: This is will always be successful as we already checked at the begining of
+        // the function.
+        let typ = unsafe { obj.downcast::<PyType>().unwrap_unchecked() };
+        ("type", typ.name().to_owned())
+    } else {
+        ("instance of", obj.class().name().to_owned())
+    };
+
+    Err(vm.new_type_error(format!(
+        "super(type, obj): obj ({} {}) is not an instance or subtype of type ({}).",
+        type_or_instance,
+        obj_str,
+        ty.name(),
+    )))
 }
 
 pub fn init(context: &Context) {
