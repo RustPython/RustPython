@@ -153,23 +153,41 @@ pub struct CDataObject {
     /// pointer to base object or None (b_base)
     #[allow(dead_code)]
     pub base: Option<PyObjectRef>,
+    /// index into base's b_objects list (b_index)
+    #[allow(dead_code)]
+    pub index: usize,
     /// dictionary of references we need to keep (b_objects)
     pub objects: Option<PyObjectRef>,
 }
 
 impl CDataObject {
+    /// Create new owned buffer with zero-initialized memory
     pub fn new(size: usize) -> Self {
         CDataObject {
             buffer: vec![0u8; size],
             base: None,
+            index: 0,
             objects: None,
         }
     }
 
+    /// Create from existing bytes (copies data)
     pub fn from_bytes(data: Vec<u8>, objects: Option<PyObjectRef>) -> Self {
         CDataObject {
             buffer: data,
             base: None,
+            index: 0,
+            objects,
+        }
+    }
+
+    /// Create from base object (copies data from base's buffer at offset)
+    #[allow(dead_code)]
+    pub fn from_base(base: PyObjectRef, _offset: usize, size: usize, index: usize, objects: Option<PyObjectRef>) -> Self {
+        CDataObject {
+            buffer: vec![0u8; size],
+            base: Some(base),
+            index,
             objects,
         }
     }
