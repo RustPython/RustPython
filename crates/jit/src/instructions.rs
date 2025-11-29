@@ -275,167 +275,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         arg: OpArg,
     ) -> Result<(), JitCompileError> {
         match instruction {
-            Instruction::ExtendedArg => Ok(()),
-            Instruction::PopJumpIfFalse(target) => {
-                let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                let val = self.boolean_val(cond)?;
-                let then_block = self.get_or_create_block(target.get(arg));
-                let else_block = self.builder.create_block();
-
-                self.builder
-                    .ins()
-                    .brif(val, else_block, &[], then_block, &[]);
-                self.builder.switch_to_block(else_block);
-
-                Ok(())
-            }
-            Instruction::PopJumpIfTrue(target) => {
-                let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                let val = self.boolean_val(cond)?;
-                let then_block = self.get_or_create_block(target.get(arg));
-                let else_block = self.builder.create_block();
-
-                self.builder
-                    .ins()
-                    .brif(val, then_block, &[], else_block, &[]);
-                self.builder.switch_to_block(else_block);
-
-                Ok(())
-            }
-
-            Instruction::Jump(target) => {
-                let target_block = self.get_or_create_block(target.get(arg));
-                self.builder.ins().jump(target_block, &[]);
-                Ok(())
-            }
-            Instruction::LoadFast(idx) => {
-                let local = self.variables[idx.get(arg) as usize]
-                    .as_ref()
-                    .ok_or(JitCompileError::BadBytecode)?;
-                self.stack.push(JitValue::from_type_and_value(
-                    local.ty.clone(),
-                    self.builder.use_var(local.var),
-                ));
-                Ok(())
-            }
-            Instruction::StoreFast(idx) => {
-                let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                self.store_variable(idx.get(arg), val)
-            }
-            Instruction::LoadConst { idx } => {
-                let val = self
-                    .prepare_const(bytecode.constants[idx.get(arg) as usize].borrow_constant())?;
-                self.stack.push(val);
-                Ok(())
-            }
-            Instruction::BuildTuple(size) => {
-                let elements = self.pop_multiple(size.get(arg) as usize);
-                self.stack.push(JitValue::Tuple(elements));
-                Ok(())
-            }
-            Instruction::UnpackSequence(size) => {
-                let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-
-                let elements = match val {
-                    JitValue::Tuple(elements) => elements,
-                    _ => return Err(JitCompileError::NotSupported),
-                };
-
-                if elements.len() != size.get(arg) as usize {
-                    return Err(JitCompileError::NotSupported);
-                }
-
-                self.stack.extend(elements.into_iter().rev());
-                Ok(())
-            }
-            Instruction::ReturnValue => {
-                let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                self.return_value(val)
-            }
-            Instruction::ReturnConst(idx) => {
-                let val = self
-                    .prepare_const(bytecode.constants[idx.get(arg) as usize].borrow_constant())?;
-                self.return_value(val)
-            }
-            Instruction::CompareOperation(op) => {
-                let op = op.get(arg);
-                // the rhs is popped off first
-                let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-
-                let a_type: Option<JitType> = a.to_jit_type();
-                let b_type: Option<JitType> = b.to_jit_type();
-
-                match (a, b) {
-                    (JitValue::Int(a), JitValue::Int(b))
-                    | (JitValue::Bool(a), JitValue::Bool(b))
-                    | (JitValue::Bool(a), JitValue::Int(b))
-                    | (JitValue::Int(a), JitValue::Bool(b)) => {
-                        let operand_one = match a_type.unwrap() {
-                            JitType::Bool => self.builder.ins().uextend(types::I64, a),
-                            _ => a,
-                        };
-
-                        let operand_two = match b_type.unwrap() {
-                            JitType::Bool => self.builder.ins().uextend(types::I64, b),
-                            _ => b,
-                        };
-
-                        let cond = match op {
-                            ComparisonOperator::Equal => IntCC::Equal,
-                            ComparisonOperator::NotEqual => IntCC::NotEqual,
-                            ComparisonOperator::Less => IntCC::SignedLessThan,
-                            ComparisonOperator::LessOrEqual => IntCC::SignedLessThanOrEqual,
-                            ComparisonOperator::Greater => IntCC::SignedGreaterThan,
-                            ComparisonOperator::GreaterOrEqual => IntCC::SignedGreaterThanOrEqual,
-                        };
-
-                        let val = self.builder.ins().icmp(cond, operand_one, operand_two);
-                        self.stack.push(JitValue::Bool(val));
-                        Ok(())
-                    }
-                    (JitValue::Float(a), JitValue::Float(b)) => {
-                        let cond = match op {
-                            ComparisonOperator::Equal => FloatCC::Equal,
-                            ComparisonOperator::NotEqual => FloatCC::NotEqual,
-                            ComparisonOperator::Less => FloatCC::LessThan,
-                            ComparisonOperator::LessOrEqual => FloatCC::LessThanOrEqual,
-                            ComparisonOperator::Greater => FloatCC::GreaterThan,
-                            ComparisonOperator::GreaterOrEqual => FloatCC::GreaterThanOrEqual,
-                        };
-
-                        let val = self.builder.ins().fcmp(cond, a, b);
-                        self.stack.push(JitValue::Bool(val));
-                        Ok(())
-                    }
-                    _ => Err(JitCompileError::NotSupported),
-                }
-            }
-            Instruction::UnaryOperation(op) => {
-                let op = op.get(arg);
-                let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                match (op, a) {
-                    (UnaryOperator::Minus, JitValue::Int(val)) => {
-                        // Compile minus as 0 - a.
-                        let zero = self.builder.ins().iconst(types::I64, 0);
-                        let out = self.compile_sub(zero, val);
-                        self.stack.push(JitValue::Int(out));
-                        Ok(())
-                    }
-                    (UnaryOperator::Plus, JitValue::Int(val)) => {
-                        // Nothing to do
-                        self.stack.push(JitValue::Int(val));
-                        Ok(())
-                    }
-                    (UnaryOperator::Not, a) => {
-                        let boolean = self.boolean_val(a)?;
-                        let not_boolean = self.builder.ins().bxor_imm(boolean, 1);
-                        self.stack.push(JitValue::Bool(not_boolean));
-                        Ok(())
-                    }
-                    _ => Err(JitCompileError::NotSupported),
-                }
-            }
             Instruction::BinaryOperation(op) | Instruction::BinaryOperationInplace(op) => {
                 let op = op.get(arg);
                 // the rhs is popped off first
@@ -561,25 +400,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
                 Ok(())
             }
-            Instruction::SetupLoop => {
-                let loop_head = self.builder.create_block();
-                self.builder.ins().jump(loop_head, &[]);
-                self.builder.switch_to_block(loop_head);
+            Instruction::BuildTuple(size) => {
+                let elements = self.pop_multiple(size.get(arg) as usize);
+                self.stack.push(JitValue::Tuple(elements));
                 Ok(())
-            }
-            Instruction::PopBlock => {
-                // TODO: block support
-                Ok(())
-            }
-            Instruction::LoadGlobal(idx) => {
-                let name = &bytecode.names[idx.get(arg) as usize];
-
-                if name.as_ref() != bytecode.obj_name.as_ref() {
-                    Err(JitCompileError::NotSupported)
-                } else {
-                    self.stack.push(JitValue::FuncRef(func_ref));
-                    Ok(())
-                }
             }
             Instruction::CallFunctionPositional(nargs) => {
                 let nargs = nargs.get(arg);
@@ -601,7 +425,150 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     _ => Err(JitCompileError::BadBytecode),
                 }
             }
+            Instruction::CompareOperation(op) => {
+                let op = op.get(arg);
+                // the rhs is popped off first
+                let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+
+                let a_type: Option<JitType> = a.to_jit_type();
+                let b_type: Option<JitType> = b.to_jit_type();
+
+                match (a, b) {
+                    (JitValue::Int(a), JitValue::Int(b))
+                    | (JitValue::Bool(a), JitValue::Bool(b))
+                    | (JitValue::Bool(a), JitValue::Int(b))
+                    | (JitValue::Int(a), JitValue::Bool(b)) => {
+                        let operand_one = match a_type.unwrap() {
+                            JitType::Bool => self.builder.ins().uextend(types::I64, a),
+                            _ => a,
+                        };
+
+                        let operand_two = match b_type.unwrap() {
+                            JitType::Bool => self.builder.ins().uextend(types::I64, b),
+                            _ => b,
+                        };
+
+                        let cond = match op {
+                            ComparisonOperator::Equal => IntCC::Equal,
+                            ComparisonOperator::NotEqual => IntCC::NotEqual,
+                            ComparisonOperator::Less => IntCC::SignedLessThan,
+                            ComparisonOperator::LessOrEqual => IntCC::SignedLessThanOrEqual,
+                            ComparisonOperator::Greater => IntCC::SignedGreaterThan,
+                            ComparisonOperator::GreaterOrEqual => IntCC::SignedGreaterThanOrEqual,
+                        };
+
+                        let val = self.builder.ins().icmp(cond, operand_one, operand_two);
+                        self.stack.push(JitValue::Bool(val));
+                        Ok(())
+                    }
+                    (JitValue::Float(a), JitValue::Float(b)) => {
+                        let cond = match op {
+                            ComparisonOperator::Equal => FloatCC::Equal,
+                            ComparisonOperator::NotEqual => FloatCC::NotEqual,
+                            ComparisonOperator::Less => FloatCC::LessThan,
+                            ComparisonOperator::LessOrEqual => FloatCC::LessThanOrEqual,
+                            ComparisonOperator::Greater => FloatCC::GreaterThan,
+                            ComparisonOperator::GreaterOrEqual => FloatCC::GreaterThanOrEqual,
+                        };
+
+                        let val = self.builder.ins().fcmp(cond, a, b);
+                        self.stack.push(JitValue::Bool(val));
+                        Ok(())
+                    }
+                    _ => Err(JitCompileError::NotSupported),
+                }
+            }
+            Instruction::ExtendedArg => Ok(()),
+            Instruction::Jump(target) => {
+                let target_block = self.get_or_create_block(target.get(arg));
+                self.builder.ins().jump(target_block, &[]);
+                Ok(())
+            }
+            Instruction::LoadConst { idx } => {
+                let val = self
+                    .prepare_const(bytecode.constants[idx.get(arg) as usize].borrow_constant())?;
+                self.stack.push(val);
+                Ok(())
+            }
+            Instruction::LoadFast(idx) => {
+                let local = self.variables[idx.get(arg) as usize]
+                    .as_ref()
+                    .ok_or(JitCompileError::BadBytecode)?;
+                self.stack.push(JitValue::from_type_and_value(
+                    local.ty.clone(),
+                    self.builder.use_var(local.var),
+                ));
+                Ok(())
+            }
+            Instruction::LoadGlobal(idx) => {
+                let name = &bytecode.names[idx.get(arg) as usize];
+
+                if name.as_ref() != bytecode.obj_name.as_ref() {
+                    Err(JitCompileError::NotSupported)
+                } else {
+                    self.stack.push(JitValue::FuncRef(func_ref));
+                    Ok(())
+                }
+            }
             Instruction::Nop => Ok(()),
+            Instruction::Pop => {
+                self.stack.pop();
+                Ok(())
+            }
+            Instruction::PopBlock => {
+                // TODO: block support
+                Ok(())
+            }
+            Instruction::PopJumpIfFalse(target) => {
+                let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                let val = self.boolean_val(cond)?;
+                let then_block = self.get_or_create_block(target.get(arg));
+                let else_block = self.builder.create_block();
+
+                self.builder
+                    .ins()
+                    .brif(val, else_block, &[], then_block, &[]);
+                self.builder.switch_to_block(else_block);
+
+                Ok(())
+            }
+            Instruction::PopJumpIfTrue(target) => {
+                let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                let val = self.boolean_val(cond)?;
+                let then_block = self.get_or_create_block(target.get(arg));
+                let else_block = self.builder.create_block();
+
+                self.builder
+                    .ins()
+                    .brif(val, then_block, &[], else_block, &[]);
+                self.builder.switch_to_block(else_block);
+
+                Ok(())
+            }
+            Instruction::Resume(_resume_arg) => {
+                // TODO: Implement the resume instruction
+                Ok(())
+            }
+            Instruction::ReturnConst(idx) => {
+                let val = self
+                    .prepare_const(bytecode.constants[idx.get(arg) as usize].borrow_constant())?;
+                self.return_value(val)
+            }
+            Instruction::ReturnValue => {
+                let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                self.return_value(val)
+            }
+            Instruction::SetupLoop => {
+                let loop_head = self.builder.create_block();
+                self.builder.ins().jump(loop_head, &[]);
+                self.builder.switch_to_block(loop_head);
+                Ok(())
+            }
+            Instruction::StoreFast(idx) => {
+                let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                self.store_variable(idx.get(arg), val)
+            }
             Instruction::Swap(index) => {
                 let len = self.stack.len();
                 let i = len - 1;
@@ -609,12 +576,44 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.stack.swap(i, j);
                 Ok(())
             }
-            Instruction::Pop => {
-                self.stack.pop();
-                Ok(())
+            Instruction::UnaryOperation(op) => {
+                let op = op.get(arg);
+                let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                match (op, a) {
+                    (UnaryOperator::Minus, JitValue::Int(val)) => {
+                        // Compile minus as 0 - a.
+                        let zero = self.builder.ins().iconst(types::I64, 0);
+                        let out = self.compile_sub(zero, val);
+                        self.stack.push(JitValue::Int(out));
+                        Ok(())
+                    }
+                    (UnaryOperator::Plus, JitValue::Int(val)) => {
+                        // Nothing to do
+                        self.stack.push(JitValue::Int(val));
+                        Ok(())
+                    }
+                    (UnaryOperator::Not, a) => {
+                        let boolean = self.boolean_val(a)?;
+                        let not_boolean = self.builder.ins().bxor_imm(boolean, 1);
+                        self.stack.push(JitValue::Bool(not_boolean));
+                        Ok(())
+                    }
+                    _ => Err(JitCompileError::NotSupported),
+                }
             }
-            Instruction::Resume(_resume_arg) => {
-                // TODO: Implement the resume instruction
+            Instruction::UnpackSequence(size) => {
+                let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+
+                let elements = match val {
+                    JitValue::Tuple(elements) => elements,
+                    _ => return Err(JitCompileError::NotSupported),
+                };
+
+                if elements.len() != size.get(arg) as usize {
+                    return Err(JitCompileError::NotSupported);
+                }
+
+                self.stack.extend(elements.into_iter().rev());
                 Ok(())
             }
             _ => Err(JitCompileError::NotSupported),
