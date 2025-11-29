@@ -892,13 +892,12 @@ mod builtins {
     #[pyfunction]
     pub fn __build_class__(
         function: PyRef<PyFunction>,
-        qualified_name: PyStrRef,
+        name: PyStrRef,
         bases: PosArgs,
         mut kwargs: KwArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let name = qualified_name.as_str().split('.').next_back().unwrap();
-        let name_obj = vm.ctx.new_str(name);
+        let name_obj: PyObjectRef = name.clone().into();
 
         // Update bases.
         let mut new_bases: Option<Vec<PyObjectRef>> = None;
@@ -942,20 +941,33 @@ mod builtins {
                     .downcast_exact::<PyType>(vm)
                     .map(|m| m.into_pyref())
             })
-            .unwrap_or_else(|| Ok(vm.ctx.types.type_type.to_owned()));
+            .unwrap_or_else(|| {
+                // if there are no bases, use type; else get the type of the first base
+                Ok(if bases.is_empty() {
+                    vm.ctx.types.type_type.to_owned()
+                } else {
+                    bases.first().unwrap().class().to_owned()
+                })
+            });
 
         let (metaclass, meta_name) = match metaclass {
             Ok(mut metaclass) => {
                 for base in bases.iter() {
                     let base_class = base.class();
-                    if base_class.fast_issubclass(&metaclass) {
-                        metaclass = base.class().to_owned();
-                    } else if !metaclass.fast_issubclass(base_class) {
-                        return Err(vm.new_type_error(
-                            "metaclass conflict: the metaclass of a derived class must be a (non-strict) \
-                            subclass of the metaclasses of all its bases",
-                        ));
+                    // if winner is subtype of tmptype, continue (winner is more derived)
+                    if metaclass.fast_issubclass(base_class) {
+                        continue;
                     }
+                    // if tmptype is subtype of winner, update (tmptype is more derived)
+                    if base_class.fast_issubclass(&metaclass) {
+                        metaclass = base_class.to_owned();
+                        continue;
+                    }
+                    // Metaclass conflict
+                    return Err(vm.new_type_error(
+                        "metaclass conflict: the metaclass of a derived class must be a (non-strict) \
+                        subclass of the metaclasses of all its bases",
+                    ));
                 }
                 let meta_name = metaclass.slot_name();
                 (metaclass.to_owned().into(), meta_name.to_owned())
@@ -969,8 +981,7 @@ mod builtins {
         let namespace = vm
             .get_attribute_opt(metaclass.clone(), identifier!(vm, __prepare__))?
             .map_or(Ok(vm.ctx.new_dict().into()), |prepare| {
-                let args =
-                    FuncArgs::new(vec![name_obj.clone().into(), bases.clone()], kwargs.clone());
+                let args = FuncArgs::new(vec![name_obj.clone(), bases.clone()], kwargs.clone());
                 prepare.call(args, vm)
             })?;
 
@@ -1013,7 +1024,7 @@ mod builtins {
             .del_item(vm.ctx.intern_str(".type_params"), vm)
             .ok();
 
-        let args = FuncArgs::new(vec![name_obj.into(), bases, namespace.into()], kwargs);
+        let args = FuncArgs::new(vec![name_obj, bases, namespace.into()], kwargs);
         let class = metaclass.call(args, vm)?;
 
         // For PEP 695 classes, set __type_params__ on the class from the function
@@ -1028,16 +1039,21 @@ mod builtins {
             class.set_attr(identifier!(vm, __parameters__), type_params, vm)?;
         }
 
-        if let Some(ref classcell) = classcell {
-            let classcell = classcell.get().ok_or_else(|| {
-                vm.new_type_error(format!(
-                    "__class__ not set defining {meta_name:?} as {class:?}. Was __classcell__ propagated to type.__new__?"
+        // only check cell if cls is a type and cell is a cell object
+        if let Some(ref classcell) = classcell
+            && class.fast_isinstance(vm.ctx.types.type_type)
+        {
+            let cell_value = classcell.get().ok_or_else(|| {
+                vm.new_runtime_error(format!(
+                    "__class__ not set defining {:?} as {:?}. Was __classcell__ propagated to type.__new__?",
+                    name, class
                 ))
             })?;
 
-            if !classcell.is(&class) {
+            if !cell_value.is(&class) {
                 return Err(vm.new_type_error(format!(
-                    "__class__ set to {classcell:?} defining {meta_name:?} as {class:?}"
+                    "__class__ set to {:?} defining {:?} as {:?}",
+                    cell_value, name, class
                 )));
             }
         }
