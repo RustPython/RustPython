@@ -200,7 +200,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
             // If that was a return instruction, mark future instructions unreachable
             match instruction {
-                Instruction::ReturnValue | Instruction::ReturnConst { .. } => {
+                Instruction::ReturnValue | Instruction::ReturnConst(_) => {
                     in_unreachable_code = true;
                 }
                 _ => {}
@@ -276,7 +276,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     ) -> Result<(), JitCompileError> {
         match instruction {
             Instruction::ExtendedArg => Ok(()),
-            Instruction::PopJumpIfFalse { target } => {
+            Instruction::PopJumpIfFalse(target) => {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let val = self.boolean_val(cond)?;
                 let then_block = self.get_or_create_block(target.get(arg));
@@ -289,7 +289,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
                 Ok(())
             }
-            Instruction::PopJumpIfTrue { target } => {
+            Instruction::PopJumpIfTrue(target) => {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let val = self.boolean_val(cond)?;
                 let then_block = self.get_or_create_block(target.get(arg));
@@ -303,7 +303,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 Ok(())
             }
 
-            Instruction::Jump { target } => {
+            Instruction::Jump(target) => {
                 let target_block = self.get_or_create_block(target.get(arg));
                 self.builder.ins().jump(target_block, &[]);
                 Ok(())
@@ -328,12 +328,12 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.stack.push(val);
                 Ok(())
             }
-            Instruction::BuildTuple { size } => {
+            Instruction::BuildTuple(size) => {
                 let elements = self.pop_multiple(size.get(arg) as usize);
                 self.stack.push(JitValue::Tuple(elements));
                 Ok(())
             }
-            Instruction::UnpackSequence { size } => {
+            Instruction::UnpackSequence(size) => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
 
                 let elements = match val {
@@ -352,12 +352,12 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 self.return_value(val)
             }
-            Instruction::ReturnConst { idx } => {
+            Instruction::ReturnConst(idx) => {
                 let val = self
                     .prepare_const(bytecode.constants[idx.get(arg) as usize].borrow_constant())?;
                 self.return_value(val)
             }
-            Instruction::CompareOperation { op, .. } => {
+            Instruction::CompareOperation(op) => {
                 let op = op.get(arg);
                 // the rhs is popped off first
                 let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
@@ -411,7 +411,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     _ => Err(JitCompileError::NotSupported),
                 }
             }
-            Instruction::UnaryOperation { op, .. } => {
+            Instruction::UnaryOperation(op) => {
                 let op = op.get(arg);
                 let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 match (op, a) {
@@ -436,7 +436,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     _ => Err(JitCompileError::NotSupported),
                 }
             }
-            Instruction::BinaryOperation { op } | Instruction::BinaryOperationInplace { op } => {
+            Instruction::BinaryOperation(op) | Instruction::BinaryOperationInplace(op) => {
                 let op = op.get(arg);
                 // the rhs is popped off first
                 let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
@@ -581,7 +581,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     Ok(())
                 }
             }
-            Instruction::CallFunctionPositional { nargs } => {
+            Instruction::CallFunctionPositional(nargs) => {
                 let nargs = nargs.get(arg);
 
                 let mut args = Vec::new();
@@ -602,7 +602,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 }
             }
             Instruction::Nop => Ok(()),
-            Instruction::Swap { index } => {
+            Instruction::Swap(index) => {
                 let len = self.stack.len();
                 let i = len - 1;
                 let j = len - 1 - index.get(arg) as usize;
@@ -613,7 +613,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.stack.pop();
                 Ok(())
             }
-            Instruction::Resume { arg: _resume_arg } => {
+            Instruction::Resume(_resume_arg) => {
                 // TODO: Implement the resume instruction
                 Ok(())
             }
