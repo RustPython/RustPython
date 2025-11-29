@@ -2,8 +2,11 @@ use crate::atomic_func;
 use crate::builtins::{PyBytes, PyInt};
 use crate::convert::ToPyObject;
 use crate::function::FuncArgs;
-use crate::protocol::{PyNumberMethods, PySequenceMethods};
-use crate::types::{AsNumber, AsSequence, Callable};
+use crate::protocol::{
+    BufferDescriptor, BufferMethods, PyBuffer, PyNumberMethods, PySequenceMethods,
+};
+use crate::stdlib::ctypes::base::CDataObject;
+use crate::types::{AsBuffer, AsNumber, AsSequence, Callable};
 use crate::{AsObject, Py, PyObjectRef, PyPayload};
 use crate::{
     PyResult, VirtualMachine,
@@ -58,7 +61,7 @@ impl Callable for PyCArrayType {
             typ: PyRwLock::new(element_type),
             length: AtomicCell::new(length),
             element_size: AtomicCell::new(element_size),
-            buffer: PyRwLock::new(buffer),
+            cdata: PyRwLock::new(CDataObject::from_bytes(buffer, None)),
         }
         .into_pyobject(vm))
     }
@@ -106,7 +109,7 @@ impl PyCArrayType {
                 typ: PyRwLock::new(current_array_type),
                 length: AtomicCell::new(n as usize),
                 element_size: AtomicCell::new(new_element_size),
-                buffer: PyRwLock::new(vec![]),
+                cdata: PyRwLock::new(CDataObject::new(0)),
             },
         }
         .to_pyobject(vm))
@@ -145,7 +148,7 @@ pub struct PyCArray {
     pub(super) typ: PyRwLock<PyObjectRef>,
     pub(super) length: AtomicCell<usize>,
     pub(super) element_size: AtomicCell<usize>,
-    pub(super) buffer: PyRwLock<Vec<u8>>,
+    pub(super) cdata: PyRwLock<CDataObject>,
 }
 
 impl std::fmt::Debug for PyCArray {
@@ -209,7 +212,7 @@ impl Constructor for PyCArray {
             typ: PyRwLock::new(element_type),
             length: AtomicCell::new(length),
             element_size: AtomicCell::new(element_size),
-            buffer: PyRwLock::new(buffer),
+            cdata: PyRwLock::new(CDataObject::from_bytes(buffer, None)),
         }
         .into_ref_with_type(vm, cls)
         .map(Into::into)
@@ -237,7 +240,10 @@ impl AsSequence for PyCArray {
     }
 }
 
-#[pyclass(flags(BASETYPE, IMMUTABLETYPE), with(Constructor, AsSequence))]
+#[pyclass(
+    flags(BASETYPE, IMMUTABLETYPE),
+    with(Constructor, AsSequence, AsBuffer)
+)]
 impl PyCArray {
     fn int_to_bytes(i: &malachite_bigint::BigInt, size: usize) -> Vec<u8> {
         match size {
@@ -279,7 +285,7 @@ impl PyCArray {
         let index = index as usize;
         let element_size = zelf.element_size.load();
         let offset = index * element_size;
-        let buffer = zelf.buffer.read();
+        let buffer = zelf.cdata.read().buffer.clone();
         if offset + element_size <= buffer.len() {
             let bytes = &buffer[offset..offset + element_size];
             Ok(Self::bytes_to_int(bytes, element_size, vm))
@@ -306,9 +312,9 @@ impl PyCArray {
         let int_val = value.try_int(vm)?;
         let bytes = Self::int_to_bytes(int_val.as_bigint(), element_size);
 
-        let mut buffer = zelf.buffer.write();
-        if offset + element_size <= buffer.len() {
-            buffer[offset..offset + element_size].copy_from_slice(&bytes);
+        let mut cdata = zelf.cdata.write();
+        if offset + element_size <= cdata.buffer.len() {
+            cdata.buffer[offset..offset + element_size].copy_from_slice(&bytes);
         }
         Ok(())
     }
@@ -360,34 +366,34 @@ impl PyCArray {
     #[pygetset]
     fn value(&self, vm: &VirtualMachine) -> PyObjectRef {
         // Return bytes representation of the buffer
-        let buffer = self.buffer.read();
+        let buffer = self.cdata.read().buffer.clone();
         vm.ctx.new_bytes(buffer.clone()).into()
     }
 
     #[pygetset(setter)]
     fn set_value(&self, value: PyObjectRef, _vm: &VirtualMachine) -> PyResult<()> {
         if let Some(bytes) = value.downcast_ref::<PyBytes>() {
-            let mut buffer = self.buffer.write();
+            let mut cdata = self.cdata.write();
             let src = bytes.as_bytes();
-            let len = std::cmp::min(src.len(), buffer.len());
-            buffer[..len].copy_from_slice(&src[..len]);
+            let len = std::cmp::min(src.len(), cdata.buffer.len());
+            cdata.buffer[..len].copy_from_slice(&src[..len]);
         }
         Ok(())
     }
 
     #[pygetset]
     fn raw(&self, vm: &VirtualMachine) -> PyObjectRef {
-        let buffer = self.buffer.read();
-        vm.ctx.new_bytes(buffer.clone()).into()
+        let cdata = self.cdata.read();
+        vm.ctx.new_bytes(cdata.buffer.clone()).into()
     }
 
     #[pygetset(setter)]
     fn set_raw(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Some(bytes) = value.downcast_ref::<PyBytes>() {
-            let mut buffer = self.buffer.write();
+            let mut cdata = self.cdata.write();
             let src = bytes.as_bytes();
-            let len = std::cmp::min(src.len(), buffer.len());
-            buffer[..len].copy_from_slice(&src[..len]);
+            let len = std::cmp::min(src.len(), cdata.buffer.len());
+            cdata.buffer[..len].copy_from_slice(&src[..len]);
             Ok(())
         } else {
             Err(vm.new_type_error("expected bytes".to_owned()))
@@ -403,34 +409,33 @@ impl PyCArray {
         let size = size_of(Either::A(cls.clone()), vm)?;
 
         // Create instance with data from address
-        if address != 0 && size > 0 {
-            unsafe {
-                let ptr = address as *const u8;
-                let bytes = std::slice::from_raw_parts(ptr, size);
-                // Get element type and length from cls
-                let element_type = cls.as_object().get_attr("_type_", vm)?;
-                let element_type: PyTypeRef = element_type
-                    .downcast()
-                    .map_err(|_| vm.new_type_error("_type_ must be a type".to_owned()))?;
-                let length = cls
-                    .as_object()
-                    .get_attr("_length_", vm)?
-                    .try_int(vm)?
-                    .as_bigint()
-                    .to_usize()
-                    .unwrap_or(0);
-                let element_size = if length > 0 { size / length } else { 0 };
+        if address == 0 || size == 0 {
+            return Err(vm.new_value_error("NULL pointer access".to_owned()));
+        }
+        unsafe {
+            let ptr = address as *const u8;
+            let bytes = std::slice::from_raw_parts(ptr, size);
+            // Get element type and length from cls
+            let element_type = cls.as_object().get_attr("_type_", vm)?;
+            let element_type: PyTypeRef = element_type
+                .downcast()
+                .map_err(|_| vm.new_type_error("_type_ must be a type".to_owned()))?;
+            let length = cls
+                .as_object()
+                .get_attr("_length_", vm)?
+                .try_int(vm)?
+                .as_bigint()
+                .to_usize()
+                .unwrap_or(0);
+            let element_size = if length > 0 { size / length } else { 0 };
 
-                Ok(PyCArray {
-                    typ: PyRwLock::new(element_type),
-                    length: AtomicCell::new(length),
-                    element_size: AtomicCell::new(element_size),
-                    buffer: PyRwLock::new(bytes.to_vec()),
-                }
-                .into_pyobject(vm))
+            Ok(PyCArray {
+                typ: PyRwLock::new(element_type.into()),
+                length: AtomicCell::new(length),
+                element_size: AtomicCell::new(element_size),
+                cdata: PyRwLock::new(CDataObject::from_bytes(bytes.to_vec(), None)),
             }
-        } else {
-            Err(vm.new_value_error("NULL pointer access".to_owned()))
+            .into_pyobject(vm))
         }
     }
 
@@ -492,10 +497,13 @@ impl PyCArray {
         let element_size = if length > 0 { size / length } else { 0 };
 
         Ok(PyCArray {
-            typ: PyRwLock::new(element_type),
+            typ: PyRwLock::new(element_type.into()),
             length: AtomicCell::new(length),
             element_size: AtomicCell::new(element_size),
-            buffer: PyRwLock::new(data.to_vec()),
+            cdata: PyRwLock::new(CDataObject::from_bytes(
+                data.to_vec(),
+                Some(buffer.obj.clone()),
+            )),
         }
         .into_pyobject(vm))
     }
@@ -550,10 +558,10 @@ impl PyCArray {
         let element_size = if length > 0 { size / length } else { 0 };
 
         Ok(PyCArray {
-            typ: PyRwLock::new(element_type),
+            typ: PyRwLock::new(element_type.into()),
             length: AtomicCell::new(length),
             element_size: AtomicCell::new(element_size),
-            buffer: PyRwLock::new(data.to_vec()),
+            cdata: PyRwLock::new(CDataObject::from_bytes(data.to_vec(), None)),
         }
         .into_pyobject(vm))
     }
@@ -562,10 +570,44 @@ impl PyCArray {
 impl PyCArray {
     #[allow(unused)]
     pub fn to_arg(&self, _vm: &VirtualMachine) -> PyResult<libffi::middle::Arg> {
-        // TODO: This needs a different approach to ensure buffer lifetime
-        // The buffer must outlive the Arg returned here
-        let buffer = self.buffer.read();
-        let ptr = buffer.as_ptr();
-        Ok(libffi::middle::Arg::new(&ptr))
+        let cdata = self.cdata.read();
+        Ok(libffi::middle::Arg::new(&cdata.buffer))
+    }
+}
+
+static ARRAY_BUFFER_METHODS: BufferMethods = BufferMethods {
+    obj_bytes: |buffer| {
+        rustpython_common::lock::PyMappedRwLockReadGuard::map(
+            rustpython_common::lock::PyRwLockReadGuard::map(
+                buffer.obj_as::<PyCArray>().cdata.read(),
+                |x: &CDataObject| x,
+            ),
+            |x: &CDataObject| x.buffer.as_slice(),
+        )
+        .into()
+    },
+    obj_bytes_mut: |buffer| {
+        rustpython_common::lock::PyMappedRwLockWriteGuard::map(
+            rustpython_common::lock::PyRwLockWriteGuard::map(
+                buffer.obj_as::<PyCArray>().cdata.write(),
+                |x: &mut CDataObject| x,
+            ),
+            |x: &mut CDataObject| x.buffer.as_mut_slice(),
+        )
+        .into()
+    },
+    release: |_| {},
+    retain: |_| {},
+};
+
+impl AsBuffer for PyCArray {
+    fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        let buffer_len = zelf.cdata.read().buffer.len();
+        let buf = PyBuffer::new(
+            zelf.to_owned().into(),
+            BufferDescriptor::simple(buffer_len, false), // readonly=false for ctypes
+            &ARRAY_BUFFER_METHODS,
+        );
+        Ok(buf)
     }
 }

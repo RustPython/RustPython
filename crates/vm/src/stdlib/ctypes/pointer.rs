@@ -6,6 +6,7 @@ use crate::builtins::{PyType, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::protocol::PyNumberMethods;
 use crate::stdlib::ctypes::PyCData;
+use crate::stdlib::ctypes::base::CDataObject;
 use crate::types::AsNumber;
 use crate::{AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 
@@ -31,7 +32,7 @@ impl PyCPointerType {
                 typ: PyRwLock::new(cls.as_object().to_owned()),
                 length: AtomicCell::new(n as usize),
                 element_size: AtomicCell::new(element_size),
-                buffer: PyRwLock::new(vec![]),
+                cdata: PyRwLock::new(CDataObject::new(0)),
             },
         }
         .to_pyobject(vm))
@@ -85,16 +86,15 @@ impl PyCPointer {
 
     #[pyclassmethod]
     fn from_address(cls: PyTypeRef, address: isize, vm: &VirtualMachine) -> PyResult {
-        if address != 0 {
-            // Pointer just stores the address value
-            Ok(PyCPointer {
-                contents: PyRwLock::new(vm.ctx.new_int(address).into()),
-            }
-            .into_ref_with_type(vm, cls)?
-            .into())
-        } else {
-            Err(vm.new_value_error("NULL pointer access".to_owned()))
+        if address == 0 {
+            return Err(vm.new_value_error("NULL pointer access".to_owned()));
         }
+        // Pointer just stores the address value
+        Ok(PyCPointer {
+            contents: PyRwLock::new(vm.ctx.new_int(address).into()),
+        }
+        .into_ref_with_type(vm, cls)?
+        .into())
     }
 
     #[pyclassmethod]
@@ -132,20 +132,7 @@ impl PyCPointer {
         // Read pointer value from buffer
         let bytes = buffer.obj_bytes();
         let ptr_bytes = &bytes[offset..offset + size];
-        let ptr_val = if size == 8 {
-            usize::from_ne_bytes([
-                ptr_bytes[0],
-                ptr_bytes[1],
-                ptr_bytes[2],
-                ptr_bytes[3],
-                ptr_bytes[4],
-                ptr_bytes[5],
-                ptr_bytes[6],
-                ptr_bytes[7],
-            ])
-        } else {
-            u32::from_ne_bytes([ptr_bytes[0], ptr_bytes[1], ptr_bytes[2], ptr_bytes[3]]) as usize
-        };
+        let ptr_val = usize::from_ne_bytes(ptr_bytes.try_into().expect("size is checked above"));
 
         Ok(PyCPointer {
             contents: PyRwLock::new(vm.ctx.new_int(ptr_val).into()),
@@ -181,20 +168,7 @@ impl PyCPointer {
 
         // Read pointer value from buffer
         let ptr_bytes = &source_bytes[offset..offset + size];
-        let ptr_val = if size == 8 {
-            usize::from_ne_bytes([
-                ptr_bytes[0],
-                ptr_bytes[1],
-                ptr_bytes[2],
-                ptr_bytes[3],
-                ptr_bytes[4],
-                ptr_bytes[5],
-                ptr_bytes[6],
-                ptr_bytes[7],
-            ])
-        } else {
-            u32::from_ne_bytes([ptr_bytes[0], ptr_bytes[1], ptr_bytes[2], ptr_bytes[3]]) as usize
-        };
+        let ptr_val = usize::from_ne_bytes(ptr_bytes.try_into().expect("size is checked above"));
 
         Ok(PyCPointer {
             contents: PyRwLock::new(vm.ctx.new_int(ptr_val).into()),

@@ -1,12 +1,14 @@
-use super::base::PyCData;
+use super::base::{CDataObject, PyCData};
 use super::field::PyCField;
 use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::function::FuncArgs;
+use crate::protocol::{BufferDescriptor, BufferMethods, PyBuffer as ProtocolPyBuffer};
 use crate::stdlib::ctypes::_ctypes::get_size;
-use crate::types::Constructor;
-use crate::{PyObjectRef, PyPayload, PyResult, VirtualMachine};
+use crate::types::{AsBuffer, Constructor};
+use crate::{Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use num_traits::ToPrimitive;
+use rustpython_common::lock::PyRwLock;
 
 /// PyCUnionType - metaclass for Union
 #[pyclass(name = "UnionType", base = PyType, module = "_ctypes")]
@@ -114,10 +116,21 @@ impl PyCUnionType {}
 
 /// PyCUnion - base class for Union
 #[pyclass(module = "_ctypes", name = "Union", base = PyCData, metaclass = "PyCUnionType")]
-#[derive(Debug, PyPayload)]
-pub struct PyCUnion {}
+#[derive(PyPayload)]
+pub struct PyCUnion {
+    /// Common CDataObject for memory buffer
+    pub(super) cdata: PyRwLock<CDataObject>,
+}
 
-#[pyclass(flags(BASETYPE, IMMUTABLETYPE))]
+impl std::fmt::Debug for PyCUnion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PyCUnion")
+            .field("size", &self.cdata.read().size())
+            .finish()
+    }
+}
+
+#[pyclass(flags(BASETYPE, IMMUTABLETYPE), with(AsBuffer))]
 impl PyCUnion {
     #[pyclassmethod]
     fn from_address(cls: PyTypeRef, address: isize, vm: &VirtualMachine) -> PyResult {
@@ -127,12 +140,16 @@ impl PyCUnion {
         // Get size from cls
         let size = size_of(Either::A(cls.clone()), vm)?;
 
-        if address != 0 && size > 0 {
-            // Create instance (Union doesn't have internal buffer in current impl)
-            Ok(PyCUnion {}.into_ref_with_type(vm, cls)?.into())
-        } else {
-            Err(vm.new_value_error("NULL pointer access".to_owned()))
+        // Create instance with data from address
+        if address == 0 || size == 0 {
+            return Err(vm.new_value_error("NULL pointer access".to_owned()));
         }
+
+        Ok(PyCUnion {
+            cdata: PyRwLock::new(CDataObject::new(size)),
+        }
+        .into_ref_with_type(vm, cls)?
+        .into())
     }
 
     #[pyclassmethod]
@@ -170,7 +187,15 @@ impl PyCUnion {
             )));
         }
 
-        Ok(PyCUnion {}.into_ref_with_type(vm, cls)?.into())
+        // Copy data from source buffer
+        let bytes = buffer.obj_bytes();
+        let data = bytes[offset..offset + size].to_vec();
+
+        Ok(PyCUnion {
+            cdata: PyRwLock::new(CDataObject::from_bytes(data, None)),
+        }
+        .into_ref_with_type(vm, cls)?
+        .into())
     }
 
     #[pyclassmethod]
@@ -201,6 +226,44 @@ impl PyCUnion {
             )));
         }
 
-        Ok(PyCUnion {}.into_ref_with_type(vm, cls)?.into())
+        // Copy data from source
+        let data = source_bytes[offset..offset + size].to_vec();
+
+        Ok(PyCUnion {
+            cdata: PyRwLock::new(CDataObject::from_bytes(data, None)),
+        }
+        .into_ref_with_type(vm, cls)?
+        .into())
+    }
+}
+
+static UNION_BUFFER_METHODS: BufferMethods = BufferMethods {
+    obj_bytes: |buffer| {
+        rustpython_common::lock::PyRwLockReadGuard::map(
+            buffer.obj_as::<PyCUnion>().cdata.read(),
+            |x: &CDataObject| x.buffer.as_slice(),
+        )
+        .into()
+    },
+    obj_bytes_mut: |buffer| {
+        rustpython_common::lock::PyRwLockWriteGuard::map(
+            buffer.obj_as::<PyCUnion>().cdata.write(),
+            |x: &mut CDataObject| x.buffer.as_mut_slice(),
+        )
+        .into()
+    },
+    release: |_| {},
+    retain: |_| {},
+};
+
+impl AsBuffer for PyCUnion {
+    fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<ProtocolPyBuffer> {
+        let buffer_len = zelf.cdata.read().buffer.len();
+        let buf = ProtocolPyBuffer::new(
+            zelf.to_owned().into(),
+            BufferDescriptor::simple(buffer_len, false), // readonly=false for ctypes
+            &UNION_BUFFER_METHODS,
+        );
+        Ok(buf)
     }
 }

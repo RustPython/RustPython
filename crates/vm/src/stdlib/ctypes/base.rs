@@ -4,9 +4,9 @@ use crate::builtins::PyType;
 use crate::builtins::{PyBytes, PyFloat, PyInt, PyNone, PyStr, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::function::{ArgBytesLike, Either, OptionalArg};
-use crate::protocol::{PyBuffer, PyNumberMethods};
+use crate::protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyNumberMethods};
 use crate::stdlib::ctypes::_ctypes::new_simple_type;
-use crate::types::{AsNumber, Constructor};
+use crate::types::{AsBuffer, AsNumber, Constructor};
 use crate::{AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine};
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
@@ -145,21 +145,54 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
     }
 }
 
-pub struct RawBuffer {
+/// Common data object for all ctypes types
+#[derive(Debug, Clone)]
+pub struct CDataObject {
+    /// pointer to memory block (b_ptr + b_size)
+    pub buffer: Vec<u8>,
+    /// pointer to base object or None (b_base)
     #[allow(dead_code)]
-    pub inner: Box<[u8]>,
-    #[allow(dead_code)]
-    pub size: usize,
+    pub base: Option<PyObjectRef>,
+    /// dictionary of references we need to keep (b_objects)
+    pub objects: Option<PyObjectRef>,
+}
+
+impl CDataObject {
+    pub fn new(size: usize) -> Self {
+        CDataObject {
+            buffer: vec![0u8; size],
+            base: None,
+            objects: None,
+        }
+    }
+
+    pub fn from_bytes(data: Vec<u8>, objects: Option<PyObjectRef>) -> Self {
+        CDataObject {
+            buffer: data,
+            base: None,
+            objects,
+        }
+    }
+
+    #[inline]
+    pub fn size(&self) -> usize {
+        self.buffer.len()
+    }
 }
 
 #[pyclass(name = "_CData", module = "_ctypes")]
+#[derive(Debug, PyPayload)]
 pub struct PyCData {
-    _objects: AtomicCell<Vec<PyObjectRef>>,
-    _buffer: PyRwLock<RawBuffer>,
+    pub cdata: PyRwLock<CDataObject>,
 }
 
-#[pyclass]
-impl PyCData {}
+#[pyclass(flags(BASETYPE))]
+impl PyCData {
+    #[pygetset]
+    fn _objects(&self) -> Option<PyObjectRef> {
+        self.cdata.read().objects.clone()
+    }
+}
 
 #[pyclass(module = "_ctypes", name = "PyCSimpleType", base = PyType)]
 #[derive(Debug, PyPayload)]
@@ -230,6 +263,7 @@ impl AsNumber for PyCSimpleType {
 pub struct PyCSimple {
     pub _type_: String,
     pub value: AtomicCell<PyObjectRef>,
+    pub cdata: PyRwLock<CDataObject>,
 }
 
 impl Debug for PyCSimple {
@@ -237,6 +271,149 @@ impl Debug for PyCSimple {
         f.debug_struct("PyCSimple")
             .field("_type_", &self._type_)
             .finish()
+    }
+}
+
+/// Convert a Python value to bytes based on ctypes type
+fn value_to_bytes(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> Vec<u8> {
+    match _type_ {
+        "c" => {
+            // c_char - single byte
+            if let Some(bytes) = value.downcast_ref::<PyBytes>()
+                && !bytes.is_empty()
+            {
+                return vec![bytes.as_bytes()[0]];
+            }
+            if let Ok(int_val) = value.try_int(vm)
+                && let Some(v) = int_val.as_bigint().to_u8()
+            {
+                return vec![v];
+            }
+            vec![0]
+        }
+        "u" => {
+            // c_wchar - 4 bytes (wchar_t on most platforms)
+            if let Ok(s) = value.str(vm)
+                && let Some(c) = s.as_str().chars().next()
+            {
+                return (c as u32).to_ne_bytes().to_vec();
+            }
+            vec![0; 4]
+        }
+        "b" => {
+            // c_byte - signed char (1 byte)
+            if let Ok(int_val) = value.try_int(vm)
+                && let Some(v) = int_val.as_bigint().to_i8()
+            {
+                return vec![v as u8];
+            }
+            vec![0]
+        }
+        "B" => {
+            // c_ubyte - unsigned char (1 byte)
+            if let Ok(int_val) = value.try_int(vm)
+                && let Some(v) = int_val.as_bigint().to_u8()
+            {
+                return vec![v];
+            }
+            vec![0]
+        }
+        "h" => {
+            // c_short (2 bytes)
+            if let Ok(int_val) = value.try_int(vm)
+                && let Some(v) = int_val.as_bigint().to_i16()
+            {
+                return v.to_ne_bytes().to_vec();
+            }
+            vec![0; 2]
+        }
+        "H" => {
+            // c_ushort (2 bytes)
+            if let Ok(int_val) = value.try_int(vm)
+                && let Some(v) = int_val.as_bigint().to_u16()
+            {
+                return v.to_ne_bytes().to_vec();
+            }
+            vec![0; 2]
+        }
+        "i" => {
+            // c_int (4 bytes)
+            if let Ok(int_val) = value.try_int(vm)
+                && let Some(v) = int_val.as_bigint().to_i32()
+            {
+                return v.to_ne_bytes().to_vec();
+            }
+            vec![0; 4]
+        }
+        "I" => {
+            // c_uint (4 bytes)
+            if let Ok(int_val) = value.try_int(vm)
+                && let Some(v) = int_val.as_bigint().to_u32()
+            {
+                return v.to_ne_bytes().to_vec();
+            }
+            vec![0; 4]
+        }
+        "l" => {
+            // c_long (platform dependent)
+            if let Ok(int_val) = value.try_to_value::<libc::c_long>(vm) {
+                return int_val.to_ne_bytes().to_vec();
+            }
+            const SIZE: usize = std::mem::size_of::<libc::c_long>();
+            vec![0; SIZE]
+        }
+        "L" => {
+            // c_ulong (platform dependent)
+            if let Ok(int_val) = value.try_to_value::<libc::c_ulong>(vm) {
+                return int_val.to_ne_bytes().to_vec();
+            }
+            const SIZE: usize = std::mem::size_of::<libc::c_ulong>();
+            vec![0; SIZE]
+        }
+        "q" => {
+            // c_longlong (8 bytes)
+            if let Ok(int_val) = value.try_int(vm)
+                && let Some(v) = int_val.as_bigint().to_i64()
+            {
+                return v.to_ne_bytes().to_vec();
+            }
+            vec![0; 8]
+        }
+        "Q" => {
+            // c_ulonglong (8 bytes)
+            if let Ok(int_val) = value.try_int(vm)
+                && let Some(v) = int_val.as_bigint().to_u64()
+            {
+                return v.to_ne_bytes().to_vec();
+            }
+            vec![0; 8]
+        }
+        "f" => {
+            // c_float (4 bytes)
+            if let Ok(float_val) = value.try_float(vm) {
+                return (float_val.to_f64() as f32).to_ne_bytes().to_vec();
+            }
+            vec![0; 4]
+        }
+        "d" | "g" => {
+            // c_double (8 bytes)
+            if let Ok(float_val) = value.try_float(vm) {
+                return float_val.to_f64().to_ne_bytes().to_vec();
+            }
+            vec![0; 8]
+        }
+        "?" => {
+            // c_bool (1 byte)
+            if let Ok(b) = value.clone().try_to_bool(vm) {
+                return vec![if b { 1 } else { 0 }];
+            }
+            vec![0]
+        }
+        "P" | "z" | "Z" => {
+            // Pointer types (platform pointer size)
+            vec![0; std::mem::size_of::<usize>()]
+        }
+        _ => vec![0],
     }
 }
 
@@ -275,16 +452,18 @@ impl Constructor for PyCSimple {
                 _ => vm.ctx.none(), // "z" | "Z" | "P"
             }
         };
+        let buffer = value_to_bytes(&_type_, &value, vm);
         PyCSimple {
             _type_,
             value: AtomicCell::new(value),
+            cdata: PyRwLock::new(CDataObject::from_bytes(buffer, None)),
         }
         .into_ref_with_type(vm, cls)
         .map(Into::into)
     }
 }
 
-#[pyclass(flags(BASETYPE), with(Constructor))]
+#[pyclass(flags(BASETYPE), with(Constructor, AsBuffer))]
 impl PyCSimple {
     #[pygetset(name = "value")]
     pub fn value(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
@@ -340,6 +519,9 @@ impl PyCSimple {
             .downcast()
             .map_err(|_| vm.new_type_error("cannot set value of instance"))?;
         let content = set_primitive(zelf._type_.as_str(), &value, vm)?;
+        // Update buffer when value changes
+        let buffer_bytes = value_to_bytes(&zelf._type_, &content, vm);
+        zelf.cdata.write().buffer = buffer_bytes;
         zelf.value.store(content);
         Ok(())
     }
@@ -370,7 +552,7 @@ impl PyCSimple {
                 typ: PyRwLock::new(cls.clone().into()),
                 length: AtomicCell::new(n as usize),
                 element_size: AtomicCell::new(element_size),
-                buffer: PyRwLock::new(vec![]),
+                cdata: PyRwLock::new(CDataObject::new(0)),
             },
         }
         .to_pyobject(vm))
@@ -538,5 +720,42 @@ impl PyCSimple {
             todo!();
         }
         None
+    }
+}
+
+static SIMPLE_BUFFER_METHODS: BufferMethods = BufferMethods {
+    obj_bytes: |buffer| {
+        rustpython_common::lock::PyMappedRwLockReadGuard::map(
+            rustpython_common::lock::PyRwLockReadGuard::map(
+                buffer.obj_as::<PyCSimple>().cdata.read(),
+                |x: &CDataObject| x,
+            ),
+            |x: &CDataObject| x.buffer.as_slice(),
+        )
+        .into()
+    },
+    obj_bytes_mut: |buffer| {
+        rustpython_common::lock::PyMappedRwLockWriteGuard::map(
+            rustpython_common::lock::PyRwLockWriteGuard::map(
+                buffer.obj_as::<PyCSimple>().cdata.write(),
+                |x: &mut CDataObject| x,
+            ),
+            |x: &mut CDataObject| x.buffer.as_mut_slice(),
+        )
+        .into()
+    },
+    release: |_| {},
+    retain: |_| {},
+};
+
+impl AsBuffer for PyCSimple {
+    fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        let buffer_len = zelf.cdata.read().buffer.len();
+        let buf = PyBuffer::new(
+            zelf.to_owned().into(),
+            BufferDescriptor::simple(buffer_len, false), // readonly=false for ctypes
+            &SIMPLE_BUFFER_METHODS,
+        );
+        Ok(buf)
     }
 }

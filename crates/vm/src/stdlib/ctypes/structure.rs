@@ -1,12 +1,12 @@
-use super::base::PyCData;
+use super::base::{CDataObject, PyCData};
 use super::field::PyCField;
 use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::function::FuncArgs;
-use crate::protocol::PyNumberMethods;
+use crate::protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyNumberMethods};
 use crate::stdlib::ctypes::_ctypes::get_size;
-use crate::types::{AsNumber, Constructor};
-use crate::{AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
+use crate::types::{AsBuffer, AsNumber, Constructor};
+use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use crossbeam_utils::atomic::AtomicCell;
 use indexmap::IndexMap;
 use num_traits::ToPrimitive;
@@ -147,7 +147,7 @@ impl PyCStructType {
                 typ: PyRwLock::new(cls.clone().into()),
                 length: AtomicCell::new(n as usize),
                 element_size: AtomicCell::new(element_size),
-                buffer: PyRwLock::new(vec![]),
+                cdata: PyRwLock::new(CDataObject::new(0)),
             },
         }
         .to_pyobject(vm))
@@ -193,19 +193,17 @@ pub struct FieldInfo {
 )]
 #[derive(PyPayload)]
 pub struct PyCStructure {
-    /// Raw memory buffer for the structure
-    pub(super) buffer: PyRwLock<Vec<u8>>,
+    /// Common CDataObject for memory buffer
+    pub(super) cdata: PyRwLock<CDataObject>,
     /// Field information (name -> FieldInfo)
     #[allow(dead_code)]
     pub(super) fields: PyRwLock<IndexMap<String, FieldInfo>>,
-    /// Total size of the structure
-    pub(super) size: AtomicCell<usize>,
 }
 
 impl Debug for PyCStructure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PyCStructure")
-            .field("size", &self.size.load())
+            .field("size", &self.cdata.read().size())
             .finish()
     }
 }
@@ -265,12 +263,9 @@ impl Constructor for PyCStructure {
         }
 
         // Initialize buffer with zeros
-        let buffer = vec![0u8; total_size];
-
         let instance = PyCStructure {
-            buffer: PyRwLock::new(buffer),
+            cdata: PyRwLock::new(CDataObject::new(total_size)),
             fields: PyRwLock::new(fields_map.clone()),
-            size: AtomicCell::new(total_size),
         };
 
         // Handle keyword arguments for field initialization
@@ -320,23 +315,21 @@ impl PyCStructure {
         let size = size_of(Either::A(cls.clone()), vm)?;
 
         // Read data from address
-        if address != 0 && size > 0 {
-            let data = unsafe {
-                let ptr = address as *const u8;
-                std::slice::from_raw_parts(ptr, size).to_vec()
-            };
-
-            // Create instance
-            Ok(PyCStructure {
-                buffer: PyRwLock::new(data),
-                fields: PyRwLock::new(HashMap::new()),
-                size: AtomicCell::new(size),
-            }
-            .into_ref_with_type(vm, cls)?
-            .into())
-        } else {
-            Err(vm.new_value_error("NULL pointer access".to_owned()))
+        if address == 0 || size == 0 {
+            return Err(vm.new_value_error("NULL pointer access".to_owned()));
         }
+        let data = unsafe {
+            let ptr = address as *const u8;
+            std::slice::from_raw_parts(ptr, size).to_vec()
+        };
+
+        // Create instance
+        Ok(PyCStructure {
+            cdata: PyRwLock::new(CDataObject::from_bytes(data, None)),
+            fields: PyRwLock::new(IndexMap::new()),
+        }
+        .into_ref_with_type(vm, cls)?
+        .into())
     }
 
     #[pyclassmethod]
@@ -384,9 +377,8 @@ impl PyCStructure {
 
         // Create instance
         Ok(PyCStructure {
-            buffer: PyRwLock::new(data),
-            fields: PyRwLock::new(HashMap::new()),
-            size: AtomicCell::new(size),
+            cdata: PyRwLock::new(CDataObject::from_bytes(data, None)),
+            fields: PyRwLock::new(IndexMap::new()),
         }
         .into_ref_with_type(vm, cls)?
         .into())
@@ -429,11 +421,47 @@ impl PyCStructure {
 
         // Create instance
         Ok(PyCStructure {
-            buffer: PyRwLock::new(data),
-            fields: PyRwLock::new(HashMap::new()),
-            size: AtomicCell::new(size),
+            cdata: PyRwLock::new(CDataObject::from_bytes(data, None)),
+            fields: PyRwLock::new(IndexMap::new()),
         }
         .into_ref_with_type(vm, cls)?
         .into())
+    }
+}
+
+static STRUCTURE_BUFFER_METHODS: BufferMethods = BufferMethods {
+    obj_bytes: |buffer| {
+        rustpython_common::lock::PyMappedRwLockReadGuard::map(
+            rustpython_common::lock::PyRwLockReadGuard::map(
+                buffer.obj_as::<PyCStructure>().cdata.read(),
+                |x: &CDataObject| x,
+            ),
+            |x: &CDataObject| x.buffer.as_slice(),
+        )
+        .into()
+    },
+    obj_bytes_mut: |buffer| {
+        rustpython_common::lock::PyMappedRwLockWriteGuard::map(
+            rustpython_common::lock::PyRwLockWriteGuard::map(
+                buffer.obj_as::<PyCStructure>().cdata.write(),
+                |x: &mut CDataObject| x,
+            ),
+            |x: &mut CDataObject| x.buffer.as_mut_slice(),
+        )
+        .into()
+    },
+    release: |_| {},
+    retain: |_| {},
+};
+
+impl AsBuffer for PyCStructure {
+    fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        let buffer_len = zelf.cdata.read().buffer.len();
+        let buf = PyBuffer::new(
+            zelf.to_owned().into(),
+            BufferDescriptor::simple(buffer_len, false), // readonly=false for ctypes
+            &STRUCTURE_BUFFER_METHODS,
+        );
+        Ok(buf)
     }
 }
