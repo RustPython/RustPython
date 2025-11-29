@@ -1310,7 +1310,7 @@ impl Instruction {
     ///
     /// ```
     /// use rustpython_compiler_core::bytecode::{Arg, Instruction};
-    /// let jump_inst = Instruction::Jump { target: Arg::marker() };
+    /// let jump_inst = Instruction::Jump(Arg::marker());
     /// assert!(jump_inst.unconditional_branch())
     /// ```
     pub const fn unconditional_branch(&self) -> bool {
@@ -1332,9 +1332,9 @@ impl Instruction {
     /// ```
     /// use rustpython_compiler_core::bytecode::{Arg, Instruction, Label, UnaryOperator};
     /// let (target, jump_arg) = Arg::new(Label(0xF));
-    /// let jump_instruction = Instruction::Jump { target };
+    /// let jump_instruction = Instruction::Jump(target);
     /// let (op, invert_arg) = Arg::new(UnaryOperator::Invert);
-    /// let invert_instruction = Instruction::UnaryOperation { op };
+    /// let invert_instruction = Instruction::UnaryOperation(op);
     /// assert_eq!(jump_instruction.stack_effect(jump_arg, true), 0);
     /// assert_eq!(invert_instruction.stack_effect(invert_arg, false), 0);
     /// ```
