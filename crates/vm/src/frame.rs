@@ -834,8 +834,8 @@ impl ExecutingFrame<'_> {
                 dict.merge_object(source, vm)?;
                 Ok(None)
             }
-            bytecode::Instruction::BuildSlice { step } => {
-                self.execute_build_slice(vm, step.get(arg))
+            bytecode::Instruction::BuildSlice { argc } => {
+                self.execute_build_slice(vm, argc.get(arg))
             }
             bytecode::Instruction::ListAppend { i } => {
                 let item = self.pop_value();
@@ -1777,8 +1777,15 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    fn execute_build_slice(&mut self, vm: &VirtualMachine, step: bool) -> FrameResult {
-        let step = if step { Some(self.pop_value()) } else { None };
+    fn execute_build_slice(
+        &mut self,
+        vm: &VirtualMachine,
+        argc: bytecode::BuildSliceArgCount,
+    ) -> FrameResult {
+        let step = match argc {
+            bytecode::BuildSliceArgCount::Two => None,
+            bytecode::BuildSliceArgCount::Three => Some(self.pop_value()),
+        };
         let stop = self.pop_value();
         let start = self.pop_value();
 
