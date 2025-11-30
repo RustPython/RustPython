@@ -835,7 +835,28 @@ pub trait Initializer: PyPayload {
     #[pyslot]
     #[inline]
     fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let zelf = zelf.try_into_value(vm)?;
+        #[cfg(debug_assertions)]
+        let class_name_for_debug = zelf.class().name().to_string();
+
+        let zelf = match zelf.try_into_value(vm) {
+            Ok(zelf) => zelf,
+            Err(err) => {
+                #[cfg(debug_assertions)]
+                {
+                    if let Ok(msg) = err.as_object().repr(vm) {
+                        let double_appearance =
+                            msg.as_str().matches(&class_name_for_debug as &str).count() == 2;
+                        if double_appearance {
+                            panic!(
+                                "This type `{}` doesn't seem to support `init`. Override `slot_init` instead: {}",
+                                class_name_for_debug, msg
+                            );
+                        }
+                    }
+                }
+                return Err(err);
+            }
+        };
         let args: Self::Args = args.bind(vm)?;
         Self::init(zelf, args, vm)
     }
@@ -843,6 +864,7 @@ pub trait Initializer: PyPayload {
     #[pymethod]
     #[inline]
     fn __init__(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        // TODO: check if this is safe. zelf may need to be `PyObjectRef`
         Self::init(zelf, args, vm)
     }
 

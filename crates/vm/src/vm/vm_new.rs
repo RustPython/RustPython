@@ -509,7 +509,7 @@ impl VirtualMachine {
         #[cfg(debug_assertions)]
         let msg = if class.get_id() == actual_class.get_id() {
             let mut msg = msg;
-            msg += " Did you forget to add `#[pyclass(with(Constructor))]`?";
+            msg += " It might mean this type doesn't support subclassing very well. e.g. Did you forget to add `#[pyclass(with(Constructor))]`?";
             msg
         } else {
             msg
