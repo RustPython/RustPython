@@ -26,12 +26,13 @@ use crate::{
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{
         AsNumber, Callable, Constructor, GetAttr, PyTypeFlags, PyTypeSlots, Representable, SetAttr,
+        TypeDataRef, TypeDataRefMut, TypeDataSlot,
     },
 };
 use indexmap::{IndexMap, map::Entry};
 use itertools::Itertools;
 use num_traits::ToPrimitive;
-use std::{borrow::Borrow, collections::HashSet, ops::Deref, pin::Pin, ptr::NonNull};
+use std::{any::Any, borrow::Borrow, collections::HashSet, ops::Deref, pin::Pin, ptr::NonNull};
 
 #[pyclass(module = false, name = "type", traverse = "manual")]
 pub struct PyType {
@@ -65,6 +66,7 @@ pub struct HeapTypeExt {
     pub slots: Option<PyRef<PyTuple<PyStrRef>>>,
     pub sequence_methods: PySequenceMethods,
     pub mapping_methods: PyMappingMethods,
+    pub type_data: PyRwLock<Option<TypeDataSlot>>,
 }
 
 pub struct PointerSlot<T>(NonNull<T>);
@@ -203,6 +205,7 @@ impl PyType {
             slots: None,
             sequence_methods: PySequenceMethods::default(),
             mapping_methods: PyMappingMethods::default(),
+            type_data: PyRwLock::new(None),
         };
         let base = bases[0].clone();
 
@@ -562,6 +565,50 @@ impl PyType {
             |name| name.rsplit_once('.').map_or(name, |(_, name)| name).into(),
             |ext| PyRwLockReadGuard::map(ext.name.read(), |name| name.as_str()).into(),
         )
+    }
+
+    // Type Data Slot API - CPython's PyObject_GetTypeData equivalent
+
+    /// Initialize type data for this type. Can only be called once.
+    /// Returns an error if the type is not a heap type or if data is already initialized.
+    pub fn init_type_data<T: Any + Send + Sync + 'static>(&self, data: T) -> Result<(), String> {
+        let ext = self
+            .heaptype_ext
+            .as_ref()
+            .ok_or_else(|| "Cannot set type data on non-heap types".to_string())?;
+
+        let mut type_data = ext.type_data.write();
+        if type_data.is_some() {
+            return Err("Type data already initialized".to_string());
+        }
+        *type_data = Some(TypeDataSlot::new(data));
+        Ok(())
+    }
+
+    /// Get a read guard to the type data.
+    /// Returns None if the type is not a heap type, has no data, or the data type doesn't match.
+    pub fn get_type_data<T: Any + 'static>(&self) -> Option<TypeDataRef<'_, T>> {
+        self.heaptype_ext
+            .as_ref()
+            .and_then(|ext| TypeDataRef::try_new(ext.type_data.read()))
+    }
+
+    /// Get a write guard to the type data.
+    /// Returns None if the type is not a heap type, has no data, or the data type doesn't match.
+    pub fn get_type_data_mut<T: Any + 'static>(&self) -> Option<TypeDataRefMut<'_, T>> {
+        self.heaptype_ext
+            .as_ref()
+            .and_then(|ext| TypeDataRefMut::try_new(ext.type_data.write()))
+    }
+
+    /// Check if this type has type data of the given type.
+    pub fn has_type_data<T: Any + 'static>(&self) -> bool {
+        self.heaptype_ext.as_ref().is_some_and(|ext| {
+            ext.type_data
+                .read()
+                .as_ref()
+                .is_some_and(|slot| slot.get::<T>().is_some())
+        })
     }
 }
 
@@ -1167,6 +1214,7 @@ impl Constructor for PyType {
                 slots: heaptype_slots.clone(),
                 sequence_methods: PySequenceMethods::default(),
                 mapping_methods: PyMappingMethods::default(),
+                type_data: PyRwLock::new(None),
             };
             (slots, heaptype_ext)
         };
