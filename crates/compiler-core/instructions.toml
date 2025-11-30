@@ -1,0 +1,61 @@
+# This file is used by `generate.py` to autogenerate CPython opcodes.
+# 
+# The script will try to detect the properties for each opcode, but it can be useful to override some prooerties. So Ideally,
+# we want to have this file empty because that means that we are fully aligned with CPython's opcodes.
+#
+# enabled : bool
+#   When false the opcode will not apear as a variant.
+# name : str
+#   Sets the variant name.
+# has_oparg : bool
+#   Whether or not this opcode has an oparg.
+# oparg_name : str
+#   Field name for the variant's oparg (`Foo { name: ... }`).
+# oparg_typ : str
+#   Type of the variant's oparg (`Foo { i: typ }`).
+
+[opcodes]
+CALL_INTRINSIC_1 = { oparg_name = "func", oparg_typ = "IntrinsicFunction1" }
+CALL_INTRINSIC_2 = { oparg_name = "func", oparg_typ = "IntrinsicFunction2" }
+GET_AWAITABLE = { oparg_name = "r#where" } # `where` is a rust keyword
+RAISE_VARARGS = { name = "RaiseVarArgs" }
+RESUME = { oparg_typ = "ResumeKind" }
+YIELD_VALUE = { has_oparg = false } # 3.13 changed this to have an oparg
+
+# Disabled (not implemented)
+
+BINARY_OP_ADD_FLOAT = { enabled = false }
+BINARY_OP_ADD_INT = { enabled = false }
+BINARY_OP_ADD_UNICODE = { enabled = false }
+BINARY_OP_MULTIPLY_FLOAT = { enabled = false }
+BINARY_OP_MULTIPLY_INT = { enabled = false }
+BINARY_OP_SUBTRACT_FLOAT = { enabled = false }
+BINARY_OP_SUBTRACT_INT = { enabled = false }
+BINARY_SUBSCR_DICT = { enabled = false }
+BINARY_SUBSCR_GETITEM = { enabled = false }
+BINARY_SUBSCR_LIST_INT = { enabled = false }
+BINARY_SUBSCR_STR_INT = { enabled = false }
+BINARY_SUBSCR_TUPLE_INT = { enabled = false }
+CACHE = { enabled = false }
+INSTRUMENTED_CALL = { enabled = false }
+INSTRUMENTED_CALL_FUNCTION_EX = { enabled = false }
+INSTRUMENTED_CALL_KW = { enabled = false }
+INSTRUMENTED_END_FOR = { enabled = false }
+INSTRUMENTED_END_SEND = { enabled = false }
+INSTRUMENTED_FOR_ITER = { enabled = false }
+INSTRUMENTED_INSTRUCTION = { enabled = false }
+INSTRUMENTED_JUMP_BACKWARD = { enabled = false }
+INSTRUMENTED_JUMP_FORWARD = { enabled = false }
+INSTRUMENTED_LINE = { enabled = false }
+INSTRUMENTED_LOAD_SUPER_ATTR = { enabled = false }
+INSTRUMENTED_POP_JUMP_IF_FALSE = { enabled = false }
+INSTRUMENTED_POP_JUMP_IF_NONE = { enabled = false }
+INSTRUMENTED_POP_JUMP_IF_NOT_NONE = { enabled = false }
+INSTRUMENTED_POP_JUMP_IF_TRUE = { enabled = false }
+INSTRUMENTED_RESUME = { enabled = false }
+INSTRUMENTED_RETURN_CONST = { enabled = false }
+INSTRUMENTED_RETURN_VALUE = { enabled = false }
+INSTRUMENTED_YIELD_VALUE = { enabled = false }
+RERAISE = { enabled = false }
+SEND_GEN = { enabled = false }
+UNPACK_SEQUENCE_TWO_TUPLE = { enabled = false }
