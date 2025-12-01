@@ -436,7 +436,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     _ => Err(JitCompileError::NotSupported),
                 }
             }
-            Instruction::BinaryOperation { op } => {
+            Instruction::BinaryOp { op } => {
                 let op = op.get(arg);
                 // the rhs is popped off first
                 let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
