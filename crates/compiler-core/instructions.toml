@@ -1,26 +1,30 @@
 # This file is used by `generate.py` to autogenerate CPython opcodes.
 # 
-# The script will try to detect the properties for each opcode, but it can be useful to override some prooerties. So Ideally,
-# we want to have this file empty because that means that we are fully aligned with CPython's opcodes.
+# The script will try to detect the properties for each opcode, but it can be useful to override some proerties.
+# So Ideally, we want to have this file as empty as possible,
+# because doing so means that we are getting closer to be fully aligned with CPython's opcodes.
 #
 # enabled : bool
-#   When false the opcode will not apear as a variant.
+#   When false the opcode will not appear as a variant.
 # name : str
 #   Sets the variant name.
-# has_oparg : bool
-#   Whether or not this opcode has an oparg.
-# oparg_name : str
-#   Field name for the variant's oparg (`Foo { name: ... }`).
-# oparg_typ : str
-#   Type of the variant's oparg (`Foo { i: typ }`).
+# oparg : dict
+#   Sets oparg metadata.
+#       name : str
+#           Field name for the variant's oparg (`Foo { name: ... }`).
+#       typ : str
+#           Type of the variant's oparg (`Foo { i: typ }`).
+# properties : dict
+#   Dict corresponding to https://github.com/python/cpython/blob/8183fa5e3f78ca6ab862de7fb8b14f3d929421e0/Tools/cases_generator/analyzer.py#L8-L29
 
-[opcodes]
-CALL_INTRINSIC_1 = { oparg_name = "func", oparg_typ = "IntrinsicFunction1" }
-CALL_INTRINSIC_2 = { oparg_name = "func", oparg_typ = "IntrinsicFunction2" }
-GET_AWAITABLE = { oparg_name = "r#where" } # `where` is a rust keyword
+[overrides]
+BINARY_OP = { oparg = { typ = "BinaryOperator" } }
+CALL_INTRINSIC_1 = { oparg = { name = "func", typ = "IntrinsicFunction1" } }
+CALL_INTRINSIC_2 = { oparg = { name = "func", typ = "IntrinsicFunction2" } }
+GET_AWAITABLE = { oparg = { name = "r#where" } } # `where` is a rust keyword
 RAISE_VARARGS = { name = "RaiseVarArgs" }
-RESUME = { oparg_typ = "ResumeKind" }
-YIELD_VALUE = { oparg = false } # 3.13 changed this to have an oparg
+RESUME = { oparg = { typ = "ResumeKind" } }
+YIELD_VALUE = { properties = { oparg = false } } # 3.13 changed this to have an oparg
 
 # Disabled (not implemented)
 
@@ -36,7 +40,38 @@ BINARY_SUBSCR_GETITEM = { enabled = false }
 BINARY_SUBSCR_LIST_INT = { enabled = false }
 BINARY_SUBSCR_STR_INT = { enabled = false }
 BINARY_SUBSCR_TUPLE_INT = { enabled = false }
+BUILD_CONST_KEY_MAP = { enabled = false }
 CACHE = { enabled = false }
+CALL_ALLOC_AND_ENTER_INIT = { enabled = false }
+CALL_BOUND_METHOD_EXACT_ARGS = { enabled = false }
+CALL_BOUND_METHOD_GENERAL = { enabled = false }
+CALL_BUILTIN_CLASS = { enabled = false }
+CALL_BUILTIN_FAST = { enabled = false }
+CALL_BUILTIN_FAST_WITH_KEYWORDS = { enabled = false }
+CALL_BUILTIN_O = { enabled = false }
+CALL_ISINSTANCE = { enabled = false }
+CALL_LEN = { enabled = false }
+CALL_LIST_APPEND = { enabled = false }
+CALL_METHOD_DESCRIPTOR_FAST = { enabled = false }
+CALL_METHOD_DESCRIPTOR_FAST_WITH_KEYWORDS = { enabled = false }
+CALL_METHOD_DESCRIPTOR_NOARGS = { enabled = false }
+CALL_METHOD_DESCRIPTOR_O = { enabled = false }
+CALL_NON_PY_GENERAL = { enabled = false }
+CALL_PY_EXACT_ARGS = { enabled = false }
+CALL_PY_GENERAL = { enabled = false }
+CALL_STR_1 = { enabled = false }
+CALL_TUPLE_1 = { enabled = false }
+CALL_TYPE_1 = { enabled = false }
+COMPARE_OP_FLOAT = { enabled = false }
+COMPARE_OP_INT = { enabled = false }
+COMPARE_OP_STR = { enabled = false }
+CONTAINS_OP_DICT = { enabled = false }
+CONTAINS_OP_SET = { enabled = false }
+ENTER_EXECUTOR = { enabled = false }
+FOR_ITER_GEN = { enabled = false }
+FOR_ITER_LIST = { enabled = false }
+FOR_ITER_RANGE = { enabled = false }
+FOR_ITER_TUPLE = { enabled = false }
 INSTRUMENTED_CALL = { enabled = false }
 INSTRUMENTED_CALL_FUNCTION_EX = { enabled = false }
 INSTRUMENTED_CALL_KW = { enabled = false }
@@ -56,6 +91,31 @@ INSTRUMENTED_RESUME = { enabled = false }
 INSTRUMENTED_RETURN_CONST = { enabled = false }
 INSTRUMENTED_RETURN_VALUE = { enabled = false }
 INSTRUMENTED_YIELD_VALUE = { enabled = false }
+LOAD_ATTR_CLASS = { enabled = false }
+LOAD_ATTR_GETATTRIBUTE_OVERRIDDEN = { enabled = false }
+LOAD_ATTR_INSTANCE_VALUE = { enabled = false }
+LOAD_ATTR_METHOD_LAZY_DICT = { enabled = false }
+LOAD_ATTR_METHOD_NO_DICT = { enabled = false }
+LOAD_ATTR_METHOD_WITH_VALUES = { enabled = false }
+LOAD_ATTR_MODULE = { enabled = false }
+LOAD_ATTR_NONDESCRIPTOR_NO_DICT = { enabled = false }
+LOAD_ATTR_NONDESCRIPTOR_WITH_VALUES = { enabled = false }
+LOAD_ATTR_PROPERTY = { enabled = false }
+LOAD_ATTR_SLOT = { enabled = false }
+LOAD_ATTR_WITH_HINT = { enabled = false }
+LOAD_GLOBAL_BUILTIN = { enabled = false }
+LOAD_GLOBAL_MODULE = { enabled = false }
+LOAD_SUPER_ATTR_ATTR = { enabled = false }
+LOAD_SUPER_ATTR_METHOD = { enabled = false }
 RERAISE = { enabled = false }
+RESUME_CHECK = { enabled = false }
 SEND_GEN = { enabled = false }
+STORE_ATTR_INSTANCE_VALUE = { enabled = false }
+STORE_ATTR_SLOT = { enabled = false }
+STORE_ATTR_WITH_HINT = { enabled = false }
+STORE_FAST_MAYBE_NULL = { enabled = false }
+STORE_SUBSCR_DICT = { enabled = false }
+STORE_SUBSCR_LIST_INT = { enabled = false }
+UNPACK_SEQUENCE_LIST = { enabled = false }
+UNPACK_SEQUENCE_TUPLE = { enabled = false }
 UNPACK_SEQUENCE_TWO_TUPLE = { enabled = false }

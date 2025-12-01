@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 from __future__ import annotations
 
+import dataclasses
 import enum
 import functools
 import io
@@ -35,83 +36,126 @@ from generators_common import DEFAULT_INPUT
 U8_MAX = 255
 
 
-class Inst:
-    def __init__(
-        self, cpython_name: str, override: dict, analysis: analyzer.Analysis
-    ) -> None:
-        inst = analysis.instructions[cpython_name]
-        properties = inst.properties
+@dataclasses.dataclass(frozen=True, slots=True)
+class OpargMetadata:
+    name: str | None = None
+    typ: str | None = None
 
-        self.name = override.get("name", snake_case_to_pascal_case(cpython_name))
-        self.id = analysis.opmap[cpython_name]
-        self.oparg = override.get("oparg", properties.oparg)
 
-        if (oparg_typ := override.get("oparg_typ")) is not None:
-            self.oparg_typ = getattr(Oparg, oparg_typ)
-        elif self.oparg:
-            self.oparg_typ = Oparg.from_properties(properties)
+@dataclasses.dataclass(slots=True)
+class InstructionOverride:
+    enabled: bool = True
+    name: str | None = None
+    oparg: OpargMetadata = dataclasses.field(default_factory=OpargMetadata)
+    properties: analyzer.Properties | None = None
 
-        if (oparg_name := override.get("oparg_name")) is not None:
-            self.oparg_name = oparg_name
-        elif self.oparg:
-            oparg_map = build_oparg_name_map()
-            self.oparg_name = oparg_map.get(cpython_name, self.oparg_typ.field_name)
+    def __post_init__(self):
+        if isinstance(self.oparg, dict):
+            self.oparg = OpargMetadata(**self.oparg)
+
+        if isinstance(self.properties, dict):
+            self.properties = dataclasses.replace(
+                analyzer.SKIP_PROPERTIES, **self.properties
+            )
+
+
+@dataclasses.dataclass(slots=True)
+class Instruction:
+    # TODO: Maybe add a post_init hook to show warning incase of oparg being set for
+    # instructions with no oparg?
+    instruction: analyzer.Instruction | analyzer.PseudoInstruction
+    override: InstructionOverride = dataclasses.field(
+        default_factory=InstructionOverride
+    )
 
     @property
-    def variant(self) -> str:
-        if self.oparg:
-            fields = f"{{ {self.oparg_name}: Arg<{self.oparg_typ.name}> }}"
+    def rust_name(self) -> str:
+        return self.override.name or snake_case_to_pascal_case(self.instruction.name)
+
+    @property
+    def rust_enum_variant(self) -> str:
+        if self.properties.oparg:
+            fields = f"{{ {self.oparg_name}: Arg<{self.oparg_typ}> }}"
         else:
             fields = ""
 
-        return f"{self.name} {fields} = {self.id}"
+        return f"{self.rust_name} {fields} = {self.instruction.opcode}"
+
+    @property
+    def properties(self) -> analyzer.Properties:
+        return self.override.properties or self.instruction.properties
+
+    @property
+    def oparg_name(self) -> str | None:
+        if name := self.override.oparg.name:
+            return name
+
+        if not self.properties.oparg:
+            return None
+
+        oparg_names_map = build_oparg_names_map()
+        if name := oparg_names_map.get(self.instruction.name):
+            return name
+
+        return self._oparg.field_name
+
+    @property
+    def oparg_typ(self) -> str | None:
+        if typ := self.override.oparg.typ:
+            return typ
+
+        properties = self.properties
+        if not properties.oparg:
+            return None
+
+        try:
+            return self._oparg.name
+        except ValueError:
+            return "u32"  # Fallback
+
+    @property
+    def _oparg(self) -> Oparg:
+        try:
+            return Oparg.try_from_properties(self.properties)
+        except ValueError as err:
+            err.add_note(self.instruction.name)
+            raise err
 
     @classmethod
-    def iter_insts(
-        cls, analysis: analyzer.Analysis, conf: dict
+    def from_analysis(
+        cls, analysis: analyzer.Analysis, overrides: dict[str, dict]
     ) -> Iterator[typing.Self]:
-        opcodes = conf["opcodes"]
-
         insts = {}
-        for name in analysis.instructions:
-            override = opcodes.get(name, {})
-            if not override.get("enabled", True):
+        for name, inst in analysis.instructions.items():
+            override = InstructionOverride(**overrides.get(name, {}))
+            if not override.enabled:
                 continue
 
-            inst = cls(name, override, analysis)
-            insts[inst.id] = inst
+            opcode = inst.opcode
+            insts[opcode] = cls(inst, override)
 
         # Because we are treating pseudos like real opcodes,
-        # we need to find an alternative ID for them (they go over u8::MAX)
-        HAVE_ARG = analysis.have_arg
-        occupied = set()
-        for id_, inst in insts.items():
-            if id_ < U8_MAX:
+        # we need to find an alternative opcode for them (they go over u8::MAX)
+        for opcode, inst in insts.items():
+            if opcode <= U8_MAX:
                 continue
 
-            if inst.oparg:
-                ids = range(HAVE_ARG, U8_MAX + 1)
+            # Preserve `HAVE_ARG` semantics.
+            if inst.properties.oparg:
+                rang = range(analysis.have_arg, U8_MAX + 1)
             else:
-                ids = range(0, HAVE_ARG)
+                rang = range(0, analysis.have_arg)
 
-            new_id = next(i for i in ids if i not in occupied)
-            occupied.add(new_id)
-            inst.id = new_id
+            new_opcode = next(i for i in rang if i not in insts)
+            inst.instruction.opcode = new_opcode
 
         yield from insts.values()
 
-    def __lt__(self, other) -> bool:
-        return self.name < other.name
-
 
 @enum.unique
-class Oparg(enum.StrEnum):
-    IntrinsicFunction1 = enum.auto()
-    IntrinsicFunction2 = enum.auto()
-    ResumeKind = enum.auto()
+class Oparg(enum.Enum):
     Label = enum.auto()
     NameIdx = enum.auto()
-    u32 = enum.auto()  # TODO: Remove this; Everything needs to be a newtype
 
     @property
     def field_name(self) -> str:
@@ -120,26 +164,22 @@ class Oparg(enum.StrEnum):
                 return "target"
             case self.NameIdx:
                 return "namei"
-            case _:
-                return "idx"  # Fallback to `idx`
 
     @classmethod
-    def from_properties(cls, properties: analyzer.Properties) -> typing.Self:
+    def try_from_properties(cls, properties: analyzer.Properties) -> typing.Self:
+        # TODO: `properties.uses_co_consts` -> `ConstIdx`
+        # TODO: `properties.uses_locals` -> `LocalIdx`
+
         if properties.uses_co_names:
             return cls.NameIdx
         elif properties.jumps:
             return cls.Label
-        elif properties.uses_co_consts:
-            return cls.u32  # TODO: Needs to be `ConstIdx`
-        elif properties.uses_locals:
-            return cls.u32  # TODO: Needs to be `ConstIdx`
         else:
-            # TODO: Raise here.
-            return cls.u32  # Fallback to something generic
+            raise ValueError(f"Could not detect oparg type of {properties}")
 
 
 @functools.cache
-def build_oparg_name_map() -> dict[str, str]:
+def build_oparg_names_map() -> dict[str, str]:
     doc = DIS_DOC.read_text()
 
     out = {}
@@ -181,8 +221,8 @@ def get_analysis() -> analyser.Analysis:
     return analysis
 
 
-def write_enum(outfile: typing.IO, instructions: list[Inst]) -> None:
-    variants = ",\n".join(inst.variant for inst in instructions)
+def write_enum(outfile: typing.IO, instructions: list[Instruction]) -> None:
+    variants = ",\n".join(inst.rust_enum_variant for inst in instructions)
     outfile.write(
         f"""
     /// A Single bytecode instruction.
@@ -198,26 +238,35 @@ def write_enum(outfile: typing.IO, instructions: list[Inst]) -> None:
 def main():
     analysis = get_analysis()
     conf = tomllib.loads(CONF_FILE.read_text())
-    instructions = sorted(Inst.iter_insts(analysis, conf))
+    overrides = conf["overrides"]
+
+    instructions = sorted(
+        Instruction.from_analysis(analysis, overrides), key=lambda inst: inst.rust_name
+    )
 
     outfile = io.StringIO()
-
     write_enum(outfile, instructions)
 
-    script_path = pathlib.Path(__file__).resolve().relative_to(ROOT).as_posix()
-
     generated = outfile.getvalue()
+
+    imports = ",".join(
+        {
+            inst.oparg_typ
+            for inst in instructions
+            if ((inst.oparg_typ is not None) and (inst.oparg_typ != "u32"))
+        }
+    )
+    script_path = pathlib.Path(__file__).resolve().relative_to(ROOT).as_posix()
     output = rustfmt(
         f"""
     // This file is generated by {script_path}
     // Do not edit!
 
-    use crate::bytecode::{{Arg, Label, NameIdx}};
+    use crate::bytecode::{{Arg, {imports}}};
 
     {generated}
     """
     )
-    print(output)
     OUT_FILE.write_text(output)
 
 
