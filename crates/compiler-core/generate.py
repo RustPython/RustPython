@@ -136,6 +136,7 @@ class Instruction:
 
         # Because we are treating pseudos like real opcodes,
         # we need to find an alternative opcode for them (they go over u8::MAX)
+        occupied = set(insts)
         for opcode, inst in insts.items():
             if opcode <= U8_MAX:
                 continue
@@ -146,7 +147,8 @@ class Instruction:
             else:
                 rang = range(0, analysis.have_arg)
 
-            new_opcode = next(i for i in rang if i not in insts)
+            new_opcode = next(i for i in rang if i not in occupied)
+            occupied.add(new_opcode)
             inst.instruction.opcode = new_opcode
 
         yield from insts.values()

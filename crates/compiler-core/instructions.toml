@@ -31,6 +31,7 @@ YIELD_VALUE = { properties = { oparg = false } } # 3.13 changed this to have an 
 BINARY_OP_ADD_FLOAT = { enabled = false }
 BINARY_OP_ADD_INT = { enabled = false }
 BINARY_OP_ADD_UNICODE = { enabled = false }
+BINARY_OP_INPLACE_ADD_UNICODE = { enabled = false }
 BINARY_OP_MULTIPLY_FLOAT = { enabled = false }
 BINARY_OP_MULTIPLY_INT = { enabled = false }
 BINARY_OP_SUBTRACT_FLOAT = { enabled = false }
@@ -91,6 +92,7 @@ INSTRUMENTED_RESUME = { enabled = false }
 INSTRUMENTED_RETURN_CONST = { enabled = false }
 INSTRUMENTED_RETURN_VALUE = { enabled = false }
 INSTRUMENTED_YIELD_VALUE = { enabled = false }
+LOAD_ASSERTION_ERROR = { enabled = false }
 LOAD_ATTR_CLASS = { enabled = false }
 LOAD_ATTR_GETATTRIBUTE_OVERRIDDEN = { enabled = false }
 LOAD_ATTR_INSTANCE_VALUE = { enabled = false }
@@ -107,6 +109,8 @@ LOAD_GLOBAL_BUILTIN = { enabled = false }
 LOAD_GLOBAL_MODULE = { enabled = false }
 LOAD_SUPER_ATTR_ATTR = { enabled = false }
 LOAD_SUPER_ATTR_METHOD = { enabled = false }
+PUSH_EXC_INFO = { enabled = false }
+PUSH_NULL = { enabled = false }
 RERAISE = { enabled = false }
 RESUME_CHECK = { enabled = false }
 SEND_GEN = { enabled = false }
@@ -119,3 +123,4 @@ STORE_SUBSCR_LIST_INT = { enabled = false }
 UNPACK_SEQUENCE_LIST = { enabled = false }
 UNPACK_SEQUENCE_TUPLE = { enabled = false }
 UNPACK_SEQUENCE_TWO_TUPLE = { enabled = false }
+WITH_EXCEPT_START = { enabled = false }
