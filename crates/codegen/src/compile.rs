@@ -3301,7 +3301,7 @@ impl Compiler {
                 // Subtract to compute the correct index.
                 emit!(
                     self,
-                    Instruction::BinaryOperation {
+                    Instruction::BinaryOp {
                         op: BinaryOperator::Subtract
                     }
                 );
@@ -4339,26 +4339,24 @@ impl Compiler {
     }
 
     fn compile_op(&mut self, op: &Operator, inplace: bool) {
-        let op = match op {
-            Operator::Add => bytecode::BinaryOperator::Add,
-            Operator::Sub => bytecode::BinaryOperator::Subtract,
-            Operator::Mult => bytecode::BinaryOperator::Multiply,
-            Operator::MatMult => bytecode::BinaryOperator::MatrixMultiply,
-            Operator::Div => bytecode::BinaryOperator::Divide,
-            Operator::FloorDiv => bytecode::BinaryOperator::FloorDivide,
-            Operator::Mod => bytecode::BinaryOperator::Modulo,
-            Operator::Pow => bytecode::BinaryOperator::Power,
-            Operator::LShift => bytecode::BinaryOperator::Lshift,
-            Operator::RShift => bytecode::BinaryOperator::Rshift,
-            Operator::BitOr => bytecode::BinaryOperator::Or,
-            Operator::BitXor => bytecode::BinaryOperator::Xor,
-            Operator::BitAnd => bytecode::BinaryOperator::And,
+        let bin_op = match op {
+            Operator::Add => BinaryOperator::Add,
+            Operator::Sub => BinaryOperator::Subtract,
+            Operator::Mult => BinaryOperator::Multiply,
+            Operator::MatMult => BinaryOperator::MatrixMultiply,
+            Operator::Div => BinaryOperator::TrueDivide,
+            Operator::FloorDiv => BinaryOperator::FloorDivide,
+            Operator::Mod => BinaryOperator::Remainder,
+            Operator::Pow => BinaryOperator::Power,
+            Operator::LShift => BinaryOperator::Lshift,
+            Operator::RShift => BinaryOperator::Rshift,
+            Operator::BitOr => BinaryOperator::Or,
+            Operator::BitXor => BinaryOperator::Xor,
+            Operator::BitAnd => BinaryOperator::And,
         };
-        if inplace {
-            emit!(self, Instruction::BinaryOperationInplace { op })
-        } else {
-            emit!(self, Instruction::BinaryOperation { op })
-        }
+
+        let op = if inplace { bin_op.as_inplace() } else { bin_op };
+        emit!(self, Instruction::BinaryOp { op })
     }
 
     /// Implement boolean short circuit evaluation logic.
