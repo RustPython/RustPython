@@ -2,7 +2,7 @@
 // Do not edit!
 
 use crate::bytecode::{
-    Arg, BinaryOperator, IntrinsicFunction1, IntrinsicFunction2, Label, NameIdx, ResumeKind,
+    Arg, BinaryOperator, IntrinsicFunction1, IntrinsicFunction2, Invert, Label, NameIdx, ResumeKind,
 };
 
 /// A Single bytecode instruction.
@@ -29,7 +29,7 @@ pub enum Instruction {
     CheckExcMatch = 7,
     CleanupThrow = 8,
     CompareOp { opname: Arg<u32> } = 58,
-    ContainsOp { invert: Arg<u32> } = 59,
+    ContainsOp { invert: Arg<Invert> } = 59,
     ConvertValue { oparg: Arg<u32> } = 60,
     Copy { i: Arg<u32> } = 61,
     CopyFreeVars { n: Arg<u32> } = 62,
@@ -58,7 +58,7 @@ pub enum Instruction {
     ImportFrom { namei: Arg<NameIdx> } = 74,
     ImportName { namei: Arg<NameIdx> } = 75,
     InterpreterExit = 22,
-    IsOp { invert: Arg<u32> } = 76,
+    IsOp { invert: Arg<Invert> } = 76,
     Jump { target: Arg<Label> } = 120,
     JumpBackward { delta: Arg<Label> } = 77,
     JumpBackwardNoInterrupt { delta: Arg<Label> } = 78,

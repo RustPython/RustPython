@@ -21,7 +21,9 @@
 BINARY_OP = { oparg = { typ = "BinaryOperator" } }
 CALL_INTRINSIC_1 = { oparg = { name = "func", typ = "IntrinsicFunction1" } }
 CALL_INTRINSIC_2 = { oparg = { name = "func", typ = "IntrinsicFunction2" } }
+CONTAINS_OP = { oparg = { typ = "Invert" } }
 GET_AWAITABLE = { oparg = { name = "r#where" } } # `where` is a rust keyword
+IS_OP = { oparg = { typ = "Invert" } }
 RAISE_VARARGS = { name = "RaiseVarArgs" }
 RESUME = { oparg = { typ = "ResumeKind" } }
 YIELD_VALUE = { properties = { oparg = false } } # 3.13 changed this to have an oparg
