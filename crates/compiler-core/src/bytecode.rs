@@ -1091,12 +1091,13 @@ op_arg_enum!(
 
 op_arg_enum!(
     /// The possible Binary operators
+    ///
     /// # Examples
     ///
     /// ```rust
-    /// use rustpython_compiler_core::Instruction::BinaryOp;
-    /// use rustpython_compiler_core::BinaryOperator::BinaryOperator;
-    /// let op = BinaryOp {op: BinaryOperator::Add};
+    /// use rustpython_compiler_core::bytecode::{Arg, BinaryOperator, Instruction};
+    /// let (op, _) = Arg::new(BinaryOperator::Add);
+    /// let instruction = Instruction::BinaryOp { op };
     /// ```
     ///
     /// See also:
