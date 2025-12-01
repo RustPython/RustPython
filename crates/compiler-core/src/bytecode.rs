@@ -1173,6 +1173,7 @@ impl BinaryOperator {
     pub const fn as_inplace(self) -> Self {
         match self {
             Self::Add => Self::InplaceAdd,
+            Self::And => Self::InplaceAnd,
             Self::FloorDivide => Self::InplaceFloorDivide,
             Self::Lshift => Self::InplaceLshift,
             Self::MatrixMultiply => Self::InplaceMatrixMultiply,
