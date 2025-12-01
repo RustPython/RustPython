@@ -1,4 +1,5 @@
 [submodule "submodules/cpython-v3.13.9"]
 	path = submodules/cpython-v3.13.9
 	url = https://github.com/python/cpython.git
+	branch = 3.13
     shallow = true
