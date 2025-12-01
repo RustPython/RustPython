@@ -20,7 +20,7 @@ CALL_INTRINSIC_2 = { oparg_name = "func", oparg_typ = "IntrinsicFunction2" }
 GET_AWAITABLE = { oparg_name = "r#where" } # `where` is a rust keyword
 RAISE_VARARGS = { name = "RaiseVarArgs" }
 RESUME = { oparg_typ = "ResumeKind" }
-YIELD_VALUE = { has_oparg = false } # 3.13 changed this to have an oparg
+YIELD_VALUE = { oparg = false } # 3.13 changed this to have an oparg
 
 # Disabled (not implemented)
 

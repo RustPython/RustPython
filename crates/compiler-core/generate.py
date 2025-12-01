@@ -11,6 +11,9 @@ import typing
 
 import tomllib
 
+if typing.TYPE_CHECKING:
+    from collections.abc import Iterator
+
 CPYTHON_VERSION = "v3.13.9"
 
 
@@ -29,6 +32,8 @@ sys.path.append(CPYTHON_TOOLS_DIR.as_posix())
 import analyzer
 from generators_common import DEFAULT_INPUT
 
+U8_MAX = 255
+
 
 class Inst:
     def __init__(
@@ -39,27 +44,61 @@ class Inst:
 
         self.name = override.get("name", snake_case_to_pascal_case(cpython_name))
         self.id = analysis.opmap[cpython_name]
-        self.has_oparg = override.get("has_oparg", properties.oparg)
+        self.oparg = override.get("oparg", properties.oparg)
 
         if (oparg_typ := override.get("oparg_typ")) is not None:
             self.oparg_typ = getattr(Oparg, oparg_typ)
-        elif self.has_oparg:
+        elif self.oparg:
             self.oparg_typ = Oparg.from_properties(properties)
 
         if (oparg_name := override.get("oparg_name")) is not None:
             self.oparg_name = oparg_name
-        elif self.has_oparg:
+        elif self.oparg:
             oparg_map = build_oparg_name_map()
             self.oparg_name = oparg_map.get(cpython_name, self.oparg_typ.field_name)
 
     @property
     def variant(self) -> str:
-        if self.has_oparg:
+        if self.oparg:
             fields = f"{{ {self.oparg_name}: Arg<{self.oparg_typ.name}> }}"
         else:
             fields = ""
 
         return f"{self.name} {fields} = {self.id}"
+
+    @classmethod
+    def iter_insts(
+        cls, analysis: analyzer.Analysis, conf: dict
+    ) -> Iterator[typing.Self]:
+        opcodes = conf["opcodes"]
+
+        insts = {}
+        for name in analysis.instructions:
+            override = opcodes.get(name, {})
+            if not override.get("enabled", True):
+                continue
+
+            inst = cls(name, override, analysis)
+            insts[inst.id] = inst
+
+        # Because we are treating pseudos like real opcodes,
+        # we need to find an alternative ID for them (they go over u8::MAX)
+        HAVE_ARG = analysis.have_arg
+        occupied = set()
+        for id_, inst in insts.items():
+            if id_ < U8_MAX:
+                continue
+
+            if inst.oparg:
+                ids = range(HAVE_ARG, U8_MAX + 1)
+            else:
+                ids = range(0, HAVE_ARG)
+
+            new_id = next(i for i in ids if i not in occupied)
+            occupied.add(new_id)
+            inst.id = new_id
+
+        yield from insts.values()
 
     def __lt__(self, other) -> bool:
         return self.name < other.name
@@ -157,14 +196,9 @@ def write_enum(outfile: typing.IO, instructions: list[Inst]) -> None:
 
 
 def main():
-    conf = tomllib.loads(CONF_FILE.read_text())
-    opcodes = conf["opcodes"]
     analysis = get_analysis()
-    instructions = sorted(
-        Inst(name, opcodes.get(name, {}), analysis)
-        for name in analysis.instructions
-        if opcodes.get(name, {}).get("enabled", True)
-    )
+    conf = tomllib.loads(CONF_FILE.read_text())
+    instructions = sorted(Inst.iter_insts(analysis, conf))
 
     outfile = io.StringIO()
 
