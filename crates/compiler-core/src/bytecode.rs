@@ -1166,6 +1166,8 @@ impl BinaryOperator {
     ///
     /// # Example
     /// ```rust
+    /// use rustpython_compiler_core::bytecode::BinaryOperator;
+    ///
     /// assert_eq!(BinaryOperator::Power.as_inplace(), BinaryOperator::InplacePower);
     ///
     /// assert_eq!(BinaryOperator::InplaceSubtract.as_inplace(), BinaryOperator::InplaceSubtract);
