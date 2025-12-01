@@ -436,7 +436,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     _ => Err(JitCompileError::NotSupported),
                 }
             }
-            Instruction::BinaryOperation { op } | Instruction::BinaryOperationInplace { op } => {
+            Instruction::BinaryOperation { op } => {
                 let op = op.get(arg);
                 // the rhs is popped off first
                 let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
@@ -457,7 +457,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     (BinaryOperator::FloorDivide, JitValue::Int(a), JitValue::Int(b)) => {
                         JitValue::Int(self.builder.ins().sdiv(a, b))
                     }
-                    (BinaryOperator::Divide, JitValue::Int(a), JitValue::Int(b)) => {
+                    (BinaryOperator::TrueDivide, JitValue::Int(a), JitValue::Int(b)) => {
                         // Check if b == 0, If so trap with a division by zero error
                         self.builder
                             .ins()
@@ -470,7 +470,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     (BinaryOperator::Multiply, JitValue::Int(a), JitValue::Int(b)) => {
                         JitValue::Int(self.builder.ins().imul(a, b))
                     }
-                    (BinaryOperator::Modulo, JitValue::Int(a), JitValue::Int(b)) => {
+                    (BinaryOperator::Remainder, JitValue::Int(a), JitValue::Int(b)) => {
                         JitValue::Int(self.builder.ins().srem(a, b))
                     }
                     (BinaryOperator::Power, JitValue::Int(a), JitValue::Int(b)) => {
@@ -516,7 +516,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     (BinaryOperator::Multiply, JitValue::Float(a), JitValue::Float(b)) => {
                         JitValue::Float(self.builder.ins().fmul(a, b))
                     }
-                    (BinaryOperator::Divide, JitValue::Float(a), JitValue::Float(b)) => {
+                    (BinaryOperator::TrueDivide, JitValue::Float(a), JitValue::Float(b)) => {
                         JitValue::Float(self.builder.ins().fdiv(a, b))
                     }
                     (BinaryOperator::Power, JitValue::Float(a), JitValue::Float(b)) => {
@@ -546,7 +546,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                             BinaryOperator::Multiply => {
                                 JitValue::Float(self.builder.ins().fmul(operand_one, operand_two))
                             }
-                            BinaryOperator::Divide => {
+                            BinaryOperator::TrueDivide => {
                                 JitValue::Float(self.builder.ins().fdiv(operand_one, operand_two))
                             }
                             BinaryOperator::Power => {
