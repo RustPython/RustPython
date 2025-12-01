@@ -1826,7 +1826,8 @@ impl Instruction {
             DeleteAttr { idx } => w!(DeleteAttr, name = idx),
             LoadConst { idx } => fmt_const("LoadConst", arg, f, idx),
             UnaryOperation { op } => w!(UnaryOperation, ?op),
-            BinaryOp { op } => write!(f, "BINARY_OP {}", op.get(arg)),
+            BinaryOp { op } => write!(f, "{:pad$}({})", "BINARY_OP", op.get(arg)),
+
             BinarySubscript => w!(BinarySubscript),
             LoadAttr { idx } => w!(LoadAttr, name = idx),
             CompareOperation { op } => w!(CompareOperation, ?op),
