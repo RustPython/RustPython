@@ -28,8 +28,6 @@ enum SearchType {
     Index,
 }
 
-// Note: might be a good idea to merge with _membership_iter_search or generalize (_sequence_iter_check?)
-// and place in vm.rs for all sequences to be able to use it.
 #[inline]
 fn iter_search(
     obj: &PyObject,
