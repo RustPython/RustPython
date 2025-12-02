@@ -3,7 +3,6 @@ use crate::common::format::FormatSpec;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
     VirtualMachine,
-    builtins::PyBaseExceptionRef,
     class::PyClassImpl,
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::OptionalArg,
@@ -99,15 +98,11 @@ impl PyPayload for PyBool {
             return Ok(());
         }
 
-        #[cold]
-        fn raise_downcast_type_error(
-            vm: &VirtualMachine,
-            class: &Py<PyType>,
-            obj: &PyObject,
-        ) -> PyBaseExceptionRef {
-            vm.new_downcast_type_error(class, obj)
-        }
-        Err(raise_downcast_type_error(vm, Self::class(&vm.ctx), obj))
+        Err(crate::object::cold_downcast_type_error(
+            vm,
+            Self::class(&vm.ctx),
+            obj,
+        ))
     }
 }
 
