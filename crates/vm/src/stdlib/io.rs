@@ -119,7 +119,7 @@ mod _io {
         AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, TryFromObject,
         builtins::{
-            PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyMemoryView, PyStr,
+            PyBaseExceptionRef, PyBool, PyByteArray, PyBytes, PyBytesRef, PyMemoryView, PyStr,
             PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef,
         },
         class::StaticType,
@@ -425,7 +425,7 @@ mod _io {
         }
 
         #[pyattr]
-        fn __closed(ctx: &Context) -> PyIntRef {
+        fn __closed(ctx: &Context) -> PyRef<PyBool> {
             ctx.new_bool(false)
         }
 
