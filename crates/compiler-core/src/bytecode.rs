@@ -594,10 +594,7 @@ pub enum Instruction {
     UnaryOperation {
         op: Arg<UnaryOperator>,
     },
-    BinaryOperation {
-        op: Arg<BinaryOperator>,
-    },
-    BinaryOperationInplace {
+    BinaryOp {
         op: Arg<BinaryOperator>,
     },
     BinarySubscript,
@@ -1094,31 +1091,141 @@ op_arg_enum!(
 
 op_arg_enum!(
     /// The possible Binary operators
+    ///
     /// # Examples
     ///
-    /// ```ignore
-    /// use rustpython_compiler_core::Instruction::BinaryOperation;
-    /// use rustpython_compiler_core::BinaryOperator::Add;
-    /// let op = BinaryOperation {op: Add};
+    /// ```rust
+    /// use rustpython_compiler_core::bytecode::{Arg, BinaryOperator, Instruction};
+    /// let (op, _) = Arg::new(BinaryOperator::Add);
+    /// let instruction = Instruction::BinaryOp { op };
     /// ```
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    ///
+    /// See also:
+    /// - [_PyEval_BinaryOps](https://github.com/python/cpython/blob/8183fa5e3f78ca6ab862de7fb8b14f3d929421e0/Python/ceval.c#L316-L343)
     #[repr(u8)]
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     pub enum BinaryOperator {
-        Power = 0,
-        Multiply = 1,
-        MatrixMultiply = 2,
-        Divide = 3,
-        FloorDivide = 4,
-        Modulo = 5,
-        Add = 6,
-        Subtract = 7,
-        Lshift = 8,
+        /// `+`
+        Add = 0,
+        /// `&`
+        And = 1,
+        /// `//`
+        FloorDivide = 2,
+        /// `<<`
+        Lshift = 3,
+        /// `@`
+        MatrixMultiply = 4,
+        /// `*`
+        Multiply = 5,
+        /// `%`
+        Remainder = 6,
+        /// `|`
+        Or = 7,
+        /// `**`
+        Power = 8,
+        /// `>>`
         Rshift = 9,
-        And = 10,
-        Xor = 11,
-        Or = 12,
+        /// `-`
+        Subtract = 10,
+        /// `/`
+        TrueDivide = 11,
+        /// `^`
+        Xor = 12,
+        /// `+=`
+        InplaceAdd = 13,
+        /// `&=`
+        InplaceAnd = 14,
+        /// `//=`
+        InplaceFloorDivide = 15,
+        /// `<<=`
+        InplaceLshift = 16,
+        /// `@=`
+        InplaceMatrixMultiply = 17,
+        /// `*=`
+        InplaceMultiply = 18,
+        /// `%=`
+        InplaceRemainder = 19,
+        /// `|=`
+        InplaceOr = 20,
+        /// `**=`
+        InplacePower = 21,
+        /// `>>=`
+        InplaceRshift = 22,
+        /// `-=`
+        InplaceSubtract = 23,
+        /// `/=`
+        InplaceTrueDivide = 24,
+        /// `^=`
+        InplaceXor = 25,
     }
 );
+
+impl BinaryOperator {
+    /// Get the "inplace" version of the operator.
+    /// This has no effect if `self` is already an "inplace" operator.
+    ///
+    /// # Example
+    /// ```rust
+    /// use rustpython_compiler_core::bytecode::BinaryOperator;
+    ///
+    /// assert_eq!(BinaryOperator::Power.as_inplace(), BinaryOperator::InplacePower);
+    ///
+    /// assert_eq!(BinaryOperator::InplaceSubtract.as_inplace(), BinaryOperator::InplaceSubtract);
+    /// ```
+    #[must_use]
+    pub const fn as_inplace(self) -> Self {
+        match self {
+            Self::Add => Self::InplaceAdd,
+            Self::And => Self::InplaceAnd,
+            Self::FloorDivide => Self::InplaceFloorDivide,
+            Self::Lshift => Self::InplaceLshift,
+            Self::MatrixMultiply => Self::InplaceMatrixMultiply,
+            Self::Multiply => Self::InplaceMultiply,
+            Self::Remainder => Self::InplaceRemainder,
+            Self::Or => Self::InplaceOr,
+            Self::Power => Self::InplacePower,
+            Self::Rshift => Self::InplaceRshift,
+            Self::Subtract => Self::InplaceSubtract,
+            Self::TrueDivide => Self::InplaceTrueDivide,
+            Self::Xor => Self::InplaceXor,
+            _ => self,
+        }
+    }
+}
+
+impl fmt::Display for BinaryOperator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let op = match self {
+            Self::Add => "+",
+            Self::And => "&",
+            Self::FloorDivide => "//",
+            Self::Lshift => "<<",
+            Self::MatrixMultiply => "@",
+            Self::Multiply => "*",
+            Self::Remainder => "%",
+            Self::Or => "|",
+            Self::Power => "**",
+            Self::Rshift => ">>",
+            Self::Subtract => "-",
+            Self::TrueDivide => "/",
+            Self::Xor => "^",
+            Self::InplaceAdd => "+=",
+            Self::InplaceAnd => "&=",
+            Self::InplaceFloorDivide => "//=",
+            Self::InplaceLshift => "<<=",
+            Self::InplaceMatrixMultiply => "@=",
+            Self::InplaceMultiply => "*=",
+            Self::InplaceRemainder => "%=",
+            Self::InplaceOr => "|=",
+            Self::InplacePower => "**=",
+            Self::InplaceRshift => ">>=",
+            Self::InplaceSubtract => "-=",
+            Self::InplaceTrueDivide => "/=",
+            Self::InplaceXor => "^=",
+        };
+        write!(f, "{op}")
+    }
+}
 
 op_arg_enum!(
     /// The possible unary operators
@@ -1514,7 +1621,7 @@ impl Instruction {
             DeleteAttr { .. } => -1,
             LoadConst { .. } => 1,
             UnaryOperation { .. } => 0,
-            BinaryOperation { .. } | BinaryOperationInplace { .. } | CompareOperation { .. } => -1,
+            BinaryOp { .. } | CompareOperation { .. } => -1,
             BinarySubscript => -1,
             CopyItem { .. } => 1,
             Pop => -1,
@@ -1719,8 +1826,8 @@ impl Instruction {
             DeleteAttr { idx } => w!(DeleteAttr, name = idx),
             LoadConst { idx } => fmt_const("LoadConst", arg, f, idx),
             UnaryOperation { op } => w!(UnaryOperation, ?op),
-            BinaryOperation { op } => w!(BinaryOperation, ?op),
-            BinaryOperationInplace { op } => w!(BinaryOperationInplace, ?op),
+            BinaryOp { op } => write!(f, "{:pad$}({})", "BINARY_OP", op.get(arg)),
+
             BinarySubscript => w!(BinarySubscript),
             LoadAttr { idx } => w!(LoadAttr, name = idx),
             CompareOperation { op } => w!(CompareOperation, ?op),

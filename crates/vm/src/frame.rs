@@ -868,10 +868,7 @@ impl ExecutingFrame<'_> {
                 dict.set_item(&*key, value, vm)?;
                 Ok(None)
             }
-            bytecode::Instruction::BinaryOperation { op } => self.execute_bin_op(vm, op.get(arg)),
-            bytecode::Instruction::BinaryOperationInplace { op } => {
-                self.execute_bin_op_inplace(vm, op.get(arg))
-            }
+            bytecode::Instruction::BinaryOp { op } => self.execute_bin_op(vm, op.get(arg)),
             bytecode::Instruction::BinarySubscript => {
                 let key = self.pop_value();
                 let container = self.pop_value();
@@ -2126,40 +2123,29 @@ impl ExecutingFrame<'_> {
             bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
             bytecode::BinaryOperator::MatrixMultiply => vm._matmul(a_ref, b_ref),
             bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref, vm.ctx.none.as_object()),
-            bytecode::BinaryOperator::Divide => vm._truediv(a_ref, b_ref),
+            bytecode::BinaryOperator::TrueDivide => vm._truediv(a_ref, b_ref),
             bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
-            bytecode::BinaryOperator::Modulo => vm._mod(a_ref, b_ref),
+            bytecode::BinaryOperator::Remainder => vm._mod(a_ref, b_ref),
             bytecode::BinaryOperator::Lshift => vm._lshift(a_ref, b_ref),
             bytecode::BinaryOperator::Rshift => vm._rshift(a_ref, b_ref),
             bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
             bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
             bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
-        }?;
-
-        self.push_value(value);
-        Ok(None)
-    }
-    fn execute_bin_op_inplace(
-        &mut self,
-        vm: &VirtualMachine,
-        op: bytecode::BinaryOperator,
-    ) -> FrameResult {
-        let b_ref = &self.pop_value();
-        let a_ref = &self.pop_value();
-        let value = match op {
-            bytecode::BinaryOperator::Subtract => vm._isub(a_ref, b_ref),
-            bytecode::BinaryOperator::Add => vm._iadd(a_ref, b_ref),
-            bytecode::BinaryOperator::Multiply => vm._imul(a_ref, b_ref),
-            bytecode::BinaryOperator::MatrixMultiply => vm._imatmul(a_ref, b_ref),
-            bytecode::BinaryOperator::Power => vm._ipow(a_ref, b_ref, vm.ctx.none.as_object()),
-            bytecode::BinaryOperator::Divide => vm._itruediv(a_ref, b_ref),
-            bytecode::BinaryOperator::FloorDivide => vm._ifloordiv(a_ref, b_ref),
-            bytecode::BinaryOperator::Modulo => vm._imod(a_ref, b_ref),
-            bytecode::BinaryOperator::Lshift => vm._ilshift(a_ref, b_ref),
-            bytecode::BinaryOperator::Rshift => vm._irshift(a_ref, b_ref),
-            bytecode::BinaryOperator::Xor => vm._ixor(a_ref, b_ref),
-            bytecode::BinaryOperator::Or => vm._ior(a_ref, b_ref),
-            bytecode::BinaryOperator::And => vm._iand(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceSubtract => vm._isub(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceAdd => vm._iadd(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceMultiply => vm._imul(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceMatrixMultiply => vm._imatmul(a_ref, b_ref),
+            bytecode::BinaryOperator::InplacePower => {
+                vm._ipow(a_ref, b_ref, vm.ctx.none.as_object())
+            }
+            bytecode::BinaryOperator::InplaceTrueDivide => vm._itruediv(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceFloorDivide => vm._ifloordiv(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceRemainder => vm._imod(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceLshift => vm._ilshift(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceRshift => vm._irshift(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceXor => vm._ixor(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceOr => vm._ior(a_ref, b_ref),
+            bytecode::BinaryOperator::InplaceAnd => vm._iand(a_ref, b_ref),
         }?;
 
         self.push_value(value);
