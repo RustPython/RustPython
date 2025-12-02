@@ -2254,16 +2254,16 @@ impl ExecutingFrame<'_> {
 
     fn convert_value(
         &mut self,
-        conversion: bytecode::ConversionFlag,
+        conversion: bytecode::ConvertValueOparg,
         vm: &VirtualMachine,
     ) -> FrameResult {
-        use bytecode::ConversionFlag;
+        use bytecode::ConvertValueOparg;
         let value = self.pop_value();
         let value = match conversion {
-            ConversionFlag::Str => value.str(vm)?.into(),
-            ConversionFlag::Repr => value.repr(vm)?.into(),
-            ConversionFlag::Ascii => vm.ctx.new_str(builtins::ascii(value, vm)?).into(),
-            ConversionFlag::None => value,
+            ConvertValueOparg::Str => value.str(vm)?.into(),
+            ConvertValueOparg::Repr => value.repr(vm)?.into(),
+            ConvertValueOparg::Ascii => vm.ctx.new_str(builtins::ascii(value, vm)?).into(),
+            ConvertValueOparg::None => value,
         };
 
         self.push_value(value);

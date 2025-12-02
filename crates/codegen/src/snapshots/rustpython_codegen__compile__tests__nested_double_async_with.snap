@@ -11,7 +11,7 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
               6 CallFunctionPositional(1)
               7 BuildTuple           (2)
               8 GetIter
-        >>    9 ForIter              (72)
+        >>    9 ForIter              (71)
              10 StoreLocal           (2, stop_exc)
 
   2          11 LoadNameAny          (3, self)
@@ -21,7 +21,7 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
              15 CallFunctionPositional(1)
              16 LoadConst            (("type"))
              17 CallMethodKeyword    (1)
-             18 SetupWith            (69)
+             18 SetupWith            (68)
              19 Pop
 
   3          20 SetupExcept          (42)
@@ -65,23 +65,22 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
              53 LoadConst            (None)
              54 StoreLocal           (8, ex)
              55 DeleteLocal          (8, ex)
-             56 Jump                 (67)
+             56 Jump                 (66)
         >>   57 Raise                (Reraise)
 
   9     >>   58 LoadNameAny          (3, self)
              59 LoadMethod           (10, fail)
-             60 LoadConst            ("")
-             61 LoadNameAny          (2, stop_exc)
-             62 FormatValue          (None)
-             63 LoadConst            (" was suppressed")
-             64 BuildString          (2)
-             65 CallMethodPositional (1)
-             66 Pop
+             60 LoadNameAny          (2, stop_exc)
+             61 FORMAT_SIMPLE
+             62 LoadConst            (" was suppressed")
+             63 BuildString          (2)
+             64 CallMethodPositional (1)
+             65 Pop
 
-  2     >>   67 PopBlock
-             68 EnterFinally
-        >>   69 WithCleanupStart
-             70 WithCleanupFinish
-             71 Jump                 (9)
-        >>   72 PopBlock
-             73 ReturnConst          (None)
+  2     >>   66 PopBlock
+             67 EnterFinally
+        >>   68 WithCleanupStart
+             69 WithCleanupFinish
+             70 Jump                 (9)
+        >>   71 PopBlock
+             72 ReturnConst          (None)

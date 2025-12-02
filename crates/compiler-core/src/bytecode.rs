@@ -19,8 +19,8 @@ use std::{collections::BTreeSet, fmt, hash, marker::PhantomData, mem, num::NonZe
 /// - [CPython FVC_* flags](https://github.com/python/cpython/blob/8183fa5e3f78ca6ab862de7fb8b14f3d929421e0/Include/ceval.h#L129-L132)
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub enum ConversionFlag {
-    /// No conversion flag.
+pub enum ConvertValueOparg {
+    /// No conversion.
     ///
     /// ```python
     /// f"{x}"
@@ -50,7 +50,7 @@ pub enum ConversionFlag {
     Ascii = 3,
 }
 
-impl fmt::Display for ConversionFlag {
+impl fmt::Display for ConvertValueOparg {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let out = match self {
             Self::Str => "1 (str)",
@@ -514,7 +514,7 @@ impl fmt::Display for Label {
     }
 }
 
-impl OpArgType for ConversionFlag {
+impl OpArgType for ConvertValueOparg {
     #[inline]
     fn from_op_arg(x: u32) -> Option<Self> {
         Some(match x {
@@ -825,7 +825,7 @@ pub enum Instruction {
     ///
     /// Used for implementing formatted string literals (f-strings).
     ConvertValue {
-        oparg: Arg<ConversionFlag>,
+        oparg: Arg<ConvertValueOparg>,
     },
     /// Formats the value on top of stack:
     ///

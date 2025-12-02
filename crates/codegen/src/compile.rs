@@ -21,22 +21,22 @@ use malachite_bigint::BigInt;
 use num_complex::Complex;
 use num_traits::{Num, ToPrimitive};
 use ruff_python_ast::{
-    Alias, Arguments, BoolOp, CmpOp, Comprehension, DebugText, Decorator, DictItem, ExceptHandler,
-    ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprContext, ExprFString,
-    ExprList, ExprName, ExprSlice, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp, FString,
-    FStringFlags, FStringPart, Identifier, Int, InterpolatedElement, InterpolatedStringElement,
-    InterpolatedStringElements, Keyword, MatchCase, ModExpression, ModModule, Operator, Parameters,
-    Pattern, PatternMatchAs, PatternMatchClass, PatternMatchMapping, PatternMatchOr,
-    PatternMatchSequence, PatternMatchSingleton, PatternMatchStar, PatternMatchValue, Singleton,
-    Stmt, StmtExpr, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple,
-    TypeParams, UnaryOp, WithItem,
+    Alias, Arguments, BoolOp, CmpOp, Comprehension, ConversionFlag, DebugText, Decorator, DictItem,
+    ExceptHandler, ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprContext,
+    ExprFString, ExprList, ExprName, ExprSlice, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp,
+    FString, FStringFlags, FStringPart, Identifier, Int, InterpolatedElement,
+    InterpolatedStringElement, InterpolatedStringElements, Keyword, MatchCase, ModExpression,
+    ModModule, Operator, Parameters, Pattern, PatternMatchAs, PatternMatchClass,
+    PatternMatchMapping, PatternMatchOr, PatternMatchSequence, PatternMatchSingleton,
+    PatternMatchStar, PatternMatchValue, Singleton, Stmt, StmtExpr, TypeParam, TypeParamParamSpec,
+    TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams, UnaryOp, WithItem,
 };
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_core::{
     Mode, OneIndexed, PositionEncoding, SourceFile, SourceLocation,
     bytecode::{
         self, Arg as OpArgMarker, BinaryOperator, BuildSliceArgCount, CodeObject,
-        ComparisonOperator, ConstantData, ConversionFlag, Instruction, Invert, OpArg, OpArgType,
+        ComparisonOperator, ConstantData, ConvertValueOparg, Instruction, Invert, OpArg, OpArgType,
         UnpackExArgs,
     },
 };
@@ -5638,10 +5638,10 @@ impl Compiler {
                 }
                 InterpolatedStringElement::Interpolation(fstring_expr) => {
                     let mut conversion = match fstring_expr.conversion {
-                        ruff_python_ast::ConversionFlag::None => ConversionFlag::None,
-                        ruff_python_ast::ConversionFlag::Str => ConversionFlag::Str,
-                        ruff_python_ast::ConversionFlag::Repr => ConversionFlag::Repr,
-                        ruff_python_ast::ConversionFlag::Ascii => ConversionFlag::Ascii,
+                        ConversionFlag::None => ConvertValueOparg::None,
+                        ConversionFlag::Str => ConvertValueOparg::Str,
+                        ConversionFlag::Repr => ConvertValueOparg::Repr,
+                        ConversionFlag::Ascii => ConvertValueOparg::Ascii,
                     };
 
                     if let Some(DebugText { leading, trailing }) = &fstring_expr.debug_text {
@@ -5657,17 +5657,19 @@ impl Compiler {
                         // See: https://github.com/python/cpython/blob/f61afca262d3a0aa6a8a501db0b1936c60858e35/Parser/action_helpers.c#L1456
                         if matches!(
                             (conversion, &fstring_expr.format_spec),
-                            (ConversionFlag::None, None)
+                            (ConvertValueOparg::None, None)
                         ) {
-                            conversion = ConversionFlag::Repr;
+                            conversion = ConvertValueOparg::Repr;
                         }
                     }
 
                     self.compile_expression(&fstring_expr.expression)?;
 
                     match conversion {
-                        ConversionFlag::None => {}
-                        ConversionFlag::Str | ConversionFlag::Repr | ConversionFlag::Ascii => {
+                        ConvertValueOparg::None => {}
+                        ConvertValueOparg::Str
+                        | ConvertValueOparg::Repr
+                        | ConvertValueOparg::Ascii => {
                             emit!(self, Instruction::ConvertValue { oparg: conversion })
                         }
                     }
