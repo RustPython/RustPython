@@ -21,22 +21,23 @@ use malachite_bigint::BigInt;
 use num_complex::Complex;
 use num_traits::{Num, ToPrimitive};
 use ruff_python_ast::{
-    Alias, Arguments, BoolOp, CmpOp, Comprehension, ConversionFlag, DebugText, Decorator, DictItem,
-    ExceptHandler, ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprContext,
-    ExprFString, ExprList, ExprName, ExprSlice, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp,
-    FString, FStringFlags, FStringPart, Identifier, Int, InterpolatedElement,
-    InterpolatedStringElement, InterpolatedStringElements, Keyword, MatchCase, ModExpression,
-    ModModule, Operator, Parameters, Pattern, PatternMatchAs, PatternMatchClass,
-    PatternMatchMapping, PatternMatchOr, PatternMatchSequence, PatternMatchSingleton,
-    PatternMatchStar, PatternMatchValue, Singleton, Stmt, StmtExpr, TypeParam, TypeParamParamSpec,
-    TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams, UnaryOp, WithItem,
+    Alias, Arguments, BoolOp, CmpOp, Comprehension, DebugText, Decorator, DictItem, ExceptHandler,
+    ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprContext, ExprFString,
+    ExprList, ExprName, ExprSlice, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp, FString,
+    FStringFlags, FStringPart, Identifier, Int, InterpolatedElement, InterpolatedStringElement,
+    InterpolatedStringElements, Keyword, MatchCase, ModExpression, ModModule, Operator, Parameters,
+    Pattern, PatternMatchAs, PatternMatchClass, PatternMatchMapping, PatternMatchOr,
+    PatternMatchSequence, PatternMatchSingleton, PatternMatchStar, PatternMatchValue, Singleton,
+    Stmt, StmtExpr, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple,
+    TypeParams, UnaryOp, WithItem,
 };
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_core::{
     Mode, OneIndexed, PositionEncoding, SourceFile, SourceLocation,
     bytecode::{
         self, Arg as OpArgMarker, BinaryOperator, BuildSliceArgCount, CodeObject,
-        ComparisonOperator, ConstantData, Instruction, Invert, OpArg, OpArgType, UnpackExArgs,
+        ComparisonOperator, ConstantData, ConversionFlag, Instruction, Invert, OpArg, OpArgType,
+        UnpackExArgs,
     },
 };
 use rustpython_wtf8::Wtf8Buf;
@@ -5636,7 +5637,12 @@ impl Compiler {
                     }
                 }
                 InterpolatedStringElement::Interpolation(fstring_expr) => {
-                    let mut conversion = fstring_expr.conversion;
+                    let mut conversion = match fstring_expr.conversion {
+                        ruff_python_ast::ConversionFlag::None => ConversionFlag::None,
+                        ruff_python_ast::ConversionFlag::Str => ConversionFlag::Str,
+                        ruff_python_ast::ConversionFlag::Repr => ConversionFlag::Repr,
+                        ruff_python_ast::ConversionFlag::Ascii => ConversionFlag::Ascii,
+                    };
 
                     if let Some(DebugText { leading, trailing }) = &fstring_expr.debug_text {
                         let range = fstring_expr.expression.range();
@@ -5645,35 +5651,37 @@ impl Compiler {
 
                         self.emit_load_const(ConstantData::Str { value: text.into() });
                         element_count += 1;
-                    }
 
-                    match &fstring_expr.format_spec {
-                        None => {
-                            self.emit_load_const(ConstantData::Str {
-                                value: Wtf8Buf::new(),
-                            });
-                            // Match CPython behavior: If debug text is present, apply repr conversion.
-                            // See: https://github.com/python/cpython/blob/f61afca262d3a0aa6a8a501db0b1936c60858e35/Parser/action_helpers.c#L1456
-                            if conversion == ConversionFlag::None
-                                && fstring_expr.debug_text.is_some()
-                            {
-                                conversion = ConversionFlag::Repr;
-                            }
-                        }
-                        Some(format_spec) => {
-                            self.compile_fstring_elements(flags, &format_spec.elements)?;
+                        // Match CPython behavior: If debug text is present, apply repr conversion.
+                        // if no `format_spec` specified.
+                        // See: https://github.com/python/cpython/blob/f61afca262d3a0aa6a8a501db0b1936c60858e35/Parser/action_helpers.c#L1456
+                        if matches!(
+                            (conversion, &fstring_expr.format_spec),
+                            (ConversionFlag::None, None)
+                        ) {
+                            conversion = ConversionFlag::Repr;
                         }
                     }
 
                     self.compile_expression(&fstring_expr.expression)?;
 
-                    let conversion = match conversion {
-                        ConversionFlag::None => bytecode::ConversionFlag::None,
-                        ConversionFlag::Str => bytecode::ConversionFlag::Str,
-                        ConversionFlag::Ascii => bytecode::ConversionFlag::Ascii,
-                        ConversionFlag::Repr => bytecode::ConversionFlag::Repr,
-                    };
-                    emit!(self, Instruction::FormatValue { conversion });
+                    match conversion {
+                        ConversionFlag::None => {}
+                        ConversionFlag::Str | ConversionFlag::Repr | ConversionFlag::Ascii => {
+                            emit!(self, Instruction::ConvertValue { oparg: conversion })
+                        }
+                    }
+
+                    match &fstring_expr.format_spec {
+                        Some(format_spec) => {
+                            self.compile_fstring_elements(flags, &format_spec.elements)?;
+
+                            emit!(self, Instruction::FormatWithSpec);
+                        }
+                        None => {
+                            emit!(self, Instruction::FormatSimple);
+                        }
+                    }
                 }
             }
         }

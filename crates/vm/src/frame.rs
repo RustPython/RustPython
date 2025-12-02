@@ -1308,8 +1308,23 @@ impl ExecutingFrame<'_> {
                 let args = args.get(arg);
                 self.execute_unpack_ex(vm, args.before, args.after)
             }
-            bytecode::Instruction::FormatValue { conversion } => {
-                self.format_value(conversion.get(arg), vm)
+            bytecode::Instruction::ConvertValue { oparg: conversion } => {
+                self.convert_value(conversion.get(arg), vm)
+            }
+            bytecode::Instruction::FormatSimple => {
+                let value = self.pop_value();
+                let formatted = vm.format(&value, vm.ctx.new_str(""))?;
+                self.push_value(formatted.into());
+
+                Ok(None)
+            }
+            bytecode::Instruction::FormatWithSpec => {
+                let spec = self.pop_value();
+                let value = self.pop_value();
+                let formatted = vm.format(&value, spec.downcast::<PyStr>().unwrap())?;
+                self.push_value(formatted.into());
+
+                Ok(None)
             }
             bytecode::Instruction::PopException => {
                 let block = self.pop_block();
@@ -2237,7 +2252,7 @@ impl ExecutingFrame<'_> {
         Err(vm.new_value_error(msg))
     }
 
-    fn format_value(
+    fn convert_value(
         &mut self,
         conversion: bytecode::ConversionFlag,
         vm: &VirtualMachine,
@@ -2251,9 +2266,7 @@ impl ExecutingFrame<'_> {
             ConversionFlag::None => value,
         };
 
-        let spec = self.pop_value();
-        let formatted = vm.format(&value, spec.downcast::<PyStr>().unwrap())?;
-        self.push_value(formatted.into());
+        self.push_value(value);
         Ok(None)
     }
 

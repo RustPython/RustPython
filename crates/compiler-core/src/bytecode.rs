@@ -12,18 +12,56 @@ use num_complex::Complex64;
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
 use std::{collections::BTreeSet, fmt, hash, marker::PhantomData, mem, num::NonZeroU8, ops::Deref};
 
+/// Oparg values for [`Instruction::ConvertValue`].
+///
+/// ## See also
+///
+/// - [CPython FVC_* flags](https://github.com/python/cpython/blob/8183fa5e3f78ca6ab862de7fb8b14f3d929421e0/Include/ceval.h#L129-L132)
+#[repr(u8)]
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-#[repr(i8)]
-#[allow(clippy::cast_possible_wrap)]
 pub enum ConversionFlag {
-    /// No conversion
-    None = -1, // CPython uses -1
+    /// No conversion flag.
+    ///
+    /// ```python
+    /// f"{x}"
+    /// f"{x:4}"
+    /// ```
+    None = 0,
     /// Converts by calling `str(<value>)`.
-    Str = b's' as i8,
-    /// Converts by calling `ascii(<value>)`.
-    Ascii = b'a' as i8,
+    ///
+    /// ```python
+    /// f"{x!s}"
+    /// f"{x!s:2}"
+    /// ```
+    Str = 1,
     /// Converts by calling `repr(<value>)`.
-    Repr = b'r' as i8,
+    ///
+    /// ```python
+    /// f"{x!r}"
+    /// f"{x!r:2}"
+    /// ```
+    Repr = 2,
+    /// Converts by calling `ascii(<value>)`.
+    ///
+    /// ```python
+    /// f"{x!a}"
+    /// f"{x!a:2}"
+    /// ```
+    Ascii = 3,
+}
+
+impl fmt::Display for ConversionFlag {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let out = match self {
+            Self::Str => "1 (str)",
+            Self::Repr => "2 (repr)",
+            Self::Ascii => "3 (ascii)",
+            // We should never reach this. `FVC_NONE` are being handled by `Instruction::FormatSimple`
+            Self::None => "",
+        };
+
+        write!(f, "{out}")
+    }
 }
 
 /// Resume type for the RESUME instruction
@@ -479,18 +517,18 @@ impl fmt::Display for Label {
 impl OpArgType for ConversionFlag {
     #[inline]
     fn from_op_arg(x: u32) -> Option<Self> {
-        match x as u8 {
-            b's' => Some(Self::Str),
-            b'a' => Some(Self::Ascii),
-            b'r' => Some(Self::Repr),
-            std::u8::MAX => Some(Self::None),
-            _ => None,
-        }
+        Some(match x {
+            0 => Self::None,
+            1 => Self::Str,
+            2 => Self::Repr,
+            3 => Self::Ascii,
+            _ => return None,
+        })
     }
 
     #[inline]
     fn to_op_arg(self) -> u32 {
-        self as i8 as u8 as u32
+        self as u32
     }
 }
 
@@ -777,9 +815,39 @@ pub enum Instruction {
     UnpackEx {
         args: Arg<UnpackExArgs>,
     },
-    FormatValue {
-        conversion: Arg<ConversionFlag>,
+    /// Convert value to a string, depending on `oparg`:
+    ///
+    /// ```python
+    /// value = STACK.pop()
+    /// result = func(value)
+    /// STACK.append(result)
+    /// ```
+    ///
+    /// Used for implementing formatted string literals (f-strings).
+    ConvertValue {
+        oparg: Arg<ConversionFlag>,
     },
+    /// Formats the value on top of stack:
+    ///
+    /// ```python
+    /// value = STACK.pop()
+    /// result = value.__format__("")
+    /// STACK.append(result)
+    /// ```
+    ///
+    /// Used for implementing formatted string literals (f-strings).
+    FormatSimple,
+    /// Formats the given value with the given format spec:
+    ///
+    /// ```python
+    /// spec = STACK.pop()
+    /// value = STACK.pop()
+    /// result = value.__format__(spec)
+    /// STACK.append(result)
+    /// ```
+    ///
+    /// Used for implementing formatted string literals (f-strings).
+    FormatWithSpec,
     PopException,
     Reverse {
         amount: Arg<u32>,
@@ -1656,6 +1724,9 @@ impl Instruction {
             CallMethodKeyword { nargs } => -1 - (nargs.get(arg) as i32) - 3 + 1,
             CallFunctionEx { has_kwargs } => -1 - (has_kwargs.get(arg) as i32) - 1 + 1,
             CallMethodEx { has_kwargs } => -1 - (has_kwargs.get(arg) as i32) - 3 + 1,
+            ConvertValue { .. } => 0,
+            FormatSimple => 0,
+            FormatWithSpec => -1,
             LoadMethod { .. } => -1 + 3,
             ForIter { .. } => {
                 if jump {
@@ -1709,7 +1780,6 @@ impl Instruction {
                 let UnpackExArgs { before, after } = args.get(arg);
                 -1 + before as i32 + 1 + after as i32
             }
-            FormatValue { .. } => -1,
             PopException => 0,
             Reverse { .. } => 0,
             GetAwaitable => 0,
@@ -1891,10 +1961,12 @@ impl Instruction {
             SetAdd { i } => w!(SetAdd, i),
             MapAdd { i } => w!(MapAdd, i),
             PrintExpr => w!(PrintExpr),
+            ConvertValue { oparg } => write!(f, "{:pad$}{}", "CONVERT_VALUE", oparg.get(arg)),
+            FormatSimple => w!(FORMAT_SIMPLE),
+            FormatWithSpec => w!(FORMAT_WITH_SPEC),
             LoadBuildClass => w!(LoadBuildClass),
             UnpackSequence { size } => w!(UnpackSequence, size),
             UnpackEx { args } => w!(UnpackEx, args),
-            FormatValue { conversion } => w!(FormatValue, ?conversion),
             PopException => w!(PopException),
             Reverse { amount } => w!(Reverse, amount),
             GetAwaitable => w!(GetAwaitable),
