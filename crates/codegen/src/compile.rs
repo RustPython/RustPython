@@ -1056,7 +1056,14 @@ impl Compiler {
             for statement in body {
                 if let Stmt::Expr(StmtExpr { value, .. }) = &statement {
                     self.compile_expression(value)?;
-                    emit!(self, Instruction::PrintExpr);
+                    emit!(
+                        self,
+                        Instruction::CallIntrinsic1 {
+                            func: bytecode::IntrinsicFunction1::Print
+                        }
+                    );
+
+                    emit!(self, Instruction::Pop);
                 } else {
                     self.compile_statement(statement)?;
                 }
@@ -1065,7 +1072,14 @@ impl Compiler {
             if let Stmt::Expr(StmtExpr { value, .. }) = &last {
                 self.compile_expression(value)?;
                 emit!(self, Instruction::CopyItem { index: 1_u32 });
-                emit!(self, Instruction::PrintExpr);
+                emit!(
+                    self,
+                    Instruction::CallIntrinsic1 {
+                        func: bytecode::IntrinsicFunction1::Print
+                    }
+                );
+
+                emit!(self, Instruction::Pop);
             } else {
                 self.compile_statement(last)?;
                 self.emit_load_const(ConstantData::None);
