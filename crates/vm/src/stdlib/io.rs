@@ -119,8 +119,8 @@ mod _io {
         AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, TryFromObject,
         builtins::{
-            PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyMemoryView, PyNone,
-            PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef,
+            PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyMemoryView, PyStr,
+            PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef,
         },
         class::StaticType,
         common::lock::{
@@ -2442,11 +2442,20 @@ mod _io {
         #[pymethod]
         fn detach(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let mut textio = zelf.lock(vm)?;
-            // TODO: implement CHECK_ATTACHED
-            // textio.check_attached(vm)?;
-            vm.call_method(zelf.as_object(), "flush", ())?;
+
+            // Fail fast if already detached
+            if vm.is_none(&textio.buffer) {
+                return Err(vm.new_value_error("underlying buffer has been detached"));
+            }
+
+            // Inline the equivalent of `flush` method without reentering the lock
+            textio.check_closed(vm)?;
+            textio.telling = textio.seekable;
+            textio.write_pending(vm)?;
+            vm.call_method(&textio.buffer, "flush", ())?;
+
             let buffer = textio.buffer.clone();
-            textio.buffer = vm.new_pyobj(PyNone);
+            textio.buffer = vm.ctx.none();
             Ok(buffer)
         }
 

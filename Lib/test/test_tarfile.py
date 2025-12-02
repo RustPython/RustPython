@@ -258,8 +258,6 @@ class ListTest(ReadTest, unittest.TestCase):
     def setUp(self):
         self.tar = tarfile.open(self.tarname, mode=self.mode)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_list(self):
         tio = io.TextIOWrapper(io.BytesIO(), 'ascii', newline='\n')
         with support.swap_attr(sys, 'stdout', tio):
@@ -297,8 +295,6 @@ class ListTest(ReadTest, unittest.TestCase):
         self.assertNotIn(b'link to', out)
         self.assertNotIn(b'->', out)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_list_verbose(self):
         tio = io.TextIOWrapper(io.BytesIO(), 'ascii', newline='\n')
         with support.swap_attr(sys, 'stdout', tio):
@@ -323,8 +319,6 @@ class ListTest(ReadTest, unittest.TestCase):
         self.assertIn(b'pax' + (b'/123' * 125) + b'/longlink link to pax' +
                       (b'/123' * 125) + b'/longname', out)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_list_members(self):
         tio = io.TextIOWrapper(io.BytesIO(), 'ascii', newline='\n')
         def members(tar):
