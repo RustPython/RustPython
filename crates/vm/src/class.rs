@@ -172,17 +172,30 @@ pub trait PyClassImpl: PyClassDef {
     }
 }
 
-/// Marker trait for Python subclasses with `#[repr(transparent)]` newtype pattern.
+/// Trait for Python subclasses that can provide a reference to their base type.
 ///
 /// This trait is automatically implemented by the `#[pyclass]` macro when
-/// `base = SomeType` is specified. It enables type-safe conversion between
-/// `PyRef<Subclass>` and `PyRef<Base>`.
+/// `base = SomeType` is specified. It provides safe reference access to the
+/// base type's payload.
+///
+/// For subclasses with `#[repr(transparent)]`, see also [`PySubclassTransparent`]
+/// which enables ownership transfer via `into_base()`.
+pub trait PySubclass: crate::PyPayload {
+    type Base: crate::PyPayload;
+
+    /// Returns a reference to the base type's payload.
+    fn as_base(&self) -> &Self::Base;
+}
+
+/// Marker trait for `#[repr(transparent)]` subclasses.
+///
+/// This trait enables ownership transfer from `PyRef<Self>` to `PyRef<Self::Base>`
+/// via the `into_base_ref()` method. Only types with identical memory layout to their
+/// base type (i.e., `#[repr(transparent)]` newtypes) should implement this trait.
 ///
 /// # Safety
 ///
 /// Implementors must ensure:
 /// - The type uses `#[repr(transparent)]` with the Base type as the only field
 /// - Memory layout is identical to the Base type
-pub trait PySubclass: crate::PyPayload {
-    type Base: crate::PyPayload;
-}
+pub trait PySubclassTransparent: PySubclass {}

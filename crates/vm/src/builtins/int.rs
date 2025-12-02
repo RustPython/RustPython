@@ -259,7 +259,7 @@ impl PyInt {
             Ok(vm
                 .ctx
                 .new_bool(!value.into().eq(&BigInt::zero()))
-                .into_base())
+                .into_base_ref())
         } else {
             Self::from(value).into_ref_with_type(vm, cls)
         }

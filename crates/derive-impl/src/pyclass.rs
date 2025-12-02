@@ -397,17 +397,29 @@ fn generate_class_def(
         quote! { ::rustpython_vm::builtins::PyBaseObject }
     };
 
-    // Generate PySubclass impl for types with:
-    // - base class specified
-    // - #[repr(transparent)] (required for safe transmute)
-    // - not PyStructSequence
+    // Generate PySubclass impl for #[repr(transparent)] types with base class
+    // (tuple struct assumed, so &self.0 works)
     let subclass_impl = if !is_pystruct && is_repr_transparent {
         base.as_ref().map(|typ| {
             quote! {
                 impl ::rustpython_vm::class::PySubclass for #ident {
                     type Base = #typ;
+
+                    #[inline]
+                    fn as_base(&self) -> &Self::Base {
+                        &self.0
+                    }
                 }
             }
+        })
+    } else {
+        None
+    };
+
+    // Generate PySubclassTransparent marker for #[repr(transparent)] types
+    let transparent_impl = if !is_pystruct && is_repr_transparent && base.is_some() {
+        Some(quote! {
+            impl ::rustpython_vm::class::PySubclassTransparent for #ident {}
         })
     } else {
         None
@@ -439,6 +451,7 @@ fn generate_class_def(
         }
 
         #subclass_impl
+        #transparent_impl
     };
     Ok(tokens)
 }
