@@ -64,6 +64,26 @@ impl fmt::Display for ConvertValueOparg {
     }
 }
 
+impl OpArgType for ConvertValueOparg {
+    #[inline]
+    fn from_op_arg(x: u32) -> Option<Self> {
+        Some(match x {
+            // Ruff `ConversionFlag::None` is `-1i8`,
+            // when its converted to `u8` its value is `u8::MAX`
+            0 | 255 => Self::None,
+            1 => Self::Str,
+            2 => Self::Repr,
+            3 => Self::Ascii,
+            _ => return None,
+        })
+    }
+
+    #[inline]
+    fn to_op_arg(self) -> u32 {
+        self as u32
+    }
+}
+
 /// Resume type for the RESUME instruction
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 #[repr(u32)]
@@ -511,24 +531,6 @@ impl OpArgType for Label {
 impl fmt::Display for Label {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
-    }
-}
-
-impl OpArgType for ConvertValueOparg {
-    #[inline]
-    fn from_op_arg(x: u32) -> Option<Self> {
-        Some(match x {
-            0 => Self::None,
-            1 => Self::Str,
-            2 => Self::Repr,
-            3 => Self::Ascii,
-            _ => return None,
-        })
-    }
-
-    #[inline]
-    fn to_op_arg(self) -> u32 {
-        self as u32
     }
 }
 
