@@ -2255,7 +2255,7 @@ impl ExecutingFrame<'_> {
 
     fn convert_value(
         &mut self,
-        conversion: bytecode::ConversionFlag,
+        conversion: bytecode::ConvertValueOparg,
         vm: &VirtualMachine,
     ) -> FrameResult {
         use bytecode::ConvertValueOparg;
