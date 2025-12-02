@@ -119,8 +119,8 @@ mod _io {
         AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, TryFromObject,
         builtins::{
-            PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyMemoryView, PyStr,
-            PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef,
+            PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyMemoryView, PyNone,
+            PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef,
         },
         class::StaticType,
         common::lock::{
@@ -2440,8 +2440,14 @@ mod _io {
         }
 
         #[pymethod]
-        fn detach(_zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
-            todo!()
+        fn detach(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            let mut textio = zelf.lock(vm)?;
+            // TODO: implement CHECK_ATTACHED
+            // textio.check_attached(vm)?;
+            vm.call_method(zelf.as_object(), "flush", ())?;
+            let buffer = textio.buffer.clone();
+            textio.buffer = vm.new_pyobj(PyNone);
+            Ok(buffer)
         }
 
         #[pymethod]
