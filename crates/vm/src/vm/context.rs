@@ -380,7 +380,7 @@ impl Context {
     pub fn new_pyref<T, P>(&self, value: T) -> PyRef<P>
     where
         T: Into<P>,
-        P: PyPayload,
+        P: PyPayload + std::fmt::Debug,
     {
         value.into().into_ref(self)
     }

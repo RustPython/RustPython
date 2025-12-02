@@ -793,7 +793,7 @@ pub trait Constructor: PyPayload {
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult;
 }
 
-pub trait DefaultConstructor: PyPayload + Default {
+pub trait DefaultConstructor: PyPayload + Default + std::fmt::Debug {
     fn construct_and_init(args: Self::Args, vm: &VirtualMachine) -> PyResult<PyRef<Self>>
     where
         Self: Initializer,

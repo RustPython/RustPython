@@ -1,6 +1,6 @@
 use super::{
     core::{Py, PyObject, PyObjectRef, PyRef},
-    payload::{PyObjectPayload, PyPayload},
+    payload::PyPayload,
 };
 use crate::common::{
     atomic::{Ordering, PyAtomic, Radium},
@@ -41,7 +41,7 @@ pub type PyResult<T = PyObjectRef> = Result<T, PyBaseExceptionRef>; // A valid v
 
 impl<T: fmt::Display> fmt::Display for PyRef<T>
 where
-    T: PyObjectPayload + fmt::Display,
+    T: PyPayload + fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
@@ -50,7 +50,7 @@ where
 
 impl<T: fmt::Display> fmt::Display for Py<T>
 where
-    T: PyObjectPayload + fmt::Display,
+    T: PyPayload + fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
@@ -58,7 +58,7 @@ where
 }
 
 #[repr(transparent)]
-pub struct PyExact<T: PyObjectPayload> {
+pub struct PyExact<T> {
     inner: Py<T>,
 }
 
@@ -80,28 +80,28 @@ impl<T: PyPayload> Deref for PyExact<T> {
     }
 }
 
-impl<T: PyObjectPayload> Borrow<PyObject> for PyExact<T> {
+impl<T: PyPayload> Borrow<PyObject> for PyExact<T> {
     #[inline(always)]
     fn borrow(&self) -> &PyObject {
         self.inner.borrow()
     }
 }
 
-impl<T: PyObjectPayload> AsRef<PyObject> for PyExact<T> {
+impl<T: PyPayload> AsRef<PyObject> for PyExact<T> {
     #[inline(always)]
     fn as_ref(&self) -> &PyObject {
         self.inner.as_ref()
     }
 }
 
-impl<T: PyObjectPayload> Borrow<Py<T>> for PyExact<T> {
+impl<T: PyPayload> Borrow<Py<T>> for PyExact<T> {
     #[inline(always)]
     fn borrow(&self) -> &Py<T> {
         &self.inner
     }
 }
 
-impl<T: PyObjectPayload> AsRef<Py<T>> for PyExact<T> {
+impl<T: PyPayload> AsRef<Py<T>> for PyExact<T> {
     #[inline(always)]
     fn as_ref(&self) -> &Py<T> {
         &self.inner
@@ -134,11 +134,11 @@ impl<T: PyPayload> PyRef<T> {
 /// PyRef but guaranteed not to be a subtype instance
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct PyRefExact<T: PyObjectPayload> {
+pub struct PyRefExact<T: PyPayload> {
     inner: PyRef<T>,
 }
 
-impl<T: PyObjectPayload> PyRefExact<T> {
+impl<T: PyPayload> PyRefExact<T> {
     /// # Safety
     /// obj must have exact type for the payload
     pub const unsafe fn new_unchecked(obj: PyRef<T>) -> Self {
@@ -150,7 +150,7 @@ impl<T: PyObjectPayload> PyRefExact<T> {
     }
 }
 
-impl<T: PyObjectPayload> Clone for PyRefExact<T> {
+impl<T: PyPayload> Clone for PyRefExact<T> {
     fn clone(&self) -> Self {
         let inner = self.inner.clone();
         Self { inner }
@@ -191,28 +191,28 @@ impl<T: PyPayload> Deref for PyRefExact<T> {
     }
 }
 
-impl<T: PyObjectPayload> Borrow<PyObject> for PyRefExact<T> {
+impl<T: PyPayload> Borrow<PyObject> for PyRefExact<T> {
     #[inline(always)]
     fn borrow(&self) -> &PyObject {
         self.inner.borrow()
     }
 }
 
-impl<T: PyObjectPayload> AsRef<PyObject> for PyRefExact<T> {
+impl<T: PyPayload> AsRef<PyObject> for PyRefExact<T> {
     #[inline(always)]
     fn as_ref(&self) -> &PyObject {
         self.inner.as_ref()
     }
 }
 
-impl<T: PyObjectPayload> Borrow<Py<T>> for PyRefExact<T> {
+impl<T: PyPayload> Borrow<Py<T>> for PyRefExact<T> {
     #[inline(always)]
     fn borrow(&self) -> &Py<T> {
         self.inner.borrow()
     }
 }
 
-impl<T: PyObjectPayload> AsRef<Py<T>> for PyRefExact<T> {
+impl<T: PyPayload> AsRef<Py<T>> for PyRefExact<T> {
     #[inline(always)]
     fn as_ref(&self) -> &Py<T> {
         self.inner.as_ref()
@@ -260,10 +260,10 @@ impl<T> Drop for PyAtomicRef<T> {
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "threading")] {
-        unsafe impl<T: Send + PyObjectPayload> Send for PyAtomicRef<T> {}
-        unsafe impl<T: Sync + PyObjectPayload> Sync for PyAtomicRef<T> {}
-        unsafe impl<T: Send + PyObjectPayload> Send for PyAtomicRef<Option<T>> {}
-        unsafe impl<T: Sync + PyObjectPayload> Sync for PyAtomicRef<Option<T>> {}
+        unsafe impl<T: Send + PyPayload> Send for PyAtomicRef<T> {}
+        unsafe impl<T: Sync + PyPayload> Sync for PyAtomicRef<T> {}
+        unsafe impl<T: Send + PyPayload> Send for PyAtomicRef<Option<T>> {}
+        unsafe impl<T: Sync + PyPayload> Sync for PyAtomicRef<Option<T>> {}
         unsafe impl Send for PyAtomicRef<PyObject> {}
         unsafe impl Sync for PyAtomicRef<PyObject> {}
         unsafe impl Send for PyAtomicRef<Option<PyObject>> {}
@@ -285,7 +285,7 @@ impl<T: fmt::Debug> fmt::Debug for PyAtomicRef<T> {
     }
 }
 
-impl<T: PyObjectPayload> From<PyRef<T>> for PyAtomicRef<T> {
+impl<T: PyPayload> From<PyRef<T>> for PyAtomicRef<T> {
     fn from(pyref: PyRef<T>) -> Self {
         let py = PyRef::leak(pyref);
         Self {
@@ -295,7 +295,7 @@ impl<T: PyObjectPayload> From<PyRef<T>> for PyAtomicRef<T> {
     }
 }
 
-impl<T: PyObjectPayload> Deref for PyAtomicRef<T> {
+impl<T: PyPayload> Deref for PyAtomicRef<T> {
     type Target = Py<T>;
 
     fn deref(&self) -> &Self::Target {
@@ -309,7 +309,7 @@ impl<T: PyObjectPayload> Deref for PyAtomicRef<T> {
     }
 }
 
-impl<T: PyObjectPayload> PyAtomicRef<T> {
+impl<T: PyPayload> PyAtomicRef<T> {
     /// # Safety
     /// The caller is responsible to keep the returned PyRef alive
     /// until no more reference can be used via PyAtomicRef::deref()
@@ -328,7 +328,7 @@ impl<T: PyObjectPayload> PyAtomicRef<T> {
     }
 }
 
-impl<T: PyObjectPayload> From<Option<PyRef<T>>> for PyAtomicRef<Option<T>> {
+impl<T: PyPayload> From<Option<PyRef<T>>> for PyAtomicRef<Option<T>> {
     fn from(opt_ref: Option<PyRef<T>>) -> Self {
         let val = opt_ref
             .map(|x| PyRef::leak(x) as *const Py<T> as *mut _)
@@ -340,7 +340,7 @@ impl<T: PyObjectPayload> From<Option<PyRef<T>>> for PyAtomicRef<Option<T>> {
     }
 }
 
-impl<T: PyObjectPayload> PyAtomicRef<Option<T>> {
+impl<T: PyPayload> PyAtomicRef<Option<T>> {
     pub fn deref(&self) -> Option<&Py<T>> {
         unsafe { self.inner.load(Ordering::Relaxed).cast::<Py<T>>().as_ref() }
     }
@@ -521,25 +521,25 @@ impl PyObject {
 /// `PyObjectRef`, which isn't that cheap as that increments the atomic reference counter.
 // TODO: check if we still need this
 #[allow(dead_code)]
-pub struct PyLease<'a, T: PyObjectPayload> {
+pub struct PyLease<'a, T: PyPayload> {
     inner: PyRwLockReadGuard<'a, PyRef<T>>,
 }
 
-impl<T: PyObjectPayload + PyPayload> PyLease<'_, T> {
+impl<T: PyPayload> PyLease<'_, T> {
     #[inline(always)]
     pub fn into_owned(self) -> PyRef<T> {
         self.inner.clone()
     }
 }
 
-impl<T: PyObjectPayload + PyPayload> Borrow<PyObject> for PyLease<'_, T> {
+impl<T: PyPayload> Borrow<PyObject> for PyLease<'_, T> {
     #[inline(always)]
     fn borrow(&self) -> &PyObject {
         self.inner.as_ref()
     }
 }
 
-impl<T: PyObjectPayload + PyPayload> Deref for PyLease<'_, T> {
+impl<T: PyPayload> Deref for PyLease<'_, T> {
     type Target = PyRef<T>;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
@@ -556,7 +556,7 @@ where
     }
 }
 
-impl<T: PyObjectPayload> ToPyObject for PyRef<T> {
+impl<T: PyPayload> ToPyObject for PyRef<T> {
     #[inline(always)]
     fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         self.into()
@@ -581,7 +581,7 @@ impl ToPyObject for &PyObject {
 // explicitly implementing `ToPyObject`.
 impl<T> ToPyObject for T
 where
-    T: PyPayload + Sized,
+    T: PyPayload + std::fmt::Debug + Sized,
 {
     #[inline(always)]
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
