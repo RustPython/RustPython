@@ -939,10 +939,6 @@ impl ExecutingFrame<'_> {
                 self.push_value(obj);
                 Ok(None)
             }
-            bytecode::Instruction::ImportNameless => {
-                self.import(vm, None)?;
-                Ok(None)
-            }
             bytecode::Instruction::ImportName { idx } => {
                 self.import(vm, Some(self.code.names[idx.get(arg) as usize]))?;
                 Ok(None)

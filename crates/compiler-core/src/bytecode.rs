@@ -662,8 +662,6 @@ pub enum Instruction {
     ImportFrom {
         idx: Arg<NameIdx>,
     },
-    /// Importing without name
-    ImportNameless,
     /// Importing by name
     ImportName {
         idx: Arg<NameIdx>,
@@ -1607,7 +1605,7 @@ impl Instruction {
     pub fn stack_effect(&self, arg: OpArg, jump: bool) -> i32 {
         match self {
             Nop => 0,
-            ImportName { .. } | ImportNameless => -1,
+            ImportName { .. } => -1,
             ImportFrom { .. } => 1,
             LoadFast(_) | LoadNameAny(_) | LoadGlobal(_) | LoadDeref(_) | LoadClassDeref(_) => 1,
             StoreFast(_) | StoreLocal(_) | StoreGlobal(_) | StoreDeref(_) => -1,
@@ -1844,7 +1842,6 @@ impl Instruction {
             GetIter => w!(GetIter),
             GetLen => w!(GetLen),
             ImportFrom { idx } => w!(ImportFrom, name = idx),
-            ImportNameless => w!(ImportNameless),
             ImportName { idx } => w!(ImportName, name = idx),
             IsOp(inv) => w!(IS_OP, ?inv),
             JumpIfFalseOrPop { target } => w!(JumpIfFalseOrPop, target),
