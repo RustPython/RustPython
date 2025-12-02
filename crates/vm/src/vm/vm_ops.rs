@@ -2,9 +2,9 @@ use super::VirtualMachine;
 use crate::stdlib::warnings;
 use crate::{
     PyRef,
-    builtins::{PyInt, PyIntRef, PyStr, PyStrRef, PyUtf8Str},
+    builtins::{PyInt, PyStr, PyStrRef, PyUtf8Str},
     object::{AsObject, PyObject, PyObjectRef, PyResult},
-    protocol::{PyIterReturn, PyNumberBinaryOp, PyNumberTernaryOp, PySequence},
+    protocol::{PyNumberBinaryOp, PyNumberTernaryOp, PySequence},
     types::PyComparisonOp,
 };
 use num_traits::ToPrimitive;
@@ -527,26 +527,6 @@ impl VirtualMachine {
     }
     pub fn format_utf8(&self, obj: &PyObject, format_spec: PyStrRef) -> PyResult<PyRef<PyUtf8Str>> {
         self.format(obj, format_spec)?.try_into_utf8(self)
-    }
-
-    // https://docs.python.org/3/reference/expressions.html#membership-test-operations
-    fn _membership_iter_search(
-        &self,
-        haystack: &PyObject,
-        needle: PyObjectRef,
-    ) -> PyResult<PyIntRef> {
-        let iter = haystack.get_iter(self)?;
-        loop {
-            if let PyIterReturn::Return(element) = iter.next(self)? {
-                if self.bool_eq(&element, &needle)? {
-                    return Ok(self.ctx.new_bool(true));
-                } else {
-                    continue;
-                }
-            } else {
-                return Ok(self.ctx.new_bool(false));
-            }
-        }
     }
 
     pub fn _contains(&self, haystack: &PyObject, needle: &PyObject) -> PyResult<bool> {
