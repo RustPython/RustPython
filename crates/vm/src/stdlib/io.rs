@@ -729,7 +729,7 @@ mod _io {
     // TextIO Base has no public constructor
     #[pyattr]
     #[pyclass(name = "_TextIOBase", base = _IOBase)]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct _TextIOBase;
 
     #[pyclass(flags(BASETYPE))]
@@ -1729,7 +1729,7 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "BufferedReader", base = _BufferedIOBase)]
-    #[derive(Debug, Default, PyPayload)]
+    #[derive(Debug, Default)]
     struct BufferedReader {
         data: PyThreadMutex<BufferedData>,
     }
@@ -1786,7 +1786,7 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "BufferedWriter", base = _BufferedIOBase)]
-    #[derive(Debug, Default, PyPayload)]
+    #[derive(Debug, Default)]
     struct BufferedWriter {
         data: PyThreadMutex<BufferedData>,
     }
@@ -1819,7 +1819,7 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "BufferedRandom", base = _BufferedIOBase)]
-    #[derive(Debug, Default, PyPayload)]
+    #[derive(Debug, Default)]
     struct BufferedRandom {
         data: PyThreadMutex<BufferedData>,
     }
@@ -1861,7 +1861,7 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "BufferedRWPair", base = _BufferedIOBase)]
-    #[derive(Debug, Default, PyPayload)]
+    #[derive(Debug, Default)]
     struct BufferedRWPair {
         read: BufferedReader,
         write: BufferedWriter,
@@ -2275,7 +2275,7 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "TextIOWrapper", base = _TextIOBase)]
-    #[derive(Debug, Default, PyPayload)]
+    #[derive(Debug, Default)]
     struct TextIOWrapper {
         data: PyThreadMutex<Option<TextIOData>>,
     }
@@ -3461,7 +3461,7 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "StringIO", base = _TextIOBase)]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct StringIO {
         buffer: PyRwLock<BufferedIO>,
         closed: AtomicCell<bool>,
@@ -3606,7 +3606,7 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "BytesIO", base = _BufferedIOBase)]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     struct BytesIO {
         buffer: PyRwLock<BufferedIO>,
         closed: AtomicCell<bool>,
@@ -4242,7 +4242,7 @@ mod fileio {
 
     #[pyattr]
     #[pyclass(module = "io", name, base = _RawIOBase)]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug)]
     pub(super) struct FileIO {
         fd: AtomicCell<i32>,
         closefd: AtomicCell<bool>,

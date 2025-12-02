@@ -230,7 +230,7 @@ impl PyCData {
 }
 
 #[pyclass(module = "_ctypes", name = "PyCSimpleType", base = PyType)]
-#[derive(Debug, PyPayload, Default)]
+#[derive(Debug, Default)]
 pub struct PyCSimpleType {
     #[allow(dead_code)]
     pub stg_info: StgInfo,
@@ -416,7 +416,6 @@ impl AsNumber for PyCSimpleType {
     base = PyCData,
     metaclass = "PyCSimpleType"
 )]
-#[derive(PyPayload)]
 pub struct PyCSimple {
     pub _type_: String,
     pub value: AtomicCell<PyObjectRef>,

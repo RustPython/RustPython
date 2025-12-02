@@ -148,7 +148,7 @@ impl Representable for PyNativeFunction {
 impl Unconstructible for PyNativeFunction {}
 
 // `PyCMethodObject` in CPython
-#[pyclass(name = "builtin_method", module = false, base = PyNativeFunction)]
+#[pyclass(name = "builtin_method", module = false, base = PyNativeFunction, ctx = "builtin_method_type")]
 pub struct PyNativeMethod {
     pub(crate) func: PyNativeFunction,
     pub(crate) class: &'static Py<PyType>, // TODO: the actual life is &'self
@@ -186,12 +186,6 @@ impl PyNativeMethod {
     #[pygetset(name = "__self__")]
     fn __self__(zelf: PyRef<Self>, _vm: &VirtualMachine) -> Option<PyObjectRef> {
         zelf.func.zelf.clone()
-    }
-}
-
-impl PyPayload for PyNativeMethod {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.builtin_method_type
     }
 }
 
