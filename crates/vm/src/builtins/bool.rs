@@ -1,8 +1,9 @@
 use super::{PyInt, PyStrRef, PyType, PyTypeRef};
 use crate::common::format::FormatSpec;
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
-    VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+    TryFromBorrowedObject, VirtualMachine,
+    builtins::PyBaseExceptionRef,
     class::PyClassImpl,
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{FuncArgs, OptionalArg},
@@ -82,18 +83,42 @@ impl PyObjectRef {
 }
 
 #[pyclass(name = "bool", module = false, base = PyInt)]
-pub struct PyBool;
+#[repr(transparent)]
+pub struct PyBool(pub PyInt);
 
 impl PyPayload for PyBool {
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.bool_type
     }
+
+    /// PyBool reuses PyInt's TypeId
+    #[inline]
+    fn payload_type_id() -> std::any::TypeId {
+        std::any::TypeId::of::<PyInt>()
+    }
+
+    fn try_downcast_from(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        if obj.class().is(vm.ctx.types.bool_type) {
+            return Ok(());
+        }
+
+        #[cold]
+        fn raise_downcast_type_error(
+            vm: &VirtualMachine,
+            class: &Py<PyType>,
+            obj: &PyObject,
+        ) -> PyBaseExceptionRef {
+            vm.new_downcast_type_error(class, obj)
+        }
+        Err(raise_downcast_type_error(vm, Self::class(&vm.ctx), obj))
+    }
 }
 
 impl Debug for PyBool {
-    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let value = !self.0.as_bigint().is_zero();
+        write!(f, "PyBool({})", value)
     }
 }
 
@@ -221,5 +246,23 @@ pub(crate) fn init(context: &Context) {
 
 // Retrieve inner int value:
 pub(crate) fn get_value(obj: &PyObject) -> bool {
-    !obj.downcast_ref::<PyInt>().unwrap().as_bigint().is_zero()
+    !obj.downcast_ref::<PyBool>()
+        .unwrap()
+        .0
+        .as_bigint()
+        .is_zero()
+}
+
+impl PyRef<PyBool> {
+    #[inline]
+    pub fn into_base(self) -> PyRef<PyInt> {
+        // SAFETY: PyBool's payload is PyInt
+        unsafe { std::mem::transmute(self) }
+    }
+
+    #[inline]
+    pub fn as_base(&self) -> &PyRef<PyInt> {
+        // SAFETY: PyBool's payload is PyInt
+        unsafe { std::mem::transmute(self) }
+    }
 }
