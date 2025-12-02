@@ -1352,8 +1352,6 @@ impl Compiler {
                         .collect()
                 };
 
-                let module_idx = module.as_ref().map(|s| self.name(s.as_str()));
-
                 // from .... import (*fromlist)
                 self.emit_load_const(ConstantData::Integer {
                     value: (*level).into(),
@@ -1361,11 +1359,10 @@ impl Compiler {
                 self.emit_load_const(ConstantData::Tuple {
                     elements: from_list,
                 });
-                if let Some(idx) = module_idx {
-                    emit!(self, Instruction::ImportName { idx });
-                } else {
-                    emit!(self, Instruction::ImportNameless);
-                }
+
+                let module_name = module.as_ref().map_or("", |s| s.as_str());
+                let module_idx = self.name(module_name);
+                emit!(self, Instruction::ImportName { idx: module_idx });
 
                 if import_star {
                     // from .... import *
