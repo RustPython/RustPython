@@ -23,7 +23,7 @@ use rustpython_vm::stdlib::ctypes::base::PyCData;
 /// PyCArrayType - metatype for Array types
 /// CPython stores array info (type, length) in StgInfo via type_data
 #[pyclass(name = "PyCArrayType", base = PyType, module = "_ctypes")]
-#[derive(Debug, Default, PyPayload)]
+#[derive(Debug, Default)]
 pub struct PyCArrayType {}
 
 /// Create a new Array type with StgInfo stored in type_data (CPython style)
@@ -235,7 +235,6 @@ impl AsNumber for PyCArrayType {
     metaclass = "PyCArrayType",
     module = "_ctypes"
 )]
-#[derive(PyPayload)]
 pub struct PyCArray {
     /// Element type - can be a simple type (c_int) or an array type (c_int * 5)
     pub(super) typ: PyRwLock<PyObjectRef>,

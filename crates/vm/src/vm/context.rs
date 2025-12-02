@@ -280,10 +280,7 @@ impl Context {
         let exceptions = exceptions::ExceptionZoo::init();
 
         #[inline]
-        fn create_object<T: PyObjectPayload + PyPayload>(
-            payload: T,
-            cls: &'static Py<PyType>,
-        ) -> PyRef<T> {
+        fn create_object<T: PyObjectPayload>(payload: T, cls: &'static Py<PyType>) -> PyRef<T> {
             PyRef::new_ref(payload, cls.to_owned(), None)
         }
 

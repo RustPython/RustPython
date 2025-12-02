@@ -1070,30 +1070,14 @@ impl<T: PyPayload + std::fmt::Debug> PyRef<T> {
     }
 }
 
-impl<T: crate::class::PySubclass> PyRef<T> {
-    /// Returns a reference to the base type's payload.
-    #[inline]
-    pub fn as_base(&self) -> &T::Base {
-        (**self).as_base()
-    }
-}
-
-impl<T: crate::class::PySubclassTransparent> PyRef<T> {
+impl<T: crate::class::PySubclassTransparent + std::fmt::Debug> PyRef<T>
+where
+    T::Base: std::fmt::Debug,
+{
     /// Converts this reference to the base type (ownership transfer).
-    ///
-    /// Only available for `#[repr(transparent)]` types where memory layout
-    /// is identical to the base type.
-    #[inline]
-    pub fn into_base_ref(self) -> PyRef<T::Base> {
-        // SAFETY: #[repr(transparent)] guarantees same memory layout
-        unsafe { std::mem::transmute(self) }
-    }
-
-    /// Returns a reference to this as a PyRef of the base type.
-    ///
     /// Only available for `#[repr(transparent)]` types.
     #[inline]
-    pub fn as_base_ref(&self) -> &PyRef<T::Base> {
+    pub fn into_base_ref(self) -> PyRef<T::Base> {
         // SAFETY: #[repr(transparent)] guarantees same memory layout
         unsafe { std::mem::transmute(self) }
     }

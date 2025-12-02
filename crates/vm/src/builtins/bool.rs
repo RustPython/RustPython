@@ -1,9 +1,8 @@
 use super::{PyInt, PyStrRef, PyType, PyTypeRef};
 use crate::common::format::FormatSpec;
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
-    VirtualMachine,
-    class::{PyClassImpl, StaticType},
+    AsObject, Context, Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
+    class::PyClassImpl,
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{FuncArgs, OptionalArg},
     protocol::PyNumberMethods,
@@ -86,38 +85,9 @@ impl PyObjectRef {
     }
 }
 
-#[pyclass(name = "bool", module = false, base = PyInt)]
+#[pyclass(name = "bool", module = false, base = PyInt, ctx = "bool_type")]
 #[repr(transparent)]
 pub struct PyBool(pub PyInt);
-
-impl PyPayload for PyBool {
-    #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.bool_type
-    }
-
-    /// PyBool reuses PyInt's TypeId
-    #[inline]
-    fn payload_type_id() -> std::any::TypeId {
-        std::any::TypeId::of::<PyInt>()
-    }
-
-    fn downcastable_from(obj: &PyObject) -> bool {
-        obj.class().is(PyBool::static_type())
-    }
-
-    fn try_downcast_from(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        if obj.class().is(vm.ctx.types.bool_type) {
-            return Ok(());
-        }
-
-        Err(crate::object::cold_downcast_type_error(
-            vm,
-            Self::class(&vm.ctx),
-            obj,
-        ))
-    }
-}
 
 impl Debug for PyBool {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
