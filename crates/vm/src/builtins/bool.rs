@@ -1,8 +1,8 @@
 use super::{PyInt, PyStrRef, PyType, PyTypeRef};
 use crate::common::format::FormatSpec;
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
-    TryFromBorrowedObject, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
+    VirtualMachine,
     builtins::PyBaseExceptionRef,
     class::PyClassImpl,
     convert::{IntoPyException, ToPyObject, ToPyResult},
@@ -251,18 +251,4 @@ pub(crate) fn get_value(obj: &PyObject) -> bool {
         .0
         .as_bigint()
         .is_zero()
-}
-
-impl PyRef<PyBool> {
-    #[inline]
-    pub fn into_base(self) -> PyRef<PyInt> {
-        // SAFETY: PyBool's payload is PyInt
-        unsafe { std::mem::transmute(self) }
-    }
-
-    #[inline]
-    pub fn as_base(&self) -> &PyRef<PyInt> {
-        // SAFETY: PyBool's payload is PyInt
-        unsafe { std::mem::transmute(self) }
-    }
 }

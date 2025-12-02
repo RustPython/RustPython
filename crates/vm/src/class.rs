@@ -171,3 +171,18 @@ pub trait PyClassImpl: PyClassDef {
         slots
     }
 }
+
+/// Marker trait for Python subclasses with `#[repr(transparent)]` newtype pattern.
+///
+/// This trait is automatically implemented by the `#[pyclass]` macro when
+/// `base = SomeType` is specified. It enables type-safe conversion between
+/// `PyRef<Subclass>` and `PyRef<Base>`.
+///
+/// # Safety
+///
+/// Implementors must ensure:
+/// - The type uses `#[repr(transparent)]` with the Base type as the only field
+/// - Memory layout is identical to the Base type
+pub trait PySubclass: crate::PyPayload {
+    type Base: crate::PyPayload;
+}

@@ -1070,6 +1070,24 @@ impl<T: PyPayload + std::fmt::Debug> PyRef<T> {
     }
 }
 
+impl<T: crate::class::PySubclass> PyRef<T> {
+    /// Converts this reference to a reference of the base type.
+    ///
+    /// This is safe because T has `#[repr(transparent)]` layout with T::Base.
+    #[inline]
+    pub fn into_base(self) -> PyRef<T::Base> {
+        // SAFETY: #[repr(transparent)] guarantees same memory layout
+        unsafe { std::mem::transmute(self) }
+    }
+
+    /// Returns a reference to the base type.
+    #[inline]
+    pub fn as_base(&self) -> &PyRef<T::Base> {
+        // SAFETY: #[repr(transparent)] guarantees same memory layout
+        unsafe { std::mem::transmute(self) }
+    }
+}
+
 impl<T> Borrow<PyObject> for PyRef<T>
 where
     T: PyPayload,

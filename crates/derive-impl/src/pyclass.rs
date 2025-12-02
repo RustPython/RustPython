@@ -350,6 +350,18 @@ fn generate_class_def(
                 false
             }
     });
+    // Check if the type has #[repr(transparent)] - only then we can safely
+    // generate PySubclass impl (requires same memory layout as base type)
+    let is_repr_transparent = attrs.iter().any(|attr| {
+        attr.path().is_ident("repr")
+            && if let Ok(Meta::List(l)) = attr.parse_meta() {
+                l.nested
+                    .into_iter()
+                    .any(|n| n.get_ident().is_some_and(|p| p == "transparent"))
+            } else {
+                false
+            }
+    });
     if base.is_some() && is_pystruct {
         bail_span!(ident, "PyStructSequence cannot have `base` class attr",);
     }
@@ -379,10 +391,26 @@ fn generate_class_def(
         }
     });
 
-    let base_or_object = if let Some(base) = base {
+    let base_or_object = if let Some(ref base) = base {
         quote! { #base }
     } else {
         quote! { ::rustpython_vm::builtins::PyBaseObject }
+    };
+
+    // Generate PySubclass impl for types with:
+    // - base class specified
+    // - #[repr(transparent)] (required for safe transmute)
+    // - not PyStructSequence
+    let subclass_impl = if !is_pystruct && is_repr_transparent {
+        base.as_ref().map(|typ| {
+            quote! {
+                impl ::rustpython_vm::class::PySubclass for #ident {
+                    type Base = #typ;
+                }
+            }
+        })
+    } else {
+        None
     };
 
     let tokens = quote! {
@@ -409,6 +437,8 @@ fn generate_class_def(
 
             #base_class
         }
+
+        #subclass_impl
     };
     Ok(tokens)
 }
