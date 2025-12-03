@@ -626,7 +626,7 @@ impl Compiler {
         // Push the next table onto the stack
         self.symbol_table_stack.push(table);
         // SAFETY: We just pushed, so it can't be empty
-        unsafe { &self.symbol_table_stack.last().unwrap_unchecked() }
+        unsafe { self.symbol_table_stack.last().unwrap_unchecked() }
     }
 
     /// Pop the current symbol table off the stack
