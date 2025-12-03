@@ -2405,6 +2405,14 @@ mod _io {
         }
     }
 
+    #[inline]
+    fn flush_inner(textio: &mut TextIOData, vm: &VirtualMachine) -> PyResult {
+        textio.check_closed(vm)?;
+        textio.telling = textio.seekable;
+        textio.write_pending(vm)?;
+        vm.call_method(&textio.buffer, "flush", ())
+    }
+
     #[pyclass(with(Constructor, Initializer), flags(BASETYPE))]
     impl TextIOWrapper {
         #[pymethod]
@@ -2448,11 +2456,7 @@ mod _io {
                 return Err(vm.new_value_error("underlying buffer has been detached"));
             }
 
-            // Inline the equivalent of `flush` method without reentering the lock
-            textio.check_closed(vm)?;
-            textio.telling = textio.seekable;
-            textio.write_pending(vm)?;
-            vm.call_method(&textio.buffer, "flush", ())?;
+            flush_inner(&mut textio, vm)?;
 
             let buffer = textio.buffer.clone();
             textio.buffer = vm.ctx.none();
@@ -2893,10 +2897,7 @@ mod _io {
         #[pymethod]
         fn flush(&self, vm: &VirtualMachine) -> PyResult {
             let mut textio = self.lock(vm)?;
-            textio.check_closed(vm)?;
-            textio.telling = textio.seekable;
-            textio.write_pending(vm)?;
-            vm.call_method(&textio.buffer, "flush", ())
+            flush_inner(&mut textio, vm)
         }
 
         #[pymethod]
