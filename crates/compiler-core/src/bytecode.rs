@@ -551,7 +551,7 @@ op_arg_enum!(
     #[repr(u8)]
     pub enum IntrinsicFunction1 {
         // Invalid = 0,
-        // Print = 1,
+        Print = 1,
         /// Import * operation
         ImportStar = 2,
         // StopIterationError = 3,
@@ -793,7 +793,6 @@ pub enum Instruction {
     PopJumpIfTrue {
         target: Arg<Label>,
     },
-    PrintExpr,
     Raise {
         kind: Arg<RaiseKind>,
     },
@@ -1767,7 +1766,6 @@ impl Instruction {
             }
             ListAppend { .. } | SetAdd { .. } => -1,
             MapAdd { .. } => -2,
-            PrintExpr => -1,
             LoadBuildClass => 1,
             UnpackSequence { size } => -1 + size.get(arg) as i32,
             UnpackEx { args } => {
@@ -1939,7 +1937,6 @@ impl Instruction {
             PopException => w!(PopException),
             PopJumpIfFalse { target } => w!(PopJumpIfFalse, target),
             PopJumpIfTrue { target } => w!(PopJumpIfTrue, target),
-            PrintExpr => w!(PrintExpr),
             Raise { kind } => w!(Raise, ?kind),
             Resume { arg } => w!(Resume, arg),
             ReturnConst { idx } => fmt_const("ReturnConst", arg, f, idx),

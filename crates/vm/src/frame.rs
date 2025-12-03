@@ -1351,8 +1351,6 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::PopJumpIfTrue { target } => {
                 self.pop_jump_if(vm, target.get(arg), true)
             }
-            bytecode::Instruction::PrintExpr => self.print_expr(vm),
-
             bytecode::Instruction::Raise { kind } => self.execute_raise(vm, kind.get(arg)),
             bytecode::Instruction::Resume { arg: resume_arg } => {
                 // Resume execution after yield, await, or at function start
@@ -2208,18 +2206,6 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    fn print_expr(&mut self, vm: &VirtualMachine) -> FrameResult {
-        let expr = self.pop_value();
-
-        let displayhook = vm
-            .sys_module
-            .get_attr("displayhook", vm)
-            .map_err(|_| vm.new_runtime_error("lost sys.displayhook"))?;
-        displayhook.call((expr,), vm)?;
-
-        Ok(None)
-    }
-
     fn unpack_sequence(&mut self, size: u32, vm: &VirtualMachine) -> FrameResult {
         let value = self.pop_value();
         let elements: Vec<_> = value.try_to_value(vm).map_err(|e| {
@@ -2390,6 +2376,13 @@ impl ExecutingFrame<'_> {
         vm: &VirtualMachine,
     ) -> PyResult {
         match func {
+            bytecode::IntrinsicFunction1::Print => {
+                let displayhook = vm
+                    .sys_module
+                    .get_attr("displayhook", vm)
+                    .map_err(|_| vm.new_runtime_error("lost sys.displayhook"))?;
+                displayhook.call((arg,), vm)
+            }
             bytecode::IntrinsicFunction1::ImportStar => {
                 // arg is the module object
                 self.push_value(arg); // Push module back on stack for import_star
