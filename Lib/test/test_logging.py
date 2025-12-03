@@ -4748,7 +4748,6 @@ class FormatterTest(unittest.TestCase, AssertErrorMessage):
     def test_invalid_style(self):
         self.assertRaises(ValueError, logging.Formatter, None, None, 'x')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'struct_time' object has no attribute 'tm_gmtoff'
     def test_time(self):
         r = self.get_record()
         dt = datetime.datetime(1993, 4, 21, 8, 3, 0, 0, utc)
@@ -4763,7 +4762,6 @@ class FormatterTest(unittest.TestCase, AssertErrorMessage):
         f.format(r)
         self.assertEqual(r.asctime, '1993-04-21 08:03:00,123')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'struct_time' object has no attribute 'tm_gmtoff'
     def test_default_msec_format_none(self):
         class NoMsecFormatter(logging.Formatter):
             default_msec_format = None

@@ -58,12 +58,12 @@ pub fn pymodule(attr: PunctuatedNestedMeta, item: Item) -> TokenStream {
     result_to_tokens(pymodule::impl_pymodule(attr, item))
 }
 
-pub fn pystruct_sequence(input: DeriveInput) -> TokenStream {
-    result_to_tokens(pystructseq::impl_pystruct_sequence(input))
+pub fn pystruct_sequence(attr: PunctuatedNestedMeta, item: Item) -> TokenStream {
+    result_to_tokens(pystructseq::impl_pystruct_sequence(attr, item))
 }
 
-pub fn pystruct_sequence_try_from_object(input: DeriveInput) -> TokenStream {
-    result_to_tokens(pystructseq::impl_pystruct_sequence_try_from_object(input))
+pub fn pystruct_sequence_data(attr: PunctuatedNestedMeta, item: Item) -> TokenStream {
+    result_to_tokens(pystructseq::impl_pystruct_sequence_data(attr, item))
 }
 
 pub fn py_compile(input: TokenStream, compiler: &dyn Compiler) -> TokenStream {

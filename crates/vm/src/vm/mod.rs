@@ -465,7 +465,7 @@ impl VirtualMachine {
         let exc_type = e.class().to_owned();
         let exc_traceback = e.__traceback__().to_pyobject(self); // TODO: actual traceback
         let exc_value = e.into();
-        let args = stdlib::sys::UnraisableHookArgs {
+        let args = stdlib::sys::UnraisableHookArgsData {
             exc_type,
             exc_value,
             exc_traceback,

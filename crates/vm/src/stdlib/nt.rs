@@ -179,7 +179,7 @@ pub(crate) mod module {
     fn get_terminal_size(
         fd: OptionalArg<i32>,
         vm: &VirtualMachine,
-    ) -> PyResult<_os::PyTerminalSize> {
+    ) -> PyResult<_os::TerminalSizeData> {
         let (columns, lines) = {
             let stdhandle = match fd {
                 OptionalArg::Present(0) => Console::STD_INPUT_HANDLE,
@@ -206,7 +206,7 @@ pub(crate) mod module {
                 (w.Bottom - w.Top + 1) as usize,
             )
         };
-        Ok(_os::PyTerminalSize { columns, lines })
+        Ok(_os::TerminalSizeData { columns, lines })
     }
 
     #[cfg(target_env = "msvc")]
