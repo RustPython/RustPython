@@ -12,18 +12,76 @@ use num_complex::Complex64;
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
 use std::{collections::BTreeSet, fmt, hash, marker::PhantomData, mem, num::NonZeroU8, ops::Deref};
 
+/// Oparg values for [`Instruction::ConvertValue`].
+///
+/// ## See also
+///
+/// - [CPython FVC_* flags](https://github.com/python/cpython/blob/8183fa5e3f78ca6ab862de7fb8b14f3d929421e0/Include/ceval.h#L129-L132)
+#[repr(u8)]
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-#[repr(i8)]
-#[allow(clippy::cast_possible_wrap)]
-pub enum ConversionFlag {
-    /// No conversion
-    None = -1, // CPython uses -1
+pub enum ConvertValueOparg {
+    /// No conversion.
+    ///
+    /// ```python
+    /// f"{x}"
+    /// f"{x:4}"
+    /// ```
+    None = 0,
     /// Converts by calling `str(<value>)`.
-    Str = b's' as i8,
-    /// Converts by calling `ascii(<value>)`.
-    Ascii = b'a' as i8,
+    ///
+    /// ```python
+    /// f"{x!s}"
+    /// f"{x!s:2}"
+    /// ```
+    Str = 1,
     /// Converts by calling `repr(<value>)`.
-    Repr = b'r' as i8,
+    ///
+    /// ```python
+    /// f"{x!r}"
+    /// f"{x!r:2}"
+    /// ```
+    Repr = 2,
+    /// Converts by calling `ascii(<value>)`.
+    ///
+    /// ```python
+    /// f"{x!a}"
+    /// f"{x!a:2}"
+    /// ```
+    Ascii = 3,
+}
+
+impl fmt::Display for ConvertValueOparg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let out = match self {
+            Self::Str => "1 (str)",
+            Self::Repr => "2 (repr)",
+            Self::Ascii => "3 (ascii)",
+            // We should never reach this. `FVC_NONE` are being handled by `Instruction::FormatSimple`
+            Self::None => "",
+        };
+
+        write!(f, "{out}")
+    }
+}
+
+impl OpArgType for ConvertValueOparg {
+    #[inline]
+    fn from_op_arg(x: u32) -> Option<Self> {
+        Some(match x {
+            // Ruff `ConversionFlag::None` is `-1i8`,
+            // when its converted to `u8` its value is `u8::MAX`
+            0 | 255 => Self::None,
+            1 => Self::Str,
+            2 => Self::Repr,
+            3 => Self::Ascii,
+            _ => return None,
+        })
+    }
+
+    #[inline]
+    fn to_op_arg(self) -> u32 {
+        self as u32
+    }
 }
 
 /// Resume type for the RESUME instruction
@@ -476,24 +534,6 @@ impl fmt::Display for Label {
     }
 }
 
-impl OpArgType for ConversionFlag {
-    #[inline]
-    fn from_op_arg(x: u32) -> Option<Self> {
-        match x as u8 {
-            b's' => Some(Self::Str),
-            b'a' => Some(Self::Ascii),
-            b'r' => Some(Self::Repr),
-            std::u8::MAX => Some(Self::None),
-            _ => None,
-        }
-    }
-
-    #[inline]
-    fn to_op_arg(self) -> u32 {
-        self as i8 as u8 as u32
-    }
-}
-
 op_arg_enum!(
     /// The kind of Raise that occurred.
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -620,6 +660,18 @@ pub enum Instruction {
     Continue {
         target: Arg<Label>,
     },
+    /// Convert value to a string, depending on `oparg`:
+    ///
+    /// ```python
+    /// value = STACK.pop()
+    /// result = func(value)
+    /// STACK.append(result)
+    /// ```
+    ///
+    /// Used for implementing formatted string literals (f-strings).
+    ConvertValue {
+        oparg: Arg<ConvertValueOparg>,
+    },
     CopyItem {
         index: Arg<u32>,
     },
@@ -635,7 +687,6 @@ pub enum Instruction {
         index: Arg<u32>,
     },
     EndAsyncFor,
-
     /// Marker bytecode for the end of a finally sequence.
     /// When this bytecode is executed, the eval loop does one of those things:
     /// - Continue at a certain bytecode position
@@ -643,16 +694,33 @@ pub enum Instruction {
     /// - Return from a function
     /// - Do nothing at all, just continue
     EndFinally,
-
     /// Enter a finally block, without returning, excepting, just because we are there.
     EnterFinally,
     ExtendedArg,
     ForIter {
         target: Arg<Label>,
     },
-    FormatValue {
-        conversion: Arg<ConversionFlag>,
-    },
+    /// Formats the value on top of stack:
+    ///
+    /// ```python
+    /// value = STACK.pop()
+    /// result = value.__format__("")
+    /// STACK.append(result)
+    /// ```
+    ///
+    /// Used for implementing formatted string literals (f-strings).
+    FormatSimple,
+    /// Formats the given value with the given format spec:
+    ///
+    /// ```python
+    /// spec = STACK.pop()
+    /// value = STACK.pop()
+    /// result = value.__format__(spec)
+    /// STACK.append(result)
+    /// ```
+    ///
+    /// Used for implementing formatted string literals (f-strings).
+    FormatWithSpec,
     GetAIter,
     GetANext,
     GetAwaitable,
@@ -662,8 +730,6 @@ pub enum Instruction {
     ImportFrom {
         idx: Arg<NameIdx>,
     },
-    /// Importing without name
-    ImportNameless,
     /// Importing by name
     ImportName {
         idx: Arg<NameIdx>,
@@ -730,7 +796,6 @@ pub enum Instruction {
     Raise {
         kind: Arg<RaiseKind>,
     },
-
     /// Resume execution (e.g., at function start, after yield, etc.)
     Resume {
         arg: Arg<u32>,
@@ -748,7 +813,6 @@ pub enum Instruction {
     SetFunctionAttribute {
         attr: Arg<MakeFunctionFlags>,
     },
-
     SetupAnnotation,
     SetupAsyncWith {
         end: Arg<Label>,
@@ -757,7 +821,6 @@ pub enum Instruction {
     SetupExcept {
         handler: Arg<Label>,
     },
-
     /// Setup a finally handler, which will be called whenever one of this events occurs:
     /// - the block is popped
     /// - the function returns
@@ -1605,7 +1668,7 @@ impl Instruction {
     pub fn stack_effect(&self, arg: OpArg, jump: bool) -> i32 {
         match self {
             Nop => 0,
-            ImportName { .. } | ImportNameless => -1,
+            ImportName { .. } => -1,
             ImportFrom { .. } => 1,
             LoadFast(_) | LoadNameAny(_) | LoadGlobal(_) | LoadDeref(_) | LoadClassDeref(_) => 1,
             StoreFast(_) | StoreLocal(_) | StoreGlobal(_) | StoreDeref(_) => -1,
@@ -1654,6 +1717,9 @@ impl Instruction {
             CallMethodKeyword { nargs } => -1 - (nargs.get(arg) as i32) - 3 + 1,
             CallFunctionEx { has_kwargs } => -1 - (has_kwargs.get(arg) as i32) - 1 + 1,
             CallMethodEx { has_kwargs } => -1 - (has_kwargs.get(arg) as i32) - 3 + 1,
+            ConvertValue { .. } => 0,
+            FormatSimple => 0,
+            FormatWithSpec => -1,
             LoadMethod { .. } => -1 + 3,
             ForIter { .. } => {
                 if jump {
@@ -1706,7 +1772,6 @@ impl Instruction {
                 let UnpackExArgs { before, after } = args.get(arg);
                 -1 + before as i32 + 1 + after as i32
             }
-            FormatValue { .. } => -1,
             PopException => 0,
             Reverse { .. } => 0,
             GetAwaitable => 0,
@@ -1821,6 +1886,7 @@ impl Instruction {
             CompareOperation { op } => w!(CompareOperation, ?op),
             ContainsOp(inv) => w!(CONTAINS_OP, ?inv),
             Continue { target } => w!(Continue, target),
+            ConvertValue { oparg } => write!(f, "{:pad$}{}", "CONVERT_VALUE", oparg.get(arg)),
             CopyItem { index } => w!(CopyItem, index),
             DeleteAttr { idx } => w!(DeleteAttr, name = idx),
             DeleteDeref(idx) => w!(DeleteDeref, cell_name = idx),
@@ -1834,14 +1900,14 @@ impl Instruction {
             EnterFinally => w!(EnterFinally),
             ExtendedArg => w!(ExtendedArg, Arg::<u32>::marker()),
             ForIter { target } => w!(ForIter, target),
-            FormatValue { conversion } => w!(FormatValue, ?conversion),
+            FormatSimple => w!(FORMAT_SIMPLE),
+            FormatWithSpec => w!(FORMAT_WITH_SPEC),
             GetAIter => w!(GetAIter),
             GetANext => w!(GetANext),
             GetAwaitable => w!(GetAwaitable),
             GetIter => w!(GetIter),
             GetLen => w!(GetLen),
             ImportFrom { idx } => w!(ImportFrom, name = idx),
-            ImportNameless => w!(ImportNameless),
             ImportName { idx } => w!(ImportName, name = idx),
             IsOp(inv) => w!(IS_OP, ?inv),
             JumpIfFalseOrPop { target } => w!(JumpIfFalseOrPop, target),

@@ -36,7 +36,8 @@ use rustpython_compiler_core::{
     Mode, OneIndexed, PositionEncoding, SourceFile, SourceLocation,
     bytecode::{
         self, Arg as OpArgMarker, BinaryOperator, BuildSliceArgCount, CodeObject,
-        ComparisonOperator, ConstantData, Instruction, Invert, OpArg, OpArgType, UnpackExArgs,
+        ComparisonOperator, ConstantData, ConvertValueOparg, Instruction, Invert, OpArg, OpArgType,
+        UnpackExArgs,
     },
 };
 use rustpython_wtf8::Wtf8Buf;
@@ -1365,8 +1366,6 @@ impl Compiler {
                         .collect()
                 };
 
-                let module_idx = module.as_ref().map(|s| self.name(s.as_str()));
-
                 // from .... import (*fromlist)
                 self.emit_load_const(ConstantData::Integer {
                     value: (*level).into(),
@@ -1374,11 +1373,10 @@ impl Compiler {
                 self.emit_load_const(ConstantData::Tuple {
                     elements: from_list,
                 });
-                if let Some(idx) = module_idx {
-                    emit!(self, Instruction::ImportName { idx });
-                } else {
-                    emit!(self, Instruction::ImportNameless);
-                }
+
+                let module_name = module.as_ref().map_or("", |s| s.as_str());
+                let module_idx = self.name(module_name);
+                emit!(self, Instruction::ImportName { idx: module_idx });
 
                 if import_star {
                     // from .... import *
@@ -5650,7 +5648,12 @@ impl Compiler {
                     }
                 }
                 InterpolatedStringElement::Interpolation(fstring_expr) => {
-                    let mut conversion = fstring_expr.conversion;
+                    let mut conversion = match fstring_expr.conversion {
+                        ConversionFlag::None => ConvertValueOparg::None,
+                        ConversionFlag::Str => ConvertValueOparg::Str,
+                        ConversionFlag::Repr => ConvertValueOparg::Repr,
+                        ConversionFlag::Ascii => ConvertValueOparg::Ascii,
+                    };
 
                     if let Some(DebugText { leading, trailing }) = &fstring_expr.debug_text {
                         let range = fstring_expr.expression.range();
@@ -5659,35 +5662,39 @@ impl Compiler {
 
                         self.emit_load_const(ConstantData::Str { value: text.into() });
                         element_count += 1;
-                    }
 
-                    match &fstring_expr.format_spec {
-                        None => {
-                            self.emit_load_const(ConstantData::Str {
-                                value: Wtf8Buf::new(),
-                            });
-                            // Match CPython behavior: If debug text is present, apply repr conversion.
-                            // See: https://github.com/python/cpython/blob/f61afca262d3a0aa6a8a501db0b1936c60858e35/Parser/action_helpers.c#L1456
-                            if conversion == ConversionFlag::None
-                                && fstring_expr.debug_text.is_some()
-                            {
-                                conversion = ConversionFlag::Repr;
-                            }
-                        }
-                        Some(format_spec) => {
-                            self.compile_fstring_elements(flags, &format_spec.elements)?;
+                        // Match CPython behavior: If debug text is present, apply repr conversion.
+                        // if no `format_spec` specified.
+                        // See: https://github.com/python/cpython/blob/f61afca262d3a0aa6a8a501db0b1936c60858e35/Parser/action_helpers.c#L1456
+                        if matches!(
+                            (conversion, &fstring_expr.format_spec),
+                            (ConvertValueOparg::None, None)
+                        ) {
+                            conversion = ConvertValueOparg::Repr;
                         }
                     }
 
                     self.compile_expression(&fstring_expr.expression)?;
 
-                    let conversion = match conversion {
-                        ConversionFlag::None => bytecode::ConversionFlag::None,
-                        ConversionFlag::Str => bytecode::ConversionFlag::Str,
-                        ConversionFlag::Ascii => bytecode::ConversionFlag::Ascii,
-                        ConversionFlag::Repr => bytecode::ConversionFlag::Repr,
-                    };
-                    emit!(self, Instruction::FormatValue { conversion });
+                    match conversion {
+                        ConvertValueOparg::None => {}
+                        ConvertValueOparg::Str
+                        | ConvertValueOparg::Repr
+                        | ConvertValueOparg::Ascii => {
+                            emit!(self, Instruction::ConvertValue { oparg: conversion })
+                        }
+                    }
+
+                    match &fstring_expr.format_spec {
+                        Some(format_spec) => {
+                            self.compile_fstring_elements(flags, &format_spec.elements)?;
+
+                            emit!(self, Instruction::FormatWithSpec);
+                        }
+                        None => {
+                            emit!(self, Instruction::FormatSimple);
+                        }
+                    }
                 }
             }
         }

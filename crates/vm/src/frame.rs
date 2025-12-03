@@ -709,6 +709,10 @@ impl ExecutingFrame<'_> {
                     target: target.get(arg),
                 },
             ),
+
+            bytecode::Instruction::ConvertValue { oparg: conversion } => {
+                self.convert_value(conversion.get(arg), vm)
+            }
             bytecode::Instruction::CopyItem { index } => {
                 // CopyItem { index: 1 } copies TOS
                 // CopyItem { index: 2 } copies second from top
@@ -847,8 +851,20 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::ForIter { target } => self.execute_for_iter(vm, target.get(arg)),
-            bytecode::Instruction::FormatValue { conversion } => {
-                self.format_value(conversion.get(arg), vm)
+            bytecode::Instruction::FormatSimple => {
+                let value = self.pop_value();
+                let formatted = vm.format(&value, vm.ctx.new_str(""))?;
+                self.push_value(formatted.into());
+
+                Ok(None)
+            }
+            bytecode::Instruction::FormatWithSpec => {
+                let spec = self.pop_value();
+                let value = self.pop_value();
+                let formatted = vm.format(&value, spec.downcast::<PyStr>().unwrap())?;
+                self.push_value(formatted.into());
+
+                Ok(None)
             }
             bytecode::Instruction::GetAIter => {
                 let aiterable = self.pop_value();
@@ -937,10 +953,6 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::ImportFrom { idx } => {
                 let obj = self.import_from(vm, idx.get(arg))?;
                 self.push_value(obj);
-                Ok(None)
-            }
-            bytecode::Instruction::ImportNameless => {
-                self.import(vm, None)?;
                 Ok(None)
             }
             bytecode::Instruction::ImportName { idx } => {
@@ -2223,23 +2235,21 @@ impl ExecutingFrame<'_> {
         Err(vm.new_value_error(msg))
     }
 
-    fn format_value(
+    fn convert_value(
         &mut self,
-        conversion: bytecode::ConversionFlag,
+        conversion: bytecode::ConvertValueOparg,
         vm: &VirtualMachine,
     ) -> FrameResult {
-        use bytecode::ConversionFlag;
+        use bytecode::ConvertValueOparg;
         let value = self.pop_value();
         let value = match conversion {
-            ConversionFlag::Str => value.str(vm)?.into(),
-            ConversionFlag::Repr => value.repr(vm)?.into(),
-            ConversionFlag::Ascii => vm.ctx.new_str(builtins::ascii(value, vm)?).into(),
-            ConversionFlag::None => value,
+            ConvertValueOparg::Str => value.str(vm)?.into(),
+            ConvertValueOparg::Repr => value.repr(vm)?.into(),
+            ConvertValueOparg::Ascii => vm.ctx.new_str(builtins::ascii(value, vm)?).into(),
+            ConvertValueOparg::None => value,
         };
 
-        let spec = self.pop_value();
-        let formatted = vm.format(&value, spec.downcast::<PyStr>().unwrap())?;
-        self.push_value(formatted.into());
+        self.push_value(value);
         Ok(None)
     }
 

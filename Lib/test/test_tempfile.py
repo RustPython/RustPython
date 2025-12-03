@@ -1187,8 +1187,6 @@ class TestSpooledTemporaryFile(BaseTestCase):
         with self.assertRaises(AttributeError):
             f.errors
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_text_mode(self):
         # Creating a SpooledTemporaryFile with a text mode should produce
         # a file object reading and writing (Unicode) text strings.
@@ -1221,8 +1219,6 @@ class TestSpooledTemporaryFile(BaseTestCase):
         self.assertEqual(f.encoding, "utf-8")
         self.assertEqual(f.errors, "strict")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_text_newline_and_encoding(self):
         f = tempfile.SpooledTemporaryFile(mode='w+', max_size=10,
                                           newline='', encoding='utf-8',

@@ -4217,7 +4217,6 @@ class CTextIOWrapperTest(TextIOWrapperTest):
     def test_constructor(self):
         return super().test_constructor()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_detach(self):
         return super().test_detach()
 
