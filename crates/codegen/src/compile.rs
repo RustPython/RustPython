@@ -557,11 +557,9 @@ impl Compiler {
 
     /// Get the SymbolTable for the current scope.
     fn current_symbol_table(&self) -> &SymbolTable {
-        if self.symbol_table_stack.is_empty() {
-            panic!("symbol_table_stack is empty! This is a compiler bug.");
-        }
-        let index = self.symbol_table_stack.len() - 1;
-        &self.symbol_table_stack[index]
+        self.symbol_table_stack
+            .last()
+            .expect("symbol_table_stack is empty! This is a compiler bug.")
     }
 
     /// Get the index of a free variable.
@@ -626,9 +624,8 @@ impl Compiler {
         let table = current_table.sub_tables.remove(0);
 
         // Push the next table onto the stack
-        let last_idx = self.symbol_table_stack.len();
         self.symbol_table_stack.push(table);
-        &self.symbol_table_stack[last_idx]
+        self.current_symbol_table()
     }
 
     /// Pop the current symbol table off the stack
@@ -657,12 +654,13 @@ impl Compiler {
         let source_path = self.source_file.name().to_owned();
 
         // Lookup symbol table entry using key (_PySymtable_Lookup)
-        let ste = if key < self.symbol_table_stack.len() {
-            &self.symbol_table_stack[key]
-        } else {
-            return Err(self.error(CodegenErrorType::SyntaxError(
-                "unknown symbol table entry".to_owned(),
-            )));
+        let ste = match self.symbol_table_stack.get(key) {
+            Some(v) => v,
+            None => {
+                return Err(self.error(CodegenErrorType::SyntaxError(
+                    "unknown symbol table entry".to_owned(),
+                )));
+            }
         };
 
         // Use varnames from symbol table (already collected in definition order)
@@ -1199,12 +1197,10 @@ impl Compiler {
 
             // If not found and we're in TypeParams scope, try parent scope
             let symbol = if symbol.is_none() && is_typeparams {
-                if self.symbol_table_stack.len() > 1 {
-                    let parent_idx = self.symbol_table_stack.len() - 2;
-                    self.symbol_table_stack[parent_idx].lookup(name.as_ref())
-                } else {
-                    None
-                }
+                self.symbol_table_stack
+                    .get(self.symbol_table_stack.len() - 2) // Try to get parent index
+                    .expect("Symbol has no parent! This is a compiler bug.")
+                    .lookup(name.as_ref())
             } else {
                 symbol
             };
