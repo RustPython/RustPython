@@ -242,7 +242,8 @@ def clear_caches():
     except KeyError:
         pass
     else:
-        struct._clearcache()
+        # struct._clearcache()  # TODO: RUSTPYTHON, investigate why this was disabled in the first place
+        pass
 
     try:
         doctest = sys.modules['doctest']
