@@ -214,16 +214,57 @@ pub fn pymodule(attr: TokenStream, item: TokenStream) -> TokenStream {
     derive_impl::pymodule(attr, item).into()
 }
 
-#[proc_macro_derive(PyStructSequence, attributes(pystruct))]
-pub fn pystruct_sequence(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input);
-    derive_impl::pystruct_sequence(input).into()
+/// Attribute macro for defining Python struct sequence types.
+///
+/// This macro is applied to an empty struct to create a Python type
+/// that wraps a Data struct.
+///
+/// # Example
+/// ```ignore
+/// #[pystruct_sequence_data]
+/// struct StructTimeData {
+///     pub tm_year: PyObjectRef,
+///     #[pystruct_sequence(skip)]
+///     pub tm_gmtoff: PyObjectRef,
+/// }
+///
+/// #[pystruct_sequence(name = "struct_time", module = "time", data = "StructTimeData")]
+/// struct PyStructTime;
+/// ```
+#[proc_macro_attribute]
+pub fn pystruct_sequence(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let attr = parse_macro_input!(attr with Punctuated::parse_terminated);
+    let item = parse_macro_input!(item);
+    derive_impl::pystruct_sequence(attr, item).into()
 }
 
-#[proc_macro_derive(TryIntoPyStructSequence, attributes(pystruct))]
-pub fn pystruct_sequence_try_from_object(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input);
-    derive_impl::pystruct_sequence_try_from_object(input).into()
+/// Attribute macro for struct sequence Data structs.
+///
+/// Generates field name constants, index constants, and `into_tuple()` method.
+///
+/// # Example
+/// ```ignore
+/// #[pystruct_sequence_data]
+/// struct StructTimeData {
+///     pub tm_year: PyObjectRef,
+///     pub tm_mon: PyObjectRef,
+///     #[pystruct_sequence(skip)]  // optional field, not included in tuple
+///     pub tm_gmtoff: PyObjectRef,
+/// }
+/// ```
+///
+/// # Options
+/// - `try_from_object`: Generate `try_from_elements()` method and `TryFromObject` impl
+///
+/// ```ignore
+/// #[pystruct_sequence_data(try_from_object)]
+/// struct StructTimeData { ... }
+/// ```
+#[proc_macro_attribute]
+pub fn pystruct_sequence_data(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let attr = parse_macro_input!(attr with Punctuated::parse_terminated);
+    let item = parse_macro_input!(item);
+    derive_impl::pystruct_sequence_data(attr, item).into()
 }
 
 struct Compiler;

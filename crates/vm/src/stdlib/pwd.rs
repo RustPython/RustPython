@@ -16,10 +16,8 @@ mod pwd {
     #[cfg(not(target_os = "android"))]
     use crate::{PyObjectRef, convert::ToPyObject};
 
-    #[pyattr]
-    #[pyclass(module = "pwd", name = "struct_passwd")]
-    #[derive(PyStructSequence)]
-    struct Passwd {
+    #[pystruct_sequence_data]
+    struct PasswdData {
         pw_name: String,
         pw_passwd: String,
         pw_uid: u32,
@@ -29,10 +27,14 @@ mod pwd {
         pw_shell: String,
     }
 
-    #[pyclass(with(PyStructSequence))]
-    impl Passwd {}
+    #[pyattr]
+    #[pystruct_sequence(name = "struct_passwd", module = "pwd", data = "PasswdData")]
+    struct PyPasswd;
 
-    impl From<User> for Passwd {
+    #[pyclass(with(PyStructSequence))]
+    impl PyPasswd {}
+
+    impl From<User> for PasswdData {
         fn from(user: User) -> Self {
             // this is just a pain...
             let cstr_lossy = |s: std::ffi::CString| {
@@ -44,7 +46,7 @@ mod pwd {
                     .into_string()
                     .unwrap_or_else(|s| s.to_string_lossy().into_owned())
             };
-            Passwd {
+            PasswdData {
                 pw_name: user.name,
                 pw_passwd: cstr_lossy(user.passwd),
                 pw_uid: user.uid.as_raw(),
@@ -57,7 +59,7 @@ mod pwd {
     }
 
     #[pyfunction]
-    fn getpwnam(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Passwd> {
+    fn getpwnam(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<PasswdData> {
         let pw_name = name.as_str();
         if pw_name.contains('\0') {
             return Err(exceptions::cstring_error(vm));
@@ -70,11 +72,11 @@ mod pwd {
                     .into(),
             )
         })?;
-        Ok(Passwd::from(user))
+        Ok(PasswdData::from(user))
     }
 
     #[pyfunction]
-    fn getpwuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult<Passwd> {
+    fn getpwuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult<PasswdData> {
         let uid_t = libc::uid_t::try_from(uid.as_bigint())
             .map(unistd::Uid::from_raw)
             .ok();
@@ -90,7 +92,7 @@ mod pwd {
                     .into(),
             )
         })?;
-        Ok(Passwd::from(user))
+        Ok(PasswdData::from(user))
     }
 
     // TODO: maybe merge this functionality into nix?
@@ -105,7 +107,7 @@ mod pwd {
         unsafe { libc::setpwent() };
         while let Some(ptr) = std::ptr::NonNull::new(unsafe { libc::getpwent() }) {
             let user = User::from(unsafe { ptr.as_ref() });
-            let passwd = Passwd::from(user).to_pyobject(vm);
+            let passwd = PasswdData::from(user).to_pyobject(vm);
             list.push(passwd);
         }
         unsafe { libc::endpwent() };

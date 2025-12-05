@@ -735,10 +735,9 @@ pub(super) mod _os {
         .into())
     }
 
-    #[pyattr]
-    #[pyclass(module = "os", name = "stat_result")]
-    #[derive(Debug, PyStructSequence, FromArgs)]
-    struct StatResult {
+    #[derive(Debug, FromArgs)]
+    #[pystruct_sequence_data]
+    struct StatResultData {
         pub st_mode: PyIntRef,
         pub st_ino: PyIntRef,
         pub st_dev: PyIntRef,
@@ -746,31 +745,42 @@ pub(super) mod _os {
         pub st_uid: PyIntRef,
         pub st_gid: PyIntRef,
         pub st_size: PyIntRef,
-        // TODO: unnamed structsequence fields
+        // Indices 7-9: integer seconds
         #[pyarg(positional, default)]
-        pub __st_atime_int: libc::time_t,
+        #[pystruct_sequence(unnamed)]
+        pub st_atime_int: libc::time_t,
         #[pyarg(positional, default)]
-        pub __st_mtime_int: libc::time_t,
+        #[pystruct_sequence(unnamed)]
+        pub st_mtime_int: libc::time_t,
         #[pyarg(positional, default)]
-        pub __st_ctime_int: libc::time_t,
+        #[pystruct_sequence(unnamed)]
+        pub st_ctime_int: libc::time_t,
+        // Float time attributes
         #[pyarg(any, default)]
+        #[pystruct_sequence(skip)]
         pub st_atime: f64,
         #[pyarg(any, default)]
+        #[pystruct_sequence(skip)]
         pub st_mtime: f64,
         #[pyarg(any, default)]
+        #[pystruct_sequence(skip)]
         pub st_ctime: f64,
+        // Nanosecond attributes
         #[pyarg(any, default)]
+        #[pystruct_sequence(skip)]
         pub st_atime_ns: i128,
         #[pyarg(any, default)]
+        #[pystruct_sequence(skip)]
         pub st_mtime_ns: i128,
         #[pyarg(any, default)]
+        #[pystruct_sequence(skip)]
         pub st_ctime_ns: i128,
         #[pyarg(any, default)]
+        #[pystruct_sequence(skip)]
         pub st_reparse_tag: u32,
     }
 
-    #[pyclass(with(PyStructSequence))]
-    impl StatResult {
+    impl StatResultData {
         fn from_stat(stat: &StatStruct, vm: &VirtualMachine) -> Self {
             let (atime, mtime, ctime);
             #[cfg(any(unix, windows))]
@@ -810,9 +820,9 @@ pub(super) mod _os {
                 st_uid: vm.ctx.new_pyref(stat.st_uid),
                 st_gid: vm.ctx.new_pyref(stat.st_gid),
                 st_size: vm.ctx.new_pyref(stat.st_size),
-                __st_atime_int: atime.0,
-                __st_mtime_int: mtime.0,
-                __st_ctime_int: ctime.0,
+                st_atime_int: atime.0,
+                st_mtime_int: mtime.0,
+                st_ctime_int: ctime.0,
                 st_atime: to_f64(atime),
                 st_mtime: to_f64(mtime),
                 st_ctime: to_f64(ctime),
@@ -822,7 +832,14 @@ pub(super) mod _os {
                 st_reparse_tag,
             }
         }
+    }
 
+    #[pyattr]
+    #[pystruct_sequence(name = "stat_result", module = "os", data = "StatResultData")]
+    struct PyStatResult;
+
+    #[pyclass(with(PyStructSequence))]
+    impl PyStatResult {
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let flatten_args = |r: &[PyObjectRef]| {
@@ -845,7 +862,7 @@ pub(super) mod _os {
 
             let args: FuncArgs = flatten_args(&args.args).into();
 
-            let stat: Self = args.bind(vm)?;
+            let stat: StatResultData = args.bind(vm)?;
             Ok(stat.to_pyobject(vm))
         }
     }
@@ -920,7 +937,7 @@ pub(super) mod _os {
         let stat = stat_inner(file.clone(), dir_fd, follow_symlinks)
             .map_err(|err| IOErrorBuilder::with_filename(&err, file, vm))?
             .ok_or_else(|| crate::exceptions::cstring_error(vm))?;
-        Ok(StatResult::from_stat(&stat, vm).to_pyobject(vm))
+        Ok(StatResultData::from_stat(&stat, vm).to_pyobject(vm))
     }
 
     #[pyfunction]
@@ -1215,10 +1232,9 @@ pub(super) mod _os {
     }
 
     #[cfg(all(any(unix, windows), not(target_os = "redox")))]
-    #[pyattr]
-    #[pyclass(module = "os", name = "times_result")]
-    #[derive(Debug, PyStructSequence)]
-    struct TimesResult {
+    #[derive(Debug)]
+    #[pystruct_sequence_data]
+    struct TimesResultData {
         pub user: f64,
         pub system: f64,
         pub children_user: f64,
@@ -1227,8 +1243,13 @@ pub(super) mod _os {
     }
 
     #[cfg(all(any(unix, windows), not(target_os = "redox")))]
+    #[pyattr]
+    #[pystruct_sequence(name = "times_result", module = "os", data = "TimesResultData")]
+    struct PyTimesResult;
+
+    #[cfg(all(any(unix, windows), not(target_os = "redox")))]
     #[pyclass(with(PyStructSequence))]
-    impl TimesResult {}
+    impl PyTimesResult {}
 
     #[cfg(all(any(unix, windows), not(target_os = "redox")))]
     #[pyfunction]
@@ -1257,7 +1278,7 @@ pub(super) mod _os {
             let kernel = unsafe { kernel.assume_init() };
             let user = unsafe { user.assume_init() };
 
-            let times_result = TimesResult {
+            let times_result = TimesResultData {
                 user: user.dwHighDateTime as f64 * 429.4967296 + user.dwLowDateTime as f64 * 1e-7,
                 system: kernel.dwHighDateTime as f64 * 429.4967296
                     + kernel.dwLowDateTime as f64 * 1e-7,
@@ -1285,7 +1306,7 @@ pub(super) mod _os {
                 return Err(vm.new_os_error("Fail to get times".to_string()));
             }
 
-            let times_result = TimesResult {
+            let times_result = TimesResultData {
                 user: t.tms_utime as f64 / tick_for_second,
                 system: t.tms_stime as f64 / tick_for_second,
                 children_user: t.tms_cutime as f64 / tick_for_second,
@@ -1458,21 +1479,23 @@ pub(super) mod _os {
         }
     }
 
-    #[pyattr]
-    #[pyclass(module = "os", name = "terminal_size")]
-    #[derive(PyStructSequence)]
+    #[pystruct_sequence_data]
     #[allow(dead_code)]
-    pub(crate) struct PyTerminalSize {
+    pub(crate) struct TerminalSizeData {
         pub columns: usize,
         pub lines: usize,
     }
+
+    #[pyattr]
+    #[pystruct_sequence(name = "terminal_size", module = "os", data = "TerminalSizeData")]
+    pub(crate) struct PyTerminalSize;
+
     #[pyclass(with(PyStructSequence))]
     impl PyTerminalSize {}
 
-    #[pyattr]
-    #[pyclass(module = "os", name = "uname_result")]
-    #[derive(Debug, PyStructSequence)]
-    pub(crate) struct UnameResult {
+    #[derive(Debug)]
+    #[pystruct_sequence_data]
+    pub(crate) struct UnameResultData {
         pub sysname: String,
         pub nodename: String,
         pub release: String,
@@ -1480,8 +1503,12 @@ pub(super) mod _os {
         pub machine: String,
     }
 
+    #[pyattr]
+    #[pystruct_sequence(name = "uname_result", module = "os", data = "UnameResultData")]
+    pub(crate) struct PyUnameResult;
+
     #[pyclass(with(PyStructSequence))]
-    impl UnameResult {}
+    impl PyUnameResult {}
 
     pub(super) fn support_funcs() -> Vec<SupportFunc> {
         let mut supports = super::platform::module::support_funcs();

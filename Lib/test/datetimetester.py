@@ -2943,8 +2943,6 @@ class TestDateTime(TestDate):
         self.assertEqual(dt2.newmeth(-7), dt1.year + dt1.month +
                                           dt1.second - 7)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subclass_alternate_constructors_datetime(self):
         # Test that alternate constructors call the constructor
         class DateTimeSubclass(self.theclass):

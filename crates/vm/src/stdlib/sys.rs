@@ -1,6 +1,6 @@
 use crate::{Py, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyObject};
 
-pub(crate) use sys::{__module_def, DOC, MAXSIZE, MULTIARCH, UnraisableHookArgs};
+pub(crate) use sys::{__module_def, DOC, MAXSIZE, MULTIARCH, UnraisableHookArgsData};
 
 #[pymodule]
 mod sys {
@@ -450,12 +450,12 @@ mod sys {
 
     #[pyattr]
     fn flags(vm: &VirtualMachine) -> PyTupleRef {
-        Flags::from_settings(&vm.state.settings).into_struct_sequence(vm)
+        PyFlags::from_data(FlagsData::from_settings(&vm.state.settings), vm)
     }
 
     #[pyattr]
     fn float_info(vm: &VirtualMachine) -> PyTupleRef {
-        PyFloatInfo::INFO.into_struct_sequence(vm)
+        PyFloatInfo::from_data(FloatInfoData::INFO, vm)
     }
 
     #[pyfunction]
@@ -656,7 +656,7 @@ mod sys {
                 .map_err(|_| vm.new_os_error("service pack is not ASCII".to_owned()))?
         };
         let real_version = get_kernel32_version().map_err(|e| vm.new_os_error(e.to_string()))?;
-        Ok(WindowsVersion {
+        let winver = WindowsVersionData {
             major: real_version.0,
             minor: real_version.1,
             build: real_version.2,
@@ -667,11 +667,11 @@ mod sys {
             suite_mask: version.wSuiteMask,
             product_type: version.wProductType,
             platform_version: (real_version.0, real_version.1, real_version.2), // TODO Provide accurate version, like CPython impl
-        }
-        .into_struct_sequence(vm))
+        };
+        Ok(PyWindowsVersion::from_data(winver, vm))
     }
 
-    fn _unraisablehook(unraisable: UnraisableHookArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn _unraisablehook(unraisable: UnraisableHookArgsData, vm: &VirtualMachine) -> PyResult<()> {
         use super::PyStderr;
 
         let stderr = PyStderr(vm);
@@ -727,7 +727,7 @@ mod sys {
 
     #[pyattr]
     #[pyfunction(name = "__unraisablehook__")]
-    fn unraisablehook(unraisable: UnraisableHookArgs, vm: &VirtualMachine) {
+    fn unraisablehook(unraisable: UnraisableHookArgsData, vm: &VirtualMachine) {
         if let Err(e) = _unraisablehook(unraisable, vm) {
             let stderr = super::PyStderr(vm);
             writeln!(
@@ -742,7 +742,7 @@ mod sys {
 
     #[pyattr]
     fn hash_info(vm: &VirtualMachine) -> PyTupleRef {
-        PyHashInfo::INFO.into_struct_sequence(vm)
+        PyHashInfo::from_data(HashInfoData::INFO, vm)
     }
 
     #[pyfunction]
@@ -752,7 +752,7 @@ mod sys {
 
     #[pyattr]
     fn int_info(vm: &VirtualMachine) -> PyTupleRef {
-        PyIntInfo::INFO.into_struct_sequence(vm)
+        PyIntInfo::from_data(IntInfoData::INFO, vm)
     }
 
     #[pyfunction]
@@ -762,7 +762,7 @@ mod sys {
 
     #[pyfunction]
     fn set_int_max_str_digits(maxdigits: usize, vm: &VirtualMachine) -> PyResult<()> {
-        let threshold = PyIntInfo::INFO.str_digits_check_threshold;
+        let threshold = IntInfoData::INFO.str_digits_check_threshold;
         if maxdigits == 0 || maxdigits >= threshold {
             vm.state.int_max_str_digits.store(maxdigits);
             Ok(())
@@ -812,12 +812,12 @@ mod sys {
     #[cfg(feature = "threading")]
     #[pyattr]
     fn thread_info(vm: &VirtualMachine) -> PyTupleRef {
-        PyThreadInfo::INFO.into_struct_sequence(vm)
+        PyThreadInfo::from_data(ThreadInfoData::INFO, vm)
     }
 
     #[pyattr]
     fn version_info(vm: &VirtualMachine) -> PyTupleRef {
-        VersionInfo::VERSION.into_struct_sequence(vm)
+        PyVersionInfo::from_data(VersionInfoData::VERSION, vm)
     }
 
     fn update_use_tracing(vm: &VirtualMachine) {
@@ -898,19 +898,22 @@ mod sys {
         Ok(())
     }
 
-    #[pyclass(no_attr, name = "asyncgen_hooks")]
-    #[derive(PyStructSequence)]
-    pub(super) struct PyAsyncgenHooks {
+    #[pystruct_sequence_data]
+    pub(super) struct AsyncgenHooksData {
         firstiter: PyObjectRef,
         finalizer: PyObjectRef,
     }
+
+    #[pyattr]
+    #[pystruct_sequence(name = "asyncgen_hooks", data = "AsyncgenHooksData")]
+    pub(super) struct PyAsyncgenHooks;
 
     #[pyclass(with(PyStructSequence))]
     impl PyAsyncgenHooks {}
 
     #[pyfunction]
-    fn get_asyncgen_hooks(vm: &VirtualMachine) -> PyAsyncgenHooks {
-        PyAsyncgenHooks {
+    fn get_asyncgen_hooks(vm: &VirtualMachine) -> AsyncgenHooksData {
+        AsyncgenHooksData {
             firstiter: crate::vm::thread::ASYNC_GEN_FIRSTITER
                 .with_borrow(Clone::clone)
                 .to_pyobject(vm),
@@ -923,9 +926,9 @@ mod sys {
     /// sys.flags
     ///
     /// Flags provided through command line arguments or environment vars.
-    #[pyclass(no_attr, name = "flags", module = "sys")]
-    #[derive(Debug, PyStructSequence)]
-    pub(super) struct Flags {
+    #[derive(Debug)]
+    #[pystruct_sequence_data]
+    pub(super) struct FlagsData {
         /// -d
         debug: u8,
         /// -i
@@ -964,8 +967,7 @@ mod sys {
         warn_default_encoding: u8,
     }
 
-    #[pyclass(with(PyStructSequence))]
-    impl Flags {
+    impl FlagsData {
         const fn from_settings(settings: &Settings) -> Self {
             Self {
                 debug: settings.debug,
@@ -988,7 +990,13 @@ mod sys {
                 warn_default_encoding: settings.warn_default_encoding as u8,
             }
         }
+    }
 
+    #[pystruct_sequence(name = "flags", module = "sys", data = "FlagsData", no_attr)]
+    pub(super) struct PyFlags;
+
+    #[pyclass(with(PyStructSequence))]
+    impl PyFlags {
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("cannot create 'sys.flags' instances"))
@@ -996,17 +1004,15 @@ mod sys {
     }
 
     #[cfg(feature = "threading")]
-    #[pyclass(no_attr, name = "thread_info")]
-    #[derive(PyStructSequence)]
-    pub(super) struct PyThreadInfo {
+    #[pystruct_sequence_data]
+    pub(super) struct ThreadInfoData {
         name: Option<&'static str>,
         lock: Option<&'static str>,
         version: Option<&'static str>,
     }
 
     #[cfg(feature = "threading")]
-    #[pyclass(with(PyStructSequence))]
-    impl PyThreadInfo {
+    impl ThreadInfoData {
         const INFO: Self = Self {
             name: crate::stdlib::thread::_thread::PYTHREAD_NAME,
             // As I know, there's only way to use lock as "Mutex" in Rust
@@ -1016,9 +1022,16 @@ mod sys {
         };
     }
 
-    #[pyclass(no_attr, name = "float_info")]
-    #[derive(PyStructSequence)]
-    pub(super) struct PyFloatInfo {
+    #[cfg(feature = "threading")]
+    #[pystruct_sequence(name = "thread_info", data = "ThreadInfoData", no_attr)]
+    pub(super) struct PyThreadInfo;
+
+    #[cfg(feature = "threading")]
+    #[pyclass(with(PyStructSequence))]
+    impl PyThreadInfo {}
+
+    #[pystruct_sequence_data]
+    pub(super) struct FloatInfoData {
         max: f64,
         max_exp: i32,
         max_10_exp: i32,
@@ -1032,8 +1045,7 @@ mod sys {
         rounds: i32,
     }
 
-    #[pyclass(with(PyStructSequence))]
-    impl PyFloatInfo {
+    impl FloatInfoData {
         const INFO: Self = Self {
             max: f64::MAX,
             max_exp: f64::MAX_EXP,
@@ -1049,9 +1061,14 @@ mod sys {
         };
     }
 
-    #[pyclass(no_attr, name = "hash_info")]
-    #[derive(PyStructSequence)]
-    pub(super) struct PyHashInfo {
+    #[pystruct_sequence(name = "float_info", data = "FloatInfoData", no_attr)]
+    pub(super) struct PyFloatInfo;
+
+    #[pyclass(with(PyStructSequence))]
+    impl PyFloatInfo {}
+
+    #[pystruct_sequence_data]
+    pub(super) struct HashInfoData {
         width: usize,
         modulus: PyUHash,
         inf: PyHash,
@@ -1063,8 +1080,7 @@ mod sys {
         cutoff: usize,
     }
 
-    #[pyclass(with(PyStructSequence))]
-    impl PyHashInfo {
+    impl HashInfoData {
         const INFO: Self = {
             use rustpython_common::hash::*;
             Self {
@@ -1081,17 +1097,21 @@ mod sys {
         };
     }
 
-    #[pyclass(no_attr, name = "int_info")]
-    #[derive(PyStructSequence)]
-    pub(super) struct PyIntInfo {
+    #[pystruct_sequence(name = "hash_info", data = "HashInfoData", no_attr)]
+    pub(super) struct PyHashInfo;
+
+    #[pyclass(with(PyStructSequence))]
+    impl PyHashInfo {}
+
+    #[pystruct_sequence_data]
+    pub(super) struct IntInfoData {
         bits_per_digit: usize,
         sizeof_digit: usize,
         default_max_str_digits: usize,
         str_digits_check_threshold: usize,
     }
 
-    #[pyclass(with(PyStructSequence))]
-    impl PyIntInfo {
+    impl IntInfoData {
         const INFO: Self = Self {
             bits_per_digit: 30, //?
             sizeof_digit: std::mem::size_of::<u32>(),
@@ -1100,9 +1120,15 @@ mod sys {
         };
     }
 
-    #[pyclass(no_attr, name = "version_info")]
-    #[derive(Default, Debug, PyStructSequence)]
-    pub struct VersionInfo {
+    #[pystruct_sequence(name = "int_info", data = "IntInfoData", no_attr)]
+    pub(super) struct PyIntInfo;
+
+    #[pyclass(with(PyStructSequence))]
+    impl PyIntInfo {}
+
+    #[derive(Default, Debug)]
+    #[pystruct_sequence_data]
+    pub struct VersionInfoData {
         major: usize,
         minor: usize,
         micro: usize,
@@ -1110,8 +1136,7 @@ mod sys {
         serial: usize,
     }
 
-    #[pyclass(with(PyStructSequence))]
-    impl VersionInfo {
+    impl VersionInfoData {
         pub const VERSION: Self = Self {
             major: version::MAJOR,
             minor: version::MINOR,
@@ -1119,6 +1144,13 @@ mod sys {
             releaselevel: version::RELEASELEVEL,
             serial: version::SERIAL,
         };
+    }
+
+    #[pystruct_sequence(name = "version_info", data = "VersionInfoData", no_attr)]
+    pub struct PyVersionInfo;
+
+    #[pyclass(with(PyStructSequence))]
+    impl PyVersionInfo {
         #[pyslot]
         fn slot_new(
             _cls: crate::builtins::type_::PyTypeRef,
@@ -1130,9 +1162,9 @@ mod sys {
     }
 
     #[cfg(windows)]
-    #[pyclass(no_attr, name = "getwindowsversion")]
-    #[derive(Default, Debug, PyStructSequence)]
-    pub(super) struct WindowsVersion {
+    #[derive(Default, Debug)]
+    #[pystruct_sequence_data]
+    pub(super) struct WindowsVersionData {
         major: u32,
         minor: u32,
         build: u32,
@@ -1146,12 +1178,16 @@ mod sys {
     }
 
     #[cfg(windows)]
-    #[pyclass(with(PyStructSequence))]
-    impl WindowsVersion {}
+    #[pystruct_sequence(name = "getwindowsversion", data = "WindowsVersionData", no_attr)]
+    pub(super) struct PyWindowsVersion;
 
-    #[pyclass(no_attr, name = "UnraisableHookArgs")]
-    #[derive(Debug, PyStructSequence, TryIntoPyStructSequence)]
-    pub struct UnraisableHookArgs {
+    #[cfg(windows)]
+    #[pyclass(with(PyStructSequence))]
+    impl PyWindowsVersion {}
+
+    #[derive(Debug)]
+    #[pystruct_sequence_data(try_from_object)]
+    pub struct UnraisableHookArgsData {
         pub exc_type: PyTypeRef,
         pub exc_value: PyObjectRef,
         pub exc_traceback: PyObjectRef,
@@ -1159,8 +1195,11 @@ mod sys {
         pub object: PyObjectRef,
     }
 
+    #[pystruct_sequence(name = "UnraisableHookArgs", data = "UnraisableHookArgsData", no_attr)]
+    pub struct PyUnraisableHookArgs;
+
     #[pyclass(with(PyStructSequence))]
-    impl UnraisableHookArgs {}
+    impl PyUnraisableHookArgs {}
 }
 
 pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: &Py<PyModule>) {

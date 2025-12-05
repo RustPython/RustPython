@@ -63,10 +63,8 @@ mod resource {
     #[pyattr]
     use libc::{RUSAGE_CHILDREN, RUSAGE_SELF};
 
-    #[pyattr]
-    #[pyclass(name = "struct_rusage")]
-    #[derive(PyStructSequence)]
-    struct Rusage {
+    #[pystruct_sequence_data]
+    struct RUsageData {
         ru_utime: f64,
         ru_stime: f64,
         ru_maxrss: libc::c_long,
@@ -85,10 +83,14 @@ mod resource {
         ru_nivcsw: libc::c_long,
     }
 
-    #[pyclass(with(PyStructSequence))]
-    impl Rusage {}
+    #[pyattr]
+    #[pystruct_sequence(name = "struct_rusage", module = "resource", data = "RUsageData")]
+    struct PyRUsage;
 
-    impl From<libc::rusage> for Rusage {
+    #[pyclass(with(PyStructSequence))]
+    impl PyRUsage {}
+
+    impl From<libc::rusage> for RUsageData {
         fn from(rusage: libc::rusage) -> Self {
             let tv = |tv: libc::timeval| tv.tv_sec as f64 + (tv.tv_usec as f64 / 1_000_000.0);
             Self {
@@ -113,7 +115,7 @@ mod resource {
     }
 
     #[pyfunction]
-    fn getrusage(who: i32, vm: &VirtualMachine) -> PyResult<Rusage> {
+    fn getrusage(who: i32, vm: &VirtualMachine) -> PyResult<RUsageData> {
         let res = unsafe {
             let mut rusage = mem::MaybeUninit::<libc::rusage>::uninit();
             if libc::getrusage(who, rusage.as_mut_ptr()) == -1 {
@@ -122,7 +124,7 @@ mod resource {
                 Ok(rusage.assume_init())
             }
         };
-        res.map(Rusage::from).map_err(|e| {
+        res.map(RUsageData::from).map_err(|e| {
             if e.kind() == io::ErrorKind::InvalidInput {
                 vm.new_value_error("invalid who parameter")
             } else {

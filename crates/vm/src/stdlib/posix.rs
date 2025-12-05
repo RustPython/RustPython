@@ -1330,9 +1330,9 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn uname(vm: &VirtualMachine) -> PyResult<_os::UnameResult> {
+    fn uname(vm: &VirtualMachine) -> PyResult<_os::UnameResultData> {
         let info = uname::uname().map_err(|err| err.into_pyexception(vm))?;
-        Ok(_os::UnameResult {
+        Ok(_os::UnameResultData {
             sysname: info.sysname,
             nodename: info.nodename,
             release: info.release,
@@ -1730,7 +1730,7 @@ pub mod module {
     fn get_terminal_size(
         fd: OptionalArg<i32>,
         vm: &VirtualMachine,
-    ) -> PyResult<_os::PyTerminalSize> {
+    ) -> PyResult<_os::TerminalSizeData> {
         let (columns, lines) = {
             nix::ioctl_read_bad!(winsz, libc::TIOCGWINSZ, libc::winsize);
             let mut w = libc::winsize {
@@ -1743,7 +1743,7 @@ pub mod module {
                 .map_err(|err| err.into_pyexception(vm))?;
             (w.ws_col.into(), w.ws_row.into())
         };
-        Ok(_os::PyTerminalSize { columns, lines })
+        Ok(_os::TerminalSizeData { columns, lines })
     }
 
     // from libstd:

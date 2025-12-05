@@ -1,4 +1,5 @@
 use crate::error::Diagnostic;
+use crate::pystructseq::PyStructSequenceMeta;
 use crate::util::{
     ALL_ALLOWED_NAMES, AttrItemMeta, AttributeExt, ClassItemMeta, ContentItem, ContentItemInner,
     ErrorVec, ItemMeta, ItemNursery, ModuleItemMeta, SimpleItemMeta, format_doc, iter_use_idents,
@@ -18,6 +19,7 @@ enum AttrName {
     Attr,
     Class,
     Exception,
+    StructSequence,
 }
 
 impl std::fmt::Display for AttrName {
@@ -27,6 +29,7 @@ impl std::fmt::Display for AttrName {
             Self::Attr => "pyattr",
             Self::Class => "pyclass",
             Self::Exception => "pyexception",
+            Self::StructSequence => "pystruct_sequence",
         };
         s.fmt(f)
     }
@@ -41,6 +44,7 @@ impl FromStr for AttrName {
             "pyattr" => Self::Attr,
             "pyclass" => Self::Class,
             "pyexception" => Self::Exception,
+            "pystruct_sequence" => Self::StructSequence,
             s => {
                 return Err(s.to_owned());
             }
@@ -235,6 +239,10 @@ fn module_item_new(
             inner: ContentItemInner { index, attr_name },
             py_attrs,
         }),
+        AttrName::StructSequence => Box::new(StructSequenceItem {
+            inner: ContentItemInner { index, attr_name },
+            py_attrs,
+        }),
     }
 }
 
@@ -301,13 +309,16 @@ where
             result.push(item_new(i, attr_name, Vec::new()));
         } else {
             match attr_name {
-                AttrName::Class | AttrName::Function | AttrName::Exception => {
+                AttrName::Class
+                | AttrName::Function
+                | AttrName::Exception
+                | AttrName::StructSequence => {
                     result.push(item_new(i, attr_name, py_attrs.clone()));
                 }
                 _ => {
                     bail_span!(
                         attr,
-                        "#[pyclass], #[pyfunction], or #[pyexception] can follow #[pyattr]",
+                        "#[pyclass], #[pyfunction], #[pyexception], or #[pystruct_sequence] can follow #[pyattr]",
                     )
                 }
             }
@@ -402,6 +413,12 @@ struct AttributeItem {
     py_attrs: Vec<usize>,
 }
 
+/// #[pystruct_sequence]
+struct StructSequenceItem {
+    inner: ContentItemInner<AttrName>,
+    py_attrs: Vec<usize>,
+}
+
 impl ContentItem for FunctionItem {
     type AttrName = AttrName;
 
@@ -419,6 +436,14 @@ impl ContentItem for ClassItem {
 }
 
 impl ContentItem for AttributeItem {
+    type AttrName = AttrName;
+
+    fn inner(&self) -> &ContentItemInner<AttrName> {
+        &self.inner
+    }
+}
+
+impl ContentItem for StructSequenceItem {
     type AttrName = AttrName;
 
     fn inner(&self) -> &ContentItemInner<AttrName> {
@@ -593,6 +618,84 @@ impl ModuleItem for ClassItem {
             py_names,
             args.cfgs.to_vec(),
             quote_spanned! { ident.span() =>
+                #class_new
+                #set_attr
+            },
+            0,
+        )?;
+        Ok(())
+    }
+}
+
+impl ModuleItem for StructSequenceItem {
+    fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()> {
+        // Get the struct identifier (this IS the Python type, e.g., PyStructTime)
+        let pytype_ident = match args.item {
+            Item::Struct(s) => s.ident.clone(),
+            other => bail_span!(other, "#[pystruct_sequence] can only be on a struct"),
+        };
+
+        // Parse the #[pystruct_sequence(name = "...", module = "...", no_attr)] attribute
+        let structseq_attr = &args.attrs[self.inner.index];
+        let meta = PyStructSequenceMeta::from_attr(pytype_ident.clone(), structseq_attr)?;
+
+        let class_name = meta.class_name()?.ok_or_else(|| {
+            syn::Error::new_spanned(
+                structseq_attr,
+                "#[pystruct_sequence] requires name parameter",
+            )
+        })?;
+        let module_name = meta.module()?.unwrap_or_else(|| args.context.name.clone());
+        let no_attr = meta.no_attr()?;
+
+        // Generate the class creation code
+        let class_new = quote_spanned!(pytype_ident.span() =>
+            let new_class = <#pytype_ident as ::rustpython_vm::class::PyClassImpl>::make_class(ctx);
+            new_class.set_attr(rustpython_vm::identifier!(ctx, __module__), vm.new_pyobj(#module_name));
+        );
+
+        // Handle py_attrs for custom names, or use class_name as default
+        let mut py_names = Vec::new();
+        for attr_index in self.py_attrs.iter().rev() {
+            let attr_attr = args.attrs.remove(*attr_index);
+            let item_meta = SimpleItemMeta::from_attr(pytype_ident.clone(), &attr_attr)?;
+            let py_name = item_meta
+                .optional_name()
+                .unwrap_or_else(|| class_name.clone());
+            py_names.push(py_name);
+        }
+
+        // Require explicit #[pyattr] or no_attr, like #[pyclass]
+        if self.py_attrs.is_empty() && !no_attr {
+            bail_span!(
+                pytype_ident,
+                "#[pystruct_sequence] requires #[pyattr] to be a module attribute. \
+                 To keep it free type, try #[pystruct_sequence(..., no_attr)]"
+            )
+        }
+
+        let set_attr = match py_names.len() {
+            0 => quote! {
+                let _ = new_class;  // suppress warning
+            },
+            1 => {
+                let py_name = &py_names[0];
+                quote! {
+                    vm.__module_set_attr(&module, vm.ctx.intern_str(#py_name), new_class).unwrap();
+                }
+            }
+            _ => quote! {
+                for name in [#(#py_names,)*] {
+                    vm.__module_set_attr(&module, vm.ctx.intern_str(name), new_class.clone()).unwrap();
+                }
+            },
+        };
+
+        args.context.attribute_items.add_item(
+            pytype_ident.clone(),
+            py_names,
+            args.cfgs.to_vec(),
+            quote_spanned! { pytype_ident.span() =>
                 #class_new
                 #set_attr
             },
