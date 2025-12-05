@@ -529,7 +529,8 @@ class Regrtest:
             use_load_tracker = False
         else:
             # WindowsLoadTracker is only needed on Windows
-            use_load_tracker = MS_WINDOWS
+            # use_load_tracker = MS_WINDOWS  # TODO: RUSTPYTHON, investigate why this was disabled in the first place
+            use_load_tracker = False
 
         if use_load_tracker:
             self.logger.start_load_tracker()
