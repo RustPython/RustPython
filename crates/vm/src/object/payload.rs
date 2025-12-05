@@ -101,6 +101,22 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     {
         let exact_class = Self::class(&vm.ctx);
         if cls.fast_issubclass(exact_class) {
+            if exact_class.slots.basicsize != cls.slots.basicsize {
+                #[cold]
+                #[inline(never)]
+                fn _into_ref_size_error(
+                    vm: &VirtualMachine,
+                    cls: &PyTypeRef,
+                    exact_class: &Py<PyType>,
+                ) -> PyBaseExceptionRef {
+                    vm.new_type_error(format!(
+                        "cannot create '{}' from a subclass with a different size '{}'",
+                        cls.name(),
+                        exact_class.name()
+                    ))
+                }
+                return Err(_into_ref_size_error(vm, &cls, exact_class));
+            }
             Ok(self._into_ref(cls, &vm.ctx))
         } else {
             #[cold]

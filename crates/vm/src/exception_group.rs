@@ -46,7 +46,7 @@ pub(super) mod types {
 
     #[pyexception(name, base = PyBaseException, ctx = "base_exception_group")]
     #[derive(Debug)]
-    pub struct PyBaseExceptionGroup {}
+    pub struct PyBaseExceptionGroup(PyBaseException);
 
     #[pyexception]
     impl PyBaseExceptionGroup {
