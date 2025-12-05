@@ -53,7 +53,12 @@ mod mmap {
             | libc::MADV_SEQUENTIAL
             | libc::MADV_WILLNEED
             | libc::MADV_DONTNEED => Ok(advice),
-            #[cfg(any(target_os = "linux", target_os = "macos", target_os = "ios"))]
+            #[cfg(any(
+                target_os = "linux",
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "freebsd"
+            ))]
             libc::MADV_FREE => Ok(advice),
             #[cfg(target_os = "linux")]
             libc::MADV_DONTFORK
@@ -66,6 +71,12 @@ mod mmap {
             | libc::MADV_DONTDUMP
             | libc::MADV_DODUMP
             | libc::MADV_HWPOISON => Ok(advice),
+            #[cfg(target_os = "freebsd")]
+            libc::MADV_NOSYNC
+            | libc::MADV_AUTOSYNC
+            | libc::MADV_NOCORE
+            | libc::MADV_CORE
+            | libc::MADV_PROTECT => Ok(advice),
             _ => Err(vm.new_value_error("Not a valid Advice value")),
         }
     }
@@ -96,7 +107,7 @@ mod mmap {
     #[pyattr]
     use libc::{
         MADV_DONTNEED, MADV_NORMAL, MADV_RANDOM, MADV_SEQUENTIAL, MADV_WILLNEED, MAP_ANON,
-        MAP_ANONYMOUS, MAP_PRIVATE, MAP_SHARED, PROT_READ, PROT_WRITE,
+        MAP_ANONYMOUS, MAP_PRIVATE, MAP_SHARED, PROT_EXEC, PROT_READ, PROT_WRITE,
     };
 
     #[cfg(target_os = "macos")]
@@ -145,6 +156,16 @@ mod mmap {
     #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
     #[pyattr]
     use libc::{MAP_DENYWRITE, MAP_EXECUTABLE, MAP_POPULATE};
+
+    // MAP_STACK is available on Linux, OpenBSD, and NetBSD
+    #[cfg(any(target_os = "linux", target_os = "openbsd", target_os = "netbsd"))]
+    #[pyattr]
+    use libc::MAP_STACK;
+
+    // FreeBSD-specific MADV constants
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    use libc::{MADV_AUTOSYNC, MADV_CORE, MADV_NOCORE, MADV_NOSYNC, MADV_PROTECT};
 
     #[pyattr]
     const ACCESS_DEFAULT: u32 = AccessMode::Default as u32;
@@ -404,6 +425,15 @@ mod mmap {
             };
 
             let fd = unsafe { crt_fd::Borrowed::try_borrow_raw(fd) };
+
+            // macOS: Issue #11277: fsync(2) is not enough on OS X - a special, OS X specific
+            // fcntl(2) is necessary to force DISKSYNC and get around mmap(2) bug
+            #[cfg(target_os = "macos")]
+            if let Ok(fd) = fd {
+                use std::os::fd::AsRawFd;
+                unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_FULLFSYNC) };
+            }
+
             if let Ok(fd) = fd {
                 let metadata = fstat(fd)
                     .map_err(|err| io::Error::from_raw_os_error(err as i32).to_pyexception(vm))?;
@@ -538,7 +568,10 @@ mod mmap {
                     map_size = (file_len - offset) as usize;
                 } else {
                     // If map_size > file_len, extend the file (Windows behavior)
-                    let required_size = offset + map_size as i64;
+                    let required_size = offset.checked_add(map_size as i64).ok_or_else(|| {
+                        unsafe { CloseHandle(duplicated_handle) };
+                        vm.new_overflow_error("mmap size would cause file size overflow")
+                    })?;
                     if required_size > file_len {
                         // Extend file using SetFilePointerEx + SetEndOfFile
                         let result = unsafe {
@@ -799,8 +832,9 @@ mod mmap {
 
             let sub = &options.sub;
 
+            // returns start position for empty string
             if sub.is_empty() {
-                return Ok(PyInt::from(0isize));
+                return Ok(PyInt::from(start as isize));
             }
 
             let mmap = self.check_valid(vm)?;
@@ -815,8 +849,9 @@ mod mmap {
             let (start, end) = self.get_find_range(options.clone());
 
             let sub = &options.sub;
+            // returns start position for empty string
             if sub.is_empty() {
-                return Ok(PyInt::from(0isize));
+                return Ok(PyInt::from(start as isize));
             }
 
             let mmap = self.check_valid(vm)?;
@@ -850,18 +885,20 @@ mod mmap {
         #[cfg(all(unix, not(target_os = "redox")))]
         #[pymethod]
         fn madvise(&self, options: AdviseOptions, vm: &VirtualMachine) -> PyResult<()> {
-            let (option, _start, _length) = options.values(self.__len__(), vm)?;
+            let (option, start, length) = options.values(self.__len__(), vm)?;
             let advice = validate_advice(vm, option)?;
 
             let guard = self.check_valid(vm)?;
             let mmap = guard.deref().as_ref().unwrap();
-            let (ptr, len) = match mmap {
-                MmapObj::Read(m) => (m.as_ptr(), m.len()),
-                MmapObj::Write(m) => (m.as_ptr(), m.len()),
+            let ptr = match mmap {
+                MmapObj::Read(m) => m.as_ptr(),
+                MmapObj::Write(m) => m.as_ptr(),
             };
 
-            // Call libc::madvise directly
-            let result = unsafe { libc::madvise(ptr as *mut libc::c_void, len, advice) };
+            // Apply madvise to the specified range (start, length)
+            let ptr_with_offset = unsafe { ptr.add(start) };
+            let result =
+                unsafe { libc::madvise(ptr_with_offset as *mut libc::c_void, length, advice) };
             if result != 0 {
                 return Err(io::Error::last_os_error().to_pyexception(vm));
             }
@@ -1062,30 +1099,14 @@ mod mmap {
                 if result == 0 {
                     // Restore original mmap on error
                     let err = io::Error::last_os_error();
-                    let old_size = self.size.load();
-                    if let Ok(mmap) = Self::create_mmap_windows(
-                        handle as HANDLE,
-                        self.offset,
-                        old_size,
-                        &self.access,
-                    ) {
-                        *mmap_guard = Some(mmap);
-                    }
+                    self.try_restore_mmap(&mut mmap_guard, handle as HANDLE, self.size.load());
                     return Err(err.to_pyexception(vm));
                 }
 
                 let result = unsafe { SetEndOfFile(handle as HANDLE) };
                 if result == 0 {
                     let err = io::Error::last_os_error();
-                    let old_size = self.size.load();
-                    if let Ok(mmap) = Self::create_mmap_windows(
-                        handle as HANDLE,
-                        self.offset,
-                        old_size,
-                        &self.access,
-                    ) {
-                        *mmap_guard = Some(mmap);
-                    }
+                    self.try_restore_mmap(&mut mmap_guard, handle as HANDLE, self.size.load());
                     return Err(err.to_pyexception(vm));
                 }
 
@@ -1248,6 +1269,12 @@ mod mmap {
         fn __exit__(zelf: &Py<Self>, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             zelf.close(vm)
         }
+
+        #[cfg(windows)]
+        #[pymethod]
+        fn __sizeof__(&self) -> usize {
+            std::mem::size_of::<Self>()
+        }
     }
 
     impl PyMmap {
@@ -1279,6 +1306,17 @@ mod mmap {
             std::mem::forget(file);
 
             result
+        }
+
+        /// Try to restore mmap after a failed resize operation.
+        /// Returns true if restoration succeeded, false otherwise.
+        /// If restoration fails, marks the mmap as closed.
+        #[cfg(windows)]
+        fn try_restore_mmap(&self, mmap_guard: &mut Option<MmapObj>, handle: HANDLE, size: usize) {
+            match Self::create_mmap_windows(handle, self.offset, size, &self.access) {
+                Ok(mmap) => *mmap_guard = Some(mmap),
+                Err(_) => self.closed.store(true),
+            }
         }
 
         fn getitem_by_index(&self, i: isize, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
