@@ -105,7 +105,7 @@ rustix = { workspace = true }
 
 # mmap + socket dependencies
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-memmap2 = "0.5.10"
+memmap2 = "0.9.9"
 page_size = "0.6"
 gethostname = "1.0.2"
 socket2 = { version = "0.6.0", features = ["all"] }
