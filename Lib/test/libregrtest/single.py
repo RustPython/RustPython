@@ -1,5 +1,5 @@
 import faulthandler
-import gc
+# import gc  # TODO: RUSTPYTHON, build a functional garbage collector into the interpreter
 import importlib
 import io
 import sys
@@ -145,15 +145,15 @@ def _load_run_test(result: TestResult, runtests: RunTests) -> None:
 
         remove_testfn(test_name, runtests.verbose)
 
-    if gc.garbage:
-        support.environment_altered = True
-        print_warning(f"{test_name} created {len(gc.garbage)} "
-                      f"uncollectable object(s)")
+    # if gc.garbage:  # TODO: RUSTPYTHON, build a functional garbage collector into the interpreter
+    #     support.environment_altered = True  # TODO: RUSTPYTHON, build a functional garbage collector into the interpreter
+    #     print_warning(f"{test_name} created {len(gc.garbage)} "  # TODO: RUSTPYTHON, build a functional garbage collector into the interpreter
+    #                   f"uncollectable object(s)")  # TODO: RUSTPYTHON, build a functional garbage collector into the interpreter
 
-        # move the uncollectable objects somewhere,
-        # so we don't see them again
-        GC_GARBAGE.extend(gc.garbage)
-        gc.garbage.clear()
+    #     # move the uncollectable objects somewhere,  # TODO: RUSTPYTHON, build a functional garbage collector into the interpreter
+    #     # so we don't see them again  # TODO: RUSTPYTHON, build a functional garbage collector into the interpreter
+    #     GC_GARBAGE.extend(gc.garbage)  # TODO: RUSTPYTHON, build a functional garbage collector into the interpreter
+    #     gc.garbage.clear()  # TODO: RUSTPYTHON, build a functional garbage collector into the interpreter
 
     support.reap_children()
 
@@ -176,9 +176,10 @@ def _runtest_env_changed_exc(result: TestResult, runtests: RunTests,
         clear_caches()
         support.gc_collect()
 
-        with saved_test_environment(test_name,
-                                    runtests.verbose, quiet, pgo=pgo):
-            _load_run_test(result, runtests)
+        # with saved_test_environment(test_name,  # TODO: RUSTPYTHON, figure out why this was disabled in the first place
+        #                             runtests.verbose, quiet, pgo=pgo):  # TODO: RUSTPYTHON, figure out why this was disabled in the first place
+        #     _load_run_test(result, runtests)  # TODO: RUSTPYTHON, figure out why this was disabled in the first place
+        _load_run_test(result, runtests)
     except support.ResourceDenied as exc:
         if not quiet and not pgo:
             print(f"{test_name} skipped -- {exc}", flush=True)
