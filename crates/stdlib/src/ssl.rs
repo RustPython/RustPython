@@ -3440,44 +3440,56 @@ mod _ssl {
                 .as_mut()
                 .ok_or_else(|| vm.new_value_error("Connection not established"))?;
 
-            // Unified write logic - no need to match on Client/Server anymore
-            let mut writer = conn.writer();
-            writer
-                .write_all(data_bytes.as_ref())
-                .map_err(|e| vm.new_os_error(format!("Write failed: {e}")))?;
+            let is_bio = self.is_bio_mode();
+            let data: &[u8] = data_bytes.as_ref();
 
-            // Flush to get TLS-encrypted data (writer automatically flushed on drop)
-            // Send encrypted data to socket
-            if conn.wants_write() {
-                let is_bio = self.is_bio_mode();
+            // Write data in chunks to avoid filling the internal TLS buffer
+            // rustls has a limited internal buffer, so we need to flush periodically
+            const CHUNK_SIZE: usize = 16384; // 16KB chunks (typical TLS record size)
+            let mut written = 0;
 
-                if is_bio {
-                    // BIO mode: Write ALL pending TLS data to outgoing BIO
-                    // This prevents hangs where Python's ssl_io_loop waits for data
-                    self.write_pending_tls(conn, vm)?;
-                } else {
-                    // Socket mode: Try once and may return SSLWantWriteError
-                    let mut buf = Vec::new();
-                    conn.write_tls(&mut buf)
-                        .map_err(|e| vm.new_os_error(format!("TLS write failed: {e}")))?;
+            while written < data.len() {
+                let chunk_end = std::cmp::min(written + CHUNK_SIZE, data.len());
+                let chunk = &data[written..chunk_end];
 
-                    if !buf.is_empty() {
-                        // Wait for socket to be ready for writing
-                        let timed_out = self.sock_wait_for_io_impl(SelectKind::Write, vm)?;
-                        if timed_out {
-                            return Err(vm.new_os_error("Write operation timed out"));
-                        }
+                // Write chunk to TLS layer
+                {
+                    let mut writer = conn.writer();
+                    use std::io::Write;
+                    writer
+                        .write_all(chunk)
+                        .map_err(|e| vm.new_os_error(format!("Write failed: {e}")))?;
+                }
 
-                        // Send encrypted data to socket
-                        // Convert BlockingIOError to SSLWantWriteError
-                        match self.sock_send(buf, vm) {
-                            Ok(_) => {}
-                            Err(e) => {
-                                if is_blocking_io_error(&e, vm) {
-                                    // Non-blocking socket would block - return SSLWantWriteError
-                                    return Err(create_ssl_want_write_error(vm));
+                written = chunk_end;
+
+                // Flush TLS data to socket after each chunk
+                if conn.wants_write() {
+                    if is_bio {
+                        self.write_pending_tls(conn, vm)?;
+                    } else {
+                        // Socket mode: flush all pending TLS data
+                        while conn.wants_write() {
+                            let mut buf = Vec::new();
+                            conn.write_tls(&mut buf)
+                                .map_err(|e| vm.new_os_error(format!("TLS write failed: {e}")))?;
+
+                            if !buf.is_empty() {
+                                let timed_out =
+                                    self.sock_wait_for_io_impl(SelectKind::Write, vm)?;
+                                if timed_out {
+                                    return Err(vm.new_os_error("Write operation timed out"));
                                 }
-                                return Err(e);
+
+                                match self.sock_send(buf, vm) {
+                                    Ok(_) => {}
+                                    Err(e) => {
+                                        if is_blocking_io_error(&e, vm) {
+                                            return Err(create_ssl_want_write_error(vm));
+                                        }
+                                        return Err(e);
+                                    }
+                                }
                             }
                         }
                     }
