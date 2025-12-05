@@ -36,7 +36,7 @@ mod json;
 mod locale;
 
 mod math;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod mmap;
 mod opcode;
 mod pyexpat;
@@ -189,6 +189,9 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         #[cfg(unix)]
         {
             "_posixsubprocess" => posixsubprocess::make_module,
+        }
+        #[cfg(any(unix, windows))]
+        {
             "mmap" => mmap::make_module,
         }
         #[cfg(all(unix, not(target_os = "redox")))]
