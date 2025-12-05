@@ -660,8 +660,12 @@ def display_header(use_resources: tuple[str, ...],
                    python_cmd: tuple[str, ...] | None) -> None:
     # Print basic platform information
     print("==", platform.python_implementation(), *sys.version.split())
-    print("==", platform.platform(aliased=True),
-                  "%s-endian" % sys.byteorder)
+    try:
+        print("==", platform.platform(aliased=True),
+                    "%s-endian" % sys.byteorder)
+    except Exception as e:
+        print("==", f"Error: {e}")
+        print("==", "TODO: RUSTPYTHON, Need to fix platform.platform")
     print("== Python build:", ' '.join(get_build_info()))
     print("== cwd:", os.getcwd())
 
@@ -672,8 +676,12 @@ def display_header(use_resources: tuple[str, ...],
         if process_cpu_count and process_cpu_count != cpu_count:
             cpu_count = f"{process_cpu_count} (process) / {cpu_count} (system)"
         print("== CPU count:", cpu_count)
-    print("== encodings: locale=%s FS=%s"
-          % (locale.getencoding(), sys.getfilesystemencoding()))
+    try:
+        print("== encodings: locale=%s FS=%s"
+              % (locale.getencoding(), sys.getfilesystemencoding()))
+    except Exception as e:
+        print("==", f"Error: {e}")
+        print("==", "TODO: RUSTPYTHON, Need to fix encoding stuff")
 
     if use_resources:
         text = format_resources(use_resources)
