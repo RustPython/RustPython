@@ -280,7 +280,9 @@ mod decl {
         /// Construct a localtime from the optional seconds, or get the current local time.
         fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
             Ok(match self {
-                Self::Present(secs) => pyobj_to_date_time(secs, vm)?.naive_utc(),
+                Self::Present(secs) => pyobj_to_date_time(secs, vm)?
+                    .with_timezone(&chrono::Local)
+                    .naive_local(),
                 Self::Missing => chrono::offset::Local::now().naive_local(),
             })
         }
@@ -323,7 +325,12 @@ mod decl {
     #[pyfunction]
     fn mktime(t: PyStructTime, vm: &VirtualMachine) -> PyResult<f64> {
         let datetime = t.to_date_time(vm)?;
-        let seconds_since_epoch = datetime.and_utc().timestamp() as f64;
+        // mktime interprets struct_time as local time
+        let local_dt = chrono::Local
+            .from_local_datetime(&datetime)
+            .single()
+            .ok_or_else(|| vm.new_overflow_error("mktime argument out of range"))?;
+        let seconds_since_epoch = local_dt.timestamp() as f64;
         Ok(seconds_since_epoch)
     }
 
