@@ -311,7 +311,7 @@ mod decl {
         vm: &VirtualMachine,
     ) -> PyResult<StructTimeData> {
         let instant = secs.naive_or_utc(vm)?;
-        Ok(StructTimeData::new(vm, instant, 0))
+        Ok(StructTimeData::new_utc(vm, instant))
     }
 
     #[pyfunction]
@@ -322,7 +322,7 @@ mod decl {
         let instant = secs.naive_or_local(vm)?;
         // TODO: isdst flag must be valid value here
         // https://docs.python.org/3/library/time.html#time.localtime
-        Ok(StructTimeData::new(vm, instant, -1))
+        Ok(StructTimeData::new_local(vm, instant, -1))
     }
 
     #[pyfunction]
@@ -500,12 +500,13 @@ mod decl {
     }
 
     impl StructTimeData {
-        fn new(vm: &VirtualMachine, tm: NaiveDateTime, isdst: i32) -> Self {
-            let local_time = chrono::Local.from_local_datetime(&tm).unwrap();
-            let offset_seconds =
-                local_time.offset().local_minus_utc() + if isdst == 1 { 3600 } else { 0 };
-            let tz_abbr = local_time.format("%Z").to_string();
-
+        fn new_inner(
+            vm: &VirtualMachine,
+            tm: NaiveDateTime,
+            isdst: i32,
+            gmtoff: i32,
+            zone: &str,
+        ) -> Self {
             Self {
                 tm_year: vm.ctx.new_int(tm.year()).into(),
                 tm_mon: vm.ctx.new_int(tm.month()).into(),
@@ -516,9 +517,23 @@ mod decl {
                 tm_wday: vm.ctx.new_int(tm.weekday().num_days_from_monday()).into(),
                 tm_yday: vm.ctx.new_int(tm.ordinal()).into(),
                 tm_isdst: vm.ctx.new_int(isdst).into(),
-                tm_gmtoff: vm.ctx.new_int(offset_seconds).into(),
-                tm_zone: vm.ctx.new_str(tz_abbr).into(),
+                tm_gmtoff: vm.ctx.new_int(gmtoff).into(),
+                tm_zone: vm.ctx.new_str(zone).into(),
             }
+        }
+
+        /// Create struct_time for UTC (gmtime)
+        fn new_utc(vm: &VirtualMachine, tm: NaiveDateTime) -> Self {
+            Self::new_inner(vm, tm, 0, 0, "UTC")
+        }
+
+        /// Create struct_time for local timezone (localtime)
+        fn new_local(vm: &VirtualMachine, tm: NaiveDateTime, isdst: i32) -> Self {
+            let local_time = chrono::Local.from_local_datetime(&tm).unwrap();
+            let offset_seconds =
+                local_time.offset().local_minus_utc() + if isdst == 1 { 3600 } else { 0 };
+            let tz_abbr = local_time.format("%Z").to_string();
+            Self::new_inner(vm, tm, isdst, offset_seconds, &tz_abbr)
         }
 
         fn to_date_time(&self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
