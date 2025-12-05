@@ -539,6 +539,7 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
         };
 
         quote! {
+            // static_assertions::const_assert!(std::mem::size_of::<#base_type>() <= std::mem::size_of::<#ident>());
             impl ::rustpython_vm::PyPayload for #ident {
                 #[inline]
                 fn payload_type_id() -> ::std::any::TypeId {
@@ -1102,9 +1103,8 @@ impl GetSetNursery {
         item_ident: Ident,
     ) -> Result<()> {
         assert!(!self.validated, "new item is not allowed after validation");
-        if !matches!(kind, GetSetItemKind::Get) && !cfgs.is_empty() {
-            bail_span!(item_ident, "Only the getter can have #[cfg]",);
-        }
+        // Note: Both getter and setter can have #[cfg], but they must have matching cfgs
+        // since the map key is (name, cfgs). This ensures getter and setter are paired correctly.
         let entry = self.map.entry((name.clone(), cfgs)).or_default();
         let func = match kind {
             GetSetItemKind::Get => &mut entry.0,
