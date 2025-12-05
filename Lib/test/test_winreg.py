@@ -212,14 +212,10 @@ class BaseWinregTests(unittest.TestCase):
 
 class LocalWinregTests(BaseWinregTests):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_registry_works(self):
         self._test_all(HKEY_CURRENT_USER)
         self._test_all(HKEY_CURRENT_USER, "日本-subkey")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_registry_works_extended_functions(self):
         # Substitute the regular CreateKey and OpenKey calls with their
         # extended counterparts.
@@ -232,8 +228,6 @@ class LocalWinregTests(BaseWinregTests):
 
         self._delete_test_data(HKEY_CURRENT_USER)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_named_arguments(self):
         self._test_named_args(HKEY_CURRENT_USER, test_key_name)
         # Use the regular DeleteKey to clean up
@@ -251,8 +245,6 @@ class LocalWinregTests(BaseWinregTests):
         connect = lambda: ConnectRegistry("abcdefghijkl", HKEY_CURRENT_USER)
         self.assertRaises(OSError, connect)
 
-    # TODO: RUSTPYTHON
-    @unittest.skip("flaky")
     def testExpandEnvironmentStrings(self):
         r = ExpandEnvironmentStrings("%windir%\\test")
         self.assertEqual(type(r), str)
@@ -299,8 +291,6 @@ class LocalWinregTests(BaseWinregTests):
             DeleteKey(HKEY_CURRENT_USER, test_key_name+'\\changing_value')
             DeleteKey(HKEY_CURRENT_USER, test_key_name)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_long_key(self):
         # Issue2810, in 2.6 and 3.1 when the key name was exactly 256
         # characters, EnumKey raised "WindowsError: More data is
@@ -315,8 +305,6 @@ class LocalWinregTests(BaseWinregTests):
             DeleteKey(HKEY_CURRENT_USER, '\\'.join((test_key_name, name)))
             DeleteKey(HKEY_CURRENT_USER, test_key_name)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dynamic_key(self):
         # Issue2810, when the value is dynamically generated, these
         # raise "WindowsError: More data is available" in 2.6 and 3.1
@@ -351,8 +339,6 @@ class LocalWinregTests(BaseWinregTests):
         finally:
             DeleteKey(HKEY_CURRENT_USER, test_key_name)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setvalueex_value_range(self):
         # Test for Issue #14420, accept proper ranges for SetValueEx.
         # Py2Reg, which gets called by SetValueEx, was using PyLong_AsLong,
@@ -365,8 +351,6 @@ class LocalWinregTests(BaseWinregTests):
         finally:
             DeleteKey(HKEY_CURRENT_USER, test_key_name)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setvalueex_negative_one_check(self):
         # Test for Issue #43984, check -1 was not set by SetValueEx.
         # Py2Reg, which gets called by SetValueEx, wasn't checking return
@@ -384,8 +368,6 @@ class LocalWinregTests(BaseWinregTests):
         finally:
             DeleteKey(HKEY_CURRENT_USER, test_key_name)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_queryvalueex_return_value(self):
         # Test for Issue #16759, return unsigned int from QueryValueEx.
         # Reg2Py, which gets called by QueryValueEx, was returning a value
@@ -402,8 +384,6 @@ class LocalWinregTests(BaseWinregTests):
         finally:
             DeleteKey(HKEY_CURRENT_USER, test_key_name)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setvalueex_crash_with_none_arg(self):
         # Test for Issue #21151, segfault when None is passed to SetValueEx
         try:
@@ -417,8 +397,6 @@ class LocalWinregTests(BaseWinregTests):
         finally:
             DeleteKey(HKEY_CURRENT_USER, test_key_name)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_read_string_containing_null(self):
         # Test for issue 25778: REG_SZ should not contain null characters
         try:
@@ -443,16 +421,13 @@ class RemoteWinregTests(BaseWinregTests):
 
 @unittest.skipUnless(WIN64_MACHINE, "x64 specific registry tests")
 class Win64WinregTests(BaseWinregTests):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+
     def test_named_arguments(self):
         self._test_named_args(HKEY_CURRENT_USER, test_key_name)
         # Clean up and also exercise the named arguments
         DeleteKeyEx(key=HKEY_CURRENT_USER, sub_key=test_key_name,
                     access=KEY_ALL_ACCESS, reserved=0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(win32_edition() in ('WindowsCoreHeadless', 'IoTEdgeOS'), "APIs not available on WindowsCoreHeadless")
     def test_reflection_functions(self):
         # Test that we can call the query, enable, and disable functions
@@ -538,8 +513,6 @@ class Win64WinregTests(BaseWinregTests):
             DeleteKeyEx(HKEY_CURRENT_USER, test_reflect_key_name,
                         KEY_WOW64_32KEY, 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception_numbers(self):
         with self.assertRaises(FileNotFoundError) as ctx:
             QueryValue(HKEY_CLASSES_ROOT, 'some_value_that_does_not_exist')
