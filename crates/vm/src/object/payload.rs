@@ -110,7 +110,7 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
                     exact_class: &Py<PyType>,
                 ) -> PyBaseExceptionRef {
                     vm.new_type_error(format!(
-                        "cannot create '{}' from a subclass with a different size '{}'",
+                        "cannot create '{}' instance: size differs from base type '{}'",
                         cls.name(),
                         exact_class.name()
                     ))

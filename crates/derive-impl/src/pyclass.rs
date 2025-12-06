@@ -416,15 +416,6 @@ fn generate_class_def(
         None
     };
 
-    // Generate PySubclassTransparent marker for #[repr(transparent)] types
-    let transparent_impl = if !is_pystruct && is_repr_transparent && base.is_some() {
-        Some(quote! {
-            impl ::rustpython_vm::class::PySubclassTransparent for #ident {}
-        })
-    } else {
-        None
-    };
-
     let tokens = quote! {
         impl ::rustpython_vm::class::PyClassDef for #ident {
             const NAME: &'static str = #name;
@@ -451,7 +442,6 @@ fn generate_class_def(
         }
 
         #subclass_impl
-        #transparent_impl
     };
     Ok(tokens)
 }
