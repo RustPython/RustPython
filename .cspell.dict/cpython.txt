@@ -46,6 +46,7 @@ prec
 preinitialized
 PYTHREAD_NAME
 SA_ONSTACK
+SOABI
 stackdepth
 stringlib
 structseq
