@@ -447,6 +447,7 @@ pub(crate) fn impl_pystruct_sequence(
 
     let output = quote! {
         // The Python type struct - newtype wrapping PyTuple
+        #[derive(Debug)]
         #[repr(transparent)]
         #pytype_vis struct #pytype_ident(pub ::rustpython_vm::builtins::PyTuple);
 
