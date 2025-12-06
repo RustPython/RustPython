@@ -21,7 +21,6 @@ use rustpython_vm::stdlib::ctypes::_ctypes::get_size;
 use rustpython_vm::stdlib::ctypes::base::PyCData;
 
 #[pyclass(name = "PyCArrayType", base = PyType, module = "_ctypes")]
-#[derive(PyPayload)]
 pub struct PyCArrayType {
     pub(super) stg_info: StgInfo,
     pub(super) typ: PyRwLock<PyObjectRef>,
@@ -228,7 +227,6 @@ impl AsNumber for PyCArrayType {
     metaclass = "PyCArrayType",
     module = "_ctypes"
 )]
-#[derive(PyPayload)]
 pub struct PyCArray {
     /// Element type - can be a simple type (c_int) or an array type (c_int * 5)
     pub(super) typ: PyRwLock<PyObjectRef>,

@@ -1070,6 +1070,19 @@ impl<T: PyPayload + std::fmt::Debug> PyRef<T> {
     }
 }
 
+impl<T: crate::class::PySubclassTransparent + std::fmt::Debug> PyRef<T>
+where
+    T::Base: std::fmt::Debug,
+{
+    /// Converts this reference to the base type (ownership transfer).
+    /// Only available for `#[repr(transparent)]` types.
+    #[inline]
+    pub fn into_base_ref(self) -> PyRef<T::Base> {
+        // SAFETY: #[repr(transparent)] guarantees same memory layout
+        unsafe { std::mem::transmute(self) }
+    }
+}
+
 impl<T> Borrow<PyObject> for PyRef<T>
 where
     T: PyPayload,

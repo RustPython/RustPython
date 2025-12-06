@@ -12,7 +12,7 @@ use crate::{AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use super::util::StgInfo;
 
 #[pyclass(name = "PyCPointerType", base = PyType, module = "_ctypes")]
-#[derive(PyPayload, Debug)]
+#[derive(Debug)]
 pub struct PyCPointerType {
     #[allow(dead_code)]
     pub stg_info: StgInfo,
@@ -67,7 +67,7 @@ impl AsNumber for PyCPointerType {
     metaclass = "PyCPointerType",
     module = "_ctypes"
 )]
-#[derive(Debug, PyPayload)]
+#[derive(Debug)]
 pub struct PyCPointer {
     contents: PyRwLock<PyObjectRef>,
 }

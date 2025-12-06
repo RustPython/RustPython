@@ -1932,12 +1932,10 @@ impl PyPayload for PyUtf8Str {
         std::any::TypeId::of::<PyStr>()
     }
 
-    fn downcastable_from(obj: &PyObject) -> bool {
-        obj.typeid() == Self::payload_type_id() && {
-            // SAFETY: we know the object is a PyStr in this context
-            let wtf8 = unsafe { obj.downcast_unchecked_ref::<PyStr>() };
-            wtf8.is_utf8()
-        }
+    fn validate_downcastable_from(obj: &PyObject) -> bool {
+        // SAFETY: we know the object is a PyStr in this context
+        let wtf8 = unsafe { obj.downcast_unchecked_ref::<PyStr>() };
+        wtf8.is_utf8()
     }
 
     fn try_downcast_from(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {

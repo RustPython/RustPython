@@ -16,6 +16,15 @@ cfg_if::cfg_if! {
     }
 }
 
+#[cold]
+pub(crate) fn cold_downcast_type_error(
+    vm: &VirtualMachine,
+    class: &Py<PyType>,
+    obj: &PyObject,
+) -> PyBaseExceptionRef {
+    vm.new_downcast_type_error(class, obj)
+}
+
 pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     #[inline]
     fn payload_type_id() -> std::any::TypeId {
@@ -25,7 +34,12 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     /// # Safety: this function should only be called if `payload_type_id` matches the type of `obj`.
     #[inline]
     fn downcastable_from(obj: &PyObject) -> bool {
-        obj.typeid() == Self::payload_type_id()
+        obj.typeid() == Self::payload_type_id() && Self::validate_downcastable_from(obj)
+    }
+
+    #[inline]
+    fn validate_downcastable_from(_obj: &PyObject) -> bool {
+        true
     }
 
     fn try_downcast_from(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
@@ -33,17 +47,8 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
             return Ok(());
         }
 
-        #[cold]
-        fn raise_downcast_type_error(
-            vm: &VirtualMachine,
-            class: &Py<PyType>,
-            obj: &PyObject,
-        ) -> PyBaseExceptionRef {
-            vm.new_downcast_type_error(class, obj)
-        }
-
         let class = Self::class(&vm.ctx);
-        Err(raise_downcast_type_error(vm, class, obj))
+        Err(cold_downcast_type_error(vm, class, obj))
     }
 
     fn class(ctx: &Context) -> &'static Py<PyType>;

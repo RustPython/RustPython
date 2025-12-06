@@ -350,6 +350,18 @@ fn generate_class_def(
                 false
             }
     });
+    // Check if the type has #[repr(transparent)] - only then we can safely
+    // generate PySubclass impl (requires same memory layout as base type)
+    let is_repr_transparent = attrs.iter().any(|attr| {
+        attr.path().is_ident("repr")
+            && if let Ok(Meta::List(l)) = attr.parse_meta() {
+                l.nested
+                    .into_iter()
+                    .any(|n| n.get_ident().is_some_and(|p| p == "transparent"))
+            } else {
+                false
+            }
+    });
     if base.is_some() && is_pystruct {
         bail_span!(ident, "PyStructSequence cannot have `base` class attr",);
     }
@@ -379,10 +391,38 @@ fn generate_class_def(
         }
     });
 
-    let base_or_object = if let Some(base) = base {
+    let base_or_object = if let Some(ref base) = base {
         quote! { #base }
     } else {
         quote! { ::rustpython_vm::builtins::PyBaseObject }
+    };
+
+    // Generate PySubclass impl for #[repr(transparent)] types with base class
+    // (tuple struct assumed, so &self.0 works)
+    let subclass_impl = if !is_pystruct && is_repr_transparent {
+        base.as_ref().map(|typ| {
+            quote! {
+                impl ::rustpython_vm::class::PySubclass for #ident {
+                    type Base = #typ;
+
+                    #[inline]
+                    fn as_base(&self) -> &Self::Base {
+                        &self.0
+                    }
+                }
+            }
+        })
+    } else {
+        None
+    };
+
+    // Generate PySubclassTransparent marker for #[repr(transparent)] types
+    let transparent_impl = if !is_pystruct && is_repr_transparent && base.is_some() {
+        Some(quote! {
+            impl ::rustpython_vm::class::PySubclassTransparent for #ident {}
+        })
+    } else {
+        None
     };
 
     let tokens = quote! {
@@ -409,6 +449,9 @@ fn generate_class_def(
 
             #base_class
         }
+
+        #subclass_impl
+        #transparent_impl
     };
     Ok(tokens)
 }
@@ -430,7 +473,7 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
         ident,
         &class_name,
         module_name.as_deref(),
-        base,
+        base.clone(),
         metaclass,
         unhashable,
         attrs,
@@ -485,19 +528,46 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
         }
     };
 
-    let impl_payload = if let Some(ctx_type_name) = class_meta.ctx_name()? {
-        let ctx_type_ident = Ident::new(&ctx_type_name, ident.span()); // FIXME span
+    // Generate PyPayload impl based on whether base exists
+    #[allow(clippy::collapsible_else_if)]
+    let impl_payload = if let Some(base_type) = &base {
+        let class_fn = if let Some(ctx_type_name) = class_meta.ctx_name()? {
+            let ctx_type_ident = Ident::new(&ctx_type_name, ident.span());
+            quote! { ctx.types.#ctx_type_ident }
+        } else {
+            quote! { <Self as ::rustpython_vm::class::StaticType>::static_type() }
+        };
 
-        // We need this to make extend mechanism work:
         quote! {
             impl ::rustpython_vm::PyPayload for #ident {
+                #[inline]
+                fn payload_type_id() -> ::std::any::TypeId {
+                    <#base_type as ::rustpython_vm::PyPayload>::payload_type_id()
+                }
+
+                #[inline]
+                fn validate_downcastable_from(obj: &::rustpython_vm::PyObject) -> bool {
+                    <Self as ::rustpython_vm::class::PyClassDef>::BASICSIZE <= obj.class().slots.basicsize && obj.class().fast_issubclass(<Self as ::rustpython_vm::class::StaticType>::static_type())
+                }
+
                 fn class(ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
-                    ctx.types.#ctx_type_ident
+                    #class_fn
                 }
             }
         }
     } else {
-        quote! {}
+        if let Some(ctx_type_name) = class_meta.ctx_name()? {
+            let ctx_type_ident = Ident::new(&ctx_type_name, ident.span());
+            quote! {
+                impl ::rustpython_vm::PyPayload for #ident {
+                    fn class(ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
+                        ctx.types.#ctx_type_ident
+                    }
+                }
+            }
+        } else {
+            quote! {}
+        }
     };
 
     let empty_impl = if let Some(attrs) = class_meta.impl_attrs()? {
@@ -536,26 +606,6 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: Item) -> Result
     let class_name = class_meta.class_name()?;
 
     let base_class_name = class_meta.base()?;
-    let impl_payload = if let Some(ctx_type_name) = class_meta.ctx_name()? {
-        let ctx_type_ident = Ident::new(&ctx_type_name, ident.span()); // FIXME span
-
-        // We need this to make extend mechanism work:
-        quote! {
-            impl ::rustpython_vm::PyPayload for #ident {
-                fn class(ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
-                    ctx.exceptions.#ctx_type_ident
-                }
-            }
-        }
-    } else {
-        quote! {
-            impl ::rustpython_vm::PyPayload for #ident {
-                fn class(_ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
-                    <Self as ::rustpython_vm::class::StaticType>::static_type()
-                }
-            }
-        }
-    };
     let impl_pyclass = if class_meta.has_impl()? {
         quote! {
             #[pyexception]
@@ -568,7 +618,6 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: Item) -> Result
     let ret = quote! {
         #[pyclass(module = false, name = #class_name, base = #base_class_name)]
         #item
-        #impl_payload
         #impl_pyclass
     };
     Ok(ret)

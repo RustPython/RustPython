@@ -78,7 +78,7 @@ macro_rules! impl_node {
 }
 
 #[pyclass(module = "_ast", name = "mod", base = NodeAst)]
-pub(crate) struct NodeMod;
+pub(crate) struct NodeMod(NodeAst);
 
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeMod {}
