@@ -1501,6 +1501,14 @@ pub(super) mod types {
                 #[cfg(windows)]
                 if let Some(winerror) = new_args.args.get(3) {
                     zelf.set_attr("winerror", winerror.clone(), vm)?;
+                    // Convert winerror to errno and replace args[0] (CPython behavior)
+                    if let Some(winerror_int) = winerror
+                        .downcast_ref::<crate::builtins::PyInt>()
+                        .and_then(|w| w.try_to_primitive::<i32>(vm).ok())
+                    {
+                        let errno = crate::common::os::winerror_to_errno(winerror_int);
+                        new_args.args[0] = vm.new_pyobj(errno);
+                    }
                 }
                 if let Some(filename2) = new_args.args.get(4) {
                     zelf.set_attr("filename2", filename2.clone(), vm)?;
@@ -1521,19 +1529,29 @@ pub(super) mod types {
                 let errno = exc.get_arg(0).unwrap().str(vm)?;
                 let msg = exc.get_arg(1).unwrap().str(vm)?;
 
+                // On Windows, use [WinError X] format when winerror is set
+                #[cfg(windows)]
+                let (label, code) = match obj.get_attr("winerror", vm) {
+                    Ok(winerror) if !vm.is_none(&winerror) => ("WinError", winerror.str(vm)?),
+                    _ => ("Errno", errno.clone()),
+                };
+                #[cfg(not(windows))]
+                let (label, code) = ("Errno", errno.clone());
+
                 let s = match obj.get_attr("filename", vm) {
                     Ok(filename) if !vm.is_none(&filename) => match obj.get_attr("filename2", vm) {
                         Ok(filename2) if !vm.is_none(&filename2) => format!(
-                            "[Errno {}] {}: '{}' -> '{}'",
-                            errno,
+                            "[{} {}] {}: '{}' -> '{}'",
+                            label,
+                            code,
                             msg,
                             filename.str(vm)?,
                             filename2.str(vm)?
                         ),
-                        _ => format!("[Errno {}] {}: '{}'", errno, msg, filename.str(vm)?),
+                        _ => format!("[{} {}] {}: '{}'", label, code, msg, filename.str(vm)?),
                     },
                     _ => {
-                        format!("[Errno {errno}] {msg}")
+                        format!("[{label} {code}] {msg}")
                     }
                 };
                 vm.ctx.new_str(s)
