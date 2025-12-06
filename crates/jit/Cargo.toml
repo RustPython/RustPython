@@ -17,9 +17,9 @@ num-traits = { workspace = true }
 thiserror = { workspace = true }
 libffi = { workspace = true }
 
-cranelift = "0.119"
-cranelift-jit = "0.119"
-cranelift-module = "0.119"
+cranelift = "0.126"
+cranelift-jit = "0.126"
+cranelift-module = "0.126"
 
 [dev-dependencies]
 rustpython-derive = { workspace = true }
