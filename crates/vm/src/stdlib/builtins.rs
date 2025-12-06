@@ -1187,4 +1187,10 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
     extend_module!(vm, module, {
         "JitError" => ctx.exceptions.jit_error.to_owned(),
     });
+
+    #[cfg(windows)]
+    extend_module!(vm, module, {
+        // OSError alias for Windows
+        "WindowsError" => ctx.exceptions.os_error.to_owned(),
+    });
 }
