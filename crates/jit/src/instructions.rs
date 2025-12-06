@@ -111,13 +111,11 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let builder = &mut self.builder;
         let ty = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
         let local = self.variables[idx as usize].get_or_insert_with(|| {
-            let var = Variable::new(idx as usize);
-            let local = Local {
+            let var = builder.declare_var(ty.to_cranelift());
+            Local {
                 var,
                 ty: ty.clone(),
-            };
-            builder.declare_var(var, ty.to_cranelift());
-            local
+            }
         });
         if ty != local.ty {
             Err(JitCompileError::NotSupported)
@@ -1021,7 +1019,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .ins()
             .brif(cmp_b_zero, b_zero_block, &[], continue_block, &[]);
         self.builder.switch_to_block(b_zero_block);
-        self.builder.ins().jump(merge_block, &[one_f]);
+        self.builder.ins().jump(merge_block, &[one_f.into()]);
         self.builder.switch_to_block(continue_block);
 
         // --- Edge Case 2: b is NaN → return NaN
@@ -1032,7 +1030,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .ins()
             .brif(cmp_b_nan, b_nan_block, &[], continue_block2, &[]);
         self.builder.switch_to_block(b_nan_block);
-        self.builder.ins().jump(merge_block, &[nan_f]);
+        self.builder.ins().jump(merge_block, &[nan_f.into()]);
         self.builder.switch_to_block(continue_block2);
 
         // --- Edge Case 3: a == 0.0 → return 0.0
@@ -1043,7 +1041,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .ins()
             .brif(cmp_a_zero, a_zero_block, &[], continue_block3, &[]);
         self.builder.switch_to_block(a_zero_block);
-        self.builder.ins().jump(merge_block, &[zero_f]);
+        self.builder.ins().jump(merge_block, &[zero_f.into()]);
         self.builder.switch_to_block(continue_block3);
 
         // --- Edge Case 4: a is NaN → return NaN
@@ -1054,7 +1052,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .ins()
             .brif(cmp_a_nan, a_nan_block, &[], continue_block4, &[]);
         self.builder.switch_to_block(a_nan_block);
-        self.builder.ins().jump(merge_block, &[nan_f]);
+        self.builder.ins().jump(merge_block, &[nan_f.into()]);
         self.builder.switch_to_block(continue_block4);
 
         // --- Edge Case 5: b == +infinity → return +infinity
@@ -1065,7 +1063,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .ins()
             .brif(cmp_b_inf, b_inf_block, &[], continue_block5, &[]);
         self.builder.switch_to_block(b_inf_block);
-        self.builder.ins().jump(merge_block, &[inf_f]);
+        self.builder.ins().jump(merge_block, &[inf_f.into()]);
         self.builder.switch_to_block(continue_block5);
 
         // --- Edge Case 6: b == -infinity → return 0.0
@@ -1076,7 +1074,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .ins()
             .brif(cmp_b_neg_inf, b_neg_inf_block, &[], continue_block6, &[]);
         self.builder.switch_to_block(b_neg_inf_block);
-        self.builder.ins().jump(merge_block, &[zero_f]);
+        self.builder.ins().jump(merge_block, &[zero_f.into()]);
         self.builder.switch_to_block(continue_block6);
 
         // --- Edge Case 7: a == +infinity → return +infinity
@@ -1087,7 +1085,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .ins()
             .brif(cmp_a_inf, a_inf_block, &[], continue_block7, &[]);
         self.builder.switch_to_block(a_inf_block);
-        self.builder.ins().jump(merge_block, &[inf_f]);
+        self.builder.ins().jump(merge_block, &[inf_f.into()]);
         self.builder.switch_to_block(continue_block7);
 
         // --- Edge Case 8: a == -infinity → check exponent parity
@@ -1109,7 +1107,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .brif(cmp_int, continue_neg_inf, &[], domain_error_blk, &[]);
 
         self.builder.switch_to_block(domain_error_blk);
-        self.builder.ins().jump(merge_block, &[nan_f]);
+        self.builder.ins().jump(merge_block, &[nan_f.into()]);
 
         self.builder.switch_to_block(continue_neg_inf);
         // b is an integer here; convert b_floor to an i64.
@@ -1124,17 +1122,21 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let even_block = self.builder.create_block();
         self.builder.append_block_param(odd_block, f64_ty);
         self.builder.append_block_param(even_block, f64_ty);
-        self.builder
-            .ins()
-            .brif(is_odd, odd_block, &[neg_inf_f], even_block, &[inf_f]);
+        self.builder.ins().brif(
+            is_odd,
+            odd_block,
+            &[neg_inf_f.into()],
+            even_block,
+            &[inf_f.into()],
+        );
 
         self.builder.switch_to_block(odd_block);
         let phi_neg_inf = self.builder.block_params(odd_block)[0];
-        self.builder.ins().jump(merge_block, &[phi_neg_inf]);
+        self.builder.ins().jump(merge_block, &[phi_neg_inf.into()]);
 
         self.builder.switch_to_block(even_block);
         let phi_inf = self.builder.block_params(even_block)[0];
-        self.builder.ins().jump(merge_block, &[phi_inf]);
+        self.builder.ins().jump(merge_block, &[phi_inf.into()]);
 
         self.builder.switch_to_block(continue_block8);
 
@@ -1154,7 +1156,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let product_dd = self.dd_mul(ln_a_dd, b_dd);
         let exp_dd = self.dd_exp(product_dd);
         let pos_res = self.dd_to_f64(exp_dd);
-        self.builder.ins().jump(merge_block, &[pos_res]);
+        self.builder.ins().jump(merge_block, &[pos_res.into()]);
 
         // ----- Case: a < 0: Only allow an integral exponent.
         self.builder.switch_to_block(a_neg_block);
@@ -1168,7 +1170,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
         // Domain error: non-integer exponent for negative base
         self.builder.switch_to_block(domain_error_blk);
-        self.builder.ins().jump(merge_block, &[nan_f]);
+        self.builder.ins().jump(merge_block, &[nan_f.into()]);
 
         // For negative base with an integer exponent:
         self.builder.switch_to_block(neg_int_block);
@@ -1191,18 +1193,24 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         self.builder.append_block_param(odd_block, f64_ty);
         self.builder.append_block_param(even_block, f64_ty);
         // Pass mag_val to both branches:
-        self.builder
-            .ins()
-            .brif(is_odd, odd_block, &[mag_val], even_block, &[mag_val]);
+        self.builder.ins().brif(
+            is_odd,
+            odd_block,
+            &[mag_val.into()],
+            even_block,
+            &[mag_val.into()],
+        );
 
         self.builder.switch_to_block(odd_block);
         let phi_mag_val = self.builder.block_params(odd_block)[0];
         let neg_val = self.builder.ins().fneg(phi_mag_val);
-        self.builder.ins().jump(merge_block, &[neg_val]);
+        self.builder.ins().jump(merge_block, &[neg_val.into()]);
 
         self.builder.switch_to_block(even_block);
         let phi_mag_val_even = self.builder.block_params(even_block)[0];
-        self.builder.ins().jump(merge_block, &[phi_mag_val_even]);
+        self.builder
+            .ins()
+            .jump(merge_block, &[phi_mag_val_even.into()]);
 
         // ----- Merge: Return the final result.
         self.builder.switch_to_block(merge_block);
@@ -1239,7 +1247,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         self.builder.append_block_param(continue_block, types::I64); // base
 
         // Initial jump to check if exponent is negative
-        self.builder.ins().jump(check_negative, &[b, a]);
+        self.builder
+            .ins()
+            .jump(check_negative, &[b.into(), a.into()]);
 
         // Check if exponent is negative
         self.builder.switch_to_block(check_negative);
@@ -1254,14 +1264,14 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         self.builder.ins().brif(
             is_negative,
             handle_negative,
-            &[exp_check, base_check],
+            &[exp_check.into(), base_check.into()],
             loop_block,
-            &[exp_check, one_i64, base_check],
+            &[exp_check.into(), one_i64.into(), base_check.into()],
         );
 
         // Handle negative exponent (return 0 for integer exponentiation)
         self.builder.switch_to_block(handle_negative);
-        self.builder.ins().jump(exit_block, &[zero]); // Return 0 for negative exponents
+        self.builder.ins().jump(exit_block, &[zero.into()]); // Return 0 for negative exponents
 
         // Loop block logic (square-and-multiply algorithm)
         self.builder.switch_to_block(loop_block);
@@ -1275,9 +1285,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         self.builder.ins().brif(
             is_zero,
             exit_block,
-            &[result_phi],
+            &[result_phi.into()],
             continue_block,
-            &[exp_phi, result_phi, base_phi],
+            &[exp_phi.into(), result_phi.into(), base_phi.into()],
         );
 
         // Continue block for non-zero case
@@ -1296,9 +1306,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         // Square the base and divide exponent by 2
         let squared_base = self.builder.ins().imul(base_phi, base_phi);
         let new_exp = self.builder.ins().sshr_imm(exp_phi, 1);
-        self.builder
-            .ins()
-            .jump(loop_block, &[new_exp, new_result, squared_base]);
+        self.builder.ins().jump(
+            loop_block,
+            &[new_exp.into(), new_result.into(), squared_base.into()],
+        );
 
         // Exit block
         self.builder.switch_to_block(exit_block);
