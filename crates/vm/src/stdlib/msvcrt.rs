@@ -111,6 +111,12 @@ mod msvcrt {
 
     #[allow(non_snake_case)]
     #[pyfunction]
+    fn GetErrorMode() -> u32 {
+        unsafe { suppress_iph!(Debug::GetErrorMode()) }
+    }
+
+    #[allow(non_snake_case)]
+    #[pyfunction]
     fn SetErrorMode(mode: Debug::THREAD_ERROR_MODE, _: &VirtualMachine) -> u32 {
         unsafe { suppress_iph!(Debug::SetErrorMode(mode)) }
     }
