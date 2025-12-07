@@ -295,6 +295,11 @@ mod _winapi {
     }
 
     #[pyfunction]
+    fn ExitProcess(exit_code: u32) {
+        unsafe { windows_sys::Win32::System::Threading::ExitProcess(exit_code) }
+    }
+
+    #[pyfunction]
     fn NeedCurrentDirectoryForExePath(exe_name: PyStrRef) -> bool {
         let exe_name = exe_name.as_str().to_wide_with_nul();
         let return_value = unsafe {
