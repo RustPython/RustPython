@@ -1476,7 +1476,6 @@ class TestCopy(BaseTest, unittest.TestCase):
         finally:
             shutil.rmtree(TESTFN, ignore_errors=True)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; AssertionError: SameFileError not raised for copyfile')
     @os_helper.skip_unless_symlink
     def test_dont_copy_file_onto_symlink_to_itself(self):
         # bug 851123.
@@ -2577,7 +2576,6 @@ class TestMove(BaseTest, unittest.TestCase):
         finally:
             os_helper.rmtree(TESTFN)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     @mock_rename
     def test_move_file_symlink(self):
@@ -2587,7 +2585,6 @@ class TestMove(BaseTest, unittest.TestCase):
         self.assertTrue(os.path.islink(self.dst_file))
         self.assertTrue(os.path.samefile(self.src_file, self.dst_file))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     @mock_rename
     def test_move_file_symlink_to_dir(self):
@@ -2611,7 +2608,6 @@ class TestMove(BaseTest, unittest.TestCase):
         self.assertTrue(os.path.islink(dst_link))
         self.assertEqual(os.path.realpath(src), os.path.realpath(dst_link))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     @mock_rename
     def test_move_dir_symlink(self):
@@ -2687,12 +2683,10 @@ class TestMove(BaseTest, unittest.TestCase):
         self.assertTrue(os.path.samefile(self.dst_dir, dst_link))
         self.assertTrue(os.path.exists(src))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     def test_move_symlink_to_dir_into_dir(self):
         self._test_move_symlink_to_dir_into_dir(self.dst_dir)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     def test_move_symlink_to_dir_into_symlink_to_dir(self):
         dst = os.path.join(self.src_dir, 'otherlinktodir')

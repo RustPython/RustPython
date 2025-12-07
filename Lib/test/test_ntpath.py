@@ -1458,8 +1458,6 @@ class TestNtpath(NtpathTestCase):
         finally:
             _winapi.CloseHandle(h)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(sys.platform != 'win32', "windows only")
     def test_con_device(self):
         self.assertFalse(os.path.isfile(r"\\.\CON"))
@@ -1526,14 +1524,6 @@ class NtCommonTest(test_genericpath.CommonTest, unittest.TestCase):
     @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; ValueError: illegal environment variable name")
     def test_expandvars_nonascii(self):
         return super().test_expandvars_nonascii()
-
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
-    def test_samefile_on_symlink(self):
-        return super().test_samefile_on_symlink()
-
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
-    def test_samestat_on_symlink(self):
-        return super().test_samestat_on_symlink()
 
 
 class PathLikeTests(NtpathTestCase):
