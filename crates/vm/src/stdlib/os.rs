@@ -37,7 +37,7 @@ impl crate::convert::IntoPyException for rustix::io::Errno {
 /// Convert the error stored in the `errno` variable into an Exception
 #[inline]
 pub fn errno_err(vm: &VirtualMachine) -> PyBaseExceptionRef {
-    crate::common::os::last_os_error().to_pyexception(vm)
+    crate::common::os::errno_io_error().to_pyexception(vm)
 }
 
 #[allow(dead_code)]
@@ -151,7 +151,7 @@ impl ToPyObject for crt_fd::Borrowed<'_> {
 
 #[pymodule(sub)]
 pub(super) mod _os {
-    use super::{DirFd, FollowSymlinks, SupportFunc, errno_err};
+    use super::{DirFd, FollowSymlinks, SupportFunc};
     #[cfg(windows)]
     use crate::common::windows::ToWideString;
     use crate::{
@@ -338,7 +338,7 @@ pub(super) mod _os {
         if let Some(fd) = dir_fd.raw_opt() {
             let res = unsafe { libc::mkdirat(fd, c_path.as_ptr(), mode as _) };
             return if res < 0 {
-                let err = crate::common::os::last_os_error();
+                let err = crate::common::os::errno_io_error();
                 Err(IOErrorBuilder::with_filename(&err, path, vm))
             } else {
                 Ok(())
@@ -348,7 +348,7 @@ pub(super) mod _os {
         let [] = dir_fd.0;
         let res = unsafe { libc::mkdir(c_path.as_ptr(), mode as _) };
         if res < 0 {
-            let err = crate::common::os::last_os_error();
+            let err = crate::common::os::errno_io_error();
             return Err(IOErrorBuilder::with_filename(&err, path, vm));
         }
         Ok(())
@@ -1157,7 +1157,11 @@ pub(super) mod _os {
                 std::mem::transmute::<[i32; 2], i64>(distance_to_move)
             }
         };
-        if res < 0 { Err(errno_err(vm)) } else { Ok(res) }
+        if res < 0 {
+            Err(vm.new_last_os_error())
+        } else {
+            Ok(res)
+        }
     }
 
     #[pyfunction]

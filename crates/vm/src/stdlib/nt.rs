@@ -15,12 +15,13 @@ pub(crate) mod module {
     use crate::{
         PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyDictRef, PyListRef, PyStrRef, PyTupleRef},
-        common::{crt_fd, os::last_os_error, suppress_iph, windows::ToWideString},
+        common::{crt_fd, suppress_iph, windows::ToWideString},
         convert::ToPyException,
         function::{Either, OptionalArg},
         ospath::OsPath,
-        stdlib::os::{_os, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, errno_err},
+        stdlib::os::{_os, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory},
     };
+
     use libc::intptr_t;
     use std::os::windows::io::AsRawHandle;
     use std::{env, fs, io, mem::MaybeUninit, os::windows::ffi::OsStringExt};
@@ -162,7 +163,7 @@ pub(crate) mod module {
         let mut status: i32 = 0;
         let pid = unsafe { suppress_iph!(_cwait(&mut status, pid, opt)) };
         if pid == -1 {
-            Err(errno_err(vm))
+            Err(vm.new_last_errno_error())
         } else {
             // Cast to unsigned to handle large exit codes (like 0xC000013A)
             // then shift left by 8 to match POSIX waitpid format
@@ -184,16 +185,24 @@ pub(crate) mod module {
 
         if sig == Console::CTRL_C_EVENT || sig == Console::CTRL_BREAK_EVENT {
             let ret = unsafe { Console::GenerateConsoleCtrlEvent(sig, pid) };
-            let res = if ret == 0 { Err(errno_err(vm)) } else { Ok(()) };
+            let res = if ret == 0 {
+                Err(vm.new_last_os_error())
+            } else {
+                Ok(())
+            };
             return res;
         }
 
         let h = unsafe { Threading::OpenProcess(Threading::PROCESS_ALL_ACCESS, 0, pid) };
         if h.is_null() {
-            return Err(errno_err(vm));
+            return Err(vm.new_last_os_error());
         }
         let ret = unsafe { Threading::TerminateProcess(h, sig) };
-        let res = if ret == 0 { Err(errno_err(vm)) } else { Ok(()) };
+        let res = if ret == 0 {
+            Err(vm.new_last_os_error())
+        } else {
+            Ok(())
+        };
         unsafe { Foundation::CloseHandle(h) };
         res
     }
@@ -218,7 +227,7 @@ pub(crate) mod module {
             // In that case, try opening CONOUT$ directly with read access
             let err = unsafe { Foundation::GetLastError() };
             if err != Foundation::ERROR_ACCESS_DENIED {
-                return Err(errno_err(vm));
+                return Err(vm.new_last_os_error());
             }
             let conout: Vec<u16> = "CONOUT$\0".encode_utf16().collect();
             let console_handle = unsafe {
@@ -233,13 +242,13 @@ pub(crate) mod module {
                 )
             };
             if console_handle == INVALID_HANDLE_VALUE {
-                return Err(errno_err(vm));
+                return Err(vm.new_last_os_error());
             }
             let ret =
                 unsafe { Console::GetConsoleScreenBufferInfo(console_handle, csbi.as_mut_ptr()) };
             unsafe { Foundation::CloseHandle(console_handle) };
             if ret == 0 {
-                return Err(errno_err(vm));
+                return Err(vm.new_last_os_error());
             }
         }
         let csbi = unsafe { csbi.assume_init() };
@@ -302,7 +311,7 @@ pub(crate) mod module {
 
         let result = unsafe { suppress_iph!(_wspawnv(mode, path.as_ptr(), argv_spawn.as_ptr())) };
         if result == -1 {
-            Err(errno_err(vm))
+            Err(vm.new_last_errno_error())
         } else {
             Ok(result)
         }
@@ -379,7 +388,7 @@ pub(crate) mod module {
             ))
         };
         if result == -1 {
-            Err(errno_err(vm))
+            Err(vm.new_last_errno_error())
         } else {
             Ok(result)
         }
@@ -419,7 +428,7 @@ pub(crate) mod module {
             .collect();
 
         if (unsafe { suppress_iph!(_wexecv(path.as_ptr(), argv_execv.as_ptr())) } == -1) {
-            Err(errno_err(vm))
+            Err(vm.new_last_errno_error())
         } else {
             Ok(())
         }
@@ -489,7 +498,7 @@ pub(crate) mod module {
         if (unsafe { suppress_iph!(_wexecve(path.as_ptr(), argv_execve.as_ptr(), envp.as_ptr())) }
             == -1)
         {
-            Err(errno_err(vm))
+            Err(vm.new_last_errno_error())
         } else {
             Ok(())
         }
@@ -517,7 +526,7 @@ pub(crate) mod module {
             )
         };
         if ret == 0 {
-            return Err(errno_err(vm));
+            return Err(vm.new_last_os_error());
         }
         if ret as usize > buffer.len() {
             buffer.resize(ret as usize, 0);
@@ -530,7 +539,7 @@ pub(crate) mod module {
                 )
             };
             if ret == 0 {
-                return Err(errno_err(vm));
+                return Err(vm.new_last_os_error());
             }
         }
         let buffer = widestring::WideCString::from_vec_truncate(buffer);
@@ -546,7 +555,7 @@ pub(crate) mod module {
             FileSystem::GetVolumePathNameW(wide.as_ptr(), buffer.as_mut_ptr(), buflen as _)
         };
         if ret == 0 {
-            return Err(errno_err(vm));
+            return Err(vm.new_last_os_error());
         }
         let buffer = widestring::WideCString::from_vec_truncate(buffer);
         Ok(path.mode.process_path(buffer.to_os_string(), vm))
@@ -617,7 +626,7 @@ pub(crate) mod module {
             };
 
             return if ret == 0 {
-                Err(errno_err(vm))
+                Err(err.to_pyexception(vm))
             } else {
                 Ok((total, free))
             };
@@ -629,10 +638,9 @@ pub(crate) mod module {
     fn get_handle_inheritable(handle: intptr_t, vm: &VirtualMachine) -> PyResult<bool> {
         let mut flags = 0;
         if unsafe { Foundation::GetHandleInformation(handle as _, &mut flags) } == 0 {
-            Err(errno_err(vm))
-        } else {
-            Ok(flags & Foundation::HANDLE_FLAG_INHERIT != 0)
+            return Err(vm.new_last_os_error());
         }
+        Ok(flags & Foundation::HANDLE_FLAG_INHERIT != 0)
     }
 
     #[pyfunction]
@@ -673,7 +681,7 @@ pub(crate) mod module {
             Foundation::SetHandleInformation(handle as _, Foundation::HANDLE_FLAG_INHERIT, flags)
         };
         if res == 0 {
-            Err(last_os_error())
+            Err(std::io::Error::last_os_error())
         } else {
             Ok(())
         }
@@ -687,7 +695,7 @@ pub(crate) mod module {
         let len =
             unsafe { FileSystem::GetLogicalDriveStringsW(buffer.len() as _, buffer.as_mut_ptr()) };
         if len == 0 {
-            return Err(errno_err(vm));
+            return Err(vm.new_last_os_error());
         }
         if len as usize >= buffer.len() {
             return Err(std::io::Error::from_raw_os_error(ERROR_MORE_DATA as _).to_pyexception(vm));
@@ -708,7 +716,7 @@ pub(crate) mod module {
 
         let find = unsafe { FileSystem::FindFirstVolumeW(buffer.as_mut_ptr(), buffer.len() as _) };
         if find == INVALID_HANDLE_VALUE {
-            return Err(errno_err(vm));
+            return Err(vm.new_last_os_error());
         }
 
         loop {
@@ -832,7 +840,7 @@ pub(crate) mod module {
                 )
             };
             if convert_result == 0 {
-                return Err(errno_err(vm));
+                return Err(vm.new_last_os_error());
             }
             let res =
                 unsafe { FileSystem::CreateDirectoryW(wide.as_ptr(), &sec_attr as *const _ as _) };
@@ -843,7 +851,7 @@ pub(crate) mod module {
         };
 
         if res == 0 {
-            return Err(errno_err(vm));
+            return Err(vm.new_last_os_error());
         }
         Ok(())
     }
@@ -863,7 +871,7 @@ pub(crate) mod module {
     fn umask(mask: i32, vm: &VirtualMachine) -> PyResult<i32> {
         let result = unsafe { _umask(mask) };
         if result < 0 {
-            Err(errno_err(vm))
+            Err(vm.new_last_errno_error())
         } else {
             Ok(result)
         }
@@ -883,7 +891,7 @@ pub(crate) mod module {
                 0,
             );
             if res == 0 {
-                return Err(errno_err(vm));
+                return Err(vm.new_last_os_error());
             }
             (read.assume_init(), write.assume_init())
         };
@@ -899,7 +907,7 @@ pub(crate) mod module {
                 Foundation::CloseHandle(read_handle as _);
                 Foundation::CloseHandle(write_handle as _);
             }
-            return Err(errno_err(vm));
+            return Err(vm.new_last_os_error());
         }
 
         Ok((read_fd, write_fd))
@@ -980,7 +988,7 @@ pub(crate) mod module {
     fn dup(fd: i32, vm: &VirtualMachine) -> PyResult<i32> {
         let fd2 = unsafe { suppress_iph!(libc::dup(fd)) };
         if fd2 < 0 {
-            return Err(errno_err(vm));
+            return Err(vm.new_last_errno_error());
         }
         let borrowed = unsafe { crt_fd::Borrowed::borrow_raw(fd2) };
         let handle = crt_fd::as_handle(borrowed).map_err(|e| close_fd_and_raise(fd2, e, vm))?;
@@ -1003,7 +1011,7 @@ pub(crate) mod module {
     fn dup2(args: Dup2Args, vm: &VirtualMachine) -> PyResult<i32> {
         let result = unsafe { suppress_iph!(libc::dup2(args.fd, args.fd2)) };
         if result < 0 {
-            return Err(errno_err(vm));
+            return Err(vm.new_last_errno_error());
         }
         if !args.inheritable {
             let borrowed = unsafe { crt_fd::Borrowed::borrow_raw(args.fd2) };

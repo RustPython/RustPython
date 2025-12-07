@@ -13,7 +13,6 @@ mod _overlapped {
         common::lock::PyMutex,
         convert::{ToPyException, ToPyObject},
         protocol::PyBuffer,
-        stdlib::os::errno_err,
         types::Constructor,
     };
     use windows_sys::Win32::{
@@ -256,7 +255,7 @@ mod _overlapped {
             };
             // CancelIoEx returns ERROR_NOT_FOUND if the I/O completed in-between
             if ret == 0 && unsafe { GetLastError() } != Foundation::ERROR_NOT_FOUND {
-                return Err(errno_err(vm));
+                return Err(vm.new_last_os_error());
             }
             Ok(())
         }
@@ -276,7 +275,7 @@ mod _overlapped {
                     ) as isize
                 };
                 if event == NULL {
-                    return Err(errno_err(vm));
+                    return Err(vm.new_last_os_error());
                 }
             }
 
@@ -318,7 +317,7 @@ mod _overlapped {
             ) as isize
         };
         if r as usize == 0 {
-            return Err(errno_err(vm));
+            return Err(vm.new_last_os_error());
         }
         Ok(r)
     }
@@ -346,7 +345,7 @@ mod _overlapped {
             if err == Foundation::WAIT_TIMEOUT {
                 return Ok(vm.ctx.none());
             } else {
-                return Err(errno_err(vm));
+                return Err(vm.new_last_os_error());
             }
         }
 
@@ -387,7 +386,7 @@ mod _overlapped {
             ) as isize
         };
         if event == NULL {
-            return Err(errno_err(vm));
+            return Err(vm.new_last_os_error());
         }
         Ok(event)
     }
@@ -396,7 +395,7 @@ mod _overlapped {
     fn SetEvent(handle: u64, vm: &VirtualMachine) -> PyResult<()> {
         let ret = unsafe { windows_sys::Win32::System::Threading::SetEvent(u64_to_handle(handle)) };
         if ret == 0 {
-            return Err(errno_err(vm));
+            return Err(vm.new_last_os_error());
         }
         Ok(())
     }
@@ -406,7 +405,7 @@ mod _overlapped {
         let ret =
             unsafe { windows_sys::Win32::System::Threading::ResetEvent(u64_to_handle(handle)) };
         if ret == 0 {
-            return Err(errno_err(vm));
+            return Err(vm.new_last_os_error());
         }
         Ok(())
     }

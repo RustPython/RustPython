@@ -799,7 +799,6 @@ mod platform {
     use crate::{
         PyRef, PyResult, VirtualMachine,
         builtins::{PyNamespace, PyStrRef},
-        stdlib::os::errno_err,
     };
     use std::time::Duration;
     use windows_sys::Win32::{
@@ -818,7 +817,7 @@ mod platform {
         let frequency = unsafe {
             let mut freq = std::mem::MaybeUninit::uninit();
             if QueryPerformanceFrequency(freq.as_mut_ptr()) == 0 {
-                return Err(errno_err(vm));
+                return Err(vm.new_last_os_error());
             }
             freq.assume_init()
         };
@@ -866,7 +865,7 @@ mod platform {
                 _is_time_adjustment_disabled.as_mut_ptr(),
             ) == 0
             {
-                return Err(errno_err(vm));
+                return Err(vm.new_last_os_error());
             }
             time_increment.assume_init()
         };

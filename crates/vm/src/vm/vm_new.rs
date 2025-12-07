@@ -7,7 +7,7 @@ use crate::{
         descriptor::PyMethodDescriptor,
         tuple::{IntoPyTuple, PyTupleRef},
     },
-    convert::ToPyObject,
+    convert::{ToPyException, ToPyObject},
     function::{IntoPyNativeFn, PyMethodFlags},
     scope::Scope,
     vm::VirtualMachine,
@@ -200,6 +200,24 @@ impl VirtualMachine {
             b.class().name(),
             c.class().name()
         ))
+    }
+
+    /// Create a new OSError from the last OS error.
+    ///
+    /// On windows, windows-sys errors are expected to be handled by this function.
+    /// This is identical to `new_last_errno_error` on non-Windows platforms.
+    pub fn new_last_os_error(&self) -> PyBaseExceptionRef {
+        let err = std::io::Error::last_os_error();
+        err.to_pyexception(self)
+    }
+
+    /// Create a new OSError from the last POSIX errno.
+    ///
+    /// On windows, CRT errno are expected to be handled by this function.
+    /// This is identical to `new_last_os_error` on non-Windows platforms.
+    pub fn new_last_errno_error(&self) -> PyBaseExceptionRef {
+        let err = crate::common::os::errno_io_error();
+        err.to_pyexception(self)
     }
 
     pub fn new_errno_error(&self, errno: i32, msg: impl Into<String>) -> PyBaseExceptionRef {

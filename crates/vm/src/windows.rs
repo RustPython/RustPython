@@ -5,7 +5,6 @@ use crate::common::fileutils::{
 use crate::{
     PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     convert::{ToPyObject, ToPyResult},
-    stdlib::os::errno_err,
 };
 use rustpython_common::windows::ToWideString;
 use std::ffi::OsStr;
@@ -47,10 +46,10 @@ impl<T: WindowsSysResultValue> WindowsSysResult<T> {
         self.0.is_err()
     }
     pub fn into_pyresult(self, vm: &VirtualMachine) -> PyResult<T::Ok> {
-        if self.is_err() {
-            Err(errno_err(vm))
-        } else {
+        if !self.is_err() {
             Ok(self.0.into_ok())
+        } else {
+            Err(vm.new_last_os_error())
         }
     }
 }

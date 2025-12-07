@@ -8,7 +8,7 @@ mod fcntl {
         PyResult, VirtualMachine,
         builtins::PyIntRef,
         function::{ArgMemoryBuffer, ArgStrOrBytesLike, Either, OptionalArg},
-        stdlib::{io, os},
+        stdlib::io,
     };
 
     // TODO: supply these from <asm-generic/fnctl.h> (please file an issue/PR upstream):

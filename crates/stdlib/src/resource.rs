@@ -7,7 +7,6 @@ mod resource {
     use crate::vm::{
         PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
         convert::{ToPyException, ToPyObject},
-        stdlib::os,
         types::PyStructSequence,
     };
     use std::{io, mem};
