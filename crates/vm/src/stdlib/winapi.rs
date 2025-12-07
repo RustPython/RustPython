@@ -19,7 +19,7 @@ mod _winapi {
         Win32::Foundation::{HANDLE, HINSTANCE, MAX_PATH},
         core::PCWSTR,
     };
-    use windows_sys::Win32::Foundation::{BOOL, HANDLE as RAW_HANDLE};
+    use windows_sys::Win32::Foundation::{BOOL, INVALID_HANDLE_VALUE};
 
     #[pyattr]
     use windows_sys::Win32::{
@@ -87,8 +87,18 @@ mod _winapi {
     #[pyfunction]
     fn GetStdHandle(
         std_handle: windows_sys::Win32::System::Console::STD_HANDLE,
-    ) -> WindowsSysResult<RAW_HANDLE> {
-        WindowsSysResult(unsafe { windows_sys::Win32::System::Console::GetStdHandle(std_handle) })
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<HANDLE>> {
+        let handle = unsafe { windows_sys::Win32::System::Console::GetStdHandle(std_handle) };
+        if handle == INVALID_HANDLE_VALUE {
+            return Err(errno_err(vm));
+        }
+        Ok(if handle.is_null() {
+            // NULL handle - return None
+            None
+        } else {
+            Some(HANDLE(handle as isize))
+        })
     }
 
     #[pyfunction]
@@ -114,7 +124,8 @@ mod _winapi {
 
     #[pyfunction]
     fn DuplicateHandle(
-        (src_process, src): (HANDLE, HANDLE),
+        src_process: HANDLE,
+        src: HANDLE,
         target_process: HANDLE,
         access: u32,
         inherit: BOOL,
@@ -292,6 +303,11 @@ mod _winapi {
                 process_id,
             ) as _
         }
+    }
+
+    #[pyfunction]
+    fn ExitProcess(exit_code: u32) {
+        unsafe { windows_sys::Win32::System::Threading::ExitProcess(exit_code) }
     }
 
     #[pyfunction]

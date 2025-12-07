@@ -739,7 +739,6 @@ class TestCopyTree(BaseTest, unittest.TestCase):
         with self.assertRaises(FileExistsError):
             shutil.copytree(src_dir, dst_dir, dirs_exist_ok=False)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     def test_copytree_symlinks(self):
         tmp_dir = self.mkdtemp()
@@ -1007,7 +1006,6 @@ class TestCopyTree(BaseTest, unittest.TestCase):
         shutil.copytree(src_dir, dst_dir, symlinks=True)
         self.assertIn('test.txt', os.listdir(dst_dir))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     def test_copytree_symlink_dir(self):
         src_dir = self.mkdtemp()

@@ -374,7 +374,6 @@ class FaultHandlerTests(unittest.TestCase):
             'Segmentation fault',
             all_threads=False)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; AttributeError: module 'msvcrt' has no attribute 'GetErrorMode'")
     @skip_segfault_on_android
     def test_disable(self):
         code = """
