@@ -43,17 +43,12 @@ pub fn last_os_error() -> io::Error {
 
 #[cfg(windows)]
 pub fn last_posix_errno() -> i32 {
-    let err = io::Error::last_os_error();
-    if err.raw_os_error() == Some(0) {
-        unsafe extern "C" {
-            fn _get_errno(pValue: *mut i32) -> i32;
-        }
-        let mut errno = 0;
-        unsafe { suppress_iph!(_get_errno(&mut errno)) };
-        errno
-    } else {
-        err.posix_errno()
+    unsafe extern "C" {
+        fn _get_errno(pValue: *mut i32) -> i32;
     }
+    let mut errno = 0;
+    unsafe { suppress_iph!(_get_errno(&mut errno)) };
+    errno
 }
 
 #[cfg(not(windows))]
