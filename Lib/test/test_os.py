@@ -4621,7 +4621,6 @@ class CPUCountTests(unittest.TestCase):
 # FD inheritance check is only useful for systems with process support.
 @support.requires_subprocess()
 class FDInheritanceTests(unittest.TestCase):
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; os.get_inheritable not implemented yet for all platforms')
     def test_get_set_inheritable(self):
         fd = os.open(__file__, os.O_RDONLY)
         self.addCleanup(os.close, fd)
@@ -4682,7 +4681,6 @@ class FDInheritanceTests(unittest.TestCase):
             os.set_inheritable(fd, False)
         self.assertEqual(ctx.exception.errno, errno.EBADF)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; os.get_inheritable not implemented yet for all platforms')
     def test_open(self):
         fd = os.open(__file__, os.O_RDONLY)
         self.addCleanup(os.close, fd)
@@ -4696,7 +4694,6 @@ class FDInheritanceTests(unittest.TestCase):
         self.assertEqual(os.get_inheritable(rfd), False)
         self.assertEqual(os.get_inheritable(wfd), False)
 
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; os.dup on windows')
     def test_dup(self):
         fd1 = os.open(__file__, os.O_RDONLY)
         self.addCleanup(os.close, fd1)
@@ -4705,13 +4702,11 @@ class FDInheritanceTests(unittest.TestCase):
         self.addCleanup(os.close, fd2)
         self.assertEqual(os.get_inheritable(fd2), False)
 
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; os.dup on windows')
     def test_dup_standard_stream(self):
         fd = os.dup(1)
         self.addCleanup(os.close, fd)
         self.assertGreater(fd, 0)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; os.dup not implemented yet for all platforms')
     @unittest.skipUnless(sys.platform == 'win32', 'win32-specific test')
     def test_dup_nul(self):
         # os.dup() was creating inheritable fds for character files.
