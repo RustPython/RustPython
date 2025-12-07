@@ -1735,8 +1735,6 @@ class ClosedConTests(unittest.TestCase):
             con()
 
 class ClosedCurTests(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_closed(self):
         con = sqlite.connect(":memory:")
         cur = con.cursor()
