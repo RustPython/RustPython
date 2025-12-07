@@ -1771,6 +1771,8 @@ mod _sqlite {
             script: PyUtf8StrRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
+            let _ = zelf.clone().inner(vm)?;
+
             let db = zelf.connection.db_lock(vm)?;
 
             db.sql_limit(script.byte_len(), vm)?;
@@ -1829,19 +1831,19 @@ mod _sqlite {
         fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
             // Check if __init__ was called
             let mut guard = self.inner.lock();
-            if guard.is_none() {
+
+            let Some(inner) = guard.as_mut() else {
                 return Err(new_programming_error(
                     vm,
                     "Base Cursor.__init__ not called.".to_owned(),
                 ));
-            }
+            };
 
-            if let Some(inner) = guard.as_mut() {
-                if let Some(stmt) = &inner.statement {
-                    stmt.lock().reset();
-                }
-                inner.closed = true;
+            if let Some(stmt) = &inner.statement {
+                stmt.lock().reset();
             }
+            inner.closed = true;
+
             Ok(())
         }
 
