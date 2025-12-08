@@ -6437,7 +6437,6 @@ class TimedRotatingFileHandlerTest(BaseFileTest):
                     print(tf.read())
         self.assertTrue(found, msg=msg)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
     def test_rollover_at_midnight(self, weekly=False):
         os_helper.unlink(self.fn)
         now = datetime.datetime.now()
@@ -6481,7 +6480,6 @@ class TimedRotatingFileHandlerTest(BaseFileTest):
             for i, line in enumerate(f):
                 self.assertIn(f'testing1 {i}', line)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
     def test_rollover_at_weekday(self):
         self.test_rollover_at_midnight(weekly=True)
 

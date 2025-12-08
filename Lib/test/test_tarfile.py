@@ -622,7 +622,6 @@ class MiscReadTestBase(CommonReadTest):
                 data = f.read()
             self.assertEqual(sha256sum(data), sha256_regtype)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_extractall(self):
         # Test if extractall() correctly restores directory permissions
         # and times (see issue1735).
@@ -653,7 +652,6 @@ class MiscReadTestBase(CommonReadTest):
             tar.close()
             os_helper.rmtree(DIR)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_extract_directory(self):
         dirtype = "ustar/dirtype"
         DIR = os.path.join(TEMPDIR, "extractdir")
@@ -669,7 +667,6 @@ class MiscReadTestBase(CommonReadTest):
         finally:
             os_helper.rmtree(DIR)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_extractall_pathlike_name(self):
         DIR = pathlib.Path(TEMPDIR) / "extractall"
         with os_helper.temp_dir(DIR), \
@@ -680,7 +677,6 @@ class MiscReadTestBase(CommonReadTest):
                 path = DIR / tarinfo.name
                 self.assertEqual(os.path.getmtime(path), tarinfo.mtime)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_extract_pathlike_name(self):
         dirtype = "ustar/dirtype"
         DIR = pathlib.Path(TEMPDIR) / "extractall"
