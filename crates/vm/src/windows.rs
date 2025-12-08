@@ -9,7 +9,7 @@ use crate::{
 };
 use std::ffi::OsStr;
 use windows::Win32::Foundation::HANDLE;
-use windows_sys::Win32::Foundation::{BOOL, HANDLE as RAW_HANDLE, INVALID_HANDLE_VALUE};
+use windows_sys::Win32::Foundation::{HANDLE as RAW_HANDLE, INVALID_HANDLE_VALUE};
 
 pub(crate) trait WindowsSysResultValue {
     type Ok: ToPyObject;
@@ -27,7 +27,8 @@ impl WindowsSysResultValue for RAW_HANDLE {
     }
 }
 
-impl WindowsSysResultValue for BOOL {
+// BOOL is i32 in windows-sys 0.61+
+impl WindowsSysResultValue for i32 {
     type Ok = ();
     fn is_err(&self) -> bool {
         *self == 0

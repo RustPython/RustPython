@@ -1149,7 +1149,7 @@ mod winreg {
 
     #[pyfunction]
     fn QueryReflectionKey(key: PyRef<PyHkey>, vm: &VirtualMachine) -> PyResult<bool> {
-        let mut result: windows_sys::Win32::Foundation::BOOL = 0;
+        let mut result: i32 = 0;
         let res = unsafe { Registry::RegQueryReflectionKey(key.hkey.load(), &mut result) };
         if res == 0 {
             Ok(result != 0)

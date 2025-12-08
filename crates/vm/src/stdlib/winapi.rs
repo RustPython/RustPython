@@ -19,7 +19,7 @@ mod _winapi {
         Win32::Foundation::{HANDLE, HINSTANCE, MAX_PATH},
         core::PCWSTR,
     };
-    use windows_sys::Win32::Foundation::{BOOL, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
 
     #[pyattr]
     use windows_sys::Win32::{
@@ -36,14 +36,19 @@ mod _winapi {
             LCMAP_TRADITIONAL_CHINESE, LCMAP_UPPERCASE,
         },
         Storage::FileSystem::{
-            COPYFILE2_CALLBACK_CHUNK_FINISHED, COPYFILE2_CALLBACK_CHUNK_STARTED,
-            COPYFILE2_CALLBACK_ERROR, COPYFILE2_CALLBACK_POLL_CONTINUE,
-            COPYFILE2_CALLBACK_STREAM_FINISHED, COPYFILE2_CALLBACK_STREAM_STARTED,
-            COPYFILE2_PROGRESS_CANCEL, COPYFILE2_PROGRESS_CONTINUE, COPYFILE2_PROGRESS_PAUSE,
-            COPYFILE2_PROGRESS_QUIET, COPYFILE2_PROGRESS_STOP, FILE_FLAG_FIRST_PIPE_INSTANCE,
-            FILE_FLAG_OVERLAPPED, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_TYPE_CHAR,
-            FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_REMOTE, FILE_TYPE_UNKNOWN, OPEN_EXISTING,
-            PIPE_ACCESS_DUPLEX, PIPE_ACCESS_INBOUND, SYNCHRONIZE,
+            COPY_FILE_ALLOW_DECRYPTED_DESTINATION, COPY_FILE_COPY_SYMLINK,
+            COPY_FILE_FAIL_IF_EXISTS, COPY_FILE_NO_BUFFERING, COPY_FILE_NO_OFFLOAD,
+            COPY_FILE_OPEN_SOURCE_FOR_WRITE, COPY_FILE_REQUEST_COMPRESSED_TRAFFIC,
+            COPY_FILE_REQUEST_SECURITY_PRIVILEGES, COPY_FILE_RESTARTABLE,
+            COPY_FILE_RESUME_FROM_PAUSE, COPYFILE2_CALLBACK_CHUNK_FINISHED,
+            COPYFILE2_CALLBACK_CHUNK_STARTED, COPYFILE2_CALLBACK_ERROR,
+            COPYFILE2_CALLBACK_POLL_CONTINUE, COPYFILE2_CALLBACK_STREAM_FINISHED,
+            COPYFILE2_CALLBACK_STREAM_STARTED, COPYFILE2_PROGRESS_CANCEL,
+            COPYFILE2_PROGRESS_CONTINUE, COPYFILE2_PROGRESS_PAUSE, COPYFILE2_PROGRESS_QUIET,
+            COPYFILE2_PROGRESS_STOP, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED,
+            FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_TYPE_CHAR, FILE_TYPE_DISK, FILE_TYPE_PIPE,
+            FILE_TYPE_REMOTE, FILE_TYPE_UNKNOWN, OPEN_EXISTING, PIPE_ACCESS_DUPLEX,
+            PIPE_ACCESS_INBOUND, SYNCHRONIZE,
         },
         System::{
             Console::{STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE},
@@ -65,13 +70,6 @@ mod _winapi {
                 IDLE_PRIORITY_CLASS, INFINITE, NORMAL_PRIORITY_CLASS, PROCESS_DUP_HANDLE,
                 REALTIME_PRIORITY_CLASS, STARTF_USESHOWWINDOW, STARTF_USESTDHANDLES,
             },
-            WindowsProgramming::{
-                COPY_FILE_ALLOW_DECRYPTED_DESTINATION, COPY_FILE_COPY_SYMLINK,
-                COPY_FILE_FAIL_IF_EXISTS, COPY_FILE_NO_BUFFERING, COPY_FILE_NO_OFFLOAD,
-                COPY_FILE_OPEN_SOURCE_FOR_WRITE, COPY_FILE_REQUEST_COMPRESSED_TRAFFIC,
-                COPY_FILE_REQUEST_SECURITY_PRIVILEGES, COPY_FILE_RESTARTABLE,
-                COPY_FILE_RESUME_FROM_PAUSE,
-            },
         },
         UI::WindowsAndMessaging::SW_HIDE,
     };
@@ -80,7 +78,7 @@ mod _winapi {
     const NULL: isize = 0;
 
     #[pyfunction]
-    fn CloseHandle(handle: HANDLE) -> WindowsSysResult<BOOL> {
+    fn CloseHandle(handle: HANDLE) -> WindowsSysResult<i32> {
         WindowsSysResult(unsafe { windows_sys::Win32::Foundation::CloseHandle(handle.0 as _) })
     }
 
@@ -128,7 +126,7 @@ mod _winapi {
         src: HANDLE,
         target_process: HANDLE,
         access: u32,
-        inherit: BOOL,
+        inherit: i32,
         options: OptionalArg<u32>,
         vm: &VirtualMachine,
     ) -> PyResult<HANDLE> {
@@ -299,7 +297,7 @@ mod _winapi {
         unsafe {
             windows_sys::Win32::System::Threading::OpenProcess(
                 desired_access,
-                BOOL::from(inherit_handle),
+                i32::from(inherit_handle),
                 process_id,
             ) as _
         }
@@ -473,7 +471,7 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn TerminateProcess(h: HANDLE, exit_code: u32) -> WindowsSysResult<BOOL> {
+    fn TerminateProcess(h: HANDLE, exit_code: u32) -> WindowsSysResult<i32> {
         WindowsSysResult(unsafe {
             windows_sys::Win32::System::Threading::TerminateProcess(h.0 as _, exit_code)
         })
@@ -513,7 +511,7 @@ mod _winapi {
         let handle = unsafe {
             windows_sys::Win32::System::Threading::OpenMutexW(
                 desired_access,
-                BOOL::from(inherit_handle),
+                i32::from(inherit_handle),
                 windows_sys::core::PCWSTR::from(name as _),
             )
         };
@@ -524,7 +522,7 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn ReleaseMutex(handle: isize) -> WindowsSysResult<BOOL> {
+    fn ReleaseMutex(handle: isize) -> WindowsSysResult<i32> {
         WindowsSysResult(unsafe {
             windows_sys::Win32::System::Threading::ReleaseMutex(handle as _)
         })

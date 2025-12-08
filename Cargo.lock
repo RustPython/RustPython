@@ -1170,7 +1170,7 @@ checksum = "0ce92ff622d6dadf7349484f42c93271a0d49b7cc4d466a936405bacbe10aa78"
 dependencies = [
  "cfg-if",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2987,7 +2987,7 @@ dependencies = [
  "siphasher",
  "unicode_names2 2.0.0",
  "widestring",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3186,7 +3186,7 @@ dependencies = [
  "uuid",
  "webpki-roots",
  "widestring",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
  "x509-cert",
  "x509-parser",
  "xml",
@@ -3266,7 +3266,7 @@ dependencies = [
  "which",
  "widestring",
  "windows",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
