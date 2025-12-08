@@ -1446,7 +1446,7 @@ pub(super) mod _os {
         // ExitProcess() accepts an UINT type:
         // reject exit code which doesn't fit in an UINT
         u32::try_from(exitcode)
-            .map_err(|_| vm.new_value_error(format!("invalid exit code: {exitcode}")))
+            .map_err(|_| vm.new_value_error(format!("Invalid exit code: {exitcode}")))
     }
 
     #[pyfunction]
