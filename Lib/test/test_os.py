@@ -1811,7 +1811,6 @@ class MakedirTests(unittest.TestCase):
         # Issue #25583: A drive root could raise PermissionError on Windows
         os.makedirs(os.path.abspath('/'), exist_ok=True)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; os.umask not implemented yet for all platforms')
     @unittest.skipIf(
         support.is_emscripten or support.is_wasi,
         "Emscripten's/WASI's umask is a stub."
@@ -4653,7 +4652,6 @@ class FDInheritanceTests(unittest.TestCase):
         os.set_inheritable(fd, False)
         self.assertEqual(os.get_inheritable(fd), False)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; os.get_inheritable not implemented yet for all platforms')
     def test_get_set_inheritable_badf(self):
         fd = os_helper.make_bad_fd()
 

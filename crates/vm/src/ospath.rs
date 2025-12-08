@@ -55,6 +55,14 @@ impl OsPath {
         Ok(Self { path, mode })
     }
 
+    /// Convert an object to OsPath using the os.fspath-style error message.
+    /// This is used by open() which should report "expected str, bytes or os.PathLike object, not"
+    /// instead of "should be string, bytes or os.PathLike, not".
+    pub(crate) fn try_from_fspath(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        let fspath = FsPath::try_from_path_like(obj, true, vm)?;
+        Self::from_fspath(fspath, vm)
+    }
+
     pub fn as_path(&self) -> &Path {
         Path::new(&self.path)
     }
@@ -90,7 +98,12 @@ impl AsRef<Path> for OsPath {
 impl TryFromObject for OsPath {
     // TODO: path_converter with allow_fd=0 in CPython
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let fspath = FsPath::try_from(obj, true, vm)?;
+        let fspath = FsPath::try_from(
+            obj,
+            true,
+            "should be string, bytes, os.PathLike or integer",
+            vm,
+        )?;
         Self::from_fspath(fspath, vm)
     }
 }
