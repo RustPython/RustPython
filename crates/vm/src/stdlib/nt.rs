@@ -692,18 +692,59 @@ pub(crate) mod module {
         raw_set_handle_inheritable(handle, inheritable).map_err(|e| e.to_pyexception(vm))
     }
 
-    #[pyfunction]
-    fn mkdir(
+    #[derive(FromArgs)]
+    struct MkdirArgs<'a> {
+        #[pyarg(any)]
         path: OsPath,
-        mode: OptionalArg<i32>,
-        dir_fd: DirFd<'_, { _os::MKDIR_DIR_FD as usize }>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let mode = mode.unwrap_or(0o777);
-        let [] = dir_fd.0;
-        let _ = mode;
-        let wide = path.to_wide_cstring(vm)?;
-        let res = unsafe { FileSystem::CreateDirectoryW(wide.as_ptr(), std::ptr::null_mut()) };
+        #[pyarg(any, default = 0o777)]
+        mode: i32,
+        #[pyarg(flatten)]
+        dir_fd: DirFd<'a, { _os::MKDIR_DIR_FD as usize }>,
+    }
+
+    #[pyfunction]
+    fn mkdir(args: MkdirArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        use windows_sys::Win32::Foundation::LocalFree;
+        use windows_sys::Win32::Security::Authorization::{
+            ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+        };
+        use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+
+        let [] = args.dir_fd.0;
+        let wide = args.path.to_wide_cstring(vm)?;
+
+        // CPython special case: mode 0o700 sets a protected ACL
+        let res = if args.mode == 0o700 {
+            let mut sec_attr = SECURITY_ATTRIBUTES {
+                nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: std::ptr::null_mut(),
+                bInheritHandle: 0,
+            };
+            // Set a discretionary ACL (D) that is protected (P) and includes
+            // inheritable (OICI) entries that allow (A) full control (FA) to
+            // SYSTEM (SY), Administrators (BA), and the owner (OW).
+            let sddl: Vec<u16> = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;OW)\0"
+                .encode_utf16()
+                .collect();
+            let convert_result = unsafe {
+                ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                    sddl.as_ptr(),
+                    SDDL_REVISION_1,
+                    &mut sec_attr.lpSecurityDescriptor,
+                    std::ptr::null_mut(),
+                )
+            };
+            if convert_result == 0 {
+                return Err(errno_err(vm));
+            }
+            let res =
+                unsafe { FileSystem::CreateDirectoryW(wide.as_ptr(), &sec_attr as *const _ as _) };
+            unsafe { LocalFree(sec_attr.lpSecurityDescriptor) };
+            res
+        } else {
+            unsafe { FileSystem::CreateDirectoryW(wide.as_ptr(), std::ptr::null_mut()) }
+        };
+
         if res == 0 {
             return Err(errno_err(vm));
         }
