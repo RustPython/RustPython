@@ -1131,7 +1131,6 @@ class TestCopy(BaseTest, unittest.TestCase):
 
     ### shutil.copystat
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     def test_copystat_symlinks(self):
         tmp_dir = self.mkdtemp()

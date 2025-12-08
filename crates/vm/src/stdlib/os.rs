@@ -1210,6 +1210,7 @@ pub(super) mod _os {
         {
             #[cfg(not(target_os = "redox"))]
             {
+                let path_for_err = path.clone();
                 let path = path.into_cstring(vm)?;
 
                 let ts = |d: Duration| libc::timespec {
@@ -1230,7 +1231,15 @@ pub(super) mod _os {
                         },
                     )
                 };
-                if ret < 0 { Err(errno_err(vm)) } else { Ok(()) }
+                if ret < 0 {
+                    Err(IOErrorBuilder::with_filename(
+                        &io::Error::last_os_error(),
+                        path_for_err,
+                        vm,
+                    ))
+                } else {
+                    Ok(())
+                }
             }
             #[cfg(target_os = "redox")]
             {
@@ -1252,9 +1261,15 @@ pub(super) mod _os {
 
             let [] = dir_fd.0;
 
+            if !_follow_symlinks.0 {
+                return Err(vm.new_not_implemented_error(
+                    "utime: follow_symlinks unavailable on this platform",
+                ));
+            }
+
             let ft = |d: Duration| {
-                let intervals =
-                    ((d.as_secs() as i64 + 11644473600) * 10_000_000) + (d.as_nanos() as i64 / 100);
+                let intervals = ((d.as_secs() as i64 + 11644473600) * 10_000_000)
+                    + (d.subsec_nanos() as i64 / 100);
                 FILETIME {
                     dwLowDateTime: intervals as DWORD,
                     dwHighDateTime: (intervals >> 32) as DWORD,
@@ -1267,15 +1282,19 @@ pub(super) mod _os {
             let f = OpenOptions::new()
                 .write(true)
                 .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS)
-                .open(path)
-                .map_err(|err| err.into_pyexception(vm))?;
+                .open(&path)
+                .map_err(|err| IOErrorBuilder::with_filename(&err, path.clone(), vm))?;
 
             let ret = unsafe {
                 FileSystem::SetFileTime(f.as_raw_handle() as _, std::ptr::null(), &acc, &modif)
             };
 
             if ret == 0 {
-                Err(io::Error::last_os_error().into_pyexception(vm))
+                Err(IOErrorBuilder::with_filename(
+                    &io::Error::last_os_error(),
+                    path,
+                    vm,
+                ))
             } else {
                 Ok(())
             }
