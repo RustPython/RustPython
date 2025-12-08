@@ -30,7 +30,7 @@ pub mod windows {
     use std::os::windows::io::AsRawHandle;
     use std::sync::OnceLock;
     use windows_sys::Win32::Foundation::{
-        BOOL, ERROR_INVALID_HANDLE, ERROR_NOT_SUPPORTED, FILETIME, FreeLibrary, SetLastError,
+        ERROR_INVALID_HANDLE, ERROR_NOT_SUPPORTED, FILETIME, FreeLibrary, SetLastError,
     };
     use windows_sys::Win32::Storage::FileSystem::{
         BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_READONLY,
@@ -299,7 +299,7 @@ pub mod windows {
                     FILE_INFO_BY_NAME_CLASS,
                     *mut libc::c_void,
                     u32,
-                ) -> BOOL,
+                ) -> i32,
             >,
         > = OnceLock::new();
 
