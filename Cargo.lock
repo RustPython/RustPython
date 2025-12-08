@@ -1239,6 +1239,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
+name = "foldhash"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
+
+[[package]]
 name = "foreign-types"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1370,7 +1376,7 @@ version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
 dependencies = [
- "foldhash",
+ "foldhash 0.1.5",
 ]
 
 [[package]]
@@ -1378,6 +1384,9 @@ name = "hashbrown"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
+dependencies = [
+ "foldhash 0.2.0",
+]
 
 [[package]]
 name = "heck"
@@ -1811,12 +1820,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "malachite-base"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0c91cb6071ed9ac48669d3c79bd2792db596c7e542dbadd217b385bb359f42d"
+dependencies = [
+ "hashbrown 0.16.1",
+ "itertools 0.14.0",
+ "libm",
+ "ryu",
+]
+
+[[package]]
 name = "malachite-bigint"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f46b904a4725706c5ad0133b662c20b388a3ffb04bda5154029dcb0cd28ae34"
 dependencies = [
- "malachite-base",
+ "malachite-base 0.6.1",
  "malachite-nz",
  "num-integer",
  "num-traits",
@@ -1831,7 +1852,7 @@ checksum = "1707c9a1fa36ce21749b35972bfad17bbf34cf5a7c96897c0491da321e387d3b"
 dependencies = [
  "itertools 0.14.0",
  "libm",
- "malachite-base",
+ "malachite-base 0.6.1",
  "wide",
 ]
 
@@ -1842,7 +1863,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d764801aa4e96bbb69b389dcd03b50075345131cd63ca2e380bca71cc37a3675"
 dependencies = [
  "itertools 0.14.0",
- "malachite-base",
+ "malachite-base 0.6.1",
  "malachite-nz",
 ]
 
@@ -2987,7 +3008,7 @@ dependencies = [
  "itertools 0.14.0",
  "libc",
  "lock_api",
- "malachite-base",
+ "malachite-base 0.8.0",
  "malachite-bigint",
  "malachite-q",
  "num-complex",
