@@ -373,11 +373,11 @@ impl VirtualMachine {
             self.print_exception(e);
         }
 
-        let expect_stdlib =
+        let _expect_stdlib =
             cfg!(feature = "freeze-stdlib") || !self.state.settings.path_list.is_empty();
 
         #[cfg(feature = "encodings")]
-        if expect_stdlib {
+        if _expect_stdlib {
             if let Err(e) = self.import_encodings() {
                 eprintln!(
                     "encodings initialization failed. Only utf-8 encoding will be supported."
@@ -394,20 +394,8 @@ impl VirtualMachine {
             );
         }
 
-        if expect_stdlib {
-            // enable python-implemented ExceptionGroup when stdlib exists
-            let py_core_init = || -> PyResult<()> {
-                let exception_group = import::import_frozen(self, "_py_exceptiongroup")?;
-                let base_exception_group = exception_group.get_attr("BaseExceptionGroup", self)?;
-                self.builtins
-                    .set_attr("BaseExceptionGroup", base_exception_group, self)?;
-                let exception_group = exception_group.get_attr("ExceptionGroup", self)?;
-                self.builtins
-                    .set_attr("ExceptionGroup", exception_group, self)?;
-                Ok(())
-            };
-            self.expect_pyresult(py_core_init(), "exceptiongroup initialization failed");
-        }
+        // ExceptionGroup is now implemented natively in Rust (exceptions.rs)
+        // No Python fallback needed
 
         self.initialized = true;
     }
