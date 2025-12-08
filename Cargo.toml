@@ -219,7 +219,7 @@ unic-ucd-ident = "0.9.0"
 unicode_names2 = "2.0.0"
 unicode-bidi-mirroring = "0.4"
 widestring = "1.2.0"
-windows-sys = "0.59.0"
+windows-sys = "0.61.2"
 wasm-bindgen = "0.2.100"
 
 # Lints
