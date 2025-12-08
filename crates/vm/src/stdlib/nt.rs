@@ -35,7 +35,31 @@ pub(crate) mod module {
     };
 
     #[pyattr]
-    use libc::{O_BINARY, O_TEMPORARY};
+    use libc::{O_BINARY, O_NOINHERIT, O_RANDOM, O_SEQUENTIAL, O_TEMPORARY, O_TEXT};
+
+    // Windows spawn mode constants
+    #[pyattr]
+    const P_WAIT: i32 = 0;
+    #[pyattr]
+    const P_NOWAIT: i32 = 1;
+    #[pyattr]
+    const P_OVERLAY: i32 = 2;
+    #[pyattr]
+    const P_NOWAITO: i32 = 3;
+    #[pyattr]
+    const P_DETACH: i32 = 4;
+
+    // _O_SHORT_LIVED is not in libc, define manually
+    #[pyattr]
+    const O_SHORT_LIVED: i32 = 0x1000;
+
+    // Exit code constant
+    #[pyattr]
+    const EX_OK: i32 = 0;
+
+    // Maximum number of temporary files
+    #[pyattr]
+    const TMP_MAX: i32 = i32::MAX;
 
     #[pyattr]
     use windows_sys::Win32::System::LibraryLoader::{
@@ -138,19 +162,22 @@ pub(crate) mod module {
 
     #[cfg(target_env = "msvc")]
     #[pyfunction]
-    fn waitpid(pid: intptr_t, opt: i32, vm: &VirtualMachine) -> PyResult<(intptr_t, i32)> {
-        let mut status = 0;
+    fn waitpid(pid: intptr_t, opt: i32, vm: &VirtualMachine) -> PyResult<(intptr_t, u64)> {
+        let mut status: i32 = 0;
         let pid = unsafe { suppress_iph!(_cwait(&mut status, pid, opt)) };
         if pid == -1 {
             Err(errno_err(vm))
         } else {
-            Ok((pid, status << 8))
+            // Cast to unsigned to handle large exit codes (like 0xC000013A)
+            // then shift left by 8 to match POSIX waitpid format
+            let ustatus = (status as u32) as u64;
+            Ok((pid, ustatus << 8))
         }
     }
 
     #[cfg(target_env = "msvc")]
     #[pyfunction]
-    fn wait(vm: &VirtualMachine) -> PyResult<(intptr_t, i32)> {
+    fn wait(vm: &VirtualMachine) -> PyResult<(intptr_t, u64)> {
         waitpid(-1, 0, vm)
     }
 
@@ -212,12 +239,143 @@ pub(crate) mod module {
     #[cfg(target_env = "msvc")]
     unsafe extern "C" {
         fn _wexecv(cmdname: *const u16, argv: *const *const u16) -> intptr_t;
+        fn _wexecve(
+            cmdname: *const u16,
+            argv: *const *const u16,
+            envp: *const *const u16,
+        ) -> intptr_t;
+        fn _wspawnv(mode: i32, cmdname: *const u16, argv: *const *const u16) -> intptr_t;
+        fn _wspawnve(
+            mode: i32,
+            cmdname: *const u16,
+            argv: *const *const u16,
+            envp: *const *const u16,
+        ) -> intptr_t;
+    }
+
+    #[cfg(target_env = "msvc")]
+    #[pyfunction]
+    fn spawnv(
+        mode: i32,
+        path: OsPath,
+        argv: Either<PyListRef, PyTupleRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<intptr_t> {
+        use std::iter::once;
+
+        let make_widestring =
+            |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
+
+        let path = path.to_wide_cstring(vm)?;
+
+        let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
+            let arg = PyStrRef::try_from_object(vm, obj)?;
+            make_widestring(arg.as_str())
+        })?;
+
+        let first = argv
+            .first()
+            .ok_or_else(|| vm.new_value_error("spawnv() arg 3 must not be empty"))?;
+
+        if first.is_empty() {
+            return Err(vm.new_value_error("spawnv() arg 3 first element cannot be empty"));
+        }
+
+        let argv_spawn: Vec<*const u16> = argv
+            .iter()
+            .map(|v| v.as_ptr())
+            .chain(once(std::ptr::null()))
+            .collect();
+
+        let result = unsafe { suppress_iph!(_wspawnv(mode, path.as_ptr(), argv_spawn.as_ptr())) };
+        if result == -1 {
+            Err(errno_err(vm))
+        } else {
+            Ok(result)
+        }
+    }
+
+    #[cfg(target_env = "msvc")]
+    #[pyfunction]
+    fn spawnve(
+        mode: i32,
+        path: OsPath,
+        argv: Either<PyListRef, PyTupleRef>,
+        env: PyDictRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<intptr_t> {
+        use std::iter::once;
+
+        let make_widestring =
+            |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
+
+        let path = path.to_wide_cstring(vm)?;
+
+        let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
+            let arg = PyStrRef::try_from_object(vm, obj)?;
+            make_widestring(arg.as_str())
+        })?;
+
+        let first = argv
+            .first()
+            .ok_or_else(|| vm.new_value_error("spawnve() arg 2 cannot be empty"))?;
+
+        if first.is_empty() {
+            return Err(vm.new_value_error("spawnve() arg 2 first element cannot be empty"));
+        }
+
+        let argv_spawn: Vec<*const u16> = argv
+            .iter()
+            .map(|v| v.as_ptr())
+            .chain(once(std::ptr::null()))
+            .collect();
+
+        // Build environment strings as "KEY=VALUE\0" wide strings
+        let mut env_strings: Vec<widestring::WideCString> = Vec::new();
+        for (key, value) in env.into_iter() {
+            let key = PyStrRef::try_from_object(vm, key)?;
+            let value = PyStrRef::try_from_object(vm, value)?;
+            let key_str = key.as_str();
+            let value_str = value.as_str();
+
+            // Validate: no null characters in key or value
+            if key_str.contains('\0') || value_str.contains('\0') {
+                return Err(vm.new_value_error("embedded null character"));
+            }
+            // Validate: no '=' in key
+            if key_str.contains('=') {
+                return Err(vm.new_value_error("illegal environment variable name"));
+            }
+
+            let env_str = format!("{}={}", key_str, value_str);
+            env_strings.push(make_widestring(&env_str)?);
+        }
+
+        let envp: Vec<*const u16> = env_strings
+            .iter()
+            .map(|s| s.as_ptr())
+            .chain(once(std::ptr::null()))
+            .collect();
+
+        let result = unsafe {
+            suppress_iph!(_wspawnve(
+                mode,
+                path.as_ptr(),
+                argv_spawn.as_ptr(),
+                envp.as_ptr()
+            ))
+        };
+        if result == -1 {
+            Err(errno_err(vm))
+        } else {
+            Ok(result)
+        }
     }
 
     #[cfg(target_env = "msvc")]
     #[pyfunction]
     fn execv(
-        path: PyStrRef,
+        path: OsPath,
         argv: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -226,7 +384,7 @@ pub(crate) mod module {
         let make_widestring =
             |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
 
-        let path = make_widestring(path.as_str())?;
+        let path = path.to_wide_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
             let arg = PyStrRef::try_from_object(vm, obj)?;
@@ -248,6 +406,76 @@ pub(crate) mod module {
             .collect();
 
         if (unsafe { suppress_iph!(_wexecv(path.as_ptr(), argv_execv.as_ptr())) } == -1) {
+            Err(errno_err(vm))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(target_env = "msvc")]
+    #[pyfunction]
+    fn execve(
+        path: OsPath,
+        argv: Either<PyListRef, PyTupleRef>,
+        env: PyDictRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        use std::iter::once;
+
+        let make_widestring =
+            |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
+
+        let path = path.to_wide_cstring(vm)?;
+
+        let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
+            let arg = PyStrRef::try_from_object(vm, obj)?;
+            make_widestring(arg.as_str())
+        })?;
+
+        let first = argv
+            .first()
+            .ok_or_else(|| vm.new_value_error("execve: argv must not be empty"))?;
+
+        if first.is_empty() {
+            return Err(vm.new_value_error("execve: argv first element cannot be empty"));
+        }
+
+        let argv_execve: Vec<*const u16> = argv
+            .iter()
+            .map(|v| v.as_ptr())
+            .chain(once(std::ptr::null()))
+            .collect();
+
+        // Build environment strings as "KEY=VALUE\0" wide strings
+        let mut env_strings: Vec<widestring::WideCString> = Vec::new();
+        for (key, value) in env.into_iter() {
+            let key = PyStrRef::try_from_object(vm, key)?;
+            let value = PyStrRef::try_from_object(vm, value)?;
+            let key_str = key.as_str();
+            let value_str = value.as_str();
+
+            // Validate: no null characters in key or value
+            if key_str.contains('\0') || value_str.contains('\0') {
+                return Err(vm.new_value_error("embedded null character"));
+            }
+            // Validate: no '=' in key
+            if key_str.contains('=') {
+                return Err(vm.new_value_error("illegal environment variable name"));
+            }
+
+            let env_str = format!("{}={}", key_str, value_str);
+            env_strings.push(make_widestring(&env_str)?);
+        }
+
+        let envp: Vec<*const u16> = env_strings
+            .iter()
+            .map(|s| s.as_ptr())
+            .chain(once(std::ptr::null()))
+            .collect();
+
+        if (unsafe { suppress_iph!(_wexecve(path.as_ptr(), argv_execve.as_ptr(), envp.as_ptr())) }
+            == -1)
+        {
             Err(errno_err(vm))
         } else {
             Ok(())
@@ -464,18 +692,59 @@ pub(crate) mod module {
         raw_set_handle_inheritable(handle, inheritable).map_err(|e| e.to_pyexception(vm))
     }
 
-    #[pyfunction]
-    fn mkdir(
+    #[derive(FromArgs)]
+    struct MkdirArgs<'a> {
+        #[pyarg(any)]
         path: OsPath,
-        mode: OptionalArg<i32>,
-        dir_fd: DirFd<'_, { _os::MKDIR_DIR_FD as usize }>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let mode = mode.unwrap_or(0o777);
-        let [] = dir_fd.0;
-        let _ = mode;
-        let wide = path.to_wide_cstring(vm)?;
-        let res = unsafe { FileSystem::CreateDirectoryW(wide.as_ptr(), std::ptr::null_mut()) };
+        #[pyarg(any, default = 0o777)]
+        mode: i32,
+        #[pyarg(flatten)]
+        dir_fd: DirFd<'a, { _os::MKDIR_DIR_FD as usize }>,
+    }
+
+    #[pyfunction]
+    fn mkdir(args: MkdirArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        use windows_sys::Win32::Foundation::LocalFree;
+        use windows_sys::Win32::Security::Authorization::{
+            ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+        };
+        use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+
+        let [] = args.dir_fd.0;
+        let wide = args.path.to_wide_cstring(vm)?;
+
+        // CPython special case: mode 0o700 sets a protected ACL
+        let res = if args.mode == 0o700 {
+            let mut sec_attr = SECURITY_ATTRIBUTES {
+                nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: std::ptr::null_mut(),
+                bInheritHandle: 0,
+            };
+            // Set a discretionary ACL (D) that is protected (P) and includes
+            // inheritable (OICI) entries that allow (A) full control (FA) to
+            // SYSTEM (SY), Administrators (BA), and the owner (OW).
+            let sddl: Vec<u16> = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;OW)\0"
+                .encode_utf16()
+                .collect();
+            let convert_result = unsafe {
+                ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                    sddl.as_ptr(),
+                    SDDL_REVISION_1,
+                    &mut sec_attr.lpSecurityDescriptor,
+                    std::ptr::null_mut(),
+                )
+            };
+            if convert_result == 0 {
+                return Err(errno_err(vm));
+            }
+            let res =
+                unsafe { FileSystem::CreateDirectoryW(wide.as_ptr(), &sec_attr as *const _ as _) };
+            unsafe { LocalFree(sec_attr.lpSecurityDescriptor) };
+            res
+        } else {
+            unsafe { FileSystem::CreateDirectoryW(wide.as_ptr(), std::ptr::null_mut()) }
+        };
+
         if res == 0 {
             return Err(errno_err(vm));
         }
