@@ -1254,18 +1254,29 @@ mod _ssl {
                             } else {
                                 // [SSL] PEM lib
                                 super::compat::SslError::create_ssl_error_with_reason(
-                                    vm, "SSL", "", "PEM lib",
+                                    vm,
+                                    Some("SSL"),
+                                    "",
+                                    "PEM lib",
                                 )
                             }
                         }
                         // PEM parsing errors - [SSL] PEM lib
                         _ => super::compat::SslError::create_ssl_error_with_reason(
-                            vm, "SSL", "", "PEM lib",
+                            vm,
+                            Some("SSL"),
+                            "",
+                            "PEM lib",
                         ),
                     }
                 } else {
                     // Unknown error type - [SSL] PEM lib
-                    super::compat::SslError::create_ssl_error_with_reason(vm, "SSL", "", "PEM lib")
+                    super::compat::SslError::create_ssl_error_with_reason(
+                        vm,
+                        Some("SSL"),
+                        "",
+                        "PEM lib",
+                    )
                 }
             })?;
 
@@ -1866,7 +1877,7 @@ mod _ssl {
                 // [PEM: NO_START_LINE] no start line
                 return Err(super::compat::SslError::create_ssl_error_with_reason(
                     vm,
-                    "PEM",
+                    Some("PEM"),
                     "NO_START_LINE",
                     "[PEM: NO_START_LINE] no start line",
                 ));
@@ -2127,7 +2138,10 @@ mod _ssl {
                     }
                     // PEM parsing errors
                     _ => super::compat::SslError::create_ssl_error_with_reason(
-                        vm, "X509", "", "PEM lib",
+                        vm,
+                        Some("X509"),
+                        "",
+                        "PEM lib",
                     ),
                 }
             })
