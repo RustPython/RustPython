@@ -473,19 +473,25 @@ impl SslError {
     /// If attribute setting fails (extremely rare), returns the exception without attributes
     pub(super) fn create_ssl_error_with_reason(
         vm: &VirtualMachine,
-        library: &str,
+        library: Option<&str>,
         reason: &str,
         message: impl Into<String>,
     ) -> PyBaseExceptionRef {
-        let exc = vm.new_exception_msg(PySSLError::class(&vm.ctx).to_owned(), message.into());
+        let msg = message.into();
+        // SSLError args should be (errno, message) format
+        // FIXME: Use 1 as generic SSL error code
+        let exc = vm.new_exception(
+            PySSLError::class(&vm.ctx).to_owned(),
+            vec![vm.new_pyobj(1i32), vm.new_pyobj(msg)],
+        );
 
         // Set library and reason attributes
         // Ignore errors as they're extremely rare (e.g., out of memory)
-        let _ = exc.as_object().set_attr(
-            "library",
-            vm.ctx.new_str(library).as_object().to_owned(),
-            vm,
-        );
+        let library_obj = match library {
+            Some(lib) => vm.ctx.new_str(lib).as_object().to_owned(),
+            None => vm.ctx.none(),
+        };
+        let _ = exc.as_object().set_attr("library", library_obj, vm);
         let _ =
             exc.as_object()
                 .set_attr("reason", vm.ctx.new_str(reason).as_object().to_owned(), vm);
@@ -524,7 +530,12 @@ impl SslError {
             .unwrap_or("UNKNOWN");
 
         // Delegate to create_ssl_error_with_reason for actual exception creation
-        Self::create_ssl_error_with_reason(vm, lib_str, reason_str, format!("[SSL] {reason_str}"))
+        Self::create_ssl_error_with_reason(
+            vm,
+            Some(lib_str),
+            reason_str,
+            format!("[SSL] {reason_str}"),
+        )
     }
 
     /// Convert to Python exception
@@ -533,7 +544,10 @@ impl SslError {
             SslError::WantRead => create_ssl_want_read_error(vm),
             SslError::WantWrite => create_ssl_want_write_error(vm),
             SslError::Timeout(msg) => timeout_error_msg(vm, msg),
-            SslError::Syscall(msg) => vm.new_os_error(msg),
+            SslError::Syscall(msg) => {
+                // Create SSLError with library=None for syscall errors during SSL operations
+                Self::create_ssl_error_with_reason(vm, None, &msg, msg.clone())
+            }
             SslError::Ssl(msg) => vm.new_exception_msg(
                 PySSLError::class(&vm.ctx).to_owned(),
                 format!("SSL error: {msg}"),
