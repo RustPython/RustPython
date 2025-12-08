@@ -556,23 +556,26 @@ pub(crate) mod module {
             String::from_utf16(wstr).map_err(|e| vm.new_unicode_decode_error(e.to_string()))
         }
 
-        let wbuf = windows::core::PCWSTR::from_raw(backslashed.as_ptr());
-        let (root, path) = match unsafe { windows::Win32::UI::Shell::PathCchSkipRoot(wbuf) } {
-            Ok(end) => {
-                assert!(!end.is_null());
-                let len: usize = unsafe { end.as_ptr().offset_from(wbuf.as_ptr()) }
-                    .try_into()
-                    .expect("len must be non-negative");
-                assert!(
-                    len < backslashed.len(), // backslashed is null-terminated
-                    "path: {:?} {} < {}",
-                    std::path::PathBuf::from(std::ffi::OsString::from_wide(&backslashed)),
-                    len,
-                    backslashed.len()
-                );
-                (from_utf16(&orig[..len], vm)?, from_utf16(&orig[len..], vm)?)
-            }
-            Err(_) => ("".to_owned(), from_utf16(&orig, vm)?),
+        let mut end: *const u16 = std::ptr::null();
+        let hr = unsafe {
+            windows_sys::Win32::UI::Shell::PathCchSkipRoot(backslashed.as_ptr(), &mut end)
+        };
+        let (root, path) = if hr == 0 {
+            // S_OK
+            assert!(!end.is_null());
+            let len: usize = unsafe { end.offset_from(backslashed.as_ptr()) }
+                .try_into()
+                .expect("len must be non-negative");
+            assert!(
+                len < backslashed.len(), // backslashed is null-terminated
+                "path: {:?} {} < {}",
+                std::path::PathBuf::from(std::ffi::OsString::from_wide(&backslashed)),
+                len,
+                backslashed.len()
+            );
+            (from_utf16(&orig[..len], vm)?, from_utf16(&orig[len..], vm)?)
+        } else {
+            ("".to_owned(), from_utf16(&orig, vm)?)
         };
         Ok((root, path))
     }

@@ -8,8 +8,11 @@ use crate::{
     stdlib::os::errno_err,
 };
 use std::ffi::OsStr;
-use windows::Win32::Foundation::HANDLE;
-use windows_sys::Win32::Foundation::{HANDLE as RAW_HANDLE, INVALID_HANDLE_VALUE};
+use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
+
+/// Windows HANDLE wrapper for Python interop
+#[derive(Clone, Copy)]
+pub struct WinHandle(pub HANDLE);
 
 pub(crate) trait WindowsSysResultValue {
     type Ok: ToPyObject;
@@ -17,13 +20,13 @@ pub(crate) trait WindowsSysResultValue {
     fn into_ok(self) -> Self::Ok;
 }
 
-impl WindowsSysResultValue for RAW_HANDLE {
-    type Ok = HANDLE;
+impl WindowsSysResultValue for HANDLE {
+    type Ok = WinHandle;
     fn is_err(&self) -> bool {
         *self == INVALID_HANDLE_VALUE
     }
     fn into_ok(self) -> Self::Ok {
-        HANDLE(self as _)
+        WinHandle(self)
     }
 }
 
@@ -60,14 +63,14 @@ impl<T: WindowsSysResultValue> ToPyResult for WindowsSysResult<T> {
 
 type HandleInt = usize; // TODO: change to isize when fully ported to windows-rs
 
-impl TryFromObject for HANDLE {
+impl TryFromObject for WinHandle {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let handle = HandleInt::try_from_object(vm, obj)?;
-        Ok(HANDLE(handle as isize))
+        Ok(WinHandle(handle as HANDLE))
     }
 }
 
-impl ToPyObject for HANDLE {
+impl ToPyObject for WinHandle {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         (self.0 as HandleInt).to_pyobject(vm)
     }

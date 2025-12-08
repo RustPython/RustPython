@@ -46,7 +46,7 @@ mod decl {
     use std::time::Duration;
     #[cfg(target_env = "msvc")]
     #[cfg(not(target_arch = "wasm32"))]
-    use windows::Win32::System::Time;
+    use windows_sys::Win32::System::Time::{GetTimeZoneInformation, TIME_ZONE_INFORMATION};
 
     #[allow(dead_code)]
     pub(super) const SEC_TO_MS: i64 = 1000;
@@ -186,10 +186,9 @@ mod decl {
 
     #[cfg(target_env = "msvc")]
     #[cfg(not(target_arch = "wasm32"))]
-    fn get_tz_info() -> Time::TIME_ZONE_INFORMATION {
-        let mut info = Time::TIME_ZONE_INFORMATION::default();
-        let info_ptr = &mut info as *mut Time::TIME_ZONE_INFORMATION;
-        let _ = unsafe { Time::GetTimeZoneInformation(info_ptr) };
+    fn get_tz_info() -> TIME_ZONE_INFORMATION {
+        let mut info: TIME_ZONE_INFORMATION = unsafe { std::mem::zeroed() };
+        unsafe { GetTimeZoneInformation(&mut info) };
         info
     }
 
