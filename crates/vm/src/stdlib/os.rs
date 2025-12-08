@@ -1421,29 +1421,32 @@ pub(super) mod _os {
         Ok((loadavg[0], loadavg[1], loadavg[2]))
     }
 
-    #[cfg(any(unix, windows))]
+    #[cfg(unix)]
     #[pyfunction]
     fn waitstatus_to_exitcode(status: i32, vm: &VirtualMachine) -> PyResult<i32> {
         let status = u32::try_from(status)
             .map_err(|_| vm.new_value_error(format!("invalid WEXITSTATUS: {status}")))?;
 
-        cfg_if::cfg_if! {
-            if #[cfg(not(windows))] {
-                let status = status as libc::c_int;
-                if libc::WIFEXITED(status) {
-                    return Ok(libc::WEXITSTATUS(status));
-                }
-
-                if libc::WIFSIGNALED(status) {
-                    return Ok(-libc::WTERMSIG(status));
-                }
-
-                Err(vm.new_value_error(format!("Invalid wait status: {status}")))
-            } else {
-                i32::try_from(status.rotate_right(8))
-                    .map_err(|_| vm.new_value_error(format!("invalid wait status: {status}")))
-            }
+        let status = status as libc::c_int;
+        if libc::WIFEXITED(status) {
+            return Ok(libc::WEXITSTATUS(status));
         }
+
+        if libc::WIFSIGNALED(status) {
+            return Ok(-libc::WTERMSIG(status));
+        }
+
+        Err(vm.new_value_error(format!("Invalid wait status: {status}")))
+    }
+
+    #[cfg(windows)]
+    #[pyfunction]
+    fn waitstatus_to_exitcode(status: u64, vm: &VirtualMachine) -> PyResult<u32> {
+        let exitcode = status >> 8;
+        // ExitProcess() accepts an UINT type:
+        // reject exit code which doesn't fit in an UINT
+        u32::try_from(exitcode)
+            .map_err(|_| vm.new_value_error(format!("invalid exit code: {exitcode}")))
     }
 
     #[pyfunction]
