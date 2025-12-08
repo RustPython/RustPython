@@ -1198,9 +1198,11 @@ pub(super) mod types {
     use crate::object::{Traverse, TraverseFn};
     #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
     use crate::{
-        AsObject, Py, PyAtomicRef, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+        VirtualMachine,
         builtins::{
-            PyInt, PyStrRef, PyTupleRef, PyTypeRef, traceback::PyTracebackRef, tuple::IntoPyTuple,
+            PyInt, PyStrRef, PyTupleRef, PyType, PyTypeRef, traceback::PyTracebackRef,
+            tuple::IntoPyTuple,
         },
         convert::ToPyResult,
         function::{ArgBytesLike, FuncArgs},
@@ -1457,7 +1459,44 @@ pub(super) mod types {
     }
 
     // OS Errors:
-    #[pyexception]
+    impl Constructor for PyOSError {
+        type Args = FuncArgs;
+
+        fn py_new(_cls: &Py<PyType>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+            let base_exception = PyBaseException::new(args.args.to_vec(), vm);
+            Ok(Self {
+                base: PyException(base_exception),
+                myerrno: None.into(),
+                strerror: None.into(),
+                filename: None.into(),
+                filename2: None.into(),
+                #[cfg(windows)]
+                winerror: None.into(),
+            })
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            // We need this method, because of how `CPython` copies `init`
+            // from `BaseException` in `SimpleExtendsException` macro.
+            // See: `BaseException_new`
+            if *cls.name() == *vm.ctx.exceptions.os_error.name() {
+                if let Some(error) = Self::optional_new(args.args.to_vec(), vm) {
+                    return error.to_pyresult(vm);
+                }
+            }
+            let payload = Self::py_new(&cls, args, vm)?;
+            payload.into_ref_with_type(vm, cls).map(Into::into)
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let payload = Self::py_new(&cls, args, vm)?;
+            payload.into_ref_with_type(vm, cls).map(Into::into)
+        }
+    }
+
+    #[pyexception(with(Constructor))]
     impl PyOSError {
         #[cfg(not(target_arch = "wasm32"))]
         fn optional_new(args: Vec<PyObjectRef>, vm: &VirtualMachine) -> Option<PyBaseExceptionRef> {
@@ -1472,26 +1511,6 @@ pub(super) mod types {
             } else {
                 None
             }
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        #[pyslot]
-        pub fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            // We need this method, because of how `CPython` copies `init`
-            // from `BaseException` in `SimpleExtendsException` macro.
-            // See: `BaseException_new`
-            if *cls.name() == *vm.ctx.exceptions.os_error.name() {
-                match Self::optional_new(args.args.to_vec(), vm) {
-                    Some(error) => error.to_pyresult(vm),
-                    None => PyBaseException::slot_new(cls, args, vm),
-                }
-            } else {
-                PyBaseException::slot_new(cls, args, vm)
-            }
-        }
-        #[cfg(target_arch = "wasm32")]
-        #[pyslot]
-        pub fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            PyBaseException::slot_new(cls, args, vm)
         }
         #[pyslot]
         #[pymethod(name = "__init__")]

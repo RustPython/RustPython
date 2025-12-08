@@ -629,14 +629,30 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
         return Ok(item.into_token_stream());
     };
 
-    if !attr.is_empty() {
-        return Err(syn::Error::new_spanned(
-            &attr[0],
-            "#[pyexception] impl doesn't allow attrs. Use #[pyclass] instead.",
-        ));
+    // Check if with(Constructor) is specified
+    let mut has_constructor_trait = false;
+    let mut extra_attrs = Vec::new();
+    for nested in &attr {
+        if let NestedMeta::Meta(Meta::List(MetaList { path, nested, .. })) = nested {
+            if path.is_ident("with") {
+                // Check if Constructor is in the list
+                for meta in nested {
+                    if let NestedMeta::Meta(Meta::Path(p)) = meta
+                        && p.is_ident("Constructor")
+                    {
+                        has_constructor_trait = true;
+                    }
+                }
+            }
+            extra_attrs.push(NestedMeta::Meta(Meta::List(MetaList {
+                path: path.clone(),
+                paren_token: Default::default(),
+                nested: nested.clone(),
+            })));
+        }
     }
 
-    let mut has_slot_new = false;
+    let mut has_slot_new = has_constructor_trait; // If Constructor trait is used, don't generate slot_new
     let mut has_slot_init = false;
     let syn::ItemImpl {
         generics,
@@ -696,8 +712,15 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
             }
         }
     };
+
+    let extra_attrs_tokens = if extra_attrs.is_empty() {
+        quote!()
+    } else {
+        quote!(, #(#extra_attrs),*)
+    };
+
     Ok(quote! {
-        #[pyclass(flags(BASETYPE, HAS_DICT))]
+        #[pyclass(flags(BASETYPE, HAS_DICT) #extra_attrs_tokens)]
         impl #generics #self_ty {
             #(#items)*
 
