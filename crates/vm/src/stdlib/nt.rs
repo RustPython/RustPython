@@ -203,32 +203,61 @@ pub(crate) mod module {
         fd: OptionalArg<i32>,
         vm: &VirtualMachine,
     ) -> PyResult<_os::TerminalSizeData> {
-        let (columns, lines) = {
-            let stdhandle = match fd {
-                OptionalArg::Present(0) => Console::STD_INPUT_HANDLE,
-                OptionalArg::Present(1) | OptionalArg::Missing => Console::STD_OUTPUT_HANDLE,
-                OptionalArg::Present(2) => Console::STD_ERROR_HANDLE,
-                _ => return Err(vm.new_value_error("bad file descriptor")),
-            };
-            let h = unsafe { Console::GetStdHandle(stdhandle) };
-            if h.is_null() {
-                return Err(vm.new_os_error("handle cannot be retrieved".to_owned()));
+        let fd = fd.unwrap_or(1); // default to stdout
+
+        // For standard streams, use GetStdHandle which returns proper console handles
+        // For other fds, use _get_osfhandle to convert
+        let h = match fd {
+            0 => unsafe { Console::GetStdHandle(Console::STD_INPUT_HANDLE) },
+            1 => unsafe { Console::GetStdHandle(Console::STD_OUTPUT_HANDLE) },
+            2 => unsafe { Console::GetStdHandle(Console::STD_ERROR_HANDLE) },
+            _ => {
+                let borrowed = unsafe { crt_fd::Borrowed::borrow_raw(fd) };
+                let handle = crt_fd::as_handle(borrowed).map_err(|e| e.to_pyexception(vm))?;
+                handle.as_raw_handle() as _
             }
-            if h == INVALID_HANDLE_VALUE {
+        };
+
+        if h.is_null() || h == INVALID_HANDLE_VALUE {
+            return Err(errno_err(vm));
+        }
+
+        let mut csbi = MaybeUninit::uninit();
+        let ret = unsafe { Console::GetConsoleScreenBufferInfo(h, csbi.as_mut_ptr()) };
+        if ret == 0 {
+            // Check if error is due to lack of read access on a console handle
+            // ERROR_ACCESS_DENIED (5) means it's a console but without read permission
+            // In that case, try opening CONOUT$ directly with read access
+            let err = unsafe { Foundation::GetLastError() };
+            if err != Foundation::ERROR_ACCESS_DENIED {
                 return Err(errno_err(vm));
             }
-            let mut csbi = MaybeUninit::uninit();
-            let ret = unsafe { Console::GetConsoleScreenBufferInfo(h, csbi.as_mut_ptr()) };
-            let csbi = unsafe { csbi.assume_init() };
+            let conout: Vec<u16> = "CONOUT$\0".encode_utf16().collect();
+            let console_handle = unsafe {
+                FileSystem::CreateFileW(
+                    conout.as_ptr(),
+                    Foundation::GENERIC_READ | Foundation::GENERIC_WRITE,
+                    FileSystem::FILE_SHARE_READ | FileSystem::FILE_SHARE_WRITE,
+                    std::ptr::null(),
+                    FileSystem::OPEN_EXISTING,
+                    0,
+                    std::ptr::null_mut(),
+                )
+            };
+            if console_handle == INVALID_HANDLE_VALUE {
+                return Err(errno_err(vm));
+            }
+            let ret =
+                unsafe { Console::GetConsoleScreenBufferInfo(console_handle, csbi.as_mut_ptr()) };
+            unsafe { Foundation::CloseHandle(console_handle) };
             if ret == 0 {
                 return Err(errno_err(vm));
             }
-            let w = csbi.srWindow;
-            (
-                (w.Right - w.Left + 1) as usize,
-                (w.Bottom - w.Top + 1) as usize,
-            )
-        };
+        }
+        let csbi = unsafe { csbi.assume_init() };
+        let w = csbi.srWindow;
+        let columns = (w.Right - w.Left + 1) as usize;
+        let lines = (w.Bottom - w.Top + 1) as usize;
         Ok(_os::TerminalSizeData { columns, lines })
     }
 
