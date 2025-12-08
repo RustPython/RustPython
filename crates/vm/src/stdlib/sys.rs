@@ -12,6 +12,7 @@ mod sys {
         common::{
             ascii,
             hash::{PyHash, PyUHash},
+            windows::ToWideString,
         },
         convert::ToPyObject,
         frame::FrameRef,
@@ -22,8 +23,6 @@ mod sys {
         vm::{Settings, VirtualMachine},
     };
     use num_traits::ToPrimitive;
-    #[cfg(windows)]
-    use std::os::windows::ffi::OsStrExt;
     use std::{
         env::{self, VarError},
         io::Read,
@@ -553,10 +552,7 @@ mod sys {
     fn get_kernel32_version() -> std::io::Result<(u32, u32, u32)> {
         unsafe {
             // Create a wide string for "kernel32.dll"
-            let module_name: Vec<u16> = std::ffi::OsStr::new("kernel32.dll")
-                .encode_wide()
-                .chain(Some(0))
-                .collect();
+            let module_name: Vec<u16> = std::ffi::OsStr::new("kernel32.dll").to_wide_with_nul();
             let h_kernel32 = GetModuleHandleW(module_name.as_ptr());
             if h_kernel32.is_null() {
                 return Err(std::io::Error::last_os_error());
@@ -593,10 +589,7 @@ mod sys {
             }
 
             // Prepare an empty sub-block string (L"") as required by VerQueryValueW
-            let sub_block: Vec<u16> = std::ffi::OsStr::new("")
-                .encode_wide()
-                .chain(Some(0))
-                .collect();
+            let sub_block: Vec<u16> = std::ffi::OsStr::new("").to_wide_with_nul();
 
             let mut ffi_ptr: *mut VS_FIXEDFILEINFO = std::ptr::null_mut();
             let mut ffi_len: u32 = 0;

@@ -237,7 +237,7 @@ mod _codecs {
     #[cfg(windows)]
     #[pyfunction]
     fn mbcs_encode(args: MbcsEncodeArgs, vm: &VirtualMachine) -> PyResult<(Vec<u8>, usize)> {
-        use std::os::windows::ffi::OsStrExt;
+        use crate::common::windows::ToWideString;
         use windows_sys::Win32::Globalization::{
             CP_ACP, WC_NO_BEST_FIT_CHARS, WideCharToMultiByte,
         };
@@ -259,7 +259,7 @@ mod _codecs {
         }
 
         // Convert UTF-8 string to UTF-16
-        let wide: Vec<u16> = std::ffi::OsStr::new(s).encode_wide().collect();
+        let wide: Vec<u16> = std::ffi::OsStr::new(s).to_wide();
 
         // Get the required buffer size
         let size = unsafe {
@@ -439,7 +439,7 @@ mod _codecs {
     #[cfg(windows)]
     #[pyfunction]
     fn oem_encode(args: OemEncodeArgs, vm: &VirtualMachine) -> PyResult<(Vec<u8>, usize)> {
-        use std::os::windows::ffi::OsStrExt;
+        use crate::common::windows::ToWideString;
         use windows_sys::Win32::Globalization::{
             CP_OEMCP, WC_NO_BEST_FIT_CHARS, WideCharToMultiByte,
         };
@@ -461,7 +461,7 @@ mod _codecs {
         }
 
         // Convert UTF-8 string to UTF-16
-        let wide: Vec<u16> = std::ffi::OsStr::new(s).encode_wide().collect();
+        let wide: Vec<u16> = std::ffi::OsStr::new(s).to_wide();
 
         // Get the required buffer size
         let size = unsafe {

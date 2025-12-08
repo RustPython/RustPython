@@ -26,7 +26,6 @@ pub mod windows {
     use crate::windows::ToWideString;
     use libc::{S_IFCHR, S_IFDIR, S_IFMT};
     use std::ffi::{CString, OsStr, OsString};
-    use std::os::windows::ffi::OsStrExt;
     use std::os::windows::io::AsRawHandle;
     use std::sync::OnceLock;
     use windows_sys::Win32::Foundation::{
@@ -75,8 +74,7 @@ pub mod windows {
         pub fn update_st_mode_from_path(&mut self, path: &OsStr, attr: u32) {
             if attr & FILE_ATTRIBUTE_DIRECTORY == 0 {
                 let file_extension = path
-                    .encode_wide()
-                    .collect::<Vec<u16>>()
+                    .to_wide()
                     .split(|&c| c == '.' as u16)
                     .next_back()
                     .and_then(|s| String::from_utf16(s).ok());
