@@ -12,14 +12,10 @@ mod _winapi {
         convert::{ToPyException, ToPyResult},
         function::{ArgMapping, ArgSequence, OptionalArg},
         stdlib::os::errno_err,
-        windows::WindowsSysResult,
+        windows::{WinHandle, WindowsSysResult},
     };
     use std::ptr::{null, null_mut};
-    use windows::{
-        Win32::Foundation::{HANDLE, HINSTANCE, MAX_PATH},
-        core::PCWSTR,
-    };
-    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::Foundation::{INVALID_HANDLE_VALUE, MAX_PATH};
 
     #[pyattr]
     use windows_sys::Win32::{
@@ -78,15 +74,15 @@ mod _winapi {
     const NULL: isize = 0;
 
     #[pyfunction]
-    fn CloseHandle(handle: HANDLE) -> WindowsSysResult<i32> {
-        WindowsSysResult(unsafe { windows_sys::Win32::Foundation::CloseHandle(handle.0 as _) })
+    fn CloseHandle(handle: WinHandle) -> WindowsSysResult<i32> {
+        WindowsSysResult(unsafe { windows_sys::Win32::Foundation::CloseHandle(handle.0) })
     }
 
     #[pyfunction]
     fn GetStdHandle(
         std_handle: windows_sys::Win32::System::Console::STD_HANDLE,
         vm: &VirtualMachine,
-    ) -> PyResult<Option<HANDLE>> {
+    ) -> PyResult<Option<WinHandle>> {
         let handle = unsafe { windows_sys::Win32::System::Console::GetStdHandle(std_handle) };
         if handle == INVALID_HANDLE_VALUE {
             return Err(errno_err(vm));
@@ -95,7 +91,7 @@ mod _winapi {
             // NULL handle - return None
             None
         } else {
-            Some(HANDLE(handle as isize))
+            Some(WinHandle(handle))
         })
     }
 
@@ -104,39 +100,41 @@ mod _winapi {
         _pipe_attrs: PyObjectRef,
         size: u32,
         vm: &VirtualMachine,
-    ) -> PyResult<(HANDLE, HANDLE)> {
+    ) -> PyResult<(WinHandle, WinHandle)> {
+        use windows_sys::Win32::Foundation::HANDLE;
         let (read, write) = unsafe {
-            let mut read = std::mem::MaybeUninit::<isize>::uninit();
-            let mut write = std::mem::MaybeUninit::<isize>::uninit();
+            let mut read = std::mem::MaybeUninit::<HANDLE>::uninit();
+            let mut write = std::mem::MaybeUninit::<HANDLE>::uninit();
             WindowsSysResult(windows_sys::Win32::System::Pipes::CreatePipe(
-                read.as_mut_ptr() as _,
-                write.as_mut_ptr() as _,
+                read.as_mut_ptr(),
+                write.as_mut_ptr(),
                 std::ptr::null(),
                 size,
             ))
             .to_pyresult(vm)?;
             (read.assume_init(), write.assume_init())
         };
-        Ok((HANDLE(read), HANDLE(write)))
+        Ok((WinHandle(read), WinHandle(write)))
     }
 
     #[pyfunction]
     fn DuplicateHandle(
-        src_process: HANDLE,
-        src: HANDLE,
-        target_process: HANDLE,
+        src_process: WinHandle,
+        src: WinHandle,
+        target_process: WinHandle,
         access: u32,
         inherit: i32,
         options: OptionalArg<u32>,
         vm: &VirtualMachine,
-    ) -> PyResult<HANDLE> {
+    ) -> PyResult<WinHandle> {
+        use windows_sys::Win32::Foundation::HANDLE;
         let target = unsafe {
-            let mut target = std::mem::MaybeUninit::<isize>::uninit();
+            let mut target = std::mem::MaybeUninit::<HANDLE>::uninit();
             WindowsSysResult(windows_sys::Win32::Foundation::DuplicateHandle(
-                src_process.0 as _,
-                src.0 as _,
-                target_process.0 as _,
-                target.as_mut_ptr() as _,
+                src_process.0,
+                src.0,
+                target_process.0,
+                target.as_mut_ptr(),
                 access,
                 inherit,
                 options.unwrap_or(0),
@@ -144,7 +142,7 @@ mod _winapi {
             .to_pyresult(vm)?;
             target.assume_init()
         };
-        Ok(HANDLE(target))
+        Ok(WinHandle(target))
     }
 
     #[pyfunction]
@@ -153,16 +151,16 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn GetCurrentProcess() -> HANDLE {
-        unsafe { windows::Win32::System::Threading::GetCurrentProcess() }
+    fn GetCurrentProcess() -> WinHandle {
+        WinHandle(unsafe { windows_sys::Win32::System::Threading::GetCurrentProcess() })
     }
 
     #[pyfunction]
     fn GetFileType(
-        h: HANDLE,
+        h: WinHandle,
         vm: &VirtualMachine,
     ) -> PyResult<windows_sys::Win32::Storage::FileSystem::FILE_TYPE> {
-        let file_type = unsafe { windows_sys::Win32::Storage::FileSystem::GetFileType(h.0 as _) };
+        let file_type = unsafe { windows_sys::Win32::Storage::FileSystem::GetFileType(h.0) };
         if file_type == 0 && unsafe { windows_sys::Win32::Foundation::GetLastError() } != 0 {
             Err(errno_err(vm))
         } else {
@@ -206,7 +204,7 @@ mod _winapi {
     fn CreateProcess(
         args: CreateProcessArgs,
         vm: &VirtualMachine,
-    ) -> PyResult<(HANDLE, HANDLE, u32, u32)> {
+    ) -> PyResult<(WinHandle, WinHandle, u32, u32)> {
         let mut si: windows_sys::Win32::System::Threading::STARTUPINFOEXW =
             unsafe { std::mem::zeroed() };
         si.StartupInfo.cb = std::mem::size_of_val(&si) as _;
@@ -285,22 +283,31 @@ mod _winapi {
         };
 
         Ok((
-            HANDLE(procinfo.hProcess as _),
-            HANDLE(procinfo.hThread as _),
+            WinHandle(procinfo.hProcess),
+            WinHandle(procinfo.hThread),
             procinfo.dwProcessId,
             procinfo.dwThreadId,
         ))
     }
 
     #[pyfunction]
-    fn OpenProcess(desired_access: u32, inherit_handle: bool, process_id: u32) -> isize {
-        unsafe {
+    fn OpenProcess(
+        desired_access: u32,
+        inherit_handle: bool,
+        process_id: u32,
+        vm: &VirtualMachine,
+    ) -> PyResult<WinHandle> {
+        let handle = unsafe {
             windows_sys::Win32::System::Threading::OpenProcess(
                 desired_access,
                 i32::from(inherit_handle),
                 process_id,
-            ) as _
+            )
+        };
+        if handle.is_null() {
+            return Err(errno_err(vm));
         }
+        Ok(WinHandle(handle))
     }
 
     #[pyfunction]
@@ -434,7 +441,7 @@ mod _winapi {
                             0,
                             (2 & 0xffff) | 0x20000, // PROC_THREAD_ATTRIBUTE_HANDLE_LIST
                             handlelist.as_mut_ptr() as _,
-                            (handlelist.len() * std::mem::size_of::<HANDLE>()) as _,
+                            (handlelist.len() * std::mem::size_of::<usize>()) as _,
                             std::ptr::null_mut(),
                             std::ptr::null(),
                         )
@@ -447,9 +454,8 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn WaitForSingleObject(h: HANDLE, ms: u32, vm: &VirtualMachine) -> PyResult<u32> {
-        let ret =
-            unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(h.0 as _, ms) };
+    fn WaitForSingleObject(h: WinHandle, ms: u32, vm: &VirtualMachine) -> PyResult<u32> {
+        let ret = unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(h.0, ms) };
         if ret == windows_sys::Win32::Foundation::WAIT_FAILED {
             Err(errno_err(vm))
         } else {
@@ -458,11 +464,11 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn GetExitCodeProcess(h: HANDLE, vm: &VirtualMachine) -> PyResult<u32> {
+    fn GetExitCodeProcess(h: WinHandle, vm: &VirtualMachine) -> PyResult<u32> {
         unsafe {
             let mut ec = std::mem::MaybeUninit::uninit();
             WindowsSysResult(windows_sys::Win32::System::Threading::GetExitCodeProcess(
-                h.0 as _,
+                h.0,
                 ec.as_mut_ptr(),
             ))
             .to_pyresult(vm)?;
@@ -471,9 +477,9 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn TerminateProcess(h: HANDLE, exit_code: u32) -> WindowsSysResult<i32> {
+    fn TerminateProcess(h: WinHandle, exit_code: u32) -> WindowsSysResult<i32> {
         WindowsSysResult(unsafe {
-            windows_sys::Win32::System::Threading::TerminateProcess(h.0 as _, exit_code)
+            windows_sys::Win32::System::Threading::TerminateProcess(h.0, exit_code)
         })
     }
 
@@ -481,23 +487,25 @@ mod _winapi {
     #[allow(dead_code)]
     fn LoadLibrary(path: PyStrRef, vm: &VirtualMachine) -> PyResult<isize> {
         let path = path.as_str().to_wide_with_nul();
-        let handle = unsafe {
-            windows::Win32::System::LibraryLoader::LoadLibraryW(PCWSTR::from_raw(path.as_ptr()))
-                .unwrap()
-        };
-        if handle.is_invalid() {
+        let handle =
+            unsafe { windows_sys::Win32::System::LibraryLoader::LoadLibraryW(path.as_ptr()) };
+        if handle.is_null() {
             return Err(vm.new_runtime_error("LoadLibrary failed"));
         }
-        Ok(handle.0)
+        Ok(handle as isize)
     }
 
     #[pyfunction]
     fn GetModuleFileName(handle: isize, vm: &VirtualMachine) -> PyResult<String> {
         let mut path: Vec<u16> = vec![0; MAX_PATH as usize];
-        let handle = HINSTANCE(handle);
 
-        let length =
-            unsafe { windows::Win32::System::LibraryLoader::GetModuleFileNameW(handle, &mut path) };
+        let length = unsafe {
+            windows_sys::Win32::System::LibraryLoader::GetModuleFileNameW(
+                handle as windows_sys::Win32::Foundation::HMODULE,
+                path.as_mut_ptr(),
+                path.len() as u32,
+            )
+        };
         if length == 0 {
             return Err(vm.new_runtime_error("GetModuleFileName failed"));
         }
@@ -507,17 +515,23 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn OpenMutexW(desired_access: u32, inherit_handle: bool, name: u16) -> PyResult<isize> {
+    fn OpenMutexW(
+        desired_access: u32,
+        inherit_handle: bool,
+        name: PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<isize> {
+        let name_wide = name.as_str().to_wide_with_nul();
         let handle = unsafe {
             windows_sys::Win32::System::Threading::OpenMutexW(
                 desired_access,
                 i32::from(inherit_handle),
-                windows_sys::core::PCWSTR::from(name as _),
+                name_wide.as_ptr(),
             )
         };
-        // if handle.is_invalid() {
-        //     return Err(errno_err(vm));
-        // }
+        if handle == INVALID_HANDLE_VALUE {
+            return Err(errno_err(vm));
+        }
         Ok(handle as _)
     }
 
