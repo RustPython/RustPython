@@ -14,7 +14,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 pub(crate) mod module {
     use crate::{
         PyResult, TryFromObject, VirtualMachine,
-        builtins::{PyDictRef, PyListRef, PyStrRef, PyTupleRef},
+        builtins::{PyBaseExceptionRef, PyDictRef, PyListRef, PyStrRef, PyTupleRef},
         common::{crt_fd, os::last_os_error, suppress_iph},
         convert::ToPyException,
         function::{Either, OptionalArg},
@@ -392,6 +392,13 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
+    fn get_inheritable(fd: i32, vm: &VirtualMachine) -> PyResult<bool> {
+        let borrowed = unsafe { crt_fd::Borrowed::borrow_raw(fd) };
+        let handle = crt_fd::as_handle(borrowed).map_err(|e| e.to_pyexception(vm))?;
+        get_handle_inheritable(handle.as_raw_handle() as _, vm)
+    }
+
+    #[pyfunction]
     fn getlogin(vm: &VirtualMachine) -> PyResult<String> {
         let mut buffer = [0u16; 257];
         let mut size = buffer.len() as u32;
@@ -477,6 +484,15 @@ pub(crate) mod module {
 
     unsafe extern "C" {
         fn _umask(mask: i32) -> i32;
+        fn _dup(fd: i32) -> i32;
+        fn _dup2(fd: i32, fd2: i32) -> i32;
+    }
+
+    /// Close fd and convert error to PyException (PEP 446 cleanup)
+    #[cold]
+    fn close_fd_and_raise(fd: i32, err: std::io::Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        let _ = unsafe { crt_fd::Owned::from_raw(fd) };
+        err.to_pyexception(vm)
     }
 
     #[pyfunction]
@@ -487,6 +503,45 @@ pub(crate) mod module {
         } else {
             Ok(result)
         }
+    }
+
+    #[pyfunction]
+    fn dup(fd: i32, vm: &VirtualMachine) -> PyResult<i32> {
+        let fd2 = unsafe { suppress_iph!(_dup(fd)) };
+        if fd2 < 0 {
+            return Err(errno_err(vm));
+        }
+        let borrowed = unsafe { crt_fd::Borrowed::borrow_raw(fd2) };
+        let handle = crt_fd::as_handle(borrowed).map_err(|e| close_fd_and_raise(fd2, e, vm))?;
+        raw_set_handle_inheritable(handle.as_raw_handle() as _, false)
+            .map_err(|e| close_fd_and_raise(fd2, e, vm))?;
+        Ok(fd2)
+    }
+
+    #[derive(FromArgs)]
+    struct Dup2Args {
+        #[pyarg(positional)]
+        fd: i32,
+        #[pyarg(positional)]
+        fd2: i32,
+        #[pyarg(any, default = true)]
+        inheritable: bool,
+    }
+
+    #[pyfunction]
+    fn dup2(args: Dup2Args, vm: &VirtualMachine) -> PyResult<i32> {
+        let result = unsafe { suppress_iph!(_dup2(args.fd, args.fd2)) };
+        if result < 0 {
+            return Err(errno_err(vm));
+        }
+        if !args.inheritable {
+            let borrowed = unsafe { crt_fd::Borrowed::borrow_raw(args.fd2) };
+            let handle =
+                crt_fd::as_handle(borrowed).map_err(|e| close_fd_and_raise(args.fd2, e, vm))?;
+            raw_set_handle_inheritable(handle.as_raw_handle() as _, false)
+                .map_err(|e| close_fd_and_raise(args.fd2, e, vm))?;
+        }
+        Ok(args.fd2)
     }
 
     pub(crate) fn support_funcs() -> Vec<SupportFunc> {
