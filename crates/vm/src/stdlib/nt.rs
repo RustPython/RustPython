@@ -15,7 +15,7 @@ pub(crate) mod module {
     use crate::{
         PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyDictRef, PyListRef, PyStrRef, PyTupleRef},
-        common::{crt_fd, os::last_os_error, suppress_iph},
+        common::{crt_fd, os::last_os_error, suppress_iph, windows::ToWideString},
         convert::ToPyException,
         function::{Either, OptionalArg},
         ospath::OsPath,
@@ -23,11 +23,7 @@ pub(crate) mod module {
     };
     use libc::intptr_t;
     use std::os::windows::io::AsRawHandle;
-    use std::{
-        env, fs, io,
-        mem::MaybeUninit,
-        os::windows::ffi::{OsStrExt, OsStringExt},
-    };
+    use std::{env, fs, io, mem::MaybeUninit, os::windows::ffi::OsStringExt};
     use windows_sys::Win32::{
         Foundation::{self, INVALID_HANDLE_VALUE},
         Storage::FileSystem,
@@ -541,7 +537,7 @@ pub(crate) mod module {
 
     #[pyfunction]
     fn _path_splitroot(path: OsPath, vm: &VirtualMachine) -> PyResult<(String, String)> {
-        let orig: Vec<_> = path.path.encode_wide().collect();
+        let orig: Vec<_> = path.path.to_wide();
         if orig.is_empty() {
             return Ok(("".to_owned(), "".to_owned()));
         }

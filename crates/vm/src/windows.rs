@@ -7,6 +7,7 @@ use crate::{
     convert::{ToPyObject, ToPyResult},
     stdlib::os::errno_err,
 };
+use rustpython_common::windows::ToWideString;
 use std::ffi::OsStr;
 use windows::Win32::Foundation::HANDLE;
 use windows_sys::Win32::Foundation::{HANDLE as RAW_HANDLE, INVALID_HANDLE_VALUE};
@@ -235,13 +236,12 @@ fn attributes_from_dir(
     windows_sys::Win32::Storage::FileSystem::BY_HANDLE_FILE_INFORMATION,
     u32,
 )> {
-    use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{
         BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_REPARSE_POINT, FindClose, FindFirstFileW,
         WIN32_FIND_DATAW,
     };
 
-    let wide: Vec<u16> = path.encode_wide().chain(std::iter::once(0)).collect();
+    let wide: Vec<u16> = path.to_wide_with_nul();
     let mut find_data: WIN32_FIND_DATAW = unsafe { std::mem::zeroed() };
 
     let handle = unsafe { FindFirstFileW(wide.as_ptr(), &mut find_data) };
@@ -269,7 +269,6 @@ fn attributes_from_dir(
 
 /// Ported from win32_xstat_slow_impl
 fn win32_xstat_slow_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatStruct> {
-    use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::{
         Foundation::{
             CloseHandle, ERROR_ACCESS_DENIED, ERROR_CANT_ACCESS_FILE, ERROR_INVALID_FUNCTION,
@@ -287,7 +286,7 @@ fn win32_xstat_slow_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatSt
         },
     };
 
-    let wide: Vec<u16> = path.encode_wide().chain(std::iter::once(0)).collect();
+    let wide: Vec<u16> = path.to_wide_with_nul();
 
     let access = FILE_READ_ATTRIBUTES;
     let mut flags = FILE_FLAG_BACKUP_SEMANTICS;
