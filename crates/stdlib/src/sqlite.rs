@@ -1589,24 +1589,33 @@ mod _sqlite {
             Ok(())
         }
 
-        fn inner(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<'_, CursorInner>> {
-            let guard = self.inner.lock();
-            if guard.is_some() {
-                let inner_guard =
-                    PyMutexGuard::map(guard, |x| unsafe { x.as_mut().unwrap_unchecked() });
-                if inner_guard.closed {
-                    return Err(new_programming_error(
-                        vm,
-                        "Cannot operate on a closed cursor.".to_owned(),
-                    ));
-                }
-                Ok(inner_guard)
-            } else {
-                Err(new_programming_error(
+        fn check_cursor_state(inner: Option<&CursorInner>, vm: &VirtualMachine) -> PyResult<()> {
+            match inner {
+                Some(inner) if inner.closed => Err(new_programming_error(
+                    vm,
+                    "Cannot operate on a closed cursor.".to_owned(),
+                )),
+                Some(_) => Ok(()),
+                None => Err(new_programming_error(
                     vm,
                     "Base Cursor.__init__ not called.".to_owned(),
-                ))
+                )),
             }
+        }
+
+        fn inner(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<'_, CursorInner>> {
+            let guard = self.inner.lock();
+            Self::check_cursor_state(guard.as_ref(), vm)?;
+            Ok(PyMutexGuard::map(guard, |x| unsafe {
+                x.as_mut().unwrap_unchecked()
+            }))
+        }
+
+        /// Check if cursor is valid without retaining the lock.
+        /// Use this when you only need to verify the cursor state but don't need to modify it.
+        fn check_cursor_valid(&self, vm: &VirtualMachine) -> PyResult<()> {
+            let guard = self.inner.lock();
+            Self::check_cursor_state(guard.as_ref(), vm)
         }
 
         #[pymethod]
@@ -1771,7 +1780,7 @@ mod _sqlite {
             script: PyUtf8StrRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            let _ = zelf.clone().inner(vm)?;
+            zelf.check_cursor_valid(vm)?;
 
             let db = zelf.connection.db_lock(vm)?;
 
