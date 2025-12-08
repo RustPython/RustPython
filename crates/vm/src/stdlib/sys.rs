@@ -12,7 +12,6 @@ mod sys {
         common::{
             ascii,
             hash::{PyHash, PyUHash},
-            windows::ToWideString,
         },
         convert::ToPyObject,
         frame::FrameRef,
@@ -550,6 +549,7 @@ mod sys {
 
     #[cfg(windows)]
     fn get_kernel32_version() -> std::io::Result<(u32, u32, u32)> {
+        use crate::common::windows::ToWideString;
         unsafe {
             // Create a wide string for "kernel32.dll"
             let module_name: Vec<u16> = std::ffi::OsStr::new("kernel32.dll").to_wide_with_nul();
