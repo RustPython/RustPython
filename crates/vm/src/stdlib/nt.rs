@@ -162,19 +162,22 @@ pub(crate) mod module {
 
     #[cfg(target_env = "msvc")]
     #[pyfunction]
-    fn waitpid(pid: intptr_t, opt: i32, vm: &VirtualMachine) -> PyResult<(intptr_t, i32)> {
-        let mut status = 0;
+    fn waitpid(pid: intptr_t, opt: i32, vm: &VirtualMachine) -> PyResult<(intptr_t, u64)> {
+        let mut status: i32 = 0;
         let pid = unsafe { suppress_iph!(_cwait(&mut status, pid, opt)) };
         if pid == -1 {
             Err(errno_err(vm))
         } else {
-            Ok((pid, status << 8))
+            // Cast to unsigned to handle large exit codes (like 0xC000013A)
+            // then shift left by 8 to match POSIX waitpid format
+            let ustatus = (status as u32) as u64;
+            Ok((pid, ustatus << 8))
         }
     }
 
     #[cfg(target_env = "msvc")]
     #[pyfunction]
-    fn wait(vm: &VirtualMachine) -> PyResult<(intptr_t, i32)> {
+    fn wait(vm: &VirtualMachine) -> PyResult<(intptr_t, u64)> {
         waitpid(-1, 0, vm)
     }
 
