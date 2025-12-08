@@ -239,12 +239,143 @@ pub(crate) mod module {
     #[cfg(target_env = "msvc")]
     unsafe extern "C" {
         fn _wexecv(cmdname: *const u16, argv: *const *const u16) -> intptr_t;
+        fn _wexecve(
+            cmdname: *const u16,
+            argv: *const *const u16,
+            envp: *const *const u16,
+        ) -> intptr_t;
+        fn _wspawnv(mode: i32, cmdname: *const u16, argv: *const *const u16) -> intptr_t;
+        fn _wspawnve(
+            mode: i32,
+            cmdname: *const u16,
+            argv: *const *const u16,
+            envp: *const *const u16,
+        ) -> intptr_t;
+    }
+
+    #[cfg(target_env = "msvc")]
+    #[pyfunction]
+    fn spawnv(
+        mode: i32,
+        path: OsPath,
+        argv: Either<PyListRef, PyTupleRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<intptr_t> {
+        use std::iter::once;
+
+        let make_widestring =
+            |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
+
+        let path = path.to_wide_cstring(vm)?;
+
+        let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
+            let arg = PyStrRef::try_from_object(vm, obj)?;
+            make_widestring(arg.as_str())
+        })?;
+
+        let first = argv
+            .first()
+            .ok_or_else(|| vm.new_value_error("spawnv() arg 3 must not be empty"))?;
+
+        if first.is_empty() {
+            return Err(vm.new_value_error("spawnv() arg 3 first element cannot be empty"));
+        }
+
+        let argv_spawn: Vec<*const u16> = argv
+            .iter()
+            .map(|v| v.as_ptr())
+            .chain(once(std::ptr::null()))
+            .collect();
+
+        let result = unsafe { suppress_iph!(_wspawnv(mode, path.as_ptr(), argv_spawn.as_ptr())) };
+        if result == -1 {
+            Err(errno_err(vm))
+        } else {
+            Ok(result)
+        }
+    }
+
+    #[cfg(target_env = "msvc")]
+    #[pyfunction]
+    fn spawnve(
+        mode: i32,
+        path: OsPath,
+        argv: Either<PyListRef, PyTupleRef>,
+        env: PyDictRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<intptr_t> {
+        use std::iter::once;
+
+        let make_widestring =
+            |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
+
+        let path = path.to_wide_cstring(vm)?;
+
+        let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
+            let arg = PyStrRef::try_from_object(vm, obj)?;
+            make_widestring(arg.as_str())
+        })?;
+
+        let first = argv
+            .first()
+            .ok_or_else(|| vm.new_value_error("spawnve() arg 2 cannot be empty"))?;
+
+        if first.is_empty() {
+            return Err(vm.new_value_error("spawnve() arg 2 first element cannot be empty"));
+        }
+
+        let argv_spawn: Vec<*const u16> = argv
+            .iter()
+            .map(|v| v.as_ptr())
+            .chain(once(std::ptr::null()))
+            .collect();
+
+        // Build environment strings as "KEY=VALUE\0" wide strings
+        let mut env_strings: Vec<widestring::WideCString> = Vec::new();
+        for (key, value) in env.into_iter() {
+            let key = PyStrRef::try_from_object(vm, key)?;
+            let value = PyStrRef::try_from_object(vm, value)?;
+            let key_str = key.as_str();
+            let value_str = value.as_str();
+
+            // Validate: no null characters in key or value
+            if key_str.contains('\0') || value_str.contains('\0') {
+                return Err(vm.new_value_error("embedded null character"));
+            }
+            // Validate: no '=' in key
+            if key_str.contains('=') {
+                return Err(vm.new_value_error("illegal environment variable name"));
+            }
+
+            let env_str = format!("{}={}", key_str, value_str);
+            env_strings.push(make_widestring(&env_str)?);
+        }
+
+        let envp: Vec<*const u16> = env_strings
+            .iter()
+            .map(|s| s.as_ptr())
+            .chain(once(std::ptr::null()))
+            .collect();
+
+        let result = unsafe {
+            suppress_iph!(_wspawnve(
+                mode,
+                path.as_ptr(),
+                argv_spawn.as_ptr(),
+                envp.as_ptr()
+            ))
+        };
+        if result == -1 {
+            Err(errno_err(vm))
+        } else {
+            Ok(result)
+        }
     }
 
     #[cfg(target_env = "msvc")]
     #[pyfunction]
     fn execv(
-        path: PyStrRef,
+        path: OsPath,
         argv: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -253,7 +384,7 @@ pub(crate) mod module {
         let make_widestring =
             |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
 
-        let path = make_widestring(path.as_str())?;
+        let path = path.to_wide_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
             let arg = PyStrRef::try_from_object(vm, obj)?;
@@ -275,6 +406,76 @@ pub(crate) mod module {
             .collect();
 
         if (unsafe { suppress_iph!(_wexecv(path.as_ptr(), argv_execv.as_ptr())) } == -1) {
+            Err(errno_err(vm))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(target_env = "msvc")]
+    #[pyfunction]
+    fn execve(
+        path: OsPath,
+        argv: Either<PyListRef, PyTupleRef>,
+        env: PyDictRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        use std::iter::once;
+
+        let make_widestring =
+            |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
+
+        let path = path.to_wide_cstring(vm)?;
+
+        let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
+            let arg = PyStrRef::try_from_object(vm, obj)?;
+            make_widestring(arg.as_str())
+        })?;
+
+        let first = argv
+            .first()
+            .ok_or_else(|| vm.new_value_error("execve: argv must not be empty"))?;
+
+        if first.is_empty() {
+            return Err(vm.new_value_error("execve: argv first element cannot be empty"));
+        }
+
+        let argv_execve: Vec<*const u16> = argv
+            .iter()
+            .map(|v| v.as_ptr())
+            .chain(once(std::ptr::null()))
+            .collect();
+
+        // Build environment strings as "KEY=VALUE\0" wide strings
+        let mut env_strings: Vec<widestring::WideCString> = Vec::new();
+        for (key, value) in env.into_iter() {
+            let key = PyStrRef::try_from_object(vm, key)?;
+            let value = PyStrRef::try_from_object(vm, value)?;
+            let key_str = key.as_str();
+            let value_str = value.as_str();
+
+            // Validate: no null characters in key or value
+            if key_str.contains('\0') || value_str.contains('\0') {
+                return Err(vm.new_value_error("embedded null character"));
+            }
+            // Validate: no '=' in key
+            if key_str.contains('=') {
+                return Err(vm.new_value_error("illegal environment variable name"));
+            }
+
+            let env_str = format!("{}={}", key_str, value_str);
+            env_strings.push(make_widestring(&env_str)?);
+        }
+
+        let envp: Vec<*const u16> = env_strings
+            .iter()
+            .map(|s| s.as_ptr())
+            .chain(once(std::ptr::null()))
+            .collect();
+
+        if (unsafe { suppress_iph!(_wexecve(path.as_ptr(), argv_execve.as_ptr(), envp.as_ptr())) }
+            == -1)
+        {
             Err(errno_err(vm))
         } else {
             Ok(())
