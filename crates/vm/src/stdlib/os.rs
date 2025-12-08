@@ -778,6 +778,9 @@ pub(super) mod _os {
         #[pyarg(any, default)]
         #[pystruct_sequence(skip)]
         pub st_reparse_tag: u32,
+        #[pyarg(any, default)]
+        #[pystruct_sequence(skip)]
+        pub st_file_attributes: u32,
     }
 
     impl StatResultData {
@@ -812,6 +815,11 @@ pub(super) mod _os {
             #[cfg(not(windows))]
             let st_reparse_tag = 0;
 
+            #[cfg(windows)]
+            let st_file_attributes = stat.st_file_attributes;
+            #[cfg(not(windows))]
+            let st_file_attributes = 0;
+
             Self {
                 st_mode: vm.ctx.new_pyref(stat.st_mode),
                 st_ino: vm.ctx.new_pyref(stat.st_ino),
@@ -830,6 +838,7 @@ pub(super) mod _os {
                 st_mtime_ns: to_ns(mtime),
                 st_ctime_ns: to_ns(ctime),
                 st_reparse_tag,
+                st_file_attributes,
             }
         }
     }

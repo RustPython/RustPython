@@ -223,7 +223,6 @@ class HelperFunctionsTests(unittest.TestCase):
         finally:
             pth_file.cleanup()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipUnless(sys.platform == 'win32', 'test needs Windows')
     @support.requires_subprocess()
     def test_addsitedir_hidden_file_attribute(self):
