@@ -4834,7 +4834,6 @@ class PathTConverterTests(unittest.TestCase):
         ('open', False, (os.O_RDONLY,), getattr(os, 'close', None)),
     ]
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; (AssertionError: TypeError not raised)
     def test_path_t_converter(self):
         str_filename = os_helper.TESTFN
         if os.name == 'nt':
@@ -5109,7 +5108,6 @@ class TestScandir(unittest.TestCase):
         self.assertEqual(fspath,
                          os.path.join(os.fsencode(self.path),bytes_filename))
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; entry.is_dir() is False')
     def test_removed_dir(self):
         path = os.path.join(self.path, 'dir')
 
@@ -5132,7 +5130,6 @@ class TestScandir(unittest.TestCase):
             self.assertRaises(FileNotFoundError, entry.stat)
             self.assertRaises(FileNotFoundError, entry.stat, follow_symlinks=False)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; entry.is_file() is False')
     def test_removed_file(self):
         entry = self.create_file_entry()
         os.unlink(entry.path)

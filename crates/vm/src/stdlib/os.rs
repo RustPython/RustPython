@@ -720,13 +720,32 @@ pub(super) mod _os {
                             #[cfg(not(unix))]
                             let ino = None;
 
+                            let pathval = entry.path();
+
+                            // On Windows, pre-cache lstat from directory entry metadata
+                            // This allows stat() to return cached data even if file is removed
+                            #[cfg(windows)]
+                            let lstat = {
+                                let cell = OnceCell::new();
+                                if let Ok(stat_struct) =
+                                    crate::windows::win32_xstat(pathval.as_os_str(), false)
+                                {
+                                    let stat_obj =
+                                        StatResultData::from_stat(&stat_struct, vm).to_pyobject(vm);
+                                    let _ = cell.set(stat_obj);
+                                }
+                                cell
+                            };
+                            #[cfg(not(windows))]
+                            let lstat = OnceCell::new();
+
                             Ok(PyIterReturn::Return(
                                 DirEntry {
                                     file_name: entry.file_name(),
-                                    pathval: entry.path(),
+                                    pathval,
                                     file_type: entry.file_type(),
                                     mode: zelf.mode,
-                                    lstat: OnceCell::new(),
+                                    lstat,
                                     stat: OnceCell::new(),
                                     ino: AtomicCell::new(ino),
                                 }
@@ -974,11 +993,11 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn lstat(
-        file: OsPathOrFd<'_>,
+        file: OsPath,
         dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        stat(file, dir_fd, FollowSymlinks(false), vm)
+        stat(file.into(), dir_fd, FollowSymlinks(false), vm)
     }
 
     fn curdir_inner(vm: &VirtualMachine) -> PyResult<PathBuf> {
