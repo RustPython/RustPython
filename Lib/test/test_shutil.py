@@ -235,7 +235,6 @@ class TestRmTree(BaseTest, unittest.TestCase):
         self.assertEqual(errors[0][1], link)
         self.assertIsInstance(errors[0][2], OSError)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     def test_rmtree_works_on_symlinks(self):
         tmp = self.mkdtemp()

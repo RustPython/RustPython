@@ -152,6 +152,8 @@ impl ToPyObject for crt_fd::Borrowed<'_> {
 #[pymodule(sub)]
 pub(super) mod _os {
     use super::{DirFd, FollowSymlinks, SupportFunc, errno_err};
+    #[cfg(windows)]
+    use crate::common::windows::ToWideString;
     use crate::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         builtins::{
@@ -292,10 +294,29 @@ pub(super) mod _os {
     #[pyfunction(name = "unlink")]
     fn remove(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult<()> {
         let [] = dir_fd.0;
-        let is_junction = cfg!(windows)
-            && fs::metadata(&path).is_ok_and(|meta| meta.file_type().is_dir())
-            && fs::symlink_metadata(&path).is_ok_and(|meta| meta.file_type().is_symlink());
-        let res = if is_junction {
+        #[cfg(windows)]
+        let is_dir_link = {
+            // On Windows, we need to check if it's a directory symlink/junction
+            // using GetFileAttributesW, which doesn't follow symlinks.
+            // This is similar to CPython's Py_DeleteFileW.
+            use windows_sys::Win32::Storage::FileSystem::{
+                FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, GetFileAttributesW,
+                INVALID_FILE_ATTRIBUTES,
+            };
+            let wide_path: Vec<u16> = path.path.as_os_str().to_wide_with_nul();
+            let attrs = unsafe { GetFileAttributesW(wide_path.as_ptr()) };
+            if attrs != INVALID_FILE_ATTRIBUTES {
+                let is_dir = (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0;
+                let is_reparse = (attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+                is_dir && is_reparse
+            } else {
+                false
+            }
+        };
+        #[cfg(not(windows))]
+        let is_dir_link = false;
+
+        let res = if is_dir_link {
             fs::remove_dir(&path)
         } else {
             fs::remove_file(&path)

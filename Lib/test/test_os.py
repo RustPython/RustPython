@@ -736,7 +736,6 @@ class StatAttributeTests(unittest.TestCase):
             result.st_file_attributes & stat.FILE_ATTRIBUTE_DIRECTORY,
             stat.FILE_ATTRIBUTE_DIRECTORY)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; os.stat (PermissionError: [Errno 5] Access is denied.)')
     @unittest.skipUnless(sys.platform == "win32", "Win32 specific tests")
     def test_access_denied(self):
         # Default to FindFirstFile WIN32_FIND_DATA when access is
@@ -759,7 +758,6 @@ class StatAttributeTests(unittest.TestCase):
         self.assertNotEqual(result.st_size, 0)
         self.assertTrue(os.path.isfile(fname))
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; os.stat (PermissionError: [Errno 1] Incorrect function.)')
     @unittest.skipUnless(sys.platform == "win32", "Win32 specific tests")
     def test_stat_block_device(self):
         # bpo-38030: os.stat fails for block devices
@@ -1796,7 +1794,6 @@ class MakedirTests(unittest.TestCase):
                 self.assertEqual(os.stat(path).st_mode & 0o777, 0o555)
                 self.assertEqual(os.stat(parent).st_mode & 0o777, 0o775)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; os.umask not implemented yet for all platforms')
     @unittest.skipIf(
         support.is_emscripten or support.is_wasi,
         "Emscripten's/WASI's umask is a stub."
@@ -2116,7 +2113,6 @@ class URandomFDTests(unittest.TestCase):
             """
         rc, out, err = assert_python_ok('-Sc', code)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; (ModuleNotFoundError: No module named 'os'")
     def test_urandom_fd_reopened(self):
         # Issue #21207: urandom() should detect its fd to /dev/urandom
         # changed to something else, and reopen it.
@@ -3221,7 +3217,6 @@ class Win32NtTests(unittest.TestCase):
 
         self.assertEqual(0, handle_delta)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; os.stat (PermissionError: [Errno 5] Access is denied.)')
     @support.requires_subprocess()
     def test_stat_unlink_race(self):
         # bpo-46785: the implementation of os.stat() falls back to reading
@@ -4927,7 +4922,6 @@ class TestDirEntry(unittest.TestCase):
         self.addCleanup(os_helper.rmtree, self.path)
         os.mkdir(self.path)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; (AssertionError: TypeError not raised by DirEntry)
     def test_uninstantiable(self):
         self.assertRaises(TypeError, os.DirEntry)
 
@@ -4976,7 +4970,6 @@ class TestScandir(unittest.TestCase):
         else:
             self.assertEqual(stat1, stat2)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; (AssertionError: TypeError not raised by ScandirIter)
     def test_uninstantiable(self):
         scandir_iter = os.scandir(self.path)
         self.assertRaises(TypeError, type(scandir_iter))
@@ -5230,7 +5223,6 @@ class TestScandir(unittest.TestCase):
                     st = os.stat(entry.name, dir_fd=fd, follow_symlinks=False)
                     self.assertEqual(entry.stat(follow_symlinks=False), st)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; (AssertionError: FileNotFoundError not raised by scandir)')
     @unittest.skipIf(support.is_wasi, "WASI maps '' to cwd")
     def test_empty_path(self):
         self.assertRaises(FileNotFoundError, os.scandir, '')
