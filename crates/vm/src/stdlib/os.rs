@@ -1022,7 +1022,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn fspath(path: PyObjectRef, vm: &VirtualMachine) -> PyResult<FsPath> {
-        FsPath::try_from(path, false, vm)
+        FsPath::try_from_path_like(path, false, vm)
     }
 
     #[pyfunction]

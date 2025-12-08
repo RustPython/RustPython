@@ -14,8 +14,26 @@ pub enum FsPath {
 }
 
 impl FsPath {
+    pub fn try_from_path_like(
+        obj: PyObjectRef,
+        check_for_nul: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
+        Self::try_from(
+            obj,
+            check_for_nul,
+            "expected str, bytes or os.PathLike object",
+            vm,
+        )
+    }
+
     // PyOS_FSPath in CPython
-    pub fn try_from(obj: PyObjectRef, check_for_nul: bool, vm: &VirtualMachine) -> PyResult<Self> {
+    pub fn try_from(
+        obj: PyObjectRef,
+        check_for_nul: bool,
+        msg: &'static str,
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
         let check_nul = |b: &[u8]| {
             if !check_for_nul || memchr::memchr(b'\0', b).is_none() {
                 Ok(())
@@ -41,13 +59,16 @@ impl FsPath {
             Ok(pathlike) => return Ok(pathlike),
             Err(obj) => obj,
         };
-        let method =
-            vm.get_method_or_type_error(obj.clone(), identifier!(vm, __fspath__), || {
-                format!(
-                    "should be string, bytes, os.PathLike or integer, not {}",
-                    obj.class().name()
-                )
-            })?;
+        let not_pathlike_error = || format!("{msg}, not {}", obj.class().name());
+        let method = vm.get_method_or_type_error(
+            obj.clone(),
+            identifier!(vm, __fspath__),
+            not_pathlike_error,
+        )?;
+        // If __fspath__ is explicitly set to None, treat it as if it doesn't have __fspath__
+        if vm.is_none(&method) {
+            return Err(vm.new_type_error(not_pathlike_error()));
+        }
         let result = method.call((), vm)?;
         match1(result)?.map_err(|result| {
             vm.new_type_error(format!(
@@ -125,6 +146,6 @@ impl TryFromObject for FsPath {
             }
             Err(_) => obj,
         };
-        Self::try_from(obj, true, vm)
+        Self::try_from_path_like(obj, true, vm)
     }
 }

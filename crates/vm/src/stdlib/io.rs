@@ -4340,7 +4340,7 @@ mod fileio {
                     }
                     (fd, None)
                 } else {
-                    let path = OsPath::try_from_object(vm, name.clone())?;
+                    let path = OsPath::try_from_fspath(name.clone(), vm)?;
                     #[cfg(any(unix, target_os = "wasi"))]
                     let fd = crt_fd::open(&path.clone().into_cstring(vm)?, flags, 0o666);
                     #[cfg(windows)]
