@@ -291,14 +291,23 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn OpenProcess(desired_access: u32, inherit_handle: bool, process_id: u32) -> isize {
-        unsafe {
+    fn OpenProcess(
+        desired_access: u32,
+        inherit_handle: bool,
+        process_id: u32,
+        vm: &VirtualMachine,
+    ) -> PyResult<WinHandle> {
+        let handle = unsafe {
             windows_sys::Win32::System::Threading::OpenProcess(
                 desired_access,
                 i32::from(inherit_handle),
                 process_id,
-            ) as _
+            )
+        };
+        if handle.is_null() {
+            return Err(errno_err(vm));
         }
+        Ok(WinHandle(handle))
     }
 
     #[pyfunction]
@@ -432,7 +441,7 @@ mod _winapi {
                             0,
                             (2 & 0xffff) | 0x20000, // PROC_THREAD_ATTRIBUTE_HANDLE_LIST
                             handlelist.as_mut_ptr() as _,
-                            (handlelist.len() * std::mem::size_of::<isize>()) as _,
+                            (handlelist.len() * std::mem::size_of::<usize>()) as _,
                             std::ptr::null_mut(),
                             std::ptr::null(),
                         )
@@ -506,17 +515,23 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn OpenMutexW(desired_access: u32, inherit_handle: bool, name: u16) -> PyResult<isize> {
+    fn OpenMutexW(
+        desired_access: u32,
+        inherit_handle: bool,
+        name: PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<isize> {
+        let name_wide = name.as_str().to_wide_with_nul();
         let handle = unsafe {
             windows_sys::Win32::System::Threading::OpenMutexW(
                 desired_access,
                 i32::from(inherit_handle),
-                windows_sys::core::PCWSTR::from(name as _),
+                name_wide.as_ptr(),
             )
         };
-        // if handle.is_invalid() {
-        //     return Err(errno_err(vm));
-        // }
+        if handle == INVALID_HANDLE_VALUE {
+            return Err(errno_err(vm));
+        }
         Ok(handle as _)
     }
 
