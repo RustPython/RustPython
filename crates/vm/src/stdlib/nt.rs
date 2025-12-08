@@ -835,6 +835,7 @@ pub(crate) mod module {
         fn _umask(mask: i32) -> i32;
         fn _dup(fd: i32) -> i32;
         fn _dup2(fd: i32, fd2: i32) -> i32;
+        fn _open_osfhandle(osfhandle: intptr_t, flags: i32) -> i32;
     }
 
     /// Close fd and convert error to PyException (PEP 446 cleanup)
@@ -851,6 +852,113 @@ pub(crate) mod module {
             Err(errno_err(vm))
         } else {
             Ok(result)
+        }
+    }
+
+    #[pyfunction]
+    fn pipe(vm: &VirtualMachine) -> PyResult<(i32, i32)> {
+        use windows_sys::Win32::System::Pipes::CreatePipe;
+
+        let (read_handle, write_handle) = unsafe {
+            let mut read = MaybeUninit::<isize>::uninit();
+            let mut write = MaybeUninit::<isize>::uninit();
+            let res = CreatePipe(
+                read.as_mut_ptr() as *mut _,
+                write.as_mut_ptr() as *mut _,
+                std::ptr::null(),
+                0,
+            );
+            if res == 0 {
+                return Err(errno_err(vm));
+            }
+            (read.assume_init(), write.assume_init())
+        };
+
+        // Convert handles to file descriptors
+        // O_NOINHERIT = 0x80 (MSVC CRT)
+        const O_NOINHERIT: i32 = 0x80;
+        let read_fd = unsafe { _open_osfhandle(read_handle, O_NOINHERIT) };
+        let write_fd = unsafe { _open_osfhandle(write_handle, libc::O_WRONLY | O_NOINHERIT) };
+
+        if read_fd == -1 || write_fd == -1 {
+            unsafe {
+                Foundation::CloseHandle(read_handle as _);
+                Foundation::CloseHandle(write_handle as _);
+            }
+            return Err(errno_err(vm));
+        }
+
+        Ok((read_fd, write_fd))
+    }
+
+    #[pyfunction]
+    fn getppid() -> u32 {
+        use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+        #[repr(C)]
+        struct ProcessBasicInformation {
+            exit_status: isize,
+            peb_base_address: *mut std::ffi::c_void,
+            affinity_mask: usize,
+            base_priority: i32,
+            unique_process_id: usize,
+            inherited_from_unique_process_id: usize,
+        }
+
+        type NtQueryInformationProcessFn = unsafe extern "system" fn(
+            process_handle: isize,
+            process_information_class: u32,
+            process_information: *mut std::ffi::c_void,
+            process_information_length: u32,
+            return_length: *mut u32,
+        ) -> i32;
+
+        let ntdll = unsafe {
+            windows_sys::Win32::System::LibraryLoader::GetModuleHandleW(windows_sys::w!(
+                "ntdll.dll"
+            ))
+        };
+        if ntdll.is_null() {
+            return 0;
+        }
+
+        let func = unsafe {
+            windows_sys::Win32::System::LibraryLoader::GetProcAddress(
+                ntdll,
+                c"NtQueryInformationProcess".as_ptr() as *const u8,
+            )
+        };
+        let Some(func) = func else {
+            return 0;
+        };
+        let nt_query: NtQueryInformationProcessFn = unsafe { std::mem::transmute(func) };
+
+        let mut info = ProcessBasicInformation {
+            exit_status: 0,
+            peb_base_address: std::ptr::null_mut(),
+            affinity_mask: 0,
+            base_priority: 0,
+            unique_process_id: 0,
+            inherited_from_unique_process_id: 0,
+        };
+
+        let status = unsafe {
+            nt_query(
+                GetCurrentProcess() as isize,
+                0, // ProcessBasicInformation
+                &mut info as *mut _ as *mut std::ffi::c_void,
+                std::mem::size_of::<ProcessBasicInformation>() as u32,
+                std::ptr::null_mut(),
+            )
+        };
+
+        if status >= 0
+            && info.inherited_from_unique_process_id != 0
+            && info.inherited_from_unique_process_id < u32::MAX as usize
+        {
+            info.inherited_from_unique_process_id as u32
+        } else {
+            0
         }
     }
 
