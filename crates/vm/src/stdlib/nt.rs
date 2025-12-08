@@ -14,7 +14,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 pub(crate) mod module {
     use crate::{
         PyResult, TryFromObject, VirtualMachine,
-        builtins::{PyDictRef, PyListRef, PyStrRef, PyTupleRef},
+        builtins::{PyBaseExceptionRef, PyDictRef, PyListRef, PyStrRef, PyTupleRef},
         common::{crt_fd, os::last_os_error, suppress_iph},
         convert::ToPyException,
         function::{Either, OptionalArg},
@@ -488,6 +488,13 @@ pub(crate) mod module {
         fn _dup2(fd: i32, fd2: i32) -> i32;
     }
 
+    /// Close fd and convert error to PyException (PEP 446 cleanup)
+    #[cold]
+    fn close_fd_and_raise(fd: i32, err: std::io::Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        let _ = unsafe { crt_fd::Owned::from_raw(fd) };
+        err.to_pyexception(vm)
+    }
+
     #[pyfunction]
     fn umask(mask: i32, vm: &VirtualMachine) -> PyResult<i32> {
         let result = unsafe { _umask(mask) };
@@ -504,11 +511,10 @@ pub(crate) mod module {
         if fd2 < 0 {
             return Err(errno_err(vm));
         }
-        // Set the new fd as non-inheritable
         let borrowed = unsafe { crt_fd::Borrowed::borrow_raw(fd2) };
-        let handle = crt_fd::as_handle(borrowed).map_err(|e| e.to_pyexception(vm))?;
+        let handle = crt_fd::as_handle(borrowed).map_err(|e| close_fd_and_raise(fd2, e, vm))?;
         raw_set_handle_inheritable(handle.as_raw_handle() as _, false)
-            .map_err(|e| e.to_pyexception(vm))?;
+            .map_err(|e| close_fd_and_raise(fd2, e, vm))?;
         Ok(fd2)
     }
 
@@ -530,9 +536,10 @@ pub(crate) mod module {
         }
         if !args.inheritable {
             let borrowed = unsafe { crt_fd::Borrowed::borrow_raw(args.fd2) };
-            let handle = crt_fd::as_handle(borrowed).map_err(|e| e.to_pyexception(vm))?;
+            let handle =
+                crt_fd::as_handle(borrowed).map_err(|e| close_fd_and_raise(args.fd2, e, vm))?;
             raw_set_handle_inheritable(handle.as_raw_handle() as _, false)
-                .map_err(|e| e.to_pyexception(vm))?;
+                .map_err(|e| close_fd_and_raise(args.fd2, e, vm))?;
         }
         Ok(args.fd2)
     }
