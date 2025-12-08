@@ -35,7 +35,31 @@ pub(crate) mod module {
     };
 
     #[pyattr]
-    use libc::{O_BINARY, O_TEMPORARY};
+    use libc::{O_BINARY, O_NOINHERIT, O_RANDOM, O_SEQUENTIAL, O_TEMPORARY, O_TEXT};
+
+    // Windows spawn mode constants
+    #[pyattr]
+    const P_WAIT: i32 = 0;
+    #[pyattr]
+    const P_NOWAIT: i32 = 1;
+    #[pyattr]
+    const P_OVERLAY: i32 = 2;
+    #[pyattr]
+    const P_NOWAITO: i32 = 3;
+    #[pyattr]
+    const P_DETACH: i32 = 4;
+
+    // _O_SHORT_LIVED is not in libc, define manually
+    #[pyattr]
+    const O_SHORT_LIVED: i32 = 0x1000;
+
+    // Exit code constant
+    #[pyattr]
+    const EX_OK: i32 = 0;
+
+    // Maximum number of temporary files
+    #[pyattr]
+    const TMP_MAX: i32 = i32::MAX;
 
     #[pyattr]
     use windows_sys::Win32::System::LibraryLoader::{
