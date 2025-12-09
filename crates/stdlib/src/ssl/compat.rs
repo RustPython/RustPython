@@ -24,6 +24,7 @@ use rustls::server::ServerConfig;
 use rustls::server::ServerConnection;
 use rustls::sign::CertifiedKey;
 use rustpython_vm::builtins::PyBaseExceptionRef;
+use rustpython_vm::convert::IntoPyException;
 use rustpython_vm::function::ArgBytesLike;
 use rustpython_vm::{AsObject, PyObjectRef, PyPayload, PyResult, TryFromObject};
 use std::io::Read;
@@ -558,7 +559,7 @@ impl SslError {
                 // Use the proper cert verification error creator
                 create_ssl_cert_verification_error(vm, &cert_err).expect("unlikely to happen")
             }
-            SslError::Io(err) => vm.new_os_error(format!("I/O error: {err}")),
+            SslError::Io(err) => err.into_pyexception(vm),
             SslError::SniCallbackRestart => {
                 // This should be handled at PySSLSocket level
                 unreachable!("SniCallbackRestart should not reach Python layer")
@@ -1527,6 +1528,29 @@ fn ssl_read_tls_records(
     Ok(())
 }
 
+/// Check if an exception is a connection closed error
+/// In SSL context, these errors indicate unexpected connection termination without proper TLS shutdown
+fn is_connection_closed_error(exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> bool {
+    use rustpython_vm::stdlib::errno::errors;
+
+    // Check for ConnectionAbortedError, ConnectionResetError (Python exception types)
+    if exc.fast_isinstance(vm.ctx.exceptions.connection_aborted_error)
+        || exc.fast_isinstance(vm.ctx.exceptions.connection_reset_error)
+    {
+        return true;
+    }
+
+    // Also check OSError with specific errno values (ECONNABORTED, ECONNRESET)
+    if exc.fast_isinstance(vm.ctx.exceptions.os_error)
+        && let Ok(errno) = exc.as_object().get_attr("errno", vm)
+        && let Ok(errno_int) = errno.try_int(vm)
+        && let Ok(errno_val) = errno_int.try_to_primitive::<i32>(vm)
+    {
+        return errno_val == errors::ECONNABORTED || errno_val == errors::ECONNRESET;
+    }
+    false
+}
+
 /// Ensure TLS data is available for reading
 /// Returns the number of bytes read from the socket
 fn ssl_ensure_data_available(
@@ -1562,7 +1586,27 @@ fn ssl_ensure_data_available(
             // else: non-blocking socket (timeout=0) or blocking socket (timeout=None) - skip select
         }
 
-        let data = socket.sock_recv(2048, vm).map_err(SslError::Py)?;
+        let data = match socket.sock_recv(2048, vm) {
+            Ok(data) => data,
+            Err(e) => {
+                // Before returning socket error, check if rustls already has a queued TLS alert
+                // This mirrors CPython/OpenSSL behavior: SSL errors take precedence over socket errors
+                // On Windows, TCP RST may arrive before we read the alert, but rustls may have
+                // already received and buffered the alert from a previous read
+                if let Err(rustls_err) = conn.process_new_packets() {
+                    return Err(SslError::from_rustls(rustls_err));
+                }
+                // In SSL context, connection closed errors (ECONNABORTED, ECONNRESET) indicate
+                // unexpected connection termination - the peer closed without proper TLS shutdown.
+                // This is semantically equivalent to "EOF occurred in violation of protocol"
+                // because no close_notify alert was received.
+                // On Windows, TCP RST can arrive before we read the TLS alert, causing these errors.
+                if is_connection_closed_error(&e, vm) {
+                    return Err(SslError::Eof);
+                }
+                return Err(SslError::Py(e));
+            }
+        };
 
         // Get the size of received data
         let bytes_read = data
