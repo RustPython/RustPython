@@ -3,6 +3,9 @@ use std::{
     os::windows::ffi::{OsStrExt, OsStringExt},
 };
 
+/// _MAX_ENV from Windows CRT stdlib.h - maximum environment variable size
+pub const _MAX_ENV: usize = 32767;
+
 pub trait ToWideString {
     fn to_wide(&self) -> Vec<u16>;
     fn to_wide_with_nul(&self) -> Vec<u16>;

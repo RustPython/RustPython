@@ -428,6 +428,20 @@ pub(super) mod _os {
         }
     }
 
+    /// Check if environment variable length exceeds Windows limit.
+    /// size should be key.len() + value.len() + 2 (for '=' and null terminator)
+    #[cfg(windows)]
+    fn check_env_var_len(size: usize, vm: &VirtualMachine) -> PyResult<()> {
+        use crate::common::windows::_MAX_ENV;
+        if size > _MAX_ENV {
+            return Err(vm.new_value_error(format!(
+                "the environment variable is longer than {} characters",
+                _MAX_ENV
+            )));
+        }
+        Ok(())
+    }
+
     #[pyfunction]
     fn putenv(
         key: Either<PyStrRef, PyBytesRef>,
@@ -442,6 +456,8 @@ pub(super) mod _os {
         if key.is_empty() || key.contains(&b'=') {
             return Err(vm.new_value_error("illegal environment variable name"));
         }
+        #[cfg(windows)]
+        check_env_var_len(key.len() + value.len() + 2, vm)?;
         let key = super::bytes_as_os_str(key, vm)?;
         let value = super::bytes_as_os_str(value, vm)?;
         // SAFETY: requirements forwarded from the caller
@@ -464,6 +480,9 @@ pub(super) mod _os {
                 ),
             ));
         }
+        // For unsetenv, size is key + '=' (no value, just clearing)
+        #[cfg(windows)]
+        check_env_var_len(key.len() + 1, vm)?;
         let key = super::bytes_as_os_str(key, vm)?;
         // SAFETY: requirements forwarded from the caller
         unsafe { env::remove_var(key) };
@@ -507,17 +526,17 @@ pub(super) mod _os {
             Ok(self.mode.process_path(&self.pathval, vm))
         }
 
-        fn perform_on_metadata(
-            &self,
-            follow_symlinks: FollowSymlinks,
-            action: fn(fs::Metadata) -> bool,
-            vm: &VirtualMachine,
-        ) -> PyResult<bool> {
+        #[pymethod]
+        fn is_dir(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
             match super::fs_metadata(&self.pathval, follow_symlinks.0) {
-                Ok(meta) => Ok(action(meta)),
+                Ok(meta) => Ok(meta.is_dir()),
                 Err(e) => {
-                    // FileNotFoundError is caught and not raised
                     if e.kind() == io::ErrorKind::NotFound {
+                        // On Windows, use cached file_type when file is removed
+                        #[cfg(windows)]
+                        if let Ok(file_type) = &self.file_type {
+                            return Ok(file_type.is_dir());
+                        }
                         Ok(false)
                     } else {
                         Err(e.into_pyexception(vm))
@@ -527,21 +546,22 @@ pub(super) mod _os {
         }
 
         #[pymethod]
-        fn is_dir(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
-            self.perform_on_metadata(
-                follow_symlinks,
-                |meta: fs::Metadata| -> bool { meta.is_dir() },
-                vm,
-            )
-        }
-
-        #[pymethod]
         fn is_file(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
-            self.perform_on_metadata(
-                follow_symlinks,
-                |meta: fs::Metadata| -> bool { meta.is_file() },
-                vm,
-            )
+            match super::fs_metadata(&self.pathval, follow_symlinks.0) {
+                Ok(meta) => Ok(meta.is_file()),
+                Err(e) => {
+                    if e.kind() == io::ErrorKind::NotFound {
+                        // On Windows, use cached file_type when file is removed
+                        #[cfg(windows)]
+                        if let Ok(file_type) = &self.file_type {
+                            return Ok(file_type.is_file());
+                        }
+                        Ok(false)
+                    } else {
+                        Err(e.into_pyexception(vm))
+                    }
+                }
+            }
         }
 
         #[pymethod]

@@ -683,6 +683,87 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
+    fn listvolumes(vm: &VirtualMachine) -> PyResult<PyListRef> {
+        use windows_sys::Win32::Foundation::ERROR_NO_MORE_FILES;
+
+        let mut result = Vec::new();
+        let mut buffer = [0u16; Foundation::MAX_PATH as usize + 1];
+
+        let find = unsafe { FileSystem::FindFirstVolumeW(buffer.as_mut_ptr(), buffer.len() as _) };
+        if find == INVALID_HANDLE_VALUE {
+            return Err(errno_err(vm));
+        }
+
+        loop {
+            // Find the null terminator
+            let len = buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len());
+            let volume = String::from_utf16_lossy(&buffer[..len]);
+            result.push(vm.new_pyobj(volume));
+
+            let ret = unsafe {
+                FileSystem::FindNextVolumeW(find, buffer.as_mut_ptr(), buffer.len() as _)
+            };
+            if ret == 0 {
+                let err = io::Error::last_os_error();
+                unsafe { FileSystem::FindVolumeClose(find) };
+                if err.raw_os_error() == Some(ERROR_NO_MORE_FILES as i32) {
+                    break;
+                }
+                return Err(err.to_pyexception(vm));
+            }
+        }
+
+        Ok(vm.ctx.new_list(result))
+    }
+
+    #[pyfunction]
+    fn listmounts(volume: OsPath, vm: &VirtualMachine) -> PyResult<PyListRef> {
+        use windows_sys::Win32::Foundation::ERROR_MORE_DATA;
+
+        let wide = volume.to_wide_cstring(vm)?;
+        let mut buflen: u32 = Foundation::MAX_PATH + 1;
+        let mut buffer: Vec<u16> = vec![0; buflen as usize];
+
+        loop {
+            let success = unsafe {
+                FileSystem::GetVolumePathNamesForVolumeNameW(
+                    wide.as_ptr(),
+                    buffer.as_mut_ptr(),
+                    buflen,
+                    &mut buflen,
+                )
+            };
+            if success != 0 {
+                break;
+            }
+            let err = io::Error::last_os_error();
+            if err.raw_os_error() == Some(ERROR_MORE_DATA as i32) {
+                buffer.resize(buflen as usize, 0);
+                continue;
+            }
+            return Err(err.to_pyexception(vm));
+        }
+
+        // Parse null-separated strings
+        let mut result = Vec::new();
+        let mut start = 0;
+        for (i, &c) in buffer.iter().enumerate() {
+            if c == 0 {
+                if i > start {
+                    let mount = String::from_utf16_lossy(&buffer[start..i]);
+                    result.push(vm.new_pyobj(mount));
+                }
+                start = i + 1;
+                if start < buffer.len() && buffer[start] == 0 {
+                    break; // Double null = end
+                }
+            }
+        }
+
+        Ok(vm.ctx.new_list(result))
+    }
+
+    #[pyfunction]
     fn set_handle_inheritable(
         handle: intptr_t,
         inheritable: bool,
