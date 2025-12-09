@@ -4277,10 +4277,6 @@ class CTextIOWrapperTest(TextIOWrapperTest):
         return super().test_repr()
 
     @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_telling(self):
-        return super().test_telling()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_uninitialized(self):
         return super().test_uninitialized()
 

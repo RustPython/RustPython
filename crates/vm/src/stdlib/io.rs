@@ -2473,7 +2473,10 @@ mod _io {
         vm.call_method(&textio.buffer, "flush", ())
     }
 
-    #[pyclass(with(Constructor, Initializer, Destructor), flags(BASETYPE))]
+    #[pyclass(
+        with(Constructor, Initializer, Destructor, Iterable, IterNext),
+        flags(BASETYPE)
+    )]
     impl TextIOWrapper {
         #[pymethod]
         fn reconfigure(&self, args: TextIOWrapperArgs, vm: &VirtualMachine) -> PyResult<()> {
@@ -3345,6 +3348,45 @@ mod _io {
         #[cold]
         fn del(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<()> {
             unreachable!("slot_del is implemented")
+        }
+    }
+
+    impl Iterable for TextIOWrapper {
+        fn slot_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            check_closed(&zelf, vm)?;
+            Ok(zelf)
+        }
+
+        fn iter(_zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
+            unreachable!("slot_iter is implemented")
+        }
+    }
+
+    impl IterNext for TextIOWrapper {
+        fn slot_iternext(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            // Set telling = false during iteration (matches CPython behavior)
+            let textio_ref: PyRef<TextIOWrapper> =
+                zelf.downcast_ref::<TextIOWrapper>().unwrap().to_owned();
+            {
+                let mut textio = textio_ref.lock(vm)?;
+                textio.telling = false;
+            }
+
+            let line = vm.call_method(zelf, "readline", ())?;
+
+            if !line.clone().try_to_bool(vm)? {
+                // Restore telling on StopIteration
+                let mut textio = textio_ref.lock(vm)?;
+                textio.snapshot = None;
+                textio.telling = textio.seekable;
+                Ok(PyIterReturn::StopIteration(None))
+            } else {
+                Ok(PyIterReturn::Return(line))
+            }
+        }
+
+        fn next(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            unreachable!("slot_iternext is implemented")
         }
     }
 
