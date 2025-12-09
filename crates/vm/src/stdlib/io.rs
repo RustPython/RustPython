@@ -144,7 +144,7 @@ mod _io {
     };
     use bstr::ByteSlice;
     use crossbeam_utils::atomic::AtomicCell;
-    use malachite_bigint::{BigInt, BigUint};
+    use malachite_bigint::BigInt;
     use num_traits::ToPrimitive;
     use std::{
         borrow::Cow,
@@ -2244,7 +2244,7 @@ mod _io {
             set_field!(self.chars_to_skip, CHARS_TO_SKIP_OFF);
             set_field!(self.need_eof as u8, NEED_EOF_OFF);
             set_field!(self.bytes_to_skip, BYTES_TO_SKIP_OFF);
-            BigUint::from_bytes_le(&buf).into()
+            BigInt::from_signed_bytes_le(&buf)
         }
 
         fn set_decoder_state(&self, decoder: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
@@ -2728,7 +2728,7 @@ mod _io {
                     n_decoded += n;
                     cookie.bytes_to_feed += 1;
                     let (dec_buffer, dec_flags) = decoder_getstate()?;
-                    if dec_buffer.is_empty() && n_decoded.chars < num_to_skip.chars {
+                    if dec_buffer.is_empty() && n_decoded.chars <= num_to_skip.chars {
                         cookie.start_pos += cookie.bytes_to_feed as Offset;
                         num_to_skip -= n_decoded;
                         cookie.dec_flags = dec_flags;
@@ -2898,6 +2898,25 @@ mod _io {
         fn flush(&self, vm: &VirtualMachine) -> PyResult {
             let mut textio = self.lock(vm)?;
             flush_inner(&mut textio, vm)
+        }
+
+        #[pymethod]
+        fn truncate(
+            zelf: PyRef<Self>,
+            pos: OptionalArg<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            // Implementation follows _pyio.py TextIOWrapper.truncate
+            let mut textio = zelf.lock(vm)?;
+            flush_inner(&mut textio, vm)?;
+            let buffer = textio.buffer.clone();
+            drop(textio);
+
+            let pos = match pos.into_option() {
+                Some(p) => p,
+                None => vm.call_method(zelf.as_object(), "tell", ())?,
+            };
+            vm.call_method(&buffer, "truncate", (pos,))
         }
 
         #[pymethod]

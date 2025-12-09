@@ -4209,7 +4209,6 @@ class CTextIOWrapperTest(TextIOWrapperTest):
         self.assertEqual([b"abcdef", b"middle", b"g"*chunk_size],
                          buf._write_stack)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_basic_io(self):
         return super().test_basic_io()
 
