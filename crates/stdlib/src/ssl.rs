@@ -1357,47 +1357,69 @@ mod _ssl {
                 );
             }
 
-            // Get mutable references to store and ca_certs_der
+            // Parse arguments BEFORE acquiring locks to reduce lock scope
+            let cafile_path = if let OptionalArg::Present(Some(ref cafile_obj)) = args.cafile {
+                Some(Self::parse_path_arg(cafile_obj, vm)?)
+            } else {
+                None
+            };
+
+            let capath_dir = if let OptionalArg::Present(Some(ref capath_obj)) = args.capath {
+                Some(Self::parse_path_arg(capath_obj, vm)?)
+            } else {
+                None
+            };
+
+            let cadata_parsed = if let OptionalArg::Present(ref cadata_obj) = args.cadata
+                && !vm.is_none(cadata_obj)
+            {
+                let is_string = PyStrRef::try_from_object(vm, cadata_obj.clone()).is_ok();
+                let data_vec = self.parse_cadata_arg(cadata_obj, vm)?;
+                Some((data_vec, is_string))
+            } else {
+                None
+            };
+
+            // Check for CRL before acquiring main locks
+            let (crl_opt, cafile_is_crl) = if let Some(ref path) = cafile_path {
+                let crl = self.load_crl_from_file(path, vm)?;
+                let is_crl = crl.is_some();
+                (crl, is_crl)
+            } else {
+                (None, false)
+            };
+
+            // If it's a CRL, just add it (separate lock, no conflict with root_store)
+            if let Some(crl) = crl_opt {
+                self.crls.write().push(crl);
+            }
+
+            // Now acquire write locks for certificate loading
             let mut root_store = self.root_certs.write();
             let mut ca_certs_der = self.ca_certs_der.write();
 
-            // Load from file
-            if let OptionalArg::Present(Some(ref cafile_obj)) = args.cafile {
-                let path = Self::parse_path_arg(cafile_obj, vm)?;
-
-                // Try to load as CRL first
-                if let Some(crl) = self.load_crl_from_file(&path, vm)? {
-                    self.crls.write().push(crl);
-                } else {
-                    // Not a CRL, load as certificate
-                    let stats = self.load_certs_from_file_helper(
-                        &mut root_store,
-                        &mut ca_certs_der,
-                        &path,
-                        vm,
-                    )?;
-                    self.update_cert_stats(stats);
-                }
+            // Load from file (if not CRL)
+            if let Some(ref path) = cafile_path
+                && !cafile_is_crl
+            {
+                // Not a CRL, load as certificate
+                let stats =
+                    self.load_certs_from_file_helper(&mut root_store, &mut ca_certs_der, path, vm)?;
+                self.update_cert_stats(stats);
             }
 
             // Load from directory (don't add to ca_certs_der)
-            if let OptionalArg::Present(Some(ref capath_obj)) = args.capath {
-                let dir_path = Self::parse_path_arg(capath_obj, vm)?;
-                let stats = self.load_certs_from_dir_helper(&mut root_store, &dir_path, vm)?;
+            if let Some(ref dir_path) = capath_dir {
+                let stats = self.load_certs_from_dir_helper(&mut root_store, dir_path, vm)?;
                 self.update_cert_stats(stats);
             }
 
             // Load from bytes or str
-            if let OptionalArg::Present(cadata_obj) = args.cadata
-                && !vm.is_none(&cadata_obj)
-            {
-                // Check if input is string or bytes
-                let is_string = PyStrRef::try_from_object(vm, cadata_obj.clone()).is_ok();
-                let data_vec = self.parse_cadata_arg(&cadata_obj, vm)?;
+            if let Some((ref data_vec, is_string)) = cadata_parsed {
                 let stats = self.load_certs_from_bytes_helper(
                     &mut root_store,
                     &mut ca_certs_der,
-                    &data_vec,
+                    data_vec,
                     is_string, // PEM only for strings
                     vm,
                 )?;
@@ -2547,48 +2569,51 @@ mod _ssl {
         /// This simulates lazy loading behavior: capath certificates
         /// are only added to get_ca_certs() after they're actually used in a handshake.
         fn track_used_ca_from_capath(&self) -> Result<(), String> {
-            let context = self.context.read();
-            let capath_certs = context.capath_certs_der.read();
+            // Extract capath_certs, releasing context lock quickly
+            let capath_certs = {
+                let context = self.context.read();
+                let certs = context.capath_certs_der.read();
+                if certs.is_empty() {
+                    return Ok(());
+                }
+                certs.clone()
+            };
 
-            // No capath certs to track
-            if capath_certs.is_empty() {
-                return Ok(());
-            }
-
-            // Get peer certificate chain
-            let conn_guard = self.connection.lock();
-            let conn = conn_guard.as_ref().ok_or("No connection")?;
-
-            let peer_certs = conn.peer_certificates().ok_or("No peer certificates")?;
-
-            if peer_certs.is_empty() {
-                return Ok(());
-            }
+            // Extract peer certificates, releasing connection lock quickly
+            let top_cert_der = {
+                let conn_guard = self.connection.lock();
+                let conn = conn_guard.as_ref().ok_or("No connection")?;
+                let peer_certs = conn.peer_certificates().ok_or("No peer certificates")?;
+                if peer_certs.is_empty() {
+                    return Ok(());
+                }
+                peer_certs
+                    .iter()
+                    .map(|c| c.as_ref().to_vec())
+                    .next_back()
+                    .expect("is_empty checked above")
+            };
 
             // Get the top certificate in the chain (closest to root)
             // Note: Server usually doesn't send the root CA, so we check the last cert's issuer
-            let top_cert_der = peer_certs.last().unwrap();
-            let (_, top_cert) = x509_parser::parse_x509_certificate(top_cert_der)
+            let (_, top_cert) = x509_parser::parse_x509_certificate(&top_cert_der)
                 .map_err(|e| format!("Failed to parse top cert: {e}"))?;
 
             let top_issuer = top_cert.issuer();
 
-            // Find matching CA in capath certs
-            for ca_der in capath_certs.iter() {
-                let (_, ca) = x509_parser::parse_x509_certificate(ca_der)
-                    .map_err(|e| format!("Failed to parse CA: {e}"))?;
+            // Find matching CA in capath certs (skip unparseable certificates)
+            let matching_ca = capath_certs.iter().find_map(|ca_der| {
+                let (_, ca) = x509_parser::parse_x509_certificate(ca_der).ok()?;
+                // Check if this CA is self-signed (root CA) and matches the issuer
+                (ca.subject() == ca.issuer() && ca.subject() == top_issuer).then(|| ca_der.clone())
+            });
 
-                // Check if this CA is self-signed and matches the issuer
-                if ca.subject() == ca.issuer() // Self-signed (root CA)
-                   && ca.subject() == top_issuer
-                // Matches top cert's issuer
-                {
-                    // Check if not already in ca_certs_der
-                    let mut ca_certs_der = context.ca_certs_der.write();
-                    if !ca_certs_der.iter().any(|c| c == ca_der) {
-                        ca_certs_der.push(ca_der.clone());
-                    }
-                    break;
+            // Update ca_certs_der if we found a match
+            if let Some(ca_der) = matching_ca {
+                let context = self.context.read();
+                let mut ca_certs_der = context.ca_certs_der.write();
+                if !ca_certs_der.iter().any(|c| c == &ca_der) {
+                    ca_certs_der.push(ca_der);
                 }
             }
 
@@ -2675,6 +2700,7 @@ mod _ssl {
 
         /// Check if SNI callback is configured
         pub(crate) fn has_sni_callback(&self) -> bool {
+            // Nested read locks are safe
             self.context.read().sni_callback.read().is_some()
         }
 
@@ -2685,10 +2711,9 @@ mod _ssl {
 
         /// Get the extracted SNI name from resolver
         pub(crate) fn get_extracted_sni_name(&self) -> Option<String> {
-            self.sni_state
-                .read()
-                .as_ref()
-                .and_then(|arc| arc.lock().1.clone())
+            // Clone the Arc option to avoid nested lock (sni_state.read -> arc.lock)
+            let sni_state_opt = self.sni_state.read().clone();
+            sni_state_opt.as_ref().and_then(|arc| arc.lock().1.clone())
         }
 
         /// Invoke the Python SNI callback
@@ -3516,27 +3541,24 @@ mod _ssl {
                 return Err(vm.new_value_error("handshake not done yet"));
             }
 
-            // Get peer certificates from TLS connection
-            let conn_guard = self.connection.lock();
-            let conn = conn_guard
-                .as_ref()
-                .ok_or_else(|| vm.new_value_error("No TLS connection established"))?;
+            // Extract DER bytes from connection, releasing lock quickly
+            let der_bytes = {
+                let conn_guard = self.connection.lock();
+                let conn = conn_guard
+                    .as_ref()
+                    .ok_or_else(|| vm.new_value_error("No TLS connection established"))?;
 
-            let certs = conn.peer_certificates();
-
-            // Return None if no peer certificate
-            let Some(certs) = certs else {
-                return Ok(None);
+                let Some(peer_certificates) = conn.peer_certificates() else {
+                    return Ok(None);
+                };
+                let cert = peer_certificates
+                    .first()
+                    .ok_or_else(|| vm.new_value_error("No peer certificate available"))?;
+                cert.as_ref().to_vec()
             };
-
-            // Get first certificate (peer's certificate)
-            let cert_der = certs
-                .first()
-                .ok_or_else(|| vm.new_value_error("No peer certificate available"))?;
 
             if binary {
                 // Return DER-encoded certificate as bytes
-                let der_bytes = cert_der.as_ref().to_vec();
                 return Ok(Some(vm.ctx.new_bytes(der_bytes).into()));
             }
 
@@ -3548,9 +3570,8 @@ mod _ssl {
                 return Ok(Some(vm.ctx.new_dict().into()));
             }
 
-            // Parse DER certificate and convert to dict
-            let der_bytes = cert_der.as_ref();
-            let (_, cert) = x509_parser::parse_x509_certificate(der_bytes)
+            // Parse DER certificate and convert to dict (outside lock)
+            let (_, cert) = x509_parser::parse_x509_certificate(&der_bytes)
                 .map_err(|e| vm.new_value_error(format!("Failed to parse certificate: {e}")))?;
 
             cert::cert_to_dict(vm, &cert).map(Some)
@@ -3558,12 +3579,13 @@ mod _ssl {
 
         #[pymethod]
         fn cipher(&self) -> Option<(String, String, i32)> {
-            let conn_guard = self.connection.lock();
-            let conn = conn_guard.as_ref()?;
+            // Extract cipher suite, releasing lock quickly
+            let suite = {
+                let conn_guard = self.connection.lock();
+                conn_guard.as_ref()?.negotiated_cipher_suite()?
+            };
 
-            let suite = conn.negotiated_cipher_suite()?;
-
-            // Extract cipher information using unified helper
+            // Extract cipher information outside the lock
             let cipher_info = extract_cipher_info(&suite);
 
             // Note: returns a 3-tuple (name, protocol_version, bits)
@@ -3577,11 +3599,13 @@ mod _ssl {
 
         #[pymethod]
         fn version(&self) -> Option<String> {
-            let conn_guard = self.connection.lock();
-            let conn = conn_guard.as_ref()?;
+            // Extract cipher suite, releasing lock quickly
+            let suite = {
+                let conn_guard = self.connection.lock();
+                conn_guard.as_ref()?.negotiated_cipher_suite()?
+            };
 
-            let suite = conn.negotiated_cipher_suite()?;
-
+            // Convert to string outside the lock
             let version_str = match suite.version().version {
                 rustls::ProtocolVersion::TLSv1_2 => "TLSv1.2",
                 rustls::ProtocolVersion::TLSv1_3 => "TLSv1.3",
