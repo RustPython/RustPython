@@ -290,8 +290,8 @@ pub(super) mod types {
             Ok(vm.ctx.new_tuple(vec![match_group, rest_group]))
         }
 
-        #[pymethod(name = "__str__")]
-        fn str(zelf: PyRef<PyBaseException>, vm: &VirtualMachine) -> PyResult<String> {
+        #[pymethod]
+        fn __str__(zelf: PyRef<PyBaseException>, vm: &VirtualMachine) -> PyResult<String> {
             let message = zelf
                 .get_arg(0)
                 .map(|m| m.str(vm))
