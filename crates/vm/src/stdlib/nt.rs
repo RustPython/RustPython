@@ -205,22 +205,10 @@ pub(crate) mod module {
     ) -> PyResult<_os::TerminalSizeData> {
         let fd = fd.unwrap_or(1); // default to stdout
 
-        // For standard streams, use GetStdHandle which returns proper console handles
-        // For other fds, use _get_osfhandle to convert
-        let h = match fd {
-            0 => unsafe { Console::GetStdHandle(Console::STD_INPUT_HANDLE) },
-            1 => unsafe { Console::GetStdHandle(Console::STD_OUTPUT_HANDLE) },
-            2 => unsafe { Console::GetStdHandle(Console::STD_ERROR_HANDLE) },
-            _ => {
-                let borrowed = unsafe { crt_fd::Borrowed::borrow_raw(fd) };
-                let handle = crt_fd::as_handle(borrowed).map_err(|e| e.to_pyexception(vm))?;
-                handle.as_raw_handle() as _
-            }
-        };
-
-        if h.is_null() || h == INVALID_HANDLE_VALUE {
-            return Err(errno_err(vm));
-        }
+        // Use _get_osfhandle for all fds
+        let borrowed = unsafe { crt_fd::Borrowed::borrow_raw(fd) };
+        let handle = crt_fd::as_handle(borrowed).map_err(|e| e.to_pyexception(vm))?;
+        let h = handle.as_raw_handle() as Foundation::HANDLE;
 
         let mut csbi = MaybeUninit::uninit();
         let ret = unsafe { Console::GetConsoleScreenBufferInfo(h, csbi.as_mut_ptr()) };
