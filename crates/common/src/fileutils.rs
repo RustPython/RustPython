@@ -460,22 +460,16 @@ pub fn fopen(path: &std::path::Path, mode: &str) -> std::io::Result<*mut libc::F
     {
         use std::os::windows::io::IntoRawHandle;
 
-        // Declare Windows CRT functions
-        unsafe extern "C" {
-            fn _open_osfhandle(handle: isize, flags: libc::c_int) -> libc::c_int;
-            fn _fdopen(fd: libc::c_int, mode: *const libc::c_char) -> *mut libc::FILE;
-        }
-
         // Convert File handle to CRT file descriptor
         let handle = file.into_raw_handle();
-        let fd = unsafe { _open_osfhandle(handle as isize, libc::O_RDONLY) };
+        let fd = unsafe { libc::open_osfhandle(handle as isize, libc::O_RDONLY) };
         if fd == -1 {
             return Err(std::io::Error::last_os_error());
         }
 
         // Convert fd to FILE*
         let mode_cstr = CString::new(mode).unwrap();
-        let fp = unsafe { _fdopen(fd, mode_cstr.as_ptr()) };
+        let fp = unsafe { libc::fdopen(fd, mode_cstr.as_ptr()) };
         if fp.is_null() {
             unsafe { libc::close(fd) };
             return Err(std::io::Error::last_os_error());

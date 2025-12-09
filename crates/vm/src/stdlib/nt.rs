@@ -833,9 +833,6 @@ pub(crate) mod module {
 
     unsafe extern "C" {
         fn _umask(mask: i32) -> i32;
-        fn _dup(fd: i32) -> i32;
-        fn _dup2(fd: i32, fd2: i32) -> i32;
-        fn _open_osfhandle(osfhandle: intptr_t, flags: i32) -> i32;
     }
 
     /// Close fd and convert error to PyException (PEP 446 cleanup)
@@ -877,8 +874,8 @@ pub(crate) mod module {
         // Convert handles to file descriptors
         // O_NOINHERIT = 0x80 (MSVC CRT)
         const O_NOINHERIT: i32 = 0x80;
-        let read_fd = unsafe { _open_osfhandle(read_handle, O_NOINHERIT) };
-        let write_fd = unsafe { _open_osfhandle(write_handle, libc::O_WRONLY | O_NOINHERIT) };
+        let read_fd = unsafe { libc::open_osfhandle(read_handle, O_NOINHERIT) };
+        let write_fd = unsafe { libc::open_osfhandle(write_handle, libc::O_WRONLY | O_NOINHERIT) };
 
         if read_fd == -1 || write_fd == -1 {
             unsafe {
@@ -964,7 +961,7 @@ pub(crate) mod module {
 
     #[pyfunction]
     fn dup(fd: i32, vm: &VirtualMachine) -> PyResult<i32> {
-        let fd2 = unsafe { suppress_iph!(_dup(fd)) };
+        let fd2 = unsafe { suppress_iph!(libc::dup(fd)) };
         if fd2 < 0 {
             return Err(errno_err(vm));
         }
@@ -987,7 +984,7 @@ pub(crate) mod module {
 
     #[pyfunction]
     fn dup2(args: Dup2Args, vm: &VirtualMachine) -> PyResult<i32> {
-        let result = unsafe { suppress_iph!(_dup2(args.fd, args.fd2)) };
+        let result = unsafe { suppress_iph!(libc::dup2(args.fd, args.fd2)) };
         if result < 0 {
             return Err(errno_err(vm));
         }

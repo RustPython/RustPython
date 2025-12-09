@@ -88,13 +88,9 @@ mod msvcrt {
         }
     }
 
-    unsafe extern "C" {
-        fn _open_osfhandle(osfhandle: isize, flags: i32) -> i32;
-    }
-
     #[pyfunction]
     fn open_osfhandle(handle: isize, flags: i32, vm: &VirtualMachine) -> PyResult<i32> {
-        let ret = unsafe { suppress_iph!(_open_osfhandle(handle, flags)) };
+        let ret = unsafe { suppress_iph!(libc::open_osfhandle(handle, flags)) };
         if ret == -1 {
             Err(errno_err(vm))
         } else {
