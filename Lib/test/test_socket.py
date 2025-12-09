@@ -5360,8 +5360,6 @@ class NetworkConnectionNoServer(unittest.TestCase):
         expected_errnos = socket_helper.get_socket_conn_refused_errs()
         self.assertIn(cm.exception.errno, expected_errnos)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_create_connection_all_errors(self):
         port = socket_helper.find_unused_port()
         try:

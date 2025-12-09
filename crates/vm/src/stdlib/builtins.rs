@@ -1070,6 +1070,9 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
     builtins::extend_module(vm, module).unwrap();
 
     let debug_mode: bool = vm.state.settings.optimize == 0;
+    // Create dynamic ExceptionGroup with multiple inheritance (BaseExceptionGroup + Exception)
+    let exception_group = crate::exception_group::exception_group();
+
     extend_module!(vm, module, {
         "__debug__" => ctx.new_bool(debug_mode),
 
@@ -1110,7 +1113,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         // Exceptions:
         "BaseException" => ctx.exceptions.base_exception_type.to_owned(),
         "BaseExceptionGroup" => ctx.exceptions.base_exception_group.to_owned(),
-        "ExceptionGroup" => ctx.exceptions.exception_group.to_owned(),
+        "ExceptionGroup" => exception_group.to_owned(),
         "SystemExit" => ctx.exceptions.system_exit.to_owned(),
         "KeyboardInterrupt" => ctx.exceptions.keyboard_interrupt.to_owned(),
         "GeneratorExit" => ctx.exceptions.generator_exit.to_owned(),

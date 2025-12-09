@@ -15,8 +15,6 @@ class TestExceptionGroupTypeHierarchy(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, 'Exception'):
             Exception[OSError]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception_group_is_generic_type(self):
         E = OSError
         self.assertIsInstance(ExceptionGroup[E], types.GenericAlias)
@@ -810,8 +808,6 @@ class NestedExceptionGroupSplitTest(ExceptionGroupSplitTestBase):
         self.assertEqual(match.__notes__, orig_notes + ["match"])
         self.assertEqual(rest.__notes__, orig_notes + ["rest"])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_split_does_not_copy_non_sequence_notes(self):
         # __notes__ should be a sequence, which is shallow copied.
         # If it is not a sequence, the split parts don't get any notes.
@@ -821,8 +817,6 @@ class NestedExceptionGroupSplitTest(ExceptionGroupSplitTestBase):
         self.assertFalse(hasattr(match, '__notes__'))
         self.assertFalse(hasattr(rest, '__notes__'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_drive_invalid_return_value(self):
         class MyEg(ExceptionGroup):
             def derive(self, excs):

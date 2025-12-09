@@ -22,6 +22,8 @@ use std::{
     io::{self, BufRead, BufReader},
 };
 
+pub use super::exception_group::exception_group;
+
 unsafe impl Traverse for PyBaseException {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.traceback.traverse(tracer_fn);
@@ -445,11 +447,10 @@ impl ExceptionCtor {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ExceptionZoo {
     pub base_exception_type: &'static Py<PyType>,
     pub base_exception_group: &'static Py<PyType>,
-    pub exception_group: &'static Py<PyType>,
     pub system_exit: &'static Py<PyType>,
     pub keyboard_interrupt: &'static Py<PyType>,
     pub generator_exit: &'static Py<PyType>,
@@ -742,7 +743,6 @@ impl ExceptionZoo {
 
         // Sorted By Hierarchy then alphabetized.
         let base_exception_group = PyBaseExceptionGroup::init_builtin_type();
-        let exception_group = PyExceptionGroup::init_builtin_type();
         let system_exit = PySystemExit::init_builtin_type();
         let keyboard_interrupt = PyKeyboardInterrupt::init_builtin_type();
         let generator_exit = PyGeneratorExit::init_builtin_type();
@@ -830,7 +830,6 @@ impl ExceptionZoo {
         Self {
             base_exception_type,
             base_exception_group,
-            exception_group,
             system_exit,
             keyboard_interrupt,
             generator_exit,
@@ -917,7 +916,7 @@ impl ExceptionZoo {
             "message" => ctx.new_readonly_getset("message", excs.base_exception_group, make_arg_getter(0)),
             "exceptions" => ctx.new_readonly_getset("exceptions", excs.base_exception_group, make_arg_getter(1)),
         });
-        extend_exception!(PyExceptionGroup, ctx, excs.exception_group);
+
         extend_exception!(PySystemExit, ctx, excs.system_exit, {
             "code" => ctx.new_readonly_getset("code", excs.system_exit, system_exit_code),
         });
@@ -1220,8 +1219,7 @@ pub(super) mod types {
     use crate::{
         AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
         builtins::{
-            PyGenericAlias, PyInt, PyStrRef, PyTupleRef, PyTypeRef, traceback::PyTracebackRef,
-            tuple::IntoPyTuple,
+            PyInt, PyStrRef, PyTupleRef, PyTypeRef, traceback::PyTracebackRef, tuple::IntoPyTuple,
         },
         convert::ToPyResult,
         function::{ArgBytesLike, FuncArgs},
@@ -1230,6 +1228,9 @@ pub(super) mod types {
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use rustpython_common::str::UnicodeEscapeCodepoint;
+
+    // Re-export exception group types from dedicated module
+    pub use crate::exception_group::types::PyBaseExceptionGroup;
 
     // This module is designed to be used as `use builtins::*;`.
     // Do not add any pub symbols not included in builtins module.
@@ -1251,26 +1252,6 @@ pub(super) mod types {
     #[pyexception(name, base = PyBaseException, ctx = "system_exit", impl)]
     #[derive(Debug)]
     pub struct PySystemExit {}
-
-    #[pyexception(name, base = PyBaseException, ctx = "base_exception_group")]
-    #[derive(Debug)]
-    pub struct PyBaseExceptionGroup {}
-
-    #[pyexception]
-    impl PyBaseExceptionGroup {
-        #[pyclassmethod]
-        fn __class_getitem__(
-            cls: PyTypeRef,
-            args: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyGenericAlias {
-            PyGenericAlias::from_args(cls, args, vm)
-        }
-    }
-
-    #[pyexception(name, base = PyBaseExceptionGroup, ctx = "exception_group", impl)]
-    #[derive(Debug)]
-    pub struct PyExceptionGroup {}
 
     #[pyexception(name, base = PyBaseException, ctx = "generator_exit", impl)]
     #[derive(Debug)]
