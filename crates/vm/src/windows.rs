@@ -515,8 +515,11 @@ fn win32_xstat_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatStruct>
             {
                 let mut result =
                     crate::common::fileutils::windows::stat_basic_info_to_stat(&stat_info);
-                result.update_st_mode_from_path(path, stat_info.FileAttributes);
-                return Ok(result);
+                // If st_ino is 0, fall through to slow path to get proper file ID
+                if result.st_ino != 0 || result.st_ino_high != 0 {
+                    result.update_st_mode_from_path(path, stat_info.FileAttributes);
+                    return Ok(result);
+                }
             }
         }
         Err(e) => {

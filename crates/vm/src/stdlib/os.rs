@@ -510,7 +510,9 @@ pub(super) mod _os {
         lstat: OnceCell<PyObjectRef>,
         #[cfg(unix)]
         ino: AtomicCell<u64>,
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        ino: AtomicCell<Option<u128>>,
+        #[cfg(not(any(unix, windows)))]
         ino: AtomicCell<Option<u64>>,
     }
 
@@ -608,9 +610,9 @@ pub(super) mod _os {
             Ok(stat.clone())
         }
 
-        #[cfg(not(unix))]
+        #[cfg(windows)]
         #[pymethod]
-        fn inode(&self, vm: &VirtualMachine) -> PyResult<u64> {
+        fn inode(&self, vm: &VirtualMachine) -> PyResult<u128> {
             match self.ino.load() {
                 Some(ino) => Ok(ino),
                 None => {
@@ -625,9 +627,14 @@ pub(super) mod _os {
                     )
                     .map_err(|e| e.into_pyexception(vm))?
                     .ok_or_else(|| crate::exceptions::cstring_error(vm))?;
+                    // On Windows, combine st_ino and st_ino_high into 128-bit value
+                    #[cfg(windows)]
+                    let ino: u128 = stat.st_ino as u128 | ((stat.st_ino_high as u128) << 64);
+                    #[cfg(not(windows))]
+                    let ino: u128 = stat.st_ino as u128;
                     // Err(T) means other thread set `ino` at the mean time which is safe to ignore
-                    let _ = self.ino.compare_exchange(None, Some(stat.st_ino));
-                    Ok(stat.st_ino)
+                    let _ = self.ino.compare_exchange(None, Some(ino));
+                    Ok(ino)
                 }
             }
         }
@@ -635,6 +642,12 @@ pub(super) mod _os {
         #[cfg(unix)]
         #[pymethod]
         fn inode(&self, _vm: &VirtualMachine) -> PyResult<u64> {
+            Ok(self.ino.load())
+        }
+
+        #[cfg(not(any(unix, windows)))]
+        #[pymethod]
+        fn inode(&self, _vm: &VirtualMachine) -> PyResult<Option<u64>> {
             Ok(self.ino.load())
         }
 
@@ -737,6 +750,12 @@ pub(super) mod _os {
                                 use std::os::unix::fs::DirEntryExt;
                                 entry.ino()
                             };
+                            // TODO: wasi is nightly
+                            // #[cfg(target_os = "wasi")]
+                            // let ino = {
+                            //     use std::os::wasi::fs::DirEntryExt;
+                            //     entry.ino()
+                            // };
                             #[cfg(not(unix))]
                             let ino = None;
 
@@ -882,9 +901,16 @@ pub(super) mod _os {
             #[cfg(not(windows))]
             let st_file_attributes = 0;
 
+            // On Windows, combine st_ino and st_ino_high into a 128-bit value
+            // like _pystat_l128_from_l64_l64
+            #[cfg(windows)]
+            let st_ino: u128 = stat.st_ino as u128 | ((stat.st_ino_high as u128) << 64);
+            #[cfg(not(windows))]
+            let st_ino = stat.st_ino;
+
             Self {
                 st_mode: vm.ctx.new_pyref(stat.st_mode),
-                st_ino: vm.ctx.new_pyref(stat.st_ino),
+                st_ino: vm.ctx.new_pyref(st_ino),
                 st_dev: vm.ctx.new_pyref(stat.st_dev),
                 st_nlink: vm.ctx.new_pyref(stat.st_nlink),
                 st_uid: vm.ctx.new_pyref(stat.st_uid),
