@@ -25,6 +25,7 @@ use rustls::server::ServerConnection;
 use rustls::sign::CertifiedKey;
 use rustpython_vm::builtins::PyBaseExceptionRef;
 use rustpython_vm::function::ArgBytesLike;
+use rustpython_vm::convert::IntoPyException;
 use rustpython_vm::{AsObject, PyObjectRef, PyPayload, PyResult, TryFromObject};
 use std::io::Read;
 use std::sync::{Arc, Once};
@@ -558,7 +559,7 @@ impl SslError {
                 // Use the proper cert verification error creator
                 create_ssl_cert_verification_error(vm, &cert_err).expect("unlikely to happen")
             }
-            SslError::Io(err) => vm.new_os_error(format!("I/O error: {err}")),
+            SslError::Io(err) => err.into_pyexception(vm),
             SslError::SniCallbackRestart => {
                 // This should be handled at PySSLSocket level
                 unreachable!("SniCallbackRestart should not reach Python layer")
