@@ -160,7 +160,7 @@ mod resource {
         let rlimit = unsafe {
             let mut rlimit = mem::MaybeUninit::<libc::rlimit>::uninit();
             if libc::getrlimit(resource as _, rlimit.as_mut_ptr()) == -1 {
-                return Err(os::errno_err(vm));
+                return Err(vm.new_last_errno_error());
             }
             rlimit.assume_init()
         };

@@ -296,7 +296,7 @@ pub(crate) mod _signal {
         signal::assert_in_range(signum, vm)?;
         let res = unsafe { siginterrupt(signum, flag) };
         if res < 0 {
-            Err(crate::stdlib::os::errno_err(vm))
+            Err(vm.new_last_errno_error())
         } else {
             Ok(())
         }

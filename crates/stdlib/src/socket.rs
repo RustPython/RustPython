@@ -2158,7 +2158,7 @@ mod _socket {
         let mut buf = [0; c::IF_NAMESIZE + 1];
         let ret = unsafe { c::if_indextoname(index, buf.as_mut_ptr()) };
         if ret.is_null() {
-            Err(crate::vm::stdlib::os::errno_err(vm))
+            Err(vm.new_last_errno_error())
         } else {
             let buf = unsafe { ffi::CStr::from_ptr(buf.as_ptr() as _) };
             Ok(buf.to_string_lossy().into_owned())

@@ -3991,8 +3991,7 @@ mod _io {
         // check file descriptor validity
         #[cfg(unix)]
         if let Ok(crate::ospath::OsPathOrFd::Fd(fd)) = file.clone().try_into_value(vm) {
-            nix::fcntl::fcntl(fd, nix::fcntl::F_GETFD)
-                .map_err(|_| crate::stdlib::os::errno_err(vm))?;
+            nix::fcntl::fcntl(fd, nix::fcntl::F_GETFD).map_err(|_| vm.new_last_errno_error())?;
         }
 
         // Construct a FileIO (subclass of RawIOBase)

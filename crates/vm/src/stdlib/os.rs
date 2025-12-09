@@ -2,7 +2,7 @@
 
 use crate::{
     AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyBaseExceptionRef, PyModule, PySet},
+    builtins::{PyModule, PySet},
     common::crt_fd,
     convert::{IntoPyException, ToPyException, ToPyObject},
     function::{ArgumentError, FromArgs, FuncArgs},
@@ -22,22 +22,16 @@ pub(crate) fn fs_metadata<P: AsRef<Path>>(
 
 #[cfg(unix)]
 impl crate::convert::IntoPyException for nix::Error {
-    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+    fn into_pyexception(self, vm: &VirtualMachine) -> crate::builtins::PyBaseExceptionRef {
         io::Error::from(self).into_pyexception(vm)
     }
 }
 
 #[cfg(unix)]
 impl crate::convert::IntoPyException for rustix::io::Errno {
-    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+    fn into_pyexception(self, vm: &VirtualMachine) -> crate::builtins::PyBaseExceptionRef {
         io::Error::from(self).into_pyexception(vm)
     }
-}
-
-/// Convert the error stored in the `errno` variable into an Exception
-#[inline]
-pub fn errno_err(vm: &VirtualMachine) -> PyBaseExceptionRef {
-    crate::common::os::errno_io_error().to_pyexception(vm)
 }
 
 #[allow(dead_code)]
@@ -1484,7 +1478,7 @@ pub(super) mod _os {
             )
         };
 
-        usize::try_from(ret).map_err(|_| errno_err(vm))
+        usize::try_from(ret).map_err(|_| vm.new_last_errno_error())
     }
 
     #[pyfunction]
