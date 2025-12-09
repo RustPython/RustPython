@@ -1016,7 +1016,6 @@ class ProcessTestCase(BaseTestCase):
         self.assertEqual(stdout, None)
         self.assertEqual(stderr, None)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_communicate_pipe_buf(self):
         # communicate() with writes larger than pipe_buf
         # This test will probably deadlock rather than fail, if
@@ -3564,8 +3563,6 @@ class Win32ProcessTestCase(BaseTestCase):
                               close_fds=True)
         self.assertEqual(rc, 47)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_close_fds_with_stdio(self):
         import msvcrt
 
