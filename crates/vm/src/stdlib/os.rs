@@ -508,10 +508,12 @@ pub(super) mod _os {
         mode: OutputMode,
         stat: OnceCell<PyObjectRef>,
         lstat: OnceCell<PyObjectRef>,
-        #[cfg(not(windows))]
+        #[cfg(unix)]
         ino: AtomicCell<u64>,
         #[cfg(windows)]
         ino: AtomicCell<Option<u128>>,
+        #[cfg(not(any(unix, windows)))]
+        ino: AtomicCell<Option<u64>>,
     }
 
     #[pyclass(with(Representable, Unconstructible))]
@@ -637,9 +639,15 @@ pub(super) mod _os {
             }
         }
 
-        #[cfg(not(windows))]
+        #[cfg(unix)]
         #[pymethod]
         fn inode(&self, _vm: &VirtualMachine) -> PyResult<u64> {
+            Ok(self.ino.load())
+        }
+
+        #[cfg(not(any(unix, windows)))]
+        #[pymethod]
+        fn inode(&self, _vm: &VirtualMachine) -> PyResult<Option<u64>> {
             Ok(self.ino.load())
         }
 
@@ -737,12 +745,18 @@ pub(super) mod _os {
                 Some(inner) => match inner.next() {
                     Some(entry) => match entry {
                         Ok(entry) => {
-                            #[cfg(not(windows))]
+                            #[cfg(unix)]
                             let ino = {
                                 use std::os::unix::fs::DirEntryExt;
                                 entry.ino()
                             };
-                            #[cfg(windows)]
+                            // TODO: wasi is nightly
+                            // #[cfg(target_os = "wasi")]
+                            // let ino = {
+                            //     use std::os::wasi::fs::DirEntryExt;
+                            //     entry.ino()
+                            // };
+                            #[cfg(not(unix))]
                             let ino = None;
 
                             let pathval = entry.path();
