@@ -4166,14 +4166,15 @@ mod _io {
 mod fileio {
     use super::{_io::*, Offset};
     use crate::{
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        VirtualMachine,
         builtins::{PyBaseExceptionRef, PyUtf8Str, PyUtf8StrRef},
         common::crt_fd,
         convert::{IntoPyException, ToPyException},
         function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg, OptionalOption},
         ospath::{IOErrorBuilder, OsPath, OsPathOrFd},
         stdlib::os,
-        types::{Constructor, DefaultConstructor, Initializer, Representable},
+        types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
     };
     use crossbeam_utils::atomic::AtomicCell;
     use std::io::{Read, Write};
@@ -4433,7 +4434,7 @@ mod fileio {
     }
 
     #[pyclass(
-        with(Constructor, Initializer, Representable),
+        with(Constructor, Initializer, Representable, Destructor),
         flags(BASETYPE, HAS_DICT)
     )]
     impl FileIO {
@@ -4647,6 +4648,18 @@ mod fileio {
         #[pymethod]
         fn __reduce__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name())))
+        }
+    }
+
+    impl Destructor for FileIO {
+        fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+            let _ = vm.call_method(zelf, "close", ());
+            Ok(())
+        }
+
+        #[cold]
+        fn del(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_del is implemented")
         }
     }
 }
