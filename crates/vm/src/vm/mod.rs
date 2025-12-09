@@ -394,9 +394,6 @@ impl VirtualMachine {
             );
         }
 
-        // ExceptionGroup is now implemented natively in Rust (exceptions.rs)
-        // No Python fallback needed
-
         self.initialized = true;
     }
 
