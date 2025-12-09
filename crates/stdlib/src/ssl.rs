@@ -3323,9 +3323,6 @@ mod _ssl {
                 ));
             }
 
-            // Check for deferred certificate verification errors (TLS 1.3)
-            self.check_deferred_cert_error(vm)?;
-
             // Helper function to handle return value based on buffer presence
             let return_data = |data: Vec<u8>,
                                buffer_arg: &OptionalArg<ArgMemoryBuffer>,
@@ -3361,6 +3358,11 @@ mod _ssl {
 
             match crate::ssl::compat::ssl_read(conn, &mut buf, self, vm) {
                 Ok(n) => {
+                    // Drop connection guard before checking deferred error
+                    drop(conn_guard);
+                    // Check for deferred certificate verification errors (TLS 1.3)
+                    // Must be checked AFTER ssl_read, as the error is set during I/O
+                    self.check_deferred_cert_error(vm)?;
                     buf.truncate(n);
                     return_data(buf, &buffer, vm)
                 }
@@ -3445,9 +3447,6 @@ mod _ssl {
                 ));
             }
 
-            // Check for deferred certificate verification errors (TLS 1.3)
-            self.check_deferred_cert_error(vm)?;
-
             let mut conn_guard = self.connection.lock();
             let conn = conn_guard
                 .as_mut()
@@ -3508,6 +3507,12 @@ mod _ssl {
                     }
                 }
             }
+
+            // Drop connection guard before checking deferred error
+            drop(conn_guard);
+            // Check for deferred certificate verification errors (TLS 1.3)
+            // Must be checked AFTER write completes, as the error may be set during I/O
+            self.check_deferred_cert_error(vm)?;
 
             Ok(data_len)
         }

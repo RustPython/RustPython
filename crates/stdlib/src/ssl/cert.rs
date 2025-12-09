@@ -1067,15 +1067,16 @@ impl ClientCertVerifier for DeferredClientCertVerifier {
             .inner
             .verify_client_cert(end_entity, intermediates, now);
 
-        // If verification failed, store the error for later
-        if result.is_err() {
-            let error_msg = "TLS handshake failed: received fatal alert: UnknownCA".to_string();
+        // If verification failed, store the error for the server's Python code
+        // AND return the error so rustls sends the appropriate TLS alert
+        if let Err(ref e) = result {
+            let error_msg = format!("certificate verify failed: {e}");
             *self.deferred_error.write() = Some(error_msg);
+            // Return the error to rustls so it sends the alert to the client
+            return result;
         }
 
-        // Always return success to allow handshake to complete
-        // The error will be raised during the first I/O operation
-        Ok(ClientCertVerified::assertion())
+        result
     }
 
     fn verify_tls12_signature(
