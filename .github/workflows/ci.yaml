@@ -22,7 +22,7 @@ env:
   # test_glob: many failing tests
   # test_io: many failing tests
   # test_os: many failing tests
-  # test_pathlib: support.rmtree() failing
+  # test_pathlib: panic by surrogate chars
   # test_posixpath: OSError: (22, 'The filename, directory name, or volume label syntax is incorrect. (os error 123)')
   # test_venv: couple of failing tests
   WINDOWS_SKIPS: >-
