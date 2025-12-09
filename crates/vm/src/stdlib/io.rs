@@ -1753,10 +1753,22 @@ mod _io {
     }
 
     #[pyclass(
-        with(Constructor, BufferedMixin, BufferedReadable),
+        with(Constructor, BufferedMixin, BufferedReadable, Destructor),
         flags(BASETYPE, HAS_DICT)
     )]
     impl BufferedReader {}
+
+    impl Destructor for BufferedReader {
+        fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+            let _ = vm.call_method(zelf, "close", ());
+            Ok(())
+        }
+
+        #[cold]
+        fn del(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_del is implemented")
+        }
+    }
 
     impl DefaultConstructor for BufferedReader {}
 
@@ -1810,10 +1822,22 @@ mod _io {
     }
 
     #[pyclass(
-        with(Constructor, BufferedMixin, BufferedWritable),
+        with(Constructor, BufferedMixin, BufferedWritable, Destructor),
         flags(BASETYPE, HAS_DICT)
     )]
     impl BufferedWriter {}
+
+    impl Destructor for BufferedWriter {
+        fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+            let _ = vm.call_method(zelf, "close", ());
+            Ok(())
+        }
+
+        #[cold]
+        fn del(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_del is implemented")
+        }
+    }
 
     impl DefaultConstructor for BufferedWriter {}
 
@@ -1852,10 +1876,28 @@ mod _io {
     }
 
     #[pyclass(
-        with(Constructor, BufferedMixin, BufferedReadable, BufferedWritable),
+        with(
+            Constructor,
+            BufferedMixin,
+            BufferedReadable,
+            BufferedWritable,
+            Destructor
+        ),
         flags(BASETYPE, HAS_DICT)
     )]
     impl BufferedRandom {}
+
+    impl Destructor for BufferedRandom {
+        fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+            let _ = vm.call_method(zelf, "close", ());
+            Ok(())
+        }
+
+        #[cold]
+        fn del(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_del is implemented")
+        }
+    }
 
     impl DefaultConstructor for BufferedRandom {}
 
@@ -1900,7 +1942,13 @@ mod _io {
     }
 
     #[pyclass(
-        with(Constructor, Initializer, BufferedReadable, BufferedWritable),
+        with(
+            Constructor,
+            Initializer,
+            BufferedReadable,
+            BufferedWritable,
+            Destructor
+        ),
         flags(BASETYPE, HAS_DICT)
     )]
     impl BufferedRWPair {
@@ -1939,6 +1987,18 @@ mod _io {
             let write_res = self.write.close_strict(vm).map(drop);
             let read_res = self.read.close_strict(vm);
             exception_chain(write_res, read_res)
+        }
+    }
+
+    impl Destructor for BufferedRWPair {
+        fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+            let _ = vm.call_method(zelf, "close", ());
+            Ok(())
+        }
+
+        #[cold]
+        fn del(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_del is implemented")
         }
     }
 
@@ -2413,7 +2473,7 @@ mod _io {
         vm.call_method(&textio.buffer, "flush", ())
     }
 
-    #[pyclass(with(Constructor, Initializer), flags(BASETYPE))]
+    #[pyclass(with(Constructor, Initializer, Destructor), flags(BASETYPE))]
     impl TextIOWrapper {
         #[pymethod]
         fn reconfigure(&self, args: TextIOWrapperArgs, vm: &VirtualMachine) -> PyResult<()> {
@@ -3273,6 +3333,18 @@ mod _io {
                 s.push_wtf8(append.as_wtf8())
             }
             PyStr::from(s).into_ref(&vm.ctx)
+        }
+    }
+
+    impl Destructor for TextIOWrapper {
+        fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+            let _ = vm.call_method(zelf, "close", ());
+            Ok(())
+        }
+
+        #[cold]
+        fn del(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_del is implemented")
         }
     }
 
