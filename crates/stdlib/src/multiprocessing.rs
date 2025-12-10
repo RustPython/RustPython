@@ -9,7 +9,7 @@ mod _multiprocessing {
     #[pyfunction]
     fn closesocket(socket: usize, vm: &VirtualMachine) -> PyResult<()> {
         let res = unsafe { WinSock::closesocket(socket as SOCKET) };
-        if res == 0 {
+        if res != 0 {
             Err(vm.new_last_os_error())
         } else {
             Ok(())

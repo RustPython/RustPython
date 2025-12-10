@@ -2143,10 +2143,11 @@ mod _socket {
     #[pyfunction]
     fn if_nametoindex(name: FsPath, vm: &VirtualMachine) -> PyResult<IfIndex> {
         let name = name.to_cstring(vm)?;
-
+        // in case 'if_nametoindex' does not set errno
+        crate::common::os::set_errno(libc::ENODEV);
         let ret = unsafe { c::if_nametoindex(name.as_ptr() as _) };
         if ret == 0 {
-            Err(vm.new_os_error("no interface with this name".to_owned()))
+            Err(vm.new_last_errno_error())
         } else {
             Ok(ret)
         }
@@ -2156,6 +2157,8 @@ mod _socket {
     #[pyfunction]
     fn if_indextoname(index: IfIndex, vm: &VirtualMachine) -> PyResult<String> {
         let mut buf = [0; c::IF_NAMESIZE + 1];
+        // in case 'if_indextoname' does not set errno
+        crate::common::os::set_errno(libc::ENXIO);
         let ret = unsafe { c::if_indextoname(index, buf.as_mut_ptr()) };
         if ret.is_null() {
             Err(vm.new_last_errno_error())

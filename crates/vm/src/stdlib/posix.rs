@@ -2337,8 +2337,9 @@ pub mod module {
 
     #[pyfunction]
     fn sysconf(name: SysconfName, vm: &VirtualMachine) -> PyResult<libc::c_long> {
+        crate::common::os::set_errno(0);
         let r = unsafe { libc::sysconf(name.0) };
-        if r == -1 {
+        if r == -1 && crate::common::os::get_errno() != 0 {
             return Err(vm.new_last_errno_error());
         }
         Ok(r)

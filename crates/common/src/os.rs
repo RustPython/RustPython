@@ -48,6 +48,20 @@ pub fn get_errno() -> i32 {
     std::io::Error::last_os_error().posix_errno()
 }
 
+/// Set errno to the specified value.
+#[cfg(windows)]
+pub fn set_errno(value: i32) {
+    unsafe extern "C" {
+        fn _set_errno(value: i32) -> i32;
+    }
+    unsafe { suppress_iph!(_set_errno(value)) };
+}
+
+#[cfg(unix)]
+pub fn set_errno(value: i32) {
+    nix::errno::Errno::from_raw(value).set();
+}
+
 #[cfg(unix)]
 pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
     use std::os::unix::ffi::OsStrExt;
