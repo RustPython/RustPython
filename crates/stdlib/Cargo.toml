@@ -156,7 +156,7 @@ features = [
 ]
 
 [target.'cfg(target_os = "macos")'.dependencies]
-system-configuration = "0.6.1"
+system-configuration = "0.7.0"
 
 [lints]
 workspace = true
