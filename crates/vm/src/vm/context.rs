@@ -507,14 +507,15 @@ impl Context {
         attrs.insert(identifier!(self, __module__), self.new_str(module).into());
 
         let interned_name = self.intern_str(name);
+        let mut slots = PyBaseException::make_slots();
+        slots.name = interned_name.as_str();
+        slots.basicsize = 0; // Inherit from base class
+        slots.new.store(None); // Inherit __new__ from base class via MRO lookup
         PyType::new_heap(
             name,
             bases,
             attrs,
-            PyTypeSlots {
-                name: interned_name.as_str(),
-                ..PyBaseException::make_slots()
-            },
+            slots,
             self.types.type_type.to_owned(),
             self,
         )
