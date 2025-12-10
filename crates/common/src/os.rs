@@ -19,30 +19,22 @@ impl ErrorExt for io::Error {
     }
 }
 
+/// Get the last error from C runtime library functions (like _dup, _dup2, _fstat, etc.)
+/// CRT functions set errno, not GetLastError(), so we need to read errno directly.
 #[cfg(windows)]
-pub fn last_os_error() -> io::Error {
-    let err = io::Error::last_os_error();
-    // FIXME: probably not ideal, we need a bigger dichotomy between GetLastError and errno
-    if err.raw_os_error() == Some(0) {
-        unsafe extern "C" {
-            fn _get_errno(pValue: *mut i32) -> i32;
-        }
-        let mut errno = 0;
-        unsafe { suppress_iph!(_get_errno(&mut errno)) };
-        let errno = errno_to_winerror(errno);
-        io::Error::from_raw_os_error(errno)
-    } else {
-        err
-    }
+pub fn errno_io_error() -> io::Error {
+    let errno: i32 = get_errno();
+    let winerror = errno_to_winerror(errno);
+    io::Error::from_raw_os_error(winerror)
 }
 
 #[cfg(not(windows))]
-pub fn last_os_error() -> io::Error {
-    io::Error::last_os_error()
+pub fn errno_io_error() -> io::Error {
+    std::io::Error::last_os_error()
 }
 
 #[cfg(windows)]
-pub fn last_posix_errno() -> i32 {
+pub fn get_errno() -> i32 {
     unsafe extern "C" {
         fn _get_errno(pValue: *mut i32) -> i32;
     }
@@ -52,8 +44,8 @@ pub fn last_posix_errno() -> i32 {
 }
 
 #[cfg(not(windows))]
-pub fn last_posix_errno() -> i32 {
-    last_os_error().posix_errno()
+pub fn get_errno() -> i32 {
+    std::io::Error::last_os_error().posix_errno()
 }
 
 #[cfg(unix)]

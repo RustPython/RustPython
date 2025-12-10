@@ -9,7 +9,6 @@ mod msvcrt {
         builtins::{PyBytes, PyStrRef},
         common::{crt_fd, suppress_iph},
         convert::IntoPyException,
-        stdlib::os::errno_err,
     };
     use itertools::Itertools;
     use std::os::windows::io::AsRawHandle;
@@ -82,7 +81,7 @@ mod msvcrt {
     fn setmode(fd: crt_fd::Borrowed<'_>, flags: i32, vm: &VirtualMachine) -> PyResult<i32> {
         let flags = unsafe { suppress_iph!(_setmode(fd, flags)) };
         if flags == -1 {
-            Err(errno_err(vm))
+            Err(vm.new_last_errno_error())
         } else {
             Ok(flags)
         }
@@ -92,7 +91,7 @@ mod msvcrt {
     fn open_osfhandle(handle: isize, flags: i32, vm: &VirtualMachine) -> PyResult<i32> {
         let ret = unsafe { suppress_iph!(libc::open_osfhandle(handle, flags)) };
         if ret == -1 {
-            Err(errno_err(vm))
+            Err(vm.new_last_errno_error())
         } else {
             Ok(ret)
         }

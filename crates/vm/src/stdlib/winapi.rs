@@ -11,7 +11,6 @@ mod _winapi {
         common::windows::ToWideString,
         convert::{ToPyException, ToPyResult},
         function::{ArgMapping, ArgSequence, OptionalArg},
-        stdlib::os::errno_err,
         windows::{WinHandle, WindowsSysResult},
     };
     use std::ptr::{null, null_mut};
@@ -85,7 +84,7 @@ mod _winapi {
     ) -> PyResult<Option<WinHandle>> {
         let handle = unsafe { windows_sys::Win32::System::Console::GetStdHandle(std_handle) };
         if handle == INVALID_HANDLE_VALUE {
-            return Err(errno_err(vm));
+            return Err(vm.new_last_os_error());
         }
         Ok(if handle.is_null() {
             // NULL handle - return None
@@ -162,7 +161,7 @@ mod _winapi {
     ) -> PyResult<windows_sys::Win32::Storage::FileSystem::FILE_TYPE> {
         let file_type = unsafe { windows_sys::Win32::Storage::FileSystem::GetFileType(h.0) };
         if file_type == 0 && unsafe { windows_sys::Win32::Foundation::GetLastError() } != 0 {
-            Err(errno_err(vm))
+            Err(vm.new_last_os_error())
         } else {
             Ok(file_type)
         }
@@ -305,7 +304,7 @@ mod _winapi {
             )
         };
         if handle.is_null() {
-            return Err(errno_err(vm));
+            return Err(vm.new_last_os_error());
         }
         Ok(WinHandle(handle))
     }
@@ -418,7 +417,7 @@ mod _winapi {
                     || unsafe { windows_sys::Win32::Foundation::GetLastError() }
                         != windows_sys::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER
                 {
-                    return Err(errno_err(vm));
+                    return Err(vm.new_last_os_error());
                 }
                 let mut attrlist = vec![0u8; size];
                 WindowsSysResult(unsafe {
@@ -457,7 +456,7 @@ mod _winapi {
     fn WaitForSingleObject(h: WinHandle, ms: u32, vm: &VirtualMachine) -> PyResult<u32> {
         let ret = unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(h.0, ms) };
         if ret == windows_sys::Win32::Foundation::WAIT_FAILED {
-            Err(errno_err(vm))
+            Err(vm.new_last_os_error())
         } else {
             Ok(ret)
         }
@@ -530,7 +529,7 @@ mod _winapi {
             )
         };
         if handle == INVALID_HANDLE_VALUE {
-            return Err(errno_err(vm));
+            return Err(vm.new_last_os_error());
         }
         Ok(handle as _)
     }

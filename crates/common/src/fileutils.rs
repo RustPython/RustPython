@@ -13,7 +13,7 @@ pub fn fstat(fd: crate::crt_fd::Borrowed<'_>) -> std::io::Result<StatStruct> {
     unsafe {
         let ret = libc::fstat(fd.as_raw(), stat.as_mut_ptr());
         if ret == -1 {
-            Err(crate::os::last_os_error())
+            Err(crate::os::errno_io_error())
         } else {
             Ok(stat.assume_init())
         }

@@ -1547,7 +1547,7 @@ mod _socket {
                     )
                 };
                 if ret < 0 {
-                    return Err(crate::common::os::last_os_error().into());
+                    return Err(crate::common::os::errno_io_error().into());
                 }
                 Ok(vm.ctx.new_int(flag).into())
             } else {
@@ -1568,7 +1568,7 @@ mod _socket {
                     )
                 };
                 if ret < 0 {
-                    return Err(crate::common::os::last_os_error().into());
+                    return Err(crate::common::os::errno_io_error().into());
                 }
                 buf.truncate(buflen as usize);
                 Ok(vm.ctx.new_bytes(buf).into())
@@ -1609,7 +1609,7 @@ mod _socket {
                 }
             };
             if ret < 0 {
-                Err(crate::common::os::last_os_error().into())
+                Err(crate::common::os::errno_io_error().into())
             } else {
                 Ok(())
             }
@@ -2158,7 +2158,7 @@ mod _socket {
         let mut buf = [0; c::IF_NAMESIZE + 1];
         let ret = unsafe { c::if_indextoname(index, buf.as_mut_ptr()) };
         if ret.is_null() {
-            Err(crate::vm::stdlib::os::errno_err(vm))
+            Err(vm.new_last_errno_error())
         } else {
             let buf = unsafe { ffi::CStr::from_ptr(buf.as_ptr() as _) };
             Ok(buf.to_string_lossy().into_owned())
@@ -2488,7 +2488,7 @@ mod _socket {
         use windows_sys::Win32::Networking::WinSock::closesocket as close;
         let ret = unsafe { close(x as _) };
         if ret < 0 {
-            let err = crate::common::os::last_os_error();
+            let err = std::io::Error::last_os_error();
             if err.raw_os_error() != Some(errcode!(ECONNRESET)) {
                 return Err(err);
             }

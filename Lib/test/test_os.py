@@ -2428,12 +2428,10 @@ class TestInvalidFD(unittest.TestCase):
         self.check(os.ftruncate, 0)
         self.check_bool(os.truncate, 0)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; (OSError: [Errno 18] There are no more files.)')
     @unittest.skipUnless(hasattr(os, 'lseek'), 'test needs os.lseek()')
     def test_lseek(self):
         self.check(os.lseek, 0, 0)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; (OSError: [Errno 18] There are no more files.)')
     @unittest.skipUnless(hasattr(os, 'read'), 'test needs os.read()')
     def test_read(self):
         self.check(os.read, 1)
@@ -2447,7 +2445,6 @@ class TestInvalidFD(unittest.TestCase):
     def test_tcsetpgrpt(self):
         self.check(os.tcsetpgrp, 0)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; (OSError: [Errno 18] There are no more files.)')
     @unittest.skipUnless(hasattr(os, 'write'), 'test needs os.write()')
     def test_write(self):
         self.check(os.write, b" ")
@@ -2456,7 +2453,6 @@ class TestInvalidFD(unittest.TestCase):
     def test_writev(self):
         self.check(os.writev, [b'abc'])
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; os.get_inheritable not implemented yet for all platforms')
     @support.requires_subprocess()
     def test_inheritable(self):
         self.check(os.get_inheritable)
