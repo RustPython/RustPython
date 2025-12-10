@@ -194,6 +194,15 @@ def find_doc_entries() -> "Iterable[DocEntry]":
         type(str().__iter__()),
         type(tuple().__iter__()),
     ]
+
+    # Add types from the types module (e.g., ModuleType, FunctionType, etc.)
+    for name in dir(types):
+        if name.startswith("_"):
+            continue
+        obj = getattr(types, name)
+        if isinstance(obj, type):
+            builtin_types.append(obj)
+
     for typ in builtin_types:
         parts = ("builtins", typ.__name__)
         yield DocEntry(parts, pydoc._getowndoc(typ))
@@ -204,7 +213,7 @@ def main():
     docs = {
         entry.key: entry.doc
         for entry in find_doc_entries()
-        if entry.raw_doc is not None
+        if entry.raw_doc is not None and isinstance(entry.raw_doc, str)
     }
     dumped = json.dumps(docs, sort_keys=True, indent=4)
     OUTPUT_FILE.write_text(dumped)
