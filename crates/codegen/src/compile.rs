@@ -2679,10 +2679,12 @@ impl Compiler {
         let qualname_name = self.name("__qualname__");
         emit!(self, Instruction::StoreLocal(qualname_name));
 
-        // Store __doc__
-        self.load_docstring(doc_str);
-        let doc = self.name("__doc__");
-        emit!(self, Instruction::StoreLocal(doc));
+        // Store __doc__ only if there's an explicit docstring
+        if let Some(doc) = doc_str {
+            self.emit_load_const(ConstantData::Str { value: doc.into() });
+            let doc_name = self.name("__doc__");
+            emit!(self, Instruction::StoreLocal(doc_name));
+        }
 
         // Store __firstlineno__ (new in Python 3.12+)
         self.emit_load_const(ConstantData::Integer {
@@ -2874,17 +2876,6 @@ impl Compiler {
         // Step 4: Apply decorators and store (common to both paths)
         self.apply_decorators(decorator_list);
         self.store_name(name)
-    }
-
-    fn load_docstring(&mut self, doc_str: Option<String>) {
-        // TODO: __doc__ must be default None and no bytecode unless it is Some
-        // Duplicate top of stack (the function or class object)
-
-        // Doc string value:
-        self.emit_load_const(match doc_str {
-            Some(doc) => ConstantData::Str { value: doc.into() },
-            None => ConstantData::None, // set docstring None if not declared
-        });
     }
 
     fn compile_while(&mut self, test: &Expr, body: &[Stmt], orelse: &[Stmt]) -> CompileResult<()> {
