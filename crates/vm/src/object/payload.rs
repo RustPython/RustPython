@@ -25,7 +25,12 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     /// # Safety: this function should only be called if `payload_type_id` matches the type of `obj`.
     #[inline]
     fn downcastable_from(obj: &PyObject) -> bool {
-        obj.typeid() == Self::payload_type_id()
+        obj.typeid() == Self::payload_type_id() && Self::validate_downcastable_from(obj)
+    }
+
+    #[inline]
+    fn validate_downcastable_from(_obj: &PyObject) -> bool {
+        true
     }
 
     fn try_downcast_from(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
