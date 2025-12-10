@@ -1,9 +1,9 @@
 use crate::{
     PyResult, VirtualMachine,
     builtins::{
-        PyBaseException, PyByteArray, PyBytes, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat,
-        PyFrozenSet, PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr,
-        PyStrInterned, PyTuple, PyTupleRef, PyType, PyTypeRef,
+        PyByteArray, PyBytes, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat, PyFrozenSet,
+        PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyStrInterned,
+        PyTuple, PyTupleRef, PyType, PyTypeRef,
         bool_::PyBool,
         code::{self, PyCode},
         descriptor::{
@@ -14,7 +14,7 @@ use crate::{
         object, pystr,
         type_::PyAttributes,
     },
-    class::{PyClassImpl, StaticType},
+    class::StaticType,
     common::rc::PyRc,
     exceptions,
     function::{
@@ -508,14 +508,17 @@ impl Context {
         attrs.insert(identifier!(self, __module__), self.new_str(module).into());
 
         let interned_name = self.intern_str(name);
+        let slots = PyTypeSlots {
+            name: interned_name.as_str(),
+            basicsize: 0,
+            flags: PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT,
+            ..PyTypeSlots::default()
+        };
         PyType::new_heap(
             name,
             bases,
             attrs,
-            PyTypeSlots {
-                name: interned_name.as_str(),
-                ..PyBaseException::make_slots()
-            },
+            slots,
             self.types.type_type.to_owned(),
             self,
         )

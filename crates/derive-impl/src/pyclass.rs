@@ -339,7 +339,6 @@ fn generate_class_def(
     } else {
         quote!(false)
     };
-    let basicsize = quote!(std::mem::size_of::<#ident>());
     let is_pystruct = attrs.iter().any(|attr| {
         attr.path().is_ident("derive")
             && if let Ok(Meta::List(l)) = attr.parse_meta() {
@@ -362,6 +361,13 @@ fn generate_class_def(
                 false
             }
     });
+    // If repr(transparent) with a base, the type has the same memory layout as base,
+    // so basicsize should be 0 (no additional space beyond the base type)
+    let basicsize = if is_repr_transparent && base.is_some() {
+        quote!(0)
+    } else {
+        quote!(std::mem::size_of::<#ident>())
+    };
     if base.is_some() && is_pystruct {
         bail_span!(ident, "PyStructSequence cannot have `base` class attr",);
     }
