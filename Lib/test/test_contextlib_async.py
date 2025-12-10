@@ -27,8 +27,6 @@ class TestAbstractAsyncContextManager(unittest.IsolatedAsyncioTestCase):
         async with manager as context:
             self.assertIs(manager, context)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     async def test_slots(self):
         class DefaultAsyncContextManager(AbstractAsyncContextManager):
             __slots__ = ()

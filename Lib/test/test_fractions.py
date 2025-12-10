@@ -1137,8 +1137,6 @@ class FractionTest(unittest.TestCase):
         self.assertTypedEquals(dr, copy(dr))
         self.assertTypedEquals(dr, deepcopy(dr))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_slots(self):
         # Issue 4998
         r = F(13, 7)

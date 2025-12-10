@@ -1,6 +1,6 @@
 // spell-checker:ignore typevarobject funcobj
 use crate::{
-    AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyTupleRef, PyTypeRef, pystr::AsPyStr},
     common::lock::PyMutex,
     function::{FuncArgs, IntoFuncArgs, PyComparisonValue},
@@ -972,6 +972,11 @@ pub struct Generic {}
 
 #[pyclass(flags(BASETYPE))]
 impl Generic {
+    #[pyattr]
+    fn __slots__(ctx: &Context) -> PyTupleRef {
+        ctx.empty_tuple.clone()
+    }
+
     #[pyclassmethod]
     fn __class_getitem__(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         call_typing_args_kwargs("_generic_class_getitem", cls, args, vm)

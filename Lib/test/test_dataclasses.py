@@ -2776,8 +2776,6 @@ class TestFrozen(unittest.TestCase):
 
 
 class TestSlots(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_simple(self):
         @dataclass
         class C:
@@ -2819,8 +2817,6 @@ class TestSlots(unittest.TestCase):
         # We can add a new field to the derived instance.
         d.z = 10
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_generated_slots(self):
         @dataclass(slots=True)
         class C:

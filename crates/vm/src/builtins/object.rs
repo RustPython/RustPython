@@ -66,10 +66,16 @@ impl Constructor for PyBaseObject {
         }
 
         // more or less __new__ operator
-        let dict = if cls.is(vm.ctx.types.object_type) {
-            None
-        } else {
+        // Only create dict if the class has HAS_DICT flag (i.e., __slots__ was not defined
+        // or __dict__ is in __slots__)
+        let dict = if cls
+            .slots
+            .flags
+            .has_feature(crate::types::PyTypeFlags::HAS_DICT)
+        {
             Some(vm.ctx.new_dict())
+        } else {
+            None
         };
 
         // Ensure that all abstract methods are implemented before instantiating instance.

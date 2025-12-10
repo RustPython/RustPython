@@ -307,7 +307,12 @@ impl PyType {
     ) -> Result<PyRef<Self>, String> {
         let mro = Self::resolve_mro(&bases)?;
 
-        if base.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
+        // Inherit HAS_DICT from any base in MRO that has it
+        // (not just the first base, as any base with __dict__ means subclass needs it too)
+        if mro
+            .iter()
+            .any(|b| b.slots.flags.has_feature(PyTypeFlags::HAS_DICT))
+        {
             slots.flags |= PyTypeFlags::HAS_DICT
         }
 
@@ -1180,25 +1185,27 @@ impl Constructor for PyType {
 
         if let Some(ref slots) = heaptype_slots {
             let mut offset = base_member_count;
+            let class_name = typ.name().to_string();
             for member in slots.as_slice() {
+                // Apply name mangling for private attributes (__x -> _ClassName__x)
+                let mangled_name = mangle_name(&class_name, member.as_str());
                 let member_def = PyMemberDef {
-                    name: member.to_string(),
+                    name: mangled_name.clone(),
                     kind: MemberKind::ObjectEx,
                     getter: MemberGetter::Offset(offset),
                     setter: MemberSetter::Offset(offset),
                     doc: None,
                 };
+                let attr_name = vm.ctx.intern_str(mangled_name.as_str());
                 let member_descriptor: PyRef<PyMemberDescriptor> =
                     vm.ctx.new_pyref(PyMemberDescriptor {
                         common: PyDescriptorOwned {
                             typ: typ.clone(),
-                            name: vm.ctx.intern_str(member.as_str()),
+                            name: attr_name,
                             qualname: PyRwLock::new(None),
                         },
                         member: member_def,
                     });
-
-                let attr_name = vm.ctx.intern_str(member.as_str());
                 // __slots__ attributes always get a member descriptor
                 // (this overrides any inherited attribute from MRO)
                 typ.set_attr(attr_name, member_descriptor.into());
@@ -1223,7 +1230,10 @@ impl Constructor for PyType {
         // since they inherit it from type
 
         // Add __dict__ descriptor after type creation to ensure correct __objclass__
-        if !base_is_type {
+        // Only add if:
+        // 1. base is not type (type subclasses inherit __dict__ from type)
+        // 2. the class has HAS_DICT flag (i.e., __slots__ was not defined or __dict__ is in __slots__)
+        if !base_is_type && typ.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
             let __dict__ = identifier!(vm, __dict__);
             if !typ.attributes.read().contains_key(&__dict__) {
                 unsafe {
@@ -1783,6 +1793,18 @@ fn best_base<'a>(bases: &'a [PyTypeRef], vm: &VirtualMachine) -> PyResult<&'a Py
 
     debug_assert!(base.is_some());
     Ok(base.unwrap())
+}
+
+/// Apply Python name mangling for private attributes.
+/// `__x` becomes `_ClassName__x` if inside a class.
+fn mangle_name(class_name: &str, name: &str) -> String {
+    // Only mangle names starting with __ and not ending with __
+    if !name.starts_with("__") || name.ends_with("__") || name.contains('.') {
+        return name.to_string();
+    }
+    // Strip leading underscores from class name
+    let class_name = class_name.trim_start_matches('_');
+    format!("_{}{}", class_name, name)
 }
 
 #[cfg(test)]

@@ -3278,7 +3278,6 @@ class TestCachedProperty(unittest.TestCase):
         self.assertEqual(item.get_cost(), 4)
         self.assertEqual(item.cached_cost, 3)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_object_with_slots(self):
         item = CachedCostItemWithSlots()
         with self.assertRaisesRegex(
