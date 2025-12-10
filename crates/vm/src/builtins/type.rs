@@ -1235,6 +1235,16 @@ impl Constructor for PyType {
             }
         }
 
+        // Set __doc__ to None if not already present in the type's dict
+        // This matches CPython's behavior in type_dict_set_doc (typeobject.c)
+        // which ensures every type has a __doc__ entry in its dict
+        {
+            let __doc__ = identifier!(vm, __doc__);
+            if !typ.attributes.read().contains_key(&__doc__) {
+                typ.attributes.write().insert(__doc__, vm.ctx.none());
+            }
+        }
+
         // avoid deadlock
         let attributes = typ
             .attributes
