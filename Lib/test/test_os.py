@@ -5332,7 +5332,6 @@ class TestPEP519(unittest.TestCase):
     def test_pathlike_class_getitem(self):
         self.assertIsInstance(os.PathLike[bytes], types.GenericAlias)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_pathlike_subclass_slots(self):
         class A(os.PathLike):
             __slots__ = ()

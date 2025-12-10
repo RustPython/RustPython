@@ -2923,10 +2923,6 @@ class CPythonAPItests(PythonAPItests, unittest.TestCase):
 class PyPythonAPItests(PythonAPItests, unittest.TestCase):
     decimal = P
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_complex(self): # TODO(RUSTPYTHON): Remove this test when it pass
-        return super().test_complex()
 
 class ContextAPItests:
 

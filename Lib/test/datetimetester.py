@@ -5455,8 +5455,6 @@ class Oddballs(unittest.TestCase):
         self.assertEqual(as_datetime, datetime_sc)
         self.assertEqual(datetime_sc, as_datetime)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_extra_attributes(self):
         with self.assertWarns(DeprecationWarning):
             utcnow = datetime.utcnow()

@@ -307,7 +307,12 @@ impl PyType {
     ) -> Result<PyRef<Self>, String> {
         let mro = Self::resolve_mro(&bases)?;
 
-        if base.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
+        // Inherit HAS_DICT from any base in MRO that has it
+        // (not just the first base, as any base with __dict__ means subclass needs it too)
+        if mro
+            .iter()
+            .any(|b| b.slots.flags.has_feature(PyTypeFlags::HAS_DICT))
+        {
             slots.flags |= PyTypeFlags::HAS_DICT
         }
 
@@ -1223,7 +1228,10 @@ impl Constructor for PyType {
         // since they inherit it from type
 
         // Add __dict__ descriptor after type creation to ensure correct __objclass__
-        if !base_is_type {
+        // Only add if:
+        // 1. base is not type (type subclasses inherit __dict__ from type)
+        // 2. the class has HAS_DICT flag (i.e., __slots__ was not defined or __dict__ is in __slots__)
+        if !base_is_type && typ.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
             let __dict__ = identifier!(vm, __dict__);
             if !typ.attributes.read().contains_key(&__dict__) {
                 unsafe {
