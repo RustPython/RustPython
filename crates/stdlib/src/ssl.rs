@@ -37,7 +37,7 @@ mod _ssl {
         vm::{
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
             VirtualMachine,
-            builtins::{PyBaseExceptionRef, PyBytesRef, PyListRef, PyStrRef, PyType},
+            builtins::{PyBaseExceptionRef, PyBytesRef, PyListRef, PyStrRef, PyType, PyTypeRef},
             convert::IntoPyException,
             function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, OptionalArg, PyComparisonValue},
             stdlib::warnings,
@@ -1517,9 +1517,7 @@ mod _ssl {
                 }
 
                 if *self.x509_cert_count.read() == 0 {
-                    return Err(vm.new_os_error(
-                        "Failed to load certificates from Windows store".to_owned(),
-                    ));
+                    return Err(vm.new_os_error("Failed to load certificates from Windows store"));
                 }
 
                 Ok(())

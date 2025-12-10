@@ -8,7 +8,7 @@ use crate::{
         tuple::{IntoPyTuple, PyTupleRef},
     },
     convert::{ToPyException, ToPyObject},
-    function::{FuncArgs, IntoPyNativeFn, KwArgs, PyMethodFlags},
+    function::{IntoPyNativeFn, PyMethodFlags},
     scope::Scope,
     types::Constructor,
     vm::VirtualMachine,
@@ -113,12 +113,11 @@ impl VirtualMachine {
     ) -> PyRef<PyOSError> {
         debug_assert_eq!(exc_type.slots.basicsize, std::mem::size_of::<PyOSError>());
 
-        let func_args = FuncArgs::new(args, KwArgs::<PyObjectRef>::default());
-        let payload = PyOSError::py_new(&exc_type, func_args, self)
-            .expect("new_os_subtype_error usage error");
+        let payload =
+            PyOSError::py_new(&exc_type, args.into(), self).expect("new_os_error usage error");
         payload
             .into_ref_with_type(self, exc_type)
-            .expect("new_os_subtype_error type error")
+            .expect("new_os_error usage error")
     }
 
     /// Instantiate an exception with no arguments.
