@@ -1198,11 +1198,10 @@ impl Constructor for PyType {
                         member: member_def,
                     });
 
-                let attr_name = vm.ctx.intern_str(member.to_string());
-                if !typ.has_attr(attr_name) {
-                    typ.set_attr(attr_name, member_descriptor.into());
-                }
-
+                let attr_name = vm.ctx.intern_str(member.as_str());
+                // __slots__ attributes always get a member descriptor
+                // (this overrides any inherited attribute from MRO)
+                typ.set_attr(attr_name, member_descriptor.into());
                 offset += 1;
             }
         }
@@ -1377,8 +1376,9 @@ impl Py<PyType> {
             return Ok(vm.ctx.new_str(doc_str).into());
         }
 
-        // Check if there's a __doc__ in the type's dict
-        if let Some(doc_attr) = self.get_attr(vm.ctx.intern_str("__doc__")) {
+        // Check if there's a __doc__ in THIS type's dict only (not MRO)
+        // CPython returns None if __doc__ is not in the type's own dict
+        if let Some(doc_attr) = self.get_direct_attr(vm.ctx.intern_str("__doc__")) {
             // If it's a descriptor, call its __get__ method
             let descr_get = doc_attr
                 .class()

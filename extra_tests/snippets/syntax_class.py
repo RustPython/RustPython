@@ -186,7 +186,7 @@ A.b()
 class A:
     pass
 
-assert A.__doc__ == None
+assert A.__doc__ is None, A.__doc__
 
 class B:
     "Docstring"

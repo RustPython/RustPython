@@ -5269,7 +5269,7 @@ class GenericTests(BaseTestCase):
         for t in things:
             self.assertEqual(weakref.ref(t)(), t)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON - __slots__ with Generic doesn't prevent new attributes
     def test_parameterized_slots(self):
         T = TypeVar('T')
         class C(Generic[T]):
@@ -5289,7 +5289,7 @@ class GenericTests(BaseTestCase):
         self.assertEqual(get_type_hints(foo, globals(), locals())['x'], C[C])
         self.assertEqual(copy(C[int]), deepcopy(C[int]))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON - __slots__ with Generic doesn't prevent new attributes
     def test_parameterized_slots_dict(self):
         T = TypeVar('T')
         class D(Generic[T]):
