@@ -389,37 +389,33 @@ pub(crate) mod _ctypes {
     /// Get the size of a ctypes type or instance
     #[pyfunction(name = "sizeof")]
     pub fn size_of(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        use super::array::{PyCArray, PyCArrayType};
         use super::pointer::PyCPointer;
         use super::structure::{PyCStructType, PyCStructure};
-        use super::union::{PyCUnion, PyCUnionType};
+        use super::union::PyCUnionType;
+        use super::util::StgInfo;
+        use crate::builtins::PyType;
 
-        // 1. Instances with stg_info
-        if obj.fast_isinstance(PyCArray::static_type()) {
-            // Get stg_info from the type
-            if let Some(type_obj) = obj.class().as_object().downcast_ref::<PyCArrayType>() {
-                return Ok(type_obj.stg_info.size);
-            }
+        // 1. Check TypeDataSlot on class (for instances)
+        if let Some(stg_info) = obj.class().get_type_data::<StgInfo>() {
+            return Ok(stg_info.size);
         }
+
+        // 2. Check TypeDataSlot on type itself (for type objects)
+        if let Some(type_obj) = obj.downcast_ref::<PyType>()
+            && let Some(stg_info) = type_obj.get_type_data::<StgInfo>()
+        {
+            return Ok(stg_info.size);
+        }
+
+        // 3. Instances with cdata buffer
         if let Some(structure) = obj.downcast_ref::<PyCStructure>() {
             return Ok(structure.cdata.read().size());
-        }
-        if obj.fast_isinstance(PyCUnion::static_type()) {
-            // Get stg_info from the type
-            if let Some(type_obj) = obj.class().as_object().downcast_ref::<PyCUnionType>() {
-                return Ok(type_obj.stg_info.size);
-            }
         }
         if let Some(simple) = obj.downcast_ref::<PyCSimple>() {
             return Ok(simple.cdata.read().size());
         }
         if obj.fast_isinstance(PyCPointer::static_type()) {
             return Ok(std::mem::size_of::<usize>());
-        }
-
-        // 2. Types (metatypes with stg_info)
-        if let Some(array_type) = obj.downcast_ref::<PyCArrayType>() {
-            return Ok(array_type.stg_info.size);
         }
 
         // 3. Type objects
@@ -659,32 +655,36 @@ pub(crate) mod _ctypes {
 
     #[pyfunction]
     fn alignment(tp: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> PyResult<usize> {
-        use super::array::{PyCArray, PyCArrayType};
         use super::base::PyCSimpleType;
         use super::pointer::PyCPointer;
         use super::structure::PyCStructure;
         use super::union::PyCUnion;
+        use super::util::StgInfo;
+        use crate::builtins::PyType;
 
         let obj = match &tp {
             Either::A(t) => t.as_object(),
             Either::B(o) => o.as_ref(),
         };
 
-        // Try to get alignment from stg_info directly (for instances)
-        if let Some(array_type) = obj.downcast_ref::<PyCArrayType>() {
-            return Ok(array_type.stg_info.align);
+        // 1. Check TypeDataSlot on class (for instances)
+        if let Some(stg_info) = obj.class().get_type_data::<StgInfo>() {
+            return Ok(stg_info.align);
         }
+
+        // 2. Check TypeDataSlot on type itself (for type objects)
+        if let Some(type_obj) = obj.downcast_ref::<PyType>()
+            && let Some(stg_info) = type_obj.get_type_data::<StgInfo>()
+        {
+            return Ok(stg_info.align);
+        }
+
+        // 3. Fallback for simple types without TypeDataSlot
         if obj.fast_isinstance(PyCSimple::static_type()) {
             // Get stg_info from the type by reading _type_ attribute
             let cls = obj.class().to_owned();
             let stg_info = PyCSimpleType::get_stg_info(&cls, vm);
             return Ok(stg_info.align);
-        }
-        if obj.fast_isinstance(PyCArray::static_type()) {
-            // Get stg_info from the type
-            if let Some(type_obj) = obj.class().as_object().downcast_ref::<PyCArrayType>() {
-                return Ok(type_obj.stg_info.align);
-            }
         }
         if obj.fast_isinstance(PyCStructure::static_type()) {
             // Calculate alignment from _fields_

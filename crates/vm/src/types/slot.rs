@@ -1,3 +1,6 @@
+use crate::common::lock::{
+    PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyRwLockReadGuard, PyRwLockWriteGuard,
+};
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyInt, PyStr, PyStrInterned, PyStrRef, PyType, PyTypeRef, type_::PointerSlot},
@@ -16,7 +19,96 @@ use crate::{
 use crossbeam_utils::atomic::AtomicCell;
 use malachite_bigint::BigInt;
 use num_traits::{Signed, ToPrimitive};
-use std::{borrow::Borrow, cmp::Ordering, ops::Deref};
+use std::{any::Any, any::TypeId, borrow::Borrow, cmp::Ordering, ops::Deref};
+
+/// Type-erased storage for extension module data attached to heap types.
+pub struct TypeDataSlot {
+    // PyObject_GetTypeData
+    type_id: TypeId,
+    data: Box<dyn Any + Send + Sync>,
+}
+
+impl TypeDataSlot {
+    /// Create a new type data slot with the given data.
+    pub fn new<T: Any + Send + Sync + 'static>(data: T) -> Self {
+        Self {
+            type_id: TypeId::of::<T>(),
+            data: Box::new(data),
+        }
+    }
+
+    /// Get a reference to the data if the type matches.
+    pub fn get<T: Any + 'static>(&self) -> Option<&T> {
+        if self.type_id == TypeId::of::<T>() {
+            self.data.downcast_ref()
+        } else {
+            None
+        }
+    }
+
+    /// Get a mutable reference to the data if the type matches.
+    pub fn get_mut<T: Any + 'static>(&mut self) -> Option<&mut T> {
+        if self.type_id == TypeId::of::<T>() {
+            self.data.downcast_mut()
+        } else {
+            None
+        }
+    }
+}
+
+/// Read guard for type data access, using mapped guard for zero-cost deref.
+pub struct TypeDataRef<'a, T: 'static> {
+    guard: PyMappedRwLockReadGuard<'a, T>,
+}
+
+impl<'a, T: Any + 'static> TypeDataRef<'a, T> {
+    /// Try to create a TypeDataRef from a read guard.
+    /// Returns None if the slot is empty or contains a different type.
+    pub fn try_new(guard: PyRwLockReadGuard<'a, Option<TypeDataSlot>>) -> Option<Self> {
+        PyRwLockReadGuard::try_map(guard, |opt| opt.as_ref().and_then(|slot| slot.get::<T>()))
+            .ok()
+            .map(|guard| Self { guard })
+    }
+}
+
+impl<T: Any + 'static> std::ops::Deref for TypeDataRef<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.guard
+    }
+}
+
+/// Write guard for type data access, using mapped guard for zero-cost deref.
+pub struct TypeDataRefMut<'a, T: 'static> {
+    guard: PyMappedRwLockWriteGuard<'a, T>,
+}
+
+impl<'a, T: Any + 'static> TypeDataRefMut<'a, T> {
+    /// Try to create a TypeDataRefMut from a write guard.
+    /// Returns None if the slot is empty or contains a different type.
+    pub fn try_new(guard: PyRwLockWriteGuard<'a, Option<TypeDataSlot>>) -> Option<Self> {
+        PyRwLockWriteGuard::try_map(guard, |opt| {
+            opt.as_mut().and_then(|slot| slot.get_mut::<T>())
+        })
+        .ok()
+        .map(|guard| Self { guard })
+    }
+}
+
+impl<T: Any + 'static> std::ops::Deref for TypeDataRefMut<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.guard
+    }
+}
+
+impl<T: Any + 'static> std::ops::DerefMut for TypeDataRefMut<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.guard
+    }
+}
 
 #[macro_export]
 macro_rules! atomic_func {

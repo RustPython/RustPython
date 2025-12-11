@@ -1,44 +1,36 @@
-use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
 
 use crate::builtins::{PyType, PyTypeRef};
-use crate::convert::ToPyObject;
 use crate::function::FuncArgs;
 use crate::protocol::PyNumberMethods;
 use crate::stdlib::ctypes::PyCData;
 use crate::types::{AsNumber, Constructor};
 use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 
-use super::util::StgInfo;
-
 #[pyclass(name = "PyCPointerType", base = PyType, module = "_ctypes")]
-#[derive(PyPayload, Debug)]
-pub struct PyCPointerType {
-    #[allow(dead_code)]
-    pub stg_info: StgInfo,
-}
+#[derive(PyPayload, Debug, Default)]
+pub struct PyCPointerType {}
 
 #[pyclass(flags(IMMUTABLETYPE), with(AsNumber))]
 impl PyCPointerType {
     #[pymethod]
     fn __mul__(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
-        use super::array::PyCArrayType;
+        use super::array::create_array_type_with_stg_info;
         if n < 0 {
             return Err(vm.new_value_error(format!("Array length must be >= 0, not {n}")));
         }
         // Pointer size
         let element_size = std::mem::size_of::<usize>();
         let total_size = element_size * (n as usize);
-        let mut stg_info = super::util::StgInfo::new(total_size, element_size);
-        stg_info.length = n as usize;
-        Ok(PyCArrayType {
-            stg_info,
-            typ: PyRwLock::new(cls.as_object().to_owned()),
-            length: AtomicCell::new(n as usize),
-            element_size: AtomicCell::new(element_size),
-        }
-        .to_pyobject(vm))
+        let stg_info = super::util::StgInfo::new_array(
+            total_size,
+            element_size,
+            n as usize,
+            cls.as_object().to_owned(),
+            element_size,
+        );
+        create_array_type_with_stg_info(stg_info, vm)
     }
 }
 
