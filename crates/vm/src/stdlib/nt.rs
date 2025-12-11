@@ -244,191 +244,327 @@ pub(crate) mod module {
     }
 
     impl PathArg {
-        fn to_path(&self, vm: &VirtualMachine) -> Option<OsPath> {
-            OsPath::try_from_object(vm, self.path.clone()).ok()
-        }
-
         fn to_path_or_fd(&self, vm: &VirtualMachine) -> Option<OsPathOrFd<'static>> {
             OsPathOrFd::try_from_object(vm, self.path.clone()).ok()
         }
     }
 
-    // Windows file type constants
-    const FILE_TYPE_UNKNOWN: u32 = 0;
-    const FILE_TYPE_DISK: u32 = 1;
+    // File type test constants (PY_IF* constants - internal, not from Windows API)
+    const PY_IFREG: u32 = 1; // Regular file
+    const PY_IFDIR: u32 = 2; // Directory
+    const PY_IFLNK: u32 = 4; // Symlink
+    const PY_IFMNT: u32 = 8; // Mount point (junction)
 
-    /// Check if a path is a directory.
-    #[pyfunction]
-    fn _path_isdir(args: PathArg, vm: &VirtualMachine) -> bool {
-        args.to_path(vm)
-            .and_then(|p| p.as_ref().metadata().ok())
-            .is_some_and(|m| m.is_dir())
+    /// _testInfo - determine file type based on attributes and reparse tag
+    fn _test_info(attributes: u32, reparse_tag: u32, disk_device: bool, tested_type: u32) -> bool {
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
+        };
+        use windows_sys::Win32::System::SystemServices::{
+            IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK,
+        };
+
+        match tested_type {
+            PY_IFREG => {
+                // diskDevice && attributes && !(attributes & FILE_ATTRIBUTE_DIRECTORY)
+                disk_device && attributes != 0 && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0
+            }
+            PY_IFDIR => (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0,
+            PY_IFLNK => {
+                (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
+                    && reparse_tag == IO_REPARSE_TAG_SYMLINK
+            }
+            PY_IFMNT => {
+                (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
+                    && reparse_tag == IO_REPARSE_TAG_MOUNT_POINT
+            }
+            _ => false,
+        }
     }
 
-    /// Check if a path is a regular file.
-    #[pyfunction]
-    fn _path_isfile(args: PathArg, vm: &VirtualMachine) -> bool {
-        use crate::common::windows::ToWideString;
-        use windows_sys::Win32::Foundation::CloseHandle;
+    /// _testFileTypeByHandle - test file type using an open handle
+    fn _test_file_type_by_handle(
+        handle: windows_sys::Win32::Foundation::HANDLE,
+        tested_type: u32,
+        disk_only: bool,
+    ) -> bool {
         use windows_sys::Win32::Storage::FileSystem::{
-            CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_DELETE,
-            FILE_SHARE_READ, FILE_SHARE_WRITE, GetFileType, OPEN_EXISTING,
+            FILE_ATTRIBUTE_TAG_INFO, FILE_BASIC_INFO, FILE_TYPE_DISK,
+            FileAttributeTagInfo as FileAttributeTagInfoClass, FileBasicInfo,
+            GetFileInformationByHandleEx, GetFileType,
         };
 
-        let Some(path) = args.to_path(vm) else {
+        let disk_device = unsafe { GetFileType(handle) } == FILE_TYPE_DISK;
+        if disk_only && !disk_device {
             return false;
+        }
+
+        if tested_type != PY_IFREG && tested_type != PY_IFDIR {
+            // For symlinks/junctions, need FileAttributeTagInfo to get reparse tag
+            let mut info: FILE_ATTRIBUTE_TAG_INFO = unsafe { std::mem::zeroed() };
+            let ret = unsafe {
+                GetFileInformationByHandleEx(
+                    handle,
+                    FileAttributeTagInfoClass,
+                    &mut info as *mut _ as *mut _,
+                    std::mem::size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
+                )
+            };
+            if ret == 0 {
+                return false;
+            }
+            _test_info(
+                info.FileAttributes,
+                info.ReparseTag,
+                disk_device,
+                tested_type,
+            )
+        } else {
+            // For regular files/directories, FileBasicInfo is sufficient
+            let mut info: FILE_BASIC_INFO = unsafe { std::mem::zeroed() };
+            let ret = unsafe {
+                GetFileInformationByHandleEx(
+                    handle,
+                    FileBasicInfo,
+                    &mut info as *mut _ as *mut _,
+                    std::mem::size_of::<FILE_BASIC_INFO>() as u32,
+                )
+            };
+            if ret == 0 {
+                return false;
+            }
+            _test_info(info.FileAttributes, 0, disk_device, tested_type)
+        }
+    }
+
+    /// _testFileTypeByName - test file type by path name
+    fn _test_file_type_by_name(path: &std::path::Path, tested_type: u32) -> bool {
+        use crate::common::windows::ToWideString;
+        use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+        use windows_sys::Win32::Storage::FileSystem::{
+            CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+            FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+            OPEN_EXISTING,
         };
 
-        let wide_path = path.as_ref().to_wide_with_nul();
+        // For islink/isjunction, use symlink_metadata to check reparse points
+        if (tested_type == PY_IFLNK || tested_type == PY_IFMNT)
+            && let Ok(meta) = path.symlink_metadata()
+        {
+            use std::os::windows::fs::MetadataExt;
+            let attrs = meta.file_attributes();
+            use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+            if (attrs & FILE_ATTRIBUTE_REPARSE_POINT) == 0 {
+                return false;
+            }
+            // Need to check reparse tag, fall through to CreateFileW
+        }
 
-        // Try to open the file to check GetFileType (to exclude pipes/devices)
+        let wide_path = path.to_wide_with_nul();
+
+        // For symlinks/junctions, add FILE_FLAG_OPEN_REPARSE_POINT to not follow
+        let mut flags = FILE_FLAG_BACKUP_SEMANTICS;
+        if tested_type != PY_IFREG && tested_type != PY_IFDIR {
+            flags |= FILE_FLAG_OPEN_REPARSE_POINT;
+        }
+
+        // Use sharing flags to avoid access denied errors
         let handle = unsafe {
             CreateFileW(
                 wide_path.as_ptr(),
-                0, // No access needed, just querying type
+                FILE_READ_ATTRIBUTES,
                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                 std::ptr::null(),
                 OPEN_EXISTING,
-                FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS,
+                flags,
+                std::ptr::null_mut(),
+            )
+        };
+
+        if handle == INVALID_HANDLE_VALUE {
+            // Fallback: try using Rust's metadata for isdir/isfile
+            if tested_type == PY_IFDIR {
+                return path.metadata().is_ok_and(|m| m.is_dir());
+            } else if tested_type == PY_IFREG {
+                return path.metadata().is_ok_and(|m| m.is_file());
+            }
+            // For symlinks/junctions, try without FILE_FLAG_BACKUP_SEMANTICS
+            let handle = unsafe {
+                CreateFileW(
+                    wide_path.as_ptr(),
+                    FILE_READ_ATTRIBUTES,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    std::ptr::null(),
+                    OPEN_EXISTING,
+                    FILE_FLAG_OPEN_REPARSE_POINT,
+                    std::ptr::null_mut(),
+                )
+            };
+            if handle == INVALID_HANDLE_VALUE {
+                return false;
+            }
+            let result = _test_file_type_by_handle(handle, tested_type, true);
+            unsafe { CloseHandle(handle) };
+            return result;
+        }
+
+        let result = _test_file_type_by_handle(handle, tested_type, true);
+        unsafe { CloseHandle(handle) };
+        result
+    }
+
+    /// _testFileExistsByName - test if path exists
+    fn _test_file_exists_by_name(path: &std::path::Path, follow_links: bool) -> bool {
+        use crate::common::windows::ToWideString;
+        use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_READ, INVALID_HANDLE_VALUE};
+        use windows_sys::Win32::Storage::FileSystem::{
+            CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+            FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+            OPEN_EXISTING,
+        };
+
+        // First try standard Rust exists/symlink_metadata (handles \\?\ paths well)
+        if follow_links {
+            if path.exists() {
+                return true;
+            }
+        } else if path.symlink_metadata().is_ok() {
+            return true;
+        }
+
+        let wide_path = path.to_wide_with_nul();
+
+        let mut flags = FILE_FLAG_BACKUP_SEMANTICS;
+        if !follow_links {
+            flags |= FILE_FLAG_OPEN_REPARSE_POINT;
+        }
+
+        // Fallback: try with FILE_READ_ATTRIBUTES and sharing flags
+        let handle = unsafe {
+            CreateFileW(
+                wide_path.as_ptr(),
+                FILE_READ_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                flags,
                 std::ptr::null_mut(),
             )
         };
 
         if handle != INVALID_HANDLE_VALUE {
-            // Check if it's a disk file (not pipe, device, etc.)
-            let file_type = unsafe { GetFileType(handle as _) };
             unsafe { CloseHandle(handle) };
-
-            if file_type != FILE_TYPE_DISK {
-                return false;
-            }
-        }
-        // If CreateFileW failed, fall through to metadata check
-        // This handles app execution links and other special files
-
-        // Check it's a file (not directory)
-        path.as_ref().metadata().is_ok_and(|m| m.is_file())
-    }
-
-    /// Check if a path is a symbolic link.
-    #[pyfunction]
-    fn _path_islink(args: PathArg, vm: &VirtualMachine) -> bool {
-        args.to_path(vm)
-            .and_then(|p| p.as_ref().symlink_metadata().ok())
-            .is_some_and(|m| m.file_type().is_symlink())
-    }
-
-    /// Check if a path is a junction (mount point).
-    #[pyfunction]
-    fn _path_isjunction(args: PathArg, vm: &VirtualMachine) -> bool {
-        use crate::common::windows::ToWideString;
-        use windows_sys::Win32::Storage::FileSystem::{
-            FILE_ATTRIBUTE_REPARSE_POINT, FindClose, FindFirstFileW, WIN32_FIND_DATAW,
-        };
-
-        const IO_REPARSE_TAG_MOUNT_POINT: u32 = 0xA0000003;
-
-        let Some(path) = args.to_path(vm) else {
-            return false;
-        };
-
-        let wide_path = path.as_ref().to_wide_with_nul();
-        let mut find_data: WIN32_FIND_DATAW = unsafe { std::mem::zeroed() };
-
-        let handle = unsafe { FindFirstFileW(wide_path.as_ptr(), &mut find_data) };
-        if handle == INVALID_HANDLE_VALUE {
-            return false;
+            return true;
         }
 
-        unsafe { FindClose(handle) };
+        // Fallback for console devices like \\.\CON
+        let handle = unsafe {
+            CreateFileW(
+                wide_path.as_ptr(),
+                GENERIC_READ,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                0,
+                std::ptr::null_mut(),
+            )
+        };
 
-        let is_reparse = (find_data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
-        let is_mount_point = find_data.dwReserved0 == IO_REPARSE_TAG_MOUNT_POINT;
+        if handle != INVALID_HANDLE_VALUE {
+            unsafe { CloseHandle(handle) };
+            return true;
+        }
 
-        is_reparse && is_mount_point
+        false
     }
 
-    /// Check if a path exists.
-    #[pyfunction]
-    fn _path_exists(args: PathArg, vm: &VirtualMachine) -> bool {
-        use crate::common::windows::ToWideString;
-        use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_READ};
-        use windows_sys::Win32::Storage::FileSystem::{
-            CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
-            FILE_SHARE_WRITE, GetFileType, OPEN_EXISTING,
-        };
-
-        let Some(path_or_fd) = args.to_path_or_fd(vm) else {
-            return false;
-        };
-
+    /// _testFileType wrapper - handles both fd and path
+    fn _test_file_type(path_or_fd: &OsPathOrFd<'_>, tested_type: u32) -> bool {
         match path_or_fd {
             OsPathOrFd::Fd(fd) => {
-                // For file descriptors, check if valid via GetFileType
-                if let Ok(handle) = crate::common::crt_fd::as_handle(fd) {
+                if let Ok(handle) = crate::common::crt_fd::as_handle(*fd) {
                     use std::os::windows::io::AsRawHandle;
-                    let file_type = unsafe { GetFileType(handle.as_raw_handle() as _) };
-                    file_type != FILE_TYPE_UNKNOWN
+                    _test_file_type_by_handle(handle.as_raw_handle() as _, tested_type, true)
                 } else {
                     false
                 }
             }
-            OsPathOrFd::Path(path) => {
-                // First try standard exists check
-                if path.as_ref().exists() {
-                    return true;
-                }
-
-                // For device paths like \\.\CON, try CreateFileW with FILE_READ_ATTRIBUTES first
-                let wide_path = path.as_ref().to_wide_with_nul();
-                let handle = unsafe {
-                    CreateFileW(
-                        wide_path.as_ptr(),
-                        FILE_READ_ATTRIBUTES,
-                        0,
-                        std::ptr::null(),
-                        OPEN_EXISTING,
-                        FILE_FLAG_BACKUP_SEMANTICS,
-                        std::ptr::null_mut(),
-                    )
-                };
-
-                if handle != INVALID_HANDLE_VALUE {
-                    unsafe { CloseHandle(handle) };
-                    return true;
-                }
-
-                // Fallback: try with GENERIC_READ and sharing for console devices
-                let handle = unsafe {
-                    CreateFileW(
-                        wide_path.as_ptr(),
-                        GENERIC_READ,
-                        FILE_SHARE_READ | FILE_SHARE_WRITE,
-                        std::ptr::null(),
-                        OPEN_EXISTING,
-                        0,
-                        std::ptr::null_mut(),
-                    )
-                };
-
-                if handle != INVALID_HANDLE_VALUE {
-                    unsafe { CloseHandle(handle) };
-                    return true;
-                }
-
-                false
-            }
+            OsPathOrFd::Path(path) => _test_file_type_by_name(path.as_ref(), tested_type),
         }
     }
 
-    /// Check if a path exists (does not follow symlinks).
-    #[pyfunction]
-    fn _path_lexists(args: PathArg, vm: &VirtualMachine) -> bool {
-        args.to_path(vm)
-            .is_some_and(|p| p.as_ref().symlink_metadata().is_ok())
+    /// _testFileExists wrapper - handles both fd and path
+    fn _test_file_exists(path_or_fd: &OsPathOrFd<'_>, follow_links: bool) -> bool {
+        use windows_sys::Win32::Storage::FileSystem::{FILE_TYPE_UNKNOWN, GetFileType};
+
+        match path_or_fd {
+            OsPathOrFd::Fd(fd) => {
+                if let Ok(handle) = crate::common::crt_fd::as_handle(*fd) {
+                    use std::os::windows::io::AsRawHandle;
+                    let file_type = unsafe { GetFileType(handle.as_raw_handle() as _) };
+                    // GetFileType(hfile) != FILE_TYPE_UNKNOWN || !GetLastError()
+                    if file_type != FILE_TYPE_UNKNOWN {
+                        return true;
+                    }
+                    // Check if GetLastError is 0 (no error means valid handle)
+                    unsafe { windows_sys::Win32::Foundation::GetLastError() == 0 }
+                } else {
+                    false
+                }
+            }
+            OsPathOrFd::Path(path) => _test_file_exists_by_name(path.as_ref(), follow_links),
+        }
     }
 
-    // cwait is available on MSVC only (according to CPython)
+    /// Check if a path is a directory.
+    /// return _testFileType(path, PY_IFDIR)
+    #[pyfunction]
+    fn _path_isdir(args: PathArg, vm: &VirtualMachine) -> bool {
+        args.to_path_or_fd(vm)
+            .is_some_and(|p| _test_file_type(&p, PY_IFDIR))
+    }
+
+    /// Check if a path is a regular file.
+    /// return _testFileType(path, PY_IFREG)
+    #[pyfunction]
+    fn _path_isfile(args: PathArg, vm: &VirtualMachine) -> bool {
+        args.to_path_or_fd(vm)
+            .is_some_and(|p| _test_file_type(&p, PY_IFREG))
+    }
+
+    /// Check if a path is a symbolic link.
+    /// return _testFileType(path, PY_IFLNK)
+    #[pyfunction]
+    fn _path_islink(args: PathArg, vm: &VirtualMachine) -> bool {
+        args.to_path_or_fd(vm)
+            .is_some_and(|p| _test_file_type(&p, PY_IFLNK))
+    }
+
+    /// Check if a path is a junction (mount point).
+    /// return _testFileType(path, PY_IFMNT)
+    #[pyfunction]
+    fn _path_isjunction(args: PathArg, vm: &VirtualMachine) -> bool {
+        args.to_path_or_fd(vm)
+            .is_some_and(|p| _test_file_type(&p, PY_IFMNT))
+    }
+
+    /// Check if a path exists (follows symlinks).
+    /// return _testFileExists(path, TRUE)
+    #[pyfunction]
+    fn _path_exists(args: PathArg, vm: &VirtualMachine) -> bool {
+        args.to_path_or_fd(vm)
+            .is_some_and(|p| _test_file_exists(&p, true))
+    }
+
+    /// Check if a path exists (does not follow symlinks).
+    /// return _testFileExists(path, FALSE)
+    #[pyfunction]
+    fn _path_lexists(args: PathArg, vm: &VirtualMachine) -> bool {
+        args.to_path_or_fd(vm)
+            .is_some_and(|p| _test_file_exists(&p, false))
+    }
+
+    // cwait is available on MSVC only
     #[cfg(target_env = "msvc")]
     unsafe extern "C" {
         fn _cwait(termstat: *mut i32, procHandle: intptr_t, action: i32) -> intptr_t;
@@ -840,7 +976,7 @@ pub(crate) mod module {
         Ok(path.mode.process_path(buffer.to_os_string(), vm))
     }
 
-    /// Implements CPython's _Py_skiproot logic for Windows paths
+    /// Implements _Py_skiproot logic for Windows paths
     /// Returns (drive_size, root_size) where:
     /// - drive_size: length of the drive/UNC portion
     /// - root_size: length of the root separator (0 or 1)
@@ -917,7 +1053,7 @@ pub(crate) mod module {
         use crate::builtins::{PyBytes, PyStr};
         use rustpython_common::wtf8::Wtf8Buf;
 
-        // Handle path-like objects via os.fspath, but without null check (nonstrict=True in CPython)
+        // Handle path-like objects via os.fspath, but without null check (nonstrict=True)
         let path = if let Some(fspath) = vm.get_method(path.clone(), identifier!(vm, __fspath__)) {
             fspath?.call((), vm)?
         } else {
@@ -1242,7 +1378,7 @@ pub(crate) mod module {
         let [] = args.dir_fd.0;
         let wide = args.path.to_wide_cstring(vm)?;
 
-        // CPython special case: mode 0o700 sets a protected ACL
+        // special case: mode 0o700 sets a protected ACL
         let res = if args.mode == 0o700 {
             let mut sec_attr = SECURITY_ATTRIBUTES {
                 nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
@@ -1339,17 +1475,7 @@ pub(crate) mod module {
 
     #[pyfunction]
     fn getppid() -> u32 {
-        use windows_sys::Win32::System::Threading::GetCurrentProcess;
-
-        #[repr(C)]
-        struct ProcessBasicInformation {
-            exit_status: isize,
-            peb_base_address: *mut std::ffi::c_void,
-            affinity_mask: usize,
-            base_priority: i32,
-            unique_process_id: usize,
-            inherited_from_unique_process_id: usize,
-        }
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, PROCESS_BASIC_INFORMATION};
 
         type NtQueryInformationProcessFn = unsafe extern "system" fn(
             process_handle: isize,
@@ -1379,30 +1505,23 @@ pub(crate) mod module {
         };
         let nt_query: NtQueryInformationProcessFn = unsafe { std::mem::transmute(func) };
 
-        let mut info = ProcessBasicInformation {
-            exit_status: 0,
-            peb_base_address: std::ptr::null_mut(),
-            affinity_mask: 0,
-            base_priority: 0,
-            unique_process_id: 0,
-            inherited_from_unique_process_id: 0,
-        };
+        let mut info: PROCESS_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
 
         let status = unsafe {
             nt_query(
                 GetCurrentProcess() as isize,
                 0, // ProcessBasicInformation
                 &mut info as *mut _ as *mut std::ffi::c_void,
-                std::mem::size_of::<ProcessBasicInformation>() as u32,
+                std::mem::size_of::<PROCESS_BASIC_INFORMATION>() as u32,
                 std::ptr::null_mut(),
             )
         };
 
         if status >= 0
-            && info.inherited_from_unique_process_id != 0
-            && info.inherited_from_unique_process_id < u32::MAX as usize
+            && info.InheritedFromUniqueProcessId != 0
+            && info.InheritedFromUniqueProcessId < u32::MAX as usize
         {
-            info.inherited_from_unique_process_id as u32
+            info.InheritedFromUniqueProcessId as u32
         } else {
             0
         }
@@ -1445,6 +1564,132 @@ pub(crate) mod module {
                 .map_err(|e| close_fd_and_raise(args.fd2, e, vm))?;
         }
         Ok(args.fd2)
+    }
+
+    /// Windows-specific readlink that preserves \\?\ prefix for junctions
+    /// returns the substitute name from reparse data which includes the prefix
+    #[pyfunction]
+    fn readlink(path: OsPath, vm: &VirtualMachine) -> PyResult {
+        use crate::common::windows::ToWideString;
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+            FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+        };
+        use windows_sys::Win32::System::IO::DeviceIoControl;
+        use windows_sys::Win32::System::Ioctl::FSCTL_GET_REPARSE_POINT;
+
+        let mode = path.mode;
+        let wide_path = path.as_ref().to_wide_with_nul();
+
+        // Open the file/directory with reparse point flag
+        let handle = unsafe {
+            CreateFileW(
+                wide_path.as_ptr(),
+                0, // No access needed, just reading reparse data
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                std::ptr::null_mut(),
+            )
+        };
+
+        if handle == INVALID_HANDLE_VALUE {
+            return Err(io::Error::last_os_error().to_pyexception(vm));
+        }
+
+        // Buffer for reparse data - MAXIMUM_REPARSE_DATA_BUFFER_SIZE is 16384
+        const BUFFER_SIZE: usize = 16384;
+        let mut buffer = vec![0u8; BUFFER_SIZE];
+        let mut bytes_returned: u32 = 0;
+
+        let result = unsafe {
+            DeviceIoControl(
+                handle,
+                FSCTL_GET_REPARSE_POINT,
+                std::ptr::null(),
+                0,
+                buffer.as_mut_ptr() as *mut _,
+                BUFFER_SIZE as u32,
+                &mut bytes_returned,
+                std::ptr::null_mut(),
+            )
+        };
+
+        unsafe { CloseHandle(handle) };
+
+        if result == 0 {
+            return Err(io::Error::last_os_error().to_pyexception(vm));
+        }
+
+        // Parse the reparse data buffer
+        // REPARSE_DATA_BUFFER structure:
+        // DWORD ReparseTag
+        // WORD ReparseDataLength
+        // WORD Reserved
+        // For symlinks/junctions (IO_REPARSE_TAG_SYMLINK/MOUNT_POINT):
+        // WORD SubstituteNameOffset
+        // WORD SubstituteNameLength
+        // WORD PrintNameOffset
+        // WORD PrintNameLength
+        // (For symlinks only: DWORD Flags)
+        // PathBuffer...
+
+        let reparse_tag = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
+
+        // Check if it's a symlink or mount point (junction)
+        use windows_sys::Win32::System::SystemServices::{
+            IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK,
+        };
+
+        let (substitute_offset, substitute_length, path_buffer_start) =
+            if reparse_tag == IO_REPARSE_TAG_SYMLINK {
+                // Symlink has Flags field (4 bytes) before PathBuffer
+                let sub_offset = u16::from_le_bytes([buffer[8], buffer[9]]) as usize;
+                let sub_length = u16::from_le_bytes([buffer[10], buffer[11]]) as usize;
+                // PathBuffer starts at offset 20 (after Flags at offset 16)
+                (sub_offset, sub_length, 20usize)
+            } else if reparse_tag == IO_REPARSE_TAG_MOUNT_POINT {
+                // Mount point (junction) has no Flags field
+                let sub_offset = u16::from_le_bytes([buffer[8], buffer[9]]) as usize;
+                let sub_length = u16::from_le_bytes([buffer[10], buffer[11]]) as usize;
+                // PathBuffer starts at offset 16
+                (sub_offset, sub_length, 16usize)
+            } else {
+                // Unknown reparse tag - fall back to std::fs::read_link
+                let link_path = fs::read_link(path.as_ref())
+                    .map_err(|e| crate::convert::ToPyException::to_pyexception(&e, vm))?;
+                return Ok(mode.process_path(link_path, vm));
+            };
+
+        // Extract the substitute name
+        let path_start = path_buffer_start + substitute_offset;
+        let path_end = path_start + substitute_length;
+
+        if path_end > buffer.len() {
+            return Err(vm.new_os_error("Invalid reparse data".to_owned()));
+        }
+
+        // Convert from UTF-16LE
+        let path_slice = &buffer[path_start..path_end];
+        let wide_chars: Vec<u16> = path_slice
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect();
+
+        let mut result_path = std::ffi::OsString::from_wide(&wide_chars);
+
+        // For mount points (junctions), the substitute name typically starts with \??\
+        // Convert this to \\?\
+        let result_str = result_path.to_string_lossy();
+        if let Some(stripped) = result_str.strip_prefix(r"\??\") {
+            // Replace \??\ with \\?\
+            let new_path = format!(r"\\?\{}", stripped);
+            result_path = std::ffi::OsString::from(new_path);
+        }
+
+        Ok(mode.process_path(std::path::PathBuf::from(result_path), vm))
     }
 
     pub(crate) fn support_funcs() -> Vec<SupportFunc> {
