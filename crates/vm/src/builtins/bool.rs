@@ -6,7 +6,6 @@ use crate::{
     class::PyClassImpl,
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{FuncArgs, OptionalArg},
-    identifier,
     protocol::PyNumberMethods,
     types::{AsNumber, Constructor, Representable},
 };

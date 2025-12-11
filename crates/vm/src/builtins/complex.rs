@@ -10,7 +10,6 @@ use crate::{
         PyArithmeticValue::{self, *},
         PyComparisonValue,
     },
-    identifier,
     protocol::PyNumberMethods,
     stdlib::warnings,
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},

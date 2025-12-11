@@ -16,7 +16,6 @@ mod decl {
         },
         convert::ToPyObject,
         function::{ArgCallable, ArgIntoBool, FuncArgs, OptionalArg, OptionalOption, PosArgs},
-        identifier,
         protocol::{PyIter, PyIterReturn, PyNumber},
         raise_if_stop,
         stdlib::{sys, warnings},

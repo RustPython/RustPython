@@ -3,7 +3,6 @@ use crate::{
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyDict, PyDictRef, iter::PySequenceIterator},
     convert::ToPyObject,
-    identifier,
     object::{Traverse, TraverseFn},
     protocol::{PyIter, PyIterIter, PyMapping, PyMappingMethods},
     types::{AsMapping, GenericMethod},
