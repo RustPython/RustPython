@@ -7,7 +7,7 @@ use crate::{
     convert::{IntoPyException, ToPyException, ToPyObject},
     function::{ArgumentError, FromArgs, FuncArgs},
 };
-use std::{ffi, fs, io, path::Path};
+use std::{fs, io, path::Path};
 
 pub(crate) fn fs_metadata<P: AsRef<Path>>(
     path: P,
@@ -112,7 +112,8 @@ pub(super) struct FollowSymlinks(
     #[pyarg(named, name = "follow_symlinks", default = true)] pub bool,
 );
 
-fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsStr> {
+#[cfg(not(windows))]
+fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a std::ffi::OsStr> {
     rustpython_common::os::bytes_as_os_str(b)
         .map_err(|_| vm.new_unicode_decode_error("can't decode path for utf-8"))
 }
@@ -160,7 +161,7 @@ pub(super) mod _os {
             suppress_iph,
         },
         convert::{IntoPyException, ToPyObject},
-        function::{ArgBytesLike, Either, FsPath, FuncArgs, OptionalArg},
+        function::{ArgBytesLike, FsPath, FuncArgs, OptionalArg},
         ospath::{IOErrorBuilder, OsPath, OsPathOrFd, OutputMode},
         protocol::PyIterReturn,
         recursion::ReprGuard,
@@ -171,7 +172,7 @@ pub(super) mod _os {
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use std::{
-        env, ffi, fs,
+        env, fs,
         fs::OpenOptions,
         io,
         path::PathBuf,
@@ -403,7 +404,7 @@ pub(super) mod _os {
                                 b"." | b".." => None,
                                 _ => Some(
                                     OutputMode::String
-                                        .process_path(ffi::OsStr::from_bytes(fname), vm),
+                                        .process_path(std::ffi::OsStr::from_bytes(fname), vm),
                                 ),
                             }
                         })
@@ -415,31 +416,62 @@ pub(super) mod _os {
         Ok(list)
     }
 
-    fn env_bytes_as_bytes(obj: &Either<PyStrRef, PyBytesRef>) -> &[u8] {
+    #[cfg(not(windows))]
+    fn env_bytes_as_bytes(obj: &crate::function::Either<PyStrRef, PyBytesRef>) -> &[u8] {
         match obj {
-            Either::A(s) => s.as_bytes(),
-            Either::B(b) => b.as_bytes(),
+            crate::function::Either::A(s) => s.as_bytes(),
+            crate::function::Either::B(b) => b.as_bytes(),
         }
     }
 
-    /// Check if environment variable length exceeds Windows limit.
-    /// size should be key.len() + value.len() + 2 (for '=' and null terminator)
     #[cfg(windows)]
-    fn check_env_var_len(size: usize, vm: &VirtualMachine) -> PyResult<()> {
+    unsafe extern "C" {
+        fn _wputenv(envstring: *const u16) -> libc::c_int;
+    }
+
+    /// Check if wide string length exceeds Windows environment variable limit.
+    #[cfg(windows)]
+    fn check_env_var_len(wide_len: usize, vm: &VirtualMachine) -> PyResult<()> {
         use crate::common::windows::_MAX_ENV;
-        if size > _MAX_ENV {
+        if wide_len > _MAX_ENV + 1 {
             return Err(vm.new_value_error(format!(
-                "the environment variable is longer than {} characters",
-                _MAX_ENV
+                "the environment variable is longer than {_MAX_ENV} characters",
             )));
         }
         Ok(())
     }
 
+    #[cfg(windows)]
+    #[pyfunction]
+    fn putenv(key: PyStrRef, value: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+        let key_str = key.as_str();
+        let value_str = value.as_str();
+        // Search from index 1 because on Windows starting '=' is allowed for
+        // defining hidden environment variables.
+        if key_str.is_empty()
+            || key_str.get(1..).is_some_and(|s| s.contains('='))
+            || key_str.contains('\0')
+            || value_str.contains('\0')
+        {
+            return Err(vm.new_value_error("illegal environment variable name"));
+        }
+        let env_str = format!("{}={}", key_str, value_str);
+        let wide = env_str.to_wide_with_nul();
+        check_env_var_len(wide.len(), vm)?;
+
+        // Use _wputenv like CPython (not SetEnvironmentVariableW) to update CRT environ
+        let result = unsafe { suppress_iph!(_wputenv(wide.as_ptr())) };
+        if result != 0 {
+            return Err(vm.new_last_errno_error());
+        }
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
     #[pyfunction]
     fn putenv(
-        key: Either<PyStrRef, PyBytesRef>,
-        value: Either<PyStrRef, PyBytesRef>,
+        key: crate::function::Either<PyStrRef, PyBytesRef>,
+        value: crate::function::Either<PyStrRef, PyBytesRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let key = env_bytes_as_bytes(&key);
@@ -450,8 +482,6 @@ pub(super) mod _os {
         if key.is_empty() || key.contains(&b'=') {
             return Err(vm.new_value_error("illegal environment variable name"));
         }
-        #[cfg(windows)]
-        check_env_var_len(key.len() + value.len() + 2, vm)?;
         let key = super::bytes_as_os_str(key, vm)?;
         let value = super::bytes_as_os_str(value, vm)?;
         // SAFETY: requirements forwarded from the caller
@@ -459,8 +489,37 @@ pub(super) mod _os {
         Ok(())
     }
 
+    #[cfg(windows)]
     #[pyfunction]
-    fn unsetenv(key: Either<PyStrRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<()> {
+    fn unsetenv(key: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+        let key_str = key.as_str();
+        // Search from index 1 because on Windows starting '=' is allowed for
+        // defining hidden environment variables.
+        if key_str.is_empty()
+            || key_str.get(1..).is_some_and(|s| s.contains('='))
+            || key_str.contains('\0')
+        {
+            return Err(vm.new_value_error("illegal environment variable name"));
+        }
+        // "key=" to unset (empty value removes the variable)
+        let env_str = format!("{}=", key_str);
+        let wide = env_str.to_wide_with_nul();
+        check_env_var_len(wide.len(), vm)?;
+
+        // Use _wputenv like CPython (not SetEnvironmentVariableW) to update CRT environ
+        let result = unsafe { suppress_iph!(_wputenv(wide.as_ptr())) };
+        if result != 0 {
+            return Err(vm.new_last_errno_error());
+        }
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
+    #[pyfunction]
+    fn unsetenv(
+        key: crate::function::Either<PyStrRef, PyBytesRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         let key = env_bytes_as_bytes(&key);
         if key.contains(&b'\0') {
             return Err(vm.new_value_error("embedded null byte"));
@@ -474,9 +533,6 @@ pub(super) mod _os {
                 ),
             ));
         }
-        // For unsetenv, size is key + '=' (no value, just clearing)
-        #[cfg(windows)]
-        check_env_var_len(key.len() + 1, vm)?;
         let key = super::bytes_as_os_str(key, vm)?;
         // SAFETY: requirements forwarded from the caller
         unsafe { env::remove_var(key) };
@@ -984,7 +1040,7 @@ pub(super) mod _os {
             OsPathOrFd::Path(path) => {
                 use rustpython_common::os::ffi::OsStrExt;
                 let path = path.as_ref().as_os_str().as_bytes();
-                let path = match ffi::CString::new(path) {
+                let path = match std::ffi::CString::new(path) {
                     Ok(x) => x,
                     Err(_) => return Ok(None),
                 };
@@ -1483,7 +1539,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn strerror(e: i32) -> String {
-        unsafe { ffi::CStr::from_ptr(libc::strerror(e)) }
+        unsafe { std::ffi::CStr::from_ptr(libc::strerror(e)) }
             .to_string_lossy()
             .into_owned()
     }
@@ -1587,7 +1643,7 @@ pub(super) mod _os {
                     if encoding.is_null() || encoding.read() == '\0' as libc::c_char {
                         "UTF-8".to_owned()
                     } else {
-                        ffi::CStr::from_ptr(encoding).to_string_lossy().into_owned()
+                        std::ffi::CStr::from_ptr(encoding).to_string_lossy().into_owned()
                     }
                 };
 

@@ -125,6 +125,13 @@ pub(crate) mod module {
         let environ = vm.ctx.new_dict();
 
         for (key, value) in env::vars() {
+            // Skip hidden Windows environment variables (e.g., =C:, =D:, =ExitCode)
+            // These are internal cmd.exe bookkeeping variables that store per-drive
+            // current directories. They cannot be modified via _wputenv() and should
+            // not be exposed to Python code.
+            if key.starts_with('=') {
+                continue;
+            }
             environ.set_item(&key, vm.new_pyobj(value), vm).unwrap();
         }
         environ
@@ -364,8 +371,9 @@ pub(crate) mod module {
             if key_str.contains('\0') || value_str.contains('\0') {
                 return Err(vm.new_value_error("embedded null character"));
             }
-            // Validate: no '=' in key
-            if key_str.contains('=') {
+            // Validate: no '=' in key (search from index 1 because on Windows
+            // starting '=' is allowed for defining hidden environment variables)
+            if key_str.get(1..).is_some_and(|s| s.contains('=')) {
                 return Err(vm.new_value_error("illegal environment variable name"));
             }
 
@@ -480,8 +488,9 @@ pub(crate) mod module {
             if key_str.contains('\0') || value_str.contains('\0') {
                 return Err(vm.new_value_error("embedded null character"));
             }
-            // Validate: no '=' in key
-            if key_str.contains('=') {
+            // Validate: no '=' in key (search from index 1 because on Windows
+            // starting '=' is allowed for defining hidden environment variables)
+            if key_str.get(1..).is_some_and(|s| s.contains('=')) {
                 return Err(vm.new_value_error("illegal environment variable name"));
             }
 

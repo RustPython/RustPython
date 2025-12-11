@@ -658,8 +658,6 @@ class PatchTest(unittest.TestCase):
         self.assertEqual(foo, {})
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_patch_dict_with_string(self):
         @patch.dict('os.environ', {'konrad_delong': 'some value'})
         def test():

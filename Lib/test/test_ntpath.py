@@ -990,8 +990,6 @@ class TestNtpath(NtpathTestCase):
 
         self.assertPathEqual(test_file, ntpath.realpath(test_file_short))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; ValueError: illegal environment variable name")
     def test_expandvars(self):
         with os_helper.EnvironmentVarGuard() as env:
             env.clear()
@@ -1018,8 +1016,6 @@ class TestNtpath(NtpathTestCase):
             tester('ntpath.expandvars("\'%foo%\'%bar")', "\'%foo%\'%bar")
             tester('ntpath.expandvars("bar\'%foo%")', "bar\'%foo%")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; ValueError: illegal environment variable name")
     @unittest.skipUnless(os_helper.FS_NONASCII, 'need os_helper.FS_NONASCII')
     def test_expandvars_nonascii(self):
         def check(value, expected):
@@ -1040,8 +1036,6 @@ class TestNtpath(NtpathTestCase):
             check('%spam%bar', '%sbar' % nonascii)
             check('%{}%bar'.format(nonascii), 'ham%sbar' % nonascii)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_expanduser(self):
         tester('ntpath.expanduser("test")', 'test')
 
@@ -1514,16 +1508,6 @@ class TestNtpath(NtpathTestCase):
 class NtCommonTest(test_genericpath.CommonTest, unittest.TestCase):
     pathmodule = ntpath
     attributes = ['relpath']
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; ValueError: illegal environment variable name")
-    def test_expandvars(self):
-        return super().test_expandvars()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; ValueError: illegal environment variable name")
-    def test_expandvars_nonascii(self):
-        return super().test_expandvars_nonascii()
 
 
 class PathLikeTests(NtpathTestCase):
