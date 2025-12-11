@@ -111,11 +111,15 @@ mod decl {
 
     fn collect_frame_info(frame: &crate::vm::PyRef<Frame>) -> String {
         let func_name = truncate_name(frame.code.obj_name.as_str());
+        // If lasti is 0, execution hasn't started yet - use first line number or 1
+        let line = if frame.lasti() == 0 {
+            frame.code.first_line_number.map(|n| n.get()).unwrap_or(1)
+        } else {
+            frame.current_location().line.get()
+        };
         format!(
             "  File \"{}\", line {} in {}",
-            frame.code.source_path,
-            frame.current_location().line,
-            func_name
+            frame.code.source_path, line, func_name
         )
     }
 
@@ -171,37 +175,34 @@ mod decl {
     }
 
     /// Unix signal handler for fatal errors
+    // faulthandler_fatal_error() in Modules/faulthandler.c
     #[cfg(unix)]
     extern "C" fn faulthandler_fatal_error(signum: libc::c_int) {
-        // Reentrant protection
-        static REENTRANT: AtomicBool = AtomicBool::new(false);
-        if REENTRANT.swap(true, Ordering::SeqCst) {
+        if !ENABLED.load(Ordering::Relaxed) {
             return;
         }
 
         let fd = FATAL_ERROR_FD.load(Ordering::Relaxed);
 
-        // Find and print signal name
-        let signal_name = FATAL_SIGNALS
-            .iter()
-            .find(|(sig, _)| *sig == signum)
-            .map(|(_, name)| *name)
-            .unwrap_or("Unknown signal");
+        // Find handler and restore previous handler BEFORE printing
+        let signal_name =
+            if let Some(idx) = FATAL_SIGNALS.iter().position(|(sig, _)| *sig == signum) {
+                // Restore previous handler first
+                unsafe {
+                    libc::sigaction(signum, &PREVIOUS_HANDLERS[idx], std::ptr::null_mut());
+                }
+                FATAL_SIGNALS[idx].1
+            } else {
+                "Unknown signal"
+            };
 
-        write_str_noraise(fd, "\nFatal Python error: ");
+        // Print error message
+        write_str_noraise(fd, "Fatal Python error: ");
         write_str_noraise(fd, signal_name);
         write_str_noraise(fd, "\n\n");
 
-        // Restore previous handler
-        if let Some(idx) = FATAL_SIGNALS.iter().position(|(sig, _)| *sig == signum) {
-            unsafe {
-                libc::sigaction(signum, &PREVIOUS_HANDLERS[idx], std::ptr::null_mut());
-            }
-        }
-
-        REENTRANT.store(false, Ordering::SeqCst);
-
         // Re-raise signal to trigger default behavior (core dump, etc.)
+        // Called immediately thanks to SA_NODEFER flag
         unsafe {
             libc::raise(signum);
         }
@@ -211,7 +212,7 @@ mod decl {
     fn install_fatal_handlers(_vm: &VirtualMachine) {
         for (idx, (signum, _)) in FATAL_SIGNALS.iter().enumerate() {
             let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
-            action.sa_sigaction = faulthandler_fatal_error as usize;
+            action.sa_sigaction = faulthandler_fatal_error as libc::sighandler_t;
             action.sa_flags = libc::SA_NODEFER;
 
             unsafe {
@@ -220,41 +221,43 @@ mod decl {
         }
     }
 
-    /// Windows signal handler for fatal errors (simpler than VEH)
+    /// Windows signal handler for fatal errors
+    // faulthandler_fatal_error() in Modules/faulthandler.c
     #[cfg(windows)]
     extern "C" fn faulthandler_fatal_error_windows(signum: libc::c_int) {
-        // Reentrant protection
-        static REENTRANT: AtomicBool = AtomicBool::new(false);
-        if REENTRANT.swap(true, Ordering::SeqCst) {
+        if !ENABLED.load(Ordering::Relaxed) {
             return;
         }
 
         let fd = FATAL_ERROR_FD.load(Ordering::Relaxed);
 
-        // Find and print signal name
-        let signal_name = FATAL_SIGNALS
-            .iter()
-            .find(|(sig, _)| *sig == signum)
-            .map(|(_, name)| *name)
-            .unwrap_or("Unknown signal");
+        // Find handler and restore previous handler BEFORE printing
+        let signal_name =
+            if let Some(idx) = FATAL_SIGNALS.iter().position(|(sig, _)| *sig == signum) {
+                // Restore previous handler first
+                unsafe {
+                    libc::signal(signum, PREVIOUS_HANDLERS_WIN[idx]);
+                }
+                FATAL_SIGNALS[idx].1
+            } else {
+                "Unknown signal"
+            };
 
-        write_str_noraise(fd, "\nFatal Python error: ");
+        // Print error message
+        write_str_noraise(fd, "Fatal Python error: ");
         write_str_noraise(fd, signal_name);
         write_str_noraise(fd, "\n\n");
 
-        REENTRANT.store(false, Ordering::SeqCst);
-
-        // For SIGSEGV on Windows, need to loop raise
+        // On Windows, don't explicitly call the previous handler for SIGSEGV
+        // The execution continues and the same instruction raises the same fault,
+        // calling the now-restored previous handler
         if signum == libc::SIGSEGV {
-            loop {
-                unsafe {
-                    libc::raise(signum);
-                }
-            }
-        } else {
-            unsafe {
-                libc::raise(signum);
-            }
+            return;
+        }
+
+        // For other signals, re-raise to call the previous handler
+        unsafe {
+            libc::raise(signum);
         }
     }
 
@@ -367,35 +370,24 @@ mod decl {
         let (lock, cvar) = &*state;
 
         loop {
-            let (timeout, repeat, exit, fd, header, cancelled) = {
-                let guard = lock.lock().unwrap();
-                if guard.cancel {
-                    return;
-                }
-                (
-                    Duration::from_micros(guard.timeout_us),
-                    guard.repeat,
-                    guard.exit,
-                    guard.fd,
-                    guard.header.clone(),
-                    guard.cancel,
-                )
-            };
+            // Hold lock across wait_timeout to avoid race condition
+            let mut guard = lock.lock().unwrap();
+            if guard.cancel {
+                return;
+            }
+            let timeout = Duration::from_micros(guard.timeout_us);
+            let result = cvar.wait_timeout(guard, timeout).unwrap();
+            guard = result.0;
 
-            if cancelled {
+            // Check if cancelled after wait
+            if guard.cancel {
                 return;
             }
 
-            // Wait for timeout or cancellation
-            let result = {
-                let guard = lock.lock().unwrap();
-                cvar.wait_timeout(guard, timeout).unwrap()
-            };
-
-            // Check if cancelled
-            if result.0.cancel {
-                return;
-            }
+            // Extract values before releasing lock for I/O
+            let (repeat, exit, fd, header) =
+                (guard.repeat, guard.exit, guard.fd, guard.header.clone());
+            drop(guard); // Release lock before I/O
 
             // Timeout occurred, dump traceback
             #[cfg(not(target_arch = "wasm32"))]
@@ -653,45 +645,6 @@ mod decl {
     }
 
     #[cfg(unix)]
-    fn get_fd_from_file(file: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<i32> {
-        match file {
-            OptionalArg::Present(f) => {
-                // Check if it's an integer (file descriptor)
-                if let Ok(fd) = f.try_to_value::<i32>(vm) {
-                    if fd < 0 {
-                        return Err(
-                            vm.new_value_error("file is not a valid file descriptor".to_owned())
-                        );
-                    }
-                    return Ok(fd);
-                }
-                // Try to get fileno() from file object
-                let fileno = vm.call_method(&f, "fileno", ())?;
-                let fd: i32 = fileno.try_to_value(vm)?;
-                if fd < 0 {
-                    return Err(
-                        vm.new_value_error("file is not a valid file descriptor".to_owned())
-                    );
-                }
-                // Try to flush the file
-                let _ = vm.call_method(&f, "flush", ());
-                Ok(fd)
-            }
-            OptionalArg::Missing => {
-                // Get sys.stderr
-                let stderr = vm.sys_module.get_attr("stderr", vm)?;
-                if vm.is_none(&stderr) {
-                    return Err(vm.new_runtime_error("sys.stderr is None".to_owned()));
-                }
-                let fileno = vm.call_method(&stderr, "fileno", ())?;
-                let fd: i32 = fileno.try_to_value(vm)?;
-                let _ = vm.call_method(&stderr, "flush", ());
-                Ok(fd)
-            }
-        }
-    }
-
-    #[cfg(unix)]
     #[derive(FromArgs)]
     #[allow(unused)]
     struct RegisterArgs {
@@ -710,7 +663,7 @@ mod decl {
     fn register(args: RegisterArgs, vm: &VirtualMachine) -> PyResult<()> {
         check_signum(args.signum, vm)?;
 
-        let fd = get_fd_from_file(args.file, vm)?;
+        let fd = get_fd_from_file_opt(args.file, vm)?;
 
         let signum = args.signum as usize;
 
