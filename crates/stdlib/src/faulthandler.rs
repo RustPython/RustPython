@@ -3,6 +3,9 @@ pub(crate) use decl::make_module;
 #[pymodule(name = "faulthandler")]
 mod decl {
     use crate::vm::{VirtualMachine, frame::Frame, function::OptionalArg, stdlib::sys::PyStderr};
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static ENABLED: AtomicBool = AtomicBool::new(false);
 
     fn dump_frame(frame: &Frame, vm: &VirtualMachine) {
         let stderr = PyStderr(vm);
@@ -39,8 +42,18 @@ mod decl {
     }
 
     #[pyfunction]
-    const fn enable(_args: EnableArgs) {
-        // TODO
+    fn enable(_args: EnableArgs) {
+        ENABLED.store(true, Ordering::Relaxed);
+    }
+
+    #[pyfunction]
+    fn disable() {
+        ENABLED.store(false, Ordering::Relaxed);
+    }
+
+    #[pyfunction]
+    fn is_enabled() -> bool {
+        ENABLED.load(Ordering::Relaxed)
     }
 
     #[derive(FromArgs)]

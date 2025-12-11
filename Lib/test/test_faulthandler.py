@@ -411,8 +411,6 @@ class FaultHandlerTests(unittest.TestCase):
         for name in ('sys', 'faulthandler'):
             self.assertIn(name, modules)
 
-    # TODO: RUSTPYTHON, AttributeError: module 'faulthandler' has no attribute 'is_enabled'
-    @unittest.expectedFailure
     def test_is_enabled(self):
         orig_stderr = sys.stderr
         try:
@@ -435,8 +433,6 @@ class FaultHandlerTests(unittest.TestCase):
         finally:
             sys.stderr = orig_stderr
 
-    # TODO: RUSTPYTHON, subprocess.CalledProcessError: Command ... returned non-zero exit status 1.
-    @unittest.expectedFailure
     @support.requires_subprocess()
     def test_disabled_by_default(self):
         # By default, the module should be disabled
