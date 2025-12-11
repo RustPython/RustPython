@@ -267,6 +267,7 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         };
         match &*name {
             "dev" => settings.dev_mode = true,
+            "faulthandler" => settings.faulthandler = true,
             "warn_default_encoding" => settings.warn_default_encoding = true,
             "no_sig_int" => settings.install_signal_handlers = false,
             "int_max_str_digits" => {
@@ -291,9 +292,11 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
 
     settings.warn_default_encoding =
         settings.warn_default_encoding || env_bool("PYTHONWARNDEFAULTENCODING");
+    settings.faulthandler = settings.faulthandler || env_bool("PYTHONFAULTHANDLER");
 
     if settings.dev_mode {
-        settings.warnoptions.push("default".to_owned())
+        settings.warnoptions.push("default".to_owned());
+        settings.faulthandler = true;
     }
     if settings.bytes_warning > 0 {
         let warn = if settings.bytes_warning > 1 {

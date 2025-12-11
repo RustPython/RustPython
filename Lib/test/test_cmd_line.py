@@ -713,8 +713,6 @@ class CmdLineTest(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc)
         return proc.stdout.rstrip()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_xdev(self):
         # sys.flags.dev_mode
         code = "import sys; print(sys.flags.dev_mode)"

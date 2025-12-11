@@ -19,7 +19,9 @@ pub struct Settings {
     /// None means use_hash_seed = 0 in CPython
     pub hash_seed: Option<u32>,
 
-    // int faulthandler;
+    /// -X faulthandler, PYTHONFAULTHANDLER
+    pub faulthandler: bool,
+
     // int tracemalloc;
     // int perf_profiling;
     // int import_time;
@@ -157,6 +159,7 @@ impl Default for Settings {
             path_list: vec![],
             argv: vec![],
             hash_seed: None,
+            faulthandler: false,
             buffered_stdio: true,
             check_hash_pycs_mode: CheckHashPycsMode::Default,
             allow_external_library: cfg!(feature = "importlib"),
