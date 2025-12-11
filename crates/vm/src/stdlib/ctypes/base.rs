@@ -1,8 +1,6 @@
 use super::_ctypes::bytes_to_pyobject;
-use super::array::PyCArrayType;
 use super::util::StgInfo;
 use crate::builtins::{PyBytes, PyFloat, PyInt, PyNone, PyStr, PyStrRef, PyType, PyTypeRef};
-use crate::convert::ToPyObject;
 use crate::function::{ArgBytesLike, Either, FuncArgs, KwArgs, OptionalArg};
 use crate::protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyNumberMethods};
 use crate::stdlib::ctypes::_ctypes::new_simple_type;
@@ -231,10 +229,7 @@ impl PyCData {
 
 #[pyclass(module = "_ctypes", name = "PyCSimpleType", base = PyType)]
 #[derive(Debug, PyPayload, Default)]
-pub struct PyCSimpleType {
-    #[allow(dead_code)]
-    pub stg_info: StgInfo,
-}
+pub struct PyCSimpleType {}
 
 #[pyclass(flags(BASETYPE), with(AsNumber))]
 impl PyCSimpleType {
@@ -747,6 +742,8 @@ impl PyCSimple {
     #[pyclassmethod]
     fn repeat(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
         use super::_ctypes::get_size;
+        use super::array::create_array_type_with_stg_info;
+
         if n < 0 {
             return Err(vm.new_value_error(format!("Array length must be >= 0, not {n}")));
         }
@@ -766,14 +763,14 @@ impl PyCSimple {
             std::mem::size_of::<usize>()
         };
         let total_size = element_size * (n as usize);
-        let stg_info = super::util::StgInfo::new(total_size, element_size);
-        Ok(PyCArrayType {
-            stg_info,
-            typ: PyRwLock::new(cls.clone().into()),
-            length: AtomicCell::new(n as usize),
-            element_size: AtomicCell::new(element_size),
-        }
-        .to_pyobject(vm))
+        let stg_info = super::util::StgInfo::new_array(
+            total_size,
+            element_size,
+            n as usize,
+            cls.clone().into(),
+            element_size,
+        );
+        create_array_type_with_stg_info(stg_info, vm)
     }
 
     #[pyclassmethod]

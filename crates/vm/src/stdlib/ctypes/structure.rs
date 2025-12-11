@@ -8,7 +8,6 @@ use crate::protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyNumberMethods
 use crate::stdlib::ctypes::_ctypes::get_size;
 use crate::types::{AsBuffer, AsNumber, Constructor};
 use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
-use crossbeam_utils::atomic::AtomicCell;
 use indexmap::IndexMap;
 use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
@@ -16,11 +15,8 @@ use std::fmt::Debug;
 
 /// PyCStructType - metaclass for Structure
 #[pyclass(name = "PyCStructType", base = PyType, module = "_ctypes")]
-#[derive(Debug, PyPayload)]
-pub struct PyCStructType {
-    #[allow(dead_code)]
-    pub stg_info: StgInfo,
-}
+#[derive(Debug, PyPayload, Default)]
+pub struct PyCStructType {}
 
 impl Constructor for PyCStructType {
     type Args = FuncArgs;
@@ -161,7 +157,7 @@ impl PyCStructType {
 
     #[pymethod]
     fn __mul__(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
-        use super::array::PyCArrayType;
+        use super::array::create_array_type_with_stg_info;
         use crate::stdlib::ctypes::_ctypes::size_of;
 
         if n < 0 {
@@ -174,15 +170,14 @@ impl PyCStructType {
         let total_size = element_size
             .checked_mul(n as usize)
             .ok_or_else(|| vm.new_overflow_error("array size too large".to_owned()))?;
-        let mut stg_info = super::util::StgInfo::new(total_size, element_size);
-        stg_info.length = n as usize;
-        Ok(PyCArrayType {
-            stg_info,
-            typ: PyRwLock::new(cls.clone().into()),
-            length: AtomicCell::new(n as usize),
-            element_size: AtomicCell::new(element_size),
-        }
-        .to_pyobject(vm))
+        let stg_info = super::util::StgInfo::new_array(
+            total_size,
+            element_size,
+            n as usize,
+            cls.clone().into(),
+            element_size,
+        );
+        create_array_type_with_stg_info(stg_info, vm)
     }
 }
 

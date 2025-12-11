@@ -1,13 +1,13 @@
 use crate::atomic_func;
 use crate::builtins::{PyBytes, PyInt};
-use crate::convert::ToPyObject;
+use crate::class::StaticType;
 use crate::function::FuncArgs;
 use crate::protocol::{
     BufferDescriptor, BufferMethods, PyBuffer, PyNumberMethods, PySequenceMethods,
 };
 use crate::stdlib::ctypes::base::CDataObject;
 use crate::stdlib::ctypes::util::StgInfo;
-use crate::types::{AsBuffer, AsNumber, AsSequence, Callable};
+use crate::types::{AsBuffer, AsNumber, AsSequence};
 use crate::{AsObject, Py, PyObjectRef, PyPayload};
 use crate::{
     PyResult, VirtualMachine,
@@ -20,56 +20,49 @@ use rustpython_common::lock::PyRwLock;
 use rustpython_vm::stdlib::ctypes::_ctypes::get_size;
 use rustpython_vm::stdlib::ctypes::base::PyCData;
 
+/// PyCArrayType - metatype for Array types
+/// CPython stores array info (type, length) in StgInfo via type_data
 #[pyclass(name = "PyCArrayType", base = PyType, module = "_ctypes")]
-#[derive(PyPayload)]
-pub struct PyCArrayType {
-    pub(super) stg_info: StgInfo,
-    pub(super) typ: PyRwLock<PyObjectRef>,
-    pub(super) length: AtomicCell<usize>,
-    pub(super) element_size: AtomicCell<usize>,
-}
+#[derive(Debug, Default, PyPayload)]
+pub struct PyCArrayType {}
 
-impl std::fmt::Debug for PyCArrayType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PyCArrayType")
-            .field("typ", &self.typ)
-            .field("length", &self.length)
-            .finish()
-    }
-}
+/// Create a new Array type with StgInfo stored in type_data (CPython style)
+pub fn create_array_type_with_stg_info(stg_info: StgInfo, vm: &VirtualMachine) -> PyResult {
+    // Get PyCArrayType as metaclass
+    let metaclass = PyCArrayType::static_type().to_owned();
 
-impl Callable for PyCArrayType {
-    type Args = FuncArgs;
-    fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        // Create an instance of the array
-        let element_type = zelf.typ.read().clone();
-        let length = zelf.length.load();
-        let element_size = zelf.element_size.load();
-        let total_size = element_size * length;
-        let mut buffer = vec![0u8; total_size];
+    // Create a unique name for the array type
+    let type_name = format!("Array_{}", stg_info.length);
 
-        // Initialize from positional arguments
-        for (i, value) in args.args.iter().enumerate() {
-            if i >= length {
-                break;
-            }
-            let offset = i * element_size;
-            if let Ok(int_val) = value.try_int(vm) {
-                let bytes = PyCArray::int_to_bytes(int_val.as_bigint(), element_size);
-                if offset + element_size <= buffer.len() {
-                    buffer[offset..offset + element_size].copy_from_slice(&bytes);
-                }
-            }
+    // Create args for type(): (name, bases, dict)
+    let name = vm.ctx.new_str(type_name);
+    let bases = vm
+        .ctx
+        .new_tuple(vec![PyCArray::static_type().to_owned().into()]);
+    let dict = vm.ctx.new_dict();
+
+    let args = FuncArgs::new(
+        vec![name.into(), bases.into(), dict.into()],
+        crate::function::KwArgs::default(),
+    );
+
+    // Create the new type using PyType::slot_new with PyCArrayType as metaclass
+    let new_type = crate::builtins::type_::PyType::slot_new(metaclass, args, vm)?;
+
+    // Set StgInfo in type_data
+    let type_ref: PyTypeRef = new_type
+        .clone()
+        .downcast()
+        .map_err(|_| vm.new_type_error("Failed to create array type".to_owned()))?;
+
+    if type_ref.init_type_data(stg_info.clone()).is_err() {
+        // Type data already initialized - update it
+        if let Some(mut existing) = type_ref.get_type_data_mut::<StgInfo>() {
+            *existing = stg_info;
         }
-
-        Ok(PyCArray {
-            typ: PyRwLock::new(element_type),
-            length: AtomicCell::new(length),
-            element_size: AtomicCell::new(element_size),
-            cdata: PyRwLock::new(CDataObject::from_bytes(buffer, None)),
-        }
-        .into_pyobject(vm))
     }
+
+    Ok(new_type)
 }
 
 impl Constructor for PyCArrayType {
@@ -80,54 +73,62 @@ impl Constructor for PyCArrayType {
     }
 }
 
-#[pyclass(flags(IMMUTABLETYPE), with(Callable, Constructor, AsNumber))]
+#[pyclass(flags(IMMUTABLETYPE), with(Constructor, AsNumber))]
 impl PyCArrayType {
     #[pygetset(name = "_type_")]
-    fn typ(&self) -> PyObjectRef {
-        self.typ.read().clone()
+    fn typ(zelf: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        zelf.downcast_ref::<PyType>()
+            .and_then(|t| t.get_type_data::<StgInfo>())
+            .and_then(|stg| stg.element_type.clone())
+            .unwrap_or_else(|| vm.ctx.none())
     }
 
     #[pygetset(name = "_length_")]
-    fn length(&self) -> usize {
-        self.length.load()
+    fn length(zelf: PyObjectRef) -> usize {
+        zelf.downcast_ref::<PyType>()
+            .and_then(|t| t.get_type_data::<StgInfo>())
+            .map(|stg| stg.length)
+            .unwrap_or(0)
     }
 
     #[pymethod]
-    fn __mul__(zelf: &Py<Self>, n: isize, vm: &VirtualMachine) -> PyResult {
+    fn __mul__(zelf: PyObjectRef, n: isize, vm: &VirtualMachine) -> PyResult {
         if n < 0 {
             return Err(vm.new_value_error(format!("Array length must be >= 0, not {n}")));
         }
-        // Create a nested array type: (inner_type * inner_length) * n
-        // The new array has n elements, each element is the current array type
-        // e.g., (c_int * 5) * 3 = Array of 3 elements, each is (c_int * 5)
-        let inner_length = zelf.length.load();
-        let inner_element_size = zelf.element_size.load();
+
+        // Get inner array info from TypeDataSlot
+        let type_ref = zelf.downcast_ref::<PyType>().unwrap();
+        let (_inner_length, inner_size) = type_ref
+            .get_type_data::<StgInfo>()
+            .map(|stg| (stg.length, stg.size))
+            .unwrap_or((0, 0));
 
         // The element type of the new array is the current array type itself
-        let current_array_type: PyObjectRef = zelf.as_object().to_owned();
+        let current_array_type: PyObjectRef = zelf.clone();
 
         // Element size is the total size of the inner array
-        let new_element_size = inner_length * inner_element_size;
+        let new_element_size = inner_size;
         let total_size = new_element_size * (n as usize);
-        let stg_info = StgInfo::new(total_size, inner_element_size);
 
-        Ok(PyCArrayType {
-            stg_info,
-            typ: PyRwLock::new(current_array_type),
-            length: AtomicCell::new(n as usize),
-            element_size: AtomicCell::new(new_element_size),
-        }
-        .to_pyobject(vm))
+        let stg_info = StgInfo::new_array(
+            total_size,
+            new_element_size,
+            n as usize,
+            current_array_type,
+            new_element_size,
+        );
+
+        create_array_type_with_stg_info(stg_info, vm)
     }
 
     #[pyclassmethod]
     fn in_dll(
-        zelf: &Py<Self>,
+        zelf: PyObjectRef,
         dll: PyObjectRef,
         name: crate::builtins::PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult {
-        use crate::stdlib::ctypes::_ctypes::size_of;
         use libloading::Symbol;
 
         // Get the library handle from dll object
@@ -168,10 +169,18 @@ impl PyCArrayType {
             return Err(vm.new_attribute_error("Library is closed".to_owned()));
         };
 
-        // Get size from the array type
-        let element_type = zelf.typ.read().clone();
-        let length = zelf.length.load();
-        let element_size = size_of(element_type.clone(), vm)?;
+        // Get size from the array type via TypeDataSlot
+        let type_ref = zelf.downcast_ref::<PyType>().unwrap();
+        let (element_type, length, element_size) = type_ref
+            .get_type_data::<StgInfo>()
+            .map(|stg| {
+                (
+                    stg.element_type.clone().unwrap_or_else(|| vm.ctx.none()),
+                    stg.length,
+                    stg.element_size,
+                )
+            })
+            .unwrap_or_else(|| (vm.ctx.none(), 0, 0));
         let total_size = element_size * length;
 
         // Read data from symbol address
@@ -206,15 +215,13 @@ impl AsNumber for PyCArrayType {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             multiply: Some(|a, b, vm| {
-                let zelf = a
-                    .downcast_ref::<PyCArrayType>()
-                    .ok_or_else(|| vm.new_type_error("expected PyCArrayType".to_owned()))?;
+                // a is a type object whose metaclass is PyCArrayType (e.g., Array_5)
                 let n = b
                     .try_index(vm)?
                     .as_bigint()
                     .to_isize()
                     .ok_or_else(|| vm.new_overflow_error("array size too large".to_owned()))?;
-                PyCArrayType::__mul__(zelf, n, vm)
+                PyCArrayType::__mul__(a.to_owned(), n, vm)
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };

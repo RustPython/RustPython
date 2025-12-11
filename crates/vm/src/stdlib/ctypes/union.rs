@@ -13,18 +13,8 @@ use rustpython_common::lock::PyRwLock;
 
 /// PyCUnionType - metaclass for Union
 #[pyclass(name = "UnionType", base = PyType, module = "_ctypes")]
-#[derive(Debug, PyPayload)]
-pub struct PyCUnionType {
-    pub stg_info: StgInfo,
-}
-
-impl Default for PyCUnionType {
-    fn default() -> Self {
-        PyCUnionType {
-            stg_info: StgInfo::new(0, 1),
-        }
-    }
-}
+#[derive(Debug, PyPayload, Default)]
+pub struct PyCUnionType {}
 
 impl Constructor for PyCUnionType {
     type Args = FuncArgs;
