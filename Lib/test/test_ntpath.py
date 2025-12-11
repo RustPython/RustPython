@@ -650,8 +650,6 @@ class TestNtpath(NtpathTestCase):
         os.symlink(ABSTFN, ntpath.relpath(ABSTFN + "1"))
         self.assertPathEqual(ntpath.realpath(ABSTFN + "1", **kwargs), ABSTFN)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @os_helper.skip_unless_symlink
     @unittest.skipUnless(HAVE_GETFINALPATHNAME, 'need _getfinalpathname')
     def test_realpath_broken_symlinks(self):
@@ -1385,6 +1383,7 @@ class TestNtpath(NtpathTestCase):
             self.assertIsInstance(b_final_path, bytes)
             self.assertGreater(len(b_final_path), 0)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(sys.platform != 'win32', "Can only test junctions with creation on win32.")
     def test_isjunction(self):
         with os_helper.temp_dir() as d:

@@ -316,7 +316,7 @@ mod _winapi {
 
     #[pyfunction]
     fn NeedCurrentDirectoryForExePath(exe_name: PyStrRef) -> bool {
-        let exe_name = exe_name.as_str().to_wide_with_nul();
+        let exe_name = exe_name.as_wtf8().to_wide_with_nul();
         let return_value = unsafe {
             windows_sys::Win32::System::Environment::NeedCurrentDirectoryForExePathW(
                 exe_name.as_ptr(),
@@ -334,7 +334,7 @@ mod _winapi {
         let src_path = std::path::Path::new(src_path.as_str());
         let dest_path = std::path::Path::new(dest_path.as_str());
 
-        junction::create(dest_path, src_path).map_err(|e| e.to_pyexception(vm))
+        junction::create(src_path, dest_path).map_err(|e| e.to_pyexception(vm))
     }
 
     fn getenvironment(env: ArgMapping, vm: &VirtualMachine) -> PyResult<Vec<u16>> {
@@ -485,9 +485,9 @@ mod _winapi {
     // TODO: ctypes.LibraryLoader.LoadLibrary
     #[allow(dead_code)]
     fn LoadLibrary(path: PyStrRef, vm: &VirtualMachine) -> PyResult<isize> {
-        let path = path.as_str().to_wide_with_nul();
+        let path_wide = path.as_wtf8().to_wide_with_nul();
         let handle =
-            unsafe { windows_sys::Win32::System::LibraryLoader::LoadLibraryW(path.as_ptr()) };
+            unsafe { windows_sys::Win32::System::LibraryLoader::LoadLibraryW(path_wide.as_ptr()) };
         if handle.is_null() {
             return Err(vm.new_runtime_error("LoadLibrary failed"));
         }
@@ -520,7 +520,7 @@ mod _winapi {
         name: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<isize> {
-        let name_wide = name.as_str().to_wide_with_nul();
+        let name_wide = name.as_wtf8().to_wide_with_nul();
         let handle = unsafe {
             windows_sys::Win32::System::Threading::OpenMutexW(
                 desired_access,
@@ -565,13 +565,9 @@ mod _winapi {
             return Err(vm.new_value_error("unsupported flags"));
         }
 
-        // Use encode_wide() which properly handles WTF-8 (including surrogates)
-        let locale_wide: Vec<u16> = locale
-            .as_wtf8()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        let src_wide: Vec<u16> = src.as_wtf8().encode_wide().collect();
+        // Use ToWideString which properly handles WTF-8 (including surrogates)
+        let locale_wide = locale.as_wtf8().to_wide_with_nul();
+        let src_wide = src.as_wtf8().to_wide();
 
         if src_wide.len() > i32::MAX as usize {
             return Err(vm.new_overflow_error("input string is too long".to_string()));
@@ -648,7 +644,7 @@ mod _winapi {
     fn CreateNamedPipe(args: CreateNamedPipeArgs, vm: &VirtualMachine) -> PyResult<WinHandle> {
         use windows_sys::Win32::System::Pipes::CreateNamedPipeW;
 
-        let name_wide = args.name.as_str().to_wide_with_nul();
+        let name_wide = args.name.as_wtf8().to_wide_with_nul();
 
         let handle = unsafe {
             CreateNamedPipeW(

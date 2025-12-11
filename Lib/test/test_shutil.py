@@ -257,7 +257,6 @@ class TestRmTree(BaseTest, unittest.TestCase):
         self.assertTrue(os.path.exists(dir3))
         self.assertTrue(os.path.exists(file1))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipUnless(_winapi, 'only relevant on Windows')
     def test_rmtree_fails_on_junctions_onerror(self):
         tmp = self.mkdtemp()
@@ -278,7 +277,6 @@ class TestRmTree(BaseTest, unittest.TestCase):
         self.assertEqual(errors[0][1], link)
         self.assertIsInstance(errors[0][2][1], OSError)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipUnless(_winapi, 'only relevant on Windows')
     def test_rmtree_fails_on_junctions_onexc(self):
         tmp = self.mkdtemp()
@@ -299,7 +297,6 @@ class TestRmTree(BaseTest, unittest.TestCase):
         self.assertEqual(errors[0][1], link)
         self.assertIsInstance(errors[0][2], OSError)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipUnless(_winapi, 'only relevant on Windows')
     def test_rmtree_works_on_junctions(self):
         tmp = self.mkdtemp()
@@ -659,7 +656,6 @@ class TestRmTree(BaseTest, unittest.TestCase):
         finally:
             shutil.rmtree(TESTFN, ignore_errors=True)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipUnless(_winapi, 'only relevant on Windows')
     def test_rmtree_on_junction(self):
         os.mkdir(TESTFN)
@@ -977,7 +973,6 @@ class TestCopyTree(BaseTest, unittest.TestCase):
         shutil.copytree(src_dir, dst_dir, copy_function=_copy)
         self.assertEqual(len(copied), 2)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     def test_copytree_dangling_symlinks(self):
         src_dir = self.mkdtemp()
@@ -1051,7 +1046,6 @@ class TestCopy(BaseTest, unittest.TestCase):
 
     ### shutil.copymode
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     def test_copymode_follow_symlinks(self):
         tmp_dir = self.mkdtemp()
@@ -2594,7 +2588,6 @@ class TestMove(BaseTest, unittest.TestCase):
         self.assertTrue(os.path.islink(final_link))
         self.assertTrue(os.path.samefile(self.src_file, final_link))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     @mock_rename
     def test_move_dangling_symlink(self):
