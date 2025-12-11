@@ -7,7 +7,6 @@ mod _operator {
         builtins::{PyInt, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef},
         common::wtf8::Wtf8,
         function::{ArgBytesLike, Either, FuncArgs, KwArgs, OptionalArg},
-        identifier,
         protocol::PyIter,
         recursion::ReprGuard,
         types::{Callable, Constructor, PyComparisonOp, Representable},

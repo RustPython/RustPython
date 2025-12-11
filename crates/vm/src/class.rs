@@ -3,7 +3,6 @@
 use crate::{
     builtins::{PyBaseObject, PyType, PyTypeRef},
     function::PyMethodDef,
-    identifier,
     object::Py,
     types::{PyTypeFlags, PyTypeSlots, hash_not_implemented},
     vm::Context,

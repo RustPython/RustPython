@@ -1506,7 +1506,9 @@ pub(super) mod _os {
     #[cfg(target_os = "linux")]
     #[pyfunction]
     fn copy_file_range(args: CopyFileRangeArgs<'_>, vm: &VirtualMachine) -> PyResult<usize> {
+        #[allow(clippy::unnecessary_option_map_or_else)]
         let p_offset_src = args.offset_src.as_ref().map_or_else(std::ptr::null, |x| x);
+        #[allow(clippy::unnecessary_option_map_or_else)]
         let p_offset_dst = args.offset_dst.as_ref().map_or_else(std::ptr::null, |x| x);
         let count: usize = args
             .count

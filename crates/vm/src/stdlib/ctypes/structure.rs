@@ -44,7 +44,7 @@ impl Constructor for PyCStructType {
     }
 
     fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-        unreachable!("use slot_new")
+        unimplemented!("use slot_new")
     }
 }
 
@@ -332,7 +332,7 @@ impl Constructor for PyCStructure {
     }
 
     fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-        unreachable!("use slot_new")
+        unimplemented!("use slot_new")
     }
 }
 

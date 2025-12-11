@@ -380,7 +380,11 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                     .fmt(self.f)?
             }
             Expr::NumberLiteral(ruff::ExprNumberLiteral { value, .. }) => {
-                const { assert!(f64::MAX_10_EXP == 308) };
+                #[allow(clippy::correctness, clippy::assertions_on_constants)]
+                const {
+                    assert!(f64::MAX_10_EXP == 308)
+                };
+
                 let inf_str = "1e309";
                 match value {
                     ruff::Number::Int(int) => int.fmt(self.f)?,

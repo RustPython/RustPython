@@ -22,7 +22,6 @@ use crate::{
     },
     convert::ToPyResult,
     function::{FuncArgs, KwArgs, OptionalArg, PyMethodDef, PySetterValue},
-    identifier,
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{
@@ -1289,7 +1288,7 @@ impl Constructor for PyType {
     }
 
     fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-        unreachable!("use slot_new")
+        unimplemented!("use slot_new")
     }
 }
 

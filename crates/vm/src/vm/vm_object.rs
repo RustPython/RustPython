@@ -2,7 +2,6 @@ use super::PyMethod;
 use crate::{
     builtins::{PyBaseExceptionRef, PyList, PyStrInterned, pystr::AsPyStr},
     function::IntoFuncArgs,
-    identifier,
     object::{AsObject, PyObject, PyObjectRef, PyResult},
     stdlib::sys,
     vm::VirtualMachine,

@@ -16,7 +16,6 @@ mod decl {
         },
         convert::ToPyObject,
         function::{ArgCallable, ArgIntoBool, FuncArgs, OptionalArg, OptionalOption, PosArgs},
-        identifier,
         protocol::{PyIter, PyIterReturn, PyNumber},
         raise_if_stop,
         stdlib::{sys, warnings},
@@ -1256,7 +1255,7 @@ mod decl {
         }
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-            unreachable!("use slot_new")
+            unimplemented!("use slot_new")
         }
     }
 

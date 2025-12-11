@@ -6,7 +6,6 @@ use crate::{
     class::PyClassImpl,
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{FuncArgs, OptionalArg},
-    identifier,
     protocol::PyNumberMethods,
     types::{AsNumber, Constructor, Representable},
 };
@@ -115,7 +114,7 @@ impl Constructor for PyBool {
     }
 
     fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-        unreachable!("use slot_new")
+        unimplemented!("use slot_new")
     }
 }
 
