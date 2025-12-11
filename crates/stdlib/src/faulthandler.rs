@@ -31,74 +31,50 @@ mod decl {
         previous: libc::sighandler_t,
     }
 
+    #[cfg(unix)]
+    impl FaultHandler {
+        const fn new(signum: libc::c_int, name: &'static str) -> Self {
+            Self {
+                signum,
+                enabled: false,
+                name,
+                // SAFETY: sigaction is a C struct that can be zero-initialized
+                previous: unsafe { std::mem::zeroed() },
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    impl FaultHandler {
+        const fn new(signum: libc::c_int, name: &'static str) -> Self {
+            Self {
+                signum,
+                enabled: false,
+                name,
+                previous: 0,
+            }
+        }
+    }
+
     /// faulthandler_handlers[]
     /// Number of fatal signals
     #[cfg(unix)]
     const FAULTHANDLER_NSIGNALS: usize = 5;
     #[cfg(windows)]
-    const FAULTHANDLER_NSIGNALS: usize = 3;
+    const FAULTHANDLER_NSIGNALS: usize = 4;
 
     // CPython uses static arrays for signal handlers which requires mutable static access.
     // This is safe because:
     // 1. Signal handlers run in a single-threaded context (from the OS perspective)
     // 2. FAULTHANDLER_HANDLERS is only modified during enable/disable operations
     // 3. This matches CPython's faulthandler.c implementation
-    #[cfg(unix)]
-    static mut FAULTHANDLER_HANDLERS: [FaultHandler; FAULTHANDLER_NSIGNALS] = unsafe {
-        [
-            FaultHandler {
-                signum: libc::SIGBUS,
-                enabled: false,
-                name: "Bus error",
-                previous: std::mem::zeroed(),
-            },
-            FaultHandler {
-                signum: libc::SIGILL,
-                enabled: false,
-                name: "Illegal instruction",
-                previous: std::mem::zeroed(),
-            },
-            FaultHandler {
-                signum: libc::SIGFPE,
-                enabled: false,
-                name: "Floating-point exception",
-                previous: std::mem::zeroed(),
-            },
-            FaultHandler {
-                signum: libc::SIGABRT,
-                enabled: false,
-                name: "Aborted",
-                previous: std::mem::zeroed(),
-            },
-            FaultHandler {
-                signum: libc::SIGSEGV,
-                enabled: false,
-                name: "Segmentation fault",
-                previous: std::mem::zeroed(),
-            },
-        ]
-    };
-
-    #[cfg(windows)]
     static mut FAULTHANDLER_HANDLERS: [FaultHandler; FAULTHANDLER_NSIGNALS] = [
-        FaultHandler {
-            signum: libc::SIGFPE,
-            enabled: false,
-            name: "Floating-point exception",
-            previous: 0,
-        },
-        FaultHandler {
-            signum: libc::SIGABRT,
-            enabled: false,
-            name: "Aborted",
-            previous: 0,
-        },
-        FaultHandler {
-            signum: libc::SIGSEGV,
-            enabled: false,
-            name: "Segmentation fault",
-            previous: 0,
-        },
+        #[cfg(unix)]
+        FaultHandler::new(libc::SIGBUS, "Bus error"),
+        FaultHandler::new(libc::SIGILL, "Illegal instruction"),
+        FaultHandler::new(libc::SIGFPE, "Floating-point exception"),
+        FaultHandler::new(libc::SIGABRT, "Aborted"),
+        FaultHandler::new(libc::SIGSEGV, "Segmentation fault"),
     ];
 
     /// fatal_error state
