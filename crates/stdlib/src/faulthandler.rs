@@ -9,7 +9,7 @@ mod decl {
     };
     #[cfg(any(unix, windows))]
     use rustpython_common::os::{get_errno, set_errno};
-    use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
     use std::sync::{Arc, Condvar, Mutex};
     use std::thread;
     use std::time::Duration;
@@ -68,9 +68,17 @@ mod decl {
     // 1. Signal handlers run in a single-threaded context (from the OS perspective)
     // 2. FAULTHANDLER_HANDLERS is only modified during enable/disable operations
     // 3. This matches CPython's faulthandler.c implementation
+    #[cfg(unix)]
     static mut FAULTHANDLER_HANDLERS: [FaultHandler; FAULTHANDLER_NSIGNALS] = [
-        #[cfg(unix)]
         FaultHandler::new(libc::SIGBUS, "Bus error"),
+        FaultHandler::new(libc::SIGILL, "Illegal instruction"),
+        FaultHandler::new(libc::SIGFPE, "Floating-point exception"),
+        FaultHandler::new(libc::SIGABRT, "Aborted"),
+        FaultHandler::new(libc::SIGSEGV, "Segmentation fault"),
+    ];
+
+    #[cfg(windows)]
+    static mut FAULTHANDLER_HANDLERS: [FaultHandler; FAULTHANDLER_NSIGNALS] = [
         FaultHandler::new(libc::SIGILL, "Illegal instruction"),
         FaultHandler::new(libc::SIGFPE, "Floating-point exception"),
         FaultHandler::new(libc::SIGABRT, "Aborted"),
@@ -106,6 +114,7 @@ mod decl {
     // Frame snapshot for signal-safe traceback (RustPython-specific)
 
     /// Frame information snapshot for signal-safe access
+    #[cfg(any(unix, windows))]
     #[derive(Clone, Copy)]
     struct FrameSnapshot {
         filename: [u8; 256],
@@ -115,6 +124,7 @@ mod decl {
         funcname_len: usize,
     }
 
+    #[cfg(any(unix, windows))]
     impl FrameSnapshot {
         const EMPTY: Self = Self {
             filename: [0; 256],
@@ -125,12 +135,15 @@ mod decl {
         };
     }
 
+    #[cfg(any(unix, windows))]
     const MAX_SNAPSHOT_FRAMES: usize = 100;
 
     /// Signal-safe global storage for frame snapshots
+    #[cfg(any(unix, windows))]
     static mut FRAME_SNAPSHOTS: [FrameSnapshot; MAX_SNAPSHOT_FRAMES] =
         [FrameSnapshot::EMPTY; MAX_SNAPSHOT_FRAMES];
-    static SNAPSHOT_COUNT: AtomicUsize = AtomicUsize::new(0);
+    #[cfg(any(unix, windows))]
+    static SNAPSHOT_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
     // Signal-safe output functions
 
@@ -698,6 +711,9 @@ mod decl {
             drop(guard); // Release lock before I/O
 
             // Timeout occurred, dump traceback
+            #[cfg(target_arch = "wasm32")]
+            let _ = (exit, fd, &header);
+
             #[cfg(not(target_arch = "wasm32"))]
             {
                 let header_bytes = header.as_bytes();
