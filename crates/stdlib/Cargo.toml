@@ -150,6 +150,7 @@ features = [
   "Win32_NetworkManagement_Ndis",
   "Win32_Security_Cryptography",
   "Win32_Storage_FileSystem",
+  "Win32_System_Diagnostics_Debug",
   "Win32_System_Environment",
   "Win32_System_IO",
   "Win32_System_Threading"
