@@ -122,13 +122,14 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
 
-      - name: Set up the Windows environment
-        shell: bash
-        run: |
-          git config --system core.longpaths true
-          cargo install --target-dir=target -v cargo-vcpkg
-          cargo vcpkg -v build
-        if: runner.os == 'Windows'
+      # Only for OpenSSL builds
+      # - name: Set up the Windows environment
+      #   shell: bash
+      #   run: |
+      #     git config --system core.longpaths true
+      #     cargo install --target-dir=target -v cargo-vcpkg
+      #     cargo vcpkg -v build
+      #   if: runner.os == 'Windows'
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool
         if: runner.os == 'macOS'
@@ -248,13 +249,14 @@ jobs:
       - uses: actions/setup-python@v6.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - name: Set up the Windows environment
-        shell: bash
-        run: |
-          git config --system core.longpaths true
-          cargo install cargo-vcpkg
-          cargo vcpkg build
-        if: runner.os == 'Windows'
+      # Only for OpenSSL builds
+      # - name: Set up the Windows environment
+      #   shell: bash
+      #   run: |
+      #     git config --system core.longpaths true
+      #     cargo install cargo-vcpkg
+      #     cargo vcpkg build
+      #   if: runner.os == 'Windows'
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool openssl@3
         if: runner.os == 'macOS'
