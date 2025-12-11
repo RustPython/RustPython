@@ -24,13 +24,15 @@ impl PyPayload for PyFilter {
 impl Constructor for PyFilter {
     type Args = (PyObjectRef, PyIter);
 
-    fn py_new(cls: PyTypeRef, (function, iterator): Self::Args, vm: &VirtualMachine) -> PyResult {
-        Self {
+    fn py_new(
+        _cls: &Py<PyType>,
+        (function, iterator): Self::Args,
+        _vm: &VirtualMachine,
+    ) -> PyResult<Self> {
+        Ok(Self {
             predicate: function,
             iterator,
-        }
-        .into_ref_with_type(vm, cls)
-        .map(Into::into)
+        })
     }
 }
 

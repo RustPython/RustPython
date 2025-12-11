@@ -313,8 +313,13 @@ impl PyPayload for PyEllipsis {
 impl Constructor for PyEllipsis {
     type Args = ();
 
-    fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let _: () = args.bind(vm)?;
         Ok(vm.ctx.ellipsis.clone().into())
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("Ellipsis is a singleton")
     }
 }
 

@@ -7,7 +7,7 @@ mod decl {
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef, TryFromObject,
         VirtualMachine,
         builtins::{
-            PyGenericAlias, PyInt, PyIntRef, PyList, PyTuple, PyTupleRef, PyTypeRef, int,
+            PyGenericAlias, PyInt, PyIntRef, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef, int,
             tuple::IntoPyTuple,
         },
         common::{
@@ -201,13 +201,11 @@ mod decl {
         type Args = CompressNewArgs;
 
         fn py_new(
-            cls: PyTypeRef,
+            _cls: &Py<PyType>,
             Self::Args { data, selectors }: Self::Args,
-            vm: &VirtualMachine,
-        ) -> PyResult {
-            Self { data, selectors }
-                .into_ref_with_type(vm, cls)
-                .map(Into::into)
+            _vm: &VirtualMachine,
+        ) -> PyResult<Self> {
+            Ok(Self { data, selectors })
         }
     }
 
@@ -260,22 +258,20 @@ mod decl {
         type Args = CountNewArgs;
 
         fn py_new(
-            cls: PyTypeRef,
+            _cls: &Py<PyType>,
             Self::Args { start, step }: Self::Args,
             vm: &VirtualMachine,
-        ) -> PyResult {
+        ) -> PyResult<Self> {
             let start = start.into_option().unwrap_or_else(|| vm.new_pyobj(0));
             let step = step.into_option().unwrap_or_else(|| vm.new_pyobj(1));
             if !PyNumber::check(&start) || !PyNumber::check(&step) {
                 return Err(vm.new_type_error("a number is required"));
             }
 
-            Self {
+            Ok(Self {
                 cur: PyRwLock::new(start),
                 step,
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 
@@ -327,14 +323,12 @@ mod decl {
     impl Constructor for PyItertoolsCycle {
         type Args = PyIter;
 
-        fn py_new(cls: PyTypeRef, iter: Self::Args, vm: &VirtualMachine) -> PyResult {
-            Self {
+        fn py_new(_cls: &Py<PyType>, iter: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self {
                 iter,
                 saved: PyRwLock::new(Vec::new()),
                 index: AtomicCell::new(0),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 
@@ -386,10 +380,10 @@ mod decl {
         type Args = PyRepeatNewArgs;
 
         fn py_new(
-            cls: PyTypeRef,
+            _cls: &Py<PyType>,
             Self::Args { object, times }: Self::Args,
             vm: &VirtualMachine,
-        ) -> PyResult {
+        ) -> PyResult<Self> {
             let times = match times.into_option() {
                 Some(int) => {
                     let val: isize = int.try_to_primitive(vm)?;
@@ -398,9 +392,7 @@ mod decl {
                 }
                 None => None,
             };
-            Self { object, times }
-                .into_ref_with_type(vm, cls)
-                .map(Into::into)
+            Ok(Self { object, times })
         }
     }
 
@@ -474,13 +466,11 @@ mod decl {
         type Args = StarmapNewArgs;
 
         fn py_new(
-            cls: PyTypeRef,
+            _cls: &Py<PyType>,
             Self::Args { function, iterable }: Self::Args,
-            vm: &VirtualMachine,
-        ) -> PyResult {
-            Self { function, iterable }
-                .into_ref_with_type(vm, cls)
-                .map(Into::into)
+            _vm: &VirtualMachine,
+        ) -> PyResult<Self> {
+            Ok(Self { function, iterable })
         }
     }
 
@@ -536,20 +526,18 @@ mod decl {
         type Args = TakewhileNewArgs;
 
         fn py_new(
-            cls: PyTypeRef,
+            _cls: &Py<PyType>,
             Self::Args {
                 predicate,
                 iterable,
             }: Self::Args,
-            vm: &VirtualMachine,
-        ) -> PyResult {
-            Self {
+            _vm: &VirtualMachine,
+        ) -> PyResult<Self> {
+            Ok(Self {
                 predicate,
                 iterable,
                 stop_flag: AtomicCell::new(false),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 
@@ -624,20 +612,18 @@ mod decl {
         type Args = DropwhileNewArgs;
 
         fn py_new(
-            cls: PyTypeRef,
+            _cls: &Py<PyType>,
             Self::Args {
                 predicate,
                 iterable,
             }: Self::Args,
-            vm: &VirtualMachine,
-        ) -> PyResult {
-            Self {
+            _vm: &VirtualMachine,
+        ) -> PyResult<Self> {
+            Ok(Self {
                 predicate,
                 iterable,
                 start_flag: AtomicCell::new(false),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 
@@ -748,17 +734,15 @@ mod decl {
         type Args = GroupByArgs;
 
         fn py_new(
-            cls: PyTypeRef,
+            _cls: &Py<PyType>,
             Self::Args { iterable, key }: Self::Args,
-            vm: &VirtualMachine,
-        ) -> PyResult {
-            Self {
+            _vm: &VirtualMachine,
+        ) -> PyResult<Self> {
+            Ok(Self {
                 iterable,
                 key_func: key.flatten(),
                 state: PyMutex::new(GroupByState::default()),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 
@@ -1039,19 +1023,17 @@ mod decl {
         type Args = FilterFalseNewArgs;
 
         fn py_new(
-            cls: PyTypeRef,
+            _cls: &Py<PyType>,
             Self::Args {
                 predicate,
                 iterable,
             }: Self::Args,
-            vm: &VirtualMachine,
-        ) -> PyResult {
-            Self {
+            _vm: &VirtualMachine,
+        ) -> PyResult<Self> {
+            Ok(Self {
                 predicate,
                 iterable,
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 
@@ -1114,15 +1096,13 @@ mod decl {
     impl Constructor for PyItertoolsAccumulate {
         type Args = AccumulateArgs;
 
-        fn py_new(cls: PyTypeRef, args: AccumulateArgs, vm: &VirtualMachine) -> PyResult {
-            Self {
+        fn py_new(_cls: &Py<PyType>, args: AccumulateArgs, _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self {
                 iterable: args.iterable,
                 bin_op: args.func.flatten(),
                 initial: args.initial.flatten(),
                 acc_value: PyRwLock::new(None),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 
@@ -1257,11 +1237,8 @@ mod decl {
 
         // TODO: make tee() a function, rename this class to itertools._tee and make
         // teedata a python class
-        fn py_new(
-            _cls: PyTypeRef,
-            Self::Args { iterable, n }: Self::Args,
-            vm: &VirtualMachine,
-        ) -> PyResult {
+        fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let TeeNewArgs { iterable, n } = args.bind(vm)?;
             let n = n.unwrap_or(2);
 
             let copyable = if iterable.class().has_attr(identifier!(vm, __copy__)) {
@@ -1276,6 +1253,10 @@ mod decl {
             }
 
             Ok(PyTuple::new_ref(tee_vec, &vm.ctx).into())
+        }
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            unreachable!("use slot_new")
         }
     }
 
@@ -1330,7 +1311,11 @@ mod decl {
     impl Constructor for PyItertoolsProduct {
         type Args = (PosArgs<PyObjectRef>, ProductArgs);
 
-        fn py_new(cls: PyTypeRef, (iterables, args): Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(
+            _cls: &Py<PyType>,
+            (iterables, args): Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult<Self> {
             let repeat = args.repeat.unwrap_or(1);
             let mut pools = Vec::new();
             for arg in iterables.iter() {
@@ -1342,14 +1327,12 @@ mod decl {
 
             let l = pools.len();
 
-            Self {
+            Ok(Self {
                 pools,
                 idxs: PyRwLock::new(vec![0; l]),
                 cur: AtomicCell::new(l.wrapping_sub(1)),
                 stop: AtomicCell::new(false),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 
@@ -1485,10 +1468,10 @@ mod decl {
         type Args = CombinationsNewArgs;
 
         fn py_new(
-            cls: PyTypeRef,
+            _cls: &Py<PyType>,
             Self::Args { iterable, r }: Self::Args,
             vm: &VirtualMachine,
-        ) -> PyResult {
+        ) -> PyResult<Self> {
             let pool: Vec<_> = iterable.try_to_value(vm)?;
 
             let r = r.as_bigint();
@@ -1499,15 +1482,13 @@ mod decl {
 
             let n = pool.len();
 
-            Self {
+            Ok(Self {
                 pool,
                 indices: PyRwLock::new((0..r).collect()),
                 result: PyRwLock::new(None),
                 r: AtomicCell::new(r),
                 exhausted: AtomicCell::new(r > n),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 
@@ -1618,10 +1599,10 @@ mod decl {
         type Args = CombinationsNewArgs;
 
         fn py_new(
-            cls: PyTypeRef,
+            _cls: &Py<PyType>,
             Self::Args { iterable, r }: Self::Args,
             vm: &VirtualMachine,
-        ) -> PyResult {
+        ) -> PyResult<Self> {
             let pool: Vec<_> = iterable.try_to_value(vm)?;
             let r = r.as_bigint();
             if r.is_negative() {
@@ -1631,14 +1612,12 @@ mod decl {
 
             let n = pool.len();
 
-            Self {
+            Ok(Self {
                 pool,
                 indices: PyRwLock::new(vec![0; r]),
                 r: AtomicCell::new(r),
                 exhausted: AtomicCell::new(n == 0 && r > 0),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 
@@ -1716,10 +1695,10 @@ mod decl {
         type Args = PermutationsNewArgs;
 
         fn py_new(
-            cls: PyTypeRef,
+            _cls: &Py<PyType>,
             Self::Args { iterable, r }: Self::Args,
             vm: &VirtualMachine,
-        ) -> PyResult {
+        ) -> PyResult<Self> {
             let pool: Vec<_> = iterable.try_to_value(vm)?;
 
             let n = pool.len();
@@ -1740,16 +1719,14 @@ mod decl {
                 None => n,
             };
 
-            Self {
+            Ok(Self {
                 pool,
                 indices: PyRwLock::new((0..n).collect()),
                 cycles: PyRwLock::new((0..r.min(n)).map(|i| n - i).collect()),
                 result: PyRwLock::new(None),
                 r: AtomicCell::new(r),
                 exhausted: AtomicCell::new(r > n),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 
@@ -1847,15 +1824,17 @@ mod decl {
     impl Constructor for PyItertoolsZipLongest {
         type Args = (PosArgs<PyIter>, ZipLongestArgs);
 
-        fn py_new(cls: PyTypeRef, (iterators, args): Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(
+            _cls: &Py<PyType>,
+            (iterators, args): Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult<Self> {
             let fillvalue = args.fillvalue.unwrap_or_none(vm);
             let iterators = iterators.into_vec();
-            Self {
+            Ok(Self {
                 iterators,
                 fillvalue: PyRwLock::new(fillvalue),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 
@@ -1933,13 +1912,11 @@ mod decl {
     impl Constructor for PyItertoolsPairwise {
         type Args = PyIter;
 
-        fn py_new(cls: PyTypeRef, iterator: Self::Args, vm: &VirtualMachine) -> PyResult {
-            Self {
+        fn py_new(_cls: &Py<PyType>, iterator: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self {
                 iterator,
                 old: PyRwLock::new(None),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 
@@ -1997,14 +1974,14 @@ mod decl {
         type Args = BatchedNewArgs;
 
         fn py_new(
-            cls: PyTypeRef,
+            _cls: &Py<PyType>,
             Self::Args {
                 iterable_ref,
                 n,
                 strict,
             }: Self::Args,
             vm: &VirtualMachine,
-        ) -> PyResult {
+        ) -> PyResult<Self> {
             let n = n.as_bigint();
             if n.lt(&BigInt::one()) {
                 return Err(vm.new_value_error("n must be at least one"));
@@ -2014,14 +1991,12 @@ mod decl {
                 .ok_or(vm.new_overflow_error("Python int too large to convert to usize"))?;
             let iterable = iterable_ref.get_iter(vm)?;
 
-            Self {
+            Ok(Self {
                 iterable,
                 n: AtomicCell::new(n),
                 exhausted: AtomicCell::new(false),
                 strict: AtomicCell::new(strict),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 

@@ -779,18 +779,45 @@ impl PyType {
     }
 }
 
+/// Trait for types that can be constructed via Python's `__new__` method.
+///
+/// `slot_new` corresponds to the `__new__` type slot.
+///
+/// In most cases, `__new__` simply initializes the payload and assigns a type,
+/// so you only need to override `py_new`. The default `slot_new` implementation
+/// will call `py_new` and then wrap the result with `into_ref_with_type`.
+///
+/// However, if a subtype requires more than just payload initialization
+/// (e.g., returning an existing object for optimization, setting attributes
+/// after creation, or special handling of the class type), you should override
+/// `slot_new` directly instead of `py_new`.
+///
+/// # When to use `py_new` only (most common case):
+/// - Simple payload initialization that just creates `Self`
+/// - The type doesn't need special handling for subtypes
+///
+/// # When to override `slot_new`:
+/// - Returning existing objects (e.g., `PyInt`, `PyStr`, `PyBool` for optimization)
+/// - Setting attributes or dict entries after object creation
+/// - Special class type handling (e.g., `PyType` and its metaclasses)
+/// - Post-creation mutations that require `PyRef`
 #[pyclass]
-pub trait Constructor: PyPayload {
+pub trait Constructor: PyPayload + std::fmt::Debug {
     type Args: FromArgs;
 
+    /// The type slot for `__new__`. Override this only when you need special
+    /// behavior beyond simple payload creation.
     #[inline]
     #[pyslot]
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let args: Self::Args = args.bind(vm)?;
-        Self::py_new(cls, args, vm)
+        let payload = Self::py_new(&cls, args, vm)?;
+        payload.into_ref_with_type(vm, cls).map(Into::into)
     }
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult;
+    /// Creates the payload for this type. In most cases, just implement this method
+    /// and let the default `slot_new` handle wrapping with the correct type.
+    fn py_new(cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self>;
 }
 
 pub trait DefaultConstructor: PyPayload + Default + std::fmt::Debug {
@@ -823,7 +850,7 @@ where
         Self::default().into_ref_with_type(vm, cls).map(Into::into)
     }
 
-    fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn py_new(cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         Err(vm.new_type_error(format!("cannot create {} instances", cls.slot_name())))
     }
 }

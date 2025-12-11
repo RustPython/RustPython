@@ -707,13 +707,17 @@ impl PyRef<PyBaseException> {
 impl Constructor for PyBaseException {
     type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if cls.is(Self::class(&vm.ctx)) && !args.kwargs.is_empty() {
             return Err(vm.new_type_error("BaseException() takes no keyword arguments"));
         }
         Self::new(args.args, vm)
             .into_ref_with_type(vm, cls)
             .map(Into::into)
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 

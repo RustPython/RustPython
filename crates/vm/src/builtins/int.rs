@@ -12,7 +12,7 @@ use crate::{
     },
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
-        ArgByteOrder, ArgIntoBool, OptionalArg, OptionalOption, PyArithmeticValue,
+        ArgByteOrder, ArgIntoBool, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue,
         PyComparisonValue,
     },
     protocol::{PyNumberMethods, handle_bytes_to_int_err},
@@ -207,7 +207,8 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
 impl Constructor for PyInt {
     type Args = IntOptions;
 
-    fn py_new(cls: PyTypeRef, options: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let options: Self::Args = args.bind(vm)?;
         if cls.is(vm.ctx.types.bool_type) {
             return Err(vm.new_type_error("int.__new__(bool) is not safe, use bool.__new__()"));
         }
@@ -242,6 +243,10 @@ impl Constructor for PyInt {
         }?;
 
         Self::with_value(cls, value, vm).to_pyresult(vm)
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 

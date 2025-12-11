@@ -11,7 +11,7 @@ mod mmap {
     use crate::vm::{
         AsObject, FromArgs, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, VirtualMachine, atomic_func,
-        builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyTypeRef},
+        builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyType, PyTypeRef},
         byte::{bytes_from_object, value_from_object},
         convert::ToPyException,
         function::{ArgBytesLike, FuncArgs, OptionalArg},
@@ -388,7 +388,7 @@ mod mmap {
         type Args = MmapNewArgs;
 
         #[cfg(unix)]
-        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             use libc::{MAP_PRIVATE, MAP_SHARED, PROT_READ, PROT_WRITE};
 
             let mut map_size = args.validate_new_args(vm)?;
@@ -477,7 +477,7 @@ mod mmap {
             }()
             .map_err(|e| e.to_pyexception(vm))?;
 
-            let m_obj = Self {
+            Ok(Self {
                 closed: AtomicCell::new(false),
                 mmap: PyMutex::new(Some(mmap)),
                 fd: AtomicCell::new(fd.map_or(-1, |fd| fd.into_raw())),
@@ -486,13 +486,11 @@ mod mmap {
                 pos: AtomicCell::new(0),
                 exports: AtomicCell::new(0),
                 access,
-            };
-
-            m_obj.into_ref_with_type(vm, cls).map(Into::into)
+            })
         }
 
         #[cfg(windows)]
-        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             let mut map_size = args.validate_new_args(vm)?;
             let MmapNewArgs {
                 fileno,
@@ -627,7 +625,7 @@ mod mmap {
                 (INVALID_HANDLE_VALUE as isize, MmapObj::Write(mmap))
             };
 
-            let m_obj = Self {
+            Ok(Self {
                 closed: AtomicCell::new(false),
                 mmap: PyMutex::new(Some(mmap)),
                 handle: AtomicCell::new(handle),
@@ -636,9 +634,7 @@ mod mmap {
                 pos: AtomicCell::new(0),
                 exports: AtomicCell::new(0),
                 access,
-            };
-
-            m_obj.into_ref_with_type(vm, cls).map(Into::into)
+            })
         }
     }
 

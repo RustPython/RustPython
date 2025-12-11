@@ -6,7 +6,7 @@ use crate::common::{
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
-    function::OptionalArg,
+    function::{FuncArgs, OptionalArg},
     types::{Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
 
@@ -38,13 +38,14 @@ impl Callable for PyWeak {
 impl Constructor for PyWeak {
     type Args = WeakNewArgs;
 
-    fn py_new(
-        cls: PyTypeRef,
-        Self::Args { referent, callback }: Self::Args,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let Self::Args { referent, callback } = args.bind(vm)?;
         let weak = referent.downgrade_with_typ(callback.into_option(), cls, vm)?;
         Ok(weak.into())
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 

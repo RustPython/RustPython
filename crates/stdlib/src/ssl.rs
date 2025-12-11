@@ -37,9 +37,9 @@ mod _ssl {
         vm::{
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
             VirtualMachine,
-            builtins::{PyBaseExceptionRef, PyBytesRef, PyListRef, PyStrRef, PyTypeRef},
+            builtins::{PyBaseExceptionRef, PyBytesRef, PyListRef, PyStrRef, PyType, PyTypeRef},
             convert::IntoPyException,
-            function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg, PyComparisonValue},
+            function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, OptionalArg, PyComparisonValue},
             stdlib::warnings,
             types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
         },
@@ -2288,7 +2288,11 @@ mod _ssl {
     impl Constructor for PySSLContext {
         type Args = (i32,);
 
-        fn py_new(cls: PyTypeRef, (protocol,): Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(
+            _cls: &Py<PyType>,
+            (protocol,): Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult<Self> {
             // Validate protocol
             match protocol {
                 PROTOCOL_TLS | PROTOCOL_TLS_CLIENT | PROTOCOL_TLS_SERVER | PROTOCOL_TLSv1_2
@@ -2353,7 +2357,7 @@ mod _ssl {
                 session_cache: shared_session_cache.clone(),
             });
 
-            PySSLContext {
+            Ok(PySSLContext {
                 protocol,
                 check_hostname: PyRwLock::new(protocol == PROTOCOL_TLS_CLIENT),
                 verify_mode: PyRwLock::new(default_verify_mode),
@@ -2388,9 +2392,7 @@ mod _ssl {
                 accept_count: AtomicUsize::new(0),
                 session_hits: AtomicUsize::new(0),
                 selected_ciphers: PyRwLock::new(None),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 
@@ -4107,10 +4109,14 @@ mod _ssl {
     impl Constructor for PySSLSocket {
         type Args = ();
 
-        fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error(
                 "Cannot directly instantiate SSLSocket, use SSLContext.wrap_socket()",
             ))
+        }
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            unreachable!("use slot_new")
         }
     }
 
@@ -4204,13 +4210,11 @@ mod _ssl {
     impl Constructor for PyMemoryBIO {
         type Args = ();
 
-        fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            let obj = PyMemoryBIO {
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(PyMemoryBIO {
                 buffer: PyMutex::new(Vec::new()),
                 eof: PyRwLock::new(false),
-            }
-            .into_ref_with_type(vm, cls)?;
-            Ok(obj.into())
+            })
         }
     }
 

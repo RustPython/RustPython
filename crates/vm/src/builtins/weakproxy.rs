@@ -38,10 +38,10 @@ impl Constructor for PyWeakProxy {
     type Args = WeakProxyNewArgs;
 
     fn py_new(
-        cls: PyTypeRef,
+        _cls: &Py<PyType>,
         Self::Args { referent, callback }: Self::Args,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<Self> {
         // using an internal subclass as the class prevents us from getting the generic weakref,
         // which would mess up the weakref count
         let weak_cls = WEAK_SUBCLASS.get_or_init(|| {
@@ -53,11 +53,9 @@ impl Constructor for PyWeakProxy {
             )
         });
         // TODO: PyWeakProxy should use the same payload as PyWeak
-        Self {
+        Ok(Self {
             weak: referent.downgrade_with_typ(callback.into_option(), weak_cls.clone(), vm)?,
-        }
-        .into_ref_with_type(vm, cls)
-        .map(Into::into)
+        })
     }
 }
 

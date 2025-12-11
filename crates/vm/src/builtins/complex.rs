@@ -6,7 +6,7 @@ use crate::{
     common::format::FormatSpec,
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
-        OptionalArg, OptionalOption,
+        FuncArgs, OptionalArg, OptionalOption,
         PyArithmeticValue::{self, *},
         PyComparisonValue,
     },
@@ -151,7 +151,8 @@ fn powc(a: Complex64, exp: Complex64) -> Complex64 {
 impl Constructor for PyComplex {
     type Args = ComplexArgs;
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let args: Self::Args = func_args.bind(vm)?;
         let imag_missing = args.imag.is_missing();
         let (real, real_was_complex) = match args.real {
             OptionalArg::Missing => (Complex64::new(0.0, 0.0), false),
@@ -224,6 +225,10 @@ impl Constructor for PyComplex {
         Self::from(value)
             .into_ref_with_type(vm, cls)
             .map(Into::into)
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 

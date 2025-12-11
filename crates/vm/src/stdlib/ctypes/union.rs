@@ -29,9 +29,9 @@ impl Default for PyCUnionType {
 impl Constructor for PyCUnionType {
     type Args = FuncArgs;
 
-    fn py_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // 1. Create the new class using PyType::py_new
-        let new_class = crate::builtins::type_::PyType::py_new(metatype, args, vm)?;
+        let new_class = crate::builtins::type_::PyType::slot_new(metatype, args, vm)?;
 
         // 2. Process _fields_ if defined on the new class
         let new_type = new_class
@@ -45,6 +45,10 @@ impl Constructor for PyCUnionType {
         }
 
         Ok(new_class)
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 
@@ -144,7 +148,7 @@ impl std::fmt::Debug for PyCUnion {
 impl Constructor for PyCUnion {
     type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // Get _fields_ from the class
         let fields_attr = cls.as_object().get_attr("_fields_", vm).ok();
 
@@ -184,6 +188,10 @@ impl Constructor for PyCUnion {
         }
         .into_ref_with_type(vm, cls)
         .map(Into::into)
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 

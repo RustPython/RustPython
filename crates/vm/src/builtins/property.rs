@@ -1,7 +1,7 @@
 /*! Python `property` descriptor class.
 
 */
-use super::{PyStrRef, PyType, PyTypeRef};
+use super::{PyStrRef, PyType};
 use crate::common::lock::PyRwLock;
 use crate::function::{IntoFuncArgs, PosArgs};
 use crate::{
@@ -224,7 +224,7 @@ impl PyProperty {
         };
 
         // Create new property using py_new and init
-        let new_prop = Self::py_new(zelf.class().to_owned(), FuncArgs::default(), vm)?;
+        let new_prop = Self::slot_new(zelf.class().to_owned(), FuncArgs::default(), vm)?;
         let new_prop_ref = new_prop.downcast::<Self>().unwrap();
         Self::init(new_prop_ref.clone(), args, vm)?;
 
@@ -336,17 +336,15 @@ impl PyProperty {
 impl Constructor for PyProperty {
     type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Self {
+    fn py_new(_cls: &Py<PyType>, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self {
             getter: PyRwLock::new(None),
             setter: PyRwLock::new(None),
             deleter: PyRwLock::new(None),
             doc: PyRwLock::new(None),
             name: PyRwLock::new(None),
             getter_doc: AtomicBool::new(false),
-        }
-        .into_ref_with_type(vm, cls)
-        .map(Into::into)
+        })
     }
 }
 

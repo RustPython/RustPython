@@ -68,10 +68,8 @@ mod _csv {
     impl Constructor for PyDialect {
         type Args = PyObjectRef;
 
-        fn py_new(cls: PyTypeRef, ctx: Self::Args, vm: &VirtualMachine) -> PyResult {
-            Self::try_from_object(vm, ctx)?
-                .into_ref_with_type(vm, cls)
-                .map(Into::into)
+        fn py_new(_cls: &Py<PyType>, ctx: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            Self::try_from_object(vm, ctx)
         }
     }
     #[pyclass(with(Constructor))]

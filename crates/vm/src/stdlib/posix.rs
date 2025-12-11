@@ -24,7 +24,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 pub mod module {
     use crate::{
         AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyTypeRef, PyUtf8StrRef},
+        builtins::{PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyType, PyUtf8StrRef},
         convert::{IntoPyException, ToPyObject, TryFromObject},
         function::{Either, KwArgs, OptionalArg},
         ospath::{IOErrorBuilder, OsPath, OsPathOrFd},
@@ -832,12 +832,10 @@ pub mod module {
     impl Constructor for SchedParam {
         type Args = SchedParamArg;
 
-        fn py_new(cls: PyTypeRef, arg: Self::Args, vm: &VirtualMachine) -> PyResult {
-            Self {
+        fn py_new(_cls: &Py<PyType>, arg: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self {
                 sched_priority: arg.sched_priority,
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 

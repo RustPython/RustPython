@@ -3,8 +3,8 @@ use super::{PY_CF_OPTIMIZED_AST, PY_CF_TYPE_COMMENTS, PY_COMPILE_FLAG_AST_ONLY};
 #[pymodule]
 pub(crate) mod _ast {
     use crate::{
-        AsObject, Context, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyStrRef, PyTupleRef, PyTypeRef},
+        AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        builtins::{PyStrRef, PyTupleRef, PyType, PyTypeRef},
         function::FuncArgs,
         types::Constructor,
     };
@@ -76,8 +76,8 @@ pub(crate) mod _ast {
             Ok(zelf)
         }
 
-        fn py_new(_cls: PyTypeRef, _args: Self::Args, _vm: &VirtualMachine) -> PyResult {
-            unreachable!("slow_new is implemented");
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            unreachable!("use slot_new")
         }
     }
 

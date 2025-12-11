@@ -45,7 +45,8 @@ mod array {
             atomic_func,
             builtins::{
                 PositionIterInternal, PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat,
-                PyGenericAlias, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
+                PyGenericAlias, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef, PyType,
+                PyTypeRef,
             },
             class_or_notimplemented,
             convert::{ToPyObject, ToPyResult, TryFromBorrowedObject, TryFromObject},
@@ -651,10 +652,10 @@ mod array {
         type Args = (ArrayNewArgs, KwArgs);
 
         fn py_new(
-            cls: PyTypeRef,
+            cls: &Py<PyType>,
             (ArrayNewArgs { spec, init }, kwargs): Self::Args,
             vm: &VirtualMachine,
-        ) -> PyResult {
+        ) -> PyResult<Self> {
             let spec = spec.as_str().chars().exactly_one().map_err(|_| {
                 vm.new_type_error("array() argument 1 must be a unicode character, not str")
             })?;
@@ -701,8 +702,7 @@ mod array {
                 }
             }
 
-            let zelf = Self::from(array).into_ref_with_type(vm, cls)?;
-            Ok(zelf.into())
+            Ok(Self::from(array))
         }
     }
 

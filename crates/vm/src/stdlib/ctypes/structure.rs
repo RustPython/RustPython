@@ -25,9 +25,9 @@ pub struct PyCStructType {
 impl Constructor for PyCStructType {
     type Args = FuncArgs;
 
-    fn py_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // 1. Create the new class using PyType::py_new
-        let new_class = crate::builtins::type_::PyType::py_new(metatype, args, vm)?;
+        let new_class = crate::builtins::type_::PyType::slot_new(metatype, args, vm)?;
 
         // 2. Process _fields_ if defined on the new class
         let new_type = new_class
@@ -41,6 +41,10 @@ impl Constructor for PyCStructType {
         }
 
         Ok(new_class)
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 
@@ -239,7 +243,7 @@ impl Debug for PyCStructure {
 impl Constructor for PyCStructure {
     type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // Get _fields_ from the class using get_attr to properly search MRO
         let fields_attr = cls.as_object().get_attr("_fields_", vm).ok();
 
@@ -325,6 +329,10 @@ impl Constructor for PyCStructure {
         }
 
         Ok(py_instance.into())
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 

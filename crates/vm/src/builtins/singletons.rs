@@ -3,6 +3,7 @@ use crate::{
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
     convert::ToPyObject,
+    function::FuncArgs,
     protocol::PyNumberMethods,
     types::{AsNumber, Constructor, Representable},
 };
@@ -38,8 +39,13 @@ impl<T: ToPyObject> ToPyObject for Option<T> {
 impl Constructor for PyNone {
     type Args = ();
 
-    fn py_new(_: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let _: () = args.bind(vm)?;
         Ok(vm.ctx.none.clone().into())
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("None is a singleton")
     }
 }
 
@@ -87,8 +93,13 @@ impl PyPayload for PyNotImplemented {
 impl Constructor for PyNotImplemented {
     type Args = ();
 
-    fn py_new(_: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let _: () = args.bind(vm)?;
         Ok(vm.ctx.not_implemented.clone().into())
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("PyNotImplemented is a singleton")
     }
 }
 

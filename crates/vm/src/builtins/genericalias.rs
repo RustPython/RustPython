@@ -58,7 +58,7 @@ impl PyPayload for PyGenericAlias {
 impl Constructor for PyGenericAlias {
     type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         if !args.kwargs.is_empty() {
             return Err(vm.new_type_error("GenericAlias() takes no keyword arguments"));
         }
@@ -68,9 +68,7 @@ impl Constructor for PyGenericAlias {
         } else {
             PyTuple::new_ref(vec![arguments], &vm.ctx)
         };
-        Self::new(origin, args, false, vm)
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+        Ok(Self::new(origin, args, false, vm))
     }
 }
 

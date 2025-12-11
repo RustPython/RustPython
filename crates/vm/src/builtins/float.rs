@@ -8,7 +8,7 @@ use crate::{
     common::{float_ops, format::FormatSpec, hash},
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
-        ArgBytesLike, OptionalArg, OptionalOption,
+        ArgBytesLike, FuncArgs, OptionalArg, OptionalOption,
         PyArithmeticValue::{self, *},
         PyComparisonValue,
     },
@@ -131,7 +131,8 @@ pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
 impl Constructor for PyFloat {
     type Args = OptionalArg<PyObjectRef>;
 
-    fn py_new(cls: PyTypeRef, arg: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let arg: Self::Args = args.bind(vm)?;
         let float_val = match arg {
             OptionalArg::Missing => 0.0,
             OptionalArg::Present(val) => {
@@ -149,6 +150,10 @@ impl Constructor for PyFloat {
         Self::from(float_val)
             .into_ref_with_type(vm, cls)
             .map(Into::into)
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 
