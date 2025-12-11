@@ -1833,8 +1833,6 @@ class RunFuncTestCase(BaseTestCase):
                         msg="TimeoutExpired was delayed! Bad traceback:\n```\n"
                         f"{stacks}```")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_encoding_warning(self):
         code = textwrap.dedent("""\
             from subprocess import *

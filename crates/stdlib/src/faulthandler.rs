@@ -11,6 +11,16 @@ mod decl {
     #[allow(dead_code)]
     static FATAL_ERROR_FD: AtomicI32 = AtomicI32::new(2); // stderr by default
 
+    // Fatal signal numbers that should use enable() instead
+    #[cfg(unix)]
+    const FATAL_SIGNALS: &[i32] = &[
+        libc::SIGBUS,
+        libc::SIGILL,
+        libc::SIGFPE,
+        libc::SIGABRT,
+        libc::SIGSEGV,
+    ];
+
     const MAX_FUNCTION_NAME_LEN: usize = 500;
 
     fn truncate_name(name: &str) -> String {
@@ -163,6 +173,166 @@ mod decl {
     }
 
     #[cfg(unix)]
+    mod user_signals {
+        use std::sync::Mutex;
+
+        const NSIG: usize = 64;
+
+        #[derive(Clone)]
+        pub struct UserSignal {
+            pub enabled: bool,
+            pub fd: i32,
+            #[allow(dead_code)]
+            pub all_threads: bool,
+            pub chain: bool,
+            pub previous: libc::sighandler_t,
+        }
+
+        impl Default for UserSignal {
+            fn default() -> Self {
+                Self {
+                    enabled: false,
+                    fd: 2, // stderr
+                    all_threads: true,
+                    chain: false,
+                    previous: libc::SIG_DFL,
+                }
+            }
+        }
+
+        static USER_SIGNALS: Mutex<Option<Vec<UserSignal>>> = Mutex::new(None);
+
+        pub fn get_user_signal(signum: usize) -> Option<UserSignal> {
+            let guard = USER_SIGNALS.lock().unwrap();
+            guard.as_ref().and_then(|v| v.get(signum).cloned())
+        }
+
+        pub fn set_user_signal(signum: usize, signal: UserSignal) {
+            let mut guard = USER_SIGNALS.lock().unwrap();
+            if guard.is_none() {
+                *guard = Some(vec![UserSignal::default(); NSIG]);
+            }
+            if let Some(ref mut v) = *guard
+                && signum < v.len()
+            {
+                v[signum] = signal;
+            }
+        }
+
+        pub fn clear_user_signal(signum: usize) -> Option<UserSignal> {
+            let mut guard = USER_SIGNALS.lock().unwrap();
+            if let Some(ref mut v) = *guard
+                && signum < v.len()
+                && v[signum].enabled
+            {
+                let old = v[signum].clone();
+                v[signum] = UserSignal::default();
+                return Some(old);
+            }
+            None
+        }
+
+        pub fn is_enabled(signum: usize) -> bool {
+            let guard = USER_SIGNALS.lock().unwrap();
+            guard
+                .as_ref()
+                .and_then(|v| v.get(signum))
+                .is_some_and(|s| s.enabled)
+        }
+    }
+
+    #[cfg(unix)]
+    extern "C" fn faulthandler_user_signal(signum: libc::c_int) {
+        let user = match user_signals::get_user_signal(signum as usize) {
+            Some(u) if u.enabled => u,
+            _ => return,
+        };
+
+        // Write traceback header
+        let header = b"Current thread 0x0000 (most recent call first):\n";
+        let _ = unsafe {
+            libc::write(
+                user.fd,
+                header.as_ptr() as *const libc::c_void,
+                header.len(),
+            )
+        };
+
+        // Note: We cannot easily access RustPython's frame stack from a signal handler
+        // because signal handlers run asynchronously. We just output a placeholder.
+        let msg = b"  <signal handler invoked, traceback unavailable in signal context>\n";
+        let _ = unsafe { libc::write(user.fd, msg.as_ptr() as *const libc::c_void, msg.len()) };
+
+        // If chain is enabled, call the previous handler
+        if user.chain && user.previous != libc::SIG_DFL && user.previous != libc::SIG_IGN {
+            // Re-register the old handler and raise the signal
+            unsafe {
+                libc::signal(signum, user.previous);
+                libc::raise(signum);
+                // Re-register our handler
+                libc::signal(signum, faulthandler_user_signal as libc::sighandler_t);
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    fn check_signum(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
+        // Check if it's a fatal signal
+        if FATAL_SIGNALS.contains(&signum) {
+            return Err(vm.new_runtime_error(format!(
+                "signal {} cannot be registered, use enable() instead",
+                signum
+            )));
+        }
+
+        // Check if signal is in valid range
+        if !(1..64).contains(&signum) {
+            return Err(vm.new_value_error("signal number out of range".to_owned()));
+        }
+
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn get_fd_from_file(file: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<i32> {
+        match file {
+            OptionalArg::Present(f) => {
+                // Check if it's an integer (file descriptor)
+                if let Ok(fd) = f.try_to_value::<i32>(vm) {
+                    if fd < 0 {
+                        return Err(
+                            vm.new_value_error("file is not a valid file descriptor".to_owned())
+                        );
+                    }
+                    return Ok(fd);
+                }
+                // Try to get fileno() from file object
+                let fileno = vm.call_method(&f, "fileno", ())?;
+                let fd: i32 = fileno.try_to_value(vm)?;
+                if fd < 0 {
+                    return Err(
+                        vm.new_value_error("file is not a valid file descriptor".to_owned())
+                    );
+                }
+                // Try to flush the file
+                let _ = vm.call_method(&f, "flush", ());
+                Ok(fd)
+            }
+            OptionalArg::Missing => {
+                // Get sys.stderr
+                let stderr = vm.sys_module.get_attr("stderr", vm)?;
+                if vm.is_none(&stderr) {
+                    return Err(vm.new_runtime_error("sys.stderr is None".to_owned()));
+                }
+                let fileno = vm.call_method(&stderr, "fileno", ())?;
+                let fd: i32 = fileno.try_to_value(vm)?;
+                let _ = vm.call_method(&stderr, "flush", ());
+                Ok(fd)
+            }
+        }
+    }
+
+    #[cfg(unix)]
     #[derive(FromArgs)]
     #[allow(unused)]
     struct RegisterArgs {
@@ -179,19 +349,60 @@ mod decl {
     #[cfg(unix)]
     #[pyfunction]
     fn register(args: RegisterArgs, vm: &VirtualMachine) -> PyResult<()> {
-        // Check that file is valid
-        let _file = get_file_for_output(args.file, vm)?;
+        check_signum(args.signum, vm)?;
 
-        // TODO: Register a handler for the given signal
-        Err(vm.new_not_implemented_error("register is not yet fully implemented"))
+        let fd = get_fd_from_file(args.file, vm)?;
+
+        let signum = args.signum as usize;
+
+        // Get current handler to save as previous
+        let previous = if !user_signals::is_enabled(signum) {
+            // Install signal handler
+            let prev = unsafe {
+                libc::signal(args.signum, faulthandler_user_signal as libc::sighandler_t)
+            };
+            if prev == libc::SIG_ERR {
+                return Err(vm.new_os_error(format!(
+                    "Failed to register signal handler for signal {}",
+                    args.signum
+                )));
+            }
+            prev
+        } else {
+            // Already registered, keep previous handler
+            user_signals::get_user_signal(signum)
+                .map(|u| u.previous)
+                .unwrap_or(libc::SIG_DFL)
+        };
+
+        user_signals::set_user_signal(
+            signum,
+            user_signals::UserSignal {
+                enabled: true,
+                fd,
+                all_threads: args.all_threads,
+                chain: args.chain,
+                previous,
+            },
+        );
+
+        Ok(())
     }
 
     #[cfg(unix)]
     #[pyfunction]
     fn unregister(signum: i32, vm: &VirtualMachine) -> PyResult<bool> {
-        let _ = signum;
-        // TODO: Unregister the handler for the given signal
-        Err(vm.new_not_implemented_error("unregister is not yet fully implemented"))
+        check_signum(signum, vm)?;
+
+        if let Some(old) = user_signals::clear_user_signal(signum as usize) {
+            // Restore previous handler
+            unsafe {
+                libc::signal(signum, old.previous);
+            }
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
     // Test functions for faulthandler testing
@@ -221,6 +432,12 @@ mod decl {
         #[cfg(not(target_arch = "wasm32"))]
         {
             suppress_crash_report();
+
+            // Reset SIGSEGV to default behavior before raising
+            // This ensures the process will actually crash
+            unsafe {
+                libc::signal(libc::SIGSEGV, libc::SIG_DFL);
+            }
 
             #[cfg(windows)]
             {
@@ -254,6 +471,12 @@ mod decl {
         #[cfg(not(target_arch = "wasm32"))]
         {
             suppress_crash_report();
+
+            // Reset SIGFPE to default behavior before raising
+            unsafe {
+                libc::signal(libc::SIGFPE, libc::SIG_DFL);
+            }
+
             // Raise SIGFPE
             unsafe {
                 libc::raise(libc::SIGFPE);
