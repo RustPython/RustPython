@@ -132,14 +132,24 @@ impl Constructor for PyFloat {
     type Args = OptionalArg<PyObjectRef>;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // Optimization: return exact float as-is
+        if cls.is(vm.ctx.types.float_type)
+            && args.kwargs.is_empty()
+            && let Some(first) = args.args.first()
+            && first.class().is(vm.ctx.types.float_type)
+        {
+            return Ok(first.clone());
+        }
+
         let arg: Self::Args = args.bind(vm)?;
+        let payload = Self::py_new(&cls, arg, vm)?;
+        payload.into_ref_with_type(vm, cls).map(Into::into)
+    }
+
+    fn py_new(_cls: &Py<PyType>, arg: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         let float_val = match arg {
             OptionalArg::Missing => 0.0,
             OptionalArg::Present(val) => {
-                if cls.is(vm.ctx.types.float_type) && val.class().is(vm.ctx.types.float_type) {
-                    return Ok(val);
-                }
-
                 if let Some(f) = val.try_float_opt(vm) {
                     f?.value
                 } else {
@@ -147,13 +157,7 @@ impl Constructor for PyFloat {
                 }
             }
         };
-        Self::from(float_val)
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
-    }
-
-    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-        unreachable!("use slot_new")
+        Ok(Self::from(float_val))
     }
 }
 

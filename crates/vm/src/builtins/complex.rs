@@ -152,22 +152,25 @@ impl Constructor for PyComplex {
     type Args = ComplexArgs;
 
     fn slot_new(cls: PyTypeRef, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // Optimization: return exact complex as-is (only when imag is not provided)
+        if cls.is(vm.ctx.types.complex_type)
+            && func_args.args.len() == 1
+            && func_args.kwargs.is_empty()
+            && func_args.args[0].class().is(vm.ctx.types.complex_type)
+        {
+            return Ok(func_args.args[0].clone());
+        }
+
         let args: Self::Args = func_args.bind(vm)?;
+        let payload = Self::py_new(&cls, args, vm)?;
+        payload.into_ref_with_type(vm, cls).map(Into::into)
+    }
+
+    fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         let imag_missing = args.imag.is_missing();
         let (real, real_was_complex) = match args.real {
             OptionalArg::Missing => (Complex64::new(0.0, 0.0), false),
             OptionalArg::Present(val) => {
-                let val = if cls.is(vm.ctx.types.complex_type) && imag_missing {
-                    match val.downcast_exact::<Self>(vm) {
-                        Ok(c) => {
-                            return Ok(c.into_pyref().into());
-                        }
-                        Err(val) => val,
-                    }
-                } else {
-                    val
-                };
-
                 if let Some(c) = val.try_complex(vm)? {
                     c
                 } else if let Some(s) = val.downcast_ref::<PyStr>() {
@@ -180,9 +183,7 @@ impl Constructor for PyComplex {
                         .to_str()
                         .and_then(rustpython_literal::complex::parse_str)
                         .ok_or_else(|| vm.new_value_error("complex() arg is a malformed string"))?;
-                    return Self::from(Complex64 { re, im })
-                        .into_ref_with_type(vm, cls)
-                        .map(Into::into);
+                    return Ok(Self::from(Complex64 { re, im }));
                 } else {
                     return Err(vm.new_type_error(format!(
                         "complex() first argument must be a string or a number, not '{}'",
@@ -222,13 +223,7 @@ impl Constructor for PyComplex {
             imag.re
         };
         let value = Complex64::new(final_real, final_imag);
-        Self::from(value)
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
-    }
-
-    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-        unreachable!("use slot_new")
+        Ok(Self::from(value))
     }
 }
 
