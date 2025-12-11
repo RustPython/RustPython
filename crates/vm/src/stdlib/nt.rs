@@ -570,6 +570,151 @@ pub(crate) mod module {
         Ok(path.mode.process_path(buffer.to_os_string(), vm))
     }
 
+    /// Implements CPython's _Py_skiproot logic for Windows paths
+    /// Returns (drive_size, root_size) where:
+    /// - drive_size: length of the drive/UNC portion
+    /// - root_size: length of the root separator (0 or 1)
+    fn skiproot(path: &[u16]) -> (usize, usize) {
+        let len = path.len();
+        if len == 0 {
+            return (0, 0);
+        }
+
+        const SEP: u16 = b'\\' as u16;
+        const ALTSEP: u16 = b'/' as u16;
+        const COLON: u16 = b':' as u16;
+
+        let is_sep = |c: u16| c == SEP || c == ALTSEP;
+        let get = |i: usize| path.get(i).copied().unwrap_or(0);
+
+        if is_sep(get(0)) {
+            if is_sep(get(1)) {
+                // UNC or device path: \\server\share or \\?\device
+                // Check for \\?\UNC\server\share
+                let idx = if len >= 8
+                    && get(2) == b'?' as u16
+                    && is_sep(get(3))
+                    && (get(4) == b'U' as u16 || get(4) == b'u' as u16)
+                    && (get(5) == b'N' as u16 || get(5) == b'n' as u16)
+                    && (get(6) == b'C' as u16 || get(6) == b'c' as u16)
+                    && is_sep(get(7))
+                {
+                    8
+                } else {
+                    2
+                };
+
+                // Find the end of server name
+                let mut i = idx;
+                while i < len && !is_sep(get(i)) {
+                    i += 1;
+                }
+
+                if i >= len {
+                    // No share part: \\server
+                    return (i, 0);
+                }
+
+                // Skip separator and find end of share name
+                i += 1;
+                while i < len && !is_sep(get(i)) {
+                    i += 1;
+                }
+
+                // drive = \\server\share, root = \ (if present)
+                if i >= len { (i, 0) } else { (i, 1) }
+            } else {
+                // Relative path with root: \Windows
+                (0, 1)
+            }
+        } else if len >= 2 && get(1) == COLON {
+            // Drive letter path
+            if len >= 3 && is_sep(get(2)) {
+                // Absolute: X:\Windows
+                (2, 1)
+            } else {
+                // Relative with drive: X:Windows
+                (2, 0)
+            }
+        } else {
+            // Relative path: Windows
+            (0, 0)
+        }
+    }
+
+    #[pyfunction]
+    fn _path_splitroot_ex(path: crate::PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        use crate::builtins::{PyBytes, PyStr};
+        use rustpython_common::wtf8::Wtf8Buf;
+
+        // Handle path-like objects via os.fspath, but without null check (nonstrict=True in CPython)
+        let path = if let Some(fspath) = vm.get_method(path.clone(), identifier!(vm, __fspath__)) {
+            fspath?.call((), vm)?
+        } else {
+            path
+        };
+
+        // Convert to wide string, validating UTF-8 for bytes input
+        let (wide, is_bytes): (Vec<u16>, bool) = if let Some(s) = path.downcast_ref::<PyStr>() {
+            // Use encode_wide which handles WTF-8 (including surrogates)
+            let wide: Vec<u16> = s.as_wtf8().encode_wide().collect();
+            (wide, false)
+        } else if let Some(b) = path.downcast_ref::<PyBytes>() {
+            // On Windows, bytes must be valid UTF-8 - this raises UnicodeDecodeError if not
+            let s = std::str::from_utf8(b.as_bytes()).map_err(|e| {
+                vm.new_exception_msg(
+                    vm.ctx.exceptions.unicode_decode_error.to_owned(),
+                    format!(
+                        "'utf-8' codec can't decode byte {:#x} in position {}: invalid start byte",
+                        b.as_bytes().get(e.valid_up_to()).copied().unwrap_or(0),
+                        e.valid_up_to()
+                    ),
+                )
+            })?;
+            let wide: Vec<u16> = s.encode_utf16().collect();
+            (wide, true)
+        } else {
+            return Err(vm.new_type_error(format!(
+                "expected str or bytes, not {}",
+                path.class().name()
+            )));
+        };
+
+        // Normalize slashes for parsing
+        let normalized: Vec<u16> = wide
+            .iter()
+            .map(|&c| if c == b'/' as u16 { b'\\' as u16 } else { c })
+            .collect();
+
+        let (drv_size, root_size) = skiproot(&normalized);
+
+        // Return as bytes if input was bytes, preserving the original content
+        if is_bytes {
+            // Convert UTF-16 back to UTF-8 for bytes output
+            let drv = String::from_utf16(&wide[..drv_size])
+                .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?;
+            let root = String::from_utf16(&wide[drv_size..drv_size + root_size])
+                .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?;
+            let tail = String::from_utf16(&wide[drv_size + root_size..])
+                .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?;
+            Ok(vm.ctx.new_tuple(vec![
+                vm.ctx.new_bytes(drv.into_bytes()).into(),
+                vm.ctx.new_bytes(root.into_bytes()).into(),
+                vm.ctx.new_bytes(tail.into_bytes()).into(),
+            ]))
+        } else {
+            // For str output, use WTF-8 to handle surrogates
+            let drv = Wtf8Buf::from_wide(&wide[..drv_size]);
+            let root = Wtf8Buf::from_wide(&wide[drv_size..drv_size + root_size]);
+            let tail = Wtf8Buf::from_wide(&wide[drv_size + root_size..]);
+            Ok(vm.ctx.new_tuple(vec![
+                vm.ctx.new_str(drv).into(),
+                vm.ctx.new_str(root).into(),
+                vm.ctx.new_str(tail).into(),
+            ]))
+        }
+    }
+
     #[pyfunction]
     fn _path_splitroot(path: OsPath, vm: &VirtualMachine) -> PyResult<(String, String)> {
         let orig: Vec<_> = path.path.to_wide();

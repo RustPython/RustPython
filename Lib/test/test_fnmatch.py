@@ -71,7 +71,6 @@ class FnmatchTestCase(unittest.TestCase):
         check('usr/bin', 'usr\\bin', False, fnmatchcase)
         check('usr\\bin', 'usr\\bin', True, fnmatchcase)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON')
     def test_bytes(self):
         self.check_match(b'test', b'te*')
         self.check_match(b'test\xff', b'te*\xff')

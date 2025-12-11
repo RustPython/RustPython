@@ -540,4 +540,133 @@ mod _winapi {
             windows_sys::Win32::System::Threading::ReleaseMutex(handle as _)
         })
     }
+
+    // LOCALE_NAME_INVARIANT is an empty string in Windows API
+    #[pyattr]
+    const LOCALE_NAME_INVARIANT: &str = "";
+
+    /// LCMapStringEx - Map a string to another string using locale-specific rules
+    /// This is used by ntpath.normcase() for proper Windows case conversion
+    #[pyfunction]
+    fn LCMapStringEx(
+        locale: PyStrRef,
+        flags: u32,
+        src: PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyStrRef> {
+        use rustpython_common::wtf8::Wtf8Buf;
+        use windows_sys::Win32::Globalization::{
+            LCMAP_BYTEREV, LCMAP_HASH, LCMAP_SORTHANDLE, LCMAP_SORTKEY,
+            LCMapStringEx as WinLCMapStringEx,
+        };
+
+        // Reject unsupported flags (same as CPython)
+        if flags & (LCMAP_SORTHANDLE | LCMAP_HASH | LCMAP_BYTEREV | LCMAP_SORTKEY) != 0 {
+            return Err(vm.new_value_error("unsupported flags"));
+        }
+
+        // Use encode_wide() which properly handles WTF-8 (including surrogates)
+        let locale_wide: Vec<u16> = locale
+            .as_wtf8()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let src_wide: Vec<u16> = src.as_wtf8().encode_wide().collect();
+
+        if src_wide.len() > i32::MAX as usize {
+            return Err(vm.new_overflow_error("input string is too long".to_string()));
+        }
+
+        // First call to get required buffer size
+        let dest_size = unsafe {
+            WinLCMapStringEx(
+                locale_wide.as_ptr(),
+                flags,
+                src_wide.as_ptr(),
+                src_wide.len() as i32,
+                null_mut(),
+                0,
+                null(),
+                null(),
+                0,
+            )
+        };
+
+        if dest_size <= 0 {
+            return Err(vm.new_last_os_error());
+        }
+
+        // Second call to perform the mapping
+        let mut dest = vec![0u16; dest_size as usize];
+        let nmapped = unsafe {
+            WinLCMapStringEx(
+                locale_wide.as_ptr(),
+                flags,
+                src_wide.as_ptr(),
+                src_wide.len() as i32,
+                dest.as_mut_ptr(),
+                dest_size,
+                null(),
+                null(),
+                0,
+            )
+        };
+
+        if nmapped <= 0 {
+            return Err(vm.new_last_os_error());
+        }
+
+        dest.truncate(nmapped as usize);
+
+        // Convert UTF-16 back to WTF-8 (handles surrogates properly)
+        let result = Wtf8Buf::from_wide(&dest);
+        Ok(vm.ctx.new_str(result))
+    }
+
+    #[derive(FromArgs)]
+    struct CreateNamedPipeArgs {
+        #[pyarg(positional)]
+        name: PyStrRef,
+        #[pyarg(positional)]
+        open_mode: u32,
+        #[pyarg(positional)]
+        pipe_mode: u32,
+        #[pyarg(positional)]
+        max_instances: u32,
+        #[pyarg(positional)]
+        out_buffer_size: u32,
+        #[pyarg(positional)]
+        in_buffer_size: u32,
+        #[pyarg(positional)]
+        default_timeout: u32,
+        #[pyarg(positional)]
+        _security_attributes: PyObjectRef, // Ignored, can be None
+    }
+
+    /// CreateNamedPipe - Create a named pipe
+    #[pyfunction]
+    fn CreateNamedPipe(args: CreateNamedPipeArgs, vm: &VirtualMachine) -> PyResult<WinHandle> {
+        use windows_sys::Win32::System::Pipes::CreateNamedPipeW;
+
+        let name_wide = args.name.as_str().to_wide_with_nul();
+
+        let handle = unsafe {
+            CreateNamedPipeW(
+                name_wide.as_ptr(),
+                args.open_mode,
+                args.pipe_mode,
+                args.max_instances,
+                args.out_buffer_size,
+                args.in_buffer_size,
+                args.default_timeout,
+                null(), // security_attributes - NULL for now
+            )
+        };
+
+        if handle == INVALID_HANDLE_VALUE {
+            return Err(vm.new_last_os_error());
+        }
+
+        Ok(WinHandle(handle))
+    }
 }
