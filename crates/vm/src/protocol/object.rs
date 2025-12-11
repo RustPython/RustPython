@@ -4,17 +4,16 @@
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
-        PyAsyncGen, PyDict, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyTuple, PyTupleRef,
-        PyType, PyTypeRef, PyUtf8Str, pystr::AsPyStr,
+        PyAsyncGen, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyTuple,
+        PyTupleRef, PyType, PyTypeRef, PyUtf8Str, pystr::AsPyStr,
     },
-    bytes_inner::ByteInnerNewOptions,
     common::{hash::PyHash, str::to_ascii},
     convert::{ToPyObject, ToPyResult},
     dict_inner::DictKey,
-    function::{Either, OptionalArg, PyArithmeticValue, PySetterValue},
+    function::{Either, FuncArgs, PyArithmeticValue, PySetterValue},
     object::PyPayload,
     protocol::{PyIter, PyMapping, PySequence},
-    types::PyComparisonOp,
+    types::{Constructor, PyComparisonOp},
 };
 
 // RustPython doesn't need these items
@@ -37,12 +36,8 @@ impl PyObjectRef {
         match self.downcast_exact::<PyInt>(vm) {
             Ok(int) => Err(vm.new_downcast_type_error(bytes_type, &int)),
             Err(obj) => {
-                let options = ByteInnerNewOptions {
-                    source: OptionalArg::Present(obj),
-                    encoding: OptionalArg::Missing,
-                    errors: OptionalArg::Missing,
-                };
-                options.get_bytes(bytes_type.to_owned(), vm).map(Into::into)
+                let args = FuncArgs::from(vec![obj]);
+                <PyBytes as Constructor>::slot_new(bytes_type.to_owned(), args, vm)
             }
         }
     }
