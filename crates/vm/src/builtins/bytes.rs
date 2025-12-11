@@ -92,15 +92,64 @@ pub(crate) fn init(context: &Context) {
 }
 
 impl Constructor for PyBytes {
-    type Args = ByteInnerNewOptions;
+    type Args = Vec<u8>;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let options: Self::Args = args.bind(vm)?;
-        options.get_bytes(cls, vm).to_pyresult(vm)
+        let options: ByteInnerNewOptions = args.bind(vm)?;
+
+        // Optimizations for exact bytes type
+        if cls.is(vm.ctx.types.bytes_type) {
+            // Return empty bytes singleton
+            if options.source.is_missing()
+                && options.encoding.is_missing()
+                && options.errors.is_missing()
+            {
+                return Ok(vm.ctx.empty_bytes.clone().into());
+            }
+
+            // Return exact bytes as-is
+            if let OptionalArg::Present(ref obj) = options.source
+                && options.encoding.is_missing()
+                && options.errors.is_missing()
+                && let Ok(b) = obj.clone().downcast_exact::<PyBytes>(vm)
+            {
+                return Ok(b.into_pyref().into());
+            }
+        }
+
+        // Handle __bytes__ method - may return PyBytes directly
+        if let OptionalArg::Present(ref obj) = options.source
+            && options.encoding.is_missing()
+            && options.errors.is_missing()
+            && let Some(bytes_method) = vm.get_method(obj.clone(), identifier!(vm, __bytes__))
+        {
+            let bytes = bytes_method?.call((), vm)?;
+            // If exact bytes type and __bytes__ returns bytes, use it directly
+            if cls.is(vm.ctx.types.bytes_type)
+                && let Ok(b) = bytes.clone().downcast::<PyBytes>()
+            {
+                return Ok(b.into());
+            }
+            // Otherwise convert to Vec<u8>
+            let inner = PyBytesInner::try_from_borrowed_object(vm, &bytes)?;
+            let payload = Self::py_new(&cls, inner.elements, vm)?;
+            return payload.into_ref_with_type(vm, cls).map(Into::into);
+        }
+
+        // Fallback to get_bytearray_inner
+        let elements = options.get_bytearray_inner(vm)?.elements;
+
+        // Return empty bytes singleton for exact bytes types
+        if elements.is_empty() && cls.is(vm.ctx.types.bytes_type) {
+            return Ok(vm.ctx.empty_bytes.clone().into());
+        }
+
+        let payload = Self::py_new(&cls, elements, vm)?;
+        payload.into_ref_with_type(vm, cls).map(Into::into)
     }
 
-    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-        unreachable!("use slot_new")
+    fn py_new(_cls: &Py<PyType>, elements: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self::from(elements))
     }
 }
 

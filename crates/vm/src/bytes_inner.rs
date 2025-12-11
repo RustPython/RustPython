@@ -1,16 +1,15 @@
 // spell-checker:ignore unchunked
 use crate::{
-    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
     builtins::{
         PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr, PyStrRef,
-        PyTypeRef, pystr,
+        pystr,
     },
     byte::bytes_from_object,
     cformat::cformat_bytes,
     common::hash,
     function::{ArgIterable, Either, OptionalArg, OptionalOption, PyComparisonValue},
-    identifier,
     literal::escape::Escape,
     protocol::PyBuffer,
     sequence::{SequenceExt, SequenceMutExt},
@@ -89,43 +88,6 @@ impl ByteInnerNewOptions {
                 Self::get_value_from_source(obj, vm)
             }
         })
-    }
-
-    pub fn get_bytes(self, cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-        let inner = match (&self.source, &self.encoding, &self.errors) {
-            (OptionalArg::Present(obj), OptionalArg::Missing, OptionalArg::Missing) => {
-                let obj = obj.clone();
-                // construct an exact bytes from an exact bytes do not clone
-                let obj = if cls.is(vm.ctx.types.bytes_type) {
-                    match obj.downcast_exact::<PyBytes>(vm) {
-                        Ok(b) => return Ok(b.into_pyref()),
-                        Err(obj) => obj,
-                    }
-                } else {
-                    obj
-                };
-
-                if let Some(bytes_method) = vm.get_method(obj, identifier!(vm, __bytes__)) {
-                    // construct an exact bytes from __bytes__ slot.
-                    // if __bytes__ return a bytes, use the bytes object except we are the subclass of the bytes
-                    let bytes = bytes_method?.call((), vm)?;
-                    let bytes = if cls.is(vm.ctx.types.bytes_type) {
-                        match bytes.downcast::<PyBytes>() {
-                            Ok(b) => return Ok(b),
-                            Err(bytes) => bytes,
-                        }
-                    } else {
-                        bytes
-                    };
-                    Some(PyBytesInner::try_from_borrowed_object(vm, &bytes))
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-        .unwrap_or_else(|| self.get_bytearray_inner(vm))?;
-        PyBytes::from(inner).into_ref_with_type(vm, cls)
     }
 
     pub fn get_bytearray_inner(self, vm: &VirtualMachine) -> PyResult<PyBytesInner> {

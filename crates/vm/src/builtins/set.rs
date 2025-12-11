@@ -918,35 +918,43 @@ impl Representable for PySet {
 }
 
 impl Constructor for PyFrozenSet {
-    type Args = OptionalArg<PyObjectRef>;
+    type Args = Vec<PyObjectRef>;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let iterable: Self::Args = args.bind(vm)?;
-        let elements = if let OptionalArg::Present(iterable) = iterable {
-            let iterable = if cls.is(vm.ctx.types.frozenset_type) {
-                match iterable.downcast_exact::<Self>(vm) {
-                    Ok(fs) => return Ok(fs.into_pyref().into()),
-                    Err(iterable) => iterable,
-                }
-            } else {
-                iterable
-            };
+        let iterable: OptionalArg<PyObjectRef> = args.bind(vm)?;
+
+        // Optimizations for exact frozenset type
+        if cls.is(vm.ctx.types.frozenset_type) {
+            // Return exact frozenset as-is
+            if let OptionalArg::Present(ref input) = iterable
+                && let Ok(fs) = input.clone().downcast_exact::<PyFrozenSet>(vm)
+            {
+                return Ok(fs.into_pyref().into());
+            }
+
+            // Return empty frozenset singleton
+            if iterable.is_missing() {
+                return Ok(vm.ctx.empty_frozenset.clone().into());
+            }
+        }
+
+        let elements: Vec<PyObjectRef> = if let OptionalArg::Present(iterable) = iterable {
             iterable.try_to_value(vm)?
         } else {
             vec![]
         };
 
-        // Return empty fs if iterable passed is empty and only for exact fs types.
+        // Return empty frozenset singleton for exact frozenset types (when iterable was empty)
         if elements.is_empty() && cls.is(vm.ctx.types.frozenset_type) {
-            Ok(vm.ctx.empty_frozenset.clone().into())
-        } else {
-            Self::from_iter(vm, elements)
-                .and_then(|o| o.into_ref_with_type(vm, cls).map(Into::into))
+            return Ok(vm.ctx.empty_frozenset.clone().into());
         }
+
+        let payload = Self::py_new(&cls, elements, vm)?;
+        payload.into_ref_with_type(vm, cls).map(Into::into)
     }
 
-    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-        unreachable!("use slot_new")
+    fn py_new(_cls: &Py<PyType>, elements: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        Self::from_iter(vm, elements)
     }
 }
 

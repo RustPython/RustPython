@@ -351,35 +351,38 @@ impl Constructor for PyStr {
     type Args = StrArgs;
 
     fn slot_new(cls: PyTypeRef, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // Optimization: return exact str as-is (only when no encoding/errors provided)
+        if cls.is(vm.ctx.types.str_type)
+            && func_args.args.len() == 1
+            && func_args.kwargs.is_empty()
+            && func_args.args[0].class().is(vm.ctx.types.str_type)
+        {
+            return Ok(func_args.args[0].clone());
+        }
+
         let args: Self::Args = func_args.bind(vm)?;
-        let string: PyRef<PyStr> = match args.object {
+        let payload = Self::py_new(&cls, args, vm)?;
+        payload.into_ref_with_type(vm, cls).map(Into::into)
+    }
+
+    fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        match args.object {
             OptionalArg::Present(input) => {
                 if let OptionalArg::Present(enc) = args.encoding {
-                    vm.state.codec_registry.decode_text(
+                    let s = vm.state.codec_registry.decode_text(
                         input,
                         enc.as_str(),
                         args.errors.into_option(),
                         vm,
-                    )?
+                    )?;
+                    Ok(Self::from(s.as_wtf8().to_owned()))
                 } else {
-                    input.str(vm)?
+                    let s = input.str(vm)?;
+                    Ok(Self::from(s.as_wtf8().to_owned()))
                 }
             }
-            OptionalArg::Missing => {
-                Self::from(String::new()).into_ref_with_type(vm, cls.clone())?
-            }
-        };
-        if string.class().is(&cls) {
-            Ok(string.into())
-        } else {
-            Self::from(string.as_wtf8())
-                .into_ref_with_type(vm, cls)
-                .map(Into::into)
+            OptionalArg::Missing => Ok(Self::from(String::new())),
         }
-    }
-
-    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-        unreachable!("use slot_new")
     }
 }
 
