@@ -1122,10 +1122,18 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    fn _path_splitroot(path: OsPath, vm: &VirtualMachine) -> PyResult<(String, String)> {
+    fn _path_splitroot(
+        path: OsPath,
+        _vm: &VirtualMachine,
+    ) -> (
+        rustpython_common::wtf8::Wtf8Buf,
+        rustpython_common::wtf8::Wtf8Buf,
+    ) {
+        use rustpython_common::wtf8::Wtf8Buf;
+
         let orig: Vec<_> = path.path.to_wide();
         if orig.is_empty() {
-            return Ok(("".to_owned(), "".to_owned()));
+            return (Wtf8Buf::new(), Wtf8Buf::new());
         }
         let backslashed: Vec<_> = orig
             .iter()
@@ -1134,15 +1142,11 @@ pub(crate) mod module {
             .chain(std::iter::once(0)) // null-terminated
             .collect();
 
-        fn from_utf16(wstr: &[u16], vm: &VirtualMachine) -> PyResult<String> {
-            String::from_utf16(wstr).map_err(|e| vm.new_unicode_decode_error(e.to_string()))
-        }
-
         let mut end: *const u16 = std::ptr::null();
         let hr = unsafe {
             windows_sys::Win32::UI::Shell::PathCchSkipRoot(backslashed.as_ptr(), &mut end)
         };
-        let (root, path) = if hr == 0 {
+        if hr == 0 {
             // S_OK
             assert!(!end.is_null());
             let len: usize = unsafe { end.offset_from(backslashed.as_ptr()) }
@@ -1155,11 +1159,13 @@ pub(crate) mod module {
                 len,
                 backslashed.len()
             );
-            (from_utf16(&orig[..len], vm)?, from_utf16(&orig[len..], vm)?)
+            (
+                Wtf8Buf::from_wide(&orig[..len]),
+                Wtf8Buf::from_wide(&orig[len..]),
+            )
         } else {
-            ("".to_owned(), from_utf16(&orig, vm)?)
-        };
-        Ok((root, path))
+            (Wtf8Buf::new(), Wtf8Buf::from_wide(&orig))
+        }
     }
 
     #[pyfunction]

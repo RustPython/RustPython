@@ -730,7 +730,6 @@ class UncompressedZipImportTestCase(ImportHooksBaseTestCase):
 
     @unittest.skipIf(os_helper.TESTFN_UNENCODABLE is None,
                      "need an unencodable filename")
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def testUnencodable(self):
         filename = os_helper.TESTFN_UNENCODABLE + ".zip"
         self.addCleanup(os_helper.unlink, filename)
