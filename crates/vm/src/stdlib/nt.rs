@@ -19,7 +19,7 @@ pub(crate) mod module {
         convert::ToPyException,
         function::{Either, OptionalArg},
         ospath::OsPath,
-        stdlib::os::{_os, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory},
+        stdlib::os::{_os, DirFd, SupportFunc, TargetIsDirectory},
     };
 
     use libc::intptr_t;
@@ -137,25 +137,104 @@ pub(crate) mod module {
         environ
     }
 
-    #[pyfunction]
-    fn chmod(
+    #[derive(FromArgs)]
+    struct ChmodArgs {
+        #[pyarg(any)]
         path: OsPath,
-        dir_fd: DirFd<'_, 0>,
+        #[pyarg(any)]
         mode: u32,
-        follow_symlinks: FollowSymlinks,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+        #[pyarg(flatten)]
+        dir_fd: DirFd<'static, 0>,
+        #[pyarg(named, name = "follow_symlinks", optional)]
+        follow_symlinks: OptionalArg<bool>,
+    }
+
+    #[pyfunction]
+    fn chmod(args: ChmodArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let ChmodArgs {
+            path,
+            mode,
+            dir_fd,
+            follow_symlinks,
+        } = args;
         const S_IWRITE: u32 = 128;
         let [] = dir_fd.0;
-        let metadata = if follow_symlinks.0 {
-            fs::metadata(&path)
-        } else {
-            fs::symlink_metadata(&path)
+
+        // On Windows, os.chmod behavior differs based on whether follow_symlinks is explicitly provided:
+        // - Not provided (default): use SetFileAttributesW on the path directly (doesn't follow symlinks)
+        // - Explicitly True: resolve symlink first, then apply permissions to target
+        // - Explicitly False: raise NotImplementedError (Windows can't change symlink permissions)
+        let actual_path: std::borrow::Cow<'_, std::path::Path> = match follow_symlinks.into_option()
+        {
+            None => {
+                // Default behavior: don't resolve symlinks, operate on path directly
+                std::borrow::Cow::Borrowed(path.as_ref())
+            }
+            Some(true) => {
+                // Explicitly follow symlinks: resolve the path first
+                match fs::canonicalize(&path) {
+                    Ok(p) => std::borrow::Cow::Owned(p),
+                    Err(_) => std::borrow::Cow::Borrowed(path.as_ref()),
+                }
+            }
+            Some(false) => {
+                // follow_symlinks=False on Windows - not supported for symlinks
+                // Check if path is a symlink
+                if let Ok(meta) = fs::symlink_metadata(&path) {
+                    if meta.file_type().is_symlink() {
+                        return Err(vm.new_not_implemented_error(
+                            "chmod: follow_symlinks=False is not supported on Windows for symlinks"
+                                .to_owned(),
+                        ));
+                    }
+                }
+                std::borrow::Cow::Borrowed(path.as_ref())
+            }
         };
-        let meta = metadata.map_err(|err| err.to_pyexception(vm))?;
+
+        // Use symlink_metadata to avoid following dangling symlinks
+        let meta = fs::symlink_metadata(&actual_path).map_err(|err| err.to_pyexception(vm))?;
         let mut permissions = meta.permissions();
         permissions.set_readonly(mode & S_IWRITE == 0);
-        fs::set_permissions(&path, permissions).map_err(|err| err.to_pyexception(vm))
+        fs::set_permissions(&*actual_path, permissions).map_err(|err| err.to_pyexception(vm))
+    }
+
+    /// Get the real file name (with correct case) without accessing the file.
+    /// Uses FindFirstFileW to get the name as stored on the filesystem.
+    #[pyfunction]
+    fn _findfirstfile(path: OsPath, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        use crate::common::windows::ToWideString;
+        use std::os::windows::ffi::OsStringExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FindClose, FindFirstFileW, WIN32_FIND_DATAW,
+        };
+
+        let wide_path = path.as_ref().to_wide_with_nul();
+        let mut find_data: WIN32_FIND_DATAW = unsafe { std::mem::zeroed() };
+
+        let handle = unsafe { FindFirstFileW(wide_path.as_ptr(), &mut find_data) };
+        if handle == INVALID_HANDLE_VALUE {
+            return Err(vm.new_os_error(format!(
+                "FindFirstFileW failed for path: {}",
+                path.as_ref().display()
+            )));
+        }
+
+        unsafe { FindClose(handle) };
+
+        // Convert the filename from the find data to a Rust string
+        // cFileName is a null-terminated wide string
+        let len = find_data
+            .cFileName
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap_or(find_data.cFileName.len());
+        let filename = std::ffi::OsString::from_wide(&find_data.cFileName[..len]);
+        let filename_str = filename
+            .to_str()
+            .ok_or_else(|| vm.new_unicode_decode_error("filename contains invalid UTF-8"))?;
+
+        Ok(vm.ctx.new_str(filename_str).to_owned())
     }
 
     // cwait is available on MSVC only (according to CPython)

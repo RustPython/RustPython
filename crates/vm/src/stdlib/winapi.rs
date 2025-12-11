@@ -334,7 +334,7 @@ mod _winapi {
         let src_path = std::path::Path::new(src_path.as_str());
         let dest_path = std::path::Path::new(dest_path.as_str());
 
-        junction::create(dest_path, src_path).map_err(|e| e.to_pyexception(vm))
+        junction::create(src_path, dest_path).map_err(|e| e.to_pyexception(vm))
     }
 
     fn getenvironment(env: ArgMapping, vm: &VirtualMachine) -> PyResult<Vec<u16>> {
