@@ -180,13 +180,13 @@ pub(crate) mod module {
             Some(false) => {
                 // follow_symlinks=False on Windows - not supported for symlinks
                 // Check if path is a symlink
-                if let Ok(meta) = fs::symlink_metadata(&path) {
-                    if meta.file_type().is_symlink() {
-                        return Err(vm.new_not_implemented_error(
-                            "chmod: follow_symlinks=False is not supported on Windows for symlinks"
-                                .to_owned(),
-                        ));
-                    }
+                if let Ok(meta) = fs::symlink_metadata(&path)
+                    && meta.file_type().is_symlink()
+                {
+                    return Err(vm.new_not_implemented_error(
+                        "chmod: follow_symlinks=False is not supported on Windows for symlinks"
+                            .to_owned(),
+                    ));
                 }
                 std::borrow::Cow::Borrowed(path.as_ref())
             }
