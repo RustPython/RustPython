@@ -18,7 +18,7 @@ pub(crate) mod module {
         common::{crt_fd, suppress_iph, windows::ToWideString},
         convert::ToPyException,
         function::{Either, OptionalArg},
-        ospath::OsPath,
+        ospath::{OsPath, OsPathOrFd},
         stdlib::os::{_os, DirFd, SupportFunc, TargetIsDirectory},
     };
 
@@ -235,6 +235,197 @@ pub(crate) mod module {
             .ok_or_else(|| vm.new_unicode_decode_error("filename contains invalid UTF-8"))?;
 
         Ok(vm.ctx.new_str(filename_str).to_owned())
+    }
+
+    #[derive(FromArgs)]
+    struct PathArg {
+        #[pyarg(any)]
+        path: crate::PyObjectRef,
+    }
+
+    impl PathArg {
+        fn to_path(&self, vm: &VirtualMachine) -> Option<OsPath> {
+            OsPath::try_from_object(vm, self.path.clone()).ok()
+        }
+
+        fn to_path_or_fd(&self, vm: &VirtualMachine) -> Option<OsPathOrFd<'static>> {
+            OsPathOrFd::try_from_object(vm, self.path.clone()).ok()
+        }
+    }
+
+    // Windows file type constants
+    const FILE_TYPE_UNKNOWN: u32 = 0;
+    const FILE_TYPE_DISK: u32 = 1;
+
+    /// Check if a path is a directory.
+    #[pyfunction]
+    fn _path_isdir(args: PathArg, vm: &VirtualMachine) -> bool {
+        args.to_path(vm)
+            .and_then(|p| p.as_ref().metadata().ok())
+            .is_some_and(|m| m.is_dir())
+    }
+
+    /// Check if a path is a regular file.
+    #[pyfunction]
+    fn _path_isfile(args: PathArg, vm: &VirtualMachine) -> bool {
+        use crate::common::windows::ToWideString;
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_DELETE,
+            FILE_SHARE_READ, FILE_SHARE_WRITE, GetFileType, OPEN_EXISTING,
+        };
+
+        let Some(path) = args.to_path(vm) else {
+            return false;
+        };
+
+        let wide_path = path.as_ref().to_wide_with_nul();
+
+        // Try to open the file to check GetFileType (to exclude pipes/devices)
+        let handle = unsafe {
+            CreateFileW(
+                wide_path.as_ptr(),
+                0, // No access needed, just querying type
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS,
+                std::ptr::null_mut(),
+            )
+        };
+
+        if handle != INVALID_HANDLE_VALUE {
+            // Check if it's a disk file (not pipe, device, etc.)
+            let file_type = unsafe { GetFileType(handle as _) };
+            unsafe { CloseHandle(handle) };
+
+            if file_type != FILE_TYPE_DISK {
+                return false;
+            }
+        }
+        // If CreateFileW failed, fall through to metadata check
+        // This handles app execution links and other special files
+
+        // Check it's a file (not directory)
+        path.as_ref().metadata().is_ok_and(|m| m.is_file())
+    }
+
+    /// Check if a path is a symbolic link.
+    #[pyfunction]
+    fn _path_islink(args: PathArg, vm: &VirtualMachine) -> bool {
+        args.to_path(vm)
+            .and_then(|p| p.as_ref().symlink_metadata().ok())
+            .is_some_and(|m| m.file_type().is_symlink())
+    }
+
+    /// Check if a path is a junction (mount point).
+    #[pyfunction]
+    fn _path_isjunction(args: PathArg, vm: &VirtualMachine) -> bool {
+        use crate::common::windows::ToWideString;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_ATTRIBUTE_REPARSE_POINT, FindClose, FindFirstFileW, WIN32_FIND_DATAW,
+        };
+
+        const IO_REPARSE_TAG_MOUNT_POINT: u32 = 0xA0000003;
+
+        let Some(path) = args.to_path(vm) else {
+            return false;
+        };
+
+        let wide_path = path.as_ref().to_wide_with_nul();
+        let mut find_data: WIN32_FIND_DATAW = unsafe { std::mem::zeroed() };
+
+        let handle = unsafe { FindFirstFileW(wide_path.as_ptr(), &mut find_data) };
+        if handle == INVALID_HANDLE_VALUE {
+            return false;
+        }
+
+        unsafe { FindClose(handle) };
+
+        let is_reparse = (find_data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+        let is_mount_point = find_data.dwReserved0 == IO_REPARSE_TAG_MOUNT_POINT;
+
+        is_reparse && is_mount_point
+    }
+
+    /// Check if a path exists.
+    #[pyfunction]
+    fn _path_exists(args: PathArg, vm: &VirtualMachine) -> bool {
+        use crate::common::windows::ToWideString;
+        use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_READ};
+        use windows_sys::Win32::Storage::FileSystem::{
+            CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
+            FILE_SHARE_WRITE, GetFileType, OPEN_EXISTING,
+        };
+
+        let Some(path_or_fd) = args.to_path_or_fd(vm) else {
+            return false;
+        };
+
+        match path_or_fd {
+            OsPathOrFd::Fd(fd) => {
+                // For file descriptors, check if valid via GetFileType
+                if let Ok(handle) = crate::common::crt_fd::as_handle(fd) {
+                    use std::os::windows::io::AsRawHandle;
+                    let file_type = unsafe { GetFileType(handle.as_raw_handle() as _) };
+                    file_type != FILE_TYPE_UNKNOWN
+                } else {
+                    false
+                }
+            }
+            OsPathOrFd::Path(path) => {
+                // First try standard exists check
+                if path.as_ref().exists() {
+                    return true;
+                }
+
+                // For device paths like \\.\CON, try CreateFileW with FILE_READ_ATTRIBUTES first
+                let wide_path = path.as_ref().to_wide_with_nul();
+                let handle = unsafe {
+                    CreateFileW(
+                        wide_path.as_ptr(),
+                        FILE_READ_ATTRIBUTES,
+                        0,
+                        std::ptr::null(),
+                        OPEN_EXISTING,
+                        FILE_FLAG_BACKUP_SEMANTICS,
+                        std::ptr::null_mut(),
+                    )
+                };
+
+                if handle != INVALID_HANDLE_VALUE {
+                    unsafe { CloseHandle(handle) };
+                    return true;
+                }
+
+                // Fallback: try with GENERIC_READ and sharing for console devices
+                let handle = unsafe {
+                    CreateFileW(
+                        wide_path.as_ptr(),
+                        GENERIC_READ,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE,
+                        std::ptr::null(),
+                        OPEN_EXISTING,
+                        0,
+                        std::ptr::null_mut(),
+                    )
+                };
+
+                if handle != INVALID_HANDLE_VALUE {
+                    unsafe { CloseHandle(handle) };
+                    return true;
+                }
+
+                false
+            }
+        }
+    }
+
+    /// Check if a path exists (does not follow symlinks).
+    #[pyfunction]
+    fn _path_lexists(args: PathArg, vm: &VirtualMachine) -> bool {
+        args.to_path(vm)
+            .is_some_and(|p| p.as_ref().symlink_metadata().is_ok())
     }
 
     // cwait is available on MSVC only (according to CPython)
