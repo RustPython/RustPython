@@ -3,13 +3,30 @@ pub(crate) use decl::make_module;
 #[pymodule(name = "faulthandler")]
 mod decl {
     use crate::vm::{
-        PyObjectRef, PyResult, VirtualMachine, frame::Frame, function::OptionalArg, py_io::Write,
+        PyObjectRef, PyResult, VirtualMachine, builtins::PyFloat, frame::Frame,
+        function::OptionalArg, py_io::Write,
     };
     use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+    use std::sync::{Arc, Condvar, Mutex};
+    use std::thread;
+    use std::time::Duration;
 
     static ENABLED: AtomicBool = AtomicBool::new(false);
     #[allow(dead_code)]
     static FATAL_ERROR_FD: AtomicI32 = AtomicI32::new(2); // stderr by default
+
+    // Watchdog thread state for dump_traceback_later
+    struct WatchdogState {
+        cancel: bool,
+        fd: i32,
+        timeout_us: u64,
+        repeat: bool,
+        exit: bool,
+        header: String,
+    }
+
+    type WatchdogHandle = Arc<(Mutex<WatchdogState>, Condvar)>;
+    static WATCHDOG: Mutex<Option<WatchdogHandle>> = Mutex::new(None);
 
     // Fatal signal numbers that should use enable() instead
     #[cfg(unix)]
@@ -143,11 +160,129 @@ mod decl {
         ENABLED.load(Ordering::Relaxed)
     }
 
+    fn format_timeout(timeout_us: u64) -> String {
+        let sec = timeout_us / 1_000_000;
+        let us = timeout_us % 1_000_000;
+        let min = sec / 60;
+        let sec = sec % 60;
+        let hour = min / 60;
+        let min = min % 60;
+
+        if us != 0 {
+            format!("Timeout ({:02}:{:02}:{:02}.{:06})!\n", hour, min, sec, us)
+        } else {
+            format!("Timeout ({:02}:{:02}:{:02})!\n", hour, min, sec)
+        }
+    }
+
+    fn get_fd_from_file_opt(file: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<i32> {
+        match file {
+            OptionalArg::Present(f) => {
+                // Check if it's an integer (file descriptor)
+                if let Ok(fd) = f.try_to_value::<i32>(vm) {
+                    if fd < 0 {
+                        return Err(
+                            vm.new_value_error("file is not a valid file descriptor".to_owned())
+                        );
+                    }
+                    return Ok(fd);
+                }
+                // Try to get fileno() from file object
+                let fileno = vm.call_method(&f, "fileno", ())?;
+                let fd: i32 = fileno.try_to_value(vm)?;
+                if fd < 0 {
+                    return Err(
+                        vm.new_value_error("file is not a valid file descriptor".to_owned())
+                    );
+                }
+                // Try to flush the file
+                let _ = vm.call_method(&f, "flush", ());
+                Ok(fd)
+            }
+            OptionalArg::Missing => {
+                // Get sys.stderr
+                let stderr = vm.sys_module.get_attr("stderr", vm)?;
+                if vm.is_none(&stderr) {
+                    return Err(vm.new_runtime_error("sys.stderr is None".to_owned()));
+                }
+                let fileno = vm.call_method(&stderr, "fileno", ())?;
+                let fd: i32 = fileno.try_to_value(vm)?;
+                let _ = vm.call_method(&stderr, "flush", ());
+                Ok(fd)
+            }
+        }
+    }
+
+    fn watchdog_thread(state: WatchdogHandle) {
+        let (lock, cvar) = &*state;
+
+        loop {
+            let (timeout, repeat, exit, fd, header, cancelled) = {
+                let guard = lock.lock().unwrap();
+                if guard.cancel {
+                    return;
+                }
+                (
+                    Duration::from_micros(guard.timeout_us),
+                    guard.repeat,
+                    guard.exit,
+                    guard.fd,
+                    guard.header.clone(),
+                    guard.cancel,
+                )
+            };
+
+            if cancelled {
+                return;
+            }
+
+            // Wait for timeout or cancellation
+            let result = {
+                let guard = lock.lock().unwrap();
+                cvar.wait_timeout(guard, timeout).unwrap()
+            };
+
+            // Check if cancelled
+            if result.0.cancel {
+                return;
+            }
+
+            // Timeout occurred, dump traceback
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let header_bytes = header.as_bytes();
+                unsafe {
+                    libc::write(
+                        fd,
+                        header_bytes.as_ptr() as *const libc::c_void,
+                        header_bytes.len(),
+                    );
+                }
+
+                // Note: We cannot dump actual Python traceback from a separate thread
+                // because we don't have access to the VM's frame stack.
+                // Just output a message indicating timeout occurred.
+                let msg = b"<timeout: cannot dump traceback from watchdog thread>\n";
+                unsafe {
+                    libc::write(fd, msg.as_ptr() as *const libc::c_void, msg.len());
+                }
+
+                if exit {
+                    std::process::exit(1);
+                }
+            }
+
+            if !repeat {
+                return;
+            }
+        }
+    }
+
     #[derive(FromArgs)]
     #[allow(unused)]
     struct DumpTracebackLaterArgs {
         #[pyarg(positional)]
-        timeout: f64,
+        timeout: PyObjectRef,
         #[pyarg(any, default = false)]
         repeat: bool,
         #[pyarg(any, default)]
@@ -158,18 +293,78 @@ mod decl {
 
     #[pyfunction]
     fn dump_traceback_later(args: DumpTracebackLaterArgs, vm: &VirtualMachine) -> PyResult<()> {
-        // Check that file is valid
-        let _file = get_file_for_output(args.file, vm)?;
+        use num_traits::ToPrimitive;
+        // Convert timeout to f64 (accepting int or float)
+        let timeout: f64 = if let Some(float) = args.timeout.downcast_ref::<PyFloat>() {
+            float.to_f64()
+        } else if let Some(int) = args.timeout.try_index_opt(vm).transpose()? {
+            int.as_bigint()
+                .to_i64()
+                .ok_or_else(|| vm.new_overflow_error("timeout value is too large".to_owned()))?
+                as f64
+        } else {
+            return Err(vm.new_type_error("timeout must be a number (int or float)".to_owned()));
+        };
 
-        // TODO: Implement watchdog thread that dumps traceback after timeout
-        // For now, this is a stub
-        Err(vm.new_not_implemented_error("dump_traceback_later is not yet implemented"))
+        if timeout <= 0.0 {
+            return Err(vm.new_value_error("timeout must be greater than 0".to_owned()));
+        }
+
+        let fd = get_fd_from_file_opt(args.file, vm)?;
+
+        // Convert timeout to microseconds
+        let timeout_us = (timeout * 1_000_000.0) as u64;
+        if timeout_us == 0 {
+            return Err(vm.new_value_error("timeout must be greater than 0".to_owned()));
+        }
+
+        let header = format_timeout(timeout_us);
+
+        // Cancel any previous watchdog
+        cancel_dump_traceback_later();
+
+        // Create new watchdog state
+        let state = Arc::new((
+            Mutex::new(WatchdogState {
+                cancel: false,
+                fd,
+                timeout_us,
+                repeat: args.repeat,
+                exit: args.exit,
+                header,
+            }),
+            Condvar::new(),
+        ));
+
+        // Store the state
+        {
+            let mut watchdog = WATCHDOG.lock().unwrap();
+            *watchdog = Some(Arc::clone(&state));
+        }
+
+        // Start watchdog thread
+        thread::spawn(move || {
+            watchdog_thread(state);
+        });
+
+        Ok(())
     }
 
     #[pyfunction]
     fn cancel_dump_traceback_later() {
-        // TODO: Cancel the watchdog thread
-        // For now, this is a no-op since dump_traceback_later is not implemented
+        let state = {
+            let mut watchdog = WATCHDOG.lock().unwrap();
+            watchdog.take()
+        };
+
+        if let Some(state) = state {
+            let (lock, cvar) = &*state;
+            {
+                let mut guard = lock.lock().unwrap();
+                guard.cancel = true;
+            }
+            cvar.notify_all();
+        }
     }
 
     #[cfg(unix)]
