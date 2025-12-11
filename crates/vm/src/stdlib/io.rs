@@ -3637,20 +3637,18 @@ mod _io {
 
         #[allow(unused_variables)]
         fn py_new(
-            cls: PyTypeRef,
+            _cls: &Py<PyType>,
             Self::Args { object, newline }: Self::Args,
-            vm: &VirtualMachine,
-        ) -> PyResult {
+            _vm: &VirtualMachine,
+        ) -> PyResult<Self> {
             let raw_bytes = object
                 .flatten()
                 .map_or_else(Vec::new, |v| v.as_bytes().to_vec());
 
-            Self {
+            Ok(Self {
                 buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
                 closed: AtomicCell::new(false),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 
@@ -3770,18 +3768,16 @@ mod _io {
     impl Constructor for BytesIO {
         type Args = OptionalArg<Option<PyBytesRef>>;
 
-        fn py_new(cls: PyTypeRef, object: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(_cls: &Py<PyType>, object: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             let raw_bytes = object
                 .flatten()
                 .map_or_else(Vec::new, |input| input.as_bytes().to_vec());
 
-            Self {
+            Ok(Self {
                 buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
                 closed: AtomicCell::new(false),
                 exports: AtomicCell::new(0),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 

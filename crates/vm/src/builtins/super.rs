@@ -47,16 +47,14 @@ impl PyPayload for PySuper {
 impl Constructor for PySuper {
     type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        let obj = Self {
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self {
             inner: PyRwLock::new(PySuperInner::new(
                 vm.ctx.types.object_type.to_owned(), // is this correct?
                 vm.ctx.none(),
                 vm,
             )?),
-        }
-        .into_ref_with_type(vm, cls)?;
-        Ok(obj.into())
+        })
     }
 }
 

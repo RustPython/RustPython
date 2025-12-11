@@ -5,7 +5,7 @@ use crate::{
     VirtualMachine,
     class::PyClassImpl,
     convert::{IntoPyException, ToPyObject, ToPyResult},
-    function::OptionalArg,
+    function::{FuncArgs, OptionalArg},
     identifier,
     protocol::PyNumberMethods,
     types::{AsNumber, Constructor, Representable},
@@ -101,7 +101,8 @@ impl Debug for PyBool {
 impl Constructor for PyBool {
     type Args = OptionalArg<PyObjectRef>;
 
-    fn py_new(zelf: PyTypeRef, x: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(zelf: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let x: Self::Args = args.bind(vm)?;
         if !zelf.fast_isinstance(vm.ctx.types.type_type) {
             let actual_class = zelf.class();
             let actual_type = &actual_class.name();
@@ -111,6 +112,10 @@ impl Constructor for PyBool {
         }
         let val = x.map_or(Ok(false), |val| val.try_to_bool(vm))?;
         Ok(vm.ctx.new_bool(val).into())
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 

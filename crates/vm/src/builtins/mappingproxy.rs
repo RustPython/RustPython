@@ -61,18 +61,16 @@ impl From<PyDictRef> for PyMappingProxy {
 impl Constructor for PyMappingProxy {
     type Args = PyObjectRef;
 
-    fn py_new(cls: PyTypeRef, mapping: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn py_new(_cls: &Py<PyType>, mapping: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         if let Some(methods) = PyMapping::find_methods(&mapping)
             && !mapping.downcastable::<PyList>()
             && !mapping.downcastable::<PyTuple>()
         {
-            return Self {
+            return Ok(Self {
                 mapping: MappingProxyInner::Mapping(ArgMapping::with_methods(mapping, unsafe {
                     methods.borrow_static()
                 })),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into);
+            });
         }
         Err(vm.new_type_error(format!(
             "mappingproxy() argument must be a mapping, not {}",

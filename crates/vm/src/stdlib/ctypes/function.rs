@@ -186,14 +186,14 @@ impl Debug for PyCFuncPtr {
 impl Constructor for PyCFuncPtr {
     type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // Handle different argument forms like CPython:
         // 1. Empty args: create uninitialized
         // 2. One integer argument: function address
         // 3. Tuple argument: (name, dll) form
 
         if args.args.is_empty() {
-            return Self {
+            return PyCFuncPtr {
                 ptr: PyRwLock::new(None),
                 needs_free: AtomicCell::new(false),
                 arg_types: PyRwLock::new(None),
@@ -211,7 +211,7 @@ impl Constructor for PyCFuncPtr {
         // Check if first argument is an integer (function address)
         if let Ok(addr) = first_arg.try_int(vm) {
             let ptr_val = addr.as_bigint().to_usize().unwrap_or(0);
-            return Self {
+            return PyCFuncPtr {
                 ptr: PyRwLock::new(Some(CodePtr(ptr_val as *mut _))),
                 needs_free: AtomicCell::new(false),
                 arg_types: PyRwLock::new(None),
@@ -270,7 +270,7 @@ impl Constructor for PyCFuncPtr {
                 None
             };
 
-            return Self {
+            return PyCFuncPtr {
                 ptr: PyRwLock::new(code_ptr),
                 needs_free: AtomicCell::new(false),
                 arg_types: PyRwLock::new(None),
@@ -313,7 +313,7 @@ impl Constructor for PyCFuncPtr {
             // Store the thunk as a Python object to keep it alive
             let thunk_ref: PyRef<PyCThunk> = thunk.into_ref(&vm.ctx);
 
-            return Self {
+            return PyCFuncPtr {
                 ptr: PyRwLock::new(Some(code_ptr)),
                 needs_free: AtomicCell::new(true),
                 arg_types: PyRwLock::new(arg_type_vec),
@@ -327,6 +327,10 @@ impl Constructor for PyCFuncPtr {
         }
 
         Err(vm.new_type_error("Expected an integer address or a tuple"))
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 

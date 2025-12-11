@@ -6,7 +6,7 @@ pub(crate) use _thread::{RawRMutex, make_module};
 pub(crate) mod _thread {
     use crate::{
         AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyStr, PyTupleRef, PyTypeRef},
+        builtins::{PyDictRef, PyStr, PyTupleRef, PyType, PyTypeRef},
         convert::ToPyException,
         function::{ArgCallable, Either, FuncArgs, KwArgs, OptionalArg, PySetterValue},
         types::{Constructor, GetAttr, Representable, SetAttr},
@@ -171,7 +171,8 @@ pub(crate) mod _thread {
 
     impl Constructor for Lock {
         type Args = FuncArgs;
-        fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             Err(vm.new_type_error("cannot create '_thread.lock' instances"))
         }
     }

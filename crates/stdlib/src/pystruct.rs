@@ -12,7 +12,7 @@ pub(crate) mod _struct {
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
         buffer::{FormatSpec, new_struct_error, struct_error_type},
-        builtins::{PyBytes, PyStr, PyStrRef, PyTupleRef, PyTypeRef},
+        builtins::{PyBytes, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef},
         function::{ArgBytesLike, ArgMemoryBuffer, PosArgs},
         match_class,
         protocol::PyIterReturn,
@@ -241,12 +241,10 @@ pub(crate) mod _struct {
     impl Constructor for PyStruct {
         type Args = IntoStructFormatBytes;
 
-        fn py_new(cls: PyTypeRef, fmt: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(_cls: &Py<PyType>, fmt: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             let spec = fmt.format_spec(vm)?;
             let format = fmt.0;
-            Self { spec, format }
-                .into_ref_with_type(vm, cls)
-                .map(Into::into)
+            Ok(Self { spec, format })
         }
     }
 

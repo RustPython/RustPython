@@ -350,7 +350,8 @@ pub struct StrArgs {
 impl Constructor for PyStr {
     type Args = StrArgs;
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let args: Self::Args = func_args.bind(vm)?;
         let string: PyRef<PyStr> = match args.object {
             OptionalArg::Present(input) => {
                 if let OptionalArg::Present(enc) = args.encoding {
@@ -375,6 +376,10 @@ impl Constructor for PyStr {
                 .into_ref_with_type(vm, cls)
                 .map(Into::into)
         }
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 

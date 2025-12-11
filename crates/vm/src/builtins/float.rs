@@ -8,7 +8,7 @@ use crate::{
     common::{float_ops, format::FormatSpec, hash},
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
-        ArgBytesLike, OptionalArg, OptionalOption,
+        ArgBytesLike, FuncArgs, OptionalArg, OptionalOption,
         PyArithmeticValue::{self, *},
         PyComparisonValue,
     },
@@ -131,14 +131,25 @@ pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
 impl Constructor for PyFloat {
     type Args = OptionalArg<PyObjectRef>;
 
-    fn py_new(cls: PyTypeRef, arg: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // Optimization: return exact float as-is
+        if cls.is(vm.ctx.types.float_type)
+            && args.kwargs.is_empty()
+            && let Some(first) = args.args.first()
+            && first.class().is(vm.ctx.types.float_type)
+        {
+            return Ok(first.clone());
+        }
+
+        let arg: Self::Args = args.bind(vm)?;
+        let payload = Self::py_new(&cls, arg, vm)?;
+        payload.into_ref_with_type(vm, cls).map(Into::into)
+    }
+
+    fn py_new(_cls: &Py<PyType>, arg: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         let float_val = match arg {
             OptionalArg::Missing => 0.0,
             OptionalArg::Present(val) => {
-                if cls.is(vm.ctx.types.float_type) && val.class().is(vm.ctx.types.float_type) {
-                    return Ok(val);
-                }
-
                 if let Some(f) = val.try_float_opt(vm) {
                     f?.value
                 } else {
@@ -146,9 +157,7 @@ impl Constructor for PyFloat {
                 }
             }
         };
-        Self::from(float_val)
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+        Ok(Self::from(float_val))
     }
 }
 

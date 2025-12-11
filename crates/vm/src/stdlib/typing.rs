@@ -31,7 +31,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 pub(crate) mod decl {
     use crate::{
         Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyStrRef, PyTupleRef, PyTypeRef, pystr::AsPyStr},
+        builtins::{PyStrRef, PyTupleRef, PyType, PyTypeRef, pystr::AsPyStr},
         function::{FuncArgs, IntoFuncArgs},
         types::{Constructor, Representable},
     };
@@ -74,15 +74,15 @@ pub(crate) mod decl {
     }
 
     impl Constructor for NoDefault {
-        type Args = FuncArgs;
+        type Args = ();
 
-        fn py_new(_cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            if !args.args.is_empty() || !args.kwargs.is_empty() {
-                return Err(vm.new_type_error("NoDefaultType takes no arguments"));
-            }
-
-            // Return singleton instance from context
+        fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let _: () = args.bind(vm)?;
             Ok(vm.ctx.typing_no_default.clone().into())
+        }
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            unreachable!("NoDefault is a singleton, use slot_new")
         }
     }
 
@@ -133,7 +133,7 @@ pub(crate) mod decl {
     impl Constructor for TypeAliasType {
         type Args = FuncArgs;
 
-        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             // TypeAliasType(name, value, *, type_params=None)
             if args.args.len() < 2 {
                 return Err(vm.new_type_error(format!(
@@ -168,8 +168,7 @@ pub(crate) mod decl {
                 vm.ctx.empty_tuple.clone()
             };
 
-            let ta = Self::new(name, type_params, value);
-            ta.into_ref_with_type(vm, cls).map(Into::into)
+            Ok(Self::new(name, type_params, value))
         }
     }
 

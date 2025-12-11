@@ -3,7 +3,7 @@ use super::array::PyCArrayType;
 use super::util::StgInfo;
 use crate::builtins::{PyBytes, PyFloat, PyInt, PyNone, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::convert::ToPyObject;
-use crate::function::{ArgBytesLike, Either, OptionalArg};
+use crate::function::{ArgBytesLike, Either, FuncArgs, KwArgs, OptionalArg};
 use crate::protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyNumberMethods};
 use crate::stdlib::ctypes::_ctypes::new_simple_type;
 use crate::types::{AsBuffer, AsNumber, Constructor};
@@ -610,7 +610,8 @@ fn value_to_bytes_endian(
 impl Constructor for PyCSimple {
     type Args = (OptionalArg,);
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let args: Self::Args = args.bind(vm)?;
         let attributes = cls.get_attributes();
         let _type_ = attributes
             .iter()
@@ -658,6 +659,10 @@ impl Constructor for PyCSimple {
         }
         .into_ref_with_type(vm, cls)
         .map(Into::into)
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 
@@ -796,8 +801,8 @@ impl PyCSimple {
         };
 
         // Create instance using the type's constructor
-        let instance = PyCSimple::py_new(cls.clone(), (OptionalArg::Present(value),), vm)?;
-        Ok(instance)
+        let args = FuncArgs::new(vec![value], KwArgs::default());
+        PyCSimple::slot_new(cls.clone(), args, vm)
     }
 
     #[pyclassmethod]
@@ -846,7 +851,8 @@ impl PyCSimple {
         let value = bytes_to_pyobject(&cls, data, vm)?;
 
         // Create instance
-        let instance = PyCSimple::py_new(cls.clone(), (OptionalArg::Present(value),), vm)?;
+        let args = FuncArgs::new(vec![value], KwArgs::default());
+        let instance = PyCSimple::slot_new(cls.clone(), args, vm)?;
 
         // TODO: Store reference to source in _objects to keep buffer alive
         Ok(instance)
@@ -892,7 +898,8 @@ impl PyCSimple {
         let value = bytes_to_pyobject(&cls, data, vm)?;
 
         // Create instance (independent copy, no reference tracking)
-        PyCSimple::py_new(cls.clone(), (OptionalArg::Present(value),), vm)
+        let args = FuncArgs::new(vec![value], KwArgs::default());
+        PyCSimple::slot_new(cls.clone(), args, vm)
     }
 
     #[pyclassmethod]
@@ -959,7 +966,8 @@ impl PyCSimple {
         };
 
         // Create instance
-        let instance = PyCSimple::py_new(cls.clone(), (OptionalArg::Present(value),), vm)?;
+        let args = FuncArgs::new(vec![value], KwArgs::default());
+        let instance = PyCSimple::slot_new(cls.clone(), args, vm)?;
 
         // Store base reference to keep dll alive
         if let Ok(simple_ref) = instance.clone().downcast::<PyCSimple>() {

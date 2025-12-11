@@ -24,7 +24,7 @@ thread_local! {
 mod _contextvars {
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
-        builtins::{PyGenericAlias, PyStrRef, PyTypeRef},
+        builtins::{PyGenericAlias, PyStrRef, PyType, PyTypeRef},
         class::StaticType,
         common::hash::PyHash,
         function::{ArgCallable, FuncArgs, OptionalArg},
@@ -244,8 +244,8 @@ mod _contextvars {
 
     impl Constructor for PyContext {
         type Args = ();
-        fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            Ok(Self::empty(vm).into_pyobject(vm))
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self::empty(vm))
         }
     }
 
@@ -488,7 +488,9 @@ mod _contextvars {
 
     impl Constructor for ContextVar {
         type Args = ContextVarOptions;
-        fn py_new(_cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let args: Self::Args = args.bind(vm)?;
             let var = Self {
                 name: args.name.to_string(),
                 default: args.default.into_option(),
@@ -496,13 +498,17 @@ mod _contextvars {
                 cached: AtomicCell::new(None),
                 hash: UnsafeCell::new(0),
             };
-            let py_var = var.into_ref(&vm.ctx);
+            let py_var = var.into_ref_with_type(vm, cls)?;
 
             unsafe {
                 // SAFETY: py_var is not exposed to python memory model yet
                 *py_var.hash.get() = Self::generate_hash(&py_var, vm)
             };
             Ok(py_var.into())
+        }
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            unreachable!("use slot_new")
         }
     }
 
@@ -578,8 +584,8 @@ mod _contextvars {
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_runtime_error("Tokens can only be created by ContextVars"))
         }
-        fn py_new(_cls: PyTypeRef, _args: Self::Args, _vm: &VirtualMachine) -> PyResult {
-            unreachable!()
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            unreachable!("use slot_new")
         }
     }
 

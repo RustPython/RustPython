@@ -4,10 +4,11 @@ use rustpython_common::lock::PyRwLock;
 
 use crate::builtins::{PyType, PyTypeRef};
 use crate::convert::ToPyObject;
+use crate::function::FuncArgs;
 use crate::protocol::PyNumberMethods;
 use crate::stdlib::ctypes::PyCData;
 use crate::types::{AsNumber, Constructor};
-use crate::{AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
+use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 
 use super::util::StgInfo;
 
@@ -75,7 +76,8 @@ pub struct PyCPointer {
 impl Constructor for PyCPointer {
     type Args = (crate::function::OptionalArg<PyObjectRef>,);
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let args: Self::Args = args.bind(vm)?;
         // Get the initial contents value if provided
         let initial_contents = args.0.into_option().unwrap_or_else(|| vm.ctx.none());
 
@@ -85,6 +87,10 @@ impl Constructor for PyCPointer {
         }
         .into_ref_with_type(vm, cls)
         .map(Into::into)
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 

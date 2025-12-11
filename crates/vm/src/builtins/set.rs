@@ -12,7 +12,7 @@ use crate::{
     common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc},
     convert::ToPyResult,
     dict_inner::{self, DictSize},
-    function::{ArgIterable, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue},
+    function::{ArgIterable, FuncArgs, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue},
     protocol::{PyIterReturn, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
     types::AsNumber,
@@ -920,7 +920,8 @@ impl Representable for PySet {
 impl Constructor for PyFrozenSet {
     type Args = OptionalArg<PyObjectRef>;
 
-    fn py_new(cls: PyTypeRef, iterable: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let iterable: Self::Args = args.bind(vm)?;
         let elements = if let OptionalArg::Present(iterable) = iterable {
             let iterable = if cls.is(vm.ctx.types.frozenset_type) {
                 match iterable.downcast_exact::<Self>(vm) {
@@ -942,6 +943,10 @@ impl Constructor for PyFrozenSet {
             Self::from_iter(vm, elements)
                 .and_then(|o| o.into_ref_with_type(vm, cls).map(Into::into))
         }
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 

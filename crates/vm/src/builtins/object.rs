@@ -32,7 +32,7 @@ impl Constructor for PyBaseObject {
     type Args = FuncArgs;
 
     // = object_new
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
         if !args.args.is_empty() || !args.kwargs.is_empty() {
             // Check if type's __new__ != object.__new__
             let tp_new = cls.get_attr(identifier!(vm, __new__));
@@ -108,6 +108,10 @@ impl Constructor for PyBaseObject {
         }
 
         Ok(crate::PyRef::new_ref(Self, cls, dict).into())
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 

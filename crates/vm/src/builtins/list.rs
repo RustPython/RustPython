@@ -379,8 +379,8 @@ impl MutObjectSequenceOp for PyList {
 impl Constructor for PyList {
     type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Self::default().into_ref_with_type(vm, cls).map(Into::into)
+    fn py_new(_cls: &Py<PyType>, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self::default())
     }
 }
 

@@ -75,8 +75,8 @@ impl Callable for PyCArrayType {
 impl Constructor for PyCArrayType {
     type Args = PyObjectRef;
 
-    fn py_new(_cls: PyTypeRef, _args: Self::Args, _vm: &VirtualMachine) -> PyResult {
-        unreachable!()
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 
@@ -249,7 +249,7 @@ impl std::fmt::Debug for PyCArray {
 impl Constructor for PyCArray {
     type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // Get _type_ and _length_ from the class
         let type_attr = cls.as_object().get_attr("_type_", vm).ok();
         let length_attr = cls.as_object().get_attr("_length_", vm).ok();
@@ -287,7 +287,7 @@ impl Constructor for PyCArray {
             }
             let offset = i * element_size;
             if let Ok(int_val) = value.try_int(vm) {
-                let bytes = Self::int_to_bytes(int_val.as_bigint(), element_size);
+                let bytes = PyCArray::int_to_bytes(int_val.as_bigint(), element_size);
                 if offset + element_size <= buffer.len() {
                     buffer[offset..offset + element_size].copy_from_slice(&bytes);
                 }
@@ -302,6 +302,10 @@ impl Constructor for PyCArray {
         }
         .into_ref_with_type(vm, cls)
         .map(Into::into)
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 

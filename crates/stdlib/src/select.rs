@@ -546,8 +546,8 @@ mod decl {
     pub(super) mod epoll {
         use super::*;
         use crate::vm::{
-            PyPayload,
-            builtins::PyTypeRef,
+            Py, PyPayload,
+            builtins::PyType,
             common::lock::{PyRwLock, PyRwLockReadGuard},
             convert::{IntoPyException, ToPyObject},
             function::OptionalArg,
@@ -575,17 +575,15 @@ mod decl {
 
         impl Constructor for PyEpoll {
             type Args = EpollNewArgs;
-            fn py_new(cls: PyTypeRef, args: EpollNewArgs, vm: &VirtualMachine) -> PyResult {
+
+            fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
                 if let ..=-2 | 0 = args.sizehint {
                     return Err(vm.new_value_error("negative sizehint"));
                 }
                 if !matches!(args.flags, 0 | libc::EPOLL_CLOEXEC) {
                     return Err(vm.new_os_error("invalid flags".to_owned()));
                 }
-                Self::new()
-                    .map_err(|e| e.into_pyexception(vm))?
-                    .into_ref_with_type(vm, cls)
-                    .map(Into::into)
+                Self::new().map_err(|e| e.into_pyexception(vm))
             }
         }
 

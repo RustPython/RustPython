@@ -6,7 +6,7 @@ mod _json {
     use super::machinery;
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyStrRef, PyType, PyTypeRef},
+        builtins::{PyBaseExceptionRef, PyStrRef, PyType},
         convert::{ToPyObject, ToPyResult},
         function::{IntoFuncArgs, OptionalArg},
         protocol::PyIterReturn,
@@ -33,7 +33,7 @@ mod _json {
     impl Constructor for JsonScanner {
         type Args = PyObjectRef;
 
-        fn py_new(cls: PyTypeRef, ctx: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(_cls: &Py<PyType>, ctx: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             let strict = ctx.get_attr("strict", vm)?.try_to_bool(vm)?;
             let object_hook = vm.option_if_none(ctx.get_attr("object_hook", vm)?);
             let object_pairs_hook = vm.option_if_none(ctx.get_attr("object_pairs_hook", vm)?);
@@ -52,7 +52,7 @@ mod _json {
             };
             let parse_constant = ctx.get_attr("parse_constant", vm)?;
 
-            Self {
+            Ok(Self {
                 strict,
                 object_hook,
                 object_pairs_hook,
@@ -60,9 +60,7 @@ mod _json {
                 parse_int,
                 parse_constant,
                 ctx,
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 

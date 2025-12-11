@@ -1,4 +1,4 @@
-use super::{PyType, PyTypeRef};
+use super::PyType;
 use crate::{
     Context, Py, PyPayload, PyRef, PyResult, VirtualMachine, class::PyClassImpl, frame::FrameRef,
     types::Constructor,
@@ -71,12 +71,11 @@ impl PyTraceback {
 impl Constructor for PyTraceback {
     type Args = (Option<PyRef<Self>>, FrameRef, u32, usize);
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         let (next, frame, lasti, lineno) = args;
         let lineno = OneIndexed::new(lineno)
             .ok_or_else(|| vm.new_value_error("lineno must be positive".to_owned()))?;
-        let tb = Self::new(next, frame, lasti, lineno);
-        tb.into_ref_with_type(vm, cls).map(Into::into)
+        Ok(Self::new(next, frame, lasti, lineno))
     }
 }
 

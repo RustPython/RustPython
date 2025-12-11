@@ -991,7 +991,7 @@ impl PyType {
 impl Constructor for PyType {
     type Args = FuncArgs;
 
-    fn py_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type.__new__ {:?}", args);
 
         let is_type_type = metatype.is(vm.ctx.types.type_type);
@@ -1286,6 +1286,10 @@ impl Constructor for PyType {
         };
 
         Ok(typ.into())
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 

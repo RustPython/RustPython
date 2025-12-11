@@ -650,7 +650,9 @@ mod _sqlite {
 
     #[pyfunction]
     fn connect(args: ConnectArgs, vm: &VirtualMachine) -> PyResult {
-        Connection::py_new(args.factory.clone(), args, vm)
+        let factory = args.factory.clone();
+        let conn = Connection::py_new(&factory, args, vm)?;
+        conn.into_ref_with_type(vm, factory).map(Into::into)
     }
 
     #[pyfunction]
@@ -851,12 +853,12 @@ mod _sqlite {
     impl Constructor for Connection {
         type Args = ConnectArgs;
 
-        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             let text_factory = PyStr::class(&vm.ctx).to_owned().into_object();
 
             // For non-subclassed Connection, initialize in __new__
             // For subclassed Connection, leave db as None and require __init__ to be called
-            let is_base_class = cls.is(Connection::class(&vm.ctx).as_object());
+            let is_base_class = cls.is(Connection::class(&vm.ctx));
 
             let db = if is_base_class {
                 // Initialize immediately for base class
@@ -868,7 +870,7 @@ mod _sqlite {
 
             let initialized = db.is_some();
 
-            let conn = Self {
+            Ok(Self {
                 db: PyMutex::new(db),
                 initialized: Radium::new(initialized),
                 detect_types: Radium::new(args.detect_types),
@@ -877,9 +879,7 @@ mod _sqlite {
                 thread_ident: PyMutex::new(std::thread::current().id()),
                 row_factory: PyAtomicRef::from(None),
                 text_factory: PyAtomicRef::from(text_factory),
-            };
-
-            Ok(conn.into_ref_with_type(vm, cls)?.into())
+            })
         }
     }
 
@@ -1940,10 +1940,12 @@ mod _sqlite {
     impl Constructor for Cursor {
         type Args = (PyRef<Connection>,);
 
-        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            Self::new_uninitialized(args.0, vm)
-                .into_ref_with_type(vm, cls)
-                .map(Into::into)
+        fn py_new(
+            _cls: &Py<PyType>,
+            (connection,): Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult<Self> {
+            Ok(Self::new_uninitialized(connection, vm))
         }
     }
 
@@ -2109,20 +2111,18 @@ mod _sqlite {
     impl Constructor for Row {
         type Args = (PyRef<Cursor>, PyTupleRef);
 
-        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            let description = args
-                .0
+        fn py_new(
+            _cls: &Py<PyType>,
+            (cursor, data): Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult<Self> {
+            let description = cursor
                 .inner(vm)?
                 .description
                 .clone()
                 .ok_or_else(|| vm.new_value_error("no description in Cursor"))?;
 
-            Self {
-                data: args.1,
-                description,
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            Ok(Self { data, description })
         }
     }
 

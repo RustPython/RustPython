@@ -8,7 +8,7 @@ use crate::{
     atomic_func,
     class::PyClassImpl,
     convert::{ToPyObject, TransmuteFromObject},
-    function::{ArgSize, OptionalArg, PyArithmeticValue, PyComparisonValue},
+    function::{ArgSize, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     iter::PyExactSizeIterator,
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
@@ -112,7 +112,8 @@ pub type PyTupleRef = PyRef<PyTuple>;
 impl Constructor for PyTuple {
     type Args = OptionalArg<PyObjectRef>;
 
-    fn py_new(cls: PyTypeRef, iterable: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let iterable: Self::Args = args.bind(vm)?;
         let elements = if let OptionalArg::Present(iterable) = iterable {
             let iterable = if cls.is(vm.ctx.types.tuple_type) {
                 match iterable.downcast_exact::<Self>(vm) {
@@ -136,6 +137,10 @@ impl Constructor for PyTuple {
             .into_ref_with_type(vm, cls)
             .map(Into::into)
         }
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 

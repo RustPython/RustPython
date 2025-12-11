@@ -9,7 +9,7 @@ mod _overlapped {
 
     use crate::vm::{
         Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyBytesRef, PyTypeRef},
+        builtins::{PyBaseExceptionRef, PyBytesRef, PyType},
         common::lock::PyMutex,
         convert::{ToPyException, ToPyObject},
         protocol::PyBuffer,
@@ -264,7 +264,11 @@ mod _overlapped {
     impl Constructor for Overlapped {
         type Args = (isize,);
 
-        fn py_new(cls: PyTypeRef, (mut event,): Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(
+            _cls: &Py<PyType>,
+            (mut event,): Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult<Self> {
             if event == INVALID_HANDLE_VALUE {
                 event = unsafe {
                     windows_sys::Win32::System::Threading::CreateEventA(
@@ -289,10 +293,9 @@ mod _overlapped {
                 error: 0,
                 data: OverlappedData::None,
             };
-            let overlapped = Overlapped {
+            Ok(Overlapped {
                 inner: PyMutex::new(inner),
-            };
-            overlapped.into_ref_with_type(vm, cls).map(Into::into)
+            })
         }
     }
 

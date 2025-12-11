@@ -3,6 +3,7 @@ use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     common::lock::PyMutex,
+    function::FuncArgs,
     types::{Constructor, GetDescriptor, Initializer, Representable},
 };
 
@@ -69,7 +70,8 @@ impl GetDescriptor for PyClassMethod {
 impl Constructor for PyClassMethod {
     type Args = PyObjectRef;
 
-    fn py_new(cls: PyTypeRef, callable: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let callable: Self::Args = args.bind(vm)?;
         // Create a dictionary to hold copied attributes
         let dict = vm.ctx.new_dict();
 
@@ -98,6 +100,10 @@ impl Constructor for PyClassMethod {
 
         let result = PyRef::new_ref(classmethod, cls, Some(dict));
         Ok(PyObjectRef::from(result))
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 

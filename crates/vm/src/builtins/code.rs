@@ -1,6 +1,6 @@
 //! Infamous code object. The python class `code`
 
-use super::{PyBytesRef, PyStrRef, PyTupleRef, PyType, PyTypeRef};
+use super::{PyBytesRef, PyStrRef, PyTupleRef, PyType};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     builtins::PyStrInterned,
@@ -390,7 +390,7 @@ pub struct PyCodeNewArgs {
 impl Constructor for PyCode {
     type Args = PyCodeNewArgs;
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         // Convert names tuple to vector of interned strings
         let names: Box<[&'static PyStrInterned]> = args
             .names
@@ -508,9 +508,7 @@ impl Constructor for PyCode {
             exceptiontable: args.exceptiontable.as_bytes().to_vec().into_boxed_slice(),
         };
 
-        Ok(PyCode::new(code)
-            .into_ref_with_type(vm, cls)?
-            .to_pyobject(vm))
+        Ok(PyCode::new(code))
     }
 }
 

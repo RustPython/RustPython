@@ -15,7 +15,8 @@ use crate::{
     common::{hash::PyHash, lock::PyMutex},
     convert::{ToPyObject, ToPyResult},
     function::{
-        ArgBytesLike, ArgIndex, ArgIterable, Either, OptionalArg, OptionalOption, PyComparisonValue,
+        ArgBytesLike, ArgIndex, ArgIterable, Either, FuncArgs, OptionalArg, OptionalOption,
+        PyComparisonValue,
     },
     protocol::{
         BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods, PyNumberMethods,
@@ -93,8 +94,13 @@ pub(crate) fn init(context: &Context) {
 impl Constructor for PyBytes {
     type Args = ByteInnerNewOptions;
 
-    fn py_new(cls: PyTypeRef, options: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let options: Self::Args = args.bind(vm)?;
         options.get_bytes(cls, vm).to_pyresult(vm)
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 

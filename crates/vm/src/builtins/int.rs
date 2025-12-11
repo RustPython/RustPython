@@ -12,7 +12,7 @@ use crate::{
     },
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
-        ArgByteOrder, ArgIntoBool, OptionalArg, OptionalOption, PyArithmeticValue,
+        ArgByteOrder, ArgIntoBool, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue,
         PyComparisonValue,
     },
     protocol::{PyNumberMethods, handle_bytes_to_int_err},
@@ -205,13 +205,23 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
 }
 
 impl Constructor for PyInt {
-    type Args = IntOptions;
+    type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, options: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if cls.is(vm.ctx.types.bool_type) {
             return Err(vm.new_type_error("int.__new__(bool) is not safe, use bool.__new__()"));
         }
 
+        // Optimization: return exact int as-is (only for exact int type, not subclasses)
+        if cls.is(vm.ctx.types.int_type)
+            && args.args.len() == 1
+            && args.kwargs.is_empty()
+            && args.args[0].class().is(vm.ctx.types.int_type)
+        {
+            return Ok(args.args[0].clone());
+        }
+
+        let options: IntOptions = args.bind(vm)?;
         let value = if let OptionalArg::Present(val) = options.val_options {
             if let OptionalArg::Present(base) = options.base {
                 let base = base
@@ -222,17 +232,6 @@ impl Constructor for PyInt {
                     .ok_or_else(|| vm.new_value_error("int() base must be >= 2 and <= 36, or 0"))?;
                 try_int_radix(&val, base, vm)
             } else {
-                let val = if cls.is(vm.ctx.types.int_type) {
-                    match val.downcast_exact::<Self>(vm) {
-                        Ok(i) => {
-                            return Ok(i.into_pyref().into());
-                        }
-                        Err(val) => val,
-                    }
-                } else {
-                    val
-                };
-
                 val.try_int(vm).map(|x| x.as_bigint().clone())
             }
         } else if let OptionalArg::Present(_) = options.base {
@@ -241,7 +240,11 @@ impl Constructor for PyInt {
             Ok(Zero::zero())
         }?;
 
-        Self::with_value(cls, value, vm).to_pyresult(vm)
+        Self::with_value(cls, value, vm).map(Into::into)
+    }
+
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unreachable!("use slot_new")
     }
 }
 

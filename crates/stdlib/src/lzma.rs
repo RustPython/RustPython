@@ -33,11 +33,11 @@ mod _lzma {
         LZMA_PRESET_LEVEL_MASK as PRESET_LEVEL_MASK,
     };
     use rustpython_common::lock::PyMutex;
-    use rustpython_vm::builtins::{PyBaseExceptionRef, PyBytesRef, PyTypeRef};
+    use rustpython_vm::builtins::{PyBaseExceptionRef, PyBytesRef, PyType, PyTypeRef};
     use rustpython_vm::convert::ToPyException;
     use rustpython_vm::function::ArgBytesLike;
     use rustpython_vm::types::Constructor;
-    use rustpython_vm::{PyObjectRef, PyPayload, PyResult, VirtualMachine};
+    use rustpython_vm::{Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
     use std::fmt;
     use xz2::stream::{Action, Check, Error, Filters, LzmaOptions, Status, Stream};
 
@@ -148,7 +148,7 @@ mod _lzma {
     impl Constructor for LZMADecompressor {
         type Args = LZMADecompressorConstructorArgs;
 
-        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             if args.format == FORMAT_RAW && args.mem_limit.is_some() {
                 return Err(vm.new_value_error("Cannot specify memory limit with FORMAT_RAW"));
             }
@@ -161,15 +161,13 @@ mod _lzma {
                 // TODO: FORMAT_RAW
                 _ => return Err(new_lzma_error("Invalid format", vm)),
             };
-            Self {
+            Ok(Self {
                 state: PyMutex::new(DecompressState::new(
                     stream_result
                         .map_err(|_| new_lzma_error("Failed to initialize decoder", vm))?,
                     vm,
                 )),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            })
         }
     }
 
@@ -366,7 +364,7 @@ mod _lzma {
     impl Constructor for LZMACompressor {
         type Args = LZMACompressorConstructorArgs;
 
-        fn py_new(_cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             let preset = args.preset.unwrap_or(PRESET_DEFAULT);
             #[allow(clippy::unnecessary_cast)]
             if args.format != FORMAT_XZ as i32
@@ -392,8 +390,7 @@ mod _lzma {
             };
             Ok(Self {
                 state: PyMutex::new(CompressState::new(CompressorInner::new(stream))),
-            }
-            .into_pyobject(vm))
+            })
         }
     }
 
