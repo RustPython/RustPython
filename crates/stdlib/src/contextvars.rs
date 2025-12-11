@@ -508,7 +508,7 @@ mod _contextvars {
         }
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-            unreachable!("use slot_new")
+            unimplemented!("use slot_new")
         }
     }
 
@@ -585,7 +585,7 @@ mod _contextvars {
             Err(vm.new_runtime_error("Tokens can only be created by ContextVars"))
         }
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-            unreachable!("use slot_new")
+            unimplemented!("use slot_new")
         }
     }
 

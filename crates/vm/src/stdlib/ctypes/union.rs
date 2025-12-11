@@ -48,7 +48,7 @@ impl Constructor for PyCUnionType {
     }
 
     fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-        unreachable!("use slot_new")
+        unimplemented!("use slot_new")
     }
 }
 
@@ -191,7 +191,7 @@ impl Constructor for PyCUnion {
     }
 
     fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-        unreachable!("use slot_new")
+        unimplemented!("use slot_new")
     }
 }
 

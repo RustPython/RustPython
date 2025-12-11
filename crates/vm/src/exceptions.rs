@@ -717,7 +717,7 @@ impl Constructor for PyBaseException {
     }
 
     fn py_new(_cls: &Py<PyType>, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<Self> {
-        unreachable!("use slot_new")
+        unimplemented!("use slot_new")
     }
 }
 
