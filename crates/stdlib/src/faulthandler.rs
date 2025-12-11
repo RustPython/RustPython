@@ -12,7 +12,6 @@ mod decl {
     use std::time::Duration;
 
     static ENABLED: AtomicBool = AtomicBool::new(false);
-    #[allow(dead_code)]
     static FATAL_ERROR_FD: AtomicI32 = AtomicI32::new(2); // stderr by default
 
     // Watchdog thread state for dump_traceback_later
@@ -28,15 +27,56 @@ mod decl {
     type WatchdogHandle = Arc<(Mutex<WatchdogState>, Condvar)>;
     static WATCHDOG: Mutex<Option<WatchdogHandle>> = Mutex::new(None);
 
-    // Fatal signal numbers that should use enable() instead
+    // Number of fatal signals we handle
     #[cfg(unix)]
-    const FATAL_SIGNALS: &[i32] = &[
-        libc::SIGBUS,
-        libc::SIGILL,
-        libc::SIGFPE,
-        libc::SIGABRT,
-        libc::SIGSEGV,
+    const NUM_FATAL_SIGNALS: usize = 5;
+    #[cfg(windows)]
+    const NUM_FATAL_SIGNALS: usize = 3;
+
+    // Fatal signals to handle (with names for error messages)
+    #[cfg(unix)]
+    const FATAL_SIGNALS: [(libc::c_int, &str); NUM_FATAL_SIGNALS] = [
+        (libc::SIGBUS, "Bus error"),
+        (libc::SIGILL, "Illegal instruction"),
+        (libc::SIGFPE, "Floating-point exception"),
+        (libc::SIGABRT, "Aborted"),
+        (libc::SIGSEGV, "Segmentation fault"),
     ];
+
+    #[cfg(windows)]
+    const FATAL_SIGNALS: [(libc::c_int, &str); NUM_FATAL_SIGNALS] = [
+        (libc::SIGFPE, "Floating-point exception"),
+        (libc::SIGABRT, "Aborted"),
+        (libc::SIGSEGV, "Segmentation fault"),
+    ];
+
+    // Storage for previous signal handlers (Unix)
+    #[cfg(unix)]
+    static mut PREVIOUS_HANDLERS: [libc::sigaction; NUM_FATAL_SIGNALS] =
+        unsafe { std::mem::zeroed() };
+
+    /// Signal-safe write function - no memory allocation
+    #[cfg(all(not(target_arch = "wasm32"), not(windows)))]
+    fn write_str_noraise(fd: i32, s: &str) {
+        unsafe {
+            libc::write(
+                fd as libc::c_int,
+                s.as_ptr() as *const libc::c_void,
+                s.len(),
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    fn write_str_noraise(fd: i32, s: &str) {
+        unsafe {
+            libc::write(
+                fd as libc::c_int,
+                s.as_ptr() as *const libc::c_void,
+                s.len() as u32,
+            );
+        }
+    }
 
     const MAX_FUNCTION_NAME_LEN: usize = 500;
 
@@ -122,7 +162,7 @@ mod decl {
         ENABLED.store(true, Ordering::Relaxed);
 
         // Install signal handlers for fatal errors
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(any(unix, windows))]
         {
             install_fatal_handlers(vm);
         }
@@ -130,11 +170,108 @@ mod decl {
         Ok(())
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    /// Unix signal handler for fatal errors
+    #[cfg(unix)]
+    extern "C" fn faulthandler_fatal_error(signum: libc::c_int) {
+        // Reentrant protection
+        static REENTRANT: AtomicBool = AtomicBool::new(false);
+        if REENTRANT.swap(true, Ordering::SeqCst) {
+            return;
+        }
+
+        let fd = FATAL_ERROR_FD.load(Ordering::Relaxed);
+
+        // Find and print signal name
+        let signal_name = FATAL_SIGNALS
+            .iter()
+            .find(|(sig, _)| *sig == signum)
+            .map(|(_, name)| *name)
+            .unwrap_or("Unknown signal");
+
+        write_str_noraise(fd, "\nFatal Python error: ");
+        write_str_noraise(fd, signal_name);
+        write_str_noraise(fd, "\n\n");
+
+        // Restore previous handler
+        if let Some(idx) = FATAL_SIGNALS.iter().position(|(sig, _)| *sig == signum) {
+            unsafe {
+                libc::sigaction(signum, &PREVIOUS_HANDLERS[idx], std::ptr::null_mut());
+            }
+        }
+
+        REENTRANT.store(false, Ordering::SeqCst);
+
+        // Re-raise signal to trigger default behavior (core dump, etc.)
+        unsafe {
+            libc::raise(signum);
+        }
+    }
+
+    #[cfg(unix)]
     fn install_fatal_handlers(_vm: &VirtualMachine) {
-        // TODO: Install actual signal handlers for SIGSEGV, SIGFPE, etc.
-        // This requires careful handling because signal handlers have limited capabilities.
-        // For now, this is a placeholder that marks the module as enabled.
+        for (idx, (signum, _)) in FATAL_SIGNALS.iter().enumerate() {
+            let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+            action.sa_sigaction = faulthandler_fatal_error as usize;
+            action.sa_flags = libc::SA_NODEFER;
+
+            unsafe {
+                libc::sigaction(*signum, &action, &mut PREVIOUS_HANDLERS[idx]);
+            }
+        }
+    }
+
+    /// Windows signal handler for fatal errors (simpler than VEH)
+    #[cfg(windows)]
+    extern "C" fn faulthandler_fatal_error_windows(signum: libc::c_int) {
+        // Reentrant protection
+        static REENTRANT: AtomicBool = AtomicBool::new(false);
+        if REENTRANT.swap(true, Ordering::SeqCst) {
+            return;
+        }
+
+        let fd = FATAL_ERROR_FD.load(Ordering::Relaxed);
+
+        // Find and print signal name
+        let signal_name = FATAL_SIGNALS
+            .iter()
+            .find(|(sig, _)| *sig == signum)
+            .map(|(_, name)| *name)
+            .unwrap_or("Unknown signal");
+
+        write_str_noraise(fd, "\nFatal Python error: ");
+        write_str_noraise(fd, signal_name);
+        write_str_noraise(fd, "\n\n");
+
+        REENTRANT.store(false, Ordering::SeqCst);
+
+        // For SIGSEGV on Windows, need to loop raise
+        if signum == libc::SIGSEGV {
+            loop {
+                unsafe {
+                    libc::raise(signum);
+                }
+            }
+        } else {
+            unsafe {
+                libc::raise(signum);
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    static mut PREVIOUS_HANDLERS_WIN: [libc::sighandler_t; NUM_FATAL_SIGNALS] =
+        [0; NUM_FATAL_SIGNALS];
+
+    #[cfg(windows)]
+    fn install_fatal_handlers(_vm: &VirtualMachine) {
+        for (idx, (signum, _)) in FATAL_SIGNALS.iter().enumerate() {
+            unsafe {
+                PREVIOUS_HANDLERS_WIN[idx] = libc::signal(
+                    *signum,
+                    faulthandler_fatal_error_windows as libc::sighandler_t,
+                );
+            }
+        }
     }
 
     #[pyfunction]
@@ -142,7 +279,7 @@ mod decl {
         let was_enabled = ENABLED.swap(false, Ordering::Relaxed);
 
         // Restore default signal handlers
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(any(unix, windows))]
         {
             uninstall_fatal_handlers();
         }
@@ -150,9 +287,22 @@ mod decl {
         was_enabled
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(unix)]
     fn uninstall_fatal_handlers() {
-        // TODO: Restore original signal handlers
+        for (idx, (signum, _)) in FATAL_SIGNALS.iter().enumerate() {
+            unsafe {
+                libc::sigaction(*signum, &PREVIOUS_HANDLERS[idx], std::ptr::null_mut());
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    fn uninstall_fatal_handlers() {
+        for (idx, (signum, _)) in FATAL_SIGNALS.iter().enumerate() {
+            unsafe {
+                libc::signal(*signum, PREVIOUS_HANDLERS_WIN[idx]);
+            }
+        }
     }
 
     #[pyfunction]
@@ -251,6 +401,15 @@ mod decl {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 let header_bytes = header.as_bytes();
+                #[cfg(windows)]
+                unsafe {
+                    libc::write(
+                        fd,
+                        header_bytes.as_ptr() as *const libc::c_void,
+                        header_bytes.len() as u32,
+                    );
+                }
+                #[cfg(not(windows))]
                 unsafe {
                     libc::write(
                         fd,
@@ -263,6 +422,11 @@ mod decl {
                 // because we don't have access to the VM's frame stack.
                 // Just output a message indicating timeout occurred.
                 let msg = b"<timeout: cannot dump traceback from watchdog thread>\n";
+                #[cfg(windows)]
+                unsafe {
+                    libc::write(fd, msg.as_ptr() as *const libc::c_void, msg.len() as u32);
+                }
+                #[cfg(not(windows))]
                 unsafe {
                     libc::write(fd, msg.as_ptr() as *const libc::c_void, msg.len());
                 }
@@ -473,7 +637,7 @@ mod decl {
     #[cfg(unix)]
     fn check_signum(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
         // Check if it's a fatal signal
-        if FATAL_SIGNALS.contains(&signum) {
+        if FATAL_SIGNALS.iter().any(|(sig, _)| *sig == signum) {
             return Err(vm.new_runtime_error(format!(
                 "signal {} cannot be registered, use enable() instead",
                 signum
