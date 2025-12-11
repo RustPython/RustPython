@@ -6,6 +6,8 @@ mod decl {
         PyObjectRef, PyResult, VirtualMachine, builtins::PyFloat, frame::Frame,
         function::OptionalArg, py_io::Write,
     };
+    #[cfg(any(unix, windows))]
+    use rustpython_common::os::{get_errno, set_errno};
     use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
     use std::sync::{Arc, Condvar, Mutex};
     use std::thread;
@@ -74,6 +76,55 @@ mod decl {
                 fd as libc::c_int,
                 s.as_ptr() as *const libc::c_void,
                 s.len() as u32,
+            );
+        }
+    }
+
+    /// Signal-safe integer to string conversion and write (no heap allocation)
+    #[cfg(any(unix, windows))]
+    fn write_int_noraise(fd: i32, mut n: i32) {
+        // Buffer for i32: max 11 chars (-2147483648) + null
+        let mut buf = [0u8; 12];
+        let mut i = buf.len();
+        let negative = n < 0;
+
+        if n == 0 {
+            write_str_noraise(fd, "0");
+            return;
+        }
+
+        // Handle negative numbers
+        if negative {
+            n = -n;
+        }
+
+        // Convert digits in reverse order
+        while n > 0 {
+            i -= 1;
+            buf[i] = b'0' + (n % 10) as u8;
+            n /= 10;
+        }
+
+        if negative {
+            i -= 1;
+            buf[i] = b'-';
+        }
+
+        // Write the number
+        #[cfg(not(windows))]
+        unsafe {
+            libc::write(
+                fd as libc::c_int,
+                buf[i..].as_ptr() as *const libc::c_void,
+                buf.len() - i,
+            );
+        }
+        #[cfg(windows)]
+        unsafe {
+            libc::write(
+                fd as libc::c_int,
+                buf[i..].as_ptr() as *const libc::c_void,
+                (buf.len() - i) as u32,
             );
         }
     }
@@ -178,6 +229,9 @@ mod decl {
     // faulthandler_fatal_error() in Modules/faulthandler.c
     #[cfg(unix)]
     extern "C" fn faulthandler_fatal_error(signum: libc::c_int) {
+        // Save errno (will be restored before returning)
+        let save_errno = get_errno();
+
         if !ENABLED.load(Ordering::Relaxed) {
             return;
         }
@@ -185,21 +239,29 @@ mod decl {
         let fd = FATAL_ERROR_FD.load(Ordering::Relaxed);
 
         // Find handler and restore previous handler BEFORE printing
-        let signal_name =
-            if let Some(idx) = FATAL_SIGNALS.iter().position(|(sig, _)| *sig == signum) {
-                // Restore previous handler first
-                unsafe {
-                    libc::sigaction(signum, &PREVIOUS_HANDLERS[idx], std::ptr::null_mut());
-                }
-                FATAL_SIGNALS[idx].1
-            } else {
-                "Unknown signal"
-            };
+        let found = if let Some(idx) = FATAL_SIGNALS.iter().position(|(sig, _)| *sig == signum) {
+            // Restore previous handler first
+            unsafe {
+                libc::sigaction(signum, &PREVIOUS_HANDLERS[idx], std::ptr::null_mut());
+            }
+            Some(FATAL_SIGNALS[idx].1)
+        } else {
+            None
+        };
 
         // Print error message
-        write_str_noraise(fd, "Fatal Python error: ");
-        write_str_noraise(fd, signal_name);
-        write_str_noraise(fd, "\n\n");
+        if let Some(name) = found {
+            write_str_noraise(fd, "Fatal Python error: ");
+            write_str_noraise(fd, name);
+            write_str_noraise(fd, "\n\n");
+        } else {
+            write_str_noraise(fd, "Fatal Python error from unexpected signum: ");
+            write_int_noraise(fd, signum);
+            write_str_noraise(fd, "\n\n");
+        }
+
+        // Restore errno
+        set_errno(save_errno);
 
         // Re-raise signal to trigger default behavior (core dump, etc.)
         // Called immediately thanks to SA_NODEFER flag
@@ -225,6 +287,9 @@ mod decl {
     // faulthandler_fatal_error() in Modules/faulthandler.c
     #[cfg(windows)]
     extern "C" fn faulthandler_fatal_error_windows(signum: libc::c_int) {
+        // Save errno at the start of signal handler
+        let save_errno = get_errno();
+
         if !ENABLED.load(Ordering::Relaxed) {
             return;
         }
@@ -232,21 +297,29 @@ mod decl {
         let fd = FATAL_ERROR_FD.load(Ordering::Relaxed);
 
         // Find handler and restore previous handler BEFORE printing
-        let signal_name =
-            if let Some(idx) = FATAL_SIGNALS.iter().position(|(sig, _)| *sig == signum) {
-                // Restore previous handler first
-                unsafe {
-                    libc::signal(signum, PREVIOUS_HANDLERS_WIN[idx]);
-                }
-                FATAL_SIGNALS[idx].1
-            } else {
-                "Unknown signal"
-            };
+        let found = if let Some(idx) = FATAL_SIGNALS.iter().position(|(sig, _)| *sig == signum) {
+            // Restore previous handler first
+            unsafe {
+                libc::signal(signum, PREVIOUS_HANDLERS_WIN[idx]);
+            }
+            Some(FATAL_SIGNALS[idx].1)
+        } else {
+            None
+        };
 
         // Print error message
-        write_str_noraise(fd, "Fatal Python error: ");
-        write_str_noraise(fd, signal_name);
-        write_str_noraise(fd, "\n\n");
+        if let Some(name) = found {
+            write_str_noraise(fd, "Fatal Python error: ");
+            write_str_noraise(fd, name);
+            write_str_noraise(fd, "\n\n");
+        } else {
+            write_str_noraise(fd, "Fatal Python error from unexpected signum: ");
+            write_int_noraise(fd, signum);
+            write_str_noraise(fd, "\n\n");
+        }
+
+        // Restore errno
+        set_errno(save_errno);
 
         // On Windows, don't explicitly call the previous handler for SIGSEGV
         // The execution continues and the same instruction raises the same fault,
