@@ -224,8 +224,6 @@ class WindowsSignalTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             signal.signal(7, handler)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(sys.executable, "sys.executable required.")
     @support.requires_subprocess()
     def test_keyboard_interrupt_exit_code(self):

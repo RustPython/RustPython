@@ -1,7 +1,25 @@
 // spell-checker:disable
 // TODO: we can move more os-specific bindings/interfaces from stdlib::{os, posix, nt} to here
 
-use std::{io, str::Utf8Error};
+use std::{io, process::ExitCode, str::Utf8Error};
+
+/// Convert exit code to std::process::ExitCode
+///
+/// On Windows, this supports the full u32 range including STATUS_CONTROL_C_EXIT (0xC000013A).
+/// On other platforms, only the lower 8 bits are used.
+pub fn exit_code(code: u32) -> ExitCode {
+    #[cfg(windows)]
+    {
+        // For large exit codes like STATUS_CONTROL_C_EXIT (0xC000013A),
+        // we need to call std::process::exit() directly since ExitCode::from(u8)
+        // would truncate the value, and ExitCode::from_raw() is still unstable.
+        // FIXME: side effect in exit_code is not ideal.
+        if code > u8::MAX as u32 {
+            std::process::exit(code as i32)
+        }
+    }
+    ExitCode::from(code as u8)
+}
 
 pub trait ErrorExt {
     fn posix_errno(&self) -> i32;

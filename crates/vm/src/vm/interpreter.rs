@@ -96,7 +96,7 @@ impl Interpreter {
     ///
     /// See [`Interpreter::finalize`] for the finalization steps.
     /// See also [`Interpreter::enter`] for pure function call to obtain Python exception.
-    pub fn run<F>(self, f: F) -> u8
+    pub fn run<F>(self, f: F) -> u32
     where
         F: FnOnce(&VirtualMachine) -> PyResult<()>,
     {
@@ -113,7 +113,7 @@ impl Interpreter {
     /// 1. Mark vm as finalized.
     ///
     /// Note that calling `finalize` is not necessary by purpose though.
-    pub fn finalize(self, exc: Option<PyBaseExceptionRef>) -> u8 {
+    pub fn finalize(self, exc: Option<PyBaseExceptionRef>) -> u32 {
         self.enter(|vm| {
             vm.flush_std();
 

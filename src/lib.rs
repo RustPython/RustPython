@@ -111,7 +111,7 @@ pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
     let interp = config.interpreter();
     let exitcode = interp.run(move |vm| run_rustpython(vm, run_mode));
 
-    ExitCode::from(exitcode)
+    rustpython_vm::common::os::exit_code(exitcode)
 }
 
 fn setup_main_module(vm: &VirtualMachine) -> PyResult<Scope> {
