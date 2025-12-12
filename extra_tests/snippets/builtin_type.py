@@ -1,6 +1,6 @@
 import types
-from testutils import assert_raises
 
+from testutils import assert_raises
 
 # Spec: https://docs.python.org/2/library/types.html
 print(None)
@@ -110,8 +110,6 @@ with assert_raises(TypeError):
     C.__qualname__ = 123
 with assert_raises(TypeError):
     del int.__qualname__
-
-from testutils import assert_raises
 
 import platform
 
@@ -607,3 +605,24 @@ class A(type):
 
 
 assert "__dict__" not in A.__dict__
+
+
+# regression tests for: https://github.com/RustPython/RustPython/issues/4505
+
+
+def foo():
+    def inner():
+        pass
+
+
+assert foo.__code__.co_names == ()
+
+stmts = """
+import blah
+
+def foo():
+    pass
+"""
+
+code = compile(stmts, "<test>", "exec")
+assert code.co_names == ("blah", "foo")
