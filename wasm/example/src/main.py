@@ -1,4 +1,4 @@
-from browser import fetch, alert
+from browser import alert, fetch
 
 
 def fetch_handler(repos):

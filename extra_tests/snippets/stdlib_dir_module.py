@@ -1,6 +1,5 @@
-from testutils import assert_equal
-
 import dir_module
+from testutils import assert_equal
 
 assert dir_module.value == 5
 assert dir_module.value2 == 7

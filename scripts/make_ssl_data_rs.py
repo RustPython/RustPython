@@ -19,7 +19,6 @@ import os
 import re
 import sys
 
-
 parser = argparse.ArgumentParser(
     description="Generate ssl_data.rs from OpenSSL sources"
 )

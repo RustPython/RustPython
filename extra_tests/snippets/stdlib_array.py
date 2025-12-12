@@ -1,6 +1,7 @@
-from testutils import assert_raises
 from array import array
 from pickle import dumps, loads
+
+from testutils import assert_raises
 
 a1 = array("b", [0, 1, 2, 3])
 

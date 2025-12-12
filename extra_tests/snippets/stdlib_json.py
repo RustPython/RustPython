@@ -1,6 +1,7 @@
-from testutils import assert_raises
 import json
-from io import StringIO, BytesIO
+from io import BytesIO, StringIO
+
+from testutils import assert_raises
 
 
 def round_trip_test(obj):
