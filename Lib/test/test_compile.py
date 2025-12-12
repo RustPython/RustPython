@@ -1070,8 +1070,6 @@ if 1:
             elif instr.opname in HANDLED_JUMPS:
                 self.assertNotEqual(instr.arg, (line + 1)*INSTR_SIZE)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_wraparound_jump(self):
         # See https://bugs.python.org/issue46724
 
