@@ -228,7 +228,7 @@ pub(crate) mod _signal {
     }
 
     #[pyfunction]
-    fn set_wakeup_fd(args: SetWakeupFdArgs, vm: &VirtualMachine) -> PyResult<WakeupFdRaw> {
+    fn set_wakeup_fd(args: SetWakeupFdArgs, vm: &VirtualMachine) -> PyResult<i64> {
         // TODO: implement warn_on_full_buffer
         let _ = args.warn_on_full_buffer;
         #[cfg(windows)]
@@ -264,6 +264,15 @@ pub(crate) mod _signal {
                 if err.raw_os_error() != Some(WinSock::WSAENOTSOCK) {
                     return Err(err.into_pyexception(vm));
                 }
+                // Validate that fd is a valid file descriptor using fstat
+                // First check if SOCKET can be safely cast to i32 (file descriptor)
+                let fd_i32 =
+                    i32::try_from(fd).map_err(|_| vm.new_value_error("invalid fd".to_owned()))?;
+                // Verify the fd is valid by trying to fstat it
+                let borrowed_fd =
+                    unsafe { crate::common::crt_fd::Borrowed::try_borrow_raw(fd_i32) }
+                        .map_err(|e| e.into_pyexception(vm))?;
+                crate::common::fileutils::fstat(borrowed_fd).map_err(|e| e.into_pyexception(vm))?;
             }
             is_socket
         } else {
@@ -287,7 +296,18 @@ pub(crate) mod _signal {
         #[cfg(windows)]
         WAKEUP_IS_SOCKET.store(is_socket, Ordering::Relaxed);
 
-        Ok(old_fd)
+        #[cfg(windows)]
+        {
+            if old_fd == INVALID_WAKEUP {
+                Ok(-1)
+            } else {
+                Ok(old_fd as i64)
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            Ok(old_fd as i64)
+        }
     }
 
     #[cfg(all(unix, not(target_os = "redox")))]
@@ -306,13 +326,12 @@ pub(crate) mod _signal {
     #[cfg(any(unix, windows))]
     #[pyfunction]
     fn raise_signal(signalnum: i32, vm: &VirtualMachine) -> PyResult<()> {
-        use crate::convert::IntoPyException;
-
         signal::assert_in_range(signalnum, vm)?;
 
         // On Windows, only certain signals are supported
         #[cfg(windows)]
         {
+            use crate::convert::IntoPyException;
             // Windows supports: SIGINT(2), SIGILL(4), SIGFPE(8), SIGSEGV(11), SIGTERM(15), SIGABRT(22)
             const VALID_SIGNALS: &[i32] = &[
                 libc::SIGINT,
