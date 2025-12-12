@@ -10,7 +10,7 @@ import builtins
 
 assert builtins.__name__ == "builtins"
 
-__builtins__.x = "new"
+__builtins__.x = 'new'
 assert x == "new"  # noqa: F821
 
 exec('assert "__builtins__" in globals()', dict())
