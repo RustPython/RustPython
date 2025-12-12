@@ -109,10 +109,16 @@ impl VirtualMachine {
     pub fn new_os_subtype_error(
         &self,
         exc_type: PyTypeRef,
-        args: Vec<PyObjectRef>,
+        errno: Option<i32>,
+        msg: impl ToPyObject,
     ) -> PyRef<PyOSError> {
         debug_assert_eq!(exc_type.slots.basicsize, std::mem::size_of::<PyOSError>());
 
+        let errno_obj: PyObjectRef = match errno {
+            Some(e) => self.new_pyobj(e),
+            None => self.ctx.none(),
+        };
+        let args = vec![errno_obj, msg.to_pyobject(self)];
         let payload =
             PyOSError::py_new(&exc_type, args.into(), self).expect("new_os_error usage error");
         payload
@@ -236,16 +242,11 @@ impl VirtualMachine {
         err.to_pyexception(self)
     }
 
-    pub fn new_errno_error(&self, errno: i32, msg: impl Into<String>) -> PyRef<PyOSError> {
-        let vm = self;
-        let exc_type =
-            crate::exceptions::errno_to_exc_type(errno, vm).unwrap_or(vm.ctx.exceptions.os_error);
+    pub fn new_errno_error(&self, errno: i32, msg: impl ToPyObject) -> PyRef<PyOSError> {
+        let exc_type = crate::exceptions::errno_to_exc_type(errno, self)
+            .unwrap_or(self.ctx.exceptions.os_error);
 
-        let errno_obj = vm.new_pyobj(errno);
-        vm.new_os_subtype_error(
-            exc_type.to_owned(),
-            vec![errno_obj, vm.new_pyobj(msg.into())],
-        )
+        self.new_os_subtype_error(exc_type.to_owned(), Some(errno), msg)
     }
 
     pub fn new_unicode_decode_error_real(

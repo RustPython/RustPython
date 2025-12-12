@@ -190,7 +190,7 @@ pub trait PySubclass: crate::PyPayload {
 /// Marker trait for `#[repr(transparent)]` subclasses.
 ///
 /// This trait enables ownership transfer from `PyRef<Self>` to `PyRef<Self::Base>`
-/// via the `into_base_ref()` method. Only types with identical memory layout to their
+/// via the `upcast()` method. Only types with identical memory layout to their
 /// base type (i.e., `#[repr(transparent)]` newtypes) should implement this trait.
 ///
 /// # Safety

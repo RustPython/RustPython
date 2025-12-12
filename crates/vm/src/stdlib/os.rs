@@ -533,7 +533,8 @@ pub(super) mod _os {
                 ),
             );
 
-            return Err(unsafe { std::mem::transmute(x) });
+            let x: PyObjectRef = x.into();
+            return Err(x.downcast().unwrap());
         }
         let key = super::bytes_as_os_str(key, vm)?;
         // SAFETY: requirements forwarded from the caller

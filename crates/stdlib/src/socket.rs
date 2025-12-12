@@ -15,7 +15,7 @@ mod _socket {
     use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
+        builtins::{PyBaseExceptionRef, PyListRef, PyOSError, PyStrRef, PyTupleRef, PyTypeRef},
         common::os::ErrorExt,
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{ArgBytesLike, ArgMemoryBuffer, Either, FsPath, OptionalArg, OptionalOption},
@@ -1826,6 +1826,11 @@ mod _socket {
             Self::Py(exc)
         }
     }
+    impl From<PyRef<PyOSError>> for IoOrPyException {
+        fn from(exc: PyRef<PyOSError>) -> Self {
+            Self::Py(exc.upcast())
+        }
+    }
     impl From<io::Error> for IoOrPyException {
         fn from(err: io::Error) -> Self {
             Self::Io(err)
@@ -1844,7 +1849,7 @@ mod _socket {
         #[inline]
         fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
             match self {
-                Self::Timeout => timeout_error(vm),
+                Self::Timeout => timeout_error(vm).upcast(),
                 Self::Py(exc) => exc,
                 Self::Io(err) => err.into_pyexception(vm),
             }
@@ -2412,18 +2417,15 @@ mod _socket {
             SocketError::GaiError => gaierror(vm),
             SocketError::HError => herror(vm),
         };
-        vm.new_exception(
-            exception_cls,
-            vec![vm.new_pyobj(err.error_num()), vm.ctx.new_str(strerr).into()],
-        )
-        .into()
+        vm.new_os_subtype_error(exception_cls, Some(err.error_num()), strerr)
+            .into()
     }
 
-    fn timeout_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
+    fn timeout_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
         timeout_error_msg(vm, "timed out".to_owned())
     }
-    pub(crate) fn timeout_error_msg(vm: &VirtualMachine, msg: String) -> PyBaseExceptionRef {
-        vm.new_exception_msg(timeout(vm), msg)
+    pub(crate) fn timeout_error_msg(vm: &VirtualMachine, msg: String) -> PyRef<PyOSError> {
+        vm.new_os_subtype_error(timeout(vm), None, msg)
     }
 
     fn get_ipv6_addr_str(ipv6: Ipv6Addr) -> String {
