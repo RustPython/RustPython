@@ -5,7 +5,7 @@ mod _csv {
     use crate::common::lock::PyMutex;
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyInt, PyNone, PyStr, PyType, PyTypeError, PyTypeRef},
+        builtins::{PyBaseExceptionRef, PyInt, PyNone, PyStr, PyType, PyTypeRef},
         function::{ArgIterable, ArgumentError, FromArgs, FuncArgs, OptionalArg},
         protocol::{PyIter, PyIterReturn},
         raise_if_stop,
@@ -442,8 +442,8 @@ mod _csv {
         }
     }
     impl TryFrom<isize> for QuoteStyle {
-        type Error = PyTypeError;
-        fn try_from(num: isize) -> Result<Self, PyTypeError> {
+        type Error = ();
+        fn try_from(num: isize) -> Result<Self, Self::Error> {
             match num {
                 0 => Ok(Self::Minimal),
                 1 => Ok(Self::All),
@@ -451,7 +451,7 @@ mod _csv {
                 3 => Ok(Self::None),
                 4 => Ok(Self::Strings),
                 5 => Ok(Self::Notnull),
-                _ => Err(PyTypeError {}),
+                _ => Err(()),
             }
         }
     }
