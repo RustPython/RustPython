@@ -857,7 +857,6 @@ class ProcessTestCase(BaseTestCase):
             self.assertEqual(p.returncode, 0)
             self.assertEqual(stdout.strip(), b"fruit=orange")
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON, null byte is not checked")
     def test_invalid_cmd(self):
         # null character in the command name
         cmd = sys.executable + '\0'
