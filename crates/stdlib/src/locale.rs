@@ -198,6 +198,34 @@ mod _locale {
         locale: OptionalArg<Option<PyStrRef>>,
     }
 
+    /// Maximum code page encoding name length on Windows
+    #[cfg(windows)]
+    const MAX_CP_LEN: usize = 15;
+
+    /// Check if the encoding part of a locale string is too long (Windows only)
+    #[cfg(windows)]
+    fn check_locale_name(locale: &str) -> bool {
+        if let Some(dot_pos) = locale.find('.') {
+            let encoding_part = &locale[dot_pos + 1..];
+            // Find the end of encoding (could be followed by '@' modifier)
+            let encoding_len = encoding_part.find('@').unwrap_or(encoding_part.len());
+            encoding_len <= MAX_CP_LEN
+        } else {
+            true
+        }
+    }
+
+    /// Check locale names for LC_ALL (handles semicolon-separated locales)
+    #[cfg(windows)]
+    fn check_locale_name_all(locale: &str) -> bool {
+        for part in locale.split(';') {
+            if !check_locale_name(part) {
+                return false;
+            }
+        }
+        true
+    }
+
     #[pyfunction]
     fn setlocale(args: LocaleArgs, vm: &VirtualMachine) -> PyResult {
         let error = error(vm);
@@ -208,6 +236,21 @@ mod _locale {
             let result = match args.locale.flatten() {
                 None => libc::setlocale(args.category, ptr::null()),
                 Some(locale) => {
+                    // On Windows, validate encoding name length
+                    #[cfg(windows)]
+                    {
+                        let valid = if args.category == LC_ALL {
+                            check_locale_name_all(locale.as_str())
+                        } else {
+                            check_locale_name(locale.as_str())
+                        };
+                        if !valid {
+                            return Err(vm.new_exception_msg(
+                                error,
+                                String::from("unsupported locale setting"),
+                            ));
+                        }
+                    }
                     let c_locale: CString =
                         CString::new(locale.as_str()).map_err(|e| e.to_pyexception(vm))?;
                     libc::setlocale(args.category, c_locale.as_ptr())

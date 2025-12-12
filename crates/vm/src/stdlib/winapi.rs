@@ -248,6 +248,18 @@ mod _winapi {
             Ok(ws.into_vec_with_nul())
         };
 
+        // Validate no embedded null bytes in command name and command line
+        if let Some(ref name) = args.name
+            && name.as_str().contains('\0')
+        {
+            return Err(crate::exceptions::cstring_error(vm));
+        }
+        if let Some(ref cmd) = args.command_line
+            && cmd.as_str().contains('\0')
+        {
+            return Err(crate::exceptions::cstring_error(vm));
+        }
+
         let app_name = args.name.map(wstr).transpose()?;
         let app_name = app_name.as_ref().map_or_else(null, |w| w.as_ptr());
 
