@@ -360,6 +360,14 @@ mod decl {
         use std::fmt::Write;
 
         let instant = t.naive_or_local(vm)?;
+
+        // On Windows/AIX/Solaris, %y format with year < 1900 is not supported
+        #[cfg(any(windows, target_os = "aix", target_os = "solaris"))]
+        if instant.year() < 1900 && format.as_str().contains("%y") {
+            let msg = "format %y requires year >= 1900 on Windows";
+            return Err(vm.new_value_error(msg.to_owned()));
+        }
+
         let mut formatted_time = String::new();
 
         /*
