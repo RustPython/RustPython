@@ -1475,22 +1475,25 @@ pub(super) mod types {
             })
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             // We need this method, because of how `CPython` copies `init`
             // from `BaseException` in `SimpleExtendsException` macro.
             // See: `BaseException_new`
             if *cls.name() == *vm.ctx.exceptions.os_error.name() {
-                if let Some(error) = Self::optional_new(args.args.to_vec(), vm) {
-                    return error.to_pyresult(vm);
+                let args_vec = args.args.to_vec();
+                let len = args_vec.len();
+                if (2..=5).contains(&len) {
+                    let errno = &args_vec[0];
+                    if let Some(error) = errno
+                        .downcast_ref::<PyInt>()
+                        .and_then(|errno| errno.try_to_primitive::<i32>(vm).ok())
+                        .and_then(|errno| super::errno_to_exc_type(errno, vm))
+                        .and_then(|typ| vm.invoke_exception(typ.to_owned(), args_vec).ok())
+                    {
+                        return error.to_pyresult(vm);
+                    }
                 }
             }
-            let payload = Self::py_new(&cls, args, vm)?;
-            payload.into_ref_with_type(vm, cls).map(Into::into)
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let payload = Self::py_new(&cls, args, vm)?;
             payload.into_ref_with_type(vm, cls).map(Into::into)
         }
@@ -1498,20 +1501,6 @@ pub(super) mod types {
 
     #[pyexception(with(Constructor))]
     impl PyOSError {
-        #[cfg(not(target_arch = "wasm32"))]
-        fn optional_new(args: Vec<PyObjectRef>, vm: &VirtualMachine) -> Option<PyBaseExceptionRef> {
-            let len = args.len();
-            if (2..=5).contains(&len) {
-                let errno = &args[0];
-                errno
-                    .downcast_ref::<PyInt>()
-                    .and_then(|errno| errno.try_to_primitive::<i32>(vm).ok())
-                    .and_then(|errno| super::errno_to_exc_type(errno, vm))
-                    .and_then(|typ| vm.invoke_exception(typ.to_owned(), args.to_vec()).ok())
-            } else {
-                None
-            }
-        }
         #[pyslot]
         #[pymethod(name = "__init__")]
         pub fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {

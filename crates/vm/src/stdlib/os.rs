@@ -525,13 +525,15 @@ pub(super) mod _os {
             return Err(vm.new_value_error("embedded null byte"));
         }
         if key.is_empty() || key.contains(&b'=') {
-            return Err(vm.new_errno_error(
+            let x = vm.new_errno_error(
                 22,
                 format!(
                     "Invalid argument: {}",
                     std::str::from_utf8(key).unwrap_or("<bytes encoding failure>")
                 ),
-            ));
+            );
+
+            return Err(unsafe { std::mem::transmute(x) });
         }
         let key = super::bytes_as_os_str(key, vm)?;
         // SAFETY: requirements forwarded from the caller

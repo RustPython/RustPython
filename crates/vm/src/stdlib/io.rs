@@ -69,7 +69,8 @@ impl ToPyException for std::io::Error {
                 .set_attr("winerror", vm.new_pyobj(winerror), vm)
                 .unwrap();
         }
-        exc
+        // FIXME:
+        unsafe { std::mem::transmute(exc) }
     }
 }
 

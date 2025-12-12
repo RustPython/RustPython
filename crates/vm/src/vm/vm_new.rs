@@ -1,15 +1,16 @@
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyRef,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef,
     builtins::{
-        PyBaseException, PyBaseExceptionRef, PyBytesRef, PyDictRef, PyModule, PyStrRef, PyType,
-        PyTypeRef,
+        PyBaseException, PyBaseExceptionRef, PyBytesRef, PyDictRef, PyModule, PyOSError, PyStrRef,
+        PyType, PyTypeRef,
         builtin_func::PyNativeFunction,
         descriptor::PyMethodDescriptor,
         tuple::{IntoPyTuple, PyTupleRef},
     },
     convert::{ToPyException, ToPyObject},
-    function::{IntoPyNativeFn, PyMethodFlags},
+    function::{FuncArgs, IntoPyNativeFn, KwArgs, PyMethodFlags},
     scope::Scope,
+    types::Constructor,
     vm::VirtualMachine,
 };
 use rustpython_compiler_core::SourceLocation;
@@ -92,16 +93,28 @@ impl VirtualMachine {
     /// [`vm.invoke_exception()`][Self::invoke_exception] or
     /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
     pub fn new_exception(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyBaseExceptionRef {
+        debug_assert_eq!(
+            exc_type.slots.basicsize,
+            std::mem::size_of::<PyBaseException>()
+        );
         // TODO: add repr of args into logging?
 
         PyRef::new_ref(
-            // TODO: this constructor might be invalid, because multiple
-            // exception (even builtin ones) are using custom constructors,
-            // see `OSError` as an example:
             PyBaseException::new(args, self),
             exc_type,
             Some(self.ctx.new_dict()),
         )
+    }
+
+    pub fn new_os_error(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyRef<PyOSError> {
+        debug_assert_eq!(exc_type.slots.basicsize, std::mem::size_of::<PyOSError>());
+
+        let func_args = FuncArgs::new(args, KwArgs::<PyObjectRef>::default());
+        let payload =
+            PyOSError::py_new(&exc_type, func_args, self).expect("new_os_error usage error");
+        payload
+            .into_ref_with_type(self, exc_type)
+            .expect("new_os_error type error")
     }
 
     /// Instantiate an exception with no arguments.
@@ -220,13 +233,13 @@ impl VirtualMachine {
         err.to_pyexception(self)
     }
 
-    pub fn new_errno_error(&self, errno: i32, msg: impl Into<String>) -> PyBaseExceptionRef {
+    pub fn new_errno_error(&self, errno: i32, msg: impl Into<String>) -> PyRef<PyOSError> {
         let vm = self;
         let exc_type =
             crate::exceptions::errno_to_exc_type(errno, vm).unwrap_or(vm.ctx.exceptions.os_error);
 
         let errno_obj = vm.new_pyobj(errno);
-        vm.new_exception(
+        vm.new_os_error(
             exc_type.to_owned(),
             vec![errno_obj, vm.new_pyobj(msg.into())],
         )
