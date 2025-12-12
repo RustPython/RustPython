@@ -199,16 +199,31 @@ impl Node for ruff::PatternMatchSingleton {
 }
 
 impl Node for ruff::Singleton {
-    fn ast_to_object(self, _vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
-        todo!()
+    fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
+        match self {
+            ruff::Singleton::None => vm.ctx.none(),
+            ruff::Singleton::True => vm.ctx.new_bool(true).into(),
+            ruff::Singleton::False => vm.ctx.new_bool(false).into(),
+        }
     }
 
     fn ast_from_object(
-        _vm: &VirtualMachine,
+        vm: &VirtualMachine,
         _source_file: &SourceFile,
-        _object: PyObjectRef,
+        object: PyObjectRef,
     ) -> PyResult<Self> {
-        todo!()
+        if vm.is_none(&object) {
+            Ok(ruff::Singleton::None)
+        } else if object.is(&vm.ctx.true_value) {
+            Ok(ruff::Singleton::True)
+        } else if object.is(&vm.ctx.false_value) {
+            Ok(ruff::Singleton::False)
+        } else {
+            Err(vm.new_value_error(format!(
+                "Expected None, True, or False, got {:?}",
+                object.class().name()
+            )))
+        }
     }
 }
 
@@ -372,57 +387,51 @@ impl Node for ruff::PatternMatchClass {
     }
 }
 
-struct PatternMatchClassPatterns {
-    pub _range: TextRange, // TODO: Use this
-}
+struct PatternMatchClassPatterns(Vec<ruff::Pattern>);
 
 impl Node for PatternMatchClassPatterns {
-    fn ast_to_object(self, _vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
-        todo!()
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        self.0.ast_to_object(vm, source_file)
     }
 
     fn ast_from_object(
-        _vm: &VirtualMachine,
-        _source_file: &SourceFile,
-        _object: PyObjectRef,
+        vm: &VirtualMachine,
+        source_file: &SourceFile,
+        object: PyObjectRef,
     ) -> PyResult<Self> {
-        todo!()
+        Ok(Self(Node::ast_from_object(vm, source_file, object)?))
     }
 }
 
-struct PatternMatchClassKeywordAttributes {
-    pub _range: TextRange, // TODO: Use this
-}
+struct PatternMatchClassKeywordAttributes(Vec<ruff::Identifier>);
 
 impl Node for PatternMatchClassKeywordAttributes {
-    fn ast_to_object(self, _vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
-        todo!()
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        self.0.ast_to_object(vm, source_file)
     }
 
     fn ast_from_object(
-        _vm: &VirtualMachine,
-        _source_file: &SourceFile,
-        _object: PyObjectRef,
+        vm: &VirtualMachine,
+        source_file: &SourceFile,
+        object: PyObjectRef,
     ) -> PyResult<Self> {
-        todo!()
+        Ok(Self(Node::ast_from_object(vm, source_file, object)?))
     }
 }
 
-struct PatternMatchClassKeywordPatterns {
-    pub _range: TextRange, // TODO: Use this
-}
+struct PatternMatchClassKeywordPatterns(Vec<ruff::Pattern>);
 
 impl Node for PatternMatchClassKeywordPatterns {
-    fn ast_to_object(self, _vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
-        todo!()
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        self.0.ast_to_object(vm, source_file)
     }
 
     fn ast_from_object(
-        _vm: &VirtualMachine,
-        _source_file: &SourceFile,
-        _object: PyObjectRef,
+        vm: &VirtualMachine,
+        source_file: &SourceFile,
+        object: PyObjectRef,
     ) -> PyResult<Self> {
-        todo!()
+        Ok(Self(Node::ast_from_object(vm, source_file, object)?))
     }
 }
 // constructor
@@ -532,20 +541,38 @@ impl Node for ruff::PatternMatchOr {
 }
 
 fn split_pattern_match_class(
-    _arguments: ruff::PatternArguments,
+    arguments: ruff::PatternArguments,
 ) -> (
     PatternMatchClassPatterns,
     PatternMatchClassKeywordAttributes,
     PatternMatchClassKeywordPatterns,
 ) {
-    todo!()
+    let patterns = PatternMatchClassPatterns(arguments.patterns);
+    let kwd_attrs = PatternMatchClassKeywordAttributes(
+        arguments.keywords.iter().map(|k| k.attr.clone()).collect(),
+    );
+    let kwd_patterns = PatternMatchClassKeywordPatterns(
+        arguments.keywords.into_iter().map(|k| k.pattern).collect(),
+    );
+    (patterns, kwd_attrs, kwd_patterns)
 }
 
 /// Merges the pattern match class attributes and patterns, opposite of [`split_pattern_match_class`].
 fn merge_pattern_match_class(
-    _patterns: PatternMatchClassPatterns,
-    _kwd_attrs: PatternMatchClassKeywordAttributes,
-    _kwd_patterns: PatternMatchClassKeywordPatterns,
+    patterns: PatternMatchClassPatterns,
+    kwd_attrs: PatternMatchClassKeywordAttributes,
+    kwd_patterns: PatternMatchClassKeywordPatterns,
 ) -> (Vec<ruff::Pattern>, Vec<ruff::PatternKeyword>) {
-    todo!()
+    let keywords = kwd_attrs
+        .0
+        .into_iter()
+        .zip(kwd_patterns.0)
+        .map(|(attr, pattern)| ruff::PatternKeyword {
+            range: Default::default(),
+            node_index: Default::default(),
+            attr,
+            pattern,
+        })
+        .collect();
+    (patterns.0, keywords)
 }
