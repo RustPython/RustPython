@@ -540,12 +540,23 @@ mod builtins {
         default_value: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
+        use crate::builtins::asyncgenerator::PyAnextAwaitable;
+
+        // Check if object is an async iterator (has __anext__ method)
+        if !aiter.class().has_attr(identifier!(vm, __anext__)) {
+            return Err(vm.new_type_error(format!(
+                "'{}' object is not an async iterator",
+                aiter.class().name()
+            )));
+        }
+
         let awaitable = vm.call_method(&aiter, "__anext__", ())?;
 
-        if default_value.is_missing() {
-            Ok(awaitable)
+        if let OptionalArg::Present(default) = default_value {
+            Ok(PyAnextAwaitable::new(awaitable, default)
+                .into_ref(&vm.ctx)
+                .into())
         } else {
-            // TODO: Implement CPython like PyAnextAwaitable to properly handle the default value.
             Ok(awaitable)
         }
     }

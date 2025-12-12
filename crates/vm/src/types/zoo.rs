@@ -21,6 +21,7 @@ pub struct TypeZoo {
     pub async_generator_asend: &'static Py<PyType>,
     pub async_generator_athrow: &'static Py<PyType>,
     pub async_generator_wrapped_value: &'static Py<PyType>,
+    pub anext_awaitable: &'static Py<PyType>,
     pub bytes_type: &'static Py<PyType>,
     pub bytes_iterator_type: &'static Py<PyType>,
     pub bytearray_type: &'static Py<PyType>,
@@ -139,6 +140,7 @@ impl TypeZoo {
             async_generator_athrow: asyncgenerator::PyAsyncGenAThrow::init_builtin_type(),
             async_generator_wrapped_value:
                 asyncgenerator::PyAsyncGenWrappedValue::init_builtin_type(),
+            anext_awaitable: asyncgenerator::PyAnextAwaitable::init_builtin_type(),
             bound_method_type: function::PyBoundMethod::init_builtin_type(),
             builtin_function_or_method_type: builtin_func::PyNativeFunction::init_builtin_type(),
             builtin_method_type: builtin_func::PyNativeMethod::init_builtin_type(),
