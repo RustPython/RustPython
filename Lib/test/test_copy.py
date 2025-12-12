@@ -961,8 +961,6 @@ class TestReplace(unittest.TestCase):
                 with self.assertRaisesRegex(TypeError, 'unexpected field name'):
                     copy.replace(p, x=1, error=2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dataclass(self):
         from dataclasses import dataclass
         @dataclass
