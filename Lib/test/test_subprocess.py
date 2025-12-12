@@ -1878,8 +1878,6 @@ class POSIXProcessTestCase(BaseTestCase):
                       self._nonexistent_dir)
         return desired_exception
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception_cwd(self):
         """Test error in the child raised in the parent for a bad cwd."""
         desired_exception = self._get_chdir_exception()
@@ -1895,8 +1893,6 @@ class POSIXProcessTestCase(BaseTestCase):
         else:
             self.fail("Expected OSError: %s" % desired_exception)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception_bad_executable(self):
         """Test error in the child raised in the parent for a bad executable."""
         desired_exception = self._get_chdir_exception()
@@ -1912,8 +1908,6 @@ class POSIXProcessTestCase(BaseTestCase):
         else:
             self.fail("Expected OSError: %s" % desired_exception)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception_bad_args_0(self):
         """Test error in the child raised in the parent for a bad args[0]."""
         desired_exception = self._get_chdir_exception()
