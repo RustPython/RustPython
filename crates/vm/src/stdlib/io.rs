@@ -39,7 +39,18 @@ impl ToPyException for std::io::Error {
             }
             self.to_string()
         };
-        #[cfg(not(windows))]
+        #[cfg(unix)]
+        let msg = {
+            let ptr = unsafe { libc::strerror(errno) };
+            if !ptr.is_null() {
+                unsafe { std::ffi::CStr::from_ptr(ptr) }
+                    .to_string_lossy()
+                    .into_owned()
+            } else {
+                self.to_string()
+            }
+        };
+        #[cfg(not(any(windows, unix)))]
         let msg = self.to_string();
 
         #[allow(clippy::let_and_return)]
