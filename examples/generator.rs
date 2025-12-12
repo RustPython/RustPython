@@ -46,5 +46,5 @@ fn main() -> ExitCode {
         vm.add_native_modules(rustpython_stdlib::get_module_inits());
     });
     let result = py_main(&interp);
-    ExitCode::from(interp.run(|_vm| result))
+    vm::common::os::exit_code(interp.run(|_vm| result))
 }

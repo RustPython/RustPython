@@ -841,7 +841,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn handle_exit_exception(&self, exc: PyBaseExceptionRef) -> u8 {
+    pub fn handle_exit_exception(&self, exc: PyBaseExceptionRef) -> u32 {
         if exc.fast_isinstance(self.ctx.exceptions.system_exit) {
             let args = exc.args();
             let msg = match args.as_slice() {
@@ -849,7 +849,7 @@ impl VirtualMachine {
                 [arg] => match_class!(match arg {
                     ref i @ PyInt => {
                         use num_traits::cast::ToPrimitive;
-                        return i.as_bigint().to_u8().unwrap_or(0);
+                        return i.as_bigint().to_u32().unwrap_or(0);
                     }
                     arg => {
                         if self.is_none(arg) {
@@ -883,9 +883,14 @@ impl VirtualMachine {
                         kill(getpid(), SIGINT).expect("Expect to be killed.");
                     }
 
-                    (libc::SIGINT as u8) + 128u8
+                    (libc::SIGINT as u32) + 128
                 }
-                #[cfg(not(unix))]
+                #[cfg(windows)]
+                {
+                    // STATUS_CONTROL_C_EXIT - same as CPython
+                    0xC000013A
+                }
+                #[cfg(not(any(unix, windows)))]
                 {
                     1
                 }
