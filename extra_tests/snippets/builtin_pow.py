@@ -1,4 +1,4 @@
-from testutils import assert_raises, assert_equal
+from testutils import assert_equal, assert_raises
 
 assert pow(3, 2) == 9
 assert pow(5, 3, 100) == 25

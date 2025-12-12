@@ -1,8 +1,8 @@
-import os
-from pathlib import Path
-import re
 import json
+import os
+import re
 from itertools import chain
+from pathlib import Path
 
 m = re.search(r"const SRE_MAGIC: usize = (\d+);", open("src/constants.rs").read())
 sre_engine_magic = int(m.group(1))

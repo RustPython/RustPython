@@ -1,6 +1,7 @@
-from testutils import assert_raises
 import pickle
 import sys
+
+from testutils import assert_raises
 
 # new
 assert bytearray([1, 2, 3])

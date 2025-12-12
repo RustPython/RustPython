@@ -7,8 +7,8 @@ import argparse
 import dataclasses
 import difflib
 import pathlib
-from typing import Optional
 import warnings
+from typing import Optional
 
 import requests
 from jinja2 import Environment, FileSystemLoader

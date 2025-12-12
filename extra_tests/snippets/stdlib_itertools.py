@@ -1,8 +1,7 @@
 import itertools
+import pickle
 
 from testutils import assert_raises
-
-import pickle
 
 # itertools.chain tests
 chain = itertools.chain

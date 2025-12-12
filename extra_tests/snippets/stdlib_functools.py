@@ -1,4 +1,5 @@
 from functools import reduce
+
 from testutils import assert_raises
 
 

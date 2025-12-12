@@ -1,7 +1,7 @@
 import os
-import time
 import stat
 import sys
+import time
 
 from testutils import assert_raises
 

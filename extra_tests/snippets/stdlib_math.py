@@ -1,4 +1,5 @@
 import math
+
 from testutils import assert_raises, skip_if_unsupported
 
 NAN = float("nan")

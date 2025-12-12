@@ -1,5 +1,5 @@
-import unittest
 import marshal
+import unittest
 
 
 class MarshalTests(unittest.TestCase):

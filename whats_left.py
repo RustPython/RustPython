@@ -17,15 +17,14 @@
 # We then run this second generated script with RustPython.
 
 import argparse
-import re
-import os
-import re
-import sys
-import json
-import warnings
 import inspect
-import subprocess
+import json
+import os
 import platform
+import re
+import subprocess
+import sys
+import warnings
 from pydoc import ModuleScanner
 
 if not sys.flags.isolated:
@@ -327,13 +326,13 @@ libdir = ""
 def compare():
     import inspect
     import io
+    import json
     import os
+    import platform
     import re
     import sys
     import warnings
     from contextlib import redirect_stdout
-    import json
-    import platform
 
     def method_incompatibility_reason(typ, method_name, real_method_value):
         has_method = hasattr(typ, method_name)

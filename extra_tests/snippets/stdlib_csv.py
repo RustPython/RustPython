@@ -1,6 +1,6 @@
-from testutils import assert_raises
-
 import csv
+
+from testutils import assert_raises
 
 for row in csv.reader(["one,two,three"]):
     [one, two, three] = row

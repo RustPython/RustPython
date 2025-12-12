@@ -1,13 +1,9 @@
-import os as _os, sys as _sys
+import os as _os
+import sys as _sys
 import types as _types
-
-from _ctypes import RTLD_LOCAL, RTLD_GLOBAL
-from _ctypes import sizeof
-from _ctypes import _SimpleCData, Array
+from _ctypes import RTLD_GLOBAL, RTLD_LOCAL, Array, _SimpleCData, sizeof
 from _ctypes import CFuncPtr as _CFuncPtr
-
 from struct import calcsize as _calcsize
-
 
 assert Array.__class__.__name__ == "PyCArrayType"
 assert Array.__base__.__name__ == "_CData"
@@ -24,8 +20,14 @@ if _os.name == "posix" and _sys.platform == "darwin":
 
 from _ctypes import (
     FUNCFLAG_CDECL as _FUNCFLAG_CDECL,
+)
+from _ctypes import (
     FUNCFLAG_PYTHONAPI as _FUNCFLAG_PYTHONAPI,
+)
+from _ctypes import (
     FUNCFLAG_USE_ERRNO as _FUNCFLAG_USE_ERRNO,
+)
+from _ctypes import (
     FUNCFLAG_USE_LASTERROR as _FUNCFLAG_USE_LASTERROR,
 )
 
@@ -210,8 +212,8 @@ assert i.value == 42
 assert abs(f.value - 3.14) < 1e-06
 
 if _os.name == "nt":
-    from _ctypes import LoadLibrary as _dlopen
     from _ctypes import FUNCFLAG_STDCALL as _FUNCFLAG_STDCALL
+    from _ctypes import LoadLibrary as _dlopen
 elif _os.name == "posix":
     from _ctypes import dlopen as _dlopen
 

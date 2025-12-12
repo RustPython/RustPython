@@ -1,5 +1,4 @@
-from testutils import assert_raises
-from testutils import TestFailingBool, TestFailingIter
+from testutils import TestFailingBool, TestFailingIter, assert_raises
 
 assert any([True])
 assert not any([False])
