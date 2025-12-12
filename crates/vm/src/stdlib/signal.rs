@@ -302,6 +302,117 @@ pub(crate) mod _signal {
         }
     }
 
+    /// CPython: signal_raise_signal (signalmodule.c)
+    #[cfg(any(unix, windows))]
+    #[pyfunction]
+    fn raise_signal(signalnum: i32, vm: &VirtualMachine) -> PyResult<()> {
+        use crate::convert::IntoPyException;
+
+        signal::assert_in_range(signalnum, vm)?;
+
+        // On Windows, only certain signals are supported
+        #[cfg(windows)]
+        {
+            // Windows supports: SIGINT(2), SIGILL(4), SIGFPE(8), SIGSEGV(11), SIGTERM(15), SIGABRT(22)
+            const VALID_SIGNALS: &[i32] = &[
+                libc::SIGINT,
+                libc::SIGILL,
+                libc::SIGFPE,
+                libc::SIGSEGV,
+                libc::SIGTERM,
+                libc::SIGABRT,
+            ];
+            if !VALID_SIGNALS.contains(&signalnum) {
+                return Err(std::io::Error::from_raw_os_error(libc::EINVAL).into_pyexception(vm));
+            }
+        }
+
+        let res = unsafe { libc::raise(signalnum) };
+        if res != 0 {
+            return Err(vm.new_os_error(format!("raise_signal failed for signal {}", signalnum)));
+        }
+
+        // Check if a signal was triggered and handle it
+        signal::check_signals(vm)?;
+
+        Ok(())
+    }
+
+    /// CPython: signal_strsignal (signalmodule.c)
+    #[cfg(unix)]
+    #[pyfunction]
+    fn strsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult<Option<String>> {
+        if signalnum < 1 || signalnum >= signal::NSIG as i32 {
+            return Err(vm.new_value_error(format!("signal number {} out of range", signalnum)));
+        }
+        let s = unsafe { libc::strsignal(signalnum) };
+        if s.is_null() {
+            Ok(None)
+        } else {
+            let cstr = unsafe { std::ffi::CStr::from_ptr(s) };
+            Ok(Some(cstr.to_string_lossy().into_owned()))
+        }
+    }
+
+    #[cfg(windows)]
+    #[pyfunction]
+    fn strsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult<Option<String>> {
+        if signalnum < 1 || signalnum >= signal::NSIG as i32 {
+            return Err(vm.new_value_error(format!("signal number {} out of range", signalnum)));
+        }
+        // Windows doesn't have strsignal(), provide our own mapping
+        let name = match signalnum {
+            libc::SIGINT => "Interrupt",
+            libc::SIGILL => "Illegal instruction",
+            libc::SIGFPE => "Floating-point exception",
+            libc::SIGSEGV => "Segmentation fault",
+            libc::SIGTERM => "Terminated",
+            libc::SIGABRT => "Aborted",
+            _ => return Ok(None),
+        };
+        Ok(Some(name.to_owned()))
+    }
+
+    /// CPython: signal_valid_signals (signalmodule.c)
+    #[pyfunction]
+    fn valid_signals(vm: &VirtualMachine) -> PyResult {
+        use crate::PyPayload;
+        use crate::builtins::PySet;
+        let set = PySet::default().into_ref(&vm.ctx);
+        #[cfg(unix)]
+        {
+            // On Unix, most signals 1..NSIG are valid
+            for signum in 1..signal::NSIG {
+                // Skip signals that cannot be caught
+                #[cfg(not(target_os = "wasi"))]
+                if signum == libc::SIGKILL as usize || signum == libc::SIGSTOP as usize {
+                    continue;
+                }
+                set.add(vm.ctx.new_int(signum as i32).into(), vm)?;
+            }
+        }
+        #[cfg(windows)]
+        {
+            // Windows only supports a limited set of signals
+            for &signum in &[
+                libc::SIGINT,
+                libc::SIGILL,
+                libc::SIGFPE,
+                libc::SIGSEGV,
+                libc::SIGTERM,
+                libc::SIGABRT,
+            ] {
+                set.add(vm.ctx.new_int(signum).into(), vm)?;
+            }
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            // Empty set for platforms without signal support (e.g., WASM)
+            let _ = &set;
+        }
+        Ok(set.into())
+    }
+
     #[cfg(any(unix, windows))]
     pub extern "C" fn run_signal(signum: i32) {
         signal::TRIGGERS[signum as usize].store(true, Ordering::Relaxed);

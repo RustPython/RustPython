@@ -190,8 +190,6 @@ class PosixTests(unittest.TestCase):
 @unittest.skipUnless(sys.platform == "win32", "Windows specific")
 class WindowsSignalTests(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_valid_signals(self):
         s = signal.valid_signals()
         self.assertIsInstance(s, set)
@@ -1440,8 +1438,6 @@ class StressTest(unittest.TestCase):
 
 class RaiseSignalTest(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_sigint(self):
         with self.assertRaises(KeyboardInterrupt):
             signal.raise_signal(signal.SIGINT)
@@ -1460,8 +1456,6 @@ class RaiseSignalTest(unittest.TestCase):
             else:
                 raise
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_handler(self):
         is_ok = False
         def handler(a, b):
