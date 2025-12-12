@@ -12,7 +12,6 @@ import linecache
 import os
 import dis
 from os.path import normcase
-import _pickle
 import pickle
 import shutil
 import stat
@@ -29,6 +28,12 @@ import unittest.mock
 import warnings
 import weakref
 
+# XXX: RUSTPYTHON; skip _pickle tests if _pickle is not available
+try:
+    import _pickle
+except ImportError:
+    _pickle = None
+
 
 try:
     from concurrent.futures import ThreadPoolExecutor
@@ -37,7 +42,8 @@ except ImportError:
 
 from test.support import cpython_only, import_helper, suppress_immortalization
 from test.support import MISSING_C_DOCSTRINGS, ALWAYS_EQ
-from test.support.import_helper import DirsOnSysPath, ready_to_import
+# XXX: RUSTPYTHON; test.support is not updated yet
+from test.support.import_helper import DirsOnSysPath #, ready_to_import
 from test.support.os_helper import TESTFN, temp_cwd
 from test.support.script_helper import assert_python_ok, assert_python_failure, kill_python
 from test.support import has_subprocess_support, SuppressCrashReport
@@ -1361,6 +1367,7 @@ class TestClassesAndFunctions(unittest.TestCase):
 
     @unittest.skipIf(MISSING_C_DOCSTRINGS,
                      "Signature information for builtins requires docstrings")
+    @unittest.skipIf(_pickle is None, "requires _pickle")
     def test_getfullargspec_builtin_methods(self):
         self.assertFullArgSpecEquals(_pickle.Pickler.dump, ['self', 'obj'])
 
@@ -4714,6 +4721,7 @@ class TestSignatureObject(unittest.TestCase):
 
     @unittest.skipIf(MISSING_C_DOCSTRINGS,
                      "Signature information for builtins requires docstrings")
+    @unittest.skipIf(_pickle is None, "requires _pickle")
     def test_signature_on_builtin_class(self):
         expected = ('(file, protocol=None, fix_imports=True, '
                     'buffer_callback=None)')
@@ -5240,6 +5248,7 @@ class TestSignatureObject(unittest.TestCase):
 
     @unittest.skipIf(MISSING_C_DOCSTRINGS,
                      "Signature information for builtins requires docstrings")
+    @unittest.skipIf(_pickle is None, "requires _pickle")
     def test_signature_from_callable_builtin_obj(self):
         class MySignature(inspect.Signature): pass
         sig = MySignature.from_callable(_pickle.Pickler)
