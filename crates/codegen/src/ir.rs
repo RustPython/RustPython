@@ -29,11 +29,27 @@ pub struct CodeUnitMetadata {
 // use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub struct BlockIdx(pub u32);
+pub struct BlockIdx(u32);
+
 impl BlockIdx {
-    pub const NULL: Self = Self(u32::MAX);
-    const fn idx(self) -> usize {
+    pub const NULL: Self = Self::new(u32::MAX);
+
+    /// Creates a new instance of [`BlockIdx`] from a [`u32`].
+    #[must_use]
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    /// Returns the inner value as a [`usize`].
+    #[must_use]
+    pub const fn idx(self) -> usize {
         self.0 as usize
+    }
+}
+
+impl From<BlockIdx> for u32 {
+    fn from(block_idx: BlockIdx) -> Self {
+        block_idx.0
     }
 }
 
