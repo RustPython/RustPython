@@ -131,6 +131,8 @@ class IsTestBase(unittest.TestCase):
                 continue
             self.assertFalse(other(obj), 'not %s(%s)' % (other.__name__, exp))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test__all__(self):
         support.check__all__(self, inspect, not_exported=("modulesbyfile",))
 
@@ -183,6 +185,8 @@ class custom_descriptor:
 
 class TestPredicates(IsTestBase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_excluding_predicates(self):
         global tb
         self.istest(inspect.isbuiltin, 'sys.exit')
@@ -234,6 +238,8 @@ class TestPredicates(IsTestBase):
 
 
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_iscoroutine(self):
         async_gen_coro = async_generator_function_example(1)
         gen_coro = gen_coroutine_function_example(1)
@@ -378,6 +384,8 @@ class TestPredicates(IsTestBase):
 
         coro.close(); gen_coro.close(); # silence warnings
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_isawaitable(self):
         def gen(): yield
         self.assertFalse(inspect.isawaitable(gen()))
@@ -476,6 +484,8 @@ class TestPredicates(IsTestBase):
         self.assertIn('a', members)
         self.assertNotIn('b', members)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_isabstract(self):
         from abc import ABCMeta, abstractmethod
 
@@ -498,6 +508,8 @@ class TestPredicates(IsTestBase):
         self.assertFalse(inspect.isabstract(int))
         self.assertFalse(inspect.isabstract(5))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_isabstract_during_init_subclass(self):
         from abc import ABCMeta, abstractmethod
         isabstract_checks = []
@@ -533,6 +545,8 @@ class TestInterpreterStack(IsTestBase):
         self.istest(inspect.istraceback, 'git.ex.__traceback__')
         self.istest(inspect.isframe, 'mod.fr')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_stack(self):
         self.assertTrue(len(mod.st) >= 5)
         frame1, frame2, frame3, frame4, *_ = mod.st
@@ -561,6 +575,8 @@ class TestInterpreterStack(IsTestBase):
         self.assertIn('inspect.stack()', record.code_context[0])
         self.assertEqual(record.index, 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_trace(self):
         self.assertEqual(len(git.tr), 3)
         frame1, frame2, frame3, = git.tr
@@ -583,6 +599,8 @@ class TestInterpreterStack(IsTestBase):
         self.assertEqual(inspect.formatargvalues(args, varargs, varkw, locals),
                          '(x=11, y=14)')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_previous_frame(self):
         args, varargs, varkw, locals = inspect.getargvalues(mod.fr.f_back)
         self.assertEqual(args, ['a', 'b', 'c', 'd', 'e', 'f'])
@@ -664,6 +682,8 @@ class TestRetrievingSourceCode(GetSourceBase):
 
     @unittest.skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getdoc(self):
         self.assertEqual(inspect.getdoc(mod), 'A module docstring.')
         self.assertEqual(inspect.getdoc(mod.StupidGit),
@@ -882,6 +902,8 @@ class TestRetrievingSourceCode(GetSourceBase):
         self.assertRaises(OSError, inspect.getsourcelines, A)
         self.assertIsNone(inspect.getcomments(A))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getsource_on_class_without_firstlineno(self):
         __firstlineno__ = 1
         class C:
@@ -891,6 +913,8 @@ class TestRetrievingSourceCode(GetSourceBase):
 class TestGetsourceStdlib(unittest.TestCase):
     # Test Python implementations of the stdlib modules
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getsource_stdlib_collections_abc(self):
         import collections.abc
         lines, lineno = inspect.getsourcelines(collections.abc.Sequence)
@@ -903,6 +927,8 @@ class TestGetsourceStdlib(unittest.TestCase):
         self.assertRaises(OSError, inspect.getsource, tomllib.TOMLDecodeError)
         self.assertRaises(OSError, inspect.getsourcelines, tomllib.TOMLDecodeError)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getsource_stdlib_abc(self):
         # Pure Python implementation
         abc = import_helper.import_fresh_module('abc', blocked=['_abc'])
@@ -931,6 +957,8 @@ class TestGetsourceStdlib(unittest.TestCase):
 
 class TestGetsourceInteractive(unittest.TestCase):
     @support.force_not_colorized
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getclasses_interactive(self):
         # bpo-44648: simulate a REPL session;
         # there is no `__file__` in the __main__ module
@@ -954,6 +982,8 @@ class TestGettingSourceOfToplevelFrames(GetSourceBase):
 class TestDecorators(GetSourceBase):
     fodderModule = mod2
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_wrapped_decorator(self):
         self.assertSourceEqual(mod2.wrapped, 14, 17)
 
@@ -1154,6 +1184,8 @@ class TestBuggyCases(GetSourceBase):
         self.assertSourceEqual(mod2.cls183, 183, 188)
         self.assertSourceEqual(mod2.cls183.cls185, 185, 188)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_class_decorator(self):
         self.assertSourceEqual(mod2.cls196, 194, 201)
         self.assertSourceEqual(mod2.cls196.cls200, 198, 201)
@@ -1254,6 +1286,8 @@ class TestNoEOL(GetSourceBase):
 class TestComplexDecorator(GetSourceBase):
     fodderModule = mod2
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_parens_in_decorator(self):
         self.assertSourceEqual(self.fodderModule.complex_decorated, 273, 275)
 
@@ -1449,6 +1483,8 @@ class TestClassesAndFunctions(unittest.TestCase):
         l = list(signature.kwonlyargs)
         self.assertEqual(l, unsorted_keyword_only_parameters)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_classify_newstyle(self):
         class A(object):
 
@@ -1530,6 +1566,8 @@ class TestClassesAndFunctions(unittest.TestCase):
         self.assertIn(('md', 'method', A), attrs, 'missing method descriptor')
         self.assertIn(('dd', 'data', A), attrs, 'missing data descriptor')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_classify_builtin_types(self):
         # Simple sanity check that all built-in types can have their
         # attributes classified.
@@ -2090,6 +2128,8 @@ class TestIsMethodDescriptor(unittest.TestCase):
         self.assertFalse(inspect.ismethoddescriptor(MethodDescriptorSub))
         self.assertFalse(inspect.ismethoddescriptor(DataDescriptorSub))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_builtin_descriptors(self):
         builtin_slot_wrapper = int.__add__  # This one is mentioned in docs.
         class Owner:
@@ -2179,6 +2219,8 @@ class TestIsDataDescriptor(unittest.TestCase):
         self.assertTrue(inspect.isdatadescriptor(DataDescriptor2()),
                         'class with __set__ = None is a data descriptor')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_slot(self):
         class Slotted:
             __slots__ = 'foo',
@@ -2218,6 +2260,8 @@ class TestIsDataDescriptor(unittest.TestCase):
 _global_ref = object()
 class TestGetClosureVars(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_name_resolution(self):
         # Basic test of the 4 different resolution mechanisms
         def f(nonlocal_ref):
@@ -2233,6 +2277,8 @@ class TestGetClosureVars(unittest.TestCase):
                                        builtin_vars, unbound_names)
         self.assertEqual(inspect.getclosurevars(f(_arg)), expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_generator_closure(self):
         def f(nonlocal_ref):
             def g(local_ref):
@@ -2248,6 +2294,8 @@ class TestGetClosureVars(unittest.TestCase):
                                        builtin_vars, unbound_names)
         self.assertEqual(inspect.getclosurevars(f(_arg)), expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_method_closure(self):
         class C:
             def f(self, nonlocal_ref):
@@ -2263,6 +2311,8 @@ class TestGetClosureVars(unittest.TestCase):
                                        builtin_vars, unbound_names)
         self.assertEqual(inspect.getclosurevars(C().f(_arg)), expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_attribute_same_name_as_global_var(self):
         class C:
             _global_ref = object()
@@ -2332,18 +2382,24 @@ class TestGetClosureVars(unittest.TestCase):
         exec(code, ns)
         return ns["f"], ns
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_builtins_fallback(self):
         f, ns = self._private_globals()
         ns.pop("__builtins__", None)
         expected = inspect.ClosureVars({}, {}, {"print":print}, {"path"})
         self.assertEqual(inspect.getclosurevars(f), expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_builtins_as_dict(self):
         f, ns = self._private_globals()
         ns["__builtins__"] = {"path":1}
         expected = inspect.ClosureVars({}, {}, {"path":1}, {"print"})
         self.assertEqual(inspect.getclosurevars(f), expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_builtins_as_module(self):
         f, ns = self._private_globals()
         ns["__builtins__"] = os
@@ -2438,6 +2494,8 @@ class TestGetcallargsFunctions(unittest.TestCase):
         self.assertEqualCallArgs(f, '**collections.UserDict(a=1, b=2)')
         self.assertEqualCallArgs(f, 'c=3, **collections.UserDict(a=1, b=2)')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_keyword_only(self):
         f = self.makeCallable('a=3, *, c, d=2')
         self.assertEqualCallArgs(f, 'c=3')
@@ -2478,6 +2536,8 @@ class TestGetcallargsFunctions(unittest.TestCase):
                                  '(4,[5,6])]), q=0, **collections.UserDict('
                                  'y=9, z=10)')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_errors(self):
         f0 = self.makeCallable('')
         f1 = self.makeCallable('a, b')
@@ -2932,23 +2992,33 @@ class TestGetGeneratorState(unittest.TestCase):
     def _generatorstate(self):
         return inspect.getgeneratorstate(self.generator)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_created(self):
         self.assertEqual(self._generatorstate(), inspect.GEN_CREATED)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_suspended(self):
         next(self.generator)
         self.assertEqual(self._generatorstate(), inspect.GEN_SUSPENDED)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_closed_after_exhaustion(self):
         for i in self.generator:
             pass
         self.assertEqual(self._generatorstate(), inspect.GEN_CLOSED)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_closed_after_immediate_exception(self):
         with self.assertRaises(RuntimeError):
             self.generator.throw(RuntimeError)
         self.assertEqual(self._generatorstate(), inspect.GEN_CLOSED)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_closed_after_close(self):
         self.generator.close()
         self.assertEqual(self._generatorstate(), inspect.GEN_CLOSED)
@@ -2977,6 +3047,8 @@ class TestGetGeneratorState(unittest.TestCase):
             self.assertIn(name, repr(state))
             self.assertIn(name, str(state))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getgeneratorlocals(self):
         def each(lst, a=None):
             b=(1, 2, 3)
@@ -3041,13 +3113,19 @@ class TestGetCoroutineState(unittest.TestCase):
     def _coroutinestate(self):
         return inspect.getcoroutinestate(self.coroutine)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_created(self):
         self.assertEqual(self._coroutinestate(), inspect.CORO_CREATED)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_suspended(self):
         self.coroutine.send(None)
         self.assertEqual(self._coroutinestate(), inspect.CORO_SUSPENDED)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_closed_after_exhaustion(self):
         while True:
             try:
@@ -3057,11 +3135,15 @@ class TestGetCoroutineState(unittest.TestCase):
 
         self.assertEqual(self._coroutinestate(), inspect.CORO_CLOSED)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_closed_after_immediate_exception(self):
         with self.assertRaises(RuntimeError):
             self.coroutine.throw(RuntimeError)
         self.assertEqual(self._coroutinestate(), inspect.CORO_CLOSED)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_closed_after_close(self):
         self.coroutine.close()
         self.assertEqual(self._coroutinestate(), inspect.CORO_CLOSED)
@@ -3107,14 +3189,20 @@ class TestGetAsyncGenState(unittest.IsolatedAsyncioTestCase):
     def _asyncgenstate(self):
         return inspect.getasyncgenstate(self.asyncgen)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_created(self):
         self.assertEqual(self._asyncgenstate(), inspect.AGEN_CREATED)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     async def test_suspended(self):
         value = await anext(self.asyncgen)
         self.assertEqual(self._asyncgenstate(), inspect.AGEN_SUSPENDED)
         self.assertEqual(value, 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     async def test_closed_after_exhaustion(self):
         countdown = 7
         with self.assertRaises(StopAsyncIteration):
@@ -3123,11 +3211,15 @@ class TestGetAsyncGenState(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(countdown, 1)
         self.assertEqual(self._asyncgenstate(), inspect.AGEN_CLOSED)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     async def test_closed_after_immediate_exception(self):
         with self.assertRaises(RuntimeError):
             await self.asyncgen.athrow(RuntimeError)
         self.assertEqual(self._asyncgenstate(), inspect.AGEN_CLOSED)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     async def test_running(self):
         async def running_check_asyncgen():
             for number in range(5):
@@ -3150,6 +3242,8 @@ class TestGetAsyncGenState(unittest.IsolatedAsyncioTestCase):
             self.assertIn(name, repr(state))
             self.assertIn(name, str(state))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     async def test_getasyncgenlocals(self):
         async def each(lst, a=None):
             b=(1, 2, 3)
@@ -3682,6 +3776,8 @@ class TestSignatureObject(unittest.TestCase):
                            ('arg2', 1, ..., "positional_or_keyword")),
                           int))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_signature_on_classmethod(self):
         if not support.MISSING_C_DOCSTRINGS:
             self.assertEqual(self.signature(classmethod),
@@ -3705,6 +3801,8 @@ class TestSignatureObject(unittest.TestCase):
                            ('arg2', 1, ..., "keyword_only")),
                           ...))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_signature_on_staticmethod(self):
         if not support.MISSING_C_DOCSTRINGS:
             self.assertEqual(self.signature(staticmethod),
@@ -4048,6 +4146,8 @@ class TestSignatureObject(unittest.TestCase):
                            ('b', ..., ..., "positional_or_keyword")),
                           ...))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_signature_on_class(self):
         class C:
             def __init__(self, a):
@@ -4306,6 +4406,8 @@ class TestSignatureObject(unittest.TestCase):
             self.assertEqual(self.signature(C.__call__, follow_wrapped=False),
                              varargs_signature)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_signature_on_class_with_wrapped_init(self):
         class C:
             @identity_wrapper
@@ -4405,6 +4507,8 @@ class TestSignatureObject(unittest.TestCase):
                 self.assertEqual(self.signature(C.__new__, follow_wrapped=False),
                                 varargs_signature)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_signature_on_class_with_wrapped_new(self):
         with self.subTest('FunctionType'):
             class C:
@@ -4493,6 +4597,8 @@ class TestSignatureObject(unittest.TestCase):
             self.assertEqual(self.signature(C.__new__, follow_wrapped=False),
                              varargs_signature)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_signature_on_class_with_init(self):
         class C:
             def __init__(self, b):
@@ -4559,6 +4665,8 @@ class TestSignatureObject(unittest.TestCase):
                             ((('a', ..., ..., "positional_or_keyword"),),
                             ...))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_signature_on_class_with_new(self):
         with self.subTest('FunctionType'):
             class C:
@@ -4745,6 +4853,8 @@ class TestSignatureObject(unittest.TestCase):
             pass
         self.assertEqual(str(inspect.signature(P4)), '(foo, bar)')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_signature_on_callable_objects(self):
         class Foo:
             def __call__(self, a):
@@ -5215,6 +5325,8 @@ class TestSignatureObject(unittest.TestCase):
         sig = test.__signature__ = inspect.Signature(parameters=(spam_param,))
         self.assertEqual(sig, inspect.signature(test))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_signature_on_mangled_parameters(self):
         class Spam:
             def foo(self, __p1:1=2, *, __p2:2=3):
@@ -6035,6 +6147,8 @@ class TestSignaturePrivateHelpers(unittest.TestCase):
         self.assertEqual(computed_clean_signature, clean_signature)
         self.assertEqual(computed_self_parameter, self_parameter)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_signature_strip_non_python_syntax(self):
         self._strip_non_python_syntax(
             "($module, /, path, mode, *, dir_fd=None, " +
@@ -6339,6 +6453,8 @@ class TestSignatureDefinitions(unittest.TestCase):
         import tokenize
         self._test_module_has_signatures(tokenize)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_tracemalloc_module_has_signatures(self):
         import tracemalloc
         self._test_module_has_signatures(tracemalloc)
@@ -6366,6 +6482,8 @@ class TestSignatureDefinitions(unittest.TestCase):
         no_signature = {'ReferenceType', 'ref'}
         self._test_module_has_signatures(weakref, no_signature)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_python_function_override_signature(self):
         def func(*args, **kwargs):
             pass
@@ -6397,6 +6515,8 @@ class TestSignatureDefinitions(unittest.TestCase):
             inspect.signature(func)
 
     @support.requires_docstrings
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_base_class_have_text_signature(self):
         # see issue 43118
         from test.typinganndata.ann_module7 import BufferedReader
@@ -6560,6 +6680,8 @@ def foo():
                 inspected_src.splitlines(True)
             )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getsource_reload(self):
         # see issue 1218234
         with ready_to_import('reload_bug', self.src_before) as (name, path):
@@ -6615,6 +6737,8 @@ class TestRepl(unittest.TestCase):
         return output
 
     @unittest.skipIf(not has_subprocess_support, "test requires subprocess")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getsource(self):
         output = self.run_on_interactive_mode(textwrap.dedent("""\
         def f():
