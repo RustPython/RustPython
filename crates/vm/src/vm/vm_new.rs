@@ -106,15 +106,19 @@ impl VirtualMachine {
         )
     }
 
-    pub fn new_os_error(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyRef<PyOSError> {
+    pub fn new_os_subtype_error(
+        &self,
+        exc_type: PyTypeRef,
+        args: Vec<PyObjectRef>,
+    ) -> PyRef<PyOSError> {
         debug_assert_eq!(exc_type.slots.basicsize, std::mem::size_of::<PyOSError>());
 
         let func_args = FuncArgs::new(args, KwArgs::<PyObjectRef>::default());
-        let payload =
-            PyOSError::py_new(&exc_type, func_args, self).expect("new_os_error usage error");
+        let payload = PyOSError::py_new(&exc_type, func_args, self)
+            .expect("new_os_subtype_error usage error");
         payload
             .into_ref_with_type(self, exc_type)
-            .expect("new_os_error type error")
+            .expect("new_os_subtype_error type error")
     }
 
     /// Instantiate an exception with no arguments.
@@ -239,7 +243,7 @@ impl VirtualMachine {
             crate::exceptions::errno_to_exc_type(errno, vm).unwrap_or(vm.ctx.exceptions.os_error);
 
         let errno_obj = vm.new_pyobj(errno);
-        vm.new_os_error(
+        vm.new_os_subtype_error(
             exc_type.to_owned(),
             vec![errno_obj, vm.new_pyobj(msg.into())],
         )

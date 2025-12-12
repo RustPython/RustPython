@@ -1516,18 +1516,17 @@ pub(super) mod types {
 
             // SAFETY: slot_init is called during object initialization,
             // so fields are None and swap result can be safely ignored
-            unsafe {
-                if len >= 1 {
-                    let _ = exc.myerrno.swap(Some(new_args.args[0].clone()));
+            if len <= 5 {
+                // Only set errno/strerror when args len is 2-5 (CPython behavior)
+                if 2 <= len {
+                    let _ = unsafe { exc.myerrno.swap(Some(new_args.args[0].clone())) };
+                    let _ = unsafe { exc.strerror.swap(Some(new_args.args[1].clone())) };
                 }
-                if len >= 2 {
-                    let _ = exc.strerror.swap(Some(new_args.args[1].clone()));
-                }
-                if len >= 3 {
-                    let _ = exc.filename.swap(Some(new_args.args[2].clone()));
+                if 3 <= len {
+                    let _ = unsafe { exc.filename.swap(Some(new_args.args[2].clone())) };
                 }
                 #[cfg(windows)]
-                if len >= 4 {
+                if 4 <= len {
                     let winerror = &new_args.args.get(3).cloned();
                     let arg = if let Some(winerror_int) = winerror
                         .downcast_ref::<crate::builtins::PyInt>()
@@ -1541,13 +1540,13 @@ pub(super) mod types {
 
                     let _ = exc.winerror.swap(arg);
                 }
-                if len >= 5 {
-                    let _ = exc.filename2.swap(new_args.args.get(4).cloned());
+                if len == 5 {
+                    let _ = unsafe { exc.filename2.swap(new_args.args.get(4).cloned()) };
                 }
             }
 
-            // args are truncated to 2 for compatibility
-            if len > 2 {
+            // args are truncated to 2 for compatibility (only when 2-5 args)
+            if (3..=5).contains(&len) {
                 new_args.args.truncate(2);
             }
             PyBaseException::slot_init(zelf, new_args, vm)
