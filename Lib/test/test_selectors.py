@@ -131,8 +131,6 @@ class BaseSelectorTestCase:
         s.unregister(r)
         s.unregister(w)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_unregister_after_socket_close(self):
         s = self.SELECTOR()
         self.addCleanup(s.close)

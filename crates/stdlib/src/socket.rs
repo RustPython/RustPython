@@ -1065,8 +1065,7 @@ mod _socket {
         fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
             Ok(format!(
                 "<socket object, fd={}, family={}, type={}, proto={}>",
-                // cast because INVALID_SOCKET is unsigned, so would show usize::MAX instead of -1
-                zelf.fileno() as i64,
+                zelf.fileno(),
                 zelf.family.load(),
                 zelf.kind.load(),
                 zelf.proto.load(),
@@ -1462,25 +1461,25 @@ mod _socket {
         #[pymethod]
         fn close(&self) -> io::Result<()> {
             let sock = self.detach();
-            if sock != INVALID_SOCKET {
-                close_inner(sock)?;
+            if sock != INVALID_SOCKET as i64 {
+                close_inner(sock as RawSocket)?;
             }
             Ok(())
         }
 
         #[pymethod]
         #[inline]
-        fn detach(&self) -> RawSocket {
+        fn detach(&self) -> i64 {
             let sock = self.sock.write().take();
-            sock.map_or(INVALID_SOCKET, into_sock_fileno)
+            sock.map_or(INVALID_SOCKET as i64, |s| into_sock_fileno(s) as i64)
         }
 
         #[pymethod]
-        fn fileno(&self) -> RawSocket {
+        fn fileno(&self) -> i64 {
             self.sock
                 .read()
                 .as_ref()
-                .map_or(INVALID_SOCKET, sock_fileno)
+                .map_or(INVALID_SOCKET as i64, |s| sock_fileno(s) as i64)
         }
 
         #[pymethod]
