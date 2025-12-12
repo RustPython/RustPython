@@ -156,6 +156,11 @@ impl PyCoroutineWrapper {
     ) -> PyResult<PyIterReturn> {
         self.coro.throw(exc_type, exc_val, exc_tb, vm)
     }
+
+    #[pymethod]
+    fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
+        self.coro.close(vm)
+    }
 }
 
 impl SelfIter for PyCoroutineWrapper {}
