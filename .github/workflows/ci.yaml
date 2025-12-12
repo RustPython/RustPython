@@ -314,19 +314,22 @@ jobs:
             components: clippy
       - name: run clippy on wasm
         run: cargo clippy --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
-      - uses: actions/setup-python@v6.1.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - name: install ruff
-        run: python -m pip install ruff==0.11.8
+
       - name: Ensure docs generate no warnings
         run: cargo doc
-      - name: run ruff check
-        run: ruff check --diff
-      - name: run ruff format
-        run: ruff format --check
+
+      - name: Install ruff
+        uses: astral-sh/ruff-action@57714a7c8a2e59f32539362ba31877a1957dded1 # v3.5.1
+        with:
+          version: "0.14.9"
+
+      - run: ruff check --diff
+
+      - run: ruff format --check
+
       - name: install prettier
         run: yarn global add prettier && echo "$(yarn global bin)" >>$GITHUB_PATH
+
       - name: check wasm code with prettier
         # prettier doesn't handle ignore files very well: https://github.com/prettier/prettier/issues/8506
         run: cd wasm && git ls-files -z | xargs -0 prettier --check -u
