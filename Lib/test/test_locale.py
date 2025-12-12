@@ -511,7 +511,6 @@ class TestRealLocales(unittest.TestCase):
             self.skipTest(f"setlocale(LC_CTYPE, {loc!r}) failed: {exc!r}")
         self.assertEqual(loc, locale.getlocale(locale.LC_CTYPE))
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; Error not raised')
     @unittest.skipUnless(os.name == 'nt', 'requires Windows')
     def test_setlocale_long_encoding(self):
         with self.assertRaises(locale.Error):
