@@ -34,7 +34,7 @@ pub struct BlockIdx(u32);
 impl BlockIdx {
     pub const NULL: Self = Self::new(u32::MAX);
 
-    /// Creates a new instace of [`BlockIdx`] from a [`u32`].
+    /// Creates a new instance of [`BlockIdx`] from a [`u32`].
     #[must_use]
     pub const fn new(value: u32) -> Self {
         Self(value)
