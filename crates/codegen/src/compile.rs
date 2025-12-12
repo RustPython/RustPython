@@ -122,7 +122,7 @@ pub struct CompileOpts {
 
 #[derive(Debug, Clone, Copy)]
 struct CompileContext {
-    loop_data: Option<(ir::BlockIdx, ir::BlockIdx)>,
+    loop_data: Option<(BlockIdx, BlockIdx)>,
     in_class: bool,
     func: FunctionContext,
 }
@@ -356,7 +356,7 @@ impl Compiler {
             source_path: source_file.name().to_owned(),
             private: None,
             blocks: vec![ir::Block::default()],
-            current_block: ir::BlockIdx(0),
+            current_block: BlockIdx::new(0),
             metadata: ir::CodeUnitMetadata {
                 name: code_name.clone(),
                 qualname: Some(code_name),
@@ -745,7 +745,7 @@ impl Compiler {
             source_path: source_path.clone(),
             private,
             blocks: vec![ir::Block::default()],
-            current_block: BlockIdx(0),
+            current_block: BlockIdx::new(0),
             metadata: ir::CodeUnitMetadata {
                 name: name.to_owned(),
                 qualname: None, // Will be set below
@@ -4370,7 +4370,7 @@ impl Compiler {
         &mut self,
         expression: &Expr,
         condition: bool,
-        target_block: ir::BlockIdx,
+        target_block: BlockIdx,
     ) -> CompileResult<()> {
         // Compile expression for test, and jump to label if false
         match &expression {
@@ -5187,7 +5187,7 @@ impl Compiler {
         let return_none = init_collection.is_none();
         // Create empty object of proper type:
         if let Some(init_collection) = init_collection {
-            self._emit(init_collection, OpArg(0), ir::BlockIdx::NULL)
+            self._emit(init_collection, OpArg(0), BlockIdx::NULL)
         }
 
         let mut loop_labels = vec![];
@@ -5328,7 +5328,7 @@ impl Compiler {
     }
 
     // Low level helper functions:
-    fn _emit(&mut self, instr: Instruction, arg: OpArg, target: ir::BlockIdx) {
+    fn _emit(&mut self, instr: Instruction, arg: OpArg, target: BlockIdx) {
         let range = self.current_source_range;
         let location = self
             .source_file
@@ -5345,7 +5345,7 @@ impl Compiler {
     }
 
     fn emit_no_arg(&mut self, ins: Instruction) {
-        self._emit(ins, OpArg::null(), ir::BlockIdx::NULL)
+        self._emit(ins, OpArg::null(), BlockIdx::NULL)
     }
 
     fn emit_arg<A: OpArgType, T: EmitArg<A>>(
@@ -5393,25 +5393,25 @@ impl Compiler {
         &mut info.blocks[info.current_block]
     }
 
-    fn new_block(&mut self) -> ir::BlockIdx {
+    fn new_block(&mut self) -> BlockIdx {
         let code = self.current_code_info();
-        let idx = ir::BlockIdx(code.blocks.len().to_u32());
+        let idx = BlockIdx::new(code.blocks.len().to_u32());
         code.blocks.push(ir::Block::default());
         idx
     }
 
-    fn switch_to_block(&mut self, block: ir::BlockIdx) {
+    fn switch_to_block(&mut self, block: BlockIdx) {
         let code = self.current_code_info();
         let prev = code.current_block;
         assert_ne!(prev, block, "recursive switching {prev:?} -> {block:?}");
         assert_eq!(
             code.blocks[block].next,
-            ir::BlockIdx::NULL,
+            BlockIdx::NULL,
             "switching {prev:?} -> {block:?} to completed block"
         );
-        let prev_block = &mut code.blocks[prev.0 as usize];
+        let prev_block = &mut code.blocks[prev.idx()];
         assert_eq!(
-            prev_block.next.0,
+            u32::from(prev_block.next),
             u32::MAX,
             "switching {prev:?} -> {block:?} from block that's already got a next"
         );
@@ -5708,22 +5708,19 @@ trait EmitArg<Arg: OpArgType> {
     fn emit(
         self,
         f: impl FnOnce(OpArgMarker<Arg>) -> Instruction,
-    ) -> (Instruction, OpArg, ir::BlockIdx);
+    ) -> (Instruction, OpArg, BlockIdx);
 }
 impl<T: OpArgType> EmitArg<T> for T {
-    fn emit(
-        self,
-        f: impl FnOnce(OpArgMarker<T>) -> Instruction,
-    ) -> (Instruction, OpArg, ir::BlockIdx) {
+    fn emit(self, f: impl FnOnce(OpArgMarker<T>) -> Instruction) -> (Instruction, OpArg, BlockIdx) {
         let (marker, arg) = OpArgMarker::new(self);
-        (f(marker), arg, ir::BlockIdx::NULL)
+        (f(marker), arg, BlockIdx::NULL)
     }
 }
-impl EmitArg<bytecode::Label> for ir::BlockIdx {
+impl EmitArg<bytecode::Label> for BlockIdx {
     fn emit(
         self,
         f: impl FnOnce(OpArgMarker<bytecode::Label>) -> Instruction,
-    ) -> (Instruction, OpArg, ir::BlockIdx) {
+    ) -> (Instruction, OpArg, BlockIdx) {
         (f(OpArgMarker::marker()), OpArg::null(), self)
     }
 }
