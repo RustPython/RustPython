@@ -178,13 +178,11 @@ class SocketServerTest(unittest.TestCase):
                 buf += data
             self.assertEqual(buf, TEST_STR)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; AssertionError: -1 != 18446744073709551615")
     def test_TCPServer(self):
         self.run_server(socketserver.TCPServer,
                         socketserver.StreamRequestHandler,
                         self.stream_examine)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; AssertionError: -1 != 18446744073709551615")
     def test_ThreadingTCPServer(self):
         self.run_server(socketserver.ThreadingTCPServer,
                         socketserver.StreamRequestHandler,
@@ -217,13 +215,11 @@ class SocketServerTest(unittest.TestCase):
                             socketserver.StreamRequestHandler,
                             self.stream_examine)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; AssertionError: -1 != 18446744073709551615")
     def test_UDPServer(self):
         self.run_server(socketserver.UDPServer,
                         socketserver.DatagramRequestHandler,
                         self.dgram_examine)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; AssertionError: -1 != 18446744073709551615")
     def test_ThreadingUDPServer(self):
         self.run_server(socketserver.ThreadingUDPServer,
                         socketserver.DatagramRequestHandler,
@@ -298,7 +294,6 @@ class SocketServerTest(unittest.TestCase):
                 socketserver.TCPServer((HOST, -1),
                                        socketserver.StreamRequestHandler)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; AssertionError: -1 != 18446744073709551615")
     def test_context_manager(self):
         with socketserver.TCPServer((HOST, 0),
                                     socketserver.StreamRequestHandler) as server:
