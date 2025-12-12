@@ -1,18 +1,102 @@
 pub(crate) use decl::make_module;
 
+#[allow(static_mut_refs)] // TODO: group code only with static mut refs
 #[pymodule(name = "faulthandler")]
 mod decl {
     use crate::vm::{
         PyObjectRef, PyResult, VirtualMachine, builtins::PyFloat, frame::Frame,
         function::OptionalArg, py_io::Write,
     };
+    #[cfg(any(unix, windows))]
+    use rustpython_common::os::{get_errno, set_errno};
     use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
     use std::sync::{Arc, Condvar, Mutex};
     use std::thread;
     use std::time::Duration;
 
-    static ENABLED: AtomicBool = AtomicBool::new(false);
-    static FATAL_ERROR_FD: AtomicI32 = AtomicI32::new(2); // stderr by default
+    /// fault_handler_t
+    #[cfg(unix)]
+    struct FaultHandler {
+        signum: libc::c_int,
+        enabled: bool,
+        name: &'static str,
+        previous: libc::sigaction,
+    }
+
+    #[cfg(windows)]
+    struct FaultHandler {
+        signum: libc::c_int,
+        enabled: bool,
+        name: &'static str,
+        previous: libc::sighandler_t,
+    }
+
+    #[cfg(unix)]
+    impl FaultHandler {
+        const fn new(signum: libc::c_int, name: &'static str) -> Self {
+            Self {
+                signum,
+                enabled: false,
+                name,
+                // SAFETY: sigaction is a C struct that can be zero-initialized
+                previous: unsafe { std::mem::zeroed() },
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    impl FaultHandler {
+        const fn new(signum: libc::c_int, name: &'static str) -> Self {
+            Self {
+                signum,
+                enabled: false,
+                name,
+                previous: 0,
+            }
+        }
+    }
+
+    /// faulthandler_handlers[]
+    /// Number of fatal signals
+    #[cfg(unix)]
+    const FAULTHANDLER_NSIGNALS: usize = 5;
+    #[cfg(windows)]
+    const FAULTHANDLER_NSIGNALS: usize = 4;
+
+    // CPython uses static arrays for signal handlers which requires mutable static access.
+    // This is safe because:
+    // 1. Signal handlers run in a single-threaded context (from the OS perspective)
+    // 2. FAULTHANDLER_HANDLERS is only modified during enable/disable operations
+    // 3. This matches CPython's faulthandler.c implementation
+    #[cfg(unix)]
+    static mut FAULTHANDLER_HANDLERS: [FaultHandler; FAULTHANDLER_NSIGNALS] = [
+        FaultHandler::new(libc::SIGBUS, "Bus error"),
+        FaultHandler::new(libc::SIGILL, "Illegal instruction"),
+        FaultHandler::new(libc::SIGFPE, "Floating-point exception"),
+        FaultHandler::new(libc::SIGABRT, "Aborted"),
+        FaultHandler::new(libc::SIGSEGV, "Segmentation fault"),
+    ];
+
+    #[cfg(windows)]
+    static mut FAULTHANDLER_HANDLERS: [FaultHandler; FAULTHANDLER_NSIGNALS] = [
+        FaultHandler::new(libc::SIGILL, "Illegal instruction"),
+        FaultHandler::new(libc::SIGFPE, "Floating-point exception"),
+        FaultHandler::new(libc::SIGABRT, "Aborted"),
+        FaultHandler::new(libc::SIGSEGV, "Segmentation fault"),
+    ];
+
+    /// fatal_error state
+    struct FatalErrorState {
+        enabled: AtomicBool,
+        fd: AtomicI32,
+        all_threads: AtomicBool,
+    }
+
+    static FATAL_ERROR: FatalErrorState = FatalErrorState {
+        enabled: AtomicBool::new(false),
+        fd: AtomicI32::new(2), // stderr by default
+        all_threads: AtomicBool::new(true),
+    };
 
     // Watchdog thread state for dump_traceback_later
     struct WatchdogState {
@@ -27,55 +111,211 @@ mod decl {
     type WatchdogHandle = Arc<(Mutex<WatchdogState>, Condvar)>;
     static WATCHDOG: Mutex<Option<WatchdogHandle>> = Mutex::new(None);
 
-    // Number of fatal signals we handle
-    #[cfg(unix)]
-    const NUM_FATAL_SIGNALS: usize = 5;
-    #[cfg(windows)]
-    const NUM_FATAL_SIGNALS: usize = 3;
+    // Frame snapshot for signal-safe traceback (RustPython-specific)
 
-    // Fatal signals to handle (with names for error messages)
-    #[cfg(unix)]
-    const FATAL_SIGNALS: [(libc::c_int, &str); NUM_FATAL_SIGNALS] = [
-        (libc::SIGBUS, "Bus error"),
-        (libc::SIGILL, "Illegal instruction"),
-        (libc::SIGFPE, "Floating-point exception"),
-        (libc::SIGABRT, "Aborted"),
-        (libc::SIGSEGV, "Segmentation fault"),
-    ];
+    /// Frame information snapshot for signal-safe access
+    #[cfg(any(unix, windows))]
+    #[derive(Clone, Copy)]
+    struct FrameSnapshot {
+        filename: [u8; 256],
+        filename_len: usize,
+        lineno: u32,
+        funcname: [u8; 128],
+        funcname_len: usize,
+    }
 
-    #[cfg(windows)]
-    const FATAL_SIGNALS: [(libc::c_int, &str); NUM_FATAL_SIGNALS] = [
-        (libc::SIGFPE, "Floating-point exception"),
-        (libc::SIGABRT, "Aborted"),
-        (libc::SIGSEGV, "Segmentation fault"),
-    ];
+    #[cfg(any(unix, windows))]
+    impl FrameSnapshot {
+        const EMPTY: Self = Self {
+            filename: [0; 256],
+            filename_len: 0,
+            lineno: 0,
+            funcname: [0; 128],
+            funcname_len: 0,
+        };
+    }
 
-    // Storage for previous signal handlers (Unix)
-    #[cfg(unix)]
-    static mut PREVIOUS_HANDLERS: [libc::sigaction; NUM_FATAL_SIGNALS] =
-        unsafe { std::mem::zeroed() };
+    #[cfg(any(unix, windows))]
+    const MAX_SNAPSHOT_FRAMES: usize = 100;
 
-    /// Signal-safe write function - no memory allocation
-    #[cfg(all(not(target_arch = "wasm32"), not(windows)))]
-    fn write_str_noraise(fd: i32, s: &str) {
-        unsafe {
-            libc::write(
-                fd as libc::c_int,
-                s.as_ptr() as *const libc::c_void,
-                s.len(),
-            );
+    /// Signal-safe global storage for frame snapshots
+    #[cfg(any(unix, windows))]
+    static mut FRAME_SNAPSHOTS: [FrameSnapshot; MAX_SNAPSHOT_FRAMES] =
+        [FrameSnapshot::EMPTY; MAX_SNAPSHOT_FRAMES];
+    #[cfg(any(unix, windows))]
+    static SNAPSHOT_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    // Signal-safe output functions
+
+    // PUTS macro
+    #[cfg(any(unix, windows))]
+    fn puts(fd: i32, s: &str) {
+        let _ = unsafe {
+            #[cfg(windows)]
+            {
+                libc::write(fd, s.as_ptr() as *const libc::c_void, s.len() as u32)
+            }
+            #[cfg(not(windows))]
+            {
+                libc::write(fd, s.as_ptr() as *const libc::c_void, s.len())
+            }
+        };
+    }
+
+    // _Py_DumpHexadecimal (traceback.c)
+    #[cfg(any(unix, windows))]
+    fn dump_hexadecimal(fd: i32, value: u64, width: usize) {
+        const HEX_CHARS: &[u8; 16] = b"0123456789abcdef";
+        let mut buf = [0u8; 18]; // "0x" + 16 hex digits
+        buf[0] = b'0';
+        buf[1] = b'x';
+
+        for i in 0..width {
+            let digit = ((value >> (4 * (width - 1 - i))) & 0xf) as usize;
+            buf[2 + i] = HEX_CHARS[digit];
         }
+
+        let _ = unsafe {
+            #[cfg(windows)]
+            {
+                libc::write(fd, buf.as_ptr() as *const libc::c_void, (2 + width) as u32)
+            }
+            #[cfg(not(windows))]
+            {
+                libc::write(fd, buf.as_ptr() as *const libc::c_void, 2 + width)
+            }
+        };
+    }
+
+    // _Py_DumpDecimal (traceback.c)
+    #[cfg(any(unix, windows))]
+    fn dump_decimal(fd: i32, value: usize) {
+        let mut buf = [0u8; 20];
+        let mut v = value;
+        let mut i = buf.len();
+
+        if v == 0 {
+            puts(fd, "0");
+            return;
+        }
+
+        while v > 0 {
+            i -= 1;
+            buf[i] = b'0' + (v % 10) as u8;
+            v /= 10;
+        }
+
+        let len = buf.len() - i;
+        let _ = unsafe {
+            #[cfg(windows)]
+            {
+                libc::write(fd, buf[i..].as_ptr() as *const libc::c_void, len as u32)
+            }
+            #[cfg(not(windows))]
+            {
+                libc::write(fd, buf[i..].as_ptr() as *const libc::c_void, len)
+            }
+        };
+    }
+
+    /// Get current thread ID
+    #[cfg(unix)]
+    fn current_thread_id() -> u64 {
+        unsafe { libc::pthread_self() as u64 }
     }
 
     #[cfg(windows)]
-    fn write_str_noraise(fd: i32, s: &str) {
-        unsafe {
-            libc::write(
-                fd as libc::c_int,
-                s.as_ptr() as *const libc::c_void,
-                s.len() as u32,
-            );
+    fn current_thread_id() -> u64 {
+        unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() as u64 }
+    }
+
+    // write_thread_id (traceback.c:1240-1256)
+    #[cfg(any(unix, windows))]
+    fn write_thread_id(fd: i32, is_current: bool) {
+        if is_current {
+            puts(fd, "Current thread 0x");
+        } else {
+            puts(fd, "Thread 0x");
         }
+        let thread_id = current_thread_id();
+        // Use appropriate width based on platform pointer size
+        dump_hexadecimal(fd, thread_id, std::mem::size_of::<usize>() * 2);
+        puts(fd, " (most recent call first):\n");
+    }
+
+    // dump_frame (traceback.c:1037-1087)
+    #[cfg(any(unix, windows))]
+    fn dump_frame(fd: i32, filename: &[u8], lineno: u32, funcname: &[u8]) {
+        puts(fd, "  File \"");
+        let _ = unsafe {
+            #[cfg(windows)]
+            {
+                libc::write(
+                    fd,
+                    filename.as_ptr() as *const libc::c_void,
+                    filename.len() as u32,
+                )
+            }
+            #[cfg(not(windows))]
+            {
+                libc::write(fd, filename.as_ptr() as *const libc::c_void, filename.len())
+            }
+        };
+        puts(fd, "\", line ");
+        dump_decimal(fd, lineno as usize);
+        puts(fd, " in ");
+        let _ = unsafe {
+            #[cfg(windows)]
+            {
+                libc::write(
+                    fd,
+                    funcname.as_ptr() as *const libc::c_void,
+                    funcname.len() as u32,
+                )
+            }
+            #[cfg(not(windows))]
+            {
+                libc::write(fd, funcname.as_ptr() as *const libc::c_void, funcname.len())
+            }
+        };
+        puts(fd, "\n");
+    }
+
+    // faulthandler_dump_traceback
+    #[cfg(any(unix, windows))]
+    fn faulthandler_dump_traceback(fd: i32, _all_threads: bool) {
+        static REENTRANT: AtomicBool = AtomicBool::new(false);
+
+        if REENTRANT.swap(true, Ordering::SeqCst) {
+            return;
+        }
+
+        // Write thread header
+        write_thread_id(fd, true);
+
+        // Try to dump traceback from snapshot
+        let count = SNAPSHOT_COUNT.load(Ordering::Acquire);
+        if count > 0 {
+            // Using index access instead of iterator because FRAME_SNAPSHOTS is static mut
+            #[allow(clippy::needless_range_loop)]
+            for i in 0..count {
+                unsafe {
+                    let snap = &FRAME_SNAPSHOTS[i];
+                    if snap.filename_len > 0 {
+                        dump_frame(
+                            fd,
+                            &snap.filename[..snap.filename_len],
+                            snap.lineno,
+                            &snap.funcname[..snap.funcname_len],
+                        );
+                    }
+                }
+            }
+        } else {
+            puts(fd, "  <no Python frame>\n");
+        }
+
+        REENTRANT.store(false, Ordering::SeqCst);
     }
 
     const MAX_FUNCTION_NAME_LEN: usize = 500;
@@ -158,159 +398,240 @@ mod decl {
         all_threads: bool,
     }
 
+    // faulthandler_py_enable
     #[pyfunction]
     fn enable(args: EnableArgs, vm: &VirtualMachine) -> PyResult<()> {
-        // Check that file is valid (if provided) or sys.stderr is not None
-        let _file = get_file_for_output(args.file, vm)?;
+        // Get file descriptor
+        let fd = get_fd_from_file_opt(args.file, vm)?;
 
-        ENABLED.store(true, Ordering::Relaxed);
+        // Store fd and all_threads in global state
+        FATAL_ERROR.fd.store(fd, Ordering::Relaxed);
+        FATAL_ERROR
+            .all_threads
+            .store(args.all_threads, Ordering::Relaxed);
 
-        // Install signal handlers for fatal errors
-        #[cfg(any(unix, windows))]
-        {
-            install_fatal_handlers(vm);
+        // Install signal handlers
+        if !faulthandler_enable_internal() {
+            return Err(vm.new_runtime_error("Failed to enable faulthandler".to_owned()));
         }
 
         Ok(())
     }
 
-    /// Unix signal handler for fatal errors
-    // faulthandler_fatal_error() in Modules/faulthandler.c
+    // Signal handlers
+
+    /// faulthandler_disable_fatal_handler (faulthandler.c:310-321)
+    #[cfg(unix)]
+    unsafe fn faulthandler_disable_fatal_handler(handler: &mut FaultHandler) {
+        if !handler.enabled {
+            return;
+        }
+        handler.enabled = false;
+        unsafe {
+            libc::sigaction(handler.signum, &handler.previous, std::ptr::null_mut());
+        }
+    }
+
+    #[cfg(windows)]
+    unsafe fn faulthandler_disable_fatal_handler(handler: &mut FaultHandler) {
+        if !handler.enabled {
+            return;
+        }
+        handler.enabled = false;
+        unsafe {
+            libc::signal(handler.signum, handler.previous);
+        }
+    }
+
+    // faulthandler_fatal_error
     #[cfg(unix)]
     extern "C" fn faulthandler_fatal_error(signum: libc::c_int) {
-        if !ENABLED.load(Ordering::Relaxed) {
+        let save_errno = get_errno();
+
+        if !FATAL_ERROR.enabled.load(Ordering::Relaxed) {
             return;
         }
 
-        let fd = FATAL_ERROR_FD.load(Ordering::Relaxed);
+        let fd = FATAL_ERROR.fd.load(Ordering::Relaxed);
 
-        // Find handler and restore previous handler BEFORE printing
-        let signal_name =
-            if let Some(idx) = FATAL_SIGNALS.iter().position(|(sig, _)| *sig == signum) {
-                // Restore previous handler first
-                unsafe {
-                    libc::sigaction(signum, &PREVIOUS_HANDLERS[idx], std::ptr::null_mut());
-                }
-                FATAL_SIGNALS[idx].1
-            } else {
-                "Unknown signal"
-            };
+        let handler = unsafe {
+            FAULTHANDLER_HANDLERS
+                .iter_mut()
+                .find(|h| h.signum == signum)
+        };
 
-        // Print error message
-        write_str_noraise(fd, "Fatal Python error: ");
-        write_str_noraise(fd, signal_name);
-        write_str_noraise(fd, "\n\n");
+        // faulthandler_fatal_error
+        if let Some(h) = handler {
+            // Disable handler first (restores previous)
+            unsafe {
+                faulthandler_disable_fatal_handler(h);
+            }
 
-        // Re-raise signal to trigger default behavior (core dump, etc.)
+            puts(fd, "Fatal Python error: ");
+            puts(fd, h.name);
+            puts(fd, "\n\n");
+        } else {
+            puts(fd, "Fatal Python error from unexpected signum: ");
+            dump_decimal(fd, signum as usize);
+            puts(fd, "\n\n");
+        }
+
+        // faulthandler_dump_traceback
+        let all_threads = FATAL_ERROR.all_threads.load(Ordering::Relaxed);
+        faulthandler_dump_traceback(fd, all_threads);
+
+        // restore errno
+        set_errno(save_errno);
+
+        // raise
         // Called immediately thanks to SA_NODEFER flag
         unsafe {
             libc::raise(signum);
         }
     }
 
-    #[cfg(unix)]
-    fn install_fatal_handlers(_vm: &VirtualMachine) {
-        for (idx, (signum, _)) in FATAL_SIGNALS.iter().enumerate() {
-            let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
-            action.sa_sigaction = faulthandler_fatal_error as libc::sighandler_t;
-            action.sa_flags = libc::SA_NODEFER;
-
-            unsafe {
-                libc::sigaction(*signum, &action, &mut PREVIOUS_HANDLERS[idx]);
-            }
-        }
-    }
-
-    /// Windows signal handler for fatal errors
-    // faulthandler_fatal_error() in Modules/faulthandler.c
+    // faulthandler_fatal_error for Windows
     #[cfg(windows)]
-    extern "C" fn faulthandler_fatal_error_windows(signum: libc::c_int) {
-        if !ENABLED.load(Ordering::Relaxed) {
+    extern "C" fn faulthandler_fatal_error(signum: libc::c_int) {
+        let save_errno = get_errno();
+
+        if !FATAL_ERROR.enabled.load(Ordering::Relaxed) {
             return;
         }
 
-        let fd = FATAL_ERROR_FD.load(Ordering::Relaxed);
+        let fd = FATAL_ERROR.fd.load(Ordering::Relaxed);
 
-        // Find handler and restore previous handler BEFORE printing
-        let signal_name =
-            if let Some(idx) = FATAL_SIGNALS.iter().position(|(sig, _)| *sig == signum) {
-                // Restore previous handler first
-                unsafe {
-                    libc::signal(signum, PREVIOUS_HANDLERS_WIN[idx]);
-                }
-                FATAL_SIGNALS[idx].1
-            } else {
-                "Unknown signal"
-            };
+        let handler = unsafe {
+            FAULTHANDLER_HANDLERS
+                .iter_mut()
+                .find(|h| h.signum == signum)
+        };
 
-        // Print error message
-        write_str_noraise(fd, "Fatal Python error: ");
-        write_str_noraise(fd, signal_name);
-        write_str_noraise(fd, "\n\n");
+        if let Some(h) = handler {
+            unsafe {
+                faulthandler_disable_fatal_handler(h);
+            }
+            puts(fd, "Fatal Python error: ");
+            puts(fd, h.name);
+            puts(fd, "\n\n");
+        } else {
+            puts(fd, "Fatal Python error from unexpected signum: ");
+            dump_decimal(fd, signum as usize);
+            puts(fd, "\n\n");
+        }
+
+        let all_threads = FATAL_ERROR.all_threads.load(Ordering::Relaxed);
+        faulthandler_dump_traceback(fd, all_threads);
+
+        set_errno(save_errno);
 
         // On Windows, don't explicitly call the previous handler for SIGSEGV
-        // The execution continues and the same instruction raises the same fault,
-        // calling the now-restored previous handler
         if signum == libc::SIGSEGV {
             return;
         }
 
-        // For other signals, re-raise to call the previous handler
         unsafe {
             libc::raise(signum);
         }
     }
 
-    #[cfg(windows)]
-    static mut PREVIOUS_HANDLERS_WIN: [libc::sighandler_t; NUM_FATAL_SIGNALS] =
-        [0; NUM_FATAL_SIGNALS];
+    // faulthandler_enable
+    #[cfg(unix)]
+    fn faulthandler_enable_internal() -> bool {
+        if FATAL_ERROR.enabled.load(Ordering::Relaxed) {
+            return true;
+        }
+
+        unsafe {
+            for handler in FAULTHANDLER_HANDLERS.iter_mut() {
+                if handler.enabled {
+                    continue;
+                }
+
+                let mut action: libc::sigaction = std::mem::zeroed();
+                action.sa_sigaction = faulthandler_fatal_error as libc::sighandler_t;
+                // SA_NODEFER flag
+                action.sa_flags = libc::SA_NODEFER;
+
+                if libc::sigaction(handler.signum, &action, &mut handler.previous) != 0 {
+                    return false;
+                }
+
+                handler.enabled = true;
+            }
+        }
+
+        FATAL_ERROR.enabled.store(true, Ordering::Relaxed);
+        true
+    }
 
     #[cfg(windows)]
-    fn install_fatal_handlers(_vm: &VirtualMachine) {
-        for (idx, (signum, _)) in FATAL_SIGNALS.iter().enumerate() {
-            unsafe {
-                PREVIOUS_HANDLERS_WIN[idx] = libc::signal(
-                    *signum,
-                    faulthandler_fatal_error_windows as libc::sighandler_t,
+    fn faulthandler_enable_internal() -> bool {
+        if FATAL_ERROR.enabled.load(Ordering::Relaxed) {
+            return true;
+        }
+
+        unsafe {
+            for handler in FAULTHANDLER_HANDLERS.iter_mut() {
+                if handler.enabled {
+                    continue;
+                }
+
+                handler.previous = libc::signal(
+                    handler.signum,
+                    faulthandler_fatal_error as libc::sighandler_t,
                 );
+
+                // SIG_ERR is -1 as sighandler_t (which is usize on Windows)
+                if handler.previous == libc::SIG_ERR as libc::sighandler_t {
+                    return false;
+                }
+
+                handler.enabled = true;
+            }
+        }
+
+        FATAL_ERROR.enabled.store(true, Ordering::Relaxed);
+        true
+    }
+
+    // faulthandler_disable
+    #[cfg(any(unix, windows))]
+    fn faulthandler_disable_internal() {
+        if !FATAL_ERROR.enabled.swap(false, Ordering::Relaxed) {
+            return;
+        }
+
+        unsafe {
+            for handler in FAULTHANDLER_HANDLERS.iter_mut() {
+                faulthandler_disable_fatal_handler(handler);
             }
         }
     }
 
+    #[cfg(not(any(unix, windows)))]
+    fn faulthandler_enable_internal() -> bool {
+        FATAL_ERROR.enabled.store(true, Ordering::Relaxed);
+        true
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn faulthandler_disable_internal() {
+        FATAL_ERROR.enabled.store(false, Ordering::Relaxed);
+    }
+
+    // faulthandler_disable_py
     #[pyfunction]
     fn disable() -> bool {
-        let was_enabled = ENABLED.swap(false, Ordering::Relaxed);
-
-        // Restore default signal handlers
-        #[cfg(any(unix, windows))]
-        {
-            uninstall_fatal_handlers();
-        }
-
+        let was_enabled = FATAL_ERROR.enabled.load(Ordering::Relaxed);
+        faulthandler_disable_internal();
         was_enabled
     }
 
-    #[cfg(unix)]
-    fn uninstall_fatal_handlers() {
-        for (idx, (signum, _)) in FATAL_SIGNALS.iter().enumerate() {
-            unsafe {
-                libc::sigaction(*signum, &PREVIOUS_HANDLERS[idx], std::ptr::null_mut());
-            }
-        }
-    }
-
-    #[cfg(windows)]
-    fn uninstall_fatal_handlers() {
-        for (idx, (signum, _)) in FATAL_SIGNALS.iter().enumerate() {
-            unsafe {
-                libc::signal(*signum, PREVIOUS_HANDLERS_WIN[idx]);
-            }
-        }
-    }
-
+    // faulthandler_is_enabled
     #[pyfunction]
     fn is_enabled() -> bool {
-        ENABLED.load(Ordering::Relaxed)
+        FATAL_ERROR.enabled.load(Ordering::Relaxed)
     }
 
     fn format_timeout(timeout_us: u64) -> String {
@@ -390,6 +711,9 @@ mod decl {
             drop(guard); // Release lock before I/O
 
             // Timeout occurred, dump traceback
+            #[cfg(target_arch = "wasm32")]
+            let _ = (exit, fd, &header);
+
             #[cfg(not(target_arch = "wasm32"))]
             {
                 let header_bytes = header.as_bytes();
@@ -628,8 +952,9 @@ mod decl {
 
     #[cfg(unix)]
     fn check_signum(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
-        // Check if it's a fatal signal
-        if FATAL_SIGNALS.iter().any(|(sig, _)| *sig == signum) {
+        // Check if it's a fatal signal (faulthandler.c uses faulthandler_handlers array)
+        let is_fatal = unsafe { FAULTHANDLER_HANDLERS.iter().any(|h| h.signum == signum) };
+        if is_fatal {
             return Err(vm.new_runtime_error(format!(
                 "signal {} cannot be registered, use enable() instead",
                 signum

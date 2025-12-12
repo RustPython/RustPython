@@ -442,8 +442,6 @@ class FaultHandlerTests(unittest.TestCase):
         output = subprocess.check_output(args)
         self.assertEqual(output.rstrip(), b"False")
 
-    # TODO: RUSTPYTHON, subprocess.CalledProcessError: Command '<filter object at ...>' returned non-zero exit status 1.
-    @unittest.expectedFailure
     @support.requires_subprocess()
     def test_sys_xoptions(self):
         # Test python -X faulthandler
@@ -457,8 +455,6 @@ class FaultHandlerTests(unittest.TestCase):
         output = subprocess.check_output(args, env=env)
         self.assertEqual(output.rstrip(), b"True")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @support.requires_subprocess()
     def test_env_var(self):
         # empty env var

@@ -187,6 +187,16 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
         );
     }
 
+    // Enable faulthandler if -X faulthandler, PYTHONFAULTHANDLER or -X dev is set
+    // _PyFaulthandler_Init()
+    if vm.state.settings.faulthandler {
+        let _ = vm.run_code_string(
+            vm.new_scope_with_builtins(),
+            "import faulthandler; faulthandler.enable()",
+            "<faulthandler>".to_owned(),
+        );
+    }
+
     let is_repl = matches!(run_mode, RunMode::Repl);
     if !vm.state.settings.quiet
         && (vm.state.settings.verbose > 0 || (is_repl && std::io::stdin().is_terminal()))
