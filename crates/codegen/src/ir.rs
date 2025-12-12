@@ -279,25 +279,12 @@ impl CodeInfo {
         let mut start_depths = vec![u32::MAX; self.blocks.len()];
         start_depths[0] = 0;
         stack.push(BlockIdx(0));
-        const DEBUG: bool = false;
         'process_blocks: while let Some(block) = stack.pop() {
             let mut depth = start_depths[block.idx()];
-            if DEBUG {
-                eprintln!("===BLOCK {}===", block.0);
-            }
             let block = &self.blocks[block];
             for ins in &block.instructions {
                 let instr = &ins.instr;
                 let effect = instr.stack_effect(ins.arg, false);
-                if DEBUG {
-                    let display_arg = if ins.target == BlockIdx::NULL {
-                        ins.arg
-                    } else {
-                        OpArg(ins.target.0)
-                    };
-                    let instr_display = instr.display(display_arg, self);
-                    eprint!("{instr_display}: {depth} {effect:+} => ");
-                }
                 let new_depth = depth.checked_add_signed(effect).ok_or({
                     if effect < 0 {
                         InternalError::StackUnderflow
@@ -305,9 +292,6 @@ impl CodeInfo {
                         InternalError::StackOverflow
                     }
                 })?;
-                if DEBUG {
-                    eprintln!("{new_depth}");
-                }
                 if new_depth > maxdepth {
                     maxdepth = new_depth
                 }
@@ -342,9 +326,6 @@ impl CodeInfo {
             if block.next != BlockIdx::NULL {
                 stackdepth_push(&mut stack, &mut start_depths, block.next, depth);
             }
-        }
-        if DEBUG {
-            eprintln!("DONE: {maxdepth}");
         }
         Ok(maxdepth)
     }
