@@ -15,8 +15,9 @@ use std::fmt::Debug;
 
 /// PyCStructType - metaclass for Structure
 #[pyclass(name = "PyCStructType", base = PyType, module = "_ctypes")]
-#[derive(Debug, Default)]
-pub struct PyCStructType {}
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct PyCStructType(PyType);
 
 impl Constructor for PyCStructType {
     type Args = FuncArgs;
@@ -219,6 +220,7 @@ pub struct FieldInfo {
     metaclass = "PyCStructType"
 )]
 pub struct PyCStructure {
+    _base: PyCData,
     /// Common CDataObject for memory buffer
     pub(super) cdata: PyRwLock<CDataObject>,
     /// Field information (name -> FieldInfo)
@@ -295,6 +297,7 @@ impl Constructor for PyCStructure {
         let mut stg_info = StgInfo::new(total_size, max_align);
         stg_info.length = fields_map.len();
         let instance = PyCStructure {
+            _base: Default::default(),
             cdata: PyRwLock::new(CDataObject::from_stg_info(&stg_info)),
             fields: PyRwLock::new(fields_map.clone()),
         };
@@ -364,6 +367,7 @@ impl PyCStructure {
 
         // Create instance
         Ok(PyCStructure {
+            _base: Default::default(),
             cdata: PyRwLock::new(CDataObject::from_bytes(data, None)),
             fields: PyRwLock::new(IndexMap::new()),
         }
@@ -415,6 +419,7 @@ impl PyCStructure {
 
         // Create instance
         Ok(PyCStructure {
+            _base: Default::default(),
             cdata: PyRwLock::new(CDataObject::from_bytes(data, Some(source))),
             fields: PyRwLock::new(IndexMap::new()),
         }
@@ -458,6 +463,7 @@ impl PyCStructure {
 
         // Create instance
         Ok(PyCStructure {
+            _base: Default::default(),
             cdata: PyRwLock::new(CDataObject::from_bytes(data, None)),
             fields: PyRwLock::new(IndexMap::new()),
         }

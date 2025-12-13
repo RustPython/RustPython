@@ -23,8 +23,9 @@ use rustpython_vm::stdlib::ctypes::base::PyCData;
 /// PyCArrayType - metatype for Array types
 /// CPython stores array info (type, length) in StgInfo via type_data
 #[pyclass(name = "PyCArrayType", base = PyType, module = "_ctypes")]
-#[derive(Debug, Default)]
-pub struct PyCArrayType {}
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct PyCArrayType(PyType);
 
 /// Create a new Array type with StgInfo stored in type_data (CPython style)
 pub fn create_array_type_with_stg_info(stg_info: StgInfo, vm: &VirtualMachine) -> PyResult {
@@ -195,6 +196,7 @@ impl PyCArrayType {
 
         // Create instance
         let instance = PyCArray {
+            _base: Default::default(),
             typ: PyRwLock::new(element_type),
             length: AtomicCell::new(length),
             element_size: AtomicCell::new(element_size),
@@ -236,6 +238,7 @@ impl AsNumber for PyCArrayType {
     module = "_ctypes"
 )]
 pub struct PyCArray {
+    _base: PyCData,
     /// Element type - can be a simple type (c_int) or an array type (c_int * 5)
     pub(super) typ: PyRwLock<PyObjectRef>,
     pub(super) length: AtomicCell<usize>,
@@ -301,6 +304,7 @@ impl Constructor for PyCArray {
         }
 
         PyCArray {
+            _base: Default::default(),
             typ: PyRwLock::new(element_type),
             length: AtomicCell::new(length),
             element_size: AtomicCell::new(element_size),
@@ -530,6 +534,7 @@ impl PyCArray {
             let element_size = if length > 0 { size / length } else { 0 };
 
             Ok(PyCArray {
+                _base: Default::default(),
                 typ: PyRwLock::new(element_type.into()),
                 length: AtomicCell::new(length),
                 element_size: AtomicCell::new(element_size),
@@ -596,6 +601,7 @@ impl PyCArray {
         let element_size = if length > 0 { size / length } else { 0 };
 
         Ok(PyCArray {
+            _base: Default::default(),
             typ: PyRwLock::new(element_type.into()),
             length: AtomicCell::new(length),
             element_size: AtomicCell::new(element_size),
@@ -656,6 +662,7 @@ impl PyCArray {
         let element_size = if length > 0 { size / length } else { 0 };
 
         Ok(PyCArray {
+            _base: Default::default(),
             typ: PyRwLock::new(element_type.into()),
             length: AtomicCell::new(length),
             element_size: AtomicCell::new(element_size),
@@ -741,6 +748,7 @@ impl PyCArray {
 
         // Create instance
         let instance = PyCArray {
+            _base: Default::default(),
             typ: PyRwLock::new(element_type.into()),
             length: AtomicCell::new(length),
             element_size: AtomicCell::new(element_size),

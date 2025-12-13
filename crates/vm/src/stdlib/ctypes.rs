@@ -370,6 +370,7 @@ pub(crate) mod _ctypes {
                 } else {
                     let size = get_size(&tp_str);
                     Ok(PyCSimple {
+                        _base: Default::default(),
                         _type_: tp_str,
                         value: AtomicCell::new(vm.ctx.none()),
                         cdata: rustpython_common::lock::PyRwLock::new(CDataObject::from_bytes(

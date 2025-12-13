@@ -13,8 +13,9 @@ use rustpython_common::lock::PyRwLock;
 
 /// PyCUnionType - metaclass for Union
 #[pyclass(name = "UnionType", base = PyType, module = "_ctypes")]
-#[derive(Debug, Default)]
-pub struct PyCUnionType {}
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct PyCUnionType(PyType);
 
 impl Constructor for PyCUnionType {
     type Args = FuncArgs;
@@ -122,6 +123,7 @@ impl PyCUnionType {}
 /// PyCUnion - base class for Union
 #[pyclass(module = "_ctypes", name = "Union", base = PyCData, metaclass = "PyCUnionType")]
 pub struct PyCUnion {
+    _base: PyCData,
     /// Common CDataObject for memory buffer
     pub(super) cdata: PyRwLock<CDataObject>,
 }
@@ -173,6 +175,7 @@ impl Constructor for PyCUnion {
         // Initialize buffer with zeros
         let stg_info = StgInfo::new(max_size, max_align);
         PyCUnion {
+            _base: Default::default(),
             cdata: PyRwLock::new(CDataObject::from_stg_info(&stg_info)),
         }
         .into_ref_with_type(vm, cls)
@@ -204,6 +207,7 @@ impl PyCUnion {
         }
         let stg_info = StgInfo::new(size, 1);
         Ok(PyCUnion {
+            _base: Default::default(),
             cdata: PyRwLock::new(CDataObject::from_stg_info(&stg_info)),
         }
         .into_ref_with_type(vm, cls)?
@@ -249,6 +253,7 @@ impl PyCUnion {
         let data = bytes[offset..offset + size].to_vec();
 
         Ok(PyCUnion {
+            _base: Default::default(),
             cdata: PyRwLock::new(CDataObject::from_bytes(data, None)),
         }
         .into_ref_with_type(vm, cls)?
@@ -286,6 +291,7 @@ impl PyCUnion {
         let data = source_bytes[offset..offset + size].to_vec();
 
         Ok(PyCUnion {
+            _base: Default::default(),
             cdata: PyRwLock::new(CDataObject::from_bytes(data, None)),
         }
         .into_ref_with_type(vm, cls)?

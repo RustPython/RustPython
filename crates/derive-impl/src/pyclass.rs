@@ -305,6 +305,87 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
     Ok(tokens)
 }
 
+/// Validates that when a base class is specified, the struct has the base type as its first field.
+/// This ensures proper memory layout for subclassing (required for #[repr(transparent)] to work correctly).
+fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<()> {
+    let Item::Struct(item_struct) = item else {
+        // Only validate structs - enums with base are already an error elsewhere
+        return Ok(());
+    };
+
+    // Get the base type name for error messages
+    let base_name = base_path
+        .segments
+        .last()
+        .map(|s| s.ident.to_string())
+        .unwrap_or_else(|| quote!(#base_path).to_string());
+
+    match &item_struct.fields {
+        syn::Fields::Named(fields) => {
+            if fields.named.is_empty() {
+                bail_span!(
+                    item_struct,
+                    "#[pyclass] with base = {base_name} requires the first field to be of type {base_name}, but the struct has no fields"
+                );
+            }
+            let first_field = fields.named.first().unwrap();
+            if !type_matches_path(&first_field.ty, base_path) {
+                bail_span!(
+                    first_field,
+                    "#[pyclass] with base = {base_name} requires the first field to be of type {base_name}"
+                );
+            }
+        }
+        syn::Fields::Unnamed(fields) => {
+            if fields.unnamed.is_empty() {
+                bail_span!(
+                    item_struct,
+                    "#[pyclass] with base = {base_name} requires the first field to be of type {base_name}, but the struct has no fields"
+                );
+            }
+            let first_field = fields.unnamed.first().unwrap();
+            if !type_matches_path(&first_field.ty, base_path) {
+                bail_span!(
+                    first_field,
+                    "#[pyclass] with base = {base_name} requires the first field to be of type {base_name}"
+                );
+            }
+        }
+        syn::Fields::Unit => {
+            bail_span!(
+                item_struct,
+                "#[pyclass] with base = {base_name} requires the first field to be of type {base_name}, but the struct is a unit struct"
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// Check if a type matches a given path (handles simple cases like `Foo` or `path::to::Foo`)
+fn type_matches_path(ty: &syn::Type, path: &syn::Path) -> bool {
+    // Compare by converting both to string representation for macro hygiene
+    let ty_str = quote!(#ty).to_string().replace(' ', "");
+    let path_str = quote!(#path).to_string().replace(' ', "");
+
+    // Check if both are the same or if the type ends with the path's last segment
+    if ty_str == path_str {
+        return true;
+    }
+
+    // Also match if just the last segment matches (e.g., foo::Bar matches Bar)
+    let syn::Type::Path(type_path) = ty else {
+        return false;
+    };
+    let Some(type_last) = type_path.path.segments.last() else {
+        return false;
+    };
+    let Some(path_last) = path.segments.last() else {
+        return false;
+    };
+    type_last.ident == path_last.ident
+}
+
 fn generate_class_def(
     ident: &Ident,
     name: &str,
@@ -468,6 +549,11 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     let base = class_meta.base()?;
     let metaclass = class_meta.metaclass()?;
     let unhashable = class_meta.unhashable()?;
+
+    // Validate that if base is specified, the first field must be of the base type
+    if let Some(ref base_path) = base {
+        validate_base_field(&item, base_path)?;
+    }
 
     let class_def = generate_class_def(
         ident,

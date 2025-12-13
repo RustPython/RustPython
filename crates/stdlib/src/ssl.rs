@@ -373,50 +373,41 @@ mod _ssl {
     #[pyattr]
     #[pyexception(name = "SSLZeroReturnError", base = PySSLError)]
     #[derive(Debug)]
-    pub struct PySSLZeroReturnError {}
+    #[repr(transparent)]
+    pub struct PySSLZeroReturnError(PySSLError);
 
     #[pyexception]
     impl PySSLZeroReturnError {}
 
     #[pyattr]
-    #[pyexception(name = "SSLWantReadError", base = PySSLError)]
+    #[pyexception(name = "SSLWantReadError", base = PySSLError, impl)]
     #[derive(Debug)]
-    pub struct PySSLWantReadError {}
-
-    #[pyexception]
-    impl PySSLWantReadError {}
+    #[repr(transparent)]
+    pub struct PySSLWantReadError(PySSLError);
 
     #[pyattr]
-    #[pyexception(name = "SSLWantWriteError", base = PySSLError)]
+    #[pyexception(name = "SSLWantWriteError", base = PySSLError, impl)]
     #[derive(Debug)]
-    pub struct PySSLWantWriteError {}
-
-    #[pyexception]
-    impl PySSLWantWriteError {}
+    #[repr(transparent)]
+    pub struct PySSLWantWriteError(PySSLError);
 
     #[pyattr]
-    #[pyexception(name = "SSLSyscallError", base = PySSLError)]
+    #[pyexception(name = "SSLSyscallError", base = PySSLError, impl)]
     #[derive(Debug)]
-    pub struct PySSLSyscallError {}
-
-    #[pyexception]
-    impl PySSLSyscallError {}
+    #[repr(transparent)]
+    pub struct PySSLSyscallError(PySSLError);
 
     #[pyattr]
-    #[pyexception(name = "SSLEOFError", base = PySSLError)]
+    #[pyexception(name = "SSLEOFError", base = PySSLError, impl)]
     #[derive(Debug)]
-    pub struct PySSLEOFError {}
-
-    #[pyexception]
-    impl PySSLEOFError {}
+    #[repr(transparent)]
+    pub struct PySSLEOFError(PySSLError);
 
     #[pyattr]
-    #[pyexception(name = "SSLCertVerificationError", base = PySSLError)]
+    #[pyexception(name = "SSLCertVerificationError", base = PySSLError, impl)]
     #[derive(Debug)]
-    pub struct PySSLCertVerificationError {}
-
-    #[pyexception]
-    impl PySSLCertVerificationError {}
+    #[repr(transparent)]
+    pub struct PySSLCertVerificationError(PySSLError);
 
     // Helper functions to create SSL exceptions with proper errno attribute
     pub(super) fn create_ssl_want_read_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
