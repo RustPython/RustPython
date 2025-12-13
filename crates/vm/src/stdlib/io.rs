@@ -20,10 +20,41 @@ pub use _io::{OpenArgs, io_open as open};
 impl ToPyException for std::io::Error {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         let errno = self.posix_errno();
+        #[cfg(windows)]
+        let msg = 'msg: {
+            // On Windows, use C runtime's strerror for POSIX errno values
+            // For Windows-specific error codes, fall back to FormatMessage
+
+            // UCRT's strerror returns "Unknown error" for invalid errno values
+            // Windows UCRT defines errno values 1-42 plus some more up to ~127
+            const MAX_POSIX_ERRNO: i32 = 127;
+            if errno > 0 && errno <= MAX_POSIX_ERRNO {
+                let ptr = unsafe { libc::strerror(errno) };
+                if !ptr.is_null() {
+                    let s = unsafe { std::ffi::CStr::from_ptr(ptr) }.to_string_lossy();
+                    if !s.starts_with("Unknown error") {
+                        break 'msg s.into_owned();
+                    }
+                }
+            }
+            self.to_string()
+        };
+        #[cfg(unix)]
+        let msg = {
+            let ptr = unsafe { libc::strerror(errno) };
+            if !ptr.is_null() {
+                unsafe { std::ffi::CStr::from_ptr(ptr) }
+                    .to_string_lossy()
+                    .into_owned()
+            } else {
+                self.to_string()
+            }
+        };
+        #[cfg(not(any(windows, unix)))]
         let msg = self.to_string();
+
         #[allow(clippy::let_and_return)]
         let exc = vm.new_errno_error(errno, msg);
-
         #[cfg(windows)]
         {
             use crate::object::AsObject;
