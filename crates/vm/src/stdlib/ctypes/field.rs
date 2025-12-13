@@ -8,8 +8,9 @@ use super::structure::PyCStructure;
 use super::union::PyCUnion;
 
 #[pyclass(name = "PyCFieldType", base = PyType, module = "_ctypes")]
-#[derive(PyPayload, Debug)]
+#[derive(Debug)]
 pub struct PyCFieldType {
+    pub _base: PyType,
     #[allow(dead_code)]
     pub(super) inner: PyCField,
 }

@@ -222,7 +222,11 @@ pub(super) fn create_ssl_cert_verification_error(
     let msg =
         format!("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: {verify_message}",);
 
-    let exc = vm.new_exception_msg(PySSLCertVerificationError::class(&vm.ctx).to_owned(), msg);
+    let exc = vm.new_os_subtype_error(
+        PySSLCertVerificationError::class(&vm.ctx).to_owned(),
+        None,
+        msg,
+    );
 
     // Set verify_code and verify_message attributes
     // Ignore errors as they're extremely rare (e.g., out of memory)
@@ -248,7 +252,7 @@ pub(super) fn create_ssl_cert_verification_error(
         vm,
     )?;
 
-    Ok(exc)
+    Ok(exc.upcast())
 }
 
 /// Unified TLS connection type (client or server)
@@ -481,10 +485,7 @@ impl SslError {
         let msg = message.into();
         // SSLError args should be (errno, message) format
         // FIXME: Use 1 as generic SSL error code
-        let exc = vm.new_exception(
-            PySSLError::class(&vm.ctx).to_owned(),
-            vec![vm.new_pyobj(1i32), vm.new_pyobj(msg)],
-        );
+        let exc = vm.new_os_subtype_error(PySSLError::class(&vm.ctx).to_owned(), Some(1), msg);
 
         // Set library and reason attributes
         // Ignore errors as they're extremely rare (e.g., out of memory)
@@ -497,7 +498,7 @@ impl SslError {
             exc.as_object()
                 .set_attr("reason", vm.ctx.new_str(reason).as_object().to_owned(), vm);
 
-        exc
+        exc.upcast()
     }
 
     /// Create SSLError with library and reason from ssl_data codes
@@ -542,19 +543,22 @@ impl SslError {
     /// Convert to Python exception
     pub fn into_py_err(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {
-            SslError::WantRead => create_ssl_want_read_error(vm),
-            SslError::WantWrite => create_ssl_want_write_error(vm),
-            SslError::Timeout(msg) => timeout_error_msg(vm, msg),
+            SslError::WantRead => create_ssl_want_read_error(vm).upcast(),
+            SslError::WantWrite => create_ssl_want_write_error(vm).upcast(),
+            SslError::Timeout(msg) => timeout_error_msg(vm, msg).upcast(),
             SslError::Syscall(msg) => {
                 // Create SSLError with library=None for syscall errors during SSL operations
                 Self::create_ssl_error_with_reason(vm, None, &msg, msg.clone())
             }
-            SslError::Ssl(msg) => vm.new_exception_msg(
-                PySSLError::class(&vm.ctx).to_owned(),
-                format!("SSL error: {msg}"),
-            ),
-            SslError::ZeroReturn => create_ssl_zero_return_error(vm),
-            SslError::Eof => create_ssl_eof_error(vm),
+            SslError::Ssl(msg) => vm
+                .new_os_subtype_error(
+                    PySSLError::class(&vm.ctx).to_owned(),
+                    None,
+                    format!("SSL error: {msg}"),
+                )
+                .upcast(),
+            SslError::ZeroReturn => create_ssl_zero_return_error(vm).upcast(),
+            SslError::Eof => create_ssl_eof_error(vm).upcast(),
             SslError::CertVerification(cert_err) => {
                 // Use the proper cert verification error creator
                 create_ssl_cert_verification_error(vm, &cert_err).expect("unlikely to happen")

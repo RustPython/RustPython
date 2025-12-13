@@ -155,7 +155,7 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
 }
 
 /// Common data object for all ctypes types
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CDataObject {
     /// pointer to memory block (b_ptr + b_size)
     pub buffer: Vec<u8>,
@@ -214,7 +214,7 @@ impl CDataObject {
 }
 
 #[pyclass(name = "_CData", module = "_ctypes")]
-#[derive(Debug, PyPayload)]
+#[derive(Debug, Default, PyPayload)]
 pub struct PyCData {
     pub cdata: PyRwLock<CDataObject>,
 }
@@ -228,8 +228,9 @@ impl PyCData {
 }
 
 #[pyclass(module = "_ctypes", name = "PyCSimpleType", base = PyType)]
-#[derive(Debug, PyPayload, Default)]
-pub struct PyCSimpleType {}
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct PyCSimpleType(PyType);
 
 #[pyclass(flags(BASETYPE), with(AsNumber))]
 impl PyCSimpleType {
@@ -411,8 +412,8 @@ impl AsNumber for PyCSimpleType {
     base = PyCData,
     metaclass = "PyCSimpleType"
 )]
-#[derive(PyPayload)]
 pub struct PyCSimple {
+    pub _base: PyCData,
     pub _type_: String,
     pub value: AtomicCell<PyObjectRef>,
     pub cdata: PyRwLock<CDataObject>,
@@ -648,6 +649,7 @@ impl Constructor for PyCSimple {
 
         let buffer = value_to_bytes_endian(&_type_, &value, swapped, vm);
         PyCSimple {
+            _base: Default::default(),
             _type_,
             value: AtomicCell::new(value),
             cdata: PyRwLock::new(CDataObject::from_bytes(buffer, None)),

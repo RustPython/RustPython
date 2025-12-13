@@ -37,7 +37,9 @@ mod _ssl {
         vm::{
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
             VirtualMachine,
-            builtins::{PyBaseExceptionRef, PyBytesRef, PyListRef, PyStrRef, PyType, PyTypeRef},
+            builtins::{
+                PyBaseExceptionRef, PyBytesRef, PyListRef, PyOSError, PyStrRef, PyType, PyTypeRef,
+            },
             convert::IntoPyException,
             function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, OptionalArg, PyComparisonValue},
             stdlib::warnings,
@@ -340,13 +342,11 @@ mod _ssl {
     #[pyattr]
     const ENCODING_PEM_AUX: i32 = 0x101; // PEM + 0x100
 
-    // Exception types
-    use rustpython_vm::builtins::PyOSError;
-
     #[pyattr]
     #[pyexception(name = "SSLError", base = PyOSError)]
     #[derive(Debug)]
-    pub struct PySSLError {}
+    #[repr(transparent)]
+    pub struct PySSLError(PyOSError);
 
     #[pyexception]
     impl PySSLError {
@@ -373,89 +373,72 @@ mod _ssl {
     #[pyattr]
     #[pyexception(name = "SSLZeroReturnError", base = PySSLError)]
     #[derive(Debug)]
-    pub struct PySSLZeroReturnError {}
+    #[repr(transparent)]
+    pub struct PySSLZeroReturnError(PySSLError);
 
     #[pyexception]
     impl PySSLZeroReturnError {}
 
     #[pyattr]
-    #[pyexception(name = "SSLWantReadError", base = PySSLError)]
+    #[pyexception(name = "SSLWantReadError", base = PySSLError, impl)]
     #[derive(Debug)]
-    pub struct PySSLWantReadError {}
-
-    #[pyexception]
-    impl PySSLWantReadError {}
+    #[repr(transparent)]
+    pub struct PySSLWantReadError(PySSLError);
 
     #[pyattr]
-    #[pyexception(name = "SSLWantWriteError", base = PySSLError)]
+    #[pyexception(name = "SSLWantWriteError", base = PySSLError, impl)]
     #[derive(Debug)]
-    pub struct PySSLWantWriteError {}
-
-    #[pyexception]
-    impl PySSLWantWriteError {}
+    #[repr(transparent)]
+    pub struct PySSLWantWriteError(PySSLError);
 
     #[pyattr]
-    #[pyexception(name = "SSLSyscallError", base = PySSLError)]
+    #[pyexception(name = "SSLSyscallError", base = PySSLError, impl)]
     #[derive(Debug)]
-    pub struct PySSLSyscallError {}
-
-    #[pyexception]
-    impl PySSLSyscallError {}
+    #[repr(transparent)]
+    pub struct PySSLSyscallError(PySSLError);
 
     #[pyattr]
-    #[pyexception(name = "SSLEOFError", base = PySSLError)]
+    #[pyexception(name = "SSLEOFError", base = PySSLError, impl)]
     #[derive(Debug)]
-    pub struct PySSLEOFError {}
-
-    #[pyexception]
-    impl PySSLEOFError {}
+    #[repr(transparent)]
+    pub struct PySSLEOFError(PySSLError);
 
     #[pyattr]
-    #[pyexception(name = "SSLCertVerificationError", base = PySSLError)]
+    #[pyexception(name = "SSLCertVerificationError", base = PySSLError, impl)]
     #[derive(Debug)]
-    pub struct PySSLCertVerificationError {}
-
-    #[pyexception]
-    impl PySSLCertVerificationError {}
+    #[repr(transparent)]
+    pub struct PySSLCertVerificationError(PySSLError);
 
     // Helper functions to create SSL exceptions with proper errno attribute
-    pub(super) fn create_ssl_want_read_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
-        // args = (errno, message)
-        vm.new_exception(
+    pub(super) fn create_ssl_want_read_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
+        vm.new_os_subtype_error(
             PySSLWantReadError::class(&vm.ctx).to_owned(),
-            vec![
-                vm.ctx.new_int(SSL_ERROR_WANT_READ).into(),
-                vm.ctx
-                    .new_str("The operation did not complete (read)")
-                    .into(),
-            ],
+            Some(SSL_ERROR_WANT_READ),
+            "The operation did not complete (read)",
         )
     }
 
-    pub(super) fn create_ssl_want_write_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
-        // args = (errno, message)
-        vm.new_exception(
+    pub(super) fn create_ssl_want_write_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
+        vm.new_os_subtype_error(
             PySSLWantWriteError::class(&vm.ctx).to_owned(),
-            vec![
-                vm.ctx.new_int(SSL_ERROR_WANT_WRITE).into(),
-                vm.ctx
-                    .new_str("The operation did not complete (write)")
-                    .into(),
-            ],
+            Some(SSL_ERROR_WANT_WRITE),
+            "The operation did not complete (write)",
         )
     }
 
-    pub(crate) fn create_ssl_eof_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_exception_msg(
+    pub(crate) fn create_ssl_eof_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
+        vm.new_os_subtype_error(
             PySSLEOFError::class(&vm.ctx).to_owned(),
-            "EOF occurred in violation of protocol".to_owned(),
+            None,
+            "EOF occurred in violation of protocol",
         )
     }
 
-    pub(crate) fn create_ssl_zero_return_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_exception_msg(
+    pub(crate) fn create_ssl_zero_return_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
+        vm.new_os_subtype_error(
             PySSLZeroReturnError::class(&vm.ctx).to_owned(),
-            "TLS/SSL connection has been closed (EOF)".to_owned(),
+            None,
+            "TLS/SSL connection has been closed (EOF)",
         )
     }
 
@@ -1250,7 +1233,12 @@ mod _ssl {
                             let msg = io_err.to_string();
                             if msg.contains("Failed to decrypt") || msg.contains("wrong password") {
                                 // Wrong password error
-                                vm.new_exception_msg(PySSLError::class(&vm.ctx).to_owned(), msg)
+                                vm.new_os_subtype_error(
+                                    PySSLError::class(&vm.ctx).to_owned(),
+                                    None,
+                                    msg,
+                                )
+                                .upcast()
                             } else {
                                 // [SSL] PEM lib
                                 super::compat::SslError::create_ssl_error_with_reason(
@@ -1282,14 +1270,13 @@ mod _ssl {
 
             // Validate certificate and key match
             cert::validate_cert_key_match(&certs, &key).map_err(|e| {
-                vm.new_exception_msg(
-                    PySSLError::class(&vm.ctx).to_owned(),
-                    if e.contains("key values mismatch") {
-                        "[SSL: KEY_VALUES_MISMATCH] key values mismatch".to_owned()
-                    } else {
-                        e
-                    },
-                )
+                let msg = if e.contains("key values mismatch") {
+                    "[SSL: KEY_VALUES_MISMATCH] key values mismatch".to_owned()
+                } else {
+                    e
+                };
+                vm.new_os_subtype_error(PySSLError::class(&vm.ctx).to_owned(), Some(0), msg)
+                    .upcast()
             })?;
 
             // Auto-build certificate chain: if only leaf cert is in file, try to add CA certs
@@ -1311,18 +1298,23 @@ mod _ssl {
             // Additional validation: Create CertifiedKey to ensure rustls accepts it
             let signing_key =
                 rustls::crypto::aws_lc_rs::sign::any_supported_type(&key).map_err(|_| {
-                    vm.new_exception_msg(
+                    vm.new_os_subtype_error(
                         PySSLError::class(&vm.ctx).to_owned(),
-                        "[SSL: KEY_VALUES_MISMATCH] key values mismatch".to_owned(),
+                        None,
+                        "[SSL: KEY_VALUES_MISMATCH] key values mismatch",
                     )
+                    .upcast()
                 })?;
 
             let certified_key = CertifiedKey::new(full_chain.clone(), signing_key);
             if certified_key.keys_match().is_err() {
-                return Err(vm.new_exception_msg(
-                    PySSLError::class(&vm.ctx).to_owned(),
-                    "[SSL: KEY_VALUES_MISMATCH] key values mismatch".to_owned(),
-                ));
+                return Err(vm
+                    .new_os_subtype_error(
+                        PySSLError::class(&vm.ctx).to_owned(),
+                        None,
+                        "[SSL: KEY_VALUES_MISMATCH] key values mismatch",
+                    )
+                    .upcast());
             }
 
             // Add cert/key pair to collection (OpenSSL allows multiple cert/key pairs)
@@ -1517,9 +1509,7 @@ mod _ssl {
                 }
 
                 if *self.x509_cert_count.read() == 0 {
-                    return Err(vm.new_os_error(
-                        "Failed to load certificates from Windows store".to_owned(),
-                    ));
+                    return Err(vm.new_os_error("Failed to load certificates from Windows store"));
                 }
 
                 Ok(())
@@ -1626,8 +1616,10 @@ mod _ssl {
             let cipher_str = ciphers.as_str();
 
             // Parse cipher string and store selected ciphers
-            let selected_ciphers = parse_cipher_string(cipher_str)
-                .map_err(|e| vm.new_exception_msg(PySSLError::class(&vm.ctx).to_owned(), e))?;
+            let selected_ciphers = parse_cipher_string(cipher_str).map_err(|e| {
+                vm.new_os_subtype_error(PySSLError::class(&vm.ctx).to_owned(), None, e)
+                    .upcast()
+            })?;
 
             // Store in context
             *self.selected_ciphers.write() = Some(selected_ciphers);
@@ -1875,16 +1867,17 @@ mod _ssl {
 
             // Check if file exists
             if !std::path::Path::new(&path_str).exists() {
-                // Create FileNotFoundError with errno=ENOENT (2) using args
-                let exc = vm.new_exception(
+                // Create FileNotFoundError with errno=ENOENT (2)
+                let exc = vm.new_os_subtype_error(
                     vm.ctx.exceptions.file_not_found_error.to_owned(),
-                    vec![
-                        vm.ctx.new_int(2).into(), // errno = ENOENT (2)
-                        vm.ctx.new_str("No such file or directory").into(),
-                        vm.ctx.new_str(path_str.clone()).into(), // filename
-                    ],
+                    Some(2), // errno = ENOENT (2)
+                    "No such file or directory",
                 );
-                return Err(exc);
+                // Set filename attribute
+                let _ = exc
+                    .as_object()
+                    .set_attr("filename", vm.ctx.new_str(path_str.clone()), vm);
+                return Err(exc.upcast());
             }
 
             // Validate that the file contains DH parameters
@@ -1988,16 +1981,22 @@ mod _ssl {
 
             // Validate socket type and context protocol
             if args.server_side && zelf.protocol == PROTOCOL_TLS_CLIENT {
-                return Err(vm.new_exception_msg(
-                    PySSLError::class(&vm.ctx).to_owned(),
-                    "Cannot create a server socket with a PROTOCOL_TLS_CLIENT context".to_owned(),
-                ));
+                return Err(vm
+                    .new_os_subtype_error(
+                        PySSLError::class(&vm.ctx).to_owned(),
+                        None,
+                        "Cannot create a server socket with a PROTOCOL_TLS_CLIENT context",
+                    )
+                    .upcast());
             }
             if !args.server_side && zelf.protocol == PROTOCOL_TLS_SERVER {
-                return Err(vm.new_exception_msg(
-                    PySSLError::class(&vm.ctx).to_owned(),
-                    "Cannot create a client socket with a PROTOCOL_TLS_SERVER context".to_owned(),
-                ));
+                return Err(vm
+                    .new_os_subtype_error(
+                        PySSLError::class(&vm.ctx).to_owned(),
+                        None,
+                        "Cannot create a client socket with a PROTOCOL_TLS_SERVER context",
+                    )
+                    .upcast());
             }
 
             // Create _SSLSocket instance
@@ -2052,16 +2051,22 @@ mod _ssl {
 
             // Validate socket type and context protocol
             if server_side && zelf.protocol == PROTOCOL_TLS_CLIENT {
-                return Err(vm.new_exception_msg(
-                    PySSLError::class(&vm.ctx).to_owned(),
-                    "Cannot create a server socket with a PROTOCOL_TLS_CLIENT context".to_owned(),
-                ));
+                return Err(vm
+                    .new_os_subtype_error(
+                        PySSLError::class(&vm.ctx).to_owned(),
+                        None,
+                        "Cannot create a server socket with a PROTOCOL_TLS_CLIENT context",
+                    )
+                    .upcast());
             }
             if !server_side && zelf.protocol == PROTOCOL_TLS_SERVER {
-                return Err(vm.new_exception_msg(
-                    PySSLError::class(&vm.ctx).to_owned(),
-                    "Cannot create a client socket with a PROTOCOL_TLS_SERVER context".to_owned(),
-                ));
+                return Err(vm
+                    .new_os_subtype_error(
+                        PySSLError::class(&vm.ctx).to_owned(),
+                        None,
+                        "Cannot create a client socket with a PROTOCOL_TLS_SERVER context",
+                    )
+                    .upcast());
             }
 
             // Create _SSLSocket instance with BIO mode
@@ -2209,20 +2214,26 @@ mod _ssl {
                     // Preserve specific error messages from cert.rs
                     let err_msg = e.to_string();
                     if err_msg.contains("no start line") {
-                        // no start line: cadata does not contain a certificate
-                        vm.new_exception_msg(
+                        vm.new_os_subtype_error(
                             PySSLError::class(&vm.ctx).to_owned(),
-                            "no start line: cadata does not contain a certificate".to_string(),
+                            None,
+                            "no start line: cadata does not contain a certificate",
                         )
+                        .upcast()
                     } else if err_msg.contains("not enough data") {
-                        // not enough data: cadata does not contain a certificate
-                        vm.new_exception_msg(
+                        vm.new_os_subtype_error(
                             PySSLError::class(&vm.ctx).to_owned(),
-                            "not enough data: cadata does not contain a certificate".to_string(),
+                            None,
+                            "not enough data: cadata does not contain a certificate",
                         )
+                        .upcast()
                     } else {
-                        // Generic PEM error
-                        vm.new_exception_msg(PySSLError::class(&vm.ctx).to_owned(), err_msg)
+                        vm.new_os_subtype_error(
+                            PySSLError::class(&vm.ctx).to_owned(),
+                            None,
+                            err_msg,
+                        )
+                        .upcast()
                     }
                 })
         }
@@ -2774,10 +2785,13 @@ mod _ssl {
                     // - Re-acquire connection lock after callback
                     // - Call: connection.send_fatal_alert(AlertDescription::InternalError)
                     // - Then close connection
-                    let exc = vm.new_exception_msg(
-                        PySSLError::class(&vm.ctx).to_owned(),
-                        "SNI callback returned invalid type".to_owned(),
-                    );
+                    let exc: PyBaseExceptionRef = vm
+                        .new_os_subtype_error(
+                            PySSLError::class(&vm.ctx).to_owned(),
+                            None,
+                            "SNI callback returned invalid type",
+                        )
+                        .upcast();
                     let _ = exc.as_object().set_attr(
                         "reason",
                         vm.ctx.new_str("TLSV1_ALERT_INTERNAL_ERROR"),
@@ -3287,7 +3301,7 @@ mod _ssl {
             len: OptionalArg<isize>,
             buffer: OptionalArg<ArgMemoryBuffer>,
             vm: &VirtualMachine,
-        ) -> PyResult<PyObjectRef> {
+        ) -> PyResult {
             // Convert len to usize, defaulting to 1024 if not provided
             // -1 means read all available data (treat as large buffer size)
             let len_val = len.unwrap_or(PEM_BUFSIZE as isize);
@@ -3330,10 +3344,13 @@ mod _ssl {
             // After unwrap()/shutdown(), read operations should fail with SSLError
             let shutdown_state = *self.shutdown_state.lock();
             if shutdown_state != ShutdownState::NotStarted {
-                return Err(vm.new_exception_msg(
-                    PySSLError::class(&vm.ctx).to_owned(),
-                    "cannot read after shutdown".to_owned(),
-                ));
+                return Err(vm
+                    .new_os_subtype_error(
+                        PySSLError::class(&vm.ctx).to_owned(),
+                        None,
+                        "cannot read after shutdown",
+                    )
+                    .upcast());
             }
 
             // Helper function to handle return value based on buffer presence
@@ -3380,10 +3397,13 @@ mod _ssl {
                 }
                 Err(crate::ssl::compat::SslError::Eof) => {
                     // EOF occurred in violation of protocol (unexpected closure)
-                    Err(vm.new_exception_msg(
-                        PySSLEOFError::class(&vm.ctx).to_owned(),
-                        "EOF occurred in violation of protocol".to_owned(),
-                    ))
+                    Err(vm
+                        .new_os_subtype_error(
+                            PySSLEOFError::class(&vm.ctx).to_owned(),
+                            None,
+                            "EOF occurred in violation of protocol",
+                        )
+                        .upcast())
                 }
                 Err(crate::ssl::compat::SslError::ZeroReturn) => {
                     // Clean closure with close_notify - return empty data
@@ -3391,13 +3411,15 @@ mod _ssl {
                 }
                 Err(crate::ssl::compat::SslError::WantRead) => {
                     // Non-blocking mode: would block
-                    Err(create_ssl_want_read_error(vm))
+                    Err(create_ssl_want_read_error(vm).upcast())
                 }
                 Err(crate::ssl::compat::SslError::WantWrite) => {
                     // Non-blocking mode: would block on write
-                    Err(create_ssl_want_write_error(vm))
+                    Err(create_ssl_want_write_error(vm).upcast())
                 }
-                Err(crate::ssl::compat::SslError::Timeout(msg)) => Err(timeout_error_msg(vm, msg)),
+                Err(crate::ssl::compat::SslError::Timeout(msg)) => {
+                    Err(timeout_error_msg(vm, msg).upcast())
+                }
                 Err(crate::ssl::compat::SslError::Py(e)) => {
                     // Python exception - pass through
                     Err(e)
@@ -3453,10 +3475,13 @@ mod _ssl {
             // After unwrap()/shutdown(), write operations should fail with SSLError
             let shutdown_state = *self.shutdown_state.lock();
             if shutdown_state != ShutdownState::NotStarted {
-                return Err(vm.new_exception_msg(
-                    PySSLError::class(&vm.ctx).to_owned(),
-                    "cannot write after shutdown".to_owned(),
-                ));
+                return Err(vm
+                    .new_os_subtype_error(
+                        PySSLError::class(&vm.ctx).to_owned(),
+                        None,
+                        "cannot write after shutdown",
+                    )
+                    .upcast());
             }
 
             {
@@ -3511,7 +3536,9 @@ mod _ssl {
                                         Ok(_) => {}
                                         Err(e) => {
                                             if is_blocking_io_error(&e, vm) {
-                                                return Err(create_ssl_want_write_error(vm));
+                                                return Err(
+                                                    create_ssl_want_write_error(vm).upcast()
+                                                );
                                             }
                                             return Err(e);
                                         }
@@ -3902,7 +3929,7 @@ mod _ssl {
                 // Still waiting for peer's close-notify
                 // Raise SSLWantReadError to signal app needs to transfer data
                 // This is correct for non-blocking sockets and BIO mode
-                return Err(create_ssl_want_read_error(vm));
+                return Err(create_ssl_want_read_error(vm).upcast());
             }
             // Both close-notify exchanged, shutdown complete
             *self.shutdown_state.lock() = ShutdownState::Completed;
@@ -4066,15 +4093,17 @@ mod _ssl {
             // The rustls TLS library does not support requesting client certificates
             // after the initial handshake is completed.
             // Raise SSLError instead of NotImplementedError for compatibility
-            Err(vm.new_exception_msg(
-                PySSLError::class(&vm.ctx).to_owned(),
-                "Post-handshake authentication is not supported by the rustls backend. \
+            Err(vm
+                .new_os_subtype_error(
+                    PySSLError::class(&vm.ctx).to_owned(),
+                    None,
+                    "Post-handshake authentication is not supported by the rustls backend. \
                  The rustls TLS library does not provide an API to request client certificates \
                  after the initial handshake. Consider requesting the client certificate \
                  during the initial handshake by setting the appropriate verify_mode before \
-                 calling do_handshake()."
-                    .to_owned(),
-            ))
+                 calling do_handshake().",
+                )
+                .upcast())
         }
 
         #[pymethod]
