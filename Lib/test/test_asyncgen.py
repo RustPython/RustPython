@@ -375,8 +375,6 @@ class AsyncGenTest(unittest.TestCase):
 
         self.compare_generators(sync_gen_wrapper(), async_gen_wrapper())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_async_gen_api_01(self):
         async def gen():
             yield 123
@@ -517,8 +515,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         res = self.loop.run_until_complete(consume())
         self.assertEqual(res, [1, 2])
 
-    # TODO: RUSTPYTHON, NameError: name 'aiter' is not defined
-    @unittest.expectedFailure
     def test_async_gen_aiter_class(self):
         results = []
         class Gen:
