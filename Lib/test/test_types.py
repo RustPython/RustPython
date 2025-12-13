@@ -2052,8 +2052,6 @@ class CoroutineTests(unittest.TestCase):
         else:
             self.fail('StopIteration was expected')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_gen(self):
         def gen_func():
             yield 1
