@@ -117,7 +117,6 @@ class FinalizationTest(unittest.TestCase):
 
 class GeneratorTest(unittest.TestCase):
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_name(self):
         def func():
             yield 1

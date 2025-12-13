@@ -32,7 +32,7 @@ pub struct Coro {
     // code
     // _weakreflist
     name: PyMutex<PyStrRef>,
-    // qualname
+    qualname: PyMutex<PyStrRef>,
     exception: PyMutex<Option<PyBaseExceptionRef>>, // exc_state
 }
 
@@ -48,13 +48,14 @@ fn gen_name(jen: &PyObject, vm: &VirtualMachine) -> &'static str {
 }
 
 impl Coro {
-    pub fn new(frame: FrameRef, name: PyStrRef) -> Self {
+    pub fn new(frame: FrameRef, name: PyStrRef, qualname: PyStrRef) -> Self {
         Self {
             frame,
             closed: AtomicCell::new(false),
             running: AtomicCell::new(false),
             exception: PyMutex::default(),
             name: PyMutex::new(name),
+            qualname: PyMutex::new(qualname),
         }
     }
 
@@ -186,6 +187,14 @@ impl Coro {
 
     pub fn set_name(&self, name: PyStrRef) {
         *self.name.lock() = name;
+    }
+
+    pub fn qualname(&self) -> PyStrRef {
+        self.qualname.lock().clone()
+    }
+
+    pub fn set_qualname(&self, qualname: PyStrRef) {
+        *self.qualname.lock() = qualname;
     }
 
     pub fn repr(&self, jen: &PyObject, id: usize, vm: &VirtualMachine) -> String {

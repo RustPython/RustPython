@@ -29,9 +29,9 @@ impl PyCoroutine {
         &self.inner
     }
 
-    pub fn new(frame: FrameRef, name: PyStrRef) -> Self {
+    pub fn new(frame: FrameRef, name: PyStrRef, qualname: PyStrRef) -> Self {
         Self {
-            inner: Coro::new(frame, name),
+            inner: Coro::new(frame, name, qualname),
         }
     }
 
@@ -43,6 +43,16 @@ impl PyCoroutine {
     #[pygetset(setter)]
     fn set___name__(&self, name: PyStrRef) {
         self.inner.set_name(name)
+    }
+
+    #[pygetset]
+    fn __qualname__(&self) -> PyStrRef {
+        self.inner.qualname()
+    }
+
+    #[pygetset(setter)]
+    fn set___qualname__(&self, qualname: PyStrRef) {
+        self.inner.set_qualname(qualname)
     }
 
     #[pymethod(name = "__await__")]
@@ -155,6 +165,11 @@ impl PyCoroutineWrapper {
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
         self.coro.throw(exc_type, exc_val, exc_tb, vm)
+    }
+
+    #[pymethod]
+    fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
+        self.coro.close(vm)
     }
 }
 
