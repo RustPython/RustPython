@@ -13,8 +13,9 @@ use rustpython_common::lock::PyRwLock;
 
 /// PyCUnionType - metaclass for Union
 #[pyclass(name = "UnionType", base = PyType, module = "_ctypes")]
-#[derive(Debug, PyPayload, Default)]
-pub struct PyCUnionType {}
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct PyCUnionType(PyType);
 
 impl Constructor for PyCUnionType {
     type Args = FuncArgs;
@@ -121,8 +122,8 @@ impl PyCUnionType {}
 
 /// PyCUnion - base class for Union
 #[pyclass(module = "_ctypes", name = "Union", base = PyCData, metaclass = "PyCUnionType")]
-#[derive(PyPayload)]
 pub struct PyCUnion {
+    _base: PyCData,
     /// Common CDataObject for memory buffer
     pub(super) cdata: PyRwLock<CDataObject>,
 }
@@ -173,8 +174,10 @@ impl Constructor for PyCUnion {
 
         // Initialize buffer with zeros
         let stg_info = StgInfo::new(max_size, max_align);
+        let cdata = CDataObject::from_stg_info(&stg_info);
         PyCUnion {
-            cdata: PyRwLock::new(CDataObject::from_stg_info(&stg_info)),
+            _base: PyCData::new(cdata.clone()),
+            cdata: PyRwLock::new(cdata),
         }
         .into_ref_with_type(vm, cls)
         .map(Into::into)
@@ -204,8 +207,10 @@ impl PyCUnion {
             return Err(vm.new_value_error("NULL pointer access".to_owned()));
         }
         let stg_info = StgInfo::new(size, 1);
+        let cdata = CDataObject::from_stg_info(&stg_info);
         Ok(PyCUnion {
-            cdata: PyRwLock::new(CDataObject::from_stg_info(&stg_info)),
+            _base: PyCData::new(cdata.clone()),
+            cdata: PyRwLock::new(cdata),
         }
         .into_ref_with_type(vm, cls)?
         .into())
@@ -249,8 +254,10 @@ impl PyCUnion {
         let bytes = buffer.obj_bytes();
         let data = bytes[offset..offset + size].to_vec();
 
+        let cdata = CDataObject::from_bytes(data, None);
         Ok(PyCUnion {
-            cdata: PyRwLock::new(CDataObject::from_bytes(data, None)),
+            _base: PyCData::new(cdata.clone()),
+            cdata: PyRwLock::new(cdata),
         }
         .into_ref_with_type(vm, cls)?
         .into())
@@ -286,8 +293,10 @@ impl PyCUnion {
         // Copy data from source
         let data = source_bytes[offset..offset + size].to_vec();
 
+        let cdata = CDataObject::from_bytes(data, None);
         Ok(PyCUnion {
-            cdata: PyRwLock::new(CDataObject::from_bytes(data, None)),
+            _base: PyCData::new(cdata.clone()),
+            cdata: PyRwLock::new(cdata),
         }
         .into_ref_with_type(vm, cls)?
         .into())

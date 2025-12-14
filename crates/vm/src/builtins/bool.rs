@@ -1,8 +1,7 @@
 use super::{PyInt, PyStrRef, PyType, PyTypeRef};
 use crate::common::format::FormatSpec;
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
-    VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     class::PyClassImpl,
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{FuncArgs, OptionalArg},
@@ -21,10 +20,15 @@ impl ToPyObject for bool {
 
 impl<'a> TryFromBorrowedObject<'a> for bool {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
-        if obj.fast_isinstance(vm.ctx.types.int_type) {
-            Ok(get_value(obj))
-        } else {
-            Err(vm.new_type_error(format!("Expected type bool, not {}", obj.class().name())))
+        // Python takes integers as a legit bool value
+        match obj.downcast_ref::<PyInt>() {
+            Some(int_obj) => {
+                let int_val = int_obj.as_bigint();
+                Ok(!int_val.is_zero())
+            }
+            None => {
+                Err(vm.new_type_error(format!("Expected type bool, not {}", obj.class().name())))
+            }
         }
     }
 }
@@ -81,19 +85,14 @@ impl PyObjectRef {
     }
 }
 
-#[pyclass(name = "bool", module = false, base = PyInt)]
-pub struct PyBool;
-
-impl PyPayload for PyBool {
-    #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.bool_type
-    }
-}
+#[pyclass(name = "bool", module = false, base = PyInt, ctx = "bool_type")]
+#[repr(transparent)]
+pub struct PyBool(pub PyInt);
 
 impl Debug for PyBool {
-    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let value = !self.0.as_bigint().is_zero();
+        write!(f, "PyBool({})", value)
     }
 }
 
@@ -221,5 +220,9 @@ pub(crate) fn init(context: &Context) {
 
 // Retrieve inner int value:
 pub(crate) fn get_value(obj: &PyObject) -> bool {
-    !obj.downcast_ref::<PyInt>().unwrap().as_bigint().is_zero()
+    !obj.downcast_ref::<PyBool>()
+        .unwrap()
+        .0
+        .as_bigint()
+        .is_zero()
 }
