@@ -87,9 +87,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
     fileio::extend_module(vm, &module).unwrap();
 
-    let unsupported_operation = _io::UNSUPPORTED_OPERATION
-        .get_or_init(|| _io::make_unsupportedop(ctx))
-        .clone();
+    let unsupported_operation = _io::unsupported_operation().to_owned();
     extend_module!(vm, &module, {
         "UnsupportedOperation" => unsupported_operation,
         "BlockingIOError" => ctx.exceptions.blocking_io_error.to_owned(),
@@ -204,7 +202,8 @@ mod _io {
     }
 
     pub fn new_unsupported_operation(vm: &VirtualMachine, msg: String) -> PyBaseExceptionRef {
-        vm.new_exception_msg(UNSUPPORTED_OPERATION.get().unwrap().clone(), msg)
+        vm.new_os_subtype_error(unsupported_operation().to_owned(), None, msg)
+            .upcast()
     }
 
     fn _unsupported<T>(vm: &VirtualMachine, zelf: &PyObject, operation: &str) -> PyResult<T> {
@@ -4243,11 +4242,7 @@ mod _io {
         }
     }
 
-    rustpython_common::static_cell! {
-        pub(super) static UNSUPPORTED_OPERATION: PyTypeRef;
-    }
-
-    pub(super) fn make_unsupportedop(ctx: &Context) -> PyTypeRef {
+    fn create_unsupported_operation(ctx: &Context) -> PyTypeRef {
         use crate::types::PyTypeSlots;
         PyType::new_heap(
             "UnsupportedOperation",
@@ -4261,6 +4256,13 @@ mod _io {
             ctx,
         )
         .unwrap()
+    }
+
+    pub fn unsupported_operation() -> &'static Py<PyType> {
+        rustpython_common::static_cell! {
+            static CELL: PyTypeRef;
+        }
+        CELL.get_or_init(|| create_unsupported_operation(Context::genesis()))
     }
 
     #[pyfunction]
