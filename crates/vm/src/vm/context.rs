@@ -4,6 +4,7 @@ use crate::{
         PyBaseException, PyByteArray, PyBytes, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat,
         PyFrozenSet, PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr,
         PyStrInterned, PyTuple, PyTupleRef, PyType, PyTypeRef,
+        bool_::PyBool,
         code::{self, PyCode},
         descriptor::{
             MemberGetter, MemberKind, MemberSetter, MemberSetterFunc, PyDescriptorOwned,
@@ -31,8 +32,8 @@ use rustpython_common::lock::PyRwLock;
 
 #[derive(Debug)]
 pub struct Context {
-    pub true_value: PyIntRef,
-    pub false_value: PyIntRef,
+    pub true_value: PyRef<PyBool>,
+    pub false_value: PyRef<PyBool>,
     pub none: PyRef<PyNone>,
     pub empty_tuple: PyTupleRef,
     pub empty_frozenset: PyRef<PyFrozenSet>,
@@ -302,8 +303,8 @@ impl Context {
             })
             .collect();
 
-        let true_value = create_object(PyInt::from(1), types.bool_type);
-        let false_value = create_object(PyInt::from(0), types.bool_type);
+        let true_value = create_object(PyBool(PyInt::from(1)), types.bool_type);
+        let false_value = create_object(PyBool(PyInt::from(0)), types.bool_type);
 
         let empty_tuple = create_object(
             PyTuple::new_unchecked(Vec::new().into_boxed_slice()),
@@ -446,13 +447,13 @@ impl Context {
     }
 
     #[inline(always)]
-    pub fn new_bool(&self, b: bool) -> PyIntRef {
+    pub fn new_bool(&self, b: bool) -> PyRef<PyBool> {
         let value = if b {
             &self.true_value
         } else {
             &self.false_value
         };
-        value.clone()
+        value.to_owned()
     }
 
     #[inline(always)]
