@@ -15,8 +15,9 @@ use std::fmt::Debug;
 
 /// PyCStructType - metaclass for Structure
 #[pyclass(name = "PyCStructType", base = PyType, module = "_ctypes")]
-#[derive(Debug, Default)]
-pub struct PyCStructType {}
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct PyCStructType(PyType);
 
 impl Constructor for PyCStructType {
     type Args = FuncArgs;
@@ -219,6 +220,7 @@ pub struct FieldInfo {
     metaclass = "PyCStructType"
 )]
 pub struct PyCStructure {
+    _base: PyCData,
     /// Common CDataObject for memory buffer
     pub(super) cdata: PyRwLock<CDataObject>,
     /// Field information (name -> FieldInfo)
@@ -294,8 +296,10 @@ impl Constructor for PyCStructure {
         // Initialize buffer with zeros
         let mut stg_info = StgInfo::new(total_size, max_align);
         stg_info.length = fields_map.len();
+        let cdata = CDataObject::from_stg_info(&stg_info);
         let instance = PyCStructure {
-            cdata: PyRwLock::new(CDataObject::from_stg_info(&stg_info)),
+            _base: PyCData::new(cdata.clone()),
+            cdata: PyRwLock::new(cdata),
             fields: PyRwLock::new(fields_map.clone()),
         };
 
@@ -363,8 +367,10 @@ impl PyCStructure {
         };
 
         // Create instance
+        let cdata = CDataObject::from_bytes(data, None);
         Ok(PyCStructure {
-            cdata: PyRwLock::new(CDataObject::from_bytes(data, None)),
+            _base: PyCData::new(cdata.clone()),
+            cdata: PyRwLock::new(cdata),
             fields: PyRwLock::new(IndexMap::new()),
         }
         .into_ref_with_type(vm, cls)?
@@ -414,8 +420,10 @@ impl PyCStructure {
         let data = bytes[offset..offset + size].to_vec();
 
         // Create instance
+        let cdata = CDataObject::from_bytes(data, Some(source));
         Ok(PyCStructure {
-            cdata: PyRwLock::new(CDataObject::from_bytes(data, Some(source))),
+            _base: PyCData::new(cdata.clone()),
+            cdata: PyRwLock::new(cdata),
             fields: PyRwLock::new(IndexMap::new()),
         }
         .into_ref_with_type(vm, cls)?
@@ -457,8 +465,10 @@ impl PyCStructure {
         let data = source_bytes[offset..offset + size].to_vec();
 
         // Create instance
+        let cdata = CDataObject::from_bytes(data, None);
         Ok(PyCStructure {
-            cdata: PyRwLock::new(CDataObject::from_bytes(data, None)),
+            _base: PyCData::new(cdata.clone()),
+            cdata: PyRwLock::new(cdata),
             fields: PyRwLock::new(IndexMap::new()),
         }
         .into_ref_with_type(vm, cls)?

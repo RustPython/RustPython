@@ -397,3 +397,5 @@ else:
         return buf.value
 
     # print(get_win_folder_via_ctypes("CSIDL_DOWNLOADS"))
+
+print('done')

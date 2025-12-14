@@ -219,6 +219,14 @@ pub struct PyCData {
     pub cdata: PyRwLock<CDataObject>,
 }
 
+impl PyCData {
+    pub fn new(cdata: CDataObject) -> Self {
+        Self {
+            cdata: PyRwLock::new(cdata),
+        }
+    }
+}
+
 #[pyclass(flags(BASETYPE))]
 impl PyCData {
     #[pygetset]
@@ -228,8 +236,9 @@ impl PyCData {
 }
 
 #[pyclass(module = "_ctypes", name = "PyCSimpleType", base = PyType)]
-#[derive(Debug, Default)]
-pub struct PyCSimpleType {}
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct PyCSimpleType(PyType);
 
 #[pyclass(flags(BASETYPE), with(AsNumber))]
 impl PyCSimpleType {
@@ -412,6 +421,7 @@ impl AsNumber for PyCSimpleType {
     metaclass = "PyCSimpleType"
 )]
 pub struct PyCSimple {
+    pub _base: PyCData,
     pub _type_: String,
     pub value: AtomicCell<PyObjectRef>,
     pub cdata: PyRwLock<CDataObject>,
@@ -646,10 +656,12 @@ impl Constructor for PyCSimple {
             .unwrap_or(false);
 
         let buffer = value_to_bytes_endian(&_type_, &value, swapped, vm);
+        let cdata = CDataObject::from_bytes(buffer, None);
         PyCSimple {
+            _base: PyCData::new(cdata.clone()),
             _type_,
             value: AtomicCell::new(value),
-            cdata: PyRwLock::new(CDataObject::from_bytes(buffer, None)),
+            cdata: PyRwLock::new(cdata),
         }
         .into_ref_with_type(vm, cls)
         .map(Into::into)
