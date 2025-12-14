@@ -1,8 +1,7 @@
 use super::{PyInt, PyStrRef, PyType, PyTypeRef};
 use crate::common::format::FormatSpec;
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
-    VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     class::PyClassImpl,
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{FuncArgs, OptionalArg},
@@ -81,15 +80,9 @@ impl PyObjectRef {
     }
 }
 
-#[pyclass(name = "bool", module = false, base = PyInt)]
-pub struct PyBool;
-
-impl PyPayload for PyBool {
-    #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.bool_type
-    }
-}
+#[pyclass(name = "bool", module = false, base = PyInt, ctx = "bool_type")]
+#[repr(transparent)]
+pub struct PyBool(pub PyInt);
 
 impl Debug for PyBool {
     fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {

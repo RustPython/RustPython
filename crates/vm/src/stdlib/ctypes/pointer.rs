@@ -9,7 +9,7 @@ use crate::types::{AsNumber, Constructor};
 use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 
 #[pyclass(name = "PyCPointerType", base = PyType, module = "_ctypes")]
-#[derive(PyPayload, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct PyCPointerType {}
 
 #[pyclass(flags(IMMUTABLETYPE), with(AsNumber))]
@@ -60,7 +60,7 @@ impl AsNumber for PyCPointerType {
     metaclass = "PyCPointerType",
     module = "_ctypes"
 )]
-#[derive(Debug, PyPayload)]
+#[derive(Debug)]
 pub struct PyCPointer {
     contents: PyRwLock<PyObjectRef>,
 }

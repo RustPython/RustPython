@@ -13,7 +13,7 @@ use rustpython_common::lock::PyRwLock;
 
 /// PyCUnionType - metaclass for Union
 #[pyclass(name = "UnionType", base = PyType, module = "_ctypes")]
-#[derive(Debug, PyPayload, Default)]
+#[derive(Debug, Default)]
 pub struct PyCUnionType {}
 
 impl Constructor for PyCUnionType {
@@ -121,7 +121,6 @@ impl PyCUnionType {}
 
 /// PyCUnion - base class for Union
 #[pyclass(module = "_ctypes", name = "Union", base = PyCData, metaclass = "PyCUnionType")]
-#[derive(PyPayload)]
 pub struct PyCUnion {
     /// Common CDataObject for memory buffer
     pub(super) cdata: PyRwLock<CDataObject>,

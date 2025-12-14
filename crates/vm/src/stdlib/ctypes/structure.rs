@@ -15,7 +15,7 @@ use std::fmt::Debug;
 
 /// PyCStructType - metaclass for Structure
 #[pyclass(name = "PyCStructType", base = PyType, module = "_ctypes")]
-#[derive(Debug, PyPayload, Default)]
+#[derive(Debug, Default)]
 pub struct PyCStructType {}
 
 impl Constructor for PyCStructType {
@@ -218,7 +218,6 @@ pub struct FieldInfo {
     base = PyCData,
     metaclass = "PyCStructType"
 )]
-#[derive(PyPayload)]
 pub struct PyCStructure {
     /// Common CDataObject for memory buffer
     pub(super) cdata: PyRwLock<CDataObject>,

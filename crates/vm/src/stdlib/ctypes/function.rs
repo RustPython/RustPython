@@ -162,7 +162,6 @@ impl ReturnType for PyNone {
 }
 
 #[pyclass(module = "_ctypes", name = "CFuncPtr", base = PyCData)]
-#[derive(PyPayload)]
 pub struct PyCFuncPtr {
     pub name: PyRwLock<Option<String>>,
     pub ptr: PyRwLock<Option<CodePtr>>,
