@@ -69,7 +69,7 @@ impl ToPyException for std::io::Error {
                 .set_attr("winerror", vm.new_pyobj(winerror), vm)
                 .unwrap();
         }
-        exc
+        exc.upcast()
     }
 }
 
@@ -425,7 +425,7 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "_IOBase")]
-    #[derive(Debug, PyPayload)]
+    #[derive(Debug, Default, PyPayload)]
     pub struct _IOBase;
 
     #[pyclass(with(IterNext, Iterable, Destructor), flags(BASETYPE, HAS_DICT))]
@@ -639,7 +639,9 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "_RawIOBase", base = _IOBase)]
-    pub(super) struct _RawIOBase;
+    #[derive(Debug, Default)]
+    #[repr(transparent)]
+    pub(super) struct _RawIOBase(_IOBase);
 
     #[pyclass(flags(BASETYPE, HAS_DICT))]
     impl _RawIOBase {
@@ -697,7 +699,9 @@ mod _io {
 
     #[pyattr]
     #[pyclass(name = "_BufferedIOBase", base = _IOBase)]
-    struct _BufferedIOBase;
+    #[derive(Debug, Default)]
+    #[repr(transparent)]
+    struct _BufferedIOBase(_IOBase);
 
     #[pyclass(flags(BASETYPE))]
     impl _BufferedIOBase {
@@ -760,8 +764,9 @@ mod _io {
     // TextIO Base has no public constructor
     #[pyattr]
     #[pyclass(name = "_TextIOBase", base = _IOBase)]
-    #[derive(Debug)]
-    struct _TextIOBase;
+    #[derive(Debug, Default)]
+    #[repr(transparent)]
+    struct _TextIOBase(_IOBase);
 
     #[pyclass(flags(BASETYPE))]
     impl _TextIOBase {
@@ -1762,6 +1767,7 @@ mod _io {
     #[pyclass(name = "BufferedReader", base = _BufferedIOBase)]
     #[derive(Debug, Default)]
     struct BufferedReader {
+        _base: _BufferedIOBase,
         data: PyThreadMutex<BufferedData>,
     }
 
@@ -1831,6 +1837,7 @@ mod _io {
     #[pyclass(name = "BufferedWriter", base = _BufferedIOBase)]
     #[derive(Debug, Default)]
     struct BufferedWriter {
+        _base: _BufferedIOBase,
         data: PyThreadMutex<BufferedData>,
     }
 
@@ -1876,6 +1883,7 @@ mod _io {
     #[pyclass(name = "BufferedRandom", base = _BufferedIOBase)]
     #[derive(Debug, Default)]
     struct BufferedRandom {
+        _base: _BufferedIOBase,
         data: PyThreadMutex<BufferedData>,
     }
 
@@ -1936,6 +1944,7 @@ mod _io {
     #[pyclass(name = "BufferedRWPair", base = _BufferedIOBase)]
     #[derive(Debug, Default)]
     struct BufferedRWPair {
+        _base: _BufferedIOBase,
         read: BufferedReader,
         write: BufferedWriter,
     }
@@ -2368,6 +2377,7 @@ mod _io {
     #[pyclass(name = "TextIOWrapper", base = _TextIOBase)]
     #[derive(Debug, Default)]
     struct TextIOWrapper {
+        _base: _TextIOBase,
         data: PyThreadMutex<Option<TextIOData>>,
     }
 
@@ -3648,6 +3658,7 @@ mod _io {
     #[pyclass(name = "StringIO", base = _TextIOBase)]
     #[derive(Debug)]
     struct StringIO {
+        _base: _TextIOBase,
         buffer: PyRwLock<BufferedIO>,
         closed: AtomicCell<bool>,
     }
@@ -3677,6 +3688,7 @@ mod _io {
                 .map_or_else(Vec::new, |v| v.as_bytes().to_vec());
 
             Ok(Self {
+                _base: Default::default(),
                 buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
                 closed: AtomicCell::new(false),
             })
@@ -3791,6 +3803,7 @@ mod _io {
     #[pyclass(name = "BytesIO", base = _BufferedIOBase)]
     #[derive(Debug)]
     struct BytesIO {
+        _base: _BufferedIOBase,
         buffer: PyRwLock<BufferedIO>,
         closed: AtomicCell<bool>,
         exports: AtomicCell<usize>,
@@ -3805,6 +3818,7 @@ mod _io {
                 .map_or_else(Vec::new, |input| input.as_bytes().to_vec());
 
             Ok(Self {
+                _base: Default::default(),
                 buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
                 closed: AtomicCell::new(false),
                 exports: AtomicCell::new(0),
@@ -4425,6 +4439,7 @@ mod fileio {
     #[pyclass(module = "io", name, base = _RawIOBase)]
     #[derive(Debug)]
     pub(super) struct FileIO {
+        _base: _RawIOBase,
         fd: AtomicCell<i32>,
         closefd: AtomicCell<bool>,
         mode: AtomicCell<Mode>,
@@ -4446,6 +4461,7 @@ mod fileio {
     impl Default for FileIO {
         fn default() -> Self {
             Self {
+                _base: Default::default(),
                 fd: AtomicCell::new(-1),
                 closefd: AtomicCell::new(true),
                 mode: AtomicCell::new(Mode::empty()),
