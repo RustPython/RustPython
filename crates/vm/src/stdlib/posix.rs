@@ -26,8 +26,9 @@ pub mod module {
         AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyType, PyUtf8StrRef},
         convert::{IntoPyException, ToPyObject, TryFromObject},
+        exceptions::OSErrorBuilder,
         function::{Either, KwArgs, OptionalArg},
-        ospath::{OSErrorBuilder, OsPath, OsPathOrFd},
+        ospath::{OsPath, OsPathOrFd},
         stdlib::os::{_os, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, fs_metadata},
         types::{Constructor, Representable},
         utils::ToCString,
@@ -482,7 +483,7 @@ pub mod module {
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn chroot(path: OsPath, vm: &VirtualMachine) -> PyResult<()> {
-        use crate::ospath::OSErrorBuilder;
+        use crate::exceptions::OSErrorBuilder;
 
         nix::unistd::chroot(&*path.path).map_err(|err| {
             // Use `From<nix::Error> for io::Error` when it is available

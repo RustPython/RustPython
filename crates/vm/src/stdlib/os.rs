@@ -153,6 +153,7 @@ pub(super) mod _os {
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         builtins::{
             PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
+            ToOSErrorBuilder,
         },
         common::{
             crt_fd,
@@ -161,8 +162,9 @@ pub(super) mod _os {
             suppress_iph,
         },
         convert::{IntoPyException, ToPyObject},
+        exceptions::OSErrorBuilder,
         function::{ArgBytesLike, FsPath, FuncArgs, OptionalArg},
-        ospath::{OSErrorBuilder, OsPath, OsPathOrFd, OutputMode},
+        ospath::{OsPath, OsPathOrFd, OutputMode},
         protocol::PyIterReturn,
         recursion::ReprGuard,
         types::{IterNext, Iterable, PyStructSequence, Representable, SelfIter, Unconstructible},
@@ -1127,10 +1129,10 @@ pub(super) mod _os {
     #[pyfunction(name = "replace")]
     fn rename(src: OsPath, dst: OsPath, vm: &VirtualMachine) -> PyResult<()> {
         fs::rename(&src.path, &dst.path).map_err(|err| {
-            OSErrorBuilder::new(&err)
-                .filename(src)
-                .filename2(dst)
-                .into_pyexception(vm)
+            let builder = err.to_os_error_builder(vm);
+            let builder = builder.filename(src.filename(vm));
+            let builder = builder.filename2(dst.filename(vm));
+            builder.build(vm).upcast()
         })
     }
 
@@ -1219,10 +1221,10 @@ pub(super) mod _os {
     #[pyfunction]
     fn link(src: OsPath, dst: OsPath, vm: &VirtualMachine) -> PyResult<()> {
         fs::hard_link(&src.path, &dst.path).map_err(|err| {
-            OSErrorBuilder::new(&err)
-                .filename(src)
-                .filename2(dst)
-                .into_pyexception(vm)
+            let builder = err.to_os_error_builder(vm);
+            let builder = builder.filename(src.filename(vm));
+            let builder = builder.filename2(dst.filename(vm));
+            builder.build(vm).upcast()
         })
     }
 
