@@ -15,7 +15,7 @@ use crate::{
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Initializer, IterNext, Iterable,
-        PyComparisonOp, Representable, SelfIter, Unconstructible,
+        PyComparisonOp, Representable, SelfIter,
     },
     utils::collection_repr,
     vm::VirtualMachine,
@@ -544,7 +544,7 @@ impl PyPayload for PyListIterator {
     }
 }
 
-#[pyclass(with(Unconstructible, IterNext, Iterable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
 impl PyListIterator {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
@@ -565,7 +565,6 @@ impl PyListIterator {
             .builtins_iter_reduce(|x| x.clone().into(), vm)
     }
 }
-impl Unconstructible for PyListIterator {}
 
 impl SelfIter for PyListIterator {}
 impl IterNext for PyListIterator {
@@ -590,7 +589,7 @@ impl PyPayload for PyListReverseIterator {
     }
 }
 
-#[pyclass(with(Unconstructible, IterNext, Iterable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
 impl PyListReverseIterator {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
@@ -611,7 +610,6 @@ impl PyListReverseIterator {
             .builtins_reversed_reduce(|x| x.clone().into(), vm)
     }
 }
-impl Unconstructible for PyListReverseIterator {}
 
 impl SelfIter for PyListReverseIterator {}
 impl IterNext for PyListReverseIterator {

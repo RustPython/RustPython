@@ -165,7 +165,7 @@ pub(super) mod _os {
         ospath::{IOErrorBuilder, OsPath, OsPathOrFd, OutputMode},
         protocol::PyIterReturn,
         recursion::ReprGuard,
-        types::{IterNext, Iterable, PyStructSequence, Representable, SelfIter, Unconstructible},
+        types::{IterNext, Iterable, PyStructSequence, Representable, SelfIter},
         utils::ToCString,
         vm::VirtualMachine,
     };
@@ -568,7 +568,7 @@ pub(super) mod _os {
         ino: AtomicCell<Option<u64>>,
     }
 
-    #[pyclass(with(Representable, Unconstructible))]
+    #[pyclass(flags(DISALLOW_INSTANTIATION), with(Representable))]
     impl DirEntry {
         #[pygetset]
         fn name(&self, vm: &VirtualMachine) -> PyResult {
@@ -758,8 +758,6 @@ pub(super) mod _os {
             }
         }
     }
-    impl Unconstructible for DirEntry {}
-
     #[pyattr]
     #[pyclass(name = "ScandirIter")]
     #[derive(Debug, PyPayload)]
@@ -768,7 +766,7 @@ pub(super) mod _os {
         mode: OutputMode,
     }
 
-    #[pyclass(with(IterNext, Iterable, Unconstructible))]
+    #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
     impl ScandirIterator {
         #[pymethod]
         fn close(&self) {
@@ -786,7 +784,6 @@ pub(super) mod _os {
             zelf.close()
         }
     }
-    impl Unconstructible for ScandirIterator {}
     impl SelfIter for ScandirIterator {}
     impl IterNext for ScandirIterator {
         fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {

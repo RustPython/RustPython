@@ -1788,7 +1788,6 @@ class ClassPropertiesAndMethods(unittest.TestCase, ExtraAssertions):
         self.assertEqual(b.foo, 3)
         self.assertEqual(b.__class__, D)
 
-    @unittest.expectedFailure
     def test_bad_new(self):
         self.assertRaises(TypeError, object.__new__)
         self.assertRaises(TypeError, object.__new__, '')

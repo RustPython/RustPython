@@ -6,7 +6,7 @@ use crate::{
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    types::{IterNext, Iterable, Representable, SelfIter, Unconstructible},
+    types::{IterNext, Iterable, Representable, SelfIter},
 };
 use crossbeam_utils::atomic::AtomicCell;
 
@@ -24,7 +24,7 @@ impl PyPayload for PyCoroutine {
     }
 }
 
-#[pyclass(with(Py, Unconstructible, IterNext, Representable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(Py, IterNext, Representable))]
 impl PyCoroutine {
     pub const fn as_coro(&self) -> &Coro {
         &self.inner
@@ -122,8 +122,6 @@ impl Py<PyCoroutine> {
         self.inner.close(self.as_object(), vm)
     }
 }
-
-impl Unconstructible for PyCoroutine {}
 
 impl Representable for PyCoroutine {
     #[inline]

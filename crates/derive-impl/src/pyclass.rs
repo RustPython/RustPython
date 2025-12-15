@@ -954,7 +954,10 @@ where
         } else if let Ok(f) = args.item.function_or_method() {
             (&f.sig().ident, f.span())
         } else {
-            return Err(self.new_syn_error(args.item.span(), "can only be on a method or const function pointer"));
+            return Err(self.new_syn_error(
+                args.item.span(),
+                "can only be on a method or const function pointer",
+            ));
         };
 
         let item_attr = args.attrs.remove(self.index());
@@ -1636,7 +1639,7 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
                                     "Try `#[pyclass(with(Constructor, ...))]` instead of `#[pyclass(with(DefaultConstructor, ...))]`. DefaultConstructor implicitly implements Constructor."
                                 )
                             }
-                            if path.is_ident("Constructor") || path.is_ident("Unconstructible") {
+                            if path.is_ident("Constructor") {
                                 has_constructor = true;
                             }
                             (
@@ -1691,11 +1694,7 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
             attr => bail_span!(attr, "Unknown pyimpl attribute"),
         }
     }
-    // TODO: DISALLOW_INSTANTIATION check is required
     let _ = has_constructor;
-    // if !withs.is_empty() && !has_constructor {
-    //     bail_span!(item, "#[pyclass(with(...))] does not have a Constructor. Either #[pyclass(with(Constructor, ...))] or #[pyclass(with(Unconstructible, ...))] is mandatory. Consider to add `impl DefaultConstructor for T {{}}` or `impl Unconstructible for T {{}}`.")
-    // }
 
     Ok(ExtractedImplAttrs {
         payload,

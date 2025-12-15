@@ -8,7 +8,7 @@ use crate::{
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    types::{IterNext, Iterable, Representable, SelfIter, Unconstructible},
+    types::{IterNext, Iterable, Representable, SelfIter},
 };
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -32,7 +32,7 @@ impl PyPayload for PyAsyncGen {
     }
 }
 
-#[pyclass(with(PyRef, Unconstructible, Representable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(PyRef, Representable))]
 impl PyAsyncGen {
     pub const fn as_coro(&self) -> &Coro {
         &self.inner
@@ -200,8 +200,6 @@ impl Representable for PyAsyncGen {
         Ok(zelf.inner.repr(zelf.as_object(), zelf.get_id(), vm))
     }
 }
-
-impl Unconstructible for PyAsyncGen {}
 
 #[pyclass(module = false, name = "async_generator_wrapped_value")]
 #[derive(Debug)]

@@ -10,7 +10,7 @@ use crate::{
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    types::{IterNext, Iterable, Representable, SelfIter, Unconstructible},
+    types::{IterNext, Iterable, Representable, SelfIter},
 };
 
 #[pyclass(module = false, name = "generator")]
@@ -26,7 +26,7 @@ impl PyPayload for PyGenerator {
     }
 }
 
-#[pyclass(with(Py, Unconstructible, IterNext, Iterable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(Py, IterNext, Iterable))]
 impl PyGenerator {
     pub const fn as_coro(&self) -> &Coro {
         &self.inner
@@ -113,8 +113,6 @@ impl Py<PyGenerator> {
         self.inner.close(self.as_object(), vm)
     }
 }
-
-impl Unconstructible for PyGenerator {}
 
 impl Representable for PyGenerator {
     #[inline]

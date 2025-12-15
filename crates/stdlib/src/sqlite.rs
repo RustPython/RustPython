@@ -75,7 +75,7 @@ mod _sqlite {
         sliceable::{SaturatedSliceIter, SliceableSequenceOp},
         types::{
             AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Hashable,
-            Initializer, IterNext, Iterable, PyComparisonOp, SelfIter, Unconstructible,
+            Initializer, IterNext, Iterable, PyComparisonOp, SelfIter,
         },
         utils::ToCString,
     };
@@ -2197,8 +2197,6 @@ mod _sqlite {
         inner: PyMutex<Option<BlobInner>>,
     }
 
-    impl Unconstructible for Blob {}
-
     #[derive(Debug)]
     struct BlobInner {
         blob: SqliteBlob,
@@ -2211,7 +2209,7 @@ mod _sqlite {
         }
     }
 
-    #[pyclass(with(AsMapping, Unconstructible, AsNumber, AsSequence))]
+    #[pyclass(flags(DISALLOW_INSTANTIATION), with(AsMapping, AsNumber, AsSequence))]
     impl Blob {
         #[pymethod]
         fn close(&self) {
@@ -2592,9 +2590,7 @@ mod _sqlite {
         }
     }
 
-    impl Unconstructible for Statement {}
-
-    #[pyclass(with(Unconstructible))]
+    #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl Statement {
         fn new(
             connection: &Connection,

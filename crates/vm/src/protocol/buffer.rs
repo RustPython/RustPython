@@ -9,7 +9,6 @@ use crate::{
     },
     object::PyObjectPayload,
     sliceable::SequenceIndexOp,
-    types::Unconstructible,
 };
 use itertools::Itertools;
 use std::{borrow::Cow, fmt::Debug, ops::Range};
@@ -402,7 +401,7 @@ pub struct VecBuffer {
     data: PyMutex<Vec<u8>>,
 }
 
-#[pyclass(flags(BASETYPE), with(Unconstructible))]
+#[pyclass(flags(BASETYPE, DISALLOW_INSTANTIATION))]
 impl VecBuffer {
     pub fn take(&self) -> Vec<u8> {
         std::mem::take(&mut self.data.lock())
@@ -416,8 +415,6 @@ impl From<Vec<u8>> for VecBuffer {
         }
     }
 }
-
-impl Unconstructible for VecBuffer {}
 
 impl PyRef<VecBuffer> {
     pub fn into_pybuffer(self, readonly: bool) -> PyBuffer {

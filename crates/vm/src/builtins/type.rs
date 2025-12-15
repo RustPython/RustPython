@@ -191,12 +191,15 @@ impl PyType {
         name: &str,
         bases: Vec<PyRef<Self>>,
         attrs: PyAttributes,
-        slots: PyTypeSlots,
+        mut slots: PyTypeSlots,
         metaclass: PyRef<Self>,
         ctx: &Context,
     ) -> Result<PyRef<Self>, String> {
         // TODO: ensure clean slot name
         // assert_eq!(slots.name.borrow(), "");
+
+        // Set HEAPTYPE flag for heap-allocated types
+        slots.flags |= PyTypeFlags::HEAPTYPE;
 
         let name = ctx.new_str(name);
         let heaptype_ext = HeapTypeExt {
@@ -1737,6 +1740,40 @@ pub(crate) fn call_slot_new(
     args: FuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
+    // Check DISALLOW_INSTANTIATION flag on subtype (the type being instantiated)
+    if subtype
+        .slots
+        .flags
+        .has_feature(PyTypeFlags::DISALLOW_INSTANTIATION)
+    {
+        return Err(vm.new_type_error(format!("cannot create '{}' instances", subtype.slot_name())));
+    }
+
+    // "is not safe" check (tp_new_wrapper logic)
+    // Check that the user doesn't do something silly and unsafe like
+    // object.__new__(dict). To do this, we check that the most derived base
+    // that's not a heap type is this type.
+    let mut staticbase = subtype.clone();
+    while staticbase.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+        if let Some(base) = staticbase.base.as_ref() {
+            staticbase = base.clone();
+        } else {
+            break;
+        }
+    }
+
+    // Check if staticbase's tp_new differs from typ's tp_new
+    let typ_new = typ.slots.new.load();
+    let staticbase_new = staticbase.slots.new.load();
+    if typ_new.map(|f| f as usize) != staticbase_new.map(|f| f as usize) {
+        return Err(vm.new_type_error(format!(
+            "{}.__new__({}) is not safe, use {}.__new__()",
+            typ.slot_name(),
+            subtype.slot_name(),
+            staticbase.slot_name()
+        )));
+    }
+
     let slot_new = typ
         .deref()
         .mro_find_map(|cls| cls.slots.new.load())

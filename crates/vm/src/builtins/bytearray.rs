@@ -33,7 +33,7 @@ use crate::{
     types::{
         AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor,
         DefaultConstructor, Initializer, IterNext, Iterable, PyComparisonOp, Representable,
-        SelfIter, Unconstructible,
+        SelfIter,
     },
 };
 use bstr::ByteSlice;
@@ -865,7 +865,7 @@ impl PyPayload for PyByteArrayIterator {
     }
 }
 
-#[pyclass(with(Unconstructible, IterNext, Iterable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
 impl PyByteArrayIterator {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
@@ -885,8 +885,6 @@ impl PyByteArrayIterator {
             .set_state(state, |obj, pos| pos.min(obj.__len__()), vm)
     }
 }
-
-impl Unconstructible for PyByteArrayIterator {}
 
 impl SelfIter for PyByteArrayIterator {}
 impl IterNext for PyByteArrayIterator {
