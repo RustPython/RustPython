@@ -441,6 +441,7 @@ impl IterNext for PyAsyncGenAThrow {
 pub struct PyAnextAwaitable {
     wrapped: PyObjectRef,
     default_value: PyObjectRef,
+    state: AtomicCell<AwaitableState>,
 }
 
 impl PyPayload for PyAnextAwaitable {
@@ -456,12 +457,20 @@ impl PyAnextAwaitable {
         Self {
             wrapped,
             default_value,
+            state: AtomicCell::new(AwaitableState::Init),
         }
     }
 
     #[pymethod(name = "__await__")]
     fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
         zelf
+    }
+
+    fn check_closed(&self, vm: &VirtualMachine) -> PyResult<()> {
+        if let AwaitableState::Closed = self.state.load() {
+            return Err(vm.new_runtime_error("cannot reuse already awaited __anext__()/asend()"));
+        }
+        Ok(())
     }
 
     /// Get the awaitable iterator from wrapped object.
@@ -523,6 +532,8 @@ impl PyAnextAwaitable {
 
     #[pymethod]
     fn send(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.check_closed(vm)?;
+        self.state.store(AwaitableState::Iter);
         let awaitable = self.get_awaitable_iter(vm)?;
         let result = vm.call_method(&awaitable, "send", (val,));
         self.handle_result(result, vm)
@@ -536,6 +547,8 @@ impl PyAnextAwaitable {
         exc_tb: OptionalArg,
         vm: &VirtualMachine,
     ) -> PyResult {
+        self.check_closed(vm)?;
+        self.state.store(AwaitableState::Iter);
         let awaitable = self.get_awaitable_iter(vm)?;
         let result = vm.call_method(
             &awaitable,
@@ -551,6 +564,7 @@ impl PyAnextAwaitable {
 
     #[pymethod]
     fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
+        self.state.store(AwaitableState::Closed);
         if let Ok(awaitable) = self.get_awaitable_iter(vm) {
             let _ = vm.call_method(&awaitable, "close", ());
         }
