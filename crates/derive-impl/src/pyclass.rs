@@ -954,7 +954,7 @@ where
         } else if let Ok(f) = args.item.function_or_method() {
             (&f.sig().ident, f.span())
         } else {
-            return Err(self.new_syn_error(args.item.span(), "can only be on a method"));
+            return Err(self.new_syn_error(args.item.span(), "can only be on a method or const function pointer"));
         };
 
         let item_attr = args.attrs.remove(self.index());
@@ -1496,7 +1496,9 @@ impl SlotItemMeta {
             }
         } else {
             let ident_str = self.inner().item_name();
-            let name = if let Some(stripped) = ident_str.strip_prefix("slot_") {
+            // Convert to lowercase to handle both SLOT_NEW and slot_new
+            let ident_lower = ident_str.to_lowercase();
+            let name = if let Some(stripped) = ident_lower.strip_prefix("slot_") {
                 proc_macro2::Ident::new(stripped, inner.item_ident.span())
             } else {
                 inner.item_ident.clone()
