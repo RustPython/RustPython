@@ -693,12 +693,13 @@ impl PyMemoryView {
     #[pymethod]
     fn __len__(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.try_not_released(vm)?;
-        Ok(if self.desc.ndim() == 0 {
-            1
+        if self.desc.ndim() == 0 {
+            // 0-dimensional memoryview has no length
+            Err(vm.new_type_error("0-dim memory has no length".to_owned()))
         } else {
             // shape for dim[0]
-            self.desc.dim_desc[0].0
-        })
+            Ok(self.desc.dim_desc[0].0)
+        }
     }
 
     #[pymethod]
