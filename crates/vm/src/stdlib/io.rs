@@ -4329,7 +4329,7 @@ mod fileio {
         common::crt_fd,
         convert::{IntoPyException, ToPyException},
         function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg, OptionalOption},
-        ospath::{IOErrorBuilder, OsPath, OsPathOrFd},
+        ospath::{OSErrorBuilder, OsPath, OsPathOrFd},
         stdlib::os,
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
     };
@@ -4526,7 +4526,7 @@ mod fileio {
                     let filename = OsPathOrFd::Path(path);
                     match fd {
                         Ok(fd) => (fd.into_raw(), Some(filename)),
-                        Err(e) => return Err(IOErrorBuilder::with_filename(&e, filename, vm)),
+                        Err(e) => return Err(OSErrorBuilder::with_filename(&e, filename, vm)),
                     }
                 }
             };
@@ -4541,7 +4541,7 @@ mod fileio {
             #[cfg(windows)]
             {
                 if let Err(err) = fd_fstat {
-                    return Err(IOErrorBuilder::with_filename(&err, filename, vm));
+                    return Err(OSErrorBuilder::with_filename(&err, filename, vm));
                 }
             }
             #[cfg(any(unix, target_os = "wasi"))]
@@ -4550,12 +4550,12 @@ mod fileio {
                     Ok(status) => {
                         if (status.st_mode & libc::S_IFMT) == libc::S_IFDIR {
                             let err = std::io::Error::from_raw_os_error(libc::EISDIR);
-                            return Err(IOErrorBuilder::with_filename(&err, filename, vm));
+                            return Err(OSErrorBuilder::with_filename(&err, filename, vm));
                         }
                     }
                     Err(err) => {
                         if err.raw_os_error() == Some(libc::EBADF) {
-                            return Err(IOErrorBuilder::with_filename(&err, filename, vm));
+                            return Err(OSErrorBuilder::with_filename(&err, filename, vm));
                         }
                     }
                 }

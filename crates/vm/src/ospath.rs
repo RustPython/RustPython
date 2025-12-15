@@ -145,13 +145,13 @@ impl OsPathOrFd<'_> {
 }
 
 // TODO: preserve the input `PyObjectRef` of filename and filename2 (Failing check `self.assertIs(err.filename, name, str(func)`)
-pub struct IOErrorBuilder<'a> {
+pub struct OSErrorBuilder<'a> {
     error: &'a std::io::Error,
     filename: Option<OsPathOrFd<'a>>,
     filename2: Option<OsPathOrFd<'a>>,
 }
 
-impl<'a> IOErrorBuilder<'a> {
+impl<'a> OSErrorBuilder<'a> {
     pub const fn new(error: &'a std::io::Error) -> Self {
         Self {
             error,
@@ -177,7 +177,7 @@ impl<'a> IOErrorBuilder<'a> {
         filename: impl Into<OsPathOrFd<'a>>,
         vm: &VirtualMachine,
     ) -> PyBaseExceptionRef {
-        let zelf = IOErrorBuilder {
+        let zelf = OSErrorBuilder {
             error,
             filename: Some(filename.into()),
             filename2: None,
@@ -186,7 +186,7 @@ impl<'a> IOErrorBuilder<'a> {
     }
 }
 
-impl ToPyException for IOErrorBuilder<'_> {
+impl ToPyException for OSErrorBuilder<'_> {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         let exc = self.error.to_pyexception(vm);
 
