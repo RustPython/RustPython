@@ -20,7 +20,43 @@ If, after reading this, you want to contribute to RustPython, take a look at the
 
 A high-level overview of the workings of RustPython is visible in the figure below, showing how Python source files are interpreted.
 
-![overview.png](overview.png)
+```mermaid
+flowchart TB
+  SourceCode["🐍 Source code"]
+
+  subgraph Interpreter["RustPython Interpreter"]
+    direction TB
+
+    subgraph Parser["Parser"]
+        ParserBox["• Tokenize source code<br/>• Validate tokens<br/>• Create AST"]
+    end
+
+    AST[["AST"]]
+
+    subgraph Compiler["Compiler"]
+        CompilerBox["• Converts AST to bytecode"]
+    end
+
+    Bytecode[["Bytecode"]]
+
+    subgraph VM["VM"]
+        VMBox["• Executes bytecode given input"]
+    end
+
+    Parser --> AST
+    AST --> Compiler
+    Compiler --> Bytecode
+    Bytecode --> VM
+  end
+
+  SourceCode -------> Interpreter
+
+  Input[["Input"]]
+  Output["Code gets executed"]
+
+  Input --> VM
+  VM --> Output
+```
 
 Main architecture of RustPython.
 
