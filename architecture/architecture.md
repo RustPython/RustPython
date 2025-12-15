@@ -72,7 +72,7 @@ The main entry point of RustPython is located in `src/main.rs` and simply forwar
 
 For each of the three components, the entry point is as follows:
 
-- Parser: The Parser is located in a separate project, [RustPython/Parser][10]. See the documentation there for more information.
+- Parser: The Parser is located in a separate project, [ruff_python_parser][10]. See the documentation there for more information.
 - Compiler: `compile`, located in [`crates/vm/src/vm/compile.rs`][11], this eventually forwards a call to [`compiler::compile`][12].
 - VM: `run_code_obj`, located in [`crates/vm/src/vm/mod.rs`][13]. This creates a new frame in which the bytecode is executed.
 
@@ -107,7 +107,7 @@ The Parser is the main sub-component of the compiler. All the functionality requ
 1. Lexical Analysis
 2. Parsing
 
-The functionality for parsing resides in the RustPython/Parser project. See the documentation there for more information.
+The functionality for parsing resides in the ruff_python_parser project in the astral-sh/ruff repository. See the documentation there for more information.
 
 ### VM
 
@@ -177,7 +177,7 @@ Integration and snippets that test for additional edge-cases, implementation spe
 [7]: https://github.com/RustPython/RustPython/blob/main/DEVELOPMENT.md
 [8]: https://rustpython.github.io/guideline/2020/04/04/how-to-contribute-by-cpython-unittest.html
 [9]: https://github.com/RustPython/RustPython/blob/d36a2cffdef2218f3264cef9145a1f781d474ea3/src/lib.rs#L72
-[10]: https://github.com/RustPython/Parser
+[10]: https://github.com/astral-sh/ruff/tree/2bffef59665ce7d2630dfd72ee99846663660db8/crates/ruff_python_parser
 [11]: https://github.com/RustPython/RustPython/blob/d36a2cffdef2218f3264cef9145a1f781d474ea3/crates/vm/src/vm/compile.rs#L10
 [12]: https://github.com/RustPython/RustPython/blob/d36a2cffdef2218f3264cef9145a1f781d474ea3/crates/vm/src/vm/compile.rs#L26
 [13]: https://github.com/RustPython/RustPython/blob/d36a2cffdef2218f3264cef9145a1f781d474ea3/crates/vm/src/vm/mod.rs#L433
