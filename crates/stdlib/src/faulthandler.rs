@@ -7,10 +7,11 @@ mod decl {
         PyObjectRef, PyResult, VirtualMachine, builtins::PyFloat, frame::Frame,
         function::OptionalArg, py_io::Write,
     };
+    use parking_lot::{Condvar, Mutex};
     #[cfg(any(unix, windows))]
     use rustpython_common::os::{get_errno, set_errno};
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-    use std::sync::{Arc, Condvar, Mutex};
     use std::thread;
     use std::time::Duration;
 
@@ -692,13 +693,12 @@ mod decl {
 
         loop {
             // Hold lock across wait_timeout to avoid race condition
-            let mut guard = lock.lock().unwrap();
+            let mut guard = lock.lock();
             if guard.cancel {
                 return;
             }
             let timeout = Duration::from_micros(guard.timeout_us);
-            let result = cvar.wait_timeout(guard, timeout).unwrap();
-            guard = result.0;
+            cvar.wait_for(&mut guard, timeout);
 
             // Check if cancelled after wait
             if guard.cancel {
@@ -818,7 +818,7 @@ mod decl {
 
         // Store the state
         {
-            let mut watchdog = WATCHDOG.lock().unwrap();
+            let mut watchdog = WATCHDOG.lock();
             *watchdog = Some(Arc::clone(&state));
         }
 
@@ -833,14 +833,14 @@ mod decl {
     #[pyfunction]
     fn cancel_dump_traceback_later() {
         let state = {
-            let mut watchdog = WATCHDOG.lock().unwrap();
+            let mut watchdog = WATCHDOG.lock();
             watchdog.take()
         };
 
         if let Some(state) = state {
             let (lock, cvar) = &*state;
             {
-                let mut guard = lock.lock().unwrap();
+                let mut guard = lock.lock();
                 guard.cancel = true;
             }
             cvar.notify_all();
@@ -849,7 +849,7 @@ mod decl {
 
     #[cfg(unix)]
     mod user_signals {
-        use std::sync::Mutex;
+        use parking_lot::Mutex;
 
         const NSIG: usize = 64;
 
@@ -878,12 +878,12 @@ mod decl {
         static USER_SIGNALS: Mutex<Option<Vec<UserSignal>>> = Mutex::new(None);
 
         pub fn get_user_signal(signum: usize) -> Option<UserSignal> {
-            let guard = USER_SIGNALS.lock().unwrap();
+            let guard = USER_SIGNALS.lock();
             guard.as_ref().and_then(|v| v.get(signum).cloned())
         }
 
         pub fn set_user_signal(signum: usize, signal: UserSignal) {
-            let mut guard = USER_SIGNALS.lock().unwrap();
+            let mut guard = USER_SIGNALS.lock();
             if guard.is_none() {
                 *guard = Some(vec![UserSignal::default(); NSIG]);
             }
@@ -895,7 +895,7 @@ mod decl {
         }
 
         pub fn clear_user_signal(signum: usize) -> Option<UserSignal> {
-            let mut guard = USER_SIGNALS.lock().unwrap();
+            let mut guard = USER_SIGNALS.lock();
             if let Some(ref mut v) = *guard
                 && signum < v.len()
                 && v[signum].enabled
@@ -908,7 +908,7 @@ mod decl {
         }
 
         pub fn is_enabled(signum: usize) -> bool {
-            let guard = USER_SIGNALS.lock().unwrap();
+            let guard = USER_SIGNALS.lock();
             guard
                 .as_ref()
                 .and_then(|v| v.get(signum))
