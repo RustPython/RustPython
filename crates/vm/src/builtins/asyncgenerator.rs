@@ -3,6 +3,7 @@ use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyBaseExceptionRef,
     class::PyClassImpl,
+    common::lock::PyMutex,
     coroutine::Coro,
     frame::FrameRef,
     function::OptionalArg,
@@ -17,6 +18,10 @@ use crossbeam_utils::atomic::AtomicCell;
 pub struct PyAsyncGen {
     inner: Coro,
     running_async: AtomicCell<bool>,
+    // whether hooks have been initialized
+    ag_hooks_inited: AtomicCell<bool>,
+    // ag_origin_or_finalizer - stores the finalizer callback
+    ag_finalizer: PyMutex<Option<PyObjectRef>>,
 }
 type PyAsyncGenRef = PyRef<PyAsyncGen>;
 
@@ -37,6 +42,48 @@ impl PyAsyncGen {
         Self {
             inner: Coro::new(frame, name, qualname),
             running_async: AtomicCell::new(false),
+            ag_hooks_inited: AtomicCell::new(false),
+            ag_finalizer: PyMutex::new(None),
+        }
+    }
+
+    /// Initialize async generator hooks.
+    /// Returns Ok(()) if successful, Err if firstiter hook raised an exception.
+    fn init_hooks(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        // = async_gen_init_hooks
+        if zelf.ag_hooks_inited.load() {
+            return Ok(());
+        }
+
+        zelf.ag_hooks_inited.store(true);
+
+        // Get and store finalizer from thread-local storage
+        let finalizer = crate::vm::thread::ASYNC_GEN_FINALIZER.with_borrow(|f| f.as_ref().cloned());
+        if let Some(finalizer) = finalizer {
+            *zelf.ag_finalizer.lock() = Some(finalizer);
+        }
+
+        // Call firstiter hook
+        let firstiter = crate::vm::thread::ASYNC_GEN_FIRSTITER.with_borrow(|f| f.as_ref().cloned());
+        if let Some(firstiter) = firstiter {
+            let obj: PyObjectRef = zelf.to_owned().into();
+            firstiter.call((obj,), vm)?;
+        }
+
+        Ok(())
+    }
+
+    /// Call finalizer hook if set
+    #[allow(dead_code)]
+    fn call_finalizer(zelf: &Py<Self>, vm: &VirtualMachine) {
+        // = gen_dealloc
+        let finalizer = zelf.ag_finalizer.lock().clone();
+        if let Some(finalizer) = finalizer
+            && !zelf.inner.closed.load()
+        {
+            // Call finalizer, ignore any errors (PyErr_WriteUnraisable)
+            let obj: PyObjectRef = zelf.to_owned().into();
+            let _ = finalizer.call((obj,), vm);
         }
     }
 
@@ -91,17 +138,23 @@ impl PyRef<PyAsyncGen> {
     }
 
     #[pymethod]
-    fn __anext__(self, vm: &VirtualMachine) -> PyAsyncGenASend {
-        Self::asend(self, vm.ctx.none(), vm)
+    fn __anext__(self, vm: &VirtualMachine) -> PyResult<PyAsyncGenASend> {
+        PyAsyncGen::init_hooks(&self, vm)?;
+        Ok(PyAsyncGenASend {
+            ag: self,
+            state: AtomicCell::new(AwaitableState::Init),
+            value: vm.ctx.none(),
+        })
     }
 
     #[pymethod]
-    const fn asend(self, value: PyObjectRef, _vm: &VirtualMachine) -> PyAsyncGenASend {
-        PyAsyncGenASend {
+    fn asend(self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyAsyncGenASend> {
+        PyAsyncGen::init_hooks(&self, vm)?;
+        Ok(PyAsyncGenASend {
             ag: self,
             state: AtomicCell::new(AwaitableState::Init),
             value,
-        }
+        })
     }
 
     #[pymethod]
@@ -111,8 +164,9 @@ impl PyRef<PyAsyncGen> {
         exc_val: OptionalArg,
         exc_tb: OptionalArg,
         vm: &VirtualMachine,
-    ) -> PyAsyncGenAThrow {
-        PyAsyncGenAThrow {
+    ) -> PyResult<PyAsyncGenAThrow> {
+        PyAsyncGen::init_hooks(&self, vm)?;
+        Ok(PyAsyncGenAThrow {
             ag: self,
             aclose: false,
             state: AtomicCell::new(AwaitableState::Init),
@@ -121,12 +175,13 @@ impl PyRef<PyAsyncGen> {
                 exc_val.unwrap_or_none(vm),
                 exc_tb.unwrap_or_none(vm),
             ),
-        }
+        })
     }
 
     #[pymethod]
-    fn aclose(self, vm: &VirtualMachine) -> PyAsyncGenAThrow {
-        PyAsyncGenAThrow {
+    fn aclose(self, vm: &VirtualMachine) -> PyResult<PyAsyncGenAThrow> {
+        PyAsyncGen::init_hooks(&self, vm)?;
+        Ok(PyAsyncGenAThrow {
             ag: self,
             aclose: true,
             state: AtomicCell::new(AwaitableState::Init),
@@ -135,7 +190,7 @@ impl PyRef<PyAsyncGen> {
                 vm.ctx.none(),
                 vm.ctx.none(),
             ),
-        }
+        })
     }
 }
 

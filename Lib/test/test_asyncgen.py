@@ -1485,8 +1485,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
 
         self.assertEqual(messages, [])
 
-    # TODO: RUSTPYTHON, ValueError: not enough values to unpack (expected 1, got 0)
-    @unittest.expectedFailure
     def test_async_gen_asyncio_shutdown_exception_01(self):
         messages = []
 
