@@ -15,7 +15,7 @@ mod sys {
         },
         convert::ToPyObject,
         frame::FrameRef,
-        function::{FuncArgs, OptionalArg, PosArgs},
+        function::{FuncArgs, KwArgs, OptionalArg, PosArgs},
         stdlib::{builtins, warnings::warn},
         types::PyStructSequence,
         version,
@@ -688,13 +688,21 @@ mod sys {
             writeln!(stderr, "{}:", unraisable.err_msg.str(vm)?);
         }
 
-        // TODO: print received unraisable.exc_traceback
-        let tb_module = vm.import("traceback", 0)?;
-        let print_stack = tb_module.get_attr("print_stack", vm)?;
-        print_stack.call((), vm)?;
+        // Print traceback (using actual exc_traceback, not current stack)
+        if !vm.is_none(&unraisable.exc_traceback) {
+            let tb_module = vm.import("traceback", 0)?;
+            let print_tb = tb_module.get_attr("print_tb", vm)?;
+            let stderr_obj = super::get_stderr(vm)?;
+            let kwargs: KwArgs = [("file".to_string(), stderr_obj)].into_iter().collect();
+            let _ = print_tb.call(
+                FuncArgs::new(vec![unraisable.exc_traceback.clone()], kwargs),
+                vm,
+            );
+        }
 
+        // Check exc_type
         if vm.is_none(unraisable.exc_type.as_object()) {
-            // TODO: early return, but with what error?
+            return Ok(());
         }
         assert!(
             unraisable
@@ -702,10 +710,28 @@ mod sys {
                 .fast_issubclass(vm.ctx.exceptions.base_exception_type)
         );
 
-        // TODO: print module name and qualname
+        // Print module name (if not builtins or __main__)
+        let module_name = unraisable.exc_type.__module__(vm);
+        if let Ok(module_str) = module_name.downcast::<PyStr>() {
+            let module = module_str.as_str();
+            if module != "builtins" && module != "__main__" {
+                write!(stderr, "{}.", module);
+            }
+        } else {
+            write!(stderr, "<unknown>.");
+        }
 
+        // Print qualname
+        let qualname = unraisable.exc_type.__qualname__(vm);
+        if let Ok(qualname_str) = qualname.downcast::<PyStr>() {
+            write!(stderr, "{}", qualname_str.as_str());
+        } else {
+            write!(stderr, "{}", unraisable.exc_type.name());
+        }
+
+        // Print exception value
         if !vm.is_none(&unraisable.exc_value) {
-            write!(stderr, "{}: ", unraisable.exc_type);
+            write!(stderr, ": ");
             if let Ok(str) = unraisable.exc_value.str(vm) {
                 write!(stderr, "{}", str.to_str().unwrap_or("<str with surrogate>"));
             } else {
@@ -713,7 +739,13 @@ mod sys {
             }
         }
         writeln!(stderr);
-        // TODO: call file.flush()
+
+        // Flush stderr
+        if let Ok(stderr_obj) = super::get_stderr(vm)
+            && let Ok(flush) = stderr_obj.get_attr("flush", vm)
+        {
+            let _ = flush.call((), vm);
+        }
 
         Ok(())
     }
