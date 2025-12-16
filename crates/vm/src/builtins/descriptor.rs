@@ -4,7 +4,7 @@ use crate::{
     builtins::{PyTypeRef, builtin_func::PyNativeMethod, type_},
     class::PyClassImpl,
     function::{FuncArgs, PyMethodDef, PyMethodFlags, PySetterValue},
-    types::{Callable, GetDescriptor, Representable, Unconstructible},
+    types::{Callable, GetDescriptor, Representable},
 };
 use rustpython_common::lock::PyRwLock;
 
@@ -105,8 +105,8 @@ impl PyMethodDescriptor {
 }
 
 #[pyclass(
-    with(GetDescriptor, Callable, Unconstructible, Representable),
-    flags(METHOD_DESCRIPTOR)
+    with(GetDescriptor, Callable, Representable),
+    flags(METHOD_DESCRIPTOR, DISALLOW_INSTANTIATION)
 )]
 impl PyMethodDescriptor {
     #[pygetset]
@@ -158,8 +158,6 @@ impl Representable for PyMethodDescriptor {
         ))
     }
 }
-
-impl Unconstructible for PyMethodDescriptor {}
 
 #[derive(Debug)]
 pub enum MemberKind {
@@ -246,7 +244,10 @@ fn calculate_qualname(descr: &PyDescriptorOwned, vm: &VirtualMachine) -> PyResul
     }
 }
 
-#[pyclass(with(GetDescriptor, Unconstructible, Representable), flags(BASETYPE))]
+#[pyclass(
+    with(GetDescriptor, Representable),
+    flags(BASETYPE, DISALLOW_INSTANTIATION)
+)]
 impl PyMemberDescriptor {
     #[pygetset]
     fn __doc__(&self) -> Option<String> {
@@ -338,8 +339,6 @@ fn set_slot_at_object(
 
     Ok(())
 }
-
-impl Unconstructible for PyMemberDescriptor {}
 
 impl Representable for PyMemberDescriptor {
     #[inline]

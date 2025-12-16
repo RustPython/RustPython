@@ -26,8 +26,9 @@ pub mod module {
         AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyType, PyUtf8StrRef},
         convert::{IntoPyException, ToPyObject, TryFromObject},
+        exceptions::OSErrorBuilder,
         function::{Either, KwArgs, OptionalArg},
-        ospath::{IOErrorBuilder, OsPath, OsPathOrFd},
+        ospath::{OsPath, OsPathOrFd},
         stdlib::os::{_os, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, fs_metadata},
         types::{Constructor, Representable},
         utils::ToCString,
@@ -412,7 +413,7 @@ pub mod module {
         }
 
         let metadata =
-            metadata.map_err(|err| IOErrorBuilder::with_filename(&err, path.clone(), vm))?;
+            metadata.map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
 
         let user_id = metadata.uid();
         let group_id = metadata.gid();
@@ -482,12 +483,12 @@ pub mod module {
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn chroot(path: OsPath, vm: &VirtualMachine) -> PyResult<()> {
-        use crate::ospath::IOErrorBuilder;
+        use crate::exceptions::OSErrorBuilder;
 
         nix::unistd::chroot(&*path.path).map_err(|err| {
             // Use `From<nix::Error> for io::Error` when it is available
-            let err = io::Error::from_raw_os_error(err as i32);
-            IOErrorBuilder::with_filename(&err, path, vm)
+            let io_err: io::Error = err.into();
+            OSErrorBuilder::with_filename(&io_err, path, vm)
         })
     }
 
@@ -533,7 +534,7 @@ pub mod module {
         .map_err(|err| {
             // Use `From<nix::Error> for io::Error` when it is available
             let err = io::Error::from_raw_os_error(err as i32);
-            IOErrorBuilder::with_filename(&err, path, vm)
+            OSErrorBuilder::with_filename(&err, path, vm)
         })
     }
 
@@ -1031,7 +1032,7 @@ pub mod module {
             permissions.set_mode(mode);
             fs::set_permissions(&path, permissions)
         };
-        body().map_err(|err| IOErrorBuilder::with_filename(&err, err_path, vm))
+        body().map_err(|err| OSErrorBuilder::with_filename(&err, err_path, vm))
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -1093,7 +1094,7 @@ pub mod module {
             Ok(())
         } else {
             let err = std::io::Error::last_os_error();
-            Err(IOErrorBuilder::with_filename(&err, path, vm))
+            Err(OSErrorBuilder::with_filename(&err, path, vm))
         }
     }
 
@@ -1554,7 +1555,7 @@ pub mod module {
                     };
                     if let Err(err) = ret {
                         let err = err.into();
-                        return Err(IOErrorBuilder::with_filename(&err, self.path, vm));
+                        return Err(OSErrorBuilder::with_filename(&err, self.path, vm));
                     }
                 }
             }
@@ -1653,7 +1654,7 @@ pub mod module {
                 nix::spawn::posix_spawn(&*path, &file_actions, &attrp, &args, &env)
             };
             ret.map(Into::into)
-                .map_err(|err| IOErrorBuilder::with_filename(&err.into(), self.path, vm))
+                .map_err(|err| OSErrorBuilder::with_filename(&err.into(), self.path, vm))
         }
     }
 
@@ -2126,7 +2127,7 @@ pub mod module {
             if Errno::last_raw() == 0 {
                 Ok(None)
             } else {
-                Err(IOErrorBuilder::with_filename(
+                Err(OSErrorBuilder::with_filename(
                     &io::Error::from(Errno::last()),
                     path,
                     vm,

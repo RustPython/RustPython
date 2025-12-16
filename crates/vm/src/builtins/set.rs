@@ -18,7 +18,7 @@ use crate::{
     types::AsNumber,
     types::{
         AsSequence, Comparable, Constructor, DefaultConstructor, Hashable, Initializer, IterNext,
-        Iterable, PyComparisonOp, Representable, SelfIter, Unconstructible,
+        Iterable, PyComparisonOp, Representable, SelfIter,
     },
     utils::collection_repr,
     vm::VirtualMachine,
@@ -1304,7 +1304,7 @@ impl PyPayload for PySetIterator {
     }
 }
 
-#[pyclass(with(Unconstructible, IterNext, Iterable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
 impl PySetIterator {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
@@ -1330,7 +1330,6 @@ impl PySetIterator {
         ))
     }
 }
-impl Unconstructible for PySetIterator {}
 
 impl SelfIter for PySetIterator {}
 impl IterNext for PySetIterator {

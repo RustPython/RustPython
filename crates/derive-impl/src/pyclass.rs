@@ -954,7 +954,10 @@ where
         } else if let Ok(f) = args.item.function_or_method() {
             (&f.sig().ident, f.span())
         } else {
-            return Err(self.new_syn_error(args.item.span(), "can only be on a method"));
+            return Err(self.new_syn_error(
+                args.item.span(),
+                "can only be on a method or const function pointer",
+            ));
         };
 
         let item_attr = args.attrs.remove(self.index());
@@ -1496,7 +1499,9 @@ impl SlotItemMeta {
             }
         } else {
             let ident_str = self.inner().item_name();
-            let name = if let Some(stripped) = ident_str.strip_prefix("slot_") {
+            // Convert to lowercase to handle both SLOT_NEW and slot_new
+            let ident_lower = ident_str.to_lowercase();
+            let name = if let Some(stripped) = ident_lower.strip_prefix("slot_") {
                 proc_macro2::Ident::new(stripped, inner.item_ident.span())
             } else {
                 inner.item_ident.clone()
@@ -1609,7 +1614,6 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
     }];
     let mut payload = None;
 
-    let mut has_constructor = false;
     for attr in attr {
         match attr {
             NestedMeta::Meta(Meta::List(MetaList { path, nested, .. })) => {
@@ -1633,9 +1637,6 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
                                     meta,
                                     "Try `#[pyclass(with(Constructor, ...))]` instead of `#[pyclass(with(DefaultConstructor, ...))]`. DefaultConstructor implicitly implements Constructor."
                                 )
-                            }
-                            if path.is_ident("Constructor") || path.is_ident("Unconstructible") {
-                                has_constructor = true;
                             }
                             (
                                 quote!(<Self as #path>::__extend_py_class),
@@ -1689,11 +1690,6 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
             attr => bail_span!(attr, "Unknown pyimpl attribute"),
         }
     }
-    // TODO: DISALLOW_INSTANTIATION check is required
-    let _ = has_constructor;
-    // if !withs.is_empty() && !has_constructor {
-    //     bail_span!(item, "#[pyclass(with(...))] does not have a Constructor. Either #[pyclass(with(Constructor, ...))] or #[pyclass(with(Unconstructible, ...))] is mandatory. Consider to add `impl DefaultConstructor for T {{}}` or `impl Unconstructible for T {{}}`.")
-    // }
 
     Ok(ExtractedImplAttrs {
         payload,

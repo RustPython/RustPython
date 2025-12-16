@@ -116,13 +116,23 @@ pub trait PyClassImpl: PyClassDef {
             );
         }
 
-        if class.slots.new.load().is_some() {
-            let bound_new = Context::genesis().slot_new_wrapper.build_bound_method(
-                ctx,
-                class.to_owned().into(),
-                class,
-            );
-            class.set_attr(identifier!(ctx, __new__), bound_new.into());
+        // Don't add __new__ attribute if slot_new is inherited from object
+        // (Python doesn't add __new__ to __dict__ for inherited slots)
+        // Exception: object itself should have __new__ in its dict
+        if let Some(slot_new) = class.slots.new.load() {
+            let object_new = ctx.types.object_type.slots.new.load();
+            let is_object_itself = std::ptr::eq(class, ctx.types.object_type);
+            let is_inherited_from_object = !is_object_itself
+                && object_new.is_some_and(|obj_new| slot_new as usize == obj_new as usize);
+
+            if !is_inherited_from_object {
+                let bound_new = Context::genesis().slot_new_wrapper.build_bound_method(
+                    ctx,
+                    class.to_owned().into(),
+                    class,
+                );
+                class.set_attr(identifier!(ctx, __new__), bound_new.into());
+            }
         }
 
         if class.slots.hash.load().map_or(0, |h| h as usize) == hash_not_implemented as usize {

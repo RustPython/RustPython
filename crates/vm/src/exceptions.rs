@@ -1193,6 +1193,8 @@ pub(crate) fn errno_to_exc_type(_errno: i32, _vm: &VirtualMachine) -> Option<&'s
     None
 }
 
+pub(crate) use types::{OSErrorBuilder, ToOSErrorBuilder};
+
 pub(super) mod types {
     use crate::common::lock::PyRwLock;
     use crate::object::{MaybeTraverse, Traverse, TraverseFn};
@@ -1204,6 +1206,7 @@ pub(super) mod types {
             PyInt, PyStrRef, PyTupleRef, PyType, PyTypeRef, traceback::PyTracebackRef,
             tuple::IntoPyTuple,
         },
+        convert::ToPyObject,
         convert::ToPyResult,
         function::{ArgBytesLike, FuncArgs},
         types::{Constructor, Initializer},
@@ -1211,6 +1214,117 @@ pub(super) mod types {
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use rustpython_common::str::UnicodeEscapeCodepoint;
+
+    pub(crate) trait ToOSErrorBuilder {
+        fn to_os_error_builder(&self, vm: &VirtualMachine) -> OSErrorBuilder;
+    }
+
+    pub struct OSErrorBuilder {
+        exc_type: PyTypeRef,
+        errno: Option<i32>,
+        strerror: Option<PyObjectRef>,
+        filename: Option<PyObjectRef>,
+        #[cfg(windows)]
+        winerror: Option<PyObjectRef>,
+        filename2: Option<PyObjectRef>,
+    }
+
+    impl OSErrorBuilder {
+        #[must_use]
+        pub fn with_subtype(
+            exc_type: PyTypeRef,
+            errno: Option<i32>,
+            strerror: impl ToPyObject,
+            vm: &VirtualMachine,
+        ) -> Self {
+            let strerror = strerror.to_pyobject(vm);
+            Self {
+                exc_type,
+                errno,
+                strerror: Some(strerror),
+                filename: None,
+                #[cfg(windows)]
+                winerror: None,
+                filename2: None,
+            }
+        }
+        #[must_use]
+        pub fn with_errno(errno: i32, strerror: impl ToPyObject, vm: &VirtualMachine) -> Self {
+            let exc_type = crate::exceptions::errno_to_exc_type(errno, vm)
+                .unwrap_or(vm.ctx.exceptions.os_error)
+                .to_owned();
+            Self::with_subtype(exc_type, Some(errno), strerror, vm)
+        }
+
+        // #[must_use]
+        // pub(crate) fn errno(mut self, errno: i32) -> Self {
+        //     self.errno.replace(errno);
+        //     self
+        // }
+
+        #[must_use]
+        pub(crate) fn filename(mut self, filename: PyObjectRef) -> Self {
+            self.filename.replace(filename);
+            self
+        }
+
+        #[must_use]
+        pub(crate) fn filename2(mut self, filename: PyObjectRef) -> Self {
+            self.filename2.replace(filename);
+            self
+        }
+
+        #[must_use]
+        #[cfg(windows)]
+        pub(crate) fn winerror(mut self, winerror: PyObjectRef) -> Self {
+            self.winerror.replace(winerror);
+            self
+        }
+
+        pub fn build(self, vm: &VirtualMachine) -> PyRef<PyOSError> {
+            let OSErrorBuilder {
+                exc_type,
+                errno,
+                strerror,
+                filename,
+                #[cfg(windows)]
+                winerror,
+                filename2,
+            } = self;
+
+            let args = if let Some(errno) = errno {
+                #[cfg(windows)]
+                let winerror = winerror.to_pyobject(vm);
+                #[cfg(not(windows))]
+                let winerror = vm.ctx.none();
+
+                vec![
+                    errno.to_pyobject(vm),
+                    strerror.to_pyobject(vm),
+                    filename.to_pyobject(vm),
+                    winerror,
+                    filename2.to_pyobject(vm),
+                ]
+            } else {
+                vec![strerror.to_pyobject(vm)]
+            };
+
+            let payload = PyOSError::py_new(&exc_type, args.clone().into(), vm)
+                .expect("new_os_error usage error");
+            let os_error = payload
+                .into_ref_with_type(vm, exc_type)
+                .expect("new_os_error usage error");
+            PyOSError::slot_init(os_error.as_object().to_owned(), args.into(), vm)
+                .expect("new_os_error usage error");
+            os_error
+        }
+    }
+
+    impl crate::convert::IntoPyException for OSErrorBuilder {
+        fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+            self.build(vm).upcast()
+        }
+    }
 
     // Re-export exception group types from dedicated module
     pub use crate::exception_group::types::PyBaseExceptionGroup;

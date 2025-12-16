@@ -21,7 +21,7 @@ use crate::{
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
         AsMapping, AsNumber, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
-        PyComparisonOp, Representable, SelfIter, Unconstructible,
+        PyComparisonOp, Representable, SelfIter,
     },
 };
 use ascii::{AsciiChar, AsciiStr, AsciiString};
@@ -282,7 +282,7 @@ impl PyPayload for PyStrIterator {
     }
 }
 
-#[pyclass(with(Unconstructible, IterNext, Iterable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
 impl PyStrIterator {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
@@ -306,8 +306,6 @@ impl PyStrIterator {
             .builtins_iter_reduce(|x| x.clone().into(), vm)
     }
 }
-
-impl Unconstructible for PyStrIterator {}
 
 impl SelfIter for PyStrIterator {}
 

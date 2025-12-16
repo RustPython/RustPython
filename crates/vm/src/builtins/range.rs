@@ -11,7 +11,7 @@ use crate::{
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     types::{
         AsMapping, AsSequence, Comparable, Hashable, IterNext, Iterable, PyComparisonOp,
-        Representable, SelfIter, Unconstructible,
+        Representable, SelfIter,
     },
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -548,7 +548,7 @@ impl PyPayload for PyLongRangeIterator {
     }
 }
 
-#[pyclass(with(Unconstructible, IterNext, Iterable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
 impl PyLongRangeIterator {
     #[pymethod]
     fn __length_hint__(&self) -> BigInt {
@@ -577,7 +577,6 @@ impl PyLongRangeIterator {
         )
     }
 }
-impl Unconstructible for PyLongRangeIterator {}
 
 impl SelfIter for PyLongRangeIterator {}
 impl IterNext for PyLongRangeIterator {
@@ -614,7 +613,7 @@ impl PyPayload for PyRangeIterator {
     }
 }
 
-#[pyclass(with(Unconstructible, IterNext, Iterable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
 impl PyRangeIterator {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
@@ -640,7 +639,6 @@ impl PyRangeIterator {
         )
     }
 }
-impl Unconstructible for PyRangeIterator {}
 
 impl SelfIter for PyRangeIterator {}
 impl IterNext for PyRangeIterator {

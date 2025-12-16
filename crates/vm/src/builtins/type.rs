@@ -191,12 +191,15 @@ impl PyType {
         name: &str,
         bases: Vec<PyRef<Self>>,
         attrs: PyAttributes,
-        slots: PyTypeSlots,
+        mut slots: PyTypeSlots,
         metaclass: PyRef<Self>,
         ctx: &Context,
     ) -> Result<PyRef<Self>, String> {
         // TODO: ensure clean slot name
         // assert_eq!(slots.name.borrow(), "");
+
+        // Set HEAPTYPE flag for heap-allocated types
+        slots.flags |= PyTypeFlags::HEAPTYPE;
 
         let name = ctx.new_str(name);
         let heaptype_ext = HeapTypeExt {
@@ -401,6 +404,8 @@ impl PyType {
             None,
         );
 
+        Self::set_new(&new_type.slots, &new_type.base);
+
         let weakref_type = super::PyWeak::static_type();
         for base in new_type.bases.read().iter() {
             base.subclasses.write().push(
@@ -420,9 +425,6 @@ impl PyType {
 
         for cls in self.mro.read().iter() {
             for &name in cls.attributes.read().keys() {
-                if name == identifier!(ctx, __new__) {
-                    continue;
-                }
                 if name.as_bytes().starts_with(b"__") && name.as_bytes().ends_with(b"__") {
                     slot_name_set.insert(name);
                 }
@@ -435,6 +437,20 @@ impl PyType {
         }
         for attr_name in slot_name_set {
             self.update_slot::<true>(attr_name, ctx);
+        }
+
+        Self::set_new(&self.slots, &self.base);
+    }
+
+    fn set_new(slots: &PyTypeSlots, base: &Option<PyTypeRef>) {
+        if slots.flags.contains(PyTypeFlags::DISALLOW_INSTANTIATION) {
+            slots.new.store(None)
+        } else if slots.new.load().is_none() {
+            slots.new.store(
+                base.as_ref()
+                    .map(|base| base.slots.new.load())
+                    .unwrap_or(None),
+            )
         }
     }
 
@@ -1563,15 +1579,28 @@ impl Callable for PyType {
     type Args = FuncArgs;
     fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type_call: {:?}", zelf);
-        let obj = call_slot_new(zelf.to_owned(), zelf.to_owned(), args.clone(), vm)?;
 
-        if (zelf.is(vm.ctx.types.type_type) && args.kwargs.is_empty()) || !obj.fast_isinstance(zelf)
-        {
+        if zelf.is(vm.ctx.types.type_type) {
+            let num_args = args.args.len();
+            if num_args == 1 && args.kwargs.is_empty() {
+                return Ok(args.args[0].obj_type());
+            }
+            if num_args != 3 {
+                return Err(vm.new_type_error("type() takes 1 or 3 arguments".to_owned()));
+            }
+        }
+
+        let obj = if let Some(slot_new) = zelf.slots.new.load() {
+            slot_new(zelf.to_owned(), args.clone(), vm)?
+        } else {
+            return Err(vm.new_type_error(format!("cannot create '{}' instances", zelf.slots.name)));
+        };
+
+        if !obj.class().fast_issubclass(zelf) {
             return Ok(obj);
         }
 
-        let init = obj.class().mro_find_map(|cls| cls.slots.init.load());
-        if let Some(init_method) = init {
+        if let Some(init_method) = obj.class().slots.init.load() {
             init_method(obj.clone(), args, vm)?;
         }
         Ok(obj)
@@ -1700,6 +1729,40 @@ pub(crate) fn call_slot_new(
     args: FuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
+    // Check DISALLOW_INSTANTIATION flag on subtype (the type being instantiated)
+    if subtype
+        .slots
+        .flags
+        .has_feature(PyTypeFlags::DISALLOW_INSTANTIATION)
+    {
+        return Err(vm.new_type_error(format!("cannot create '{}' instances", subtype.slot_name())));
+    }
+
+    // "is not safe" check (tp_new_wrapper logic)
+    // Check that the user doesn't do something silly and unsafe like
+    // object.__new__(dict). To do this, we check that the most derived base
+    // that's not a heap type is this type.
+    let mut staticbase = subtype.clone();
+    while staticbase.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+        if let Some(base) = staticbase.base.as_ref() {
+            staticbase = base.clone();
+        } else {
+            break;
+        }
+    }
+
+    // Check if staticbase's tp_new differs from typ's tp_new
+    let typ_new = typ.slots.new.load();
+    let staticbase_new = staticbase.slots.new.load();
+    if typ_new.map(|f| f as usize) != staticbase_new.map(|f| f as usize) {
+        return Err(vm.new_type_error(format!(
+            "{}.__new__({}) is not safe, use {}.__new__()",
+            typ.slot_name(),
+            subtype.slot_name(),
+            staticbase.slot_name()
+        )));
+    }
+
     let slot_new = typ
         .deref()
         .mro_find_map(|cls| cls.slots.new.load())

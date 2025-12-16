@@ -23,7 +23,7 @@ use crate::{
     sliceable::SequenceIndexOp,
     types::{
         AsBuffer, AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
-        PyComparisonOp, Representable, SelfIter, Unconstructible,
+        PyComparisonOp, Representable, SelfIter,
     },
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -1132,7 +1132,7 @@ impl PyPayload for PyMemoryViewIterator {
     }
 }
 
-#[pyclass(with(Unconstructible, IterNext, Iterable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
 impl PyMemoryViewIterator {
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
@@ -1141,7 +1141,6 @@ impl PyMemoryViewIterator {
             .builtins_iter_reduce(|x| x.clone().into(), vm)
     }
 }
-impl Unconstructible for PyMemoryViewIterator {}
 
 impl SelfIter for PyMemoryViewIterator {}
 impl IterNext for PyMemoryViewIterator {
