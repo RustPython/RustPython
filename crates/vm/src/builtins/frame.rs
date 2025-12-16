@@ -8,15 +8,13 @@ use crate::{
     class::PyClassImpl,
     frame::{Frame, FrameRef},
     function::PySetterValue,
-    types::{Representable, Unconstructible},
+    types::Representable,
 };
 use num_traits::Zero;
 
 pub fn init(context: &Context) {
     Frame::extend_class(context, context.types.frame_type);
 }
-
-impl Unconstructible for Frame {}
 
 impl Representable for Frame {
     #[inline]
@@ -31,7 +29,7 @@ impl Representable for Frame {
     }
 }
 
-#[pyclass(with(Unconstructible, Py))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(Py))]
 impl Frame {
     #[pymethod]
     const fn clear(&self) {

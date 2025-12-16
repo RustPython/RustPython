@@ -7,7 +7,7 @@ use crate::{
     builtins::type_::PointerSlot,
     class::PyClassImpl,
     function::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc, PySetterValue},
-    types::{GetDescriptor, Unconstructible},
+    types::GetDescriptor,
 };
 
 #[pyclass(module = false, name = "getset_descriptor")]
@@ -96,7 +96,7 @@ impl PyGetSet {
     }
 }
 
-#[pyclass(with(GetDescriptor, Unconstructible))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(GetDescriptor))]
 impl PyGetSet {
     // Descriptor methods
 
@@ -152,7 +152,6 @@ impl PyGetSet {
         Ok(unsafe { zelf.class.borrow_static() }.to_owned().into())
     }
 }
-impl Unconstructible for PyGetSet {}
 
 pub(crate) fn init(context: &Context) {
     PyGetSet::extend_class(context, context.types.getset_type);

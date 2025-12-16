@@ -16,7 +16,7 @@ use crate::{
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
-        PyComparisonOp, Representable, SelfIter, Unconstructible,
+        PyComparisonOp, Representable, SelfIter,
     },
     utils::collection_repr,
     vm::VirtualMachine,
@@ -533,7 +533,7 @@ impl PyPayload for PyTupleIterator {
     }
 }
 
-#[pyclass(with(Unconstructible, IterNext, Iterable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
 impl PyTupleIterator {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
@@ -554,7 +554,6 @@ impl PyTupleIterator {
             .builtins_iter_reduce(|x| x.clone().into(), vm)
     }
 }
-impl Unconstructible for PyTupleIterator {}
 
 impl SelfIter for PyTupleIterator {}
 impl IterNext for PyTupleIterator {

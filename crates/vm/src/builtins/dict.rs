@@ -19,7 +19,7 @@ use crate::{
     recursion::ReprGuard,
     types::{
         AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, DefaultConstructor,
-        Initializer, IterNext, Iterable, PyComparisonOp, Representable, SelfIter, Unconstructible,
+        Initializer, IterNext, Iterable, PyComparisonOp, Representable, SelfIter,
     },
     vm::VirtualMachine,
 };
@@ -848,7 +848,7 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyclass(with(Unconstructible, IterNext, Iterable))]
+        #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
         impl $iter_name {
             fn new(dict: PyDictRef) -> Self {
                 $iter_name {
@@ -877,8 +877,6 @@ macro_rules! dict_view {
                 vm.new_tuple((iter, (vm.ctx.new_list(entries),)))
             }
         }
-
-        impl Unconstructible for $iter_name {}
 
         impl SelfIter for $iter_name {}
         impl IterNext for $iter_name {
@@ -923,7 +921,7 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyclass(with(Unconstructible, IterNext, Iterable))]
+        #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
         impl $reverse_iter_name {
             fn new(dict: PyDictRef) -> Self {
                 let size = dict.size();
@@ -957,8 +955,6 @@ macro_rules! dict_view {
                     .rev_length_hint(|_| self.size.entries_size)
             }
         }
-        impl Unconstructible for $reverse_iter_name {}
-
         impl SelfIter for $reverse_iter_name {}
         impl IterNext for $reverse_iter_name {
             #[allow(clippy::redundant_closure_call)]
@@ -1126,16 +1122,18 @@ trait ViewSetOps: DictView {
 }
 
 impl ViewSetOps for PyDictKeys {}
-#[pyclass(with(
-    DictView,
-    Unconstructible,
-    Comparable,
-    Iterable,
-    ViewSetOps,
-    AsSequence,
-    AsNumber,
-    Representable
-))]
+#[pyclass(
+    flags(DISALLOW_INSTANTIATION),
+    with(
+        DictView,
+        Comparable,
+        Iterable,
+        ViewSetOps,
+        AsSequence,
+        AsNumber,
+        Representable
+    )
+)]
 impl PyDictKeys {
     #[pymethod]
     fn __contains__(zelf: PyObjectRef, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
@@ -1147,7 +1145,6 @@ impl PyDictKeys {
         PyMappingProxy::from(zelf.dict().clone())
     }
 }
-impl Unconstructible for PyDictKeys {}
 
 impl Comparable for PyDictKeys {
     fn cmp(
@@ -1190,16 +1187,18 @@ impl AsNumber for PyDictKeys {
 }
 
 impl ViewSetOps for PyDictItems {}
-#[pyclass(with(
-    DictView,
-    Unconstructible,
-    Comparable,
-    Iterable,
-    ViewSetOps,
-    AsSequence,
-    AsNumber,
-    Representable
-))]
+#[pyclass(
+    flags(DISALLOW_INSTANTIATION),
+    with(
+        DictView,
+        Comparable,
+        Iterable,
+        ViewSetOps,
+        AsSequence,
+        AsNumber,
+        Representable
+    )
+)]
 impl PyDictItems {
     #[pymethod]
     fn __contains__(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
@@ -1210,7 +1209,6 @@ impl PyDictItems {
         PyMappingProxy::from(zelf.dict().clone())
     }
 }
-impl Unconstructible for PyDictItems {}
 
 impl Comparable for PyDictItems {
     fn cmp(
@@ -1264,14 +1262,16 @@ impl AsNumber for PyDictItems {
     }
 }
 
-#[pyclass(with(DictView, Unconstructible, Iterable, AsSequence, Representable))]
+#[pyclass(
+    flags(DISALLOW_INSTANTIATION),
+    with(DictView, Iterable, AsSequence, Representable)
+)]
 impl PyDictValues {
     #[pygetset]
     fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {
         PyMappingProxy::from(zelf.dict().clone())
     }
 }
-impl Unconstructible for PyDictValues {}
 
 impl AsSequence for PyDictValues {
     fn as_sequence() -> &'static PySequenceMethods {

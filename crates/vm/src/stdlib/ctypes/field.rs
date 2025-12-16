@@ -1,6 +1,6 @@
 use crate::builtins::PyType;
 use crate::function::PySetterValue;
-use crate::types::{GetDescriptor, Representable, Unconstructible};
+use crate::types::{GetDescriptor, Representable};
 use crate::{AsObject, Py, PyObjectRef, PyResult, VirtualMachine};
 use num_traits::ToPrimitive;
 
@@ -84,8 +84,6 @@ impl Representable for PyCField {
         }
     }
 }
-
-impl Unconstructible for PyCField {}
 
 impl GetDescriptor for PyCField {
     fn descr_get(
@@ -184,7 +182,7 @@ impl PyCField {
 
 #[pyclass(
     flags(DISALLOW_INSTANTIATION, IMMUTABLETYPE),
-    with(Unconstructible, Representable, GetDescriptor)
+    with(Representable, GetDescriptor)
 )]
 impl PyCField {
     #[pyslot]

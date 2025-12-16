@@ -25,7 +25,7 @@ use crate::{
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
         AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Hashable,
-        IterNext, Iterable, PyComparisonOp, Representable, SelfIter, Unconstructible,
+        IterNext, Iterable, PyComparisonOp, Representable, SelfIter,
     },
 };
 use bstr::ByteSlice;
@@ -749,7 +749,7 @@ impl PyPayload for PyBytesIterator {
     }
 }
 
-#[pyclass(with(Unconstructible, IterNext, Iterable))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
 impl PyBytesIterator {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
@@ -770,7 +770,6 @@ impl PyBytesIterator {
             .set_state(state, |obj, pos| pos.min(obj.len()), vm)
     }
 }
-impl Unconstructible for PyBytesIterator {}
 
 impl SelfIter for PyBytesIterator {}
 impl IterNext for PyBytesIterator {

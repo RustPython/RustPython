@@ -922,15 +922,6 @@ pub trait DefaultConstructor: PyPayload + Default + std::fmt::Debug {
     }
 }
 
-/// For types that cannot be instantiated through Python code.
-#[pyclass]
-pub trait Unconstructible: PyPayload {
-    #[pyslot]
-    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_type_error(format!("cannot create '{}' instances", cls.slot_name())))
-    }
-}
-
 impl<T> Constructor for T
 where
     T: DefaultConstructor,

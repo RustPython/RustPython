@@ -5,7 +5,7 @@ use crate::{
     common::wtf8::Wtf8,
     convert::TryFromObject,
     function::{FuncArgs, PyComparisonValue, PyMethodDef, PyMethodFlags, PyNativeFn},
-    types::{Callable, Comparable, PyComparisonOp, Representable, Unconstructible},
+    types::{Callable, Comparable, PyComparisonOp, Representable},
 };
 use std::fmt;
 
@@ -74,7 +74,7 @@ impl Callable for PyNativeFunction {
     }
 }
 
-#[pyclass(with(Callable, Unconstructible), flags(HAS_DICT))]
+#[pyclass(with(Callable), flags(HAS_DICT, DISALLOW_INSTANTIATION))]
 impl PyNativeFunction {
     #[pygetset]
     fn __module__(zelf: NativeFunctionOrMethod) -> Option<&'static PyStrInterned> {
@@ -145,8 +145,6 @@ impl Representable for PyNativeFunction {
     }
 }
 
-impl Unconstructible for PyNativeFunction {}
-
 // `PyCMethodObject` in CPython
 #[pyclass(name = "builtin_method", module = false, base = PyNativeFunction, ctx = "builtin_method_type")]
 pub struct PyNativeMethod {
@@ -155,8 +153,8 @@ pub struct PyNativeMethod {
 }
 
 #[pyclass(
-    with(Unconstructible, Callable, Comparable, Representable),
-    flags(HAS_DICT)
+    with(Callable, Comparable, Representable),
+    flags(HAS_DICT, DISALLOW_INSTANTIATION)
 )]
 impl PyNativeMethod {
     #[pygetset]
@@ -245,8 +243,6 @@ impl Representable for PyNativeMethod {
         ))
     }
 }
-
-impl Unconstructible for PyNativeMethod {}
 
 pub fn init(context: &Context) {
     PyNativeFunction::extend_class(context, context.types.builtin_function_or_method_type);
