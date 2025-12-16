@@ -1241,7 +1241,7 @@ pub(super) mod types {
             Self {
                 exc_type,
                 errno,
-                strerror: Some(strerror.to_pyobject(vm)),
+                strerror: Some(strerror),
                 filename: None,
                 #[cfg(windows)]
                 winerror: None,
