@@ -349,7 +349,6 @@ class TestSuper(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "argument 1 must be a type"):
             super(1, int)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'test.support.import_helper' has no attribute 'ready_to_import'
     def test_shadowed_global(self):
         source = textwrap.dedent(
             """
