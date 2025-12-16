@@ -1292,18 +1292,22 @@ pub(super) mod types {
                 filename2,
             } = self;
 
-            #[cfg(windows)]
-            let winerror = winerror.to_pyobject(vm);
-            #[cfg(not(windows))]
-            let winerror = vm.ctx.none();
+            let args = if let Some(errno) = errno {
+                #[cfg(windows)]
+                let winerror = winerror.to_pyobject(vm);
+                #[cfg(not(windows))]
+                let winerror = vm.ctx.none();
 
-            let args = vec![
-                errno.to_pyobject(vm),
-                strerror.to_pyobject(vm),
-                filename.to_pyobject(vm),
-                winerror,
-                filename2.to_pyobject(vm),
-            ];
+                vec![
+                    errno.to_pyobject(vm),
+                    strerror.to_pyobject(vm),
+                    filename.to_pyobject(vm),
+                    winerror,
+                    filename2.to_pyobject(vm),
+                ]
+            } else {
+                vec![strerror.to_pyobject(vm)]
+            };
 
             let payload = PyOSError::py_new(&exc_type, args.clone().into(), vm)
                 .expect("new_os_error usage error");
