@@ -950,8 +950,9 @@ where
 pub trait Initializer: PyPayload {
     type Args: FromArgs;
 
-    #[pyslot]
     #[inline]
+    #[pyslot]
+    #[pymethod(name = "__init__")]
     fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         #[cfg(debug_assertions)]
         let class_name_for_debug = zelf.class().name().to_string();
@@ -976,13 +977,6 @@ pub trait Initializer: PyPayload {
             }
         };
         let args: Self::Args = args.bind(vm)?;
-        Self::init(zelf, args, vm)
-    }
-
-    #[pymethod]
-    #[inline]
-    fn __init__(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        // TODO: check if this is safe. zelf may need to be `PyObjectRef`
         Self::init(zelf, args, vm)
     }
 
@@ -1340,8 +1334,8 @@ pub trait GetAttr: PyPayload {
 
     #[inline]
     #[pymethod]
-    fn __getattribute__(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        Self::getattro(&zelf, &name, vm)
+    fn __getattribute__(zelf: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        Self::slot_getattro(&zelf, &name, vm)
     }
 }
 
@@ -1371,18 +1365,18 @@ pub trait SetAttr: PyPayload {
     #[inline]
     #[pymethod]
     fn __setattr__(
-        zelf: PyRef<Self>,
+        zelf: PyObjectRef,
         name: PyStrRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        Self::setattro(&zelf, &name, PySetterValue::Assign(value), vm)
+        Self::slot_setattro(&zelf, &name, PySetterValue::Assign(value), vm)
     }
 
     #[inline]
     #[pymethod]
-    fn __delattr__(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        Self::setattro(&zelf, &name, PySetterValue::Delete, vm)
+    fn __delattr__(zelf: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+        Self::slot_setattro(&zelf, &name, PySetterValue::Delete, vm)
     }
 }
 
