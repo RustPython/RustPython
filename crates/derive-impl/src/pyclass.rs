@@ -63,6 +63,7 @@ impl FromStr for AttrName {
 
 #[derive(Default)]
 struct ImplContext {
+    is_trait: bool,
     attribute_items: ItemNursery,
     method_items: MethodNursery,
     getset_items: GetSetNursery,
@@ -232,7 +233,10 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
             }
         }
         Item::Trait(mut trai) => {
-            let mut context = ImplContext::default();
+            let mut context = ImplContext {
+                is_trait: true,
+                ..Default::default()
+            };
             let mut has_extend_slots = false;
             for item in &trai.items {
                 let has = match item {
@@ -892,6 +896,23 @@ where
         let item_meta = MethodItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.method_name()?;
+
+        // Disallow __new__ and __init__ as pymethod in impl blocks (not in traits)
+        if !args.context.is_trait {
+            if py_name == "__new__" {
+                return Err(syn::Error::new(
+                    ident.span(),
+                    "#[pymethod] cannot define '__new__'. Use #[pyclass(with(Constructor))] instead.",
+                ));
+            }
+            if py_name == "__init__" {
+                return Err(syn::Error::new(
+                    ident.span(),
+                    "#[pymethod] cannot define '__init__'. Use #[pyclass(with(Initializer))] instead.",
+                ));
+            }
+        }
+
         let raw = item_meta.raw()?;
         let sig_doc = text_signature(func.sig(), &py_name);
 
