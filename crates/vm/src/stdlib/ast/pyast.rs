@@ -5,13 +5,14 @@ use crate::common::ascii;
 
 macro_rules! impl_node {
     (
-        $(#[$meta:meta])*
+        #[pyclass(module = $_mod:literal, name = $_name:literal, base = $base:ty)]
         $vis:vis struct $name:ident,
         fields: [$($field:expr),* $(,)?],
         attributes: [$($attr:expr),* $(,)?] $(,)?
     ) => {
-        $(#[$meta])*
-        $vis struct $name;
+        #[pyclass(module = $_mod, name = $_name, base = $base)]
+        #[repr(transparent)]
+        $vis struct $name($base);
 
         #[pyclass(flags(HAS_DICT, BASETYPE))]
         impl $name {
@@ -39,12 +40,12 @@ macro_rules! impl_node {
     };
     // Without attributes
     (
-        $(#[$meta:meta])*
+        #[pyclass(module = $_mod:literal, name = $_name:literal, base = $base:ty)]
         $vis:vis struct $name:ident,
         fields: [$($field:expr),* $(,)?] $(,)?
     ) => {
         impl_node!(
-            $(#[$meta])*
+            #[pyclass(module = $_mod, name = $_name, base = $base)]
             $vis struct $name,
             fields: [$($field),*],
             attributes: [],
@@ -52,12 +53,12 @@ macro_rules! impl_node {
     };
     // Without fields
     (
-        $(#[$meta:meta])*
+        #[pyclass(module = $_mod:literal, name = $_name:literal, base = $base:ty)]
         $vis:vis struct $name:ident,
         attributes: [$($attr:expr),* $(,)?] $(,)?
     ) => {
         impl_node!(
-            $(#[$meta])*
+            #[pyclass(module = $_mod, name = $_name, base = $base)]
             $vis struct $name,
             fields: [],
             attributes: [$($attr),*],
@@ -65,11 +66,11 @@ macro_rules! impl_node {
     };
     // Without fields and attributes
     (
-        $(#[$meta:meta])*
+        #[pyclass(module = $_mod:literal, name = $_name:literal, base = $base:ty)]
         $vis:vis struct $name:ident $(,)?
     ) => {
         impl_node!(
-            $(#[$meta])*
+            #[pyclass(module = $_mod, name = $_name, base = $base)]
             $vis struct $name,
             fields: [],
             attributes: [],
@@ -78,7 +79,7 @@ macro_rules! impl_node {
 }
 
 #[pyclass(module = "_ast", name = "mod", base = NodeAst)]
-pub(crate) struct NodeMod;
+pub(crate) struct NodeMod(NodeAst);
 
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeMod {}
@@ -102,7 +103,8 @@ impl_node!(
 );
 
 #[pyclass(module = "_ast", name = "stmt", base = NodeAst)]
-pub(crate) struct NodeStmt;
+#[repr(transparent)]
+pub(crate) struct NodeStmt(NodeAst);
 
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeStmt {}
@@ -301,7 +303,8 @@ impl_node!(
 );
 
 #[pyclass(module = "_ast", name = "expr", base = NodeAst)]
-pub(crate) struct NodeExpr;
+#[repr(transparent)]
+pub(crate) struct NodeExpr(NodeAst);
 
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExpr {}
@@ -495,7 +498,8 @@ impl_node!(
 );
 
 #[pyclass(module = "_ast", name = "expr_context", base = NodeAst)]
-pub(crate) struct NodeExprContext;
+#[repr(transparent)]
+pub(crate) struct NodeExprContext(NodeAst);
 
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprContext {}
@@ -518,7 +522,8 @@ impl_node!(
 );
 
 #[pyclass(module = "_ast", name = "boolop", base = NodeAst)]
-pub(crate) struct NodeBoolOp;
+#[repr(transparent)]
+pub(crate) struct NodeBoolOp(NodeAst);
 
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeBoolOp {}
@@ -534,7 +539,8 @@ impl_node!(
 );
 
 #[pyclass(module = "_ast", name = "operator", base = NodeAst)]
-pub(crate) struct NodeOperator;
+#[repr(transparent)]
+pub(crate) struct NodeOperator(NodeAst);
 
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeOperator {}
@@ -605,7 +611,8 @@ impl_node!(
 );
 
 #[pyclass(module = "_ast", name = "unaryop", base = NodeAst)]
-pub(crate) struct NodeUnaryOp;
+#[repr(transparent)]
+pub(crate) struct NodeUnaryOp(NodeAst);
 
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeUnaryOp {}
@@ -631,7 +638,8 @@ impl_node!(
 );
 
 #[pyclass(module = "_ast", name = "cmpop", base = NodeAst)]
-pub(crate) struct NodeCmpOp;
+#[repr(transparent)]
+pub(crate) struct NodeCmpOp(NodeAst);
 
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeCmpOp {}
@@ -692,7 +700,8 @@ impl_node!(
 );
 
 #[pyclass(module = "_ast", name = "excepthandler", base = NodeAst)]
-pub(crate) struct NodeExceptHandler;
+#[repr(transparent)]
+pub(crate) struct NodeExceptHandler(NodeAst);
 
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExceptHandler {}
@@ -744,7 +753,8 @@ impl_node!(
 );
 
 #[pyclass(module = "_ast", name = "pattern", base = NodeAst)]
-pub(crate) struct NodePattern;
+#[repr(transparent)]
+pub(crate) struct NodePattern(NodeAst);
 
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodePattern {}
@@ -805,7 +815,8 @@ impl_node!(
 );
 
 #[pyclass(module = "_ast", name = "type_ignore", base = NodeAst)]
-pub(crate) struct NodeTypeIgnore;
+#[repr(transparent)]
+pub(crate) struct NodeTypeIgnore(NodeAst);
 
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeTypeIgnore {}
@@ -818,7 +829,8 @@ impl_node!(
 );
 
 #[pyclass(module = "_ast", name = "type_param", base = NodeAst)]
-pub(crate) struct NodeTypeParam;
+#[repr(transparent)]
+pub(crate) struct NodeTypeParam(NodeAst);
 
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeTypeParam {}

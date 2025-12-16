@@ -446,8 +446,10 @@ pub(crate) fn impl_pystruct_sequence(
     };
 
     let output = quote! {
-        // The Python type struct (user-defined, possibly empty)
-        #pytype_vis struct #pytype_ident;
+        // The Python type struct - newtype wrapping PyTuple
+        #[derive(Debug)]
+        #[repr(transparent)]
+        #pytype_vis struct #pytype_ident(pub ::rustpython_vm::builtins::PyTuple);
 
         // PyClassDef for Python type
         impl ::rustpython_vm::class::PyClassDef for #pytype_ident {
@@ -476,10 +478,37 @@ pub(crate) fn impl_pystruct_sequence(
             }
         }
 
-        // MaybeTraverse (empty - no GC fields in empty struct)
+        // Subtype uses base type's payload_type_id
+        impl ::rustpython_vm::PyPayload for #pytype_ident {
+            #[inline]
+            fn payload_type_id() -> ::std::any::TypeId {
+                <::rustpython_vm::builtins::PyTuple as ::rustpython_vm::PyPayload>::payload_type_id()
+            }
+
+            #[inline]
+            fn validate_downcastable_from(obj: &::rustpython_vm::PyObject) -> bool {
+                obj.class().fast_issubclass(<Self as ::rustpython_vm::class::StaticType>::static_type())
+            }
+
+            fn class(_ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
+                <Self as ::rustpython_vm::class::StaticType>::static_type()
+            }
+        }
+
+        // MaybeTraverse - delegate to inner PyTuple
         impl ::rustpython_vm::object::MaybeTraverse for #pytype_ident {
-            fn try_traverse(&self, _traverse_fn: &mut ::rustpython_vm::object::TraverseFn<'_>) {
-                // Empty struct has no fields to traverse
+            fn try_traverse(&self, traverse_fn: &mut ::rustpython_vm::object::TraverseFn<'_>) {
+                self.0.try_traverse(traverse_fn)
+            }
+        }
+
+        // PySubclass for proper inheritance
+        impl ::rustpython_vm::class::PySubclass for #pytype_ident {
+            type Base = ::rustpython_vm::builtins::PyTuple;
+
+            #[inline]
+            fn as_base(&self) -> &Self::Base {
+                &self.0
             }
         }
 

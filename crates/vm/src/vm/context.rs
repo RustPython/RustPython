@@ -1,9 +1,10 @@
 use crate::{
     PyResult, VirtualMachine,
     builtins::{
-        PyBaseException, PyByteArray, PyBytes, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat,
-        PyFrozenSet, PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr,
-        PyStrInterned, PyTuple, PyTupleRef, PyType, PyTypeRef,
+        PyByteArray, PyBytes, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat, PyFrozenSet,
+        PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyStrInterned,
+        PyTuple, PyTupleRef, PyType, PyTypeRef,
+        bool_::PyBool,
         code::{self, PyCode},
         descriptor::{
             MemberGetter, MemberKind, MemberSetter, MemberSetterFunc, PyDescriptorOwned,
@@ -13,7 +14,7 @@ use crate::{
         object, pystr,
         type_::PyAttributes,
     },
-    class::{PyClassImpl, StaticType},
+    class::StaticType,
     common::rc::PyRc,
     exceptions,
     function::{
@@ -31,8 +32,8 @@ use rustpython_common::lock::PyRwLock;
 
 #[derive(Debug)]
 pub struct Context {
-    pub true_value: PyIntRef,
-    pub false_value: PyIntRef,
+    pub true_value: PyRef<PyBool>,
+    pub false_value: PyRef<PyBool>,
     pub none: PyRef<PyNone>,
     pub empty_tuple: PyTupleRef,
     pub empty_frozenset: PyRef<PyFrozenSet>,
@@ -279,10 +280,7 @@ impl Context {
         let exceptions = exceptions::ExceptionZoo::init();
 
         #[inline]
-        fn create_object<T: PyObjectPayload + PyPayload>(
-            payload: T,
-            cls: &'static Py<PyType>,
-        ) -> PyRef<T> {
+        fn create_object<T: PyObjectPayload>(payload: T, cls: &'static Py<PyType>) -> PyRef<T> {
             PyRef::new_ref(payload, cls.to_owned(), None)
         }
 
@@ -305,8 +303,8 @@ impl Context {
             })
             .collect();
 
-        let true_value = create_object(PyInt::from(1), types.bool_type);
-        let false_value = create_object(PyInt::from(0), types.bool_type);
+        let true_value = create_object(PyBool(PyInt::from(1)), types.bool_type);
+        let false_value = create_object(PyBool(PyInt::from(0)), types.bool_type);
 
         let empty_tuple = create_object(
             PyTuple::new_unchecked(Vec::new().into_boxed_slice()),
@@ -449,13 +447,13 @@ impl Context {
     }
 
     #[inline(always)]
-    pub fn new_bool(&self, b: bool) -> PyIntRef {
+    pub fn new_bool(&self, b: bool) -> PyRef<PyBool> {
         let value = if b {
             &self.true_value
         } else {
             &self.false_value
         };
-        value.clone()
+        value.to_owned()
     }
 
     #[inline(always)]
@@ -510,14 +508,17 @@ impl Context {
         attrs.insert(identifier!(self, __module__), self.new_str(module).into());
 
         let interned_name = self.intern_str(name);
+        let slots = PyTypeSlots {
+            name: interned_name.as_str(),
+            basicsize: 0,
+            flags: PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT,
+            ..PyTypeSlots::default()
+        };
         PyType::new_heap(
             name,
             bases,
             attrs,
-            PyTypeSlots {
-                name: interned_name.as_str(),
-                ..PyBaseException::make_slots()
-            },
+            slots,
             self.types.type_type.to_owned(),
             self,
         )

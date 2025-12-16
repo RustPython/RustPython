@@ -16,6 +16,15 @@ cfg_if::cfg_if! {
     }
 }
 
+#[cold]
+pub(crate) fn cold_downcast_type_error(
+    vm: &VirtualMachine,
+    class: &Py<PyType>,
+    obj: &PyObject,
+) -> PyBaseExceptionRef {
+    vm.new_downcast_type_error(class, obj)
+}
+
 pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     #[inline]
     fn payload_type_id() -> std::any::TypeId {
@@ -38,17 +47,8 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
             return Ok(());
         }
 
-        #[cold]
-        fn raise_downcast_type_error(
-            vm: &VirtualMachine,
-            class: &Py<PyType>,
-            obj: &PyObject,
-        ) -> PyBaseExceptionRef {
-            vm.new_downcast_type_error(class, obj)
-        }
-
         let class = Self::class(&vm.ctx);
-        Err(raise_downcast_type_error(vm, class, obj))
+        Err(cold_downcast_type_error(vm, class, obj))
     }
 
     fn class(ctx: &Context) -> &'static Py<PyType>;
@@ -101,6 +101,22 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     {
         let exact_class = Self::class(&vm.ctx);
         if cls.fast_issubclass(exact_class) {
+            if exact_class.slots.basicsize != cls.slots.basicsize {
+                #[cold]
+                #[inline(never)]
+                fn _into_ref_size_error(
+                    vm: &VirtualMachine,
+                    cls: &PyTypeRef,
+                    exact_class: &Py<PyType>,
+                ) -> PyBaseExceptionRef {
+                    vm.new_type_error(format!(
+                        "cannot create '{}' instance: size differs from base type '{}'",
+                        cls.name(),
+                        exact_class.name()
+                    ))
+                }
+                return Err(_into_ref_size_error(vm, &cls, exact_class));
+            }
             Ok(self._into_ref(cls, &vm.ctx))
         } else {
             #[cold]

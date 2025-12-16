@@ -918,6 +918,8 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::GetAwaitable => {
+                use crate::protocol::PyIter;
+
                 let awaited_obj = self.pop_value();
                 let awaitable = if awaited_obj.downcastable::<PyCoroutine>() {
                     awaited_obj
@@ -932,7 +934,15 @@ impl ExecutingFrame<'_> {
                             )
                         },
                     )?;
-                    await_method.call((), vm)?
+                    let result = await_method.call((), vm)?;
+                    // Check that __await__ returned an iterator
+                    if !PyIter::check(&result) {
+                        return Err(vm.new_type_error(format!(
+                            "__await__() returned non-iterator of type '{}'",
+                            result.class().name()
+                        )));
+                    }
+                    result
                 };
                 self.push_value(awaitable);
                 Ok(None)

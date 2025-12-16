@@ -171,3 +171,18 @@ pub trait PyClassImpl: PyClassDef {
         slots
     }
 }
+
+/// Trait for Python subclasses that can provide a reference to their base type.
+///
+/// This trait is automatically implemented by the `#[pyclass]` macro when
+/// `base = SomeType` is specified. It provides safe reference access to the
+/// base type's payload.
+///
+/// For subclasses with `#[repr(transparent)]`
+/// which enables ownership transfer via `into_base()`.
+pub trait PySubclass: crate::PyPayload {
+    type Base: crate::PyPayload;
+
+    /// Returns a reference to the base type's payload.
+    fn as_base(&self) -> &Self::Base;
+}

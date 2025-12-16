@@ -15,7 +15,7 @@ use crate::builtins::PyModule;
 use crate::class::PyClassImpl;
 use crate::{Py, PyRef, VirtualMachine};
 
-pub use crate::stdlib::ctypes::base::{PyCData, PyCSimple, PyCSimpleType};
+pub use crate::stdlib::ctypes::base::{CDataObject, PyCData, PyCSimple, PyCSimpleType};
 
 pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
     let ctx = &vm.ctx;
@@ -47,7 +47,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 
 #[pymodule]
 pub(crate) mod _ctypes {
-    use super::base::{CDataObject, PyCSimple};
+    use super::base::{CDataObject, PyCData, PyCSimple};
     use crate::builtins::PyTypeRef;
     use crate::class::StaticType;
     use crate::convert::ToPyObject;
@@ -369,13 +369,12 @@ pub(crate) mod _ctypes {
                     Err(vm.new_attribute_error(format!("class must define a '_type_' attribute which must be\n a single character string containing one of {SIMPLE_TYPE_CHARS}, currently it is {tp_str}.")))
                 } else {
                     let size = get_size(&tp_str);
+                    let cdata = CDataObject::from_bytes(vec![0u8; size], None);
                     Ok(PyCSimple {
+                        _base: PyCData::new(cdata.clone()),
                         _type_: tp_str,
                         value: AtomicCell::new(vm.ctx.none()),
-                        cdata: rustpython_common::lock::PyRwLock::new(CDataObject::from_bytes(
-                            vec![0u8; size],
-                            None,
-                        )),
+                        cdata: rustpython_common::lock::PyRwLock::new(cdata),
                     })
                 }
             } else {

@@ -4,7 +4,7 @@ use crate::builtins::{PyNone, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::function::FuncArgs;
 use crate::stdlib::ctypes::PyCData;
-use crate::stdlib::ctypes::base::{PyCSimple, ffi_type_from_str};
+use crate::stdlib::ctypes::base::{CDataObject, PyCSimple, ffi_type_from_str};
 use crate::stdlib::ctypes::thunk::PyCThunk;
 use crate::types::Representable;
 use crate::types::{Callable, Constructor};
@@ -162,8 +162,8 @@ impl ReturnType for PyNone {
 }
 
 #[pyclass(module = "_ctypes", name = "CFuncPtr", base = PyCData)]
-#[derive(PyPayload)]
 pub struct PyCFuncPtr {
+    _base: PyCData,
     pub name: PyRwLock<Option<String>>,
     pub ptr: PyRwLock<Option<CodePtr>>,
     #[allow(dead_code)]
@@ -194,6 +194,7 @@ impl Constructor for PyCFuncPtr {
 
         if args.args.is_empty() {
             return PyCFuncPtr {
+                _base: PyCData::new(CDataObject::from_bytes(vec![], None)),
                 ptr: PyRwLock::new(None),
                 needs_free: AtomicCell::new(false),
                 arg_types: PyRwLock::new(None),
@@ -212,6 +213,7 @@ impl Constructor for PyCFuncPtr {
         if let Ok(addr) = first_arg.try_int(vm) {
             let ptr_val = addr.as_bigint().to_usize().unwrap_or(0);
             return PyCFuncPtr {
+                _base: PyCData::new(CDataObject::from_bytes(vec![], None)),
                 ptr: PyRwLock::new(Some(CodePtr(ptr_val as *mut _))),
                 needs_free: AtomicCell::new(false),
                 arg_types: PyRwLock::new(None),
@@ -271,6 +273,7 @@ impl Constructor for PyCFuncPtr {
             };
 
             return PyCFuncPtr {
+                _base: PyCData::new(CDataObject::from_bytes(vec![], None)),
                 ptr: PyRwLock::new(code_ptr),
                 needs_free: AtomicCell::new(false),
                 arg_types: PyRwLock::new(None),
@@ -314,6 +317,7 @@ impl Constructor for PyCFuncPtr {
             let thunk_ref: PyRef<PyCThunk> = thunk.into_ref(&vm.ctx);
 
             return PyCFuncPtr {
+                _base: PyCData::new(CDataObject::from_bytes(vec![], None)),
                 ptr: PyRwLock::new(Some(code_ptr)),
                 needs_free: AtomicCell::new(true),
                 arg_types: PyRwLock::new(arg_type_vec),
