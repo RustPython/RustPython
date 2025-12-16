@@ -36,9 +36,6 @@ from _ctypes import FUNCFLAG_CDECL as _FUNCFLAG_CDECL, \
      FUNCFLAG_USE_ERRNO as _FUNCFLAG_USE_ERRNO, \
      FUNCFLAG_USE_LASTERROR as _FUNCFLAG_USE_LASTERROR
 
-# TODO: RUSTPYTHON remove this
-from _ctypes import _non_existing_function
-
 # WINOLEAPI -> HRESULT
 # WINOLEAPI_(type)
 #
