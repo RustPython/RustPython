@@ -1,4 +1,5 @@
 import sys
+
 from testutils import assert_raises, skip_if_unsupported
 
 # new
