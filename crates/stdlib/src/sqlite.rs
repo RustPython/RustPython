@@ -1540,7 +1540,7 @@ mod _sqlite {
         size: Option<c_int>,
     }
 
-    #[pyclass(with(Constructor, IterNext, Iterable), flags(BASETYPE))]
+    #[pyclass(with(Constructor, Initializer, IterNext, Iterable), flags(BASETYPE))]
     impl Cursor {
         fn new(
             connection: PyRef<Connection>,
@@ -1569,24 +1569,6 @@ mod _sqlite {
                 row_factory: PyAtomicRef::from(None),
                 inner: PyMutex::from(None),
             }
-        }
-
-        #[pymethod]
-        fn __init__(&self, _connection: PyRef<Connection>, _vm: &VirtualMachine) -> PyResult<()> {
-            let mut guard = self.inner.lock();
-            if guard.is_some() {
-                // Already initialized (e.g., from a call to super().__init__)
-                return Ok(());
-            }
-            *guard = Some(CursorInner {
-                description: None,
-                row_cast_map: vec![],
-                lastrowid: -1,
-                rowcount: -1,
-                statement: None,
-                closed: false,
-            });
-            Ok(())
         }
 
         fn check_cursor_state(inner: Option<&CursorInner>, vm: &VirtualMachine) -> PyResult<()> {
@@ -1946,6 +1928,27 @@ mod _sqlite {
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
             Ok(Self::new_uninitialized(connection, vm))
+        }
+    }
+
+    impl Initializer for Cursor {
+        type Args = FuncArgs;
+
+        fn init(zelf: PyRef<Self>, _connection: FuncArgs, _vm: &VirtualMachine) -> PyResult<()> {
+            let mut guard = zelf.inner.lock();
+            if guard.is_some() {
+                // Already initialized (e.g., from a call to super().__init__)
+                return Ok(());
+            }
+            *guard = Some(CursorInner {
+                description: None,
+                row_cast_map: vec![],
+                lastrowid: -1,
+                rowcount: -1,
+                statement: None,
+                closed: false,
+            });
+            Ok(())
         }
     }
 

@@ -2,11 +2,11 @@ use super::{PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::types::PyTypeFlags;
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     convert::ToPyResult,
     function::{Either, FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
-    types::{Constructor, PyComparisonOp},
+    types::{Constructor, Initializer, PyComparisonOp},
 };
 use itertools::Itertools;
 
@@ -112,6 +112,18 @@ impl Constructor for PyBaseObject {
 
     fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
         unimplemented!("use slot_new")
+    }
+}
+
+impl Initializer for PyBaseObject {
+    type Args = FuncArgs;
+
+    fn slot_init(_zelf: PyObjectRef, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<()> {
+        Ok(())
+    }
+
+    fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        unreachable!("slot_init is defined")
     }
 }
 
@@ -235,7 +247,7 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
 //     getstate.call((), vm)
 // }
 
-#[pyclass(with(Constructor), flags(BASETYPE))]
+#[pyclass(with(Constructor, Initializer), flags(BASETYPE))]
 impl PyBaseObject {
     #[pymethod(raw)]
     fn __getstate__(vm: &VirtualMachine, args: FuncArgs) -> PyResult {
@@ -444,19 +456,17 @@ impl PyBaseObject {
         obj.str(vm)
     }
 
-    #[pyslot]
-    #[pymethod]
-    fn __init__(_zelf: PyObjectRef, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<()> {
-        Ok(())
-    }
-
     #[pygetset]
     fn __class__(obj: PyObjectRef) -> PyTypeRef {
         obj.class().to_owned()
     }
 
-    #[pygetset(name = "__class__", setter)]
-    fn set_class(instance: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pygetset(setter)]
+    fn set___class__(
+        instance: PyObjectRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         match value.downcast::<PyType>() {
             Ok(cls) => {
                 let both_module = instance.class().fast_issubclass(vm.ctx.types.module_type)
