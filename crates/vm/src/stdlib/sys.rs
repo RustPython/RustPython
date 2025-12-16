@@ -718,7 +718,7 @@ mod sys {
                 write!(stderr, "{}.", module);
             }
         } else {
-            write!(stderr, "<unknown>");
+            write!(stderr, "<unknown>.");
         }
 
         // Print qualname
