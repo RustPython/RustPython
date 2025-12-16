@@ -625,9 +625,9 @@ impl PyStr {
         self.data.char_len()
     }
 
-    #[pymethod(name = "isascii")]
+    #[pymethod]
     #[inline(always)]
-    pub const fn is_ascii(&self) -> bool {
+    pub const fn isascii(&self) -> bool {
         matches!(self.kind(), StrKind::Ascii)
     }
 
@@ -960,7 +960,7 @@ impl PyStr {
         format_map(&format_string, &mapping, vm)
     }
 
-    #[pymethod(name = "__format__")]
+    #[pymethod]
     fn __format__(
         zelf: PyRef<PyStr>,
         spec: PyStrRef,

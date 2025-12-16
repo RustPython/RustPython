@@ -629,12 +629,11 @@ impl GetDescriptor for PyFunction {
         vm: &VirtualMachine,
     ) -> PyResult {
         let (_zelf, obj) = Self::_unwrap(&zelf, obj, vm)?;
-        let obj = if vm.is_none(&obj) && !Self::_cls_is(&cls, obj.class()) {
+        Ok(if vm.is_none(&obj) && !Self::_cls_is(&cls, obj.class()) {
             zelf
         } else {
             PyBoundMethod::new(obj, zelf).into_ref(&vm.ctx).into()
-        };
-        Ok(obj)
+        })
     }
 }
 

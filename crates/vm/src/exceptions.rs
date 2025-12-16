@@ -624,8 +624,8 @@ impl PyBaseException {
         *self.context.write() = context;
     }
 
-    #[pygetset(name = "__suppress_context__")]
-    pub(super) fn get_suppress_context(&self) -> bool {
+    #[pygetset]
+    pub(super) fn __suppress_context__(&self) -> bool {
         self.suppress_context.load()
     }
 
@@ -1112,7 +1112,7 @@ impl serde::Serialize for SerializeException<'_, '_> {
                 .__context__()
                 .map(|exc| SerializeExceptionOwned { vm: self.vm, exc }),
         )?;
-        struc.serialize_field("suppress_context", &self.exc.get_suppress_context())?;
+        struc.serialize_field("suppress_context", &self.exc.__suppress_context__())?;
 
         let args = {
             struct Args<'vm>(&'vm VirtualMachine, PyTupleRef);
@@ -1550,6 +1550,7 @@ pub(super) mod types {
     pub struct PyUnboundLocalError(PyNameError);
 
     #[pyexception(name, base = PyException, ctx = "os_error")]
+    #[repr(C)]
     pub struct PyOSError {
         base: PyException,
         errno: PyAtomicRef<Option<PyObject>>,
@@ -1857,8 +1858,8 @@ pub(super) mod types {
             self.errno.swap_to_temporary_refs(value, vm);
         }
 
-        #[pygetset(name = "strerror")]
-        fn get_strerror(&self) -> Option<PyObjectRef> {
+        #[pygetset]
+        fn strerror(&self) -> Option<PyObjectRef> {
             self.strerror.to_owned()
         }
 

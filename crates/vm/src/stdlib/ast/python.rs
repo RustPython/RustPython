@@ -47,8 +47,8 @@ pub(crate) mod _ast {
             Ok(())
         }
 
-        #[pyattr(name = "_fields")]
-        fn fields(ctx: &Context) -> PyTupleRef {
+        #[pyattr]
+        fn _fields(ctx: &Context) -> PyTupleRef {
             ctx.empty_tuple.clone()
         }
     }

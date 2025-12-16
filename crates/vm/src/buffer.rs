@@ -261,6 +261,56 @@ impl FormatCode {
                 return Err("embedded null character".to_owned());
             }
 
+            // PEP3118: Handle extended format specifiers
+            // T{...} - struct, X{} - function pointer, (...) - array shape, :name: - field name
+            if c == b'T' || c == b'X' {
+                // Skip struct/function pointer: consume until matching '}'
+                if chars.peek() == Some(&b'{') {
+                    chars.next(); // consume '{'
+                    let mut depth = 1;
+                    while depth > 0 {
+                        match chars.next() {
+                            Some(b'{') => depth += 1,
+                            Some(b'}') => depth -= 1,
+                            None => return Err("unmatched '{' in format".to_owned()),
+                            _ => {}
+                        }
+                    }
+                    continue;
+                }
+            }
+
+            if c == b'(' {
+                // Skip array shape: consume until matching ')'
+                let mut depth = 1;
+                while depth > 0 {
+                    match chars.next() {
+                        Some(b'(') => depth += 1,
+                        Some(b')') => depth -= 1,
+                        None => return Err("unmatched '(' in format".to_owned()),
+                        _ => {}
+                    }
+                }
+                continue;
+            }
+
+            if c == b':' {
+                // Skip field name: consume until next ':'
+                loop {
+                    match chars.next() {
+                        Some(b':') => break,
+                        None => return Err("unmatched ':' in format".to_owned()),
+                        _ => {}
+                    }
+                }
+                continue;
+            }
+
+            if c == b'{' || c == b'}' {
+                // Skip standalone braces (pointer targets, etc.)
+                continue;
+            }
+
             let code = FormatType::try_from(c)
                 .ok()
                 .filter(|c| match c {

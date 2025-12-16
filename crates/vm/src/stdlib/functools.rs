@@ -73,8 +73,8 @@ mod _functools {
             self.inner.read().keywords.clone()
         }
 
-        #[pymethod(name = "__reduce__")]
-        fn reduce(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+        #[pymethod]
+        fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
             let inner = zelf.inner.read();
             let partial_type = zelf.class();
 
