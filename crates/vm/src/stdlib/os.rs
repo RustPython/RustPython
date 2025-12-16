@@ -153,6 +153,7 @@ pub(super) mod _os {
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         builtins::{
             PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
+            ToOSErrorBuilder,
         },
         common::{
             crt_fd,
@@ -161,8 +162,9 @@ pub(super) mod _os {
             suppress_iph,
         },
         convert::{IntoPyException, ToPyObject},
+        exceptions::OSErrorBuilder,
         function::{ArgBytesLike, FsPath, FuncArgs, OptionalArg},
-        ospath::{IOErrorBuilder, OsPath, OsPathOrFd, OutputMode},
+        ospath::{OsPath, OsPathOrFd, OutputMode},
         protocol::PyIterReturn,
         recursion::ReprGuard,
         types::{IterNext, Iterable, PyStructSequence, Representable, SelfIter, Unconstructible},
@@ -263,7 +265,7 @@ pub(super) mod _os {
                 crt_fd::open(&name, flags, mode)
             }
         };
-        fd.map_err(|err| IOErrorBuilder::with_filename(&err, name, vm))
+        fd.map_err(|err| OSErrorBuilder::with_filename(&err, name, vm))
     }
 
     #[pyfunction]
@@ -316,7 +318,7 @@ pub(super) mod _os {
         } else {
             fs::remove_file(&path)
         };
-        res.map_err(|err| IOErrorBuilder::with_filename(&err, path, vm))
+        res.map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     #[cfg(not(windows))]
@@ -334,7 +336,7 @@ pub(super) mod _os {
             let res = unsafe { libc::mkdirat(fd, c_path.as_ptr(), mode as _) };
             return if res < 0 {
                 let err = crate::common::os::errno_io_error();
-                Err(IOErrorBuilder::with_filename(&err, path, vm))
+                Err(OSErrorBuilder::with_filename(&err, path, vm))
             } else {
                 Ok(())
             };
@@ -344,7 +346,7 @@ pub(super) mod _os {
         let res = unsafe { libc::mkdir(c_path.as_ptr(), mode as _) };
         if res < 0 {
             let err = crate::common::os::errno_io_error();
-            return Err(IOErrorBuilder::with_filename(&err, path, vm));
+            return Err(OSErrorBuilder::with_filename(&err, path, vm));
         }
         Ok(())
     }
@@ -357,7 +359,7 @@ pub(super) mod _os {
     #[pyfunction]
     fn rmdir(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult<()> {
         let [] = dir_fd.0;
-        fs::remove_dir(&path).map_err(|err| IOErrorBuilder::with_filename(&err, path, vm))
+        fs::remove_dir(&path).map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     const LISTDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
@@ -373,13 +375,13 @@ pub(super) mod _os {
                 let dir_iter = match fs::read_dir(&path) {
                     Ok(iter) => iter,
                     Err(err) => {
-                        return Err(IOErrorBuilder::with_filename(&err, path, vm));
+                        return Err(OSErrorBuilder::with_filename(&err, path, vm));
                     }
                 };
                 dir_iter
                     .map(|entry| match entry {
                         Ok(entry_path) => Ok(path.mode.process_path(entry_path.file_name(), vm)),
-                        Err(err) => Err(IOErrorBuilder::with_filename(&err, path.clone(), vm)),
+                        Err(err) => Err(OSErrorBuilder::with_filename(&err, path.clone(), vm)),
                     })
                     .collect::<PyResult<_>>()?
             }
@@ -546,7 +548,7 @@ pub(super) mod _os {
         let mode = path.mode;
         let [] = dir_fd.0;
         let path =
-            fs::read_link(&path).map_err(|err| IOErrorBuilder::with_filename(&err, path, vm))?;
+            fs::read_link(&path).map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))?;
         Ok(mode.process_path(path, vm))
     }
 
@@ -859,7 +861,7 @@ pub(super) mod _os {
     fn scandir(path: OptionalArg<OsPath>, vm: &VirtualMachine) -> PyResult {
         let path = path.unwrap_or_else(|| OsPath::new_str("."));
         let entries = fs::read_dir(&path.path)
-            .map_err(|err| IOErrorBuilder::with_filename(&err, path.clone(), vm))?;
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
         Ok(ScandirIterator {
             entries: PyRwLock::new(Some(entries)),
             mode: path.mode,
@@ -1084,7 +1086,7 @@ pub(super) mod _os {
         vm: &VirtualMachine,
     ) -> PyResult {
         let stat = stat_inner(file.clone(), dir_fd, follow_symlinks)
-            .map_err(|err| IOErrorBuilder::with_filename(&err, file, vm))?
+            .map_err(|err| OSErrorBuilder::with_filename(&err, file, vm))?
             .ok_or_else(|| crate::exceptions::cstring_error(vm))?;
         Ok(StatResultData::from_stat(&stat, vm).to_pyobject(vm))
     }
@@ -1115,7 +1117,7 @@ pub(super) mod _os {
     #[pyfunction]
     fn chdir(path: OsPath, vm: &VirtualMachine) -> PyResult<()> {
         env::set_current_dir(&path.path)
-            .map_err(|err| IOErrorBuilder::with_filename(&err, path, vm))
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     #[pyfunction]
@@ -1127,10 +1129,10 @@ pub(super) mod _os {
     #[pyfunction(name = "replace")]
     fn rename(src: OsPath, dst: OsPath, vm: &VirtualMachine) -> PyResult<()> {
         fs::rename(&src.path, &dst.path).map_err(|err| {
-            IOErrorBuilder::new(&err)
-                .filename(src)
-                .filename2(dst)
-                .into_pyexception(vm)
+            let builder = err.to_os_error_builder(vm);
+            let builder = builder.filename(src.filename(vm));
+            let builder = builder.filename2(dst.filename(vm));
+            builder.build(vm).upcast()
         })
     }
 
@@ -1219,10 +1221,10 @@ pub(super) mod _os {
     #[pyfunction]
     fn link(src: OsPath, dst: OsPath, vm: &VirtualMachine) -> PyResult<()> {
         fs::hard_link(&src.path, &dst.path).map_err(|err| {
-            IOErrorBuilder::new(&err)
-                .filename(src)
-                .filename2(dst)
-                .into_pyexception(vm)
+            let builder = err.to_os_error_builder(vm);
+            let builder = builder.filename(src.filename(vm));
+            let builder = builder.filename2(dst.filename(vm));
+            builder.build(vm).upcast()
         })
     }
 
@@ -1334,7 +1336,7 @@ pub(super) mod _os {
                     )
                 };
                 if ret < 0 {
-                    Err(IOErrorBuilder::with_filename(
+                    Err(OSErrorBuilder::with_filename(
                         &io::Error::last_os_error(),
                         path_for_err,
                         vm,
@@ -1385,14 +1387,14 @@ pub(super) mod _os {
                 .write(true)
                 .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS)
                 .open(&path)
-                .map_err(|err| IOErrorBuilder::with_filename(&err, path.clone(), vm))?;
+                .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
 
             let ret = unsafe {
                 FileSystem::SetFileTime(f.as_raw_handle() as _, std::ptr::null(), &acc, &modif)
             };
 
             if ret == 0 {
-                Err(IOErrorBuilder::with_filename(
+                Err(OSErrorBuilder::with_filename(
                     &io::Error::last_os_error(),
                     path,
                     vm,
@@ -1565,7 +1567,7 @@ pub(super) mod _os {
             error: std::io::Error,
             path: OsPath,
         ) -> crate::builtins::PyBaseExceptionRef {
-            IOErrorBuilder::with_filename(&error, path, vm)
+            OSErrorBuilder::with_filename(&error, path, vm)
         }
 
         let path = OsPath::try_from_object(vm, path)?;

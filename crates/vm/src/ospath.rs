@@ -2,10 +2,8 @@ use rustpython_common::crt_fd;
 
 use crate::{
     PyObjectRef, PyResult, VirtualMachine,
-    builtins::PyBaseExceptionRef,
     convert::{IntoPyException, ToPyException, ToPyObject, TryFromObject},
     function::FsPath,
-    object::AsObject,
 };
 use std::path::{Path, PathBuf};
 
@@ -144,62 +142,17 @@ impl OsPathOrFd<'_> {
     }
 }
 
-// TODO: preserve the input `PyObjectRef` of filename and filename2 (Failing check `self.assertIs(err.filename, name, str(func)`)
-pub struct IOErrorBuilder<'a> {
-    error: &'a std::io::Error,
-    filename: Option<OsPathOrFd<'a>>,
-    filename2: Option<OsPathOrFd<'a>>,
-}
-
-impl<'a> IOErrorBuilder<'a> {
-    pub const fn new(error: &'a std::io::Error) -> Self {
-        Self {
-            error,
-            filename: None,
-            filename2: None,
-        }
-    }
-
-    pub(crate) fn filename(mut self, filename: impl Into<OsPathOrFd<'a>>) -> Self {
-        let filename = filename.into();
-        self.filename.replace(filename);
-        self
-    }
-
-    pub(crate) fn filename2(mut self, filename: impl Into<OsPathOrFd<'a>>) -> Self {
-        let filename = filename.into();
-        self.filename2.replace(filename);
-        self
-    }
-
-    pub(crate) fn with_filename(
-        error: &'a std::io::Error,
+impl crate::exceptions::OSErrorBuilder {
+    #[must_use]
+    pub(crate) fn with_filename<'a>(
+        error: &std::io::Error,
         filename: impl Into<OsPathOrFd<'a>>,
         vm: &VirtualMachine,
-    ) -> PyBaseExceptionRef {
-        let zelf = IOErrorBuilder {
-            error,
-            filename: Some(filename.into()),
-            filename2: None,
-        };
-        zelf.to_pyexception(vm)
-    }
-}
-
-impl ToPyException for IOErrorBuilder<'_> {
-    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        let exc = self.error.to_pyexception(vm);
-
-        if let Some(filename) = &self.filename {
-            exc.as_object()
-                .set_attr("filename", filename.filename(vm), vm)
-                .unwrap();
-        }
-        if let Some(filename2) = &self.filename2 {
-            exc.as_object()
-                .set_attr("filename2", filename2.filename(vm), vm)
-                .unwrap();
-        }
-        exc
+    ) -> crate::builtins::PyBaseExceptionRef {
+        // TODO: return type to PyRef<PyOSError>
+        use crate::exceptions::ToOSErrorBuilder;
+        let builder = error.to_os_error_builder(vm);
+        let builder = builder.filename(filename.into().filename(vm));
+        builder.build(vm).upcast()
     }
 }

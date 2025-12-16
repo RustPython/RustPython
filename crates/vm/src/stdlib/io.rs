@@ -14,11 +14,12 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyModule},
     common::os::ErrorExt,
     convert::{IntoPyException, ToPyException},
+    exceptions::{OSErrorBuilder, ToOSErrorBuilder},
 };
 pub use _io::{OpenArgs, io_open as open};
 
-impl ToPyException for std::io::Error {
-    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+impl ToOSErrorBuilder for std::io::Error {
+    fn to_os_error_builder(&self, vm: &VirtualMachine) -> OSErrorBuilder {
         let errno = self.posix_errno();
         #[cfg(windows)]
         let msg = 'msg: {
@@ -53,23 +54,23 @@ impl ToPyException for std::io::Error {
         #[cfg(not(any(windows, unix)))]
         let msg = self.to_string();
 
-        #[allow(clippy::let_and_return)]
-        let exc = vm.new_errno_error(errno, msg);
-        #[cfg(windows)]
-        {
-            use crate::object::AsObject;
-            let winerror = if let Some(winerror) = self.raw_os_error() {
-                vm.new_pyobj(winerror)
-            } else {
-                vm.ctx.none()
-            };
+        #[allow(unused_mut)]
+        let mut builder = OSErrorBuilder::with_errno(errno, msg, vm);
 
-            // FIXME: manual setup winerror due to lack of OSError.__init__ support
-            exc.as_object()
-                .set_attr("winerror", vm.new_pyobj(winerror), vm)
-                .unwrap();
+        #[cfg(windows)]
+        if let Some(winerror) = self.raw_os_error() {
+            use crate::convert::ToPyObject;
+            builder = builder.winerror(winerror.to_pyobject(vm));
         }
-        exc.upcast()
+
+        builder
+    }
+}
+
+impl ToPyException for std::io::Error {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        let builder = self.to_os_error_builder(vm);
+        builder.into_pyexception(vm)
     }
 }
 
@@ -4328,8 +4329,9 @@ mod fileio {
         builtins::{PyBaseExceptionRef, PyUtf8Str, PyUtf8StrRef},
         common::crt_fd,
         convert::{IntoPyException, ToPyException},
+        exceptions::OSErrorBuilder,
         function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg, OptionalOption},
-        ospath::{IOErrorBuilder, OsPath, OsPathOrFd},
+        ospath::{OsPath, OsPathOrFd},
         stdlib::os,
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
     };
@@ -4526,7 +4528,7 @@ mod fileio {
                     let filename = OsPathOrFd::Path(path);
                     match fd {
                         Ok(fd) => (fd.into_raw(), Some(filename)),
-                        Err(e) => return Err(IOErrorBuilder::with_filename(&e, filename, vm)),
+                        Err(e) => return Err(OSErrorBuilder::with_filename(&e, filename, vm)),
                     }
                 }
             };
@@ -4541,7 +4543,7 @@ mod fileio {
             #[cfg(windows)]
             {
                 if let Err(err) = fd_fstat {
-                    return Err(IOErrorBuilder::with_filename(&err, filename, vm));
+                    return Err(OSErrorBuilder::with_filename(&err, filename, vm));
                 }
             }
             #[cfg(any(unix, target_os = "wasi"))]
@@ -4550,12 +4552,12 @@ mod fileio {
                     Ok(status) => {
                         if (status.st_mode & libc::S_IFMT) == libc::S_IFDIR {
                             let err = std::io::Error::from_raw_os_error(libc::EISDIR);
-                            return Err(IOErrorBuilder::with_filename(&err, filename, vm));
+                            return Err(OSErrorBuilder::with_filename(&err, filename, vm));
                         }
                     }
                     Err(err) => {
                         if err.raw_os_error() == Some(libc::EBADF) {
-                            return Err(IOErrorBuilder::with_filename(&err, filename, vm));
+                            return Err(OSErrorBuilder::with_filename(&err, filename, vm));
                         }
                     }
                 }

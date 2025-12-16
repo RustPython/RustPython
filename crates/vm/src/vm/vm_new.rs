@@ -1,5 +1,5 @@
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef,
+    AsObject, Py, PyObject, PyObjectRef, PyRef,
     builtins::{
         PyBaseException, PyBaseExceptionRef, PyBytesRef, PyDictRef, PyModule, PyOSError, PyStrRef,
         PyType, PyTypeRef,
@@ -8,9 +8,9 @@ use crate::{
         tuple::{IntoPyTuple, PyTupleRef},
     },
     convert::{ToPyException, ToPyObject},
+    exceptions::OSErrorBuilder,
     function::{IntoPyNativeFn, PyMethodFlags},
     scope::Scope,
-    types::Constructor,
     vm::VirtualMachine,
 };
 use rustpython_compiler_core::SourceLocation;
@@ -119,26 +119,8 @@ impl VirtualMachine {
         msg: impl ToPyObject,
     ) -> PyRef<PyOSError> {
         debug_assert_eq!(exc_type.slots.basicsize, std::mem::size_of::<PyOSError>());
-        let msg = msg.to_pyobject(self);
 
-        fn new_os_subtype_error_impl(
-            vm: &VirtualMachine,
-            exc_type: PyTypeRef,
-            errno: Option<i32>,
-            msg: PyObjectRef,
-        ) -> PyRef<PyOSError> {
-            let args = match errno {
-                Some(e) => vec![vm.new_pyobj(e), msg],
-                None => vec![msg],
-            };
-            let payload =
-                PyOSError::py_new(&exc_type, args.into(), vm).expect("new_os_error usage error");
-            payload
-                .into_ref_with_type(vm, exc_type)
-                .expect("new_os_error usage error")
-        }
-
-        new_os_subtype_error_impl(self, exc_type, errno, msg)
+        OSErrorBuilder::with_subtype(exc_type, errno, msg, self).build(self)
     }
 
     /// Instantiate an exception with no arguments.
