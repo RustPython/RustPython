@@ -487,8 +487,8 @@ pub mod module {
 
         nix::unistd::chroot(&*path.path).map_err(|err| {
             // Use `From<nix::Error> for io::Error` when it is available
-            let err = io::Error::from_raw_os_error(err as i32);
-            OSErrorBuilder::with_filename(&err, path, vm)
+            let io_err: io::Error = err.into();
+            OSErrorBuilder::with_filename(&io_err, path, vm)
         })
     }
 
