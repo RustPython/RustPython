@@ -15,6 +15,7 @@ cellvar
 cellvars
 cmpop
 denom
+DICTFLAG
 dictoffset
 elts
 excepthandler
@@ -28,6 +29,7 @@ heaptype
 HIGHRES
 IMMUTABLETYPE
 Itertool
+keeped
 kwonlyarg
 kwonlyargs
 lasti
@@ -48,6 +50,7 @@ PYTHREAD_NAME
 SA_ONSTACK
 SOABI
 stackdepth
+stginfo
 stringlib
 structseq
 subparams

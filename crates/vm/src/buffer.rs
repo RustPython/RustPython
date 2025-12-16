@@ -238,10 +238,23 @@ impl FormatCode {
                 _ => 1,
             };
 
+            // Skip whitespace (Python ignores whitespace in format strings)
+            while let Some(b' ' | b'\t' | b'\n' | b'\r') = chars.peek() {
+                chars.next();
+            }
+
             // determine format char:
-            let c = chars
-                .next()
-                .ok_or_else(|| "repeat count given without format specifier".to_owned())?;
+            let c = match chars.next() {
+                Some(c) => c,
+                None => {
+                    // If we have a repeat count but only whitespace follows, error
+                    if repeat != 1 {
+                        return Err("repeat count given without format specifier".to_owned());
+                    }
+                    // Otherwise, we're done parsing
+                    break;
+                }
+            };
 
             // Check for embedded null character
             if c == 0 {
