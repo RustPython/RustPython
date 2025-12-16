@@ -443,17 +443,6 @@ impl PyType {
     }
 
     fn set_new(slots: &PyTypeSlots, base: &Option<PyTypeRef>) {
-        // if self.slots.new.load().is_none()
-        //     && self
-        //         .base
-        //         .as_ref()
-        //         .map(|base| base.class().is(ctx.types.object_type))
-        //         .unwrap_or(false)
-        //     && self.slots.flags.contains(PyTypeFlags::HEAPTYPE)
-        // {
-        //     self.slots.flags |= PyTypeFlags::DISALLOW_INSTANTIATION;
-        // }
-
         if slots.flags.contains(PyTypeFlags::DISALLOW_INSTANTIATION) {
             slots.new.store(None)
         } else if slots.new.load().is_none() {

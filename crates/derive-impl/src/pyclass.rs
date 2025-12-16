@@ -1614,7 +1614,6 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
     }];
     let mut payload = None;
 
-    let mut has_constructor = false;
     for attr in attr {
         match attr {
             NestedMeta::Meta(Meta::List(MetaList { path, nested, .. })) => {
@@ -1638,9 +1637,6 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
                                     meta,
                                     "Try `#[pyclass(with(Constructor, ...))]` instead of `#[pyclass(with(DefaultConstructor, ...))]`. DefaultConstructor implicitly implements Constructor."
                                 )
-                            }
-                            if path.is_ident("Constructor") {
-                                has_constructor = true;
                             }
                             (
                                 quote!(<Self as #path>::__extend_py_class),
@@ -1694,7 +1690,6 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
             attr => bail_span!(attr, "Unknown pyimpl attribute"),
         }
     }
-    let _ = has_constructor;
 
     Ok(ExtractedImplAttrs {
         payload,
