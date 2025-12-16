@@ -8,6 +8,7 @@ use crate::{
     protocol::PyIterReturn,
     types::{IterNext, Iterable, Representable, SelfIter, Unconstructible},
 };
+use crossbeam_utils::atomic::AtomicCell;
 
 #[pyclass(module = false, name = "coroutine")]
 #[derive(Debug)]
@@ -56,8 +57,11 @@ impl PyCoroutine {
     }
 
     #[pymethod(name = "__await__")]
-    const fn r#await(zelf: PyRef<Self>) -> PyCoroutineWrapper {
-        PyCoroutineWrapper { coro: zelf }
+    fn r#await(zelf: PyRef<Self>) -> PyCoroutineWrapper {
+        PyCoroutineWrapper {
+            coro: zelf,
+            closed: AtomicCell::new(false),
+        }
     }
 
     #[pygetset]
@@ -140,6 +144,7 @@ impl IterNext for PyCoroutine {
 // PyCoroWrapper_Type in CPython
 pub struct PyCoroutineWrapper {
     coro: PyRef<PyCoroutine>,
+    closed: AtomicCell<bool>,
 }
 
 impl PyPayload for PyCoroutineWrapper {
@@ -151,9 +156,22 @@ impl PyPayload for PyCoroutineWrapper {
 
 #[pyclass(with(IterNext, Iterable))]
 impl PyCoroutineWrapper {
+    fn check_closed(&self, vm: &VirtualMachine) -> PyResult<()> {
+        if self.closed.load() {
+            return Err(vm.new_runtime_error("cannot reuse already awaited coroutine"));
+        }
+        Ok(())
+    }
+
     #[pymethod]
     fn send(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        self.coro.send(val, vm)
+        self.check_closed(vm)?;
+        let result = self.coro.send(val, vm);
+        // Mark as closed if exhausted
+        if let Ok(PyIterReturn::StopIteration(_)) = &result {
+            self.closed.store(true);
+        }
+        result
     }
 
     #[pymethod]
@@ -164,11 +182,18 @@ impl PyCoroutineWrapper {
         exc_tb: OptionalArg,
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
-        self.coro.throw(exc_type, exc_val, exc_tb, vm)
+        self.check_closed(vm)?;
+        let result = self.coro.throw(exc_type, exc_val, exc_tb, vm);
+        // Mark as closed if exhausted
+        if let Ok(PyIterReturn::StopIteration(_)) = &result {
+            self.closed.store(true);
+        }
+        result
     }
 
     #[pymethod]
     fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
+        self.closed.store(true);
         self.coro.close(vm)
     }
 }

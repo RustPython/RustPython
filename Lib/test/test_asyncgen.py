@@ -559,8 +559,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             self.loop.run_until_complete(call_with_kwarg())
 
-    # TODO: RUSTPYTHON, error message mismatch
-    @unittest.expectedFailure
     def test_anext_bad_await(self):
         async def bad_awaitable():
             class BadAwaitable:
@@ -630,8 +628,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         result = self.loop.run_until_complete(do_test())
         self.assertEqual(result, "completed")
 
-    # TODO: RUSTPYTHON, anext coroutine iteration issue
-    @unittest.expectedFailure
     def test_anext_iter(self):
         @types.coroutine
         def _async_yield(v):
@@ -1489,8 +1485,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
 
         self.assertEqual(messages, [])
 
-    # TODO: RUSTPYTHON, ValueError: not enough values to unpack (expected 1, got 0)
-    @unittest.expectedFailure
     def test_async_gen_asyncio_shutdown_exception_01(self):
         messages = []
 
