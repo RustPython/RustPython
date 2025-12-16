@@ -4,6 +4,7 @@ aenter
 aexit
 aiter
 anext
+anextawaitable
 appendleft
 argcount
 arrayiterator

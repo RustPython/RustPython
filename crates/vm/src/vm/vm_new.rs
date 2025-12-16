@@ -1,8 +1,8 @@
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyRef,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef,
     builtins::{
-        PyBaseException, PyBaseExceptionRef, PyBytesRef, PyDictRef, PyModule, PyStrRef, PyType,
-        PyTypeRef,
+        PyBaseException, PyBaseExceptionRef, PyBytesRef, PyDictRef, PyModule, PyOSError, PyStrRef,
+        PyType, PyTypeRef,
         builtin_func::PyNativeFunction,
         descriptor::PyMethodDescriptor,
         tuple::{IntoPyTuple, PyTupleRef},
@@ -10,6 +10,7 @@ use crate::{
     convert::{ToPyException, ToPyObject},
     function::{IntoPyNativeFn, PyMethodFlags},
     scope::Scope,
+    types::Constructor,
     vm::VirtualMachine,
 };
 use rustpython_compiler_core::SourceLocation;
@@ -92,16 +93,52 @@ impl VirtualMachine {
     /// [`vm.invoke_exception()`][Self::invoke_exception] or
     /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
     pub fn new_exception(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyBaseExceptionRef {
-        // TODO: add repr of args into logging?
+        debug_assert_eq!(
+            exc_type.slots.basicsize,
+            std::mem::size_of::<PyBaseException>(),
+            "vm.new_exception() is only for exception types without additional payload. The given type '{}' is not allowed.",
+            exc_type.class().name()
+        );
 
         PyRef::new_ref(
-            // TODO: this constructor might be invalid, because multiple
-            // exception (even builtin ones) are using custom constructors,
-            // see `OSError` as an example:
             PyBaseException::new(args, self),
             exc_type,
             Some(self.ctx.new_dict()),
         )
+    }
+
+    pub fn new_os_error(&self, msg: impl ToPyObject) -> PyRef<PyBaseException> {
+        self.new_os_subtype_error(self.ctx.exceptions.os_error.to_owned(), None, msg)
+            .upcast()
+    }
+
+    pub fn new_os_subtype_error(
+        &self,
+        exc_type: PyTypeRef,
+        errno: Option<i32>,
+        msg: impl ToPyObject,
+    ) -> PyRef<PyOSError> {
+        debug_assert_eq!(exc_type.slots.basicsize, std::mem::size_of::<PyOSError>());
+        let msg = msg.to_pyobject(self);
+
+        fn new_os_subtype_error_impl(
+            vm: &VirtualMachine,
+            exc_type: PyTypeRef,
+            errno: Option<i32>,
+            msg: PyObjectRef,
+        ) -> PyRef<PyOSError> {
+            let args = match errno {
+                Some(e) => vec![vm.new_pyobj(e), msg],
+                None => vec![msg],
+            };
+            let payload =
+                PyOSError::py_new(&exc_type, args.into(), vm).expect("new_os_error usage error");
+            payload
+                .into_ref_with_type(vm, exc_type)
+                .expect("new_os_error usage error")
+        }
+
+        new_os_subtype_error_impl(self, exc_type, errno, msg)
     }
 
     /// Instantiate an exception with no arguments.
@@ -220,16 +257,11 @@ impl VirtualMachine {
         err.to_pyexception(self)
     }
 
-    pub fn new_errno_error(&self, errno: i32, msg: impl Into<String>) -> PyBaseExceptionRef {
-        let vm = self;
-        let exc_type =
-            crate::exceptions::errno_to_exc_type(errno, vm).unwrap_or(vm.ctx.exceptions.os_error);
+    pub fn new_errno_error(&self, errno: i32, msg: impl ToPyObject) -> PyRef<PyOSError> {
+        let exc_type = crate::exceptions::errno_to_exc_type(errno, self)
+            .unwrap_or(self.ctx.exceptions.os_error);
 
-        let errno_obj = vm.new_pyobj(errno);
-        vm.new_exception(
-            exc_type.to_owned(),
-            vec![errno_obj, vm.new_pyobj(msg.into())],
-        )
+        self.new_os_subtype_error(exc_type.to_owned(), Some(errno), msg)
     }
 
     pub fn new_unicode_decode_error_real(
@@ -565,7 +597,6 @@ impl VirtualMachine {
     define_exception_fn!(fn new_eof_error, eof_error, EOFError);
     define_exception_fn!(fn new_attribute_error, attribute_error, AttributeError);
     define_exception_fn!(fn new_type_error, type_error, TypeError);
-    define_exception_fn!(fn new_os_error, os_error, OSError);
     define_exception_fn!(fn new_system_error, system_error, SystemError);
 
     // TODO: remove & replace with new_unicode_decode_error_real

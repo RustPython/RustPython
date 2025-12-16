@@ -375,8 +375,6 @@ class AsyncGenTest(unittest.TestCase):
 
         self.compare_generators(sync_gen_wrapper(), async_gen_wrapper())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_async_gen_api_01(self):
         async def gen():
             yield 123
@@ -467,16 +465,12 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         result = self.loop.run_until_complete(test_throw())
         self.assertEqual(result, "completed")
 
-    # TODO: RUSTPYTHON, NameError: name 'anext' is not defined
-    @unittest.expectedFailure
     def test_async_generator_anext(self):
         async def agen():
             yield 1
             yield 2
         self.check_async_iterator_anext(agen)
 
-    # TODO: RUSTPYTHON, NameError: name 'anext' is not defined
-    @unittest.expectedFailure
     def test_python_async_iterator_anext(self):
         class MyAsyncIter:
             """Asynchronously yield 1, then 2."""
@@ -492,8 +486,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
                     return self.yielded
         self.check_async_iterator_anext(MyAsyncIter)
 
-    # TODO: RUSTPYTHON, NameError: name 'anext' is not defined
-    @unittest.expectedFailure
     def test_python_async_iterator_types_coroutine_anext(self):
         import types
         class MyAsyncIterWithTypesCoro:
@@ -523,8 +515,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         res = self.loop.run_until_complete(consume())
         self.assertEqual(res, [1, 2])
 
-    # TODO: RUSTPYTHON, NameError: name 'aiter' is not defined
-    @unittest.expectedFailure
     def test_async_gen_aiter_class(self):
         results = []
         class Gen:
@@ -549,8 +539,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         applied_twice = aiter(applied_once)
         self.assertIs(applied_once, applied_twice)
 
-    # TODO: RUSTPYTHON, NameError: name 'anext' is not defined
-    @unittest.expectedFailure
     def test_anext_bad_args(self):
         async def gen():
             yield 1
@@ -571,8 +559,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             self.loop.run_until_complete(call_with_kwarg())
 
-    # TODO: RUSTPYTHON, NameError: name 'anext' is not defined
-    @unittest.expectedFailure
     def test_anext_bad_await(self):
         async def bad_awaitable():
             class BadAwaitable:
@@ -642,8 +628,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         result = self.loop.run_until_complete(do_test())
         self.assertEqual(result, "completed")
 
-    # TODO: RUSTPYTHON, NameError: name 'anext' is not defined
-    @unittest.expectedFailure
     def test_anext_iter(self):
         @types.coroutine
         def _async_yield(v):
@@ -1501,8 +1485,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
 
         self.assertEqual(messages, [])
 
-    # TODO: RUSTPYTHON, ValueError: not enough values to unpack (expected 1, got 0)
-    @unittest.expectedFailure
     def test_async_gen_asyncio_shutdown_exception_01(self):
         messages = []
 

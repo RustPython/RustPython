@@ -4,13 +4,14 @@ use rustpython_common::lock::PyRwLock;
 use crate::builtins::{PyType, PyTypeRef};
 use crate::function::FuncArgs;
 use crate::protocol::PyNumberMethods;
-use crate::stdlib::ctypes::PyCData;
+use crate::stdlib::ctypes::{CDataObject, PyCData};
 use crate::types::{AsNumber, Constructor};
 use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 
 #[pyclass(name = "PyCPointerType", base = PyType, module = "_ctypes")]
-#[derive(PyPayload, Debug, Default)]
-pub struct PyCPointerType {}
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct PyCPointerType(PyType);
 
 #[pyclass(flags(IMMUTABLETYPE), with(AsNumber))]
 impl PyCPointerType {
@@ -60,8 +61,9 @@ impl AsNumber for PyCPointerType {
     metaclass = "PyCPointerType",
     module = "_ctypes"
 )]
-#[derive(Debug, PyPayload)]
+#[derive(Debug)]
 pub struct PyCPointer {
+    _base: PyCData,
     contents: PyRwLock<PyObjectRef>,
 }
 
@@ -75,6 +77,7 @@ impl Constructor for PyCPointer {
 
         // Create a new PyCPointer instance with the provided value
         PyCPointer {
+            _base: PyCData::new(CDataObject::from_bytes(vec![], None)),
             contents: PyRwLock::new(initial_contents),
         }
         .into_ref_with_type(vm, cls)
@@ -124,6 +127,7 @@ impl PyCPointer {
         }
         // Pointer just stores the address value
         Ok(PyCPointer {
+            _base: PyCData::new(CDataObject::from_bytes(vec![], None)),
             contents: PyRwLock::new(vm.ctx.new_int(address).into()),
         }
         .into_ref_with_type(vm, cls)?
@@ -168,6 +172,7 @@ impl PyCPointer {
         let ptr_val = usize::from_ne_bytes(ptr_bytes.try_into().expect("size is checked above"));
 
         Ok(PyCPointer {
+            _base: PyCData::new(CDataObject::from_bytes(vec![], None)),
             contents: PyRwLock::new(vm.ctx.new_int(ptr_val).into()),
         }
         .into_ref_with_type(vm, cls)?
@@ -204,6 +209,7 @@ impl PyCPointer {
         let ptr_val = usize::from_ne_bytes(ptr_bytes.try_into().expect("size is checked above"));
 
         Ok(PyCPointer {
+            _base: PyCData::new(CDataObject::from_bytes(vec![], None)),
             contents: PyRwLock::new(vm.ctx.new_int(ptr_val).into()),
         }
         .into_ref_with_type(vm, cls)?
@@ -259,6 +265,7 @@ impl PyCPointer {
 
         // For pointer types, we return a pointer to the symbol address
         Ok(PyCPointer {
+            _base: PyCData::new(CDataObject::from_bytes(vec![], None)),
             contents: PyRwLock::new(vm.ctx.new_int(symbol_address).into()),
         }
         .into_ref_with_type(vm, cls)?
