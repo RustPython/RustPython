@@ -1084,10 +1084,13 @@ mod _io {
                             self.write_end = buffer_size;
                             // TODO: BlockingIOError(errno, msg, written)
                             // written += self.buffer.len();
-                            return Err(vm.new_exception_msg(
-                                vm.ctx.exceptions.blocking_io_error.to_owned(),
-                                "write could not complete without blocking".to_owned(),
-                            ));
+                            return Err(vm
+                                .new_os_subtype_error(
+                                    vm.ctx.exceptions.blocking_io_error.to_owned(),
+                                    None,
+                                    "write could not complete without blocking".to_owned(),
+                                )
+                                .upcast());
                         } else {
                             break;
                         }
