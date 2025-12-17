@@ -2,6 +2,10 @@
 
 mod cert;
 
+// SSL exception types (shared with rustls backend)
+#[path = "ssl/error.rs"]
+mod ssl_error;
+
 // Conditional compilation for OpenSSL version-specific error codes
 cfg_if::cfg_if! {
     if #[cfg(ossl310)] {
@@ -45,9 +49,16 @@ cfg_if::cfg_if! {
 }
 
 #[allow(non_upper_case_globals)]
-#[pymodule(with(cert::ssl_cert, ossl101, ossl111, windows))]
+#[pymodule(with(cert::ssl_cert, ssl_error::ssl_error, ossl101, ossl111, windows))]
 mod _ssl {
     use super::{bio, probe};
+
+    // Import error types used in this module (others are exposed via pymodule(with(...)))
+    use super::ssl_error::{
+        PySSLCertVerificationError as PySslCertVerificationError, PySSLEOFError as PySslEOFError,
+        PySSLError as PySslError, PySSLWantReadError as PySslWantReadError,
+        PySSLWantWriteError as PySslWantWriteError,
+    };
     use crate::{
         common::lock::{
             PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
@@ -299,92 +310,6 @@ mod _ssl {
             .expect("OPENSSL_API_VERSION is malformed");
         parse_version_info(openssl_api_version)
     }
-
-    // SSL Exception Types
-
-    /// An error occurred in the SSL implementation.
-    #[pyattr]
-    #[pyexception(name = "SSLError", base = PyOSError)]
-    #[derive(Debug)]
-    #[repr(transparent)]
-    pub struct PySslError(PyOSError);
-
-    #[pyexception]
-    impl PySslError {
-        // Returns strerror attribute if available, otherwise str(args)
-        #[pymethod]
-        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            // Try to get strerror attribute first (OSError compatibility)
-            if let Ok(strerror) = exc.as_object().get_attr("strerror", vm)
-                && !vm.is_none(&strerror)
-            {
-                return strerror.str(vm);
-            }
-
-            // Otherwise return str(args)
-            exc.args().as_object().str(vm)
-        }
-    }
-
-    /// A certificate could not be verified.
-    #[pyattr]
-    #[pyexception(name = "SSLCertVerificationError", base = PySslError)]
-    #[derive(Debug)]
-    #[repr(transparent)]
-    pub struct PySslCertVerificationError(PySslError);
-
-    #[pyexception]
-    impl PySslCertVerificationError {}
-
-    /// SSL/TLS session closed cleanly.
-    #[pyattr]
-    #[pyexception(name = "SSLZeroReturnError", base = PySslError)]
-    #[derive(Debug)]
-    #[repr(transparent)]
-    pub struct PySslZeroReturnError(PySslError);
-
-    #[pyexception]
-    impl PySslZeroReturnError {}
-
-    /// Non-blocking SSL socket needs to read more data.
-    #[pyattr]
-    #[pyexception(name = "SSLWantReadError", base = PySslError)]
-    #[derive(Debug)]
-    #[repr(transparent)]
-    pub struct PySslWantReadError(PySslError);
-
-    #[pyexception]
-    impl PySslWantReadError {}
-
-    /// Non-blocking SSL socket needs to write more data.
-    #[pyattr]
-    #[pyexception(name = "SSLWantWriteError", base = PySslError)]
-    #[derive(Debug)]
-    #[repr(transparent)]
-    pub struct PySslWantWriteError(PySslError);
-
-    #[pyexception]
-    impl PySslWantWriteError {}
-
-    /// System error when attempting SSL operation.
-    #[pyattr]
-    #[pyexception(name = "SSLSyscallError", base = PySslError)]
-    #[derive(Debug)]
-    #[repr(transparent)]
-    pub struct PySslSyscallError(PySslError);
-
-    #[pyexception]
-    impl PySslSyscallError {}
-
-    /// SSL/TLS connection terminated abruptly.
-    #[pyattr]
-    #[pyexception(name = "SSLEOFError", base = PySslError)]
-    #[derive(Debug)]
-    #[repr(transparent)]
-    pub struct PySslEOFError(PySslError);
-
-    #[pyexception]
-    impl PySslEOFError {}
 
     type OpensslVersionInfo = (u8, u8, u8, u8, u8);
     const fn parse_version_info(mut n: i64) -> OpensslVersionInfo {
