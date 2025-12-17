@@ -1219,7 +1219,6 @@ class SMTPSimTests(unittest.TestCase):
         smtp_auth_cram_md5.assert_not_called()  # no call to HMAC constructor
         self.assertEqual(resp, (235, b'Authentication Succeeded'))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @hashlib_helper.requires_hashdigest('md5', openssl=True)
     def testAUTH_multiple(self):
         # Test that multiple authentication methods are tried.

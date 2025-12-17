@@ -182,7 +182,8 @@ def _fix_eols(data):
 
 try:
     hmac.digest(b'', b'', 'md5')
-except ValueError:
+# except ValueError:
+except (ValueError, AttributeError): # TODO: RUSTPYTHON
     _have_cram_md5_support = False
 else:
     _have_cram_md5_support = True
