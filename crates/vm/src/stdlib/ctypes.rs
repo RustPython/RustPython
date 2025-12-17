@@ -53,7 +53,7 @@ pub(crate) mod _ctypes {
     use crate::convert::ToPyObject;
     use crate::function::{Either, FuncArgs, OptionalArg};
     use crate::stdlib::ctypes::library;
-    use crate::{AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
+    use crate::{AsObject, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
     use crossbeam_utils::atomic::AtomicCell;
     use std::ffi::{
         c_double, c_float, c_int, c_long, c_longlong, c_schar, c_short, c_uchar, c_uint, c_ulong,
@@ -349,7 +349,7 @@ pub(crate) mod _ctypes {
     const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfguzZPqQ?O";
 
     pub fn new_simple_type(
-        cls: Either<&PyObjectRef, &PyTypeRef>,
+        cls: Either<&PyObject, &PyTypeRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyCSimple> {
         let cls = match cls {

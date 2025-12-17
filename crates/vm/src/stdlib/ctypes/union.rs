@@ -7,7 +7,7 @@ use crate::function::FuncArgs;
 use crate::protocol::{BufferDescriptor, BufferMethods, PyBuffer as ProtocolPyBuffer};
 use crate::stdlib::ctypes::_ctypes::get_size;
 use crate::types::{AsBuffer, Constructor};
-use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
+use crate::{AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
 
@@ -90,7 +90,7 @@ impl PyCUnionType {
         Ok(())
     }
 
-    fn get_field_size(field_type: &PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+    fn get_field_size(field_type: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
         if let Some(size) = field_type
             .get_attr("_type_", vm)
             .ok()

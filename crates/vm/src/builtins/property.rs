@@ -266,7 +266,7 @@ impl PyProperty {
     #[pygetset]
     fn __isabstractmethod__(&self, vm: &VirtualMachine) -> PyResult {
         // Helper to check if a method is abstract
-        let is_abstract = |method: &PyObjectRef| -> PyResult<bool> {
+        let is_abstract = |method: &PyObject| -> PyResult<bool> {
             match method.get_attr("__isabstractmethod__", vm) {
                 Ok(isabstract) => isabstract.try_to_bool(vm),
                 Err(_) => Ok(false),
@@ -309,7 +309,7 @@ impl PyProperty {
     #[cold]
     fn format_property_error(
         &self,
-        obj: &PyObjectRef,
+        obj: &PyObject,
         error_type: &str,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
@@ -356,7 +356,7 @@ impl Initializer for PyProperty {
         let mut getter_doc = false;
 
         // Helper to get doc from getter
-        let get_getter_doc = |fget: &PyObjectRef| -> Option<PyObjectRef> {
+        let get_getter_doc = |fget: &PyObject| -> Option<PyObjectRef> {
             fget.get_attr("__doc__", vm)
                 .ok()
                 .filter(|doc| !vm.is_none(doc))

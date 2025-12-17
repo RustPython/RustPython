@@ -1866,14 +1866,14 @@ impl ExecutingFrame<'_> {
     /// This ensures proper order preservation for OrderedDict and other custom mappings.
     fn iterate_mapping_keys<F>(
         vm: &VirtualMachine,
-        mapping: &PyObjectRef,
+        mapping: &PyObject,
         error_prefix: &str,
         mut key_handler: F,
     ) -> PyResult<()>
     where
         F: FnMut(PyObjectRef) -> PyResult<()>,
     {
-        let Some(keys_method) = vm.get_method(mapping.clone(), vm.ctx.intern_str("keys")) else {
+        let Some(keys_method) = vm.get_method(mapping.to_owned(), vm.ctx.intern_str("keys")) else {
             return Err(vm.new_type_error(format!("{error_prefix} must be a mapping")));
         };
 

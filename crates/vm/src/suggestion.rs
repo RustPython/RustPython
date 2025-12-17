@@ -2,7 +2,7 @@
 //! This is used during tracebacks.
 
 use crate::{
-    AsObject, Py, PyObjectRef, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, VirtualMachine,
     builtins::{PyStr, PyStrRef},
     exceptions::types::PyBaseExceptionRef,
     sliceable::SliceableSequenceOp,
@@ -14,7 +14,7 @@ const MAX_CANDIDATE_ITEMS: usize = 750;
 
 pub fn calculate_suggestions<'a>(
     dir_iter: impl ExactSizeIterator<Item = &'a PyObjectRef>,
-    name: &PyObjectRef,
+    name: &PyObject,
 ) -> Option<PyStrRef> {
     if dir_iter.len() >= MAX_CANDIDATE_ITEMS {
         return None;

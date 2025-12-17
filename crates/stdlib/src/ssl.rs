@@ -1423,7 +1423,7 @@ mod _ssl {
 
         /// Helper: Get path from Python's os.environ
         fn get_env_path(
-            environ: &PyObjectRef,
+            environ: &PyObject,
             var_name: &str,
             vm: &VirtualMachine,
         ) -> PyResult<String> {
@@ -2101,10 +2101,10 @@ mod _ssl {
         // Helper functions (private):
 
         /// Parse path argument (str or bytes) to string
-        fn parse_path_arg(arg: &PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-            if let Ok(s) = PyStrRef::try_from_object(vm, arg.clone()) {
+        fn parse_path_arg(arg: &PyObject, vm: &VirtualMachine) -> PyResult<String> {
+            if let Ok(s) = PyStrRef::try_from_object(vm, arg.to_owned()) {
                 Ok(s.as_str().to_owned())
-            } else if let Ok(b) = ArgBytesLike::try_from_object(vm, arg.clone()) {
+            } else if let Ok(b) = ArgBytesLike::try_from_object(vm, arg.to_owned()) {
                 String::from_utf8(b.borrow_buf().to_vec())
                     .map_err(|_| vm.new_value_error("path contains invalid UTF-8".to_owned()))
             } else {
@@ -2279,10 +2279,10 @@ mod _ssl {
         }
 
         /// Helper: Parse cadata argument (str or bytes)
-        fn parse_cadata_arg(&self, arg: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            if let Ok(s) = PyStrRef::try_from_object(vm, arg.clone()) {
+        fn parse_cadata_arg(&self, arg: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            if let Ok(s) = PyStrRef::try_from_object(vm, arg.to_owned()) {
                 Ok(s.as_str().as_bytes().to_vec())
-            } else if let Ok(b) = ArgBytesLike::try_from_object(vm, arg.clone()) {
+            } else if let Ok(b) = ArgBytesLike::try_from_object(vm, arg.to_owned()) {
                 Ok(b.borrow_buf().to_vec())
             } else {
                 Err(vm.new_type_error("cadata should be a str or bytes".to_owned()))
