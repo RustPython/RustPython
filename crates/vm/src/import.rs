@@ -1,8 +1,9 @@
 //! Import mechanics
 
 use crate::{
-    AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
-    builtins::{PyBaseExceptionRef, PyCode, list, traceback::PyTraceback},
+    AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    builtins::{PyCode, list, traceback::PyTraceback},
+    exceptions::types::PyBaseException,
     scope::Scope,
     version::get_git_revision,
     vm::{VirtualMachine, thread},
@@ -204,7 +205,7 @@ fn remove_importlib_frames_inner(
 
 // TODO: This function should do nothing on verbose mode.
 // TODO: Fix this function after making PyTraceback.next mutable
-pub fn remove_importlib_frames(vm: &VirtualMachine, exc: &PyBaseExceptionRef) {
+pub fn remove_importlib_frames(vm: &VirtualMachine, exc: &Py<PyBaseException>) {
     if vm.state.settings.verbose != 0 {
         return;
     }

@@ -62,9 +62,9 @@ macro_rules! declare_const_name {
         }
 
         impl ConstName {
-            unsafe fn new(pool: &StringPool, typ: &PyTypeRef) -> Self {
+            unsafe fn new(pool: &StringPool, typ: &Py<PyType>) -> Self {
                 Self {
-                    $($name: unsafe { pool.intern(declare_const_name!(@string $name $($s)?), typ.clone()) },)*
+                    $($name: unsafe { pool.intern(declare_const_name!(@string $name $($s)?), typ.to_owned()) },)*
                 }
             }
         }
@@ -317,7 +317,7 @@ impl Context {
         );
 
         let string_pool = StringPool::default();
-        let names = unsafe { ConstName::new(&string_pool, &types.str_type.to_owned()) };
+        let names = unsafe { ConstName::new(&string_pool, types.str_type) };
 
         let slot_new_wrapper = PyMethodDef::new_const(
             names.__new__.as_str(),

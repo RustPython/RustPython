@@ -7,7 +7,7 @@ use crate::function::FuncArgs;
 use crate::protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyNumberMethods};
 use crate::stdlib::ctypes::_ctypes::get_size;
 use crate::types::{AsBuffer, AsNumber, Constructor};
-use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
+use crate::{AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use indexmap::IndexMap;
 use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
@@ -109,7 +109,7 @@ impl PyCStructType {
     }
 
     /// Get the size of a ctypes type
-    fn get_field_size(field_type: &PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+    fn get_field_size(field_type: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
         // Try to get _type_ attribute for simple types
         if let Some(size) = field_type
             .get_attr("_type_", vm)
@@ -139,7 +139,7 @@ impl PyCStructType {
     }
 
     /// Get the alignment of a ctypes type
-    fn get_field_align(field_type: &PyObjectRef, vm: &VirtualMachine) -> usize {
+    fn get_field_align(field_type: &PyObject, vm: &VirtualMachine) -> usize {
         // Try to get _type_ attribute for simple types
         if let Some(align) = field_type
             .get_attr("_type_", vm)

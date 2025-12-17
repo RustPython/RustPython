@@ -367,8 +367,8 @@ where
 impl MutObjectSequenceOp for PyList {
     type Inner = [PyObjectRef];
 
-    fn do_get(index: usize, inner: &[PyObjectRef]) -> Option<&PyObjectRef> {
-        inner.get(index)
+    fn do_get(index: usize, inner: &[PyObjectRef]) -> Option<&PyObject> {
+        inner.get(index).map(|r| r.as_ref())
     }
 
     fn do_lock(&self) -> impl std::ops::Deref<Target = [PyObjectRef]> {

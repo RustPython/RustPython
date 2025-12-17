@@ -294,11 +294,11 @@ pub(crate) fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupl
 }
 
 #[inline]
-fn tuple_index(vec: &[PyObjectRef], item: &PyObjectRef) -> Option<usize> {
+fn tuple_index(vec: &[PyObjectRef], item: &PyObject) -> Option<usize> {
     vec.iter().position(|element| element.is(item))
 }
 
-fn is_unpacked_typevartuple(arg: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+fn is_unpacked_typevartuple(arg: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
     if arg.class().is(vm.ctx.types.type_type) {
         return Ok(false);
     }
@@ -312,7 +312,7 @@ fn is_unpacked_typevartuple(arg: &PyObjectRef, vm: &VirtualMachine) -> PyResult<
 
 fn subs_tvars(
     obj: PyObjectRef,
-    params: &PyTupleRef,
+    params: &Py<PyTuple>,
     arg_items: &[PyObjectRef],
     vm: &VirtualMachine,
 ) -> PyResult {

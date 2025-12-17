@@ -106,7 +106,7 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
                 #[inline(never)]
                 fn _into_ref_size_error(
                     vm: &VirtualMachine,
-                    cls: &PyTypeRef,
+                    cls: &Py<PyType>,
                     exact_class: &Py<PyType>,
                 ) -> PyBaseExceptionRef {
                     vm.new_type_error(format!(
@@ -123,7 +123,7 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
             #[inline(never)]
             fn _into_ref_with_type_error(
                 vm: &VirtualMachine,
-                cls: &PyTypeRef,
+                cls: &Py<PyType>,
                 exact_class: &Py<PyType>,
             ) -> PyBaseExceptionRef {
                 vm.new_type_error(format!(

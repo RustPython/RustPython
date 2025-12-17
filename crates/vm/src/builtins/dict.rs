@@ -753,7 +753,7 @@ impl ExactSizeIterator for DictIter<'_> {
 trait DictView: PyPayload + PyClassDef + Iterable + Representable {
     type ReverseIter: PyPayload + std::fmt::Debug;
 
-    fn dict(&self) -> &PyDictRef;
+    fn dict(&self) -> &Py<PyDict>;
     fn item(vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef) -> PyObjectRef;
 
     #[pymethod]
@@ -785,7 +785,7 @@ macro_rules! dict_view {
         impl DictView for $name {
             type ReverseIter = $reverse_iter_name;
 
-            fn dict(&self) -> &PyDictRef {
+            fn dict(&self) -> &Py<PyDict> {
                 &self.dict
             }
 
@@ -1142,7 +1142,7 @@ impl PyDictKeys {
 
     #[pygetset]
     fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {
-        PyMappingProxy::from(zelf.dict().clone())
+        PyMappingProxy::from(zelf.dict().to_owned())
     }
 }
 
@@ -1206,7 +1206,7 @@ impl PyDictItems {
     }
     #[pygetset]
     fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {
-        PyMappingProxy::from(zelf.dict().clone())
+        PyMappingProxy::from(zelf.dict().to_owned())
     }
 }
 
@@ -1269,7 +1269,7 @@ impl AsNumber for PyDictItems {
 impl PyDictValues {
     #[pygetset]
     fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {
-        PyMappingProxy::from(zelf.dict().clone())
+        PyMappingProxy::from(zelf.dict().to_owned())
     }
 }
 

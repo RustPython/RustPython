@@ -5,8 +5,8 @@ mod _scproxy {
     // straight-forward port of Modules/_scproxy.c
 
     use crate::vm::{
-        PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyStr},
+        Py, PyResult, VirtualMachine,
+        builtins::{PyDict, PyDictRef, PyStr},
         convert::ToPyObject,
     };
     use system_configuration::core_foundation::{
@@ -74,7 +74,7 @@ mod _scproxy {
 
         let result = vm.ctx.new_dict();
 
-        let set_proxy = |result: &PyDictRef,
+        let set_proxy = |result: &Py<PyDict>,
                          proto: &str,
                          enabled_key: CFStringRef,
                          host_key: CFStringRef,

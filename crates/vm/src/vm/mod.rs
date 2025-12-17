@@ -23,6 +23,7 @@ use crate::{
     codecs::CodecsRegistry,
     common::{hash::HashSecret, lock::PyMutex, rc::PyRc},
     convert::ToPyObject,
+    exceptions::types::PyBaseException,
     frame::{ExecutionResult, Frame, FrameRef},
     frozen::FrozenModule,
     function::{ArgMapping, FuncArgs, PySetterValue},
@@ -728,7 +729,7 @@ impl VirtualMachine {
 
     pub fn set_attribute_error_context(
         &self,
-        exc: &PyBaseExceptionRef,
+        exc: &Py<PyBaseException>,
         obj: PyObjectRef,
         name: PyStrRef,
     ) {
@@ -814,7 +815,7 @@ impl VirtualMachine {
         drop(prev);
     }
 
-    pub(crate) fn contextualize_exception(&self, exception: &PyBaseExceptionRef) {
+    pub(crate) fn contextualize_exception(&self, exception: &Py<PyBaseException>) {
         if let Some(context_exc) = self.topmost_exception()
             && !context_exc.is(exception)
         {

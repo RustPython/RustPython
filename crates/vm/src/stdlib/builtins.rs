@@ -10,7 +10,7 @@ mod builtins {
     use std::io::IsTerminal;
 
     use crate::{
-        AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{
             PyByteArray, PyBytes, PyDictRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
             enumerate::PyReverseSequenceIterator,
@@ -261,7 +261,7 @@ mod builtins {
             func_name: &'static str,
         ) -> PyResult<crate::scope::Scope> {
             fn validate_globals_dict(
-                globals: &PyObjectRef,
+                globals: &PyObject,
                 vm: &VirtualMachine,
                 func_name: &'static str,
             ) -> PyResult<()> {

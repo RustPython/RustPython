@@ -422,8 +422,8 @@ mod _collections {
     impl MutObjectSequenceOp for PyDeque {
         type Inner = VecDeque<PyObjectRef>;
 
-        fn do_get(index: usize, inner: &Self::Inner) -> Option<&PyObjectRef> {
-            inner.get(index)
+        fn do_get(index: usize, inner: &Self::Inner) -> Option<&PyObject> {
+            inner.get(index).map(|r| r.as_ref())
         }
 
         fn do_lock(&self) -> impl std::ops::Deref<Target = Self::Inner> {

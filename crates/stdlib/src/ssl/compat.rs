@@ -23,10 +23,10 @@ use rustls::server::ResolvesServerCert;
 use rustls::server::ServerConfig;
 use rustls::server::ServerConnection;
 use rustls::sign::CertifiedKey;
-use rustpython_vm::builtins::PyBaseExceptionRef;
+use rustpython_vm::builtins::{PyBaseException, PyBaseExceptionRef};
 use rustpython_vm::convert::IntoPyException;
 use rustpython_vm::function::ArgBytesLike;
-use rustpython_vm::{AsObject, PyObjectRef, PyPayload, PyResult, TryFromObject};
+use rustpython_vm::{AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject};
 use std::io::Read;
 use std::sync::{Arc, Once};
 
@@ -984,7 +984,7 @@ pub(super) fn create_client_config(options: ClientConfigOptions) -> Result<Clien
 }
 
 /// Helper function - check if error is BlockingIOError
-pub(super) fn is_blocking_io_error(err: &PyBaseExceptionRef, vm: &VirtualMachine) -> bool {
+pub(super) fn is_blocking_io_error(err: &Py<PyBaseException>, vm: &VirtualMachine) -> bool {
     err.fast_isinstance(vm.ctx.exceptions.blocking_io_error)
 }
 
@@ -1534,7 +1534,7 @@ fn ssl_read_tls_records(
 
 /// Check if an exception is a connection closed error
 /// In SSL context, these errors indicate unexpected connection termination without proper TLS shutdown
-fn is_connection_closed_error(exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> bool {
+fn is_connection_closed_error(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> bool {
     use rustpython_vm::stdlib::errno::errors;
 
     // Check for ConnectionAbortedError, ConnectionResetError (Python exception types)

@@ -6,7 +6,8 @@
 use crate::common::cformat::*;
 use crate::common::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 use crate::{
-    AsObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
+    VirtualMachine,
     builtins::{
         PyBaseExceptionRef, PyByteArray, PyBytes, PyFloat, PyInt, PyStr, try_f64_to_bigint, tuple,
     },
@@ -207,7 +208,7 @@ fn spec_format_string(
 
 fn try_update_quantity_from_element(
     vm: &VirtualMachine,
-    element: Option<&PyObjectRef>,
+    element: Option<&PyObject>,
 ) -> PyResult<CFormatQuantity> {
     match element {
         Some(width_obj) => {
@@ -224,7 +225,7 @@ fn try_update_quantity_from_element(
 
 fn try_conversion_flag_from_tuple(
     vm: &VirtualMachine,
-    element: Option<&PyObjectRef>,
+    element: Option<&PyObject>,
 ) -> PyResult<CConversionFlags> {
     match element {
         Some(width_obj) => {
@@ -254,8 +255,11 @@ fn try_update_quantity_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
         return Ok(());
     };
     let element = elements.next();
-    f.insert(try_conversion_flag_from_tuple(vm, element)?);
-    let quantity = try_update_quantity_from_element(vm, element)?;
+    f.insert(try_conversion_flag_from_tuple(
+        vm,
+        element.map(|v| v.as_ref()),
+    )?);
+    let quantity = try_update_quantity_from_element(vm, element.map(|v| v.as_ref()))?;
     *q = Some(quantity);
     Ok(())
 }
@@ -268,7 +272,7 @@ fn try_update_precision_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
     let Some(CFormatPrecision::Quantity(CFormatQuantity::FromValuesTuple)) = p else {
         return Ok(());
     };
-    let quantity = try_update_quantity_from_element(vm, elements.next())?;
+    let quantity = try_update_quantity_from_element(vm, elements.next().map(|v| v.as_ref()))?;
     *p = Some(CFormatPrecision::Quantity(quantity));
     Ok(())
 }

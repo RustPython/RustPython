@@ -1,5 +1,5 @@
 use crate::{
-    AsObject, Context, Py, PyObjectRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
     builtins::{
         PyDictRef, PyListRef, PyStr, PyStrInterned, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
     },
@@ -38,7 +38,7 @@ impl WarningsState {
     }
 }
 
-fn check_matched(obj: &PyObjectRef, arg: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+fn check_matched(obj: &PyObject, arg: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
     if obj.class().is(vm.ctx.types.none_type) {
         return Ok(true);
     }

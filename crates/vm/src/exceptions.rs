@@ -79,7 +79,7 @@ impl VirtualMachine {
     pub fn write_exception<W: Write>(
         &self,
         output: &mut W,
-        exc: &PyBaseExceptionRef,
+        exc: &Py<PyBaseException>,
     ) -> Result<(), W::Error> {
         let seen = &mut HashSet::<usize>::new();
         self.write_exception_recursive(output, exc, seen)
@@ -88,7 +88,7 @@ impl VirtualMachine {
     fn write_exception_recursive<W: Write>(
         &self,
         output: &mut W,
-        exc: &PyBaseExceptionRef,
+        exc: &Py<PyBaseException>,
         seen: &mut HashSet<usize>,
     ) -> Result<(), W::Error> {
         // This function should not be called directly,
@@ -132,7 +132,7 @@ impl VirtualMachine {
     pub fn write_exception_inner<W: Write>(
         &self,
         output: &mut W,
-        exc: &PyBaseExceptionRef,
+        exc: &Py<PyBaseException>,
     ) -> Result<(), W::Error> {
         let vm = self;
         if let Some(tb) = exc.traceback.read().clone() {
@@ -177,7 +177,7 @@ impl VirtualMachine {
     fn write_syntaxerror<W: Write>(
         &self,
         output: &mut W,
-        exc: &PyBaseExceptionRef,
+        exc: &Py<PyBaseException>,
         exc_type: &Py<PyType>,
         args_repr: &[PyRef<PyStr>],
     ) -> Result<(), W::Error> {
@@ -369,7 +369,7 @@ fn print_source_line<W: Write>(
 /// Print exception occurrence location from traceback element
 fn write_traceback_entry<W: Write>(
     output: &mut W,
-    tb_entry: &PyTracebackRef,
+    tb_entry: &Py<PyTraceback>,
 ) -> Result<(), W::Error> {
     let filename = tb_entry.frame.code.source_path.as_str();
     writeln!(
@@ -1053,12 +1053,12 @@ fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
 #[cfg(feature = "serde")]
 pub struct SerializeException<'vm, 's> {
     vm: &'vm VirtualMachine,
-    exc: &'s PyBaseExceptionRef,
+    exc: &'s Py<PyBaseException>,
 }
 
 #[cfg(feature = "serde")]
 impl<'vm, 's> SerializeException<'vm, 's> {
-    pub fn new(vm: &'vm VirtualMachine, exc: &'s PyBaseExceptionRef) -> Self {
+    pub fn new(vm: &'vm VirtualMachine, exc: &'s Py<PyBaseException>) -> Self {
         SerializeException { vm, exc }
     }
 }

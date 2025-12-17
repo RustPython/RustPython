@@ -42,7 +42,7 @@ impl PyUnion {
 
     /// Direct access to args field, matching CPython's _Py_union_args
     #[inline]
-    pub const fn args(&self) -> &PyTupleRef {
+    pub fn args(&self) -> &Py<PyTuple> {
         &self.args
     }
 

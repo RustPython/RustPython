@@ -1,6 +1,8 @@
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyBaseExceptionRef, PyDictRef, PyFunction, PyStrInterned, bool_, float, int},
+    builtins::{
+        PyBaseExceptionRef, PyDict, PyDictRef, PyFunction, PyStrInterned, bool_, float, int,
+    },
     bytecode::CodeFlags,
     convert::ToPyObject,
     function::FuncArgs,
@@ -42,7 +44,7 @@ pub fn new_jit_error(msg: String, vm: &VirtualMachine) -> PyBaseExceptionRef {
     vm.new_exception_msg(jit_error, msg)
 }
 
-fn get_jit_arg_type(dict: &PyDictRef, name: &str, vm: &VirtualMachine) -> PyResult<JitType> {
+fn get_jit_arg_type(dict: &Py<PyDict>, name: &str, vm: &VirtualMachine) -> PyResult<JitType> {
     if let Some(value) = dict.get_item_opt(name, vm)? {
         if value.is(vm.ctx.types.int_type) {
             Ok(JitType::Int)

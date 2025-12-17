@@ -612,8 +612,7 @@ mod _js {
     fn js_error(vm: &VirtualMachine) -> PyTypeRef {
         let ctx = &vm.ctx;
         let js_error = PyRef::leak(
-            PyType::new_simple_heap("JSError", &vm.ctx.exceptions.exception_type.to_owned(), ctx)
-                .unwrap(),
+            PyType::new_simple_heap("JSError", vm.ctx.exceptions.exception_type, ctx).unwrap(),
         );
         extend_class!(ctx, js_error, {
             "value" => ctx.new_readonly_getset("value", js_error, |exc: PyBaseExceptionRef| exc.get_arg(0)),

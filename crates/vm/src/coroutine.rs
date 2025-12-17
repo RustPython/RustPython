@@ -1,7 +1,8 @@
 use crate::{
-    AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyStrRef},
     common::lock::PyMutex,
+    exceptions::types::PyBaseException,
     frame::{ExecutionResult, FrameRef},
     protocol::PyIterReturn,
 };
@@ -207,6 +208,6 @@ impl Coro {
     }
 }
 
-pub fn is_gen_exit(exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> bool {
+pub fn is_gen_exit(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> bool {
     exc.fast_isinstance(vm.ctx.exceptions.generator_exit)
 }
