@@ -52,7 +52,7 @@ impl PyCodec {
         self.0
     }
     #[inline]
-    pub const fn as_tuple(&self) -> &PyTupleRef {
+    pub fn as_tuple(&self) -> &Py<PyTuple> {
         &self.0
     }
 

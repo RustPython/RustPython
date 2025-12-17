@@ -357,7 +357,7 @@ pub(super) mod types {
     }
 
     fn get_exceptions_tuple(
-        exc: &PyRef<PyBaseException>,
+        exc: &Py<PyBaseException>,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<PyObjectRef>> {
         let obj = exc
@@ -429,7 +429,7 @@ pub(super) mod types {
     }
 
     fn derive_and_copy_attributes(
-        orig: &PyRef<PyBaseException>,
+        orig: &Py<PyBaseException>,
         excs: Vec<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {

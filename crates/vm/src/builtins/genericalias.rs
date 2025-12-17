@@ -312,7 +312,7 @@ fn is_unpacked_typevartuple(arg: &PyObject, vm: &VirtualMachine) -> PyResult<boo
 
 fn subs_tvars(
     obj: PyObjectRef,
-    params: &PyTupleRef,
+    params: &Py<PyTuple>,
     arg_items: &[PyObjectRef],
     vm: &VirtualMachine,
 ) -> PyResult {
