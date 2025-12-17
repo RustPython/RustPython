@@ -4,8 +4,8 @@ use crate::js_module;
 use crate::vm_class::{WASMVirtualMachine, stored_vm_from_wasm};
 use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Array};
 use rustpython_vm::{
-    AsObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
-    builtins::PyBaseExceptionRef,
+    AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
+    builtins::{PyBaseException, PyBaseExceptionRef},
     compiler::{CompileError, ParseError, parser::LexicalErrorType, parser::ParseErrorType},
     exceptions,
     function::{ArgBytesLike, FuncArgs},
@@ -32,7 +32,7 @@ extern "C" {
     fn new(info: JsValue) -> PyError;
 }
 
-pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyBaseExceptionRef) -> JsValue {
+pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &Py<PyBaseException>) -> JsValue {
     let js_err = vm.try_class("_js", "JSError").ok();
     let js_arg = if js_err.is_some_and(|js_err| py_err.fast_isinstance(&js_err)) {
         py_err.get_arg(0)

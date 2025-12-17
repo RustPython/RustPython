@@ -79,7 +79,7 @@ impl VirtualMachine {
     pub fn write_exception<W: Write>(
         &self,
         output: &mut W,
-        exc: &PyBaseExceptionRef,
+        exc: &Py<PyBaseException>,
     ) -> Result<(), W::Error> {
         let seen = &mut HashSet::<usize>::new();
         self.write_exception_recursive(output, exc, seen)
@@ -88,7 +88,7 @@ impl VirtualMachine {
     fn write_exception_recursive<W: Write>(
         &self,
         output: &mut W,
-        exc: &PyBaseExceptionRef,
+        exc: &Py<PyBaseException>,
         seen: &mut HashSet<usize>,
     ) -> Result<(), W::Error> {
         // This function should not be called directly,
@@ -132,7 +132,7 @@ impl VirtualMachine {
     pub fn write_exception_inner<W: Write>(
         &self,
         output: &mut W,
-        exc: &PyBaseExceptionRef,
+        exc: &Py<PyBaseException>,
     ) -> Result<(), W::Error> {
         let vm = self;
         if let Some(tb) = exc.traceback.read().clone() {
@@ -177,7 +177,7 @@ impl VirtualMachine {
     fn write_syntaxerror<W: Write>(
         &self,
         output: &mut W,
-        exc: &PyBaseExceptionRef,
+        exc: &Py<PyBaseException>,
         exc_type: &Py<PyType>,
         args_repr: &[PyRef<PyStr>],
     ) -> Result<(), W::Error> {
@@ -369,7 +369,7 @@ fn print_source_line<W: Write>(
 /// Print exception occurrence location from traceback element
 fn write_traceback_entry<W: Write>(
     output: &mut W,
-    tb_entry: &PyTracebackRef,
+    tb_entry: &Py<PyTraceback>,
 ) -> Result<(), W::Error> {
     let filename = tb_entry.frame.code.source_path.as_str();
     writeln!(
@@ -1053,12 +1053,12 @@ fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
 #[cfg(feature = "serde")]
 pub struct SerializeException<'vm, 's> {
     vm: &'vm VirtualMachine,
-    exc: &'s PyBaseExceptionRef,
+    exc: &'s Py<PyBaseException>,
 }
 
 #[cfg(feature = "serde")]
 impl<'vm, 's> SerializeException<'vm, 's> {
-    pub fn new(vm: &'vm VirtualMachine, exc: &'s PyBaseExceptionRef) -> Self {
+    pub fn new(vm: &'vm VirtualMachine, exc: &'s Py<PyBaseException>) -> Self {
         SerializeException { vm, exc }
     }
 }
@@ -1677,7 +1677,7 @@ pub(super) mod types {
             // SAFETY: slot_init is called during object initialization,
             // so fields are None and swap result can be safely ignored
             if len <= 5 {
-                // Only set errno/strerror when args len is 2-5 (CPython behavior)
+                // Only set errno/strerror when args len is 2-5
                 if 2 <= len {
                     let _ = unsafe { exc.errno.swap(Some(new_args.args[0].clone())) };
                     let _ = unsafe { exc.strerror.swap(Some(new_args.args[1].clone())) };
@@ -1708,8 +1708,10 @@ pub(super) mod types {
                 }
             }
 
-            // args are truncated to 2 for compatibility (only when 2-5 args)
-            if (3..=5).contains(&len) {
+            // args are truncated to 2 for compatibility (only when 2-5 args and filename is not None)
+            // truncation happens inside "if (filename && filename != Py_None)" block
+            let has_filename = exc.filename.to_owned().filter(|f| !vm.is_none(f)).is_some();
+            if (3..=5).contains(&len) && has_filename {
                 new_args.args.truncate(2);
             }
             PyBaseException::slot_init(zelf, new_args, vm)
@@ -1717,44 +1719,94 @@ pub(super) mod types {
 
         #[pymethod]
         fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            let args = exc.args();
             let obj = exc.as_object().to_owned();
 
-            let str = if args.len() == 2 {
-                // SAFETY: len() == 2 is checked so get_arg 1 or 2 won't panic
-                let errno = exc.get_arg(0).unwrap().str(vm)?;
-                let msg = exc.get_arg(1).unwrap().str(vm)?;
+            // Get OSError fields directly
+            let errno_field = obj.get_attr("errno", vm).ok().filter(|v| !vm.is_none(v));
+            let strerror = obj.get_attr("strerror", vm).ok().filter(|v| !vm.is_none(v));
+            let filename = obj.get_attr("filename", vm).ok().filter(|v| !vm.is_none(v));
+            let filename2 = obj
+                .get_attr("filename2", vm)
+                .ok()
+                .filter(|v| !vm.is_none(v));
+            #[cfg(windows)]
+            let winerror = obj.get_attr("winerror", vm).ok().filter(|v| !vm.is_none(v));
 
-                // On Windows, use [WinError X] format when winerror is set
-                #[cfg(windows)]
-                let (label, code) = match obj.get_attr("winerror", vm) {
-                    Ok(winerror) if !vm.is_none(&winerror) => ("WinError", winerror.str(vm)?),
-                    _ => ("Errno", errno.clone()),
-                };
-                #[cfg(not(windows))]
-                let (label, code) = ("Errno", errno.clone());
-
-                let s = match obj.get_attr("filename", vm) {
-                    Ok(filename) if !vm.is_none(&filename) => match obj.get_attr("filename2", vm) {
-                        Ok(filename2) if !vm.is_none(&filename2) => format!(
-                            "[{} {}] {}: '{}' -> '{}'",
-                            label,
+            // Windows: winerror takes priority over errno
+            #[cfg(windows)]
+            if let Some(ref win_err) = winerror {
+                let code = win_err.str(vm)?;
+                if let Some(ref f) = filename {
+                    let msg = strerror
+                        .as_ref()
+                        .map(|s| s.str(vm))
+                        .transpose()?
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "None".to_owned());
+                    if let Some(ref f2) = filename2 {
+                        return Ok(vm.ctx.new_str(format!(
+                            "[WinError {}] {}: {} -> {}",
                             code,
                             msg,
-                            filename.str(vm)?,
-                            filename2.str(vm)?
-                        ),
-                        _ => format!("[{} {}] {}: '{}'", label, code, msg, filename.str(vm)?),
-                    },
-                    _ => {
-                        format!("[{label} {code}] {msg}")
+                            f.repr(vm)?,
+                            f2.repr(vm)?
+                        )));
                     }
-                };
-                vm.ctx.new_str(s)
-            } else {
-                exc.__str__(vm)
-            };
-            Ok(str)
+                    return Ok(vm.ctx.new_str(format!(
+                        "[WinError {}] {}: {}",
+                        code,
+                        msg,
+                        f.repr(vm)?
+                    )));
+                }
+                // winerror && strerror (no filename)
+                if let Some(ref s) = strerror {
+                    return Ok(vm
+                        .ctx
+                        .new_str(format!("[WinError {}] {}", code, s.str(vm)?)));
+                }
+            }
+
+            // Non-Windows or fallback: use errno
+            if let Some(ref f) = filename {
+                let errno_str = errno_field
+                    .as_ref()
+                    .map(|e| e.str(vm))
+                    .transpose()?
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "None".to_owned());
+                let msg = strerror
+                    .as_ref()
+                    .map(|s| s.str(vm))
+                    .transpose()?
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "None".to_owned());
+                if let Some(ref f2) = filename2 {
+                    return Ok(vm.ctx.new_str(format!(
+                        "[Errno {}] {}: {} -> {}",
+                        errno_str,
+                        msg,
+                        f.repr(vm)?,
+                        f2.repr(vm)?
+                    )));
+                }
+                return Ok(vm.ctx.new_str(format!(
+                    "[Errno {}] {}: {}",
+                    errno_str,
+                    msg,
+                    f.repr(vm)?
+                )));
+            }
+
+            // errno && strerror (no filename)
+            if let (Some(e), Some(s)) = (&errno_field, &strerror) {
+                return Ok(vm
+                    .ctx
+                    .new_str(format!("[Errno {}] {}", e.str(vm)?, s.str(vm)?)));
+            }
+
+            // fallback to BaseException.__str__
+            Ok(exc.__str__(vm))
         }
 
         #[pymethod]

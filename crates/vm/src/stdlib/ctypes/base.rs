@@ -5,7 +5,9 @@ use crate::function::{ArgBytesLike, Either, FuncArgs, KwArgs, OptionalArg};
 use crate::protocol::{BufferDescriptor, BufferMethods, PyBuffer, PyNumberMethods};
 use crate::stdlib::ctypes::_ctypes::new_simple_type;
 use crate::types::{AsBuffer, AsNumber, Constructor};
-use crate::{AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine};
+use crate::{
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+};
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
@@ -46,19 +48,19 @@ pub fn ffi_type_from_str(_type_: &str) -> Option<libffi::middle::Type> {
 }
 
 #[allow(dead_code)]
-fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
+fn set_primitive(_type_: &str, value: &PyObject, vm: &VirtualMachine) -> PyResult {
     match _type_ {
         "c" => {
             if value
-                .clone()
+                .to_owned()
                 .downcast_exact::<PyBytes>(vm)
                 .is_ok_and(|v| v.len() == 1)
                 || value
-                    .clone()
+                    .to_owned()
                     .downcast_exact::<PyBytes>(vm)
                     .is_ok_and(|v| v.len() == 1)
                 || value
-                    .clone()
+                    .to_owned()
                     .downcast_exact::<PyInt>(vm)
                     .map_or(Ok(false), |v| {
                         let n = v.as_bigint().to_i64();
@@ -69,7 +71,7 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
                         }
                     })?
             {
-                Ok(value.clone())
+                Ok(value.to_owned())
             } else {
                 Err(vm.new_type_error("one character bytes, bytearray or integer expected"))
             }
@@ -77,7 +79,7 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
         "u" => {
             if let Ok(b) = value.str(vm).map(|v| v.to_string().chars().count() == 1) {
                 if b {
-                    Ok(value.clone())
+                    Ok(value.to_owned())
                 } else {
                     Err(vm.new_type_error("one character unicode string expected"))
                 }
@@ -89,8 +91,8 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
             }
         }
         "b" | "h" | "H" | "i" | "I" | "l" | "q" | "L" | "Q" => {
-            if value.clone().downcast_exact::<PyInt>(vm).is_ok() {
-                Ok(value.clone())
+            if value.to_owned().downcast_exact::<PyInt>(vm).is_ok() {
+                Ok(value.to_owned())
             } else {
                 Err(vm.new_type_error(format!(
                     "an integer is required (got type {})",
@@ -100,30 +102,30 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
         }
         "f" | "d" | "g" => {
             // float allows int
-            if value.clone().downcast_exact::<PyFloat>(vm).is_ok()
-                || value.clone().downcast_exact::<PyInt>(vm).is_ok()
+            if value.to_owned().downcast_exact::<PyFloat>(vm).is_ok()
+                || value.to_owned().downcast_exact::<PyInt>(vm).is_ok()
             {
-                Ok(value.clone())
+                Ok(value.to_owned())
             } else {
                 Err(vm.new_type_error(format!("must be real number, not {}", value.class().name())))
             }
         }
         "?" => Ok(PyObjectRef::from(
-            vm.ctx.new_bool(value.clone().try_to_bool(vm)?),
+            vm.ctx.new_bool(value.to_owned().try_to_bool(vm)?),
         )),
         "B" => {
-            if value.clone().downcast_exact::<PyInt>(vm).is_ok() {
+            if value.to_owned().downcast_exact::<PyInt>(vm).is_ok() {
                 // Store as-is, conversion to unsigned happens in the getter
-                Ok(value.clone())
+                Ok(value.to_owned())
             } else {
                 Err(vm.new_type_error(format!("int expected instead of {}", value.class().name())))
             }
         }
         "z" => {
-            if value.clone().downcast_exact::<PyInt>(vm).is_ok()
-                || value.clone().downcast_exact::<PyBytes>(vm).is_ok()
+            if value.to_owned().downcast_exact::<PyInt>(vm).is_ok()
+                || value.to_owned().downcast_exact::<PyBytes>(vm).is_ok()
             {
-                Ok(value.clone())
+                Ok(value.to_owned())
             } else {
                 Err(vm.new_type_error(format!(
                     "bytes or integer address expected instead of {} instance",
@@ -132,8 +134,8 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
             }
         }
         "Z" => {
-            if value.clone().downcast_exact::<PyStr>(vm).is_ok() {
-                Ok(value.clone())
+            if value.to_owned().downcast_exact::<PyStr>(vm).is_ok() {
+                Ok(value.to_owned())
             } else {
                 Err(vm.new_type_error(format!(
                     "unicode string or integer address expected instead of {} instance",
@@ -143,10 +145,10 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
         }
         _ => {
             // "P"
-            if value.clone().downcast_exact::<PyInt>(vm).is_ok()
-                || value.clone().downcast_exact::<PyNone>(vm).is_ok()
+            if value.to_owned().downcast_exact::<PyInt>(vm).is_ok()
+                || value.to_owned().downcast_exact::<PyNone>(vm).is_ok()
             {
-                Ok(value.clone())
+                Ok(value.to_owned())
             } else {
                 Err(vm.new_type_error("cannot be converted to pointer"))
             }
@@ -437,7 +439,7 @@ impl Debug for PyCSimple {
 
 fn value_to_bytes_endian(
     _type_: &str,
-    value: &PyObjectRef,
+    value: &PyObject,
     swapped: bool,
     vm: &VirtualMachine,
 ) -> Vec<u8> {
@@ -598,7 +600,7 @@ fn value_to_bytes_endian(
         }
         "?" => {
             // c_bool (1 byte)
-            if let Ok(b) = value.clone().try_to_bool(vm) {
+            if let Ok(b) = value.to_owned().try_to_bool(vm) {
                 return vec![if b { 1 } else { 0 }];
             }
             vec![0]

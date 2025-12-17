@@ -1,7 +1,7 @@
 use crate::builtins::PyType;
 use crate::function::PySetterValue;
 use crate::types::{GetDescriptor, Representable};
-use crate::{AsObject, Py, PyObjectRef, PyResult, VirtualMachine};
+use crate::{AsObject, Py, PyObject, PyObjectRef, PyResult, VirtualMachine};
 use num_traits::ToPrimitive;
 
 use super::structure::PyCStructure;
@@ -152,7 +152,7 @@ impl PyCField {
     }
 
     /// Convert a Python value to bytes
-    fn value_to_bytes(value: &PyObjectRef, size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn value_to_bytes(value: &PyObject, size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         if let Ok(int_val) = value.try_int(vm) {
             let i = int_val.as_bigint();
             match size {

@@ -44,7 +44,7 @@ fn caller(vm: &VirtualMachine) -> Option<PyObjectRef> {
 
 /// Set __module__ attribute for an object based on the caller's module.
 /// This follows CPython's behavior for TypeVar and similar objects.
-fn set_module_from_caller(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+fn set_module_from_caller(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
     // Note: CPython gets module from frame->f_funcobj, but RustPython's Frame
     // architecture is different - we use globals['__name__'] instead
     if let Some(module_name) = caller(vm) {
@@ -1006,15 +1006,15 @@ pub fn set_typeparam_default(
 ) -> PyResult {
     // Inner function to handle common pattern of setting evaluate_default
     fn try_set_default<T>(
-        obj: &PyObjectRef,
-        evaluate_default: &PyObjectRef,
+        obj: &PyObject,
+        evaluate_default: &PyObject,
         get_field: impl FnOnce(&T) -> &PyMutex<PyObjectRef>,
     ) -> bool
     where
         T: PyPayload,
     {
         if let Some(typed_obj) = obj.downcast_ref::<T>() {
-            *get_field(typed_obj).lock() = evaluate_default.clone();
+            *get_field(typed_obj).lock() = evaluate_default.to_owned();
             true
         } else {
             false

@@ -56,7 +56,8 @@ mod _ssl {
         vm::{
             AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
             builtins::{
-                PyBaseExceptionRef, PyBytesRef, PyListRef, PyOSError, PyStrRef, PyTypeRef, PyWeak,
+                PyBaseException, PyBaseExceptionRef, PyBytesRef, PyListRef, PyOSError, PyStrRef,
+                PyTypeRef, PyWeak,
             },
             class_or_notimplemented,
             convert::ToPyException,
@@ -3351,7 +3352,7 @@ mod _ssl {
 
     // Helper function to set verify_code and verify_message on SSLCertVerificationError
     fn set_verify_error_info(
-        exc: &PyBaseExceptionRef,
+        exc: &Py<PyBaseException>,
         ssl_ptr: *const sys::SSL,
         vm: &VirtualMachine,
     ) {

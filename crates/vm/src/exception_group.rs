@@ -352,12 +352,12 @@ pub(super) mod types {
     }
 
     // Helper functions for ExceptionGroup
-    fn is_base_exception_group(obj: &PyObjectRef, vm: &VirtualMachine) -> bool {
+    fn is_base_exception_group(obj: &PyObject, vm: &VirtualMachine) -> bool {
         obj.fast_isinstance(vm.ctx.exceptions.base_exception_group)
     }
 
     fn get_exceptions_tuple(
-        exc: &PyRef<PyBaseException>,
+        exc: &Py<PyBaseException>,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<PyObjectRef>> {
         let obj = exc
@@ -376,7 +376,7 @@ pub(super) mod types {
     }
 
     fn get_condition_matcher(
-        condition: &PyObjectRef,
+        condition: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<ConditionMatcher> {
         // If it's a type and subclass of BaseException
@@ -409,19 +409,19 @@ pub(super) mod types {
 
         // If it's callable (but not a type)
         if condition.is_callable() && condition.downcast_ref::<PyType>().is_none() {
-            return Ok(ConditionMatcher::Callable(condition.clone()));
+            return Ok(ConditionMatcher::Callable(condition.to_owned()));
         }
 
         Err(vm.new_type_error("expected a function, exception type or tuple of exception types"))
     }
 
     impl ConditionMatcher {
-        fn check(&self, exc: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        fn check(&self, exc: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
             match self {
                 ConditionMatcher::Type(typ) => Ok(exc.fast_isinstance(typ)),
                 ConditionMatcher::Types(types) => Ok(types.iter().any(|t| exc.fast_isinstance(t))),
                 ConditionMatcher::Callable(func) => {
-                    let result = func.call((exc.clone(),), vm)?;
+                    let result = func.call((exc.to_owned(),), vm)?;
                     result.try_to_bool(vm)
                 }
             }
@@ -429,7 +429,7 @@ pub(super) mod types {
     }
 
     fn derive_and_copy_attributes(
-        orig: &PyRef<PyBaseException>,
+        orig: &Py<PyBaseException>,
         excs: Vec<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {

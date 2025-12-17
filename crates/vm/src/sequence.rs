@@ -12,7 +12,7 @@ use std::ops::{Deref, Range};
 pub trait MutObjectSequenceOp {
     type Inner: ?Sized;
 
-    fn do_get(index: usize, inner: &Self::Inner) -> Option<&PyObjectRef>;
+    fn do_get(index: usize, inner: &Self::Inner) -> Option<&PyObject>;
     fn do_lock(&self) -> impl Deref<Target = Self::Inner>;
 
     fn mut_count(&self, vm: &VirtualMachine, needle: &PyObject) -> PyResult<usize> {
@@ -76,7 +76,7 @@ pub trait MutObjectSequenceOp {
                 }
                 borrower = Some(guard);
             } else {
-                let elem = elem.clone();
+                let elem = elem.to_owned();
                 drop(guard);
 
                 if elem.rich_compare_bool(needle, PyComparisonOp::Eq, vm)? {
