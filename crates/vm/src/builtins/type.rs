@@ -175,12 +175,12 @@ fn is_subtype_with_mro(a_mro: &[PyTypeRef], a: &Py<PyType>, b: &Py<PyType>) -> b
 impl PyType {
     pub fn new_simple_heap(
         name: &str,
-        base: &PyTypeRef,
+        base: &Py<PyType>,
         ctx: &Context,
     ) -> Result<PyRef<Self>, String> {
         Self::new_heap(
             name,
-            vec![base.clone()],
+            vec![base.to_owned()],
             Default::default(),
             Default::default(),
             Self::static_type().to_owned(),
