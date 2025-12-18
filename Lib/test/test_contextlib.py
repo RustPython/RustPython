@@ -24,6 +24,16 @@ class TestAbstractContextManager(unittest.TestCase):
         manager = DefaultEnter()
         self.assertIs(manager.__enter__(), manager)
 
+    def test_slots(self):
+        class DefaultContextManager(AbstractContextManager):
+            __slots__ = ()
+
+            def __exit__(self, *args):
+                super().__exit__(*args)
+
+        with self.assertRaises(AttributeError):
+            DefaultContextManager().var = 42
+
     def test_exit_is_abstract(self):
         class MissingExit(AbstractContextManager):
             pass
@@ -194,6 +204,7 @@ class ContextManagerTestCase(unittest.TestCase):
                 yield
             except RuntimeError:
                 raise SyntaxError
+
         ctx = whoo()
         ctx.__enter__()
         with self.assertRaises(SyntaxError):
@@ -285,9 +296,11 @@ def woohoo():
                 yield
             except Exception as exc:
                 raise RuntimeError(f'caught {exc}') from exc
+
         with self.assertRaises(RuntimeError):
             with woohoo():
                 1 / 0
+
         # If the context manager wrapped StopIteration in a RuntimeError,
         # we also unwrap it, because we can't tell whether the wrapping was
         # done by the generator machinery or by the generator itself.
@@ -1143,7 +1156,7 @@ class TestBaseExitStack:
 class TestExitStack(TestBaseExitStack, unittest.TestCase):
     exit_stack = ExitStack
     callback_error_internal_frames = [
-        ('__exit__', 'raise exc_details[1]'),
+        ('__exit__', 'raise exc'),
         ('__exit__', 'if cb(*exc_details):'),
     ]
 
@@ -1294,7 +1307,6 @@ class TestSuppress(ExceptionIsLikeMixin, unittest.TestCase):
                 [KeyError("ke1"), KeyError("ke2")],
             ),
         )
-
         # Check handling of BaseExceptionGroup, using GeneratorExit so that
         # we don't accidentally discard a ctrl-c with KeyboardInterrupt.
         with suppress(GeneratorExit):
@@ -1322,8 +1334,6 @@ class TestChdir(unittest.TestCase):
             *parts,
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_simple(self):
         old_cwd = os.getcwd()
         target = self.make_relative_path('data')
@@ -1333,12 +1343,10 @@ class TestChdir(unittest.TestCase):
             self.assertEqual(os.getcwd(), target)
         self.assertEqual(os.getcwd(), old_cwd)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reentrant(self):
         old_cwd = os.getcwd()
         target1 = self.make_relative_path('data')
-        target2 = self.make_relative_path('ziptestdata')
+        target2 = self.make_relative_path('archivetestdata')
         self.assertNotIn(old_cwd, (target1, target2))
         chdir1, chdir2 = chdir(target1), chdir(target2)
 
@@ -1352,8 +1360,6 @@ class TestChdir(unittest.TestCase):
             self.assertEqual(os.getcwd(), target1)
         self.assertEqual(os.getcwd(), old_cwd)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception(self):
         old_cwd = os.getcwd()
         target = self.make_relative_path('data')

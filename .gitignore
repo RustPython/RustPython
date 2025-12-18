@@ -21,4 +21,12 @@ flamescope.json
 
 extra_tests/snippets/resources
 extra_tests/not_impl.py
+
 Cargo.lock
+
+
+Lib/site-packages/*
+!Lib/site-packages/README.txt
+Lib/test/data/*
+!Lib/test/data/README
+

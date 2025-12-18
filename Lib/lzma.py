@@ -128,7 +128,7 @@ class LZMAFile(_compression.BaseStream):
 
         if self._mode == _MODE_READ:
             raw = _compression.DecompressReader(self._fp, LZMADecompressor,
-                                                trailing_error=LZMAError, format=format, filters=filters)
+                trailing_error=LZMAError, format=format, filters=filters)
             self._buffer = io.BufferedReader(raw)
 
     def close(self):

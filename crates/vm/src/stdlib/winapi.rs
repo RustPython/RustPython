@@ -1,0 +1,680 @@
+// spell-checker:disable
+
+#![allow(non_snake_case)]
+pub(crate) use _winapi::make_module;
+
+#[pymodule]
+mod _winapi {
+    use crate::{
+        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+        builtins::PyStrRef,
+        common::windows::ToWideString,
+        convert::{ToPyException, ToPyResult},
+        function::{ArgMapping, ArgSequence, OptionalArg},
+        windows::{WinHandle, WindowsSysResult},
+    };
+    use std::ptr::{null, null_mut};
+    use windows_sys::Win32::Foundation::{INVALID_HANDLE_VALUE, MAX_PATH};
+
+    #[pyattr]
+    use windows_sys::Win32::{
+        Foundation::{
+            DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS, ERROR_ALREADY_EXISTS, ERROR_BROKEN_PIPE,
+            ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_NETNAME_DELETED, ERROR_NO_DATA,
+            ERROR_NO_SYSTEM_RESOURCES, ERROR_OPERATION_ABORTED, ERROR_PIPE_BUSY,
+            ERROR_PIPE_CONNECTED, ERROR_SEM_TIMEOUT, GENERIC_READ, GENERIC_WRITE, STILL_ACTIVE,
+            WAIT_ABANDONED, WAIT_ABANDONED_0, WAIT_OBJECT_0, WAIT_TIMEOUT,
+        },
+        Globalization::{
+            LCMAP_FULLWIDTH, LCMAP_HALFWIDTH, LCMAP_HIRAGANA, LCMAP_KATAKANA,
+            LCMAP_LINGUISTIC_CASING, LCMAP_LOWERCASE, LCMAP_SIMPLIFIED_CHINESE, LCMAP_TITLECASE,
+            LCMAP_TRADITIONAL_CHINESE, LCMAP_UPPERCASE,
+        },
+        Storage::FileSystem::{
+            COPY_FILE_ALLOW_DECRYPTED_DESTINATION, COPY_FILE_COPY_SYMLINK,
+            COPY_FILE_FAIL_IF_EXISTS, COPY_FILE_NO_BUFFERING, COPY_FILE_NO_OFFLOAD,
+            COPY_FILE_OPEN_SOURCE_FOR_WRITE, COPY_FILE_REQUEST_COMPRESSED_TRAFFIC,
+            COPY_FILE_REQUEST_SECURITY_PRIVILEGES, COPY_FILE_RESTARTABLE,
+            COPY_FILE_RESUME_FROM_PAUSE, COPYFILE2_CALLBACK_CHUNK_FINISHED,
+            COPYFILE2_CALLBACK_CHUNK_STARTED, COPYFILE2_CALLBACK_ERROR,
+            COPYFILE2_CALLBACK_POLL_CONTINUE, COPYFILE2_CALLBACK_STREAM_FINISHED,
+            COPYFILE2_CALLBACK_STREAM_STARTED, COPYFILE2_PROGRESS_CANCEL,
+            COPYFILE2_PROGRESS_CONTINUE, COPYFILE2_PROGRESS_PAUSE, COPYFILE2_PROGRESS_QUIET,
+            COPYFILE2_PROGRESS_STOP, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED,
+            FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_TYPE_CHAR, FILE_TYPE_DISK, FILE_TYPE_PIPE,
+            FILE_TYPE_REMOTE, FILE_TYPE_UNKNOWN, OPEN_EXISTING, PIPE_ACCESS_DUPLEX,
+            PIPE_ACCESS_INBOUND, SYNCHRONIZE,
+        },
+        System::{
+            Console::{STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE},
+            Memory::{
+                FILE_MAP_ALL_ACCESS, MEM_COMMIT, MEM_FREE, MEM_IMAGE, MEM_MAPPED, MEM_PRIVATE,
+                MEM_RESERVE, PAGE_EXECUTE, PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE,
+                PAGE_EXECUTE_WRITECOPY, PAGE_GUARD, PAGE_NOACCESS, PAGE_NOCACHE, PAGE_READONLY,
+                PAGE_READWRITE, PAGE_WRITECOMBINE, PAGE_WRITECOPY, SEC_COMMIT, SEC_IMAGE,
+                SEC_LARGE_PAGES, SEC_NOCACHE, SEC_RESERVE, SEC_WRITECOMBINE,
+            },
+            Pipes::{
+                PIPE_READMODE_MESSAGE, PIPE_TYPE_MESSAGE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+            },
+            SystemServices::LOCALE_NAME_MAX_LENGTH,
+            Threading::{
+                ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS,
+                CREATE_BREAKAWAY_FROM_JOB, CREATE_DEFAULT_ERROR_MODE, CREATE_NEW_CONSOLE,
+                CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, DETACHED_PROCESS, HIGH_PRIORITY_CLASS,
+                IDLE_PRIORITY_CLASS, INFINITE, NORMAL_PRIORITY_CLASS, PROCESS_DUP_HANDLE,
+                REALTIME_PRIORITY_CLASS, STARTF_USESHOWWINDOW, STARTF_USESTDHANDLES,
+            },
+        },
+        UI::WindowsAndMessaging::SW_HIDE,
+    };
+
+    #[pyattr]
+    const NULL: isize = 0;
+
+    #[pyfunction]
+    fn CloseHandle(handle: WinHandle) -> WindowsSysResult<i32> {
+        WindowsSysResult(unsafe { windows_sys::Win32::Foundation::CloseHandle(handle.0) })
+    }
+
+    #[pyfunction]
+    fn GetStdHandle(
+        std_handle: windows_sys::Win32::System::Console::STD_HANDLE,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<WinHandle>> {
+        let handle = unsafe { windows_sys::Win32::System::Console::GetStdHandle(std_handle) };
+        if handle == INVALID_HANDLE_VALUE {
+            return Err(vm.new_last_os_error());
+        }
+        Ok(if handle.is_null() {
+            // NULL handle - return None
+            None
+        } else {
+            Some(WinHandle(handle))
+        })
+    }
+
+    #[pyfunction]
+    fn CreatePipe(
+        _pipe_attrs: PyObjectRef,
+        size: u32,
+        vm: &VirtualMachine,
+    ) -> PyResult<(WinHandle, WinHandle)> {
+        use windows_sys::Win32::Foundation::HANDLE;
+        let (read, write) = unsafe {
+            let mut read = std::mem::MaybeUninit::<HANDLE>::uninit();
+            let mut write = std::mem::MaybeUninit::<HANDLE>::uninit();
+            WindowsSysResult(windows_sys::Win32::System::Pipes::CreatePipe(
+                read.as_mut_ptr(),
+                write.as_mut_ptr(),
+                std::ptr::null(),
+                size,
+            ))
+            .to_pyresult(vm)?;
+            (read.assume_init(), write.assume_init())
+        };
+        Ok((WinHandle(read), WinHandle(write)))
+    }
+
+    #[pyfunction]
+    fn DuplicateHandle(
+        src_process: WinHandle,
+        src: WinHandle,
+        target_process: WinHandle,
+        access: u32,
+        inherit: i32,
+        options: OptionalArg<u32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<WinHandle> {
+        use windows_sys::Win32::Foundation::HANDLE;
+        let target = unsafe {
+            let mut target = std::mem::MaybeUninit::<HANDLE>::uninit();
+            WindowsSysResult(windows_sys::Win32::Foundation::DuplicateHandle(
+                src_process.0,
+                src.0,
+                target_process.0,
+                target.as_mut_ptr(),
+                access,
+                inherit,
+                options.unwrap_or(0),
+            ))
+            .to_pyresult(vm)?;
+            target.assume_init()
+        };
+        Ok(WinHandle(target))
+    }
+
+    #[pyfunction]
+    fn GetACP() -> u32 {
+        unsafe { windows_sys::Win32::Globalization::GetACP() }
+    }
+
+    #[pyfunction]
+    fn GetCurrentProcess() -> WinHandle {
+        WinHandle(unsafe { windows_sys::Win32::System::Threading::GetCurrentProcess() })
+    }
+
+    #[pyfunction]
+    fn GetFileType(
+        h: WinHandle,
+        vm: &VirtualMachine,
+    ) -> PyResult<windows_sys::Win32::Storage::FileSystem::FILE_TYPE> {
+        let file_type = unsafe { windows_sys::Win32::Storage::FileSystem::GetFileType(h.0) };
+        if file_type == 0 && unsafe { windows_sys::Win32::Foundation::GetLastError() } != 0 {
+            Err(vm.new_last_os_error())
+        } else {
+            Ok(file_type)
+        }
+    }
+
+    #[pyfunction]
+    fn GetLastError() -> u32 {
+        unsafe { windows_sys::Win32::Foundation::GetLastError() }
+    }
+
+    #[pyfunction]
+    fn GetVersion() -> u32 {
+        unsafe { windows_sys::Win32::System::SystemInformation::GetVersion() }
+    }
+
+    #[derive(FromArgs)]
+    struct CreateProcessArgs {
+        #[pyarg(positional)]
+        name: Option<PyStrRef>,
+        #[pyarg(positional)]
+        command_line: Option<PyStrRef>,
+        #[pyarg(positional)]
+        _proc_attrs: PyObjectRef,
+        #[pyarg(positional)]
+        _thread_attrs: PyObjectRef,
+        #[pyarg(positional)]
+        inherit_handles: i32,
+        #[pyarg(positional)]
+        creation_flags: u32,
+        #[pyarg(positional)]
+        env_mapping: Option<ArgMapping>,
+        #[pyarg(positional)]
+        current_dir: Option<PyStrRef>,
+        #[pyarg(positional)]
+        startup_info: PyObjectRef,
+    }
+
+    #[pyfunction]
+    fn CreateProcess(
+        args: CreateProcessArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<(WinHandle, WinHandle, u32, u32)> {
+        let mut si: windows_sys::Win32::System::Threading::STARTUPINFOEXW =
+            unsafe { std::mem::zeroed() };
+        si.StartupInfo.cb = std::mem::size_of_val(&si) as _;
+
+        macro_rules! si_attr {
+            ($attr:ident, $t:ty) => {{
+                si.StartupInfo.$attr = <Option<$t>>::try_from_object(
+                    vm,
+                    args.startup_info.get_attr(stringify!($attr), vm)?,
+                )?
+                .unwrap_or(0) as _
+            }};
+            ($attr:ident) => {{
+                si.StartupInfo.$attr = <Option<_>>::try_from_object(
+                    vm,
+                    args.startup_info.get_attr(stringify!($attr), vm)?,
+                )?
+                .unwrap_or(0)
+            }};
+        }
+        si_attr!(dwFlags);
+        si_attr!(wShowWindow);
+        si_attr!(hStdInput, usize);
+        si_attr!(hStdOutput, usize);
+        si_attr!(hStdError, usize);
+
+        let mut env = args
+            .env_mapping
+            .map(|m| getenvironment(m, vm))
+            .transpose()?;
+        let env = env.as_mut().map_or_else(null_mut, |v| v.as_mut_ptr());
+
+        let mut attrlist =
+            getattributelist(args.startup_info.get_attr("lpAttributeList", vm)?, vm)?;
+        si.lpAttributeList = attrlist
+            .as_mut()
+            .map_or_else(null_mut, |l| l.attrlist.as_mut_ptr() as _);
+
+        let wstr = |s: PyStrRef| {
+            let ws = widestring::WideCString::from_str(s.as_str())
+                .map_err(|err| err.to_pyexception(vm))?;
+            Ok(ws.into_vec_with_nul())
+        };
+
+        // Validate no embedded null bytes in command name and command line
+        if let Some(ref name) = args.name
+            && name.as_str().contains('\0')
+        {
+            return Err(crate::exceptions::cstring_error(vm));
+        }
+        if let Some(ref cmd) = args.command_line
+            && cmd.as_str().contains('\0')
+        {
+            return Err(crate::exceptions::cstring_error(vm));
+        }
+
+        let app_name = args.name.map(wstr).transpose()?;
+        let app_name = app_name.as_ref().map_or_else(null, |w| w.as_ptr());
+
+        let mut command_line = args.command_line.map(wstr).transpose()?;
+        let command_line = command_line
+            .as_mut()
+            .map_or_else(null_mut, |w| w.as_mut_ptr());
+
+        let mut current_dir = args.current_dir.map(wstr).transpose()?;
+        let current_dir = current_dir
+            .as_mut()
+            .map_or_else(null_mut, |w| w.as_mut_ptr());
+
+        let procinfo = unsafe {
+            let mut procinfo = std::mem::MaybeUninit::uninit();
+            WindowsSysResult(windows_sys::Win32::System::Threading::CreateProcessW(
+                app_name,
+                command_line,
+                std::ptr::null(),
+                std::ptr::null(),
+                args.inherit_handles,
+                args.creation_flags
+                    | windows_sys::Win32::System::Threading::EXTENDED_STARTUPINFO_PRESENT
+                    | windows_sys::Win32::System::Threading::CREATE_UNICODE_ENVIRONMENT,
+                env as _,
+                current_dir,
+                &mut si as *mut _ as *mut _,
+                procinfo.as_mut_ptr(),
+            ))
+            .into_pyresult(vm)?;
+            procinfo.assume_init()
+        };
+
+        Ok((
+            WinHandle(procinfo.hProcess),
+            WinHandle(procinfo.hThread),
+            procinfo.dwProcessId,
+            procinfo.dwThreadId,
+        ))
+    }
+
+    #[pyfunction]
+    fn OpenProcess(
+        desired_access: u32,
+        inherit_handle: bool,
+        process_id: u32,
+        vm: &VirtualMachine,
+    ) -> PyResult<WinHandle> {
+        let handle = unsafe {
+            windows_sys::Win32::System::Threading::OpenProcess(
+                desired_access,
+                i32::from(inherit_handle),
+                process_id,
+            )
+        };
+        if handle.is_null() {
+            return Err(vm.new_last_os_error());
+        }
+        Ok(WinHandle(handle))
+    }
+
+    #[pyfunction]
+    fn ExitProcess(exit_code: u32) {
+        unsafe { windows_sys::Win32::System::Threading::ExitProcess(exit_code) }
+    }
+
+    #[pyfunction]
+    fn NeedCurrentDirectoryForExePath(exe_name: PyStrRef) -> bool {
+        let exe_name = exe_name.as_wtf8().to_wide_with_nul();
+        let return_value = unsafe {
+            windows_sys::Win32::System::Environment::NeedCurrentDirectoryForExePathW(
+                exe_name.as_ptr(),
+            )
+        };
+        return_value != 0
+    }
+
+    #[pyfunction]
+    fn CreateJunction(
+        src_path: PyStrRef,
+        dest_path: PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let src_path = std::path::Path::new(src_path.as_str());
+        let dest_path = std::path::Path::new(dest_path.as_str());
+
+        junction::create(src_path, dest_path).map_err(|e| e.to_pyexception(vm))
+    }
+
+    fn getenvironment(env: ArgMapping, vm: &VirtualMachine) -> PyResult<Vec<u16>> {
+        let keys = env.mapping().keys(vm)?;
+        let values = env.mapping().values(vm)?;
+
+        let keys = ArgSequence::try_from_object(vm, keys)?.into_vec();
+        let values = ArgSequence::try_from_object(vm, values)?.into_vec();
+
+        if keys.len() != values.len() {
+            return Err(vm.new_runtime_error("environment changed size during iteration"));
+        }
+
+        let mut out = widestring::WideString::new();
+        for (k, v) in keys.into_iter().zip(values.into_iter()) {
+            let k = PyStrRef::try_from_object(vm, k)?;
+            let k = k.as_str();
+            let v = PyStrRef::try_from_object(vm, v)?;
+            let v = v.as_str();
+            if k.contains('\0') || v.contains('\0') {
+                return Err(crate::exceptions::cstring_error(vm));
+            }
+            if k.is_empty() || k[1..].contains('=') {
+                return Err(vm.new_value_error("illegal environment variable name"));
+            }
+            out.push_str(k);
+            out.push_str("=");
+            out.push_str(v);
+            out.push_str("\0");
+        }
+        out.push_str("\0");
+        Ok(out.into_vec())
+    }
+
+    struct AttrList {
+        handlelist: Option<Vec<usize>>,
+        attrlist: Vec<u8>,
+    }
+    impl Drop for AttrList {
+        fn drop(&mut self) {
+            unsafe {
+                windows_sys::Win32::System::Threading::DeleteProcThreadAttributeList(
+                    self.attrlist.as_mut_ptr() as *mut _,
+                )
+            };
+        }
+    }
+
+    fn getattributelist(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<AttrList>> {
+        <Option<ArgMapping>>::try_from_object(vm, obj)?
+            .map(|mapping| {
+                let handlelist = mapping
+                    .as_ref()
+                    .get_item("handle_list", vm)
+                    .ok()
+                    .and_then(|obj| {
+                        <Option<ArgSequence<usize>>>::try_from_object(vm, obj)
+                            .map(|s| match s {
+                                Some(s) if !s.is_empty() => Some(s.into_vec()),
+                                _ => None,
+                            })
+                            .transpose()
+                    })
+                    .transpose()?;
+
+                let attr_count = handlelist.is_some() as u32;
+                let (result, mut size) = unsafe {
+                    let mut size = std::mem::MaybeUninit::uninit();
+                    let result = WindowsSysResult(
+                        windows_sys::Win32::System::Threading::InitializeProcThreadAttributeList(
+                            std::ptr::null_mut(),
+                            attr_count,
+                            0,
+                            size.as_mut_ptr(),
+                        ),
+                    );
+                    (result, size.assume_init())
+                };
+                if !result.is_err()
+                    || unsafe { windows_sys::Win32::Foundation::GetLastError() }
+                        != windows_sys::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER
+                {
+                    return Err(vm.new_last_os_error());
+                }
+                let mut attrlist = vec![0u8; size];
+                WindowsSysResult(unsafe {
+                    windows_sys::Win32::System::Threading::InitializeProcThreadAttributeList(
+                        attrlist.as_mut_ptr() as *mut _,
+                        attr_count,
+                        0,
+                        &mut size,
+                    )
+                })
+                .into_pyresult(vm)?;
+                let mut attrs = AttrList {
+                    handlelist,
+                    attrlist,
+                };
+                if let Some(ref mut handlelist) = attrs.handlelist {
+                    WindowsSysResult(unsafe {
+                        windows_sys::Win32::System::Threading::UpdateProcThreadAttribute(
+                            attrs.attrlist.as_mut_ptr() as _,
+                            0,
+                            (2 & 0xffff) | 0x20000, // PROC_THREAD_ATTRIBUTE_HANDLE_LIST
+                            handlelist.as_mut_ptr() as _,
+                            (handlelist.len() * std::mem::size_of::<usize>()) as _,
+                            std::ptr::null_mut(),
+                            std::ptr::null(),
+                        )
+                    })
+                    .into_pyresult(vm)?;
+                }
+                Ok(attrs)
+            })
+            .transpose()
+    }
+
+    #[pyfunction]
+    fn WaitForSingleObject(h: WinHandle, ms: u32, vm: &VirtualMachine) -> PyResult<u32> {
+        let ret = unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(h.0, ms) };
+        if ret == windows_sys::Win32::Foundation::WAIT_FAILED {
+            Err(vm.new_last_os_error())
+        } else {
+            Ok(ret)
+        }
+    }
+
+    #[pyfunction]
+    fn GetExitCodeProcess(h: WinHandle, vm: &VirtualMachine) -> PyResult<u32> {
+        unsafe {
+            let mut ec = std::mem::MaybeUninit::uninit();
+            WindowsSysResult(windows_sys::Win32::System::Threading::GetExitCodeProcess(
+                h.0,
+                ec.as_mut_ptr(),
+            ))
+            .to_pyresult(vm)?;
+            Ok(ec.assume_init())
+        }
+    }
+
+    #[pyfunction]
+    fn TerminateProcess(h: WinHandle, exit_code: u32) -> WindowsSysResult<i32> {
+        WindowsSysResult(unsafe {
+            windows_sys::Win32::System::Threading::TerminateProcess(h.0, exit_code)
+        })
+    }
+
+    // TODO: ctypes.LibraryLoader.LoadLibrary
+    #[allow(dead_code)]
+    fn LoadLibrary(path: PyStrRef, vm: &VirtualMachine) -> PyResult<isize> {
+        let path_wide = path.as_wtf8().to_wide_with_nul();
+        let handle =
+            unsafe { windows_sys::Win32::System::LibraryLoader::LoadLibraryW(path_wide.as_ptr()) };
+        if handle.is_null() {
+            return Err(vm.new_runtime_error("LoadLibrary failed"));
+        }
+        Ok(handle as isize)
+    }
+
+    #[pyfunction]
+    fn GetModuleFileName(handle: isize, vm: &VirtualMachine) -> PyResult<String> {
+        let mut path: Vec<u16> = vec![0; MAX_PATH as usize];
+
+        let length = unsafe {
+            windows_sys::Win32::System::LibraryLoader::GetModuleFileNameW(
+                handle as windows_sys::Win32::Foundation::HMODULE,
+                path.as_mut_ptr(),
+                path.len() as u32,
+            )
+        };
+        if length == 0 {
+            return Err(vm.new_runtime_error("GetModuleFileName failed"));
+        }
+
+        let (path, _) = path.split_at(length as usize);
+        Ok(String::from_utf16(path).unwrap())
+    }
+
+    #[pyfunction]
+    fn OpenMutexW(
+        desired_access: u32,
+        inherit_handle: bool,
+        name: PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<isize> {
+        let name_wide = name.as_wtf8().to_wide_with_nul();
+        let handle = unsafe {
+            windows_sys::Win32::System::Threading::OpenMutexW(
+                desired_access,
+                i32::from(inherit_handle),
+                name_wide.as_ptr(),
+            )
+        };
+        if handle == INVALID_HANDLE_VALUE {
+            return Err(vm.new_last_os_error());
+        }
+        Ok(handle as _)
+    }
+
+    #[pyfunction]
+    fn ReleaseMutex(handle: isize) -> WindowsSysResult<i32> {
+        WindowsSysResult(unsafe {
+            windows_sys::Win32::System::Threading::ReleaseMutex(handle as _)
+        })
+    }
+
+    // LOCALE_NAME_INVARIANT is an empty string in Windows API
+    #[pyattr]
+    const LOCALE_NAME_INVARIANT: &str = "";
+
+    /// LCMapStringEx - Map a string to another string using locale-specific rules
+    /// This is used by ntpath.normcase() for proper Windows case conversion
+    #[pyfunction]
+    fn LCMapStringEx(
+        locale: PyStrRef,
+        flags: u32,
+        src: PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyStrRef> {
+        use rustpython_common::wtf8::Wtf8Buf;
+        use windows_sys::Win32::Globalization::{
+            LCMAP_BYTEREV, LCMAP_HASH, LCMAP_SORTHANDLE, LCMAP_SORTKEY,
+            LCMapStringEx as WinLCMapStringEx,
+        };
+
+        // Reject unsupported flags (same as CPython)
+        if flags & (LCMAP_SORTHANDLE | LCMAP_HASH | LCMAP_BYTEREV | LCMAP_SORTKEY) != 0 {
+            return Err(vm.new_value_error("unsupported flags"));
+        }
+
+        // Use ToWideString which properly handles WTF-8 (including surrogates)
+        let locale_wide = locale.as_wtf8().to_wide_with_nul();
+        let src_wide = src.as_wtf8().to_wide();
+
+        if src_wide.len() > i32::MAX as usize {
+            return Err(vm.new_overflow_error("input string is too long".to_string()));
+        }
+
+        // First call to get required buffer size
+        let dest_size = unsafe {
+            WinLCMapStringEx(
+                locale_wide.as_ptr(),
+                flags,
+                src_wide.as_ptr(),
+                src_wide.len() as i32,
+                null_mut(),
+                0,
+                null(),
+                null(),
+                0,
+            )
+        };
+
+        if dest_size <= 0 {
+            return Err(vm.new_last_os_error());
+        }
+
+        // Second call to perform the mapping
+        let mut dest = vec![0u16; dest_size as usize];
+        let nmapped = unsafe {
+            WinLCMapStringEx(
+                locale_wide.as_ptr(),
+                flags,
+                src_wide.as_ptr(),
+                src_wide.len() as i32,
+                dest.as_mut_ptr(),
+                dest_size,
+                null(),
+                null(),
+                0,
+            )
+        };
+
+        if nmapped <= 0 {
+            return Err(vm.new_last_os_error());
+        }
+
+        dest.truncate(nmapped as usize);
+
+        // Convert UTF-16 back to WTF-8 (handles surrogates properly)
+        let result = Wtf8Buf::from_wide(&dest);
+        Ok(vm.ctx.new_str(result))
+    }
+
+    #[derive(FromArgs)]
+    struct CreateNamedPipeArgs {
+        #[pyarg(positional)]
+        name: PyStrRef,
+        #[pyarg(positional)]
+        open_mode: u32,
+        #[pyarg(positional)]
+        pipe_mode: u32,
+        #[pyarg(positional)]
+        max_instances: u32,
+        #[pyarg(positional)]
+        out_buffer_size: u32,
+        #[pyarg(positional)]
+        in_buffer_size: u32,
+        #[pyarg(positional)]
+        default_timeout: u32,
+        #[pyarg(positional)]
+        _security_attributes: PyObjectRef, // Ignored, can be None
+    }
+
+    /// CreateNamedPipe - Create a named pipe
+    #[pyfunction]
+    fn CreateNamedPipe(args: CreateNamedPipeArgs, vm: &VirtualMachine) -> PyResult<WinHandle> {
+        use windows_sys::Win32::System::Pipes::CreateNamedPipeW;
+
+        let name_wide = args.name.as_wtf8().to_wide_with_nul();
+
+        let handle = unsafe {
+            CreateNamedPipeW(
+                name_wide.as_ptr(),
+                args.open_mode,
+                args.pipe_mode,
+                args.max_instances,
+                args.out_buffer_size,
+                args.in_buffer_size,
+                args.default_timeout,
+                null(), // security_attributes - NULL for now
+            )
+        };
+
+        if handle == INVALID_HANDLE_VALUE {
+            return Err(vm.new_last_os_error());
+        }
+
+        Ok(WinHandle(handle))
+    }
+}

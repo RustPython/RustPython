@@ -1,6 +1,6 @@
-import sys
 import os
 import subprocess
+import sys
 
 from testutils import assert_raises
 

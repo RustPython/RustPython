@@ -58,8 +58,7 @@ class KeywordOnlyArgTestCase(unittest.TestCase):
         fundef = "def f(*, %s):\n  pass\n" % ', '.join('i%d' % i for i in range(300))
         compile(fundef, "<test>", "single")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testTooManyPositionalErrorMessage(self):
         def f(a, b=None, *, c=None):
             pass
@@ -158,8 +157,7 @@ class KeywordOnlyArgTestCase(unittest.TestCase):
         # used to fail with a SystemError.
         lambda *, k1=unittest: None
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_mangling(self):
         class X:
             def f(self, *, __a=42):
@@ -174,7 +172,7 @@ class KeywordOnlyArgTestCase(unittest.TestCase):
                 pass
         self.assertEqual(str(err.exception), "name 'b' is not defined")
         with self.assertRaises(NameError) as err:
-            f = lambda v=a, x=b, *, y=c, z=d: None
+            g = lambda v=a, x=b, *, y=c, z=d: None
         self.assertEqual(str(err.exception), "name 'b' is not defined")
 
 

@@ -78,7 +78,6 @@ class PyCompileTestsBase:
         self.assertTrue(os.path.exists(self.pyc_path))
         self.assertFalse(os.path.exists(self.cache_path))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_do_not_overwrite_symlinks(self):
         # In the face of a cfile argument being a symlink, bail out.
         # Issue #17222
@@ -267,7 +266,6 @@ class PyCompileCLITestCase(unittest.TestCase):
         self.assertEqual(stdout, b'')
         self.assertEqual(stderr, b'')
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_file_not_exists(self):
         should_not_exists = os.path.join(os.path.dirname(__file__), 'should_not_exists.py')
         rc, stdout, stderr = self.pycompilecmd_failure(self.source_path, should_not_exists)

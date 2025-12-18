@@ -2,9 +2,11 @@ import copy
 import gc
 import pickle
 import sys
+import doctest
 import unittest
 import weakref
 import inspect
+import types
 
 from test import support
 
@@ -46,8 +48,7 @@ class SignalAndYieldFromTest(unittest.TestCase):
 
 class FinalizationTest(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_frame_resurrect(self):
         # A generator frame can be resurrected by a generator's finalization.
         def gen():
@@ -67,8 +68,7 @@ class FinalizationTest(unittest.TestCase):
         del frame
         support.gc_collect()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_refcycle(self):
         # A generator caught in a refcycle gets finalized anyway.
         old_garbage = gc.garbage[:]
@@ -92,9 +92,12 @@ class FinalizationTest(unittest.TestCase):
         self.assertEqual(gc.garbage, old_garbage)
 
     def test_lambda_generator(self):
-        # Issue #23192: Test that a lambda returning a generator behaves
+        # bpo-23192, gh-119897: Test that a lambda returning a generator behaves
         # like the equivalent function
         f = lambda: (yield 1)
+        self.assertIsInstance(f(), types.GeneratorType)
+        self.assertEqual(next(f()), 1)
+
         def g(): return (yield 1)
 
         # test 'yield from'
@@ -114,8 +117,6 @@ class FinalizationTest(unittest.TestCase):
 
 class GeneratorTest(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_name(self):
         def func():
             yield 1
@@ -175,6 +176,153 @@ class GeneratorTest(unittest.TestCase):
             g.send(0)
         self.assertEqual(next(g), 1)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; NotImplementedError
+    def test_handle_frame_object_in_creation(self):
+
+        #Attempt to expose partially constructed frames
+        #See https://github.com/python/cpython/issues/94262
+
+        def cb(*args):
+            inspect.stack()
+
+        def gen():
+            yield 1
+
+        thresholds = gc.get_threshold()
+
+        gc.callbacks.append(cb)
+        gc.set_threshold(1, 0, 0)
+        try:
+            gen()
+        finally:
+            gc.set_threshold(*thresholds)
+            gc.callbacks.pop()
+
+        class Sneaky:
+            def __del__(self):
+                inspect.stack()
+
+        sneaky = Sneaky()
+        sneaky._s = Sneaky()
+        sneaky._s._s = sneaky
+
+        gc.set_threshold(1, 0, 0)
+        try:
+            del sneaky
+            gen()
+        finally:
+            gc.set_threshold(*thresholds)
+
+    def test_ag_frame_f_back(self):
+        async def f():
+            yield
+        ag = f()
+        self.assertIsNone(ag.ag_frame.f_back)
+
+    def test_cr_frame_f_back(self):
+        async def f():
+            pass
+        cr = f()
+        self.assertIsNone(cr.cr_frame.f_back)
+        cr.close()  # Suppress RuntimeWarning.
+
+    def test_gi_frame_f_back(self):
+        def f():
+            yield
+        gi = f()
+        self.assertIsNone(gi.gi_frame.f_back)
+
+    def test_issue103488(self):
+
+        def gen_raises():
+            yield
+            raise ValueError()
+
+        def loop():
+            try:
+                for _ in gen_raises():
+                    if True is False:
+                        return
+            except ValueError:
+                pass
+
+        #This should not raise
+        loop()
+
+
+class ModifyUnderlyingIterableTest(unittest.TestCase):
+    iterables = [
+        range(0),
+        range(20),
+        [1, 2, 3],
+        (2,),
+        {13, 48, 211},
+        frozenset((15, 8, 6)),
+        {1: 2, 3: 4},
+    ]
+
+    non_iterables = [
+        None,
+        42,
+        3.0,
+        2j,
+    ]
+
+    def genexpr(self):
+        return (x for x in range(10))
+
+    def genfunc(self):
+        def gen(it):
+            for x in it:
+                yield x
+        return gen(range(10))
+
+    def process_tests(self, get_generator):
+        for obj in self.iterables:
+            g_obj = get_generator(obj)
+            with self.subTest(g_obj=g_obj, obj=obj):
+                self.assertListEqual(list(g_obj), list(obj))
+
+            g_iter = get_generator(iter(obj))
+            with self.subTest(g_iter=g_iter, obj=obj):
+                self.assertListEqual(list(g_iter), list(obj))
+
+        err_regex = "'.*' object is not iterable"
+        for obj in self.non_iterables:
+            g_obj = get_generator(obj)
+            with self.subTest(g_obj=g_obj):
+                self.assertRaisesRegex(TypeError, err_regex, list, g_obj)
+
+    @unittest.expectedFailure # AssertionError: TypeError not raised by list
+    def test_modify_f_locals(self):
+        def modify_f_locals(g, local, obj):
+            g.gi_frame.f_locals[local] = obj
+            return g
+
+        def get_generator_genexpr(obj):
+            return modify_f_locals(self.genexpr(), '.0', obj)
+
+        def get_generator_genfunc(obj):
+            return modify_f_locals(self.genfunc(), 'it', obj)
+
+        self.process_tests(get_generator_genexpr)
+        self.process_tests(get_generator_genfunc)
+
+    @unittest.expectedFailure # AssertionError: "'.*' object is not iterable" does not match "'complex' object is not an iterator"
+    def test_new_gen_from_gi_code(self):
+        def new_gen_from_gi_code(g, obj):
+            generator_func = types.FunctionType(g.gi_code, {})
+            return generator_func(obj)
+
+        def get_generator_genexpr(obj):
+            return new_gen_from_gi_code(self.genexpr(), obj)
+
+        def get_generator_genfunc(obj):
+            return new_gen_from_gi_code(self.genfunc(), obj)
+
+        self.process_tests(get_generator_genexpr)
+        self.process_tests(get_generator_genfunc)
+
 
 class ExceptionTest(unittest.TestCase):
     # Tests for the issue #23353: check that the currently handled exception
@@ -183,16 +331,16 @@ class ExceptionTest(unittest.TestCase):
     def test_except_throw(self):
         def store_raise_exc_generator():
             try:
-                self.assertEqual(sys.exc_info()[0], None)
+                self.assertIsNone(sys.exception())
                 yield
             except Exception as exc:
                 # exception raised by gen.throw(exc)
-                self.assertEqual(sys.exc_info()[0], ValueError)
+                self.assertIsInstance(sys.exception(), ValueError)
                 self.assertIsNone(exc.__context__)
                 yield
 
                 # ensure that the exception is not lost
-                self.assertEqual(sys.exc_info()[0], ValueError)
+                self.assertIsInstance(sys.exception(), ValueError)
                 yield
 
                 # we should be able to raise back the ValueError
@@ -214,11 +362,11 @@ class ExceptionTest(unittest.TestCase):
             next(make)
         self.assertIsNone(cm.exception.__context__)
 
-        self.assertEqual(sys.exc_info(), (None, None, None))
+        self.assertIsNone(sys.exception())
 
     def test_except_next(self):
         def gen():
-            self.assertEqual(sys.exc_info()[0], ValueError)
+            self.assertIsInstance(sys.exception(), ValueError)
             yield "done"
 
         g = gen()
@@ -226,23 +374,23 @@ class ExceptionTest(unittest.TestCase):
             raise ValueError
         except Exception:
             self.assertEqual(next(g), "done")
-        self.assertEqual(sys.exc_info(), (None, None, None))
+        self.assertIsNone(sys.exception())
 
     def test_except_gen_except(self):
         def gen():
             try:
-                self.assertEqual(sys.exc_info()[0], None)
+                self.assertIsNone(sys.exception())
                 yield
                 # we are called from "except ValueError:", TypeError must
                 # inherit ValueError in its context
                 raise TypeError()
             except TypeError as exc:
-                self.assertEqual(sys.exc_info()[0], TypeError)
+                self.assertIsInstance(sys.exception(), TypeError)
                 self.assertEqual(type(exc.__context__), ValueError)
             # here we are still called from the "except ValueError:"
-            self.assertEqual(sys.exc_info()[0], ValueError)
+            self.assertIsInstance(sys.exception(), ValueError)
             yield
-            self.assertIsNone(sys.exc_info()[0])
+            self.assertIsNone(sys.exception())
             yield "done"
 
         g = gen()
@@ -253,25 +401,45 @@ class ExceptionTest(unittest.TestCase):
             next(g)
 
         self.assertEqual(next(g), "done")
-        self.assertEqual(sys.exc_info(), (None, None, None))
+        self.assertIsNone(sys.exception())
+
+    def test_nested_gen_except_loop(self):
+        def gen():
+            for i in range(100):
+                self.assertIsInstance(sys.exception(), TypeError)
+                yield "doing"
+
+        def outer():
+            try:
+                raise TypeError
+            except:
+                for x in gen():
+                    yield x
+
+        try:
+            raise ValueError
+        except Exception:
+            for x in outer():
+                self.assertEqual(x, "doing")
+        self.assertEqual(sys.exception(), None)
 
     def test_except_throw_exception_context(self):
         def gen():
             try:
                 try:
-                    self.assertEqual(sys.exc_info()[0], None)
+                    self.assertIsNone(sys.exception())
                     yield
                 except ValueError:
                     # we are called from "except ValueError:"
-                    self.assertEqual(sys.exc_info()[0], ValueError)
+                    self.assertIsInstance(sys.exception(), ValueError)
                     raise TypeError()
             except Exception as exc:
-                self.assertEqual(sys.exc_info()[0], TypeError)
+                self.assertIsInstance(sys.exception(), TypeError)
                 self.assertEqual(type(exc.__context__), ValueError)
             # we are still called from "except ValueError:"
-            self.assertEqual(sys.exc_info()[0], ValueError)
+            self.assertIsInstance(sys.exception(), ValueError)
             yield
-            self.assertIsNone(sys.exc_info()[0])
+            self.assertIsNone(sys.exception())
             yield "done"
 
         g = gen()
@@ -282,10 +450,9 @@ class ExceptionTest(unittest.TestCase):
             g.throw(exc)
 
         self.assertEqual(next(g), "done")
-        self.assertEqual(sys.exc_info(), (None, None, None))
+        self.assertIsNone(sys.exception())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_except_throw_bad_exception(self):
         class E(Exception):
             def __new__(cls, *args, **kwargs):
@@ -311,6 +478,16 @@ class ExceptionTest(unittest.TestCase):
         next(gen)
         with self.assertRaises(StopIteration):
             gen.throw(E)
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: DeprecationWarning not triggered
+    def test_gen_3_arg_deprecation_warning(self):
+        def g():
+            yield 42
+
+        gen = g()
+        with self.assertWarns(DeprecationWarning):
+            with self.assertRaises(TypeError):
+                gen.throw(TypeError, TypeError(24), None)
 
     def test_stopiteration_error(self):
         # See also PEP 479.
@@ -358,10 +535,198 @@ class ExceptionTest(unittest.TestCase):
         self.assertEqual(cm.exception.value.value, 2)
 
 
+class GeneratorCloseTest(unittest.TestCase):
+
+    def test_close_no_return_value(self):
+        def f():
+            yield
+
+        gen = f()
+        gen.send(None)
+        self.assertIsNone(gen.close())
+
+    @unittest.expectedFailure # AssertionError: None != 0
+    def test_close_return_value(self):
+        def f():
+            try:
+                yield
+                # close() raises GeneratorExit here, which is caught
+            except GeneratorExit:
+                return 0
+
+        gen = f()
+        gen.send(None)
+        self.assertEqual(gen.close(), 0)
+
+    def test_close_not_catching_exit(self):
+        def f():
+            yield
+            # close() raises GeneratorExit here, which isn't caught and
+            # therefore propagates -- no return value
+            return 0
+
+        gen = f()
+        gen.send(None)
+        self.assertIsNone(gen.close())
+
+    def test_close_not_started(self):
+        def f():
+            try:
+                yield
+            except GeneratorExit:
+                return 0
+
+        gen = f()
+        self.assertIsNone(gen.close())
+
+    def test_close_exhausted(self):
+        def f():
+            try:
+                yield
+            except GeneratorExit:
+                return 0
+
+        gen = f()
+        next(gen)
+        with self.assertRaises(StopIteration):
+            next(gen)
+        self.assertIsNone(gen.close())
+
+    @unittest.expectedFailure # AssertionError: None != 0
+    def test_close_closed(self):
+        def f():
+            try:
+                yield
+            except GeneratorExit:
+                return 0
+
+        gen = f()
+        gen.send(None)
+        self.assertEqual(gen.close(), 0)
+        self.assertIsNone(gen.close())
+
+    def test_close_raises(self):
+        def f():
+            try:
+                yield
+            except GeneratorExit:
+                pass
+            raise RuntimeError
+
+        gen = f()
+        gen.send(None)
+        with self.assertRaises(RuntimeError):
+            gen.close()
+
+    @unittest.expectedFailure # AssertionError: <test.test_generators.GeneratorCloseTest.test_close_releases_frame_locals.<locals>.Foo object at 0xb400007e3c212160> is not None
+    def test_close_releases_frame_locals(self):
+        # See gh-118272
+
+        class Foo:
+            pass
+
+        f = Foo()
+        f_wr = weakref.ref(f)
+
+        def genfn():
+            a = f
+            yield
+
+        g = genfn()
+        next(g)
+        del f
+        g.close()
+        support.gc_collect()
+        self.assertIsNone(f_wr())
+
+
+# See https://github.com/python/cpython/issues/125723
+class GeneratorDeallocTest(unittest.TestCase):
+    def test_frame_outlives_generator(self):
+        def g1():
+            a = 42
+            yield sys._getframe()
+
+        def g2():
+            a = 42
+            yield
+
+        def g3(obj):
+            a = 42
+            obj.frame = sys._getframe()
+            yield
+
+        class ObjectWithFrame():
+            def __init__(self):
+                self.frame = None
+
+        def get_frame(index):
+            if index == 1:
+                return next(g1())
+            elif index == 2:
+                gen = g2()
+                next(gen)
+                return gen.gi_frame
+            elif index == 3:
+                obj = ObjectWithFrame()
+                next(g3(obj))
+                return obj.frame
+            else:
+                return None
+
+        for index in (1, 2, 3):
+            with self.subTest(index=index):
+                frame = get_frame(index)
+                frame_locals = frame.f_locals
+                self.assertIn('a', frame_locals)
+                self.assertEqual(frame_locals['a'], 42)
+
+    @unittest.expectedFailure # AssertionError: 'a' not found in {'frame_locals1': None}
+    def test_frame_locals_outlive_generator(self):
+        frame_locals1 = None
+
+        def g1():
+            nonlocal frame_locals1
+            frame_locals1 = sys._getframe().f_locals
+            a = 42
+            yield
+
+        def g2():
+            a = 42
+            yield sys._getframe().f_locals
+
+        def get_frame_locals(index):
+            if index == 1:
+                nonlocal frame_locals1
+                next(g1())
+                return frame_locals1
+            if index == 2:
+                return next(g2())
+            else:
+                return None
+
+        for index in (1, 2):
+            with self.subTest(index=index):
+                frame_locals = get_frame_locals(index)
+                self.assertIn('a', frame_locals)
+                self.assertEqual(frame_locals['a'], 42)
+
+    def test_frame_locals_outlive_generator_with_exec(self):
+        def g():
+            a = 42
+            yield locals(), sys._getframe().f_locals
+
+        locals_ = {'g': g}
+        for i in range(10):
+            exec("snapshot, live_locals = next(g())", locals=locals_)
+            for l in (locals_['snapshot'], locals_['live_locals']):
+                self.assertIn('a', l)
+                self.assertEqual(l['a'], 42)
+
+
 class GeneratorThrowTest(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_exception_context_with_yield(self):
         def f():
             try:
@@ -398,8 +763,7 @@ class GeneratorThrowTest(unittest.TestCase):
         # This ensures that the assertions inside were executed.
         self.assertEqual(actual, 'b')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_exception_context_with_yield_from(self):
         def f():
             yield
@@ -511,8 +875,7 @@ class GeneratorStackTraceTest(unittest.TestCase):
 
 
 class YieldFromTests(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_generator_gi_yieldfrom(self):
         def a():
             self.assertEqual(inspect.getgeneratorstate(gen_b), inspect.GEN_RUNNING)
@@ -910,7 +1273,7 @@ From the Iterators list, about the types of these things.
 >>> type(i)
 <class 'generator'>
 >>> [s for s in dir(i) if not s.startswith('_')]
-['close', 'gi_code', 'gi_frame', 'gi_running', 'gi_yieldfrom', 'send', 'throw']
+['close', 'gi_code', 'gi_frame', 'gi_running', 'gi_suspended', 'gi_yieldfrom', 'send', 'throw']
 >>> from test.support import HAVE_DOCSTRINGS
 >>> print(i.__next__.__doc__ if HAVE_DOCSTRINGS else 'Implement next(self).')
 Implement next(self).
@@ -2054,11 +2417,20 @@ Traceback (most recent call last):
   ...
 SyntaxError: 'yield' outside function
 
-# Pegen does not produce this error message yet
-# >>> def f(): x = yield = y
-# Traceback (most recent call last):
-#   ...
-# SyntaxError: assignment to yield expression not possible
+>>> f=lambda: (yield from (1,2)), (yield from (3,4))
+Traceback (most recent call last):
+  ...
+SyntaxError: 'yield from' outside function
+
+>>> yield from [1,2]
+Traceback (most recent call last):
+  ...
+SyntaxError: 'yield from' outside function
+
+>>> def f(): x = yield = y
+Traceback (most recent call last):
+  ...
+SyntaxError: assignment to yield expression not possible
 
 >>> def f(): (yield bar) = y
 Traceback (most recent call last):
@@ -2088,6 +2460,13 @@ caught ValueError ()
 
 >>> g.throw(ValueError("xyz"))  # value only
 caught ValueError (xyz)
+
+>>> import warnings
+>>> old_filters = warnings.filters.copy()
+>>> warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+# Filter DeprecationWarning: regarding the (type, val, tb) signature of throw().
+# Deprecation warnings are re-enabled below.
 
 >>> g.throw(ValueError, ValueError(1))   # value+matching type
 caught ValueError (1)
@@ -2156,6 +2535,11 @@ ValueError: 6
 Traceback (most recent call last):
   ...
 ValueError: 7
+
+>>> warnings.filters[:] = old_filters
+
+# Re-enable DeprecationWarning: the (type, val, tb) exception representation is deprecated,
+#                               and may be removed in a future version of Python.
 
 Plain "raise" inside a generator should preserve the traceback (#13188).
 The traceback should have 3 levels:
@@ -2393,16 +2777,10 @@ __test__ = {"tut":      tutorial_tests,
             "refleaks": refleaks_tests,
             }
 
-# Magic test name that regrtest.py invokes *after* importing this module.
-# This worms around a bootstrap problem.
-# Note that doctest and regrtest both look in sys.argv for a "-v" argument,
-# so this works as expected in both ways of running regrtest.
-def test_main(verbose=None):
-    from test import support, test_generators
-    support.run_unittest(__name__)
-    # TODO: RUSTPYTHON
-    # support.run_doctest(test_generators, verbose)
+def load_tests(loader, tests, pattern):
+    # tests.addTest(doctest.DocTestSuite()) # TODO: RUSTPYTHON
+    return tests
 
-# This part isn't needed for regrtest, but for running the test directly.
+
 if __name__ == "__main__":
-    test_main(1)
+    unittest.main()

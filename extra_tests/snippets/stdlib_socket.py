@@ -1,6 +1,7 @@
 import _socket
-import socket
 import os
+import socket
+
 from testutils import assert_raises
 
 assert _socket.socket == _socket.SocketType

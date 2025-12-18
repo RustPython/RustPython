@@ -346,8 +346,6 @@ class ModuleTests(unittest.TestCase):
                              sqlite.SQLITE_CONSTRAINT_CHECK)
             self.assertEqual(exc.sqlite_errorname, "SQLITE_CONSTRAINT_CHECK")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_disallow_instantiation(self):
         cx = sqlite.connect(":memory:")
         check_disallow_instantiation(self, type(cx("select 1")))
@@ -575,8 +573,6 @@ class ConnectionTests(unittest.TestCase):
         self.assertTrue(all(isinstance(r, sqlite.Row) for r in rows))
         self.assertEqual([r[0] for r in rows], ["2", "3"])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_connection_bad_reinit(self):
         cx = sqlite.connect(":memory:")
         with cx:
@@ -838,15 +834,11 @@ class CursorTests(unittest.TestCase):
         with self.assertRaises(sqlite.ProgrammingError):
             self.cu.execute("insert into test(id) values (?)", (17, "Egon"))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_execute_wrong_no_of_args2(self):
         # too little parameters
         with self.assertRaises(sqlite.ProgrammingError):
             self.cu.execute("insert into test(id) values (?)")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_execute_wrong_no_of_args3(self):
         # no parameters, parameters are needed
         with self.assertRaises(sqlite.ProgrammingError):
@@ -913,8 +905,6 @@ class CursorTests(unittest.TestCase):
         with self.assertRaises(sqlite.ProgrammingError):
             self.cu.execute("select name from test where name=:name and id=:id", {"name": "foo"})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_execute_dict_mapping_no_args(self):
         self.cu.execute("insert into test(name) values ('foo')")
         with self.assertRaises(sqlite.ProgrammingError):
@@ -1077,8 +1067,6 @@ class CursorTests(unittest.TestCase):
         res = self.cu.fetchmany(100)
         self.assertEqual(res, [])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_fetchmany_kw_arg(self):
         """Checks if fetchmany works with keyword arguments"""
         self.cu.execute("select name from test")
@@ -1423,8 +1411,6 @@ class BlobTests(unittest.TestCase):
         with self.assertRaises(BufferError):
             self.blob[5:10] = memoryview(b"abcde")[::2]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_blob_sequence_not_supported(self):
         with self.assertRaisesRegex(TypeError, "unsupported operand"):
             self.blob + self.blob
@@ -1481,8 +1467,6 @@ class BlobTests(unittest.TestCase):
             with self.assertRaisesRegex(sqlite.ProgrammingError, msg):
                 blob[0] = b""
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_blob_closed_db_read(self):
         with memory_database() as cx:
             cx.execute("create table test(b blob)")
@@ -1744,8 +1728,6 @@ class ClosedConTests(unittest.TestCase):
         with self.assertRaises(sqlite.ProgrammingError):
             con.set_progress_handler(progress, 100)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_closed_call(self):
         con = sqlite.connect(":memory:")
         con.close()
@@ -1753,8 +1735,6 @@ class ClosedConTests(unittest.TestCase):
             con()
 
 class ClosedCurTests(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_closed(self):
         con = sqlite.connect(":memory:")
         cur = con.cursor()

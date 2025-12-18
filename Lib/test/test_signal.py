@@ -82,8 +82,6 @@ class PosixTests(unittest.TestCase):
     def create_handler_with_partial(self, argument):
         return functools.partial(self.trivial_signal_handler, argument)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_out_of_range_signal_number_raises_error(self):
         self.assertRaises(ValueError, signal.getsignal, 4242)
 
@@ -126,8 +124,6 @@ class PosixTests(unittest.TestCase):
         self.assertEqual(signal.getsignal(signal.SIGHUP), hup)
         self.assertEqual(0, argument.repr_count)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_strsignal(self):
         self.assertIn("Interrupt", signal.strsignal(signal.SIGINT))
         self.assertIn("Terminated", signal.strsignal(signal.SIGTERM))
@@ -141,8 +137,6 @@ class PosixTests(unittest.TestCase):
         script = os.path.join(dirname, 'signalinterproctester.py')
         assert_python_ok(script)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(
         hasattr(signal, "valid_signals"),
         "requires signal.valid_signals"
@@ -190,8 +184,6 @@ class PosixTests(unittest.TestCase):
 @unittest.skipUnless(sys.platform == "win32", "Windows specific")
 class WindowsSignalTests(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_valid_signals(self):
         s = signal.valid_signals()
         self.assertIsInstance(s, set)
@@ -224,8 +216,6 @@ class WindowsSignalTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             signal.signal(7, handler)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(sys.executable, "sys.executable required.")
     @support.requires_subprocess()
     def test_keyboard_interrupt_exit_code(self):
@@ -253,13 +243,11 @@ class WakeupFDTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             signal.set_wakeup_fd(signal.SIGINT, False)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_invalid_fd(self):
         fd = os_helper.make_bad_fd()
         self.assertRaises((ValueError, OSError),
                           signal.set_wakeup_fd, fd)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipUnless(support.has_socket_support, "needs working sockets.")
     def test_invalid_socket(self):
         sock = socket.socket()
@@ -268,7 +256,6 @@ class WakeupFDTests(unittest.TestCase):
         self.assertRaises((ValueError, OSError),
                           signal.set_wakeup_fd, fd)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     # Emscripten does not support fstat on pipes yet.
     # https://github.com/emscripten-core/emscripten/issues/16414
     @unittest.skipIf(support.is_emscripten, "Emscripten cannot fstat pipes.")
@@ -290,7 +277,6 @@ class WakeupFDTests(unittest.TestCase):
         self.assertEqual(signal.set_wakeup_fd(-1), w2)
         self.assertEqual(signal.set_wakeup_fd(-1), -1)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipIf(support.is_emscripten, "Emscripten cannot fstat pipes.")
     @unittest.skipUnless(support.has_socket_support, "needs working sockets.")
     def test_set_wakeup_fd_socket_result(self):
@@ -1442,8 +1428,6 @@ class StressTest(unittest.TestCase):
 
 class RaiseSignalTest(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_sigint(self):
         with self.assertRaises(KeyboardInterrupt):
             signal.raise_signal(signal.SIGINT)
@@ -1462,8 +1446,6 @@ class RaiseSignalTest(unittest.TestCase):
             else:
                 raise
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_handler(self):
         is_ok = False
         def handler(a, b):

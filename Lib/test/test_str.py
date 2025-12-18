@@ -112,8 +112,7 @@ class StrTest(string_tests.StringLikeTest,
         # raw strings should not have unicode escapes
         self.assertNotEqual(r"\u0020", " ")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_ascii(self):
         self.assertEqual(ascii('abc'), "'abc'")
         self.assertEqual(ascii('ab\\c'), "'ab\\\\c'")
@@ -566,7 +565,7 @@ class StrTest(string_tests.StringLikeTest,
         self.checkraises(TypeError, ' ', 'join', [1, 2, 3])
         self.checkraises(TypeError, ' ', 'join', ['1', '2', 3])
 
-    @unittest.skip("TODO: RUSTPYTHON, oom handling")
+    @unittest.skip('TODO: RUSTPYTHON; oom handling')
     @unittest.skipIf(sys.maxsize > 2**32,
         'needs too much memory on a 64-bit platform')
     def test_join_overflow(self):
@@ -795,8 +794,7 @@ class StrTest(string_tests.StringLikeTest,
         for ch in ['\U0001D7F6', '\U00011066', '\U000104A0']:
             self.assertTrue(ch.isdecimal(), '{!a} is decimal.'.format(ch))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_isdigit(self):
         super().test_isdigit()
         self.checkequalnofix(True, '\u2460', 'isdigit')
@@ -942,8 +940,7 @@ class StrTest(string_tests.StringLikeTest,
         self.assertEqual('\U0008fffe'.upper(), '\U0008fffe')
         self.assertEqual('\u2177'.upper(), '\u2167')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_capitalize(self):
         string_tests.StringLikeTest.test_capitalize(self)
         self.assertEqual('\U0001044F'.capitalize(), '\U00010427')
@@ -961,8 +958,7 @@ class StrTest(string_tests.StringLikeTest,
         self.assertEqual('ﬁnnish'.capitalize(), 'Finnish')
         self.assertEqual('A\u0345\u03a3'.capitalize(), 'A\u0345\u03c2')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_title(self):
         super().test_title()
         self.assertEqual('\U0001044F'.title(), '\U00010427')
@@ -980,8 +976,7 @@ class StrTest(string_tests.StringLikeTest,
         self.assertEqual('A\u03a3 \u1fa1xy'.title(), 'A\u03c2 \u1fa9xy')
         self.assertEqual('A\u03a3A'.title(), 'A\u03c3a')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_swapcase(self):
         string_tests.StringLikeTest.test_swapcase(self)
         self.assertEqual('\U0001044F'.swapcase(), '\U00010427')
@@ -1081,8 +1076,7 @@ class StrTest(string_tests.StringLikeTest,
         '\U00100000'.ljust(3, '\U00010000')
         '\U00100000'.rjust(3, '\U00010000')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_format(self):
         self.assertEqual(''.format(), '')
         self.assertEqual('a'.format(), 'a')
@@ -1244,10 +1238,10 @@ class StrTest(string_tests.StringLikeTest,
         self.assertEqual('{0:\x00^6}'.format(3), '\x00\x003\x00\x00\x00')
         self.assertEqual('{0:<6}'.format(3), '3     ')
 
-        self.assertEqual('{0:\x00<6}'.format(3.14), '3.14\x00\x00')
-        self.assertEqual('{0:\x01<6}'.format(3.14), '3.14\x01\x01')
-        self.assertEqual('{0:\x00^6}'.format(3.14), '\x003.14\x00')
-        self.assertEqual('{0:^6}'.format(3.14), ' 3.14 ')
+        self.assertEqual('{0:\x00<6}'.format(3.25), '3.25\x00\x00')
+        self.assertEqual('{0:\x01<6}'.format(3.25), '3.25\x01\x01')
+        self.assertEqual('{0:\x00^6}'.format(3.25), '\x003.25\x00')
+        self.assertEqual('{0:^6}'.format(3.25), ' 3.25 ')
 
         self.assertEqual('{0:\x00<12}'.format(3+2.0j), '(3+2j)\x00\x00\x00\x00\x00\x00')
         self.assertEqual('{0:\x01<12}'.format(3+2.0j), '(3+2j)\x01\x01\x01\x01\x01\x01')
@@ -1466,21 +1460,19 @@ class StrTest(string_tests.StringLikeTest,
         self.assertRaises(TypeError, '{a}'.format_map, [])
         self.assertRaises(ZeroDivisionError, '{a}'.format_map, BadMapping())
 
-    @unittest.skip("TODO: RUSTPYTHON, killed for chewing up RAM")
+    @unittest.skip('TODO: RUSTPYTHON; killed for chewing up RAM')
     def test_format_huge_precision(self):
         format_string = ".{}f".format(sys.maxsize + 1)
         with self.assertRaises(ValueError):
             result = format(2.34, format_string)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_format_huge_width(self):
         format_string = "{}f".format(sys.maxsize + 1)
         with self.assertRaises(ValueError):
             result = format(2.34, format_string)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_format_huge_item_number(self):
         format_string = "{{{}:.6f}}".format(sys.maxsize + 1)
         with self.assertRaises(ValueError):
@@ -1516,8 +1508,7 @@ class StrTest(string_tests.StringLikeTest,
         self.assertEqual('{:{f}}{g}{}'.format(1, 3, g='g', f=2), ' 1g3')
         self.assertEqual('{f:{}}{}{g}'.format(2, 4, f=1, g='g'), ' 14g')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_formatting(self):
         string_tests.StringLikeTest.test_formatting(self)
         # Testing Unicode formatting strings...
@@ -1766,8 +1757,7 @@ class StrTest(string_tests.StringLikeTest,
             'character buffers are decoded to unicode'
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_constructor_keyword_args(self):
         """Pass various keyword argument combinations to the constructor."""
         # The object argument can be passed as a keyword.
@@ -1777,8 +1767,7 @@ class StrTest(string_tests.StringLikeTest,
         self.assertEqual(str(b'foo', errors='strict'), 'foo')  # not "b'foo'"
         self.assertEqual(str(object=b'foo', errors='strict'), 'foo')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_constructor_defaults(self):
         """Check the constructor argument defaults."""
         # The object argument defaults to '' or b''.
@@ -1790,8 +1779,7 @@ class StrTest(string_tests.StringLikeTest,
         # The errors argument defaults to strict.
         self.assertRaises(UnicodeDecodeError, str, utf8_cent, encoding='ascii')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_codecs_utf7(self):
         utfTests = [
             ('A\u2262\u0391.', b'A+ImIDkQ.'),             # RFC2152 example
@@ -2301,8 +2289,7 @@ class StrTest(string_tests.StringLikeTest,
         self.assertRaises(ValueError, complex, "\ud800")
         self.assertRaises(ValueError, complex, "\udf00")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_codecs(self):
         # Encoding
         self.assertEqual('hello'.encode('ascii'), b'hello')
@@ -2432,8 +2419,7 @@ class StrTest(string_tests.StringLikeTest,
         else:
             self.fail("Should have raised UnicodeDecodeError")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_conversion(self):
         # Make sure __str__() works properly
         class StrWithStr(str):
@@ -2482,7 +2468,7 @@ class StrTest(string_tests.StringLikeTest,
     # This test only affects 32-bit platforms because expandtabs can only take
     # an int as the max value, not a 64-bit C long.  If expandtabs is changed
     # to take a 64-bit long, this test should apply to all platforms.
-    @unittest.skip("TODO: RUSTPYTHON, oom handling")
+    @unittest.skip('TODO: RUSTPYTHON; oom handling')
     @unittest.skipIf(sys.maxsize > (1 << 32) or struct.calcsize('P') != 4,
                      'only applies to 32-bit platforms')
     def test_expandtabs_overflows_gracefully(self):
@@ -2493,7 +2479,7 @@ class StrTest(string_tests.StringLikeTest,
         s = 'abc'
         self.assertIs(s.expandtabs(), s)
 
-    @unittest.skip("TODO: RUSTPYTHON, aborted: memory allocation of 9223372036854775759 bytes failed")
+    @unittest.skip('TODO: RUSTPYTHON; aborted: memory allocation of 9223372036854775759 bytes failed')
     def test_raiseMemError(self):
         asciifields = "nnb"
         compactfields = asciifields + "nP"
@@ -2633,14 +2619,12 @@ class StrTest(string_tests.StringLikeTest,
         self.assertTrue(astral >= bmp2)
         self.assertFalse(astral >= astral2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, str)
         support.check_free_after_iterating(self, reversed, str)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_check_encoding_errors(self):
         # bpo-37388: str(bytes) and str.decode() must check encoding and errors
         # arguments in dev mode
@@ -2701,8 +2685,7 @@ class StrTest(string_tests.StringLikeTest,
         proc = assert_python_failure('-X', 'dev', '-c', code)
         self.assertEqual(proc.rc, 10, proc)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_str_invalid_call(self):
         # too many args
         with self.assertRaisesRegex(TypeError, r"str expected at most 3 arguments, got 4"):

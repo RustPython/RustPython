@@ -1,10 +1,11 @@
-import subprocess
-import os
-import time
-import socket
 import atexit
-import pytest
+import os
+import socket
+import subprocess
 import sys
+import time
+
+import pytest
 
 PORT = 8080
 
@@ -41,7 +42,7 @@ atexit.register(lambda: server_proc and server_proc.terminate())
 
 
 # From https://gist.github.com/butla/2d9a4c0f35ea47b7452156c96a4e7b12
-def wait_for_port(port, host="0.0.0.0", timeout=5.0):
+def wait_for_port(port, host="localhost", timeout=5.0):
     """Wait until a port starts accepting TCP connections.
     Args:
         port (int): Port number.
@@ -65,11 +66,11 @@ def wait_for_port(port, host="0.0.0.0", timeout=5.0):
 
 
 from selenium import webdriver
-from selenium.webdriver.firefox.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import JavascriptException
+from selenium.webdriver.common.by import By
+from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 
 
 class Driver(webdriver.Firefox):
@@ -94,7 +95,7 @@ def wdriver(request):
     options.add_argument("-headless")
     driver = Driver(options=options)
     try:
-        driver.get(f"http://0.0.0.0:{PORT}")
+        driver.get(f"http://localhost:{PORT}")
         WebDriverWait(driver, 5).until(
             EC.presence_of_element_located((By.ID, "rp_loaded"))
         )

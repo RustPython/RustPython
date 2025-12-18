@@ -1,17 +1,15 @@
-use criterion::measurement::WallTime;
 use criterion::{
-    Bencher, BenchmarkGroup, BenchmarkId, Criterion, Throughput, black_box, criterion_group,
-    criterion_main,
+    Bencher, BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
+    measurement::WallTime,
 };
 use rustpython_compiler::Mode;
 use rustpython_vm::{Interpreter, PyResult, Settings};
-use std::collections::HashMap;
-use std::path::Path;
+use std::{collections::HashMap, hint::black_box, path::Path};
 
 fn bench_cpython_code(b: &mut Bencher, source: &str) {
     let c_str_source_head = std::ffi::CString::new(source).unwrap();
     let c_str_source = c_str_source_head.as_c_str();
-    pyo3::Python::with_gil(|py| {
+    pyo3::Python::attach(|py| {
         b.iter(|| {
             let module = pyo3::types::PyModule::from_code(py, c_str_source, c"", c"")
                 .expect("Error running source");
@@ -54,7 +52,7 @@ pub fn benchmark_file_parsing(group: &mut BenchmarkGroup<WallTime>, name: &str, 
     });
     group.bench_function(BenchmarkId::new("cpython", name), |b| {
         use pyo3::types::PyAnyMethods;
-        pyo3::Python::with_gil(|py| {
+        pyo3::Python::attach(|py| {
             let builtins =
                 pyo3::types::PyModule::import(py, "builtins").expect("Failed to import builtins");
             let compile = builtins.getattr("compile").expect("no compile in builtins");

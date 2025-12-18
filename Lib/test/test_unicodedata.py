@@ -414,6 +414,7 @@ class NormalizationTest(unittest.TestCase):
         data = [int(x, 16) for x in data.split(" ")]
         return "".join([chr(x) for x in data])
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     @requires_resource('network')
     @requires_resource('cpu')
     def test_normalization(self):

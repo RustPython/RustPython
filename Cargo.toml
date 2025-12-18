@@ -10,7 +10,7 @@ repository.workspace = true
 license.workspace = true
 
 [features]
-default = ["threading", "stdlib", "stdio", "importlib"]
+default = ["threading", "stdlib", "stdio", "importlib", "ssl-rustls"]
 importlib = ["rustpython-vm/importlib"]
 encodings = ["rustpython-vm/encodings"]
 stdio = ["rustpython-vm/stdio"]
@@ -20,8 +20,10 @@ freeze-stdlib = ["stdlib", "rustpython-vm/freeze-stdlib", "rustpython-pylib?/fre
 jit = ["rustpython-vm/jit"]
 threading = ["rustpython-vm/threading", "rustpython-stdlib/threading"]
 sqlite = ["rustpython-stdlib/sqlite"]
-ssl = ["rustpython-stdlib/ssl"]
-ssl-vendor = ["ssl", "rustpython-stdlib/ssl-vendor"]
+ssl = []
+ssl-rustls = ["ssl", "rustpython-stdlib/ssl-rustls"]
+ssl-openssl = ["ssl", "rustpython-stdlib/ssl-openssl"]
+ssl-vendor = ["ssl-openssl", "rustpython-stdlib/ssl-vendor"]
 tkinter = ["rustpython-stdlib/tkinter"]
 
 [build-dependencies]
@@ -51,7 +53,7 @@ rustyline = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
-pyo3 = { version = "0.24", features = ["auto-initialize"] }
+pyo3 = { version = "0.27", features = ["auto-initialize"] }
 
 [[bench]]
 name = "execution"
@@ -73,6 +75,10 @@ opt-level = 3
 # https://github.com/rust-lang/rust/issues/92869
 # lto = "thin"
 
+# Doesn't change often
+[profile.release.package.rustpython-doc]
+codegen-units = 1
+
 [profile.bench]
 lto = "thin"
 codegen-units = 1
@@ -90,7 +96,7 @@ lto = "thin"
 git = "https://github.com/microsoft/vcpkg"
 # The revision of the vcpkg repository to use
 # https://github.com/microsoft/vcpkg/tags
-rev = "2024.02.14"
+rev = "2025.09.17"
 
 [package.metadata.vcpkg.target]
 x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md", dev-dependencies = ["openssl" ] }
@@ -117,77 +123,67 @@ template = "installer-config/installer.wxs"
 [workspace]
 resolver = "2"
 members = [
-    "compiler",
-    "compiler/core",
-    "compiler/codegen",
-    "compiler/literal",
     ".",
-    "common",
-    "derive",
-    "jit",
-    "vm",
-    "vm/sre_engine",
-    "pylib",
-    "stdlib",
-    "derive-impl",
-    "wtf8",
-    "wasm/lib",
+    "crates/*",
 ]
 
 [workspace.package]
 version = "0.4.0"
 authors = ["RustPython Team"]
 edition = "2024"
-rust-version = "1.85.0"
+rust-version = "1.89.0"
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 
 [workspace.dependencies]
-rustpython-compiler-core = { path = "compiler/core", version = "0.4.0" }
-rustpython-compiler = { path = "compiler", version = "0.4.0" }
-rustpython-codegen = { path = "compiler/codegen", version = "0.4.0" }
-rustpython-common = { path = "common", version = "0.4.0" }
-rustpython-derive = { path = "derive", version = "0.4.0" }
-rustpython-derive-impl = { path = "derive-impl", version = "0.4.0" }
-rustpython-jit = { path = "jit", version = "0.4.0" }
-rustpython-literal = { path = "compiler/literal", version = "0.4.0" }
-rustpython-vm = { path = "vm", default-features = false, version = "0.4.0" }
-rustpython-pylib = { path = "pylib", version = "0.4.0" }
-rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.4.0" }
-rustpython-sre_engine = { path = "vm/sre_engine", version = "0.4.0" }
-rustpython-wtf8 = { path = "wtf8", version = "0.4.0" }
-rustpython-doc = { git = "https://github.com/RustPython/__doc__", tag = "0.3.0", version = "0.3.0" }
+rustpython-compiler-core = { path = "crates/compiler-core", version = "0.4.0" }
+rustpython-compiler = { path = "crates/compiler", version = "0.4.0" }
+rustpython-codegen = { path = "crates/codegen", version = "0.4.0" }
+rustpython-common = { path = "crates/common", version = "0.4.0" }
+rustpython-derive = { path = "crates/derive", version = "0.4.0" }
+rustpython-derive-impl = { path = "crates/derive-impl", version = "0.4.0" }
+rustpython-jit = { path = "crates/jit", version = "0.4.0" }
+rustpython-literal = { path = "crates/literal", version = "0.4.0" }
+rustpython-vm = { path = "crates/vm", default-features = false, version = "0.4.0" }
+rustpython-pylib = { path = "crates/pylib", version = "0.4.0" }
+rustpython-stdlib = { path = "crates/stdlib", default-features = false, version = "0.4.0" }
+rustpython-sre_engine = { path = "crates/sre_engine", version = "0.4.0" }
+rustpython-wtf8 = { path = "crates/wtf8", version = "0.4.0" }
+rustpython-doc = { path = "crates/doc", version = "0.4.0" }
 
-ruff_python_parser = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }
-ruff_python_ast = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }
-ruff_text_size = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }
-ruff_source_file = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }
+# Ruff tag 0.14.1 is based on commit 2bffef59665ce7d2630dfd72ee99846663660db8
+# at the time of this capture. We use the commit hash to ensure reproducible builds.
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff.git", rev = "2bffef59665ce7d2630dfd72ee99846663660db8" }
+ruff_python_ast = { git = "https://github.com/astral-sh/ruff.git", rev = "2bffef59665ce7d2630dfd72ee99846663660db8" }
+ruff_text_size = { git = "https://github.com/astral-sh/ruff.git", rev = "2bffef59665ce7d2630dfd72ee99846663660db8" }
+ruff_source_file = { git = "https://github.com/astral-sh/ruff.git", rev = "2bffef59665ce7d2630dfd72ee99846663660db8" }
 
-ahash = "0.8.11"
+phf = { version = "0.13.1", default-features = false, features = ["macros"]}
+ahash = "0.8.12"
 ascii = "1.1"
-bitflags = "2.4.2"
+bitflags = "2.9.4"
 bstr = "1"
 cfg-if = "1.0"
-chrono = "0.4.39"
+chrono = { version = "0.4.42", default-features = false, features = ["clock", "oldtime", "std"] }
 constant_time_eq = "0.4"
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 crossbeam-utils = "0.8.21"
 flame = "0.2.2"
 getrandom = { version = "0.3", features = ["std"] }
 glob = "0.3"
 hex = "0.4.3"
-indexmap = { version = "2.2.6", features = ["std"] }
-insta = "1.42"
+indexmap = { version = "2.11.3", features = ["std"] }
+insta = "1.44"
 itertools = "0.14.0"
 is-macro = "0.3.7"
-junction = "1.2.0"
-libc = "0.2.169"
+junction = "1.3.0"
+libc = "0.2.178"
 libffi = "4.1"
-log = "0.4.27"
-nix = { version = "0.29", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
-malachite-bigint = "0.6"
-malachite-q = "0.6"
-malachite-base = "0.6"
+log = "0.4.29"
+nix = { version = "0.30", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
+malachite-bigint = "0.8"
+malachite-q = "0.8"
+malachite-base = "0.8"
 memchr = "2.7.4"
 num-complex = "0.4.6"
 num-integer = "0.1.46"
@@ -204,27 +200,29 @@ radium = "1.1.1"
 rand = "0.9"
 rand_core = { version = "0.9", features = ["os_rng"] }
 rustix = { version = "1.0", features = ["event"] }
-rustyline = "15.0.0"
-serde = { version = "1.0.133", default-features = false }
-schannel = "0.1.27"
+rustyline = "17.0.1"
+serde = { version = "1.0.225", default-features = false }
+schannel = "0.1.28"
+scoped-tls = "1"
+scopeguard = "1"
 static_assertions = "1.1"
 strum = "0.27"
 strum_macros = "0.27"
 syn = "2"
 thiserror = "2.0"
-thread_local = "1.1.8"
-unicode-casing = "0.1.0"
+thread_local = "1.1.9"
+unicode-casing = "0.1.1"
 unic-char-property = "0.9.0"
 unic-normal = "0.9.0"
 unic-ucd-age = "0.9.0"
 unic-ucd-bidi = "0.9.0"
 unic-ucd-category = "0.9.0"
 unic-ucd-ident = "0.9.0"
-unicode_names2 = "1.3.0"
-unicode-bidi-mirroring = "0.2"
-widestring = "1.1.0"
-windows-sys = "0.59.0"
-wasm-bindgen = "0.2.100"
+unicode_names2 = "2.0.0"
+unicode-bidi-mirroring = "0.4"
+widestring = "1.2.0"
+windows-sys = "0.61.2"
+wasm-bindgen = "0.2.106"
 
 # Lints
 

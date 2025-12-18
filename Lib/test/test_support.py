@@ -310,7 +310,6 @@ class TestSupport(unittest.TestCase):
     def test_sortdict(self):
         self.assertEqual(support.sortdict({3:3, 2:2, 1:1}), "{1: 1, 2: 2, 3: 3}")
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; actual c fds on windows")
     def test_make_bad_fd(self):
         fd = os_helper.make_bad_fd()
         with self.assertRaises(OSError) as cm:

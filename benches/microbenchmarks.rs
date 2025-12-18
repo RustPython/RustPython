@@ -37,7 +37,7 @@ pub struct MicroBenchmark {
 }
 
 fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmark) {
-    pyo3::Python::with_gil(|py| {
+    pyo3::Python::attach(|py| {
         let setup_name = format!("{}_setup", bench.name);
         let setup_code = cpy_compile_code(py, &bench.setup, &setup_name).unwrap();
 
@@ -101,7 +101,10 @@ fn cpy_compile_code<'a>(
     let builtins =
         pyo3::types::PyModule::import(py, "builtins").expect("Failed to import builtins");
     let compile = builtins.getattr("compile").expect("no compile in builtins");
-    compile.call1((code, name, "exec"))?.extract()
+    Ok(compile
+        .call1((code, name, "exec"))?
+        .cast_into()
+        .expect("compile() should return a code object"))
 }
 
 fn bench_rustpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmark) {

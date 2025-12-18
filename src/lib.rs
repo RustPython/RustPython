@@ -59,6 +59,14 @@ pub use rustpython_vm as vm;
 pub use settings::{InstallPipMode, RunMode, parse_opts};
 pub use shell::run_shell;
 
+#[cfg(all(
+    feature = "ssl",
+    not(any(feature = "ssl-rustls", feature = "ssl-openssl"))
+))]
+compile_error!(
+    "Feature \"ssl\" is now enabled by either \"ssl-rustls\" or \"ssl-openssl\" to be enabled. Do not manually pass \"ssl\" feature. To enable ssl-openssl, use --no-default-features to disable ssl-rustls"
+);
+
 /// The main cli of the `rustpython` interpreter. This function will return `std::process::ExitCode`
 /// based on the return code of the python code ran through the cli.
 pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
@@ -103,7 +111,7 @@ pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
     let interp = config.interpreter();
     let exitcode = interp.run(move |vm| run_rustpython(vm, run_mode));
 
-    ExitCode::from(exitcode)
+    rustpython_vm::common::os::exit_code(exitcode)
 }
 
 fn setup_main_module(vm: &VirtualMachine) -> PyResult<Scope> {
@@ -141,7 +149,7 @@ __import__("io").TextIOWrapper(
 }
 
 fn install_pip(installer: InstallPipMode, scope: Scope, vm: &VirtualMachine) -> PyResult<()> {
-    if cfg!(not(feature = "ssl")) {
+    if !cfg!(feature = "ssl") {
         return Err(vm.new_exception_msg(
             vm.ctx.exceptions.system_error.to_owned(),
             "install-pip requires rustpython be build with '--features=ssl'".to_owned(),
@@ -154,6 +162,7 @@ fn install_pip(installer: InstallPipMode, scope: Scope, vm: &VirtualMachine) -> 
     }
 }
 
+// pymain_run_python
 fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     #[cfg(feature = "flame-it")]
     let main_guard = flame::start_guard("RustPython main");
@@ -178,6 +187,16 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
         );
     }
 
+    // Enable faulthandler if -X faulthandler, PYTHONFAULTHANDLER or -X dev is set
+    // _PyFaulthandler_Init()
+    if vm.state.settings.faulthandler {
+        let _ = vm.run_code_string(
+            vm.new_scope_with_builtins(),
+            "import faulthandler; faulthandler.enable()",
+            "<faulthandler>".to_owned(),
+        );
+    }
+
     let is_repl = matches!(run_mode, RunMode::Repl);
     if !vm.state.settings.quiet
         && (vm.state.settings.verbose > 0 || (is_repl && std::io::stdin().is_terminal()))
@@ -198,7 +217,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     let res = match run_mode {
         RunMode::Command(command) => {
             debug!("Running command {command}");
-            vm.run_code_string(scope.clone(), &command, "<stdin>".to_owned())
+            vm.run_code_string(scope.clone(), &command, "<string>".to_owned())
                 .map(drop)
         }
         RunMode::Module(module) => {
@@ -206,9 +225,10 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
             vm.run_module(&module)
         }
         RunMode::InstallPip(installer) => install_pip(installer, scope.clone(), vm),
-        RunMode::Script(script) => {
-            debug!("Running script {}", &script);
-            vm.run_script(scope.clone(), &script)
+        RunMode::Script(script_path) => {
+            // pymain_run_file
+            debug!("Running script {}", &script_path);
+            vm.run_script(scope.clone(), &script_path)
         }
         RunMode::Repl => Ok(()),
     };

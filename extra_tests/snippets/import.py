@@ -1,9 +1,10 @@
-import import_target, import_target as aliased
-from import_target import func, other_func
-from import_target import func as aliased_func, other_func as aliased_other_func
-from import_star import *
-
 import import_mutual1
+import import_target
+import import_target as aliased
+from import_star import *
+from import_target import func, other_func
+from import_target import func as aliased_func
+from import_target import other_func as aliased_other_func
 
 assert import_target.X == import_target.func()
 assert import_target.X == func()

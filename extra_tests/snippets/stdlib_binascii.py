@@ -1,6 +1,6 @@
 import binascii
-from testutils import assert_raises, assert_equal
 
+from testutils import assert_equal, assert_raises
 
 # hexlify tests
 h = binascii.hexlify

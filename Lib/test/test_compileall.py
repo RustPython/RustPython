@@ -459,7 +459,6 @@ class CompileallTestsBase:
                 except Exception:
                     pass
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     def test_ignore_symlink_destination(self):
         # Create folders for allowed files, symlinks and prohibited area
@@ -933,7 +932,6 @@ class CommandLineTestsBase:
                 except Exception:
                     pass
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     def test_ignore_symlink_destination(self):
         # Create folders for allowed files, symlinks and prohibited area

@@ -4,6 +4,7 @@ aenter
 aexit
 aiter
 anext
+anextawaitable
 appendleft
 argcount
 arrayiterator
@@ -170,6 +171,7 @@ pyexpat
 PYTHONBREAKPOINT
 PYTHONDEBUG
 PYTHONDONTWRITEBYTECODE
+PYTHONFAULTHANDLER
 PYTHONHASHSEED
 PYTHONHOME
 PYTHONINSPECT

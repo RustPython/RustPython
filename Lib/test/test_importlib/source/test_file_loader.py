@@ -236,7 +236,6 @@ class SimpleTest(abc.LoaderTests):
                 warnings.simplefilter('ignore', DeprecationWarning)
                 loader.load_module('bad name')
 
-    @unittest.skip("TODO: RUSTPYTHON; successful only for Frozen")
     @util.writes_bytecode_files
     def test_checked_hash_based_pyc(self):
         with util.create_modules('_temp') as mapping:
@@ -293,7 +292,6 @@ class SimpleTest(abc.LoaderTests):
             loader.exec_module(mod)
             self.assertEqual(mod.state, 'old')
 
-    @unittest.skip("TODO: RUSTPYTHON; successful only for Frozen")
     @util.writes_bytecode_files
     def test_unchecked_hash_based_pyc(self):
         with util.create_modules('_temp') as mapping:
@@ -324,7 +322,6 @@ class SimpleTest(abc.LoaderTests):
                 data[8:16],
             )
 
-    @unittest.skip("TODO: RUSTPYTHON; successful only for Frozen")
     @util.writes_bytecode_files
     def test_overridden_unchecked_hash_based_pyc(self):
         with util.create_modules('_temp') as mapping, \
@@ -361,6 +358,23 @@ class SimpleTest(abc.LoaderTests):
  Source_SimpleTest
  ) = util.test_both(SimpleTest, importlib=importlib, machinery=machinery,
                     abc=importlib_abc, util=importlib_util)
+
+# TODO: RUSTPYTHON, get rid of this entire class when all of the following tests are fixed
+class Source_SimpleTest(Source_SimpleTest):
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_checked_hash_based_pyc(self):
+        super().test_checked_hash_based_pyc()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_unchecked_hash_based_pyc(self):
+        super().test_unchecked_hash_based_pyc()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_overridden_unchecked_hash_based_pyc(self):
+        super().test_overridden_unchecked_hash_based_pyc()
 
 
 class SourceDateEpochTestMeta(SourceDateEpochTestMeta,
@@ -677,24 +691,57 @@ class SourceLoaderBadBytecodeTestPEP451(
     pass
 
 
-# (Frozen_SourceBadBytecodePEP451,
-#  Source_SourceBadBytecodePEP451
-#  ) = util.test_both(SourceLoaderBadBytecodeTestPEP451, importlib=importlib,
-#                     machinery=machinery, abc=importlib_abc,
-#                     util=importlib_util)
+(Frozen_SourceBadBytecodePEP451,
+ Source_SourceBadBytecodePEP451
+ ) = util.test_both(SourceLoaderBadBytecodeTestPEP451, importlib=importlib,
+                    machinery=machinery, abc=importlib_abc,
+                    util=importlib_util)
+
+# TODO: RUSTPYTHON, get rid of this entire class when all of the following tests are fixed
+class Source_SourceBadBytecodePEP451(Source_SourceBadBytecodePEP451):
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_bad_marshal(self):
+        super().test_bad_marshal()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_no_marshal(self):
+        super().test_no_marshal()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_non_code_marshal(self):
+        super().test_non_code_marshal()
 
 
-# TODO: RUSTPYTHON
-# class SourceLoaderBadBytecodeTestPEP302(
-#         SourceLoaderBadBytecodeTest, BadBytecodeTestPEP302):
-#     pass
+class SourceLoaderBadBytecodeTestPEP302(
+        SourceLoaderBadBytecodeTest, BadBytecodeTestPEP302):
+    pass
 
 
-# (Frozen_SourceBadBytecodePEP302,
-#  Source_SourceBadBytecodePEP302
-#  ) = util.test_both(SourceLoaderBadBytecodeTestPEP302, importlib=importlib,
-#                     machinery=machinery, abc=importlib_abc,
-#                     util=importlib_util)
+(Frozen_SourceBadBytecodePEP302,
+ Source_SourceBadBytecodePEP302
+ ) = util.test_both(SourceLoaderBadBytecodeTestPEP302, importlib=importlib,
+                    machinery=machinery, abc=importlib_abc,
+                    util=importlib_util)
+
+# TODO: RUSTPYTHON, get rid of this entire class when all of the following tests are fixed
+class Source_SourceBadBytecodePEP302(Source_SourceBadBytecodePEP302):
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_bad_marshal(self):
+        super().test_bad_marshal()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_no_marshal(self):
+        super().test_no_marshal()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_non_code_marshal(self):
+        super().test_non_code_marshal()
 
 
 class SourcelessLoaderBadBytecodeTest:
@@ -776,23 +823,87 @@ class SourcelessLoaderBadBytecodeTestPEP451(SourcelessLoaderBadBytecodeTest,
     pass
 
 
-# (Frozen_SourcelessBadBytecodePEP451,
-#  Source_SourcelessBadBytecodePEP451
-#  ) = util.test_both(SourcelessLoaderBadBytecodeTestPEP451, importlib=importlib,
-#                     machinery=machinery, abc=importlib_abc,
-#                     util=importlib_util)
+(Frozen_SourcelessBadBytecodePEP451,
+ Source_SourcelessBadBytecodePEP451
+ ) = util.test_both(SourcelessLoaderBadBytecodeTestPEP451, importlib=importlib,
+                    machinery=machinery, abc=importlib_abc,
+                    util=importlib_util)
+
+# TODO: RUSTPYTHON, get rid of this entire class when all of the following tests are fixed
+class Source_SourcelessBadBytecodePEP451(Source_SourcelessBadBytecodePEP451):
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_magic_only(self):
+        super().test_magic_only()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_no_marshal(self):
+        super().test_no_marshal()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_partial_flags(self):
+        super().test_partial_flags()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_partial_hash(self):
+        super().test_partial_hash()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_partial_size(self):
+        super().test_partial_size()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_partial_timestamp(self):
+        super().test_partial_timestamp()
 
 
-# class SourcelessLoaderBadBytecodeTestPEP302(SourcelessLoaderBadBytecodeTest,
-#         BadBytecodeTestPEP302):
-#     pass
+class SourcelessLoaderBadBytecodeTestPEP302(SourcelessLoaderBadBytecodeTest,
+        BadBytecodeTestPEP302):
+    pass
 
 
-# (Frozen_SourcelessBadBytecodePEP302,
-#  Source_SourcelessBadBytecodePEP302
-#  ) = util.test_both(SourcelessLoaderBadBytecodeTestPEP302, importlib=importlib,
-#                     machinery=machinery, abc=importlib_abc,
-#                     util=importlib_util)
+(Frozen_SourcelessBadBytecodePEP302,
+ Source_SourcelessBadBytecodePEP302
+ ) = util.test_both(SourcelessLoaderBadBytecodeTestPEP302, importlib=importlib,
+                    machinery=machinery, abc=importlib_abc,
+                    util=importlib_util)
+
+# TODO: RUSTPYTHON, get rid of this entire class when all of the following tests are fixed
+class Source_SourcelessBadBytecodePEP302(Source_SourcelessBadBytecodePEP302):
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_magic_only(self):
+        super().test_magic_only()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_no_marshal(self):
+        super().test_no_marshal()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_partial_flags(self):
+        super().test_partial_flags()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_partial_hash(self):
+        super().test_partial_hash()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_partial_size(self):
+        super().test_partial_size()
+
+    # TODO: RUSTPYTHON, get rid of all three of the following lines when this test is fixed
+    @unittest.expectedFailure
+    def test_partial_timestamp(self):
+        super().test_partial_timestamp()
 
 
 if __name__ == '__main__':

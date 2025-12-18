@@ -457,6 +457,7 @@ class ImportTests(unittest.TestCase):
             with self.assertRaises(AttributeError):
                 os.does_not_exist
 
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; Flaky')
     @threading_helper.requires_working_threading()
     def test_concurrency(self):
         # bpo 38091: this is a hack to slow down the code that calls

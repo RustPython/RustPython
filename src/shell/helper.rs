@@ -54,7 +54,7 @@ fn split_idents_on_dot(line: &str) -> Option<(usize, Vec<String>)> {
 }
 
 impl<'vm> ShellHelper<'vm> {
-    pub fn new(vm: &'vm VirtualMachine, globals: PyDictRef) -> Self {
+    pub const fn new(vm: &'vm VirtualMachine, globals: PyDictRef) -> Self {
         ShellHelper { vm, globals }
     }
 

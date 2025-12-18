@@ -784,6 +784,7 @@ class HashLibTestCase(unittest.TestCase):
           inner_size=7,
           last_node=True)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     @requires_blake2
     def test_blake2b_vectors(self):
         for msg, key, md in read_vectors('blake2b'):
@@ -831,6 +832,7 @@ class HashLibTestCase(unittest.TestCase):
           inner_size=7,
           last_node=True)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     @requires_blake2
     def test_blake2s_vectors(self):
         for msg, key, md in read_vectors('blake2s'):

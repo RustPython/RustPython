@@ -1,4 +1,5 @@
-from _weakref import ref, proxy
+from _weakref import proxy, ref
+
 from testutils import assert_raises
 
 

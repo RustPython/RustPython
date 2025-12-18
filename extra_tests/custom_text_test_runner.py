@@ -25,16 +25,17 @@
 # SOFTWARE.
 
 
-import unittest
-import os, sys, traceback
 import inspect
 import json
-import time
-import re
 import operator
-from unittest.runner import result
-from unittest.runner import registerResult
+import os
+import re
+import sys
+import time
+import traceback
+import unittest
 from functools import reduce
+from unittest.runner import registerResult, result
 
 
 class TablePrinter(object):

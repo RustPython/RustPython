@@ -9,9 +9,9 @@ $ diff cpython.txt rustpython.txt
 """
 
 import ast
-import sys
-import symtable
 import dis
+import symtable
+import sys
 
 filename = sys.argv[1]
 print("Crawling file:", filename)

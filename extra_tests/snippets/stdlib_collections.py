@@ -1,6 +1,5 @@
 from collections import deque
 
-
 d = deque([0, 1, 2])
 
 d.append(1)

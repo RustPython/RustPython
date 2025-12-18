@@ -1,6 +1,7 @@
-from testutils import assert_raises
 from collections import deque
 from typing import Deque
+
+from testutils import assert_raises
 
 
 def test_deque_iterator__new__():

@@ -1,0 +1,23 @@
+[package]
+name = "rustpython-compiler"
+description = "A usability wrapper around rustpython-parser and rustpython-compiler-core"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+rustpython-codegen = { workspace = true }
+rustpython-compiler-core = { workspace = true }
+ruff_python_parser = { workspace = true }
+ruff_python_ast = { workspace = true }
+ruff_source_file = { workspace = true }
+ruff_text_size = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

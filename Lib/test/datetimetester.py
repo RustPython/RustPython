@@ -2943,8 +2943,6 @@ class TestDateTime(TestDate):
         self.assertEqual(dt2.newmeth(-7), dt1.year + dt1.month +
                                           dt1.second - 7)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subclass_alternate_constructors_datetime(self):
         # Test that alternate constructors call the constructor
         class DateTimeSubclass(self.theclass):
@@ -5457,8 +5455,6 @@ class Oddballs(unittest.TestCase):
         self.assertEqual(as_datetime, datetime_sc)
         self.assertEqual(datetime_sc, as_datetime)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_extra_attributes(self):
         with self.assertWarns(DeprecationWarning):
             utcnow = datetime.utcnow()

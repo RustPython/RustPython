@@ -1,0 +1,163 @@
+[package]
+name = "rustpython-stdlib"
+description = "RustPython standard libraries in Rust."
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = ["compiler"]
+compiler = ["rustpython-vm/compiler"]
+threading = ["rustpython-common/threading", "rustpython-vm/threading"]
+sqlite = ["dep:libsqlite3-sys"]
+# SSL backends - default to rustls
+ssl = []
+ssl-rustls = ["ssl", "rustls", "rustls-native-certs", "rustls-pemfile", "rustls-platform-verifier", "x509-cert", "x509-parser", "der", "pem-rfc7468", "webpki-roots", "aws-lc-rs", "oid-registry", "pkcs8"]
+ssl-rustls-fips = ["ssl-rustls", "aws-lc-rs/fips"]
+ssl-openssl = ["ssl", "openssl", "openssl-sys", "foreign-types-shared", "openssl-probe"]
+ssl-vendor = ["ssl-openssl", "openssl/vendored"]
+tkinter = ["dep:tk-sys", "dep:tcl-sys"]
+
+[dependencies]
+# rustpython crates
+rustpython-derive = { workspace = true }
+rustpython-vm = { workspace = true, default-features = false, features = ["compiler"]}
+rustpython-common = { workspace = true }
+
+ahash = { workspace = true }
+ascii = { workspace = true }
+cfg-if = { workspace = true }
+crossbeam-utils = { workspace = true }
+hex = { workspace = true }
+itertools = { workspace = true }
+indexmap = { workspace = true }
+libc = { workspace = true }
+nix = { workspace = true }
+num-complex = { workspace = true }
+malachite-bigint = { workspace = true }
+num-integer = { workspace = true }
+num-traits = { workspace = true }
+num_enum = { workspace = true }
+parking_lot = { workspace = true }
+phf = { version = "0.13", features = ["macros"] }
+
+memchr = { workspace = true }
+base64 = "0.22"
+csv-core = "0.1.11"
+dyn-clone = "1.0.10"
+pymath = { workspace = true }
+xml = "1.2"
+
+# random
+rand_core = { workspace = true }
+mt19937 = "3.1"
+
+# Crypto:
+digest = "0.10.3"
+md-5 = "0.10.1"
+sha-1 = "0.10.0"
+sha2 = "0.10.2"
+sha3 = "0.10.1"
+blake2 = "0.10.4"
+
+## unicode stuff
+unicode_names2 = { workspace = true }
+# TODO: use unic for this; needed for title case:
+# https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
+unicode-casing = { workspace = true }
+# update version all at the same time
+unic-char-property = { workspace = true }
+unic-normal        = { workspace = true }
+unic-ucd-bidi      = { workspace = true }
+unic-ucd-category  = { workspace = true }
+unic-ucd-age       = { workspace = true }
+unic-ucd-ident     = { workspace = true }
+ucd = "0.1.1"
+unicode-bidi-mirroring = { workspace = true }
+
+# compression
+adler32 = "1.2.0"
+crc32fast = "1.3.2"
+flate2 = { version = "<=1.1.5", default-features = false, features = ["zlib-rs"] }
+libz-sys = { package = "libz-rs-sys", version = "0.5" }
+bzip2 = "0.6"
+
+# tkinter
+tk-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0", optional = true }
+tcl-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0", optional = true }
+chrono.workspace = true
+
+# uuid
+[target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32", target_os = "redox")))'.dependencies]
+mac_address = "1.1.3"
+uuid = { version = "1.19.0", features = ["v1"] }
+
+[target.'cfg(all(unix, not(target_os = "redox"), not(target_os = "ios")))'.dependencies]
+termios = "0.3.3"
+
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true }
+
+# mmap + socket dependencies
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+memmap2 = "0.9.9"
+page_size = "0.6"
+gethostname = "1.0.2"
+socket2 = { version = "0.6.0", features = ["all"] }
+dns-lookup = "3.0"
+
+# OpenSSL dependencies (optional, for ssl-openssl feature)
+openssl = { version = "0.10.72", optional = true }
+openssl-sys = { version = "0.9.110", optional = true }
+openssl-probe = { version = "0.1.5", optional = true }
+foreign-types-shared = { version = "0.1.1", optional = true }
+
+# Rustls dependencies (optional, for ssl-rustls feature)
+rustls = { version = "0.23.35", default-features = false, features = ["std", "tls12", "aws_lc_rs"], optional = true }
+rustls-native-certs = { version = "0.8", optional = true }
+rustls-pemfile = { version = "2.2", optional = true }
+rustls-platform-verifier = { version = "0.6", optional = true }
+x509-cert = { version = "0.2.5", features = ["pem", "builder"], optional = true }
+x509-parser = { version = "0.18", optional = true }
+der = { version = "0.7", features = ["alloc", "oid"], optional = true }
+pem-rfc7468 = { version = "1.0", features = ["alloc"], optional = true }
+webpki-roots = { version = "1.0", optional = true }
+aws-lc-rs = { version = "1.14.1", optional = true }
+oid-registry = { version = "0.8", features = ["x509", "pkcs1", "nist_algs"], optional = true }
+pkcs8 = { version = "0.10", features = ["encryption", "pkcs5", "pem"], optional = true }
+
+[target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
+libsqlite3-sys = { version = "0.28", features = ["bundled"], optional = true }
+lzma-sys = "0.1"
+xz2 = "0.1"
+
+[target.'cfg(windows)'.dependencies]
+paste = { workspace = true }
+schannel = { workspace = true }
+widestring = { workspace = true }
+
+[target.'cfg(windows)'.dependencies.windows-sys]
+workspace = true
+features = [
+  "Win32_Foundation",
+  "Win32_Networking_WinSock",
+  "Win32_NetworkManagement_IpHelper",
+  "Win32_NetworkManagement_Ndis",
+  "Win32_Security_Cryptography",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Diagnostics_Debug",
+  "Win32_System_Environment",
+  "Win32_System_IO",
+  "Win32_System_Threading"
+]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+system-configuration = "0.7.0"
+
+[lints]
+workspace = true

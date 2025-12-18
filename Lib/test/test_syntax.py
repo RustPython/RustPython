@@ -259,6 +259,36 @@ SyntaxError: expected ':'
 Traceback (most recent call last):
 SyntaxError: invalid syntax
 
+Comprehensions without 'in' keyword:
+
+>>> [x for x if range(1)]
+Traceback (most recent call last):
+SyntaxError: 'in' expected after for-loop variables
+
+>>> tuple(x for x if range(1))
+Traceback (most recent call last):
+SyntaxError: 'in' expected after for-loop variables
+
+>>> [x for x() in a]
+Traceback (most recent call last):
+SyntaxError: cannot assign to function call
+
+>>> [x for a, b, (c + 1, d()) in y]
+Traceback (most recent call last):
+SyntaxError: cannot assign to expression
+
+>>> [x for a, b, (c + 1, d()) if y]
+Traceback (most recent call last):
+SyntaxError: 'in' expected after for-loop variables
+
+>>> [x for x+1 in y]
+Traceback (most recent call last):
+SyntaxError: cannot assign to expression
+
+>>> [x for x+1, x() in y]
+Traceback (most recent call last):
+SyntaxError: cannot assign to expression
+
 Comprehensions creating tuples without parentheses
 should produce a specialized error message:
 
@@ -322,6 +352,13 @@ SyntaxError: invalid syntax
 Traceback (most recent call last):
 SyntaxError: invalid syntax
 
+# But prefixes of soft keywords should
+# still raise specialized errors
+
+>>> (mat x)
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Perhaps you forgot a comma?
+
 From compiler_complex_args():
 
 >>> def f(None=1):
@@ -334,7 +371,12 @@ From ast_for_arguments():
 >>> def f(x, y=1, z):
 ...     pass
 Traceback (most recent call last):
-SyntaxError: non-default argument follows default argument
+SyntaxError: parameter without a default follows parameter with a default
+
+>>> def f(x, /, y=1, z):
+...     pass
+Traceback (most recent call last):
+SyntaxError: parameter without a default follows parameter with a default
 
 >>> def f(x, None):
 ...     pass
@@ -555,8 +597,16 @@ SyntaxError: expected default value expression
 Traceback (most recent call last):
 SyntaxError: expected default value expression
 
-# TODO: RUSTPYTHON NameError: name 'PyCF_TYPE_COMMENTS' is not defined
->>> import ast; ast.parse('''  # doctest: +SKIP
+>>> lambda a,d=3,c: None
+Traceback (most recent call last):
+SyntaxError: parameter without a default follows parameter with a default
+
+>>> lambda a,/,d=3,c: None
+Traceback (most recent call last):
+SyntaxError: parameter without a default follows parameter with a default
+
+>>> # TODO: RUSTPYTHON
+>>> import ast; ast.parse(''' # doctest: +SKIP
 ... def f(
 ...     *, # type: int
 ...     a, # type: int
@@ -582,46 +632,31 @@ From ast_for_call():
 >>> L = range(10)
 >>> f(x for x in L)
 [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-
-# TODO: RUSTPYTHON does not raise.
->>> f(x for x in L, 1)  # doctest: +SKIP
+>>> f(x for x in L, 1)
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
-
-# TODO: RUSTPYTHON does not raise.
->>> f(x for x in L, y=1)  # doctest: +SKIP
+>>> f(x for x in L, y=1)
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
-
-# TODO: RUSTPYTHON does not raise.
->>> f(x for x in L, *[])  # doctest: +SKIP
+>>> f(x for x in L, *[])
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
-
-# TODO: RUSTPYTHON does not raise.
->>> f(x for x in L, **{})  # doctest: +SKIP
+>>> f(x for x in L, **{})
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
-
-# TODO: RUSTPYTHON does not raise.
->>> f(L, x for x in L)  # doctest: +SKIP
+>>> f(L, x for x in L)
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
-
-# TODO: RUSTPYTHON does not raise.
->>> f(x for x in L, y for y in L)  # doctest: +SKIP
+>>> f(x for x in L, y for y in L)
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
-
-# TODO: RUSTPYTHON does not raise.
->>> f(x for x in L,)  # doctest: +SKIP
+>>> f(x for x in L,)
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
 >>> f((x for x in L), 1)
 [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-
-# TODO: RUSTPYTHON TypeError: metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases
->>> class C(x for x in L):  # doctest: +SKIP
+>>> # TODO: RUSTPYTHON
+>>> class C(x for x in L): # doctest: +SKIP
 ...     pass
 Traceback (most recent call last):
 SyntaxError: invalid syntax
@@ -742,8 +777,8 @@ SyntaxError: expression cannot contain assignment, perhaps you meant "=="?
 >>> f(x.y=1)
 Traceback (most recent call last):
 SyntaxError: expression cannot contain assignment, perhaps you meant "=="?
-# TODO: RUSTPYTHON
->>> f((x)=2)  # doctest: +SKIP
+>>> # TODO: RUSTPYTHON
+>>> f((x)=2) # doctest: +SKIP
 Traceback (most recent call last):
 SyntaxError: expression cannot contain assignment, perhaps you meant "=="?
 >>> f(True=1)
@@ -758,11 +793,31 @@ SyntaxError: cannot assign to None
 >>> f(__debug__=1)
 Traceback (most recent call last):
 SyntaxError: cannot assign to __debug__
-
-# TODO: RUSTPYTHON NameError: name '__annotations__' is not defined
->>> __debug__: int  # doctest: +SKIP
+>>> # TODO: RUSTPYTHON
+>>> __debug__: int # doctest: +SKIP
 Traceback (most recent call last):
 SyntaxError: cannot assign to __debug__
+>>> f(a=)
+Traceback (most recent call last):
+SyntaxError: expected argument value expression
+>>> f(a, b, c=)
+Traceback (most recent call last):
+SyntaxError: expected argument value expression
+>>> f(a, b, c=, d)
+Traceback (most recent call last):
+SyntaxError: expected argument value expression
+>>> f(*args=[0])
+Traceback (most recent call last):
+SyntaxError: cannot assign to iterable argument unpacking
+>>> f(a, b, *args=[0])
+Traceback (most recent call last):
+SyntaxError: cannot assign to iterable argument unpacking
+>>> f(**kwargs={'a': 1})
+Traceback (most recent call last):
+SyntaxError: cannot assign to keyword argument unpacking
+>>> f(a, b, *args, **kwargs={'a': 1})
+Traceback (most recent call last):
+SyntaxError: cannot assign to keyword argument unpacking
 
 
 More set_context():
@@ -990,7 +1045,22 @@ Missing ':' before suites:
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
+   >>> def f[T]()
+   ...     pass
+   Traceback (most recent call last):
+   SyntaxError: expected ':'
+
    >>> class A
+   ...     pass
+   Traceback (most recent call last):
+   SyntaxError: expected ':'
+
+   >>> class A[T]
+   ...     pass
+   Traceback (most recent call last):
+   SyntaxError: expected ':'
+
+   >>> class A[T]()
    ...     pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
@@ -1151,6 +1221,22 @@ Missing parens after function definition
    SyntaxError: expected '('
 
    >>> async def f:
+   Traceback (most recent call last):
+   SyntaxError: expected '('
+
+   >>> def f -> int:
+   Traceback (most recent call last):
+   SyntaxError: expected '('
+
+   >>> async def f -> int:  # type: int
+   Traceback (most recent call last):
+   SyntaxError: expected '('
+
+   >>> async def f[T]:
+   Traceback (most recent call last):
+   SyntaxError: expected '('
+
+   >>> def f[T] -> str:
    Traceback (most recent call last):
    SyntaxError: expected '('
 
@@ -1432,7 +1518,17 @@ Specialized indentation errors:
    Traceback (most recent call last):
    IndentationError: expected an indented block after function definition on line 1
 
+   >>> def foo[T](x, /, y, *, z=2):
+   ... pass
+   Traceback (most recent call last):
+   IndentationError: expected an indented block after function definition on line 1
+
    >>> class Blech(A):
+   ... pass
+   Traceback (most recent call last):
+   IndentationError: expected an indented block after class definition on line 1
+
+   >>> class Blech[T](A):
    ... pass
    Traceback (most recent call last):
    IndentationError: expected an indented block after class definition on line 1
@@ -1469,14 +1565,16 @@ Make sure that the old "raise X, Y[, Z]" form is gone:
 Check that an multiple exception types with missing parentheses
 raise a custom exception
 
-   >>> try:
+   >>> # TODO: RUSTPYTHON
+   >>> try: # doctest: +SKIP
    ...   pass
    ... except A, B:
    ...   pass
    Traceback (most recent call last):
    SyntaxError: multiple exception types must be parenthesized
 
-   >>> try:
+   >>> # TODO: RUSTPYTHON
+   >>> try: # doctest: +SKIP
    ...   pass
    ... except A, B, C:
    ...   pass
@@ -1591,29 +1689,112 @@ SyntaxError: trailing comma not allowed without surrounding parentheses
 Traceback (most recent call last):
 SyntaxError: trailing comma not allowed without surrounding parentheses
 
+>>> import a from b
+Traceback (most recent call last):
+SyntaxError: Did you mean to use 'from ... import ...' instead?
+
+>>> import a.y.z from b.y.z
+Traceback (most recent call last):
+SyntaxError: Did you mean to use 'from ... import ...' instead?
+
+>>> import a from b as bar
+Traceback (most recent call last):
+SyntaxError: Did you mean to use 'from ... import ...' instead?
+
+>>> import a.y.z from b.y.z as bar
+Traceback (most recent call last):
+SyntaxError: Did you mean to use 'from ... import ...' instead?
+
+>>> import a, b,c from b
+Traceback (most recent call last):
+SyntaxError: Did you mean to use 'from ... import ...' instead?
+
+>>> import a.y.z, b.y.z, c.y.z from b.y.z
+Traceback (most recent call last):
+SyntaxError: Did you mean to use 'from ... import ...' instead?
+
+>>> import a,b,c from b as bar
+Traceback (most recent call last):
+SyntaxError: Did you mean to use 'from ... import ...' instead?
+
+>>> import a.y.z, b.y.z, c.y.z from b.y.z as bar
+Traceback (most recent call last):
+SyntaxError: Did you mean to use 'from ... import ...' instead?
+
 # Check that we dont raise the "trailing comma" error if there is more
 # input to the left of the valid part that we parsed.
 
->>> from t import x,y, and 3  
+>>> from t import x,y, and 3
 Traceback (most recent call last):
 SyntaxError: invalid syntax
 
-# TODO: RUSTPYTHON nothing raised.
->>> (): int  # doctest: +SKIP
+>>> from i import
+Traceback (most recent call last):
+SyntaxError: Expected one or more names after 'import'
+
+>>> from .. import
+Traceback (most recent call last):
+SyntaxError: Expected one or more names after 'import'
+
+>>> import
+Traceback (most recent call last):
+SyntaxError: Expected one or more names after 'import'
+
+>>> (): int
 Traceback (most recent call last):
 SyntaxError: only single target (not tuple) can be annotated
-# TODO: RUSTPYTHON nothing raised.
->>> []: int  # doctest: +SKIP
+>>> []: int
 Traceback (most recent call last):
 SyntaxError: only single target (not list) can be annotated
-# TODO: RUSTPYTHON nothing raised.
->>> (()): int  # doctest: +SKIP
+>>> (()): int
 Traceback (most recent call last):
 SyntaxError: only single target (not tuple) can be annotated
-# TODO: RUSTPYTHON nothing raised.
->>> ([]): int  # doctest: +SKIP
+>>> ([]): int
 Traceback (most recent call last):
 SyntaxError: only single target (not list) can be annotated
+
+# 'not' after operators:
+
+>>> 3 + not 3
+Traceback (most recent call last):
+SyntaxError: 'not' after an operator must be parenthesized
+
+>>> 3 * not 3
+Traceback (most recent call last):
+SyntaxError: 'not' after an operator must be parenthesized
+
+>>> + not 3
+Traceback (most recent call last):
+SyntaxError: 'not' after an operator must be parenthesized
+
+>>> - not 3
+Traceback (most recent call last):
+SyntaxError: 'not' after an operator must be parenthesized
+
+>>> ~ not 3
+Traceback (most recent call last):
+SyntaxError: 'not' after an operator must be parenthesized
+
+>>> 3 + - not 3
+Traceback (most recent call last):
+SyntaxError: 'not' after an operator must be parenthesized
+
+>>> 3 + not -1
+Traceback (most recent call last):
+SyntaxError: 'not' after an operator must be parenthesized
+
+# Check that we don't introduce misleading errors
+>>> not 1 */ 2
+Traceback (most recent call last):
+SyntaxError: invalid syntax
+
+>>> not 1 +
+Traceback (most recent call last):
+SyntaxError: invalid syntax
+
+>>> not + 1 +
+Traceback (most recent call last):
+SyntaxError: invalid syntax
 
 Corner-cases that used to fail to raise the correct error:
 
@@ -1635,8 +1816,7 @@ Corner-cases that used to fail to raise the correct error:
 
 Corner-cases that used to crash:
 
-    # TODO: RUSTPYTHON nothing raised.
-    >>> def f(**__debug__): pass  # doctest: +SKIP
+    >>> def f(**__debug__): pass
     Traceback (most recent call last):
     SyntaxError: cannot assign to __debug__
 
@@ -1650,8 +1830,8 @@ Corner-cases that used to crash:
 
   Invalid pattern matching constructs:
 
-    # TODO: RUSTPYTHON nothing raised.
-    >>> match ...:  # doctest: +SKIP
+    >>> # TODO: RUSTPYTHON
+    >>> match ...: # doctest: +SKIP 
     ...   case 42 as _:
     ...     ...
     Traceback (most recent call last):
@@ -1751,22 +1931,22 @@ A[*(1:2)]
     >>> A[*(1:2)]
     Traceback (most recent call last):
         ...
-    SyntaxError: invalid syntax
+    SyntaxError: Invalid star expression
     >>> A[*(1:2)] = 1
     Traceback (most recent call last):
         ...
-    SyntaxError: invalid syntax
+    SyntaxError: Invalid star expression
     >>> del A[*(1:2)]
     Traceback (most recent call last):
         ...
-    SyntaxError: invalid syntax
+    SyntaxError: Invalid star expression
 
 A[*:] and A[:*]
 
     >>> A[*:]
     Traceback (most recent call last):
         ...
-    SyntaxError: invalid syntax
+    SyntaxError: Invalid star expression
     >>> A[:*]
     Traceback (most recent call last):
         ...
@@ -1777,7 +1957,7 @@ A[*]
     >>> A[*]
     Traceback (most recent call last):
         ...
-    SyntaxError: invalid syntax
+    SyntaxError: Invalid star expression
 
 A[**]
 
@@ -1829,10 +2009,246 @@ x: *b
     Traceback (most recent call last):
         ...
     SyntaxError: invalid syntax
+
+Invalid bytes literals:
+
+   >>> b"Ā"
+   Traceback (most recent call last):
+      ...
+       b"Ā"
+        ^^^
+   SyntaxError: bytes can only contain ASCII literal characters
+
+   >>> b"абвгде"
+   Traceback (most recent call last):
+      ...
+       b"абвгде"
+        ^^^^^^^^
+   SyntaxError: bytes can only contain ASCII literal characters
+
+   >>> b"abc ъющый"  # first 3 letters are ascii
+   Traceback (most recent call last):
+      ...
+       b"abc ъющый"
+        ^^^^^^^^^^^
+   SyntaxError: bytes can only contain ASCII literal characters
+
+Invalid expressions in type scopes:
+
+   >>> type A[] = int
+   Traceback (most recent call last):
+   ...
+   SyntaxError: Type parameter list cannot be empty
+
+   >>> class A[]: ...
+   Traceback (most recent call last):
+   ...
+   SyntaxError: Type parameter list cannot be empty
+
+   >>> def some[](): ...
+   Traceback (most recent call last):
+   ...
+   SyntaxError: Type parameter list cannot be empty
+
+   >>> def some[]()
+   Traceback (most recent call last):
+   ...
+   SyntaxError: Type parameter list cannot be empty
+
+   >>> async def some[]:  # type: int
+   Traceback (most recent call last):
+   ...
+   SyntaxError: Type parameter list cannot be empty
+
+   >>> def f[T: (x:=3)](): pass
+   Traceback (most recent call last):
+      ...
+   SyntaxError: named expression cannot be used within a TypeVar bound
+
+   >>> def f[T: ((x:= 3), int)](): pass
+   Traceback (most recent call last):
+      ...
+   SyntaxError: named expression cannot be used within a TypeVar constraint
+
+   >>> def f[T = ((x:=3))](): pass
+   Traceback (most recent call last):
+      ...
+   SyntaxError: named expression cannot be used within a TypeVar default
+
+   >>> async def f[T: (x:=3)](): pass
+   Traceback (most recent call last):
+      ...
+   SyntaxError: named expression cannot be used within a TypeVar bound
+
+   >>> async def f[T: ((x:= 3), int)](): pass
+   Traceback (most recent call last):
+      ...
+   SyntaxError: named expression cannot be used within a TypeVar constraint
+
+   >>> async def f[T = ((x:=3))](): pass
+   Traceback (most recent call last):
+      ...
+   SyntaxError: named expression cannot be used within a TypeVar default
+
+   >>> type A[T: (x:=3)] = int
+   Traceback (most recent call last):
+      ...
+   SyntaxError: named expression cannot be used within a TypeVar bound
+
+   >>> type A[T: ((x:= 3), int)] = int
+   Traceback (most recent call last):
+      ...
+   SyntaxError: named expression cannot be used within a TypeVar constraint
+
+   >>> type A[T = ((x:=3))] = int
+   Traceback (most recent call last):
+      ...
+   SyntaxError: named expression cannot be used within a TypeVar default
+
+   >>> def f[T: (yield)](): pass
+   Traceback (most recent call last):
+      ...
+   SyntaxError: yield expression cannot be used within a TypeVar bound
+
+   >>> def f[T: (int, (yield))](): pass
+   Traceback (most recent call last):
+      ...
+   SyntaxError: yield expression cannot be used within a TypeVar constraint
+
+   >>> def f[T = (yield)](): pass
+   Traceback (most recent call last):
+      ...
+   SyntaxError: yield expression cannot be used within a TypeVar default
+
+   >>> def f[*Ts = (yield)](): pass
+   Traceback (most recent call last):
+      ...
+   SyntaxError: yield expression cannot be used within a TypeVarTuple default
+
+   >>> def f[**P = [(yield), int]](): pass
+   Traceback (most recent call last):
+      ...
+   SyntaxError: yield expression cannot be used within a ParamSpec default
+
+   >>> type A[T: (yield 3)] = int
+   Traceback (most recent call last):
+      ...
+   SyntaxError: yield expression cannot be used within a TypeVar bound
+
+   >>> type A[T: (int, (yield 3))] = int
+   Traceback (most recent call last):
+      ...
+   SyntaxError: yield expression cannot be used within a TypeVar constraint
+
+   >>> type A[T = (yield 3)] = int
+   Traceback (most recent call last):
+      ...
+   SyntaxError: yield expression cannot be used within a TypeVar default
+
+   >>> type A[T: (await 3)] = int
+   Traceback (most recent call last):
+      ...
+   SyntaxError: await expression cannot be used within a TypeVar bound
+
+   >>> type A[T: (yield from [])] = int
+   Traceback (most recent call last):
+      ...
+   SyntaxError: yield expression cannot be used within a TypeVar bound
+
+   >>> class A[T: (yield 3)]: pass
+   Traceback (most recent call last):
+      ...
+   SyntaxError: yield expression cannot be used within a TypeVar bound
+
+   >>> class A[T: (int, (yield 3))]: pass
+   Traceback (most recent call last):
+      ...
+   SyntaxError: yield expression cannot be used within a TypeVar constraint
+
+   >>> class A[T = (yield)]: pass
+   Traceback (most recent call last):
+      ...
+   SyntaxError: yield expression cannot be used within a TypeVar default
+
+   >>> class A[*Ts = (yield)]: pass
+   Traceback (most recent call last):
+      ...
+   SyntaxError: yield expression cannot be used within a TypeVarTuple default
+
+   >>> class A[**P = [(yield), int]]: pass
+   Traceback (most recent call last):
+      ...
+   SyntaxError: yield expression cannot be used within a ParamSpec default
+
+   >>> # TODO: RUSTPYTHON
+   >>> type A = (x := 3) # doctest: +SKIP
+   Traceback (most recent call last):
+      ...
+   SyntaxError: named expression cannot be used within a type alias
+
+   >>> type A = (yield 3)
+   Traceback (most recent call last):
+      ...
+   SyntaxError: yield expression cannot be used within a type alias
+
+   >>> type A = (await 3)
+   Traceback (most recent call last):
+      ...
+   SyntaxError: await expression cannot be used within a type alias
+
+   >>> type A = (yield from [])
+   Traceback (most recent call last):
+      ...
+   SyntaxError: yield expression cannot be used within a type alias
+
+   >>> class A[T]((x := 3)): ...
+   Traceback (most recent call last):
+      ...
+   SyntaxError: named expression cannot be used within the definition of a generic
+
+   >>> class A[T]((yield 3)): ...
+   Traceback (most recent call last):
+      ...
+   SyntaxError: yield expression cannot be used within the definition of a generic
+
+   >>> class A[T]((await 3)): ...
+   Traceback (most recent call last):
+      ...
+   SyntaxError: await expression cannot be used within the definition of a generic
+
+   >>> class A[T]((yield from [])): ...
+   Traceback (most recent call last):
+      ...
+   SyntaxError: yield expression cannot be used within the definition of a generic
+
+    >>> f(**x, *y)
+    Traceback (most recent call last):
+    SyntaxError: iterable argument unpacking follows keyword argument unpacking
+
+    >>> f(**x, *)
+    Traceback (most recent call last):
+    SyntaxError: Invalid star expression
+
+    >>> f(x, *:)
+    Traceback (most recent call last):
+    SyntaxError: Invalid star expression
+
+    >>> f(x, *)
+    Traceback (most recent call last):
+    SyntaxError: Invalid star expression
+
+    >>> f(x = 5, *)
+    Traceback (most recent call last):
+    SyntaxError: Invalid star expression
+
+    >>> f(x = 5, *:)
+    Traceback (most recent call last):
+    SyntaxError: Invalid star expression
 """
 
 import re
 import doctest
+import textwrap
 import unittest
 
 from test import support
@@ -1869,8 +2285,7 @@ class SyntaxTestCase(unittest.TestCase):
         else:
             self.fail("compile() did not raise SyntaxError")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_expression_with_assignment(self):
         self._check_error(
             "print(end1 + end2 = ' ')",
@@ -1878,16 +2293,14 @@ class SyntaxTestCase(unittest.TestCase):
             offset=7
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_curly_brace_after_primary_raises_immediately(self):
         self._check_error("f{}", "invalid syntax", mode="single")
 
     def test_assign_call(self):
         self._check_error("f() = 1", "assign")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_assign_del(self):
         self._check_error("del (,)", "invalid syntax")
         self._check_error("del 1", "cannot delete literal")
@@ -1939,9 +2352,6 @@ class SyntaxTestCase(unittest.TestCase):
             """
         self._check_error(source, "parameter and nonlocal", lineno=3)
 
-    def test_break_outside_loop(self):
-        self._check_error("break", "outside loop")
-
     def test_yield_outside_function(self):
         self._check_error("if 0: yield",                "outside function")
         self._check_error("if 0: yield\nelse:  x=1",    "outside function")
@@ -1970,22 +2380,28 @@ class SyntaxTestCase(unittest.TestCase):
                           "outside function")
 
     def test_break_outside_loop(self):
-        self._check_error("if 0: break",             "outside loop")
-        self._check_error("if 0: break\nelse:  x=1",  "outside loop")
-        self._check_error("if 1: pass\nelse: break", "outside loop")
-        self._check_error("class C:\n  if 0: break", "outside loop")
+        msg = "outside loop"
+        self._check_error("break", msg, lineno=1)
+        self._check_error("if 0: break", msg, lineno=1)
+        self._check_error("if 0: break\nelse:  x=1", msg, lineno=1)
+        self._check_error("if 1: pass\nelse: break", msg, lineno=2)
+        self._check_error("class C:\n  if 0: break", msg, lineno=2)
         self._check_error("class C:\n  if 1: pass\n  else: break",
-                          "outside loop")
+                          msg, lineno=3)
+        self._check_error("with object() as obj:\n break",
+                          msg, lineno=2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_continue_outside_loop(self):
-        self._check_error("if 0: continue",             "not properly in loop")
-        self._check_error("if 0: continue\nelse:  x=1", "not properly in loop")
-        self._check_error("if 1: pass\nelse: continue", "not properly in loop")
-        self._check_error("class C:\n  if 0: continue", "not properly in loop")
+        msg = "not properly in loop"
+        self._check_error("if 0: continue", msg, lineno=1)
+        self._check_error("if 0: continue\nelse:  x=1", msg, lineno=1)
+        self._check_error("if 1: pass\nelse: continue", msg, lineno=2)
+        self._check_error("class C:\n  if 0: continue", msg, lineno=2)
         self._check_error("class C:\n  if 1: pass\n  else: continue",
-                          "not properly in loop")
+                          msg, lineno=3)
+        self._check_error("with object() as obj:\n    continue",
+                          msg, lineno=2)
 
     def test_unexpected_indent(self):
         self._check_error("foo()\n bar()\n", "unexpected indent",
@@ -2000,35 +2416,42 @@ class SyntaxTestCase(unittest.TestCase):
                           "unindent does not match .* level",
                           subclass=IndentationError)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_kwargs_last(self):
         self._check_error("int(base=10, '2')",
                           "positional argument follows keyword argument")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_kwargs_last2(self):
         self._check_error("int(**{'base': 10}, '2')",
                           "positional argument follows "
                           "keyword argument unpacking")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_kwargs_last3(self):
         self._check_error("int(**{'base': 10}, *['2'])",
                           "iterable argument unpacking follows "
                           "keyword argument unpacking")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_generator_in_function_call(self):
         self._check_error("foo(x,    y for y in range(3) for z in range(2) if z    , p)",
                           "Generator expression must be parenthesized",
                           lineno=1, end_lineno=1, offset=11, end_offset=53)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_except_then_except_star(self):
+        self._check_error("try: pass\nexcept ValueError: pass\nexcept* TypeError: pass",
+                          r"cannot have both 'except' and 'except\*' on the same 'try'",
+                          lineno=3, end_lineno=3, offset=1, end_offset=8)
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_except_star_then_except(self):
+        self._check_error("try: pass\nexcept* ValueError: pass\nexcept TypeError: pass",
+                          r"cannot have both 'except' and 'except\*' on the same 'try'",
+                          lineno=3, end_lineno=3, offset=1, end_offset=7)
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_empty_line_after_linecont(self):
         # See issue-40847
         s = r"""\
@@ -2074,6 +2497,25 @@ if x:
         self.assertRaises(IndentationError, exec, code)
 
     @support.cpython_only
+    def test_disallowed_type_param_names(self):
+        # See gh-128632
+
+        self._check_error(f"class A[__classdict__]: pass",
+                        f"reserved name '__classdict__' cannot be used for type parameter")
+        self._check_error(f"def f[__classdict__](): pass",
+                        f"reserved name '__classdict__' cannot be used for type parameter")
+        self._check_error(f"type T[__classdict__] = tuple[__classdict__]",
+                        f"reserved name '__classdict__' cannot be used for type parameter")
+
+        # These compilations are here to make sure __class__, __classcell__ and __classdictcell__
+        # don't break in the future like __classdict__ did in this case.
+        for name in ('__class__', '__classcell__', '__classdictcell__'):
+            compile(f"""
+class A:
+    class B[{name}]: pass
+                """, "<testcase>", mode="exec")
+
+    @support.cpython_only
     def test_nested_named_except_blocks(self):
         code = ""
         for i in range(12):
@@ -2082,6 +2524,58 @@ if x:
             code += f"{'    '*i}except Exception as e:\n"
         code += f"{' '*4*12}pass"
         self._check_error(code, "too many statically nested blocks")
+
+    @support.cpython_only
+    def test_with_statement_many_context_managers(self):
+        # See gh-113297
+
+        def get_code(n):
+            code = textwrap.dedent("""
+                def bug():
+                    with (
+                    a
+                """)
+            for i in range(n):
+                code += f"    as a{i}, a\n"
+            code += "): yield a"
+            return code
+
+        CO_MAXBLOCKS = 21  # static nesting limit of the compiler
+        MAX_MANAGERS = CO_MAXBLOCKS - 1  # One for the StopIteration block
+
+        for n in range(MAX_MANAGERS):
+            with self.subTest(f"within range: {n=}"):
+                compile(get_code(n), "<string>", "exec")
+
+        for n in range(MAX_MANAGERS, MAX_MANAGERS + 5):
+            with self.subTest(f"out of range: {n=}"):
+                self._check_error(get_code(n), "too many statically nested blocks")
+
+    @support.cpython_only
+    def test_async_with_statement_many_context_managers(self):
+        # See gh-116767
+
+        def get_code(n):
+            code = [ textwrap.dedent("""
+                async def bug():
+                    async with (
+                    a
+                """) ]
+            for i in range(n):
+                code.append(f"    as a{i}, a\n")
+            code.append("): yield a")
+            return "".join(code)
+
+        CO_MAXBLOCKS = 21  # static nesting limit of the compiler
+        MAX_MANAGERS = CO_MAXBLOCKS - 1  # One for the StopIteration block
+
+        for n in range(MAX_MANAGERS):
+            with self.subTest(f"within range: {n=}"):
+                compile(get_code(n), "<string>", "exec")
+
+        for n in range(MAX_MANAGERS, MAX_MANAGERS + 5):
+            with self.subTest(f"out of range: {n=}"):
+                self._check_error(get_code(n), "too many statically nested blocks")
 
     def test_barry_as_flufl_with_syntax_errors(self):
         # The "barry_as_flufl" rule can produce some "bugs-at-a-distance" if
@@ -2100,8 +2594,7 @@ def func2():
 """
         self._check_error(code, "expected ':'")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_invalid_line_continuation_error_position(self):
         self._check_error(r"a = 3 \ 4",
                           "unexpected character after line continuation character",
@@ -2113,8 +2606,7 @@ def func2():
                           "unexpected character after line continuation character",
                           lineno=3, offset=4)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_invalid_line_continuation_left_recursive(self):
         # Check bpo-42218: SyntaxErrors following left-recursive rules
         # (t_primary_raw in this case) need to be tested explicitly
@@ -2123,8 +2615,7 @@ def func2():
         self._check_error("A.\u03bc\\\n",
                           "unexpected EOF while parsing")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_error_parenthesis(self):
         for paren in "([{":
             self._check_error(paren + "1 + 2", f"\\{paren}' was never closed")
@@ -2135,10 +2626,39 @@ def func2():
         for paren in ")]}":
             self._check_error(paren + "1 + 2", f"unmatched '\\{paren}'")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+        # Some more complex examples:
+        code = """\
+func(
+    a=["unclosed], # Need a quote in this comment: "
+    b=2,
+)
+"""
+        self._check_error(code, "parenthesis '\\)' does not match opening parenthesis '\\['")
+
+        self._check_error("match y:\n case e(e=v,v,", " was never closed")
+
+        # Examples with dencodings
+        s = b'# coding=latin\n(aaaaaaaaaaaaaaaaa\naaaaaaaaaaa\xb5'
+        self._check_error(s, r"'\(' was never closed")
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_error_string_literal(self):
+
+        self._check_error("'blech", r"unterminated string literal \(.*\)$")
+        self._check_error('"blech', r"unterminated string literal \(.*\)$")
+        self._check_error(
+            r'"blech\"', r"unterminated string literal \(.*\); perhaps you escaped the end quote"
+        )
+        self._check_error(
+            r'r"blech\"', r"unterminated string literal \(.*\); perhaps you escaped the end quote"
+        )
+        self._check_error("'''blech", "unterminated triple-quoted string literal")
+        self._check_error('"""blech', "unterminated triple-quoted string literal")
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_invisible_characters(self):
         self._check_error('print\x17("Hello")', "invalid non-printable character")
+        self._check_error(b"with(0,,):\n\x01", "invalid non-printable character")
 
     def test_match_call_does_not_raise_syntax_error(self):
         code = """
@@ -2158,8 +2678,7 @@ case(34)
 """
         compile(code, "<string>", "exec")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_multiline_compiler_error_points_to_the_end(self):
         self._check_error(
             "call(\na=1,\na=1\n)",
@@ -2198,7 +2717,8 @@ while 1:
                   while 20:
                    while 21:
                     while 22:
-                     break
+                     while 23:
+                      break
 """
         self._check_error(source, "too many statically nested blocks")
 
@@ -2207,7 +2727,7 @@ while 1:
         source = "-" * 100000 + "4"
         for mode in ["exec", "eval", "single"]:
             with self.subTest(mode=mode):
-                with self.assertRaises(MemoryError):
+                with self.assertRaisesRegex(MemoryError, r"too complex"):
                     compile(source, "<string>", mode)
 
     @support.cpython_only

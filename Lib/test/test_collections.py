@@ -262,8 +262,7 @@ class TestChainMap(unittest.TestCase):
         d = c.new_child(b=20, c=30)
         self.assertEqual(d.maps, [{'b': 20, 'c': 30}, {'a': 1, 'b': 2}])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_union_operators(self):
         cm1 = ChainMap(dict(a=1, b=2), dict(c=3, d=4))
         cm2 = ChainMap(dict(a=10, e=5), dict(b=20, d=4))
@@ -470,8 +469,7 @@ class TestNamedTuple(unittest.TestCase):
         NT = namedtuple('NT', ['x', 'y'], module=collections)
         self.assertEqual(NT.__module__, collections)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_instance(self):
         Point = namedtuple('Point', 'x y')
         p = Point(11, 22)
@@ -740,7 +738,7 @@ class ABCTestCase(unittest.TestCase):
             stubs = methodstubs.copy()
             del stubs[name]
             C = type('C', (abc,), stubs)
-            self.assertRaises(TypeError, C, name)
+            self.assertRaises(TypeError, C)
 
     def validate_isinstance(self, abc, name):
         stub = lambda s, *args: 0
@@ -790,8 +788,7 @@ def _test_gen():
 
 class TestOneTrickPonyABCs(ABCTestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_Awaitable(self):
         def gen():
             yield
@@ -844,8 +841,7 @@ class TestOneTrickPonyABCs(ABCTestCase):
         CoroLike = None
         support.gc_collect() # Kill CoroLike to clean-up ABCMeta cache
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_Coroutine(self):
         def gen():
             yield
@@ -971,7 +967,7 @@ class TestOneTrickPonyABCs(ABCTestCase):
             async def __anext__(self):
                 raise StopAsyncIteration
         self.assertNotIsInstance(AnextOnly(), AsyncIterator)
-        self.validate_abstract_methods(AsyncIterator, '__anext__', '__aiter__')
+        self.validate_abstract_methods(AsyncIterator, '__anext__')
 
     def test_Iterable(self):
         # Check some non-iterables
@@ -1168,7 +1164,7 @@ class TestOneTrickPonyABCs(ABCTestCase):
         for x in samples:
             self.assertIsInstance(x, Iterator)
             self.assertTrue(issubclass(type(x), Iterator), repr(type(x)))
-        self.validate_abstract_methods(Iterator, '__next__', '__iter__')
+        self.validate_abstract_methods(Iterator, '__next__')
 
         # Issue 10565
         class NextOnly:
@@ -1852,8 +1848,7 @@ class TestCollectionABCs(ABCTestCase):
         for sample in [dict]:
             self.assertIsInstance(sample(), Mapping)
             self.assertTrue(issubclass(sample, Mapping))
-        self.validate_abstract_methods(Mapping, '__contains__', '__iter__', '__len__',
-            '__getitem__')
+        self.validate_abstract_methods(Mapping, '__iter__', '__len__', '__getitem__')
         class MyMapping(Mapping):
             def __len__(self):
                 return 0
@@ -1868,7 +1863,7 @@ class TestCollectionABCs(ABCTestCase):
         for sample in [dict]:
             self.assertIsInstance(sample(), MutableMapping)
             self.assertTrue(issubclass(sample, MutableMapping))
-        self.validate_abstract_methods(MutableMapping, '__contains__', '__iter__', '__len__',
+        self.validate_abstract_methods(MutableMapping, '__iter__', '__len__',
             '__getitem__', '__setitem__', '__delitem__')
 
     def test_MutableMapping_subclass(self):
@@ -1907,8 +1902,7 @@ class TestCollectionABCs(ABCTestCase):
         self.assertIsInstance(memoryview(b""), Sequence)
         self.assertTrue(issubclass(memoryview, Sequence))
         self.assertTrue(issubclass(str, Sequence))
-        self.validate_abstract_methods(Sequence, '__contains__', '__iter__', '__len__',
-            '__getitem__')
+        self.validate_abstract_methods(Sequence, '__len__', '__getitem__')
 
     def test_Sequence_mixins(self):
         class SequenceSubclass(Sequence):
@@ -1967,10 +1961,7 @@ class TestCollectionABCs(ABCTestCase):
             # No metaclass conflict
             class Z(ByteString, Awaitable): pass
 
-    # TODO: RUSTPYTHON
-    # Need to implement __buffer__ and __release_buffer__
-    # https://docs.python.org/3.13/reference/datamodel.html#emulating-buffer-types
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; Need to implement __buffer__ and __release_buffer__ (https://docs.python.org/3.13/reference/datamodel.html#emulating-buffer-types)
     def test_Buffer(self):
         for sample in [bytes, bytearray, memoryview]:
             self.assertIsInstance(sample(b"x"), Buffer)
@@ -1989,8 +1980,8 @@ class TestCollectionABCs(ABCTestCase):
             self.assertTrue(issubclass(sample, MutableSequence))
         self.assertTrue(issubclass(array.array, MutableSequence))
         self.assertFalse(issubclass(str, MutableSequence))
-        self.validate_abstract_methods(MutableSequence, '__contains__', '__iter__',
-            '__len__', '__getitem__', '__setitem__', '__delitem__', 'insert')
+        self.validate_abstract_methods(MutableSequence, '__len__', '__getitem__',
+                                       '__setitem__', '__delitem__', 'insert')
 
     def test_MutableSequence_mixins(self):
         # Test the mixins of MutableSequence by creating a minimal concrete
@@ -2042,8 +2033,7 @@ class TestCollectionABCs(ABCTestCase):
         self.assertEqual(len(mss), len(mss2))
         self.assertEqual(list(mss), list(mss2))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_illegal_patma_flags(self):
         with self.assertRaises(TypeError):
             class Both(Collection):

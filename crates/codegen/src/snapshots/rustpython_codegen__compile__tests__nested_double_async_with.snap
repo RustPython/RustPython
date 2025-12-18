@@ -1,0 +1,86 @@
+---
+source: crates/codegen/src/compile.rs
+expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):\n    with self.subTest(type=type(stop_exc)):\n        try:\n            async with egg():\n                raise stop_exc\n        except Exception as ex:\n            self.assertIs(ex, stop_exc)\n        else:\n            self.fail(f'{stop_exc} was suppressed')\n\")"
+---
+  1           0 SetupLoop
+              1 LoadNameAny          (0, StopIteration)
+              2 LoadConst            ("spam")
+              3 CallFunctionPositional(1)
+              4 LoadNameAny          (1, StopAsyncIteration)
+              5 LoadConst            ("ham")
+              6 CallFunctionPositional(1)
+              7 BuildTuple           (2)
+              8 GetIter
+        >>    9 ForIter              (71)
+             10 StoreLocal           (2, stop_exc)
+
+  2          11 LoadNameAny          (3, self)
+             12 LoadMethod           (4, subTest)
+             13 LoadNameAny          (5, type)
+             14 LoadNameAny          (2, stop_exc)
+             15 CallFunctionPositional(1)
+             16 LoadConst            (("type"))
+             17 CallMethodKeyword    (1)
+             18 SetupWith            (68)
+             19 Pop
+
+  3          20 SetupExcept          (42)
+
+  4          21 LoadNameAny          (6, egg)
+             22 CallFunctionPositional(0)
+             23 BeforeAsyncWith
+             24 GetAwaitable
+             25 LoadConst            (None)
+             26 YieldFrom
+             27 Resume               (3)
+             28 SetupAsyncWith       (34)
+             29 Pop
+
+  5          30 LoadNameAny          (2, stop_exc)
+             31 Raise                (Raise)
+
+  4          32 PopBlock
+             33 EnterFinally
+        >>   34 WithCleanupStart
+             35 GetAwaitable
+             36 LoadConst            (None)
+             37 YieldFrom
+             38 Resume               (3)
+             39 WithCleanupFinish
+             40 PopBlock
+             41 Jump                 (58)
+        >>   42 CopyItem             (1)
+
+  6          43 LoadNameAny          (7, Exception)
+             44 JUMP_IF_NOT_EXC_MATCH(57)
+             45 StoreLocal           (8, ex)
+
+  7          46 LoadNameAny          (3, self)
+             47 LoadMethod           (9, assertIs)
+             48 LoadNameAny          (8, ex)
+             49 LoadNameAny          (2, stop_exc)
+             50 CallMethodPositional (2)
+             51 Pop
+             52 PopException
+             53 LoadConst            (None)
+             54 StoreLocal           (8, ex)
+             55 DeleteLocal          (8, ex)
+             56 Jump                 (66)
+        >>   57 Raise                (Reraise)
+
+  9     >>   58 LoadNameAny          (3, self)
+             59 LoadMethod           (10, fail)
+             60 LoadNameAny          (2, stop_exc)
+             61 FORMAT_SIMPLE
+             62 LoadConst            (" was suppressed")
+             63 BuildString          (2)
+             64 CallMethodPositional (1)
+             65 Pop
+
+  2     >>   66 PopBlock
+             67 EnterFinally
+        >>   68 WithCleanupStart
+             69 WithCleanupFinish
+             70 Jump                 (9)
+        >>   71 PopBlock
+             72 ReturnConst          (None)

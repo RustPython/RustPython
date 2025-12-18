@@ -2889,8 +2889,6 @@ class TestNormalDist:
     # inaccurate.  There isn't much we can do about this short of
     # implementing our own implementations from scratch.
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_slots(self):
         nd = self.module.NormalDist(300, 23)
         with self.assertRaises(TypeError):
