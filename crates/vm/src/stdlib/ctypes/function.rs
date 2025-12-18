@@ -169,30 +169,10 @@ fn conv_param(value: &PyObject, vm: &VirtualMachine) -> PyResult<(Type, FfiArgVa
         return Ok((ffi_type, carg.value.clone()));
     }
 
-    // 4. Python str -> pointer (c_wchar_p semantics on Windows)
+    // 4. Python str -> pointer (use internal UTF-8 buffer)
     if let Some(s) = value.downcast_ref::<PyStr>() {
-        // For oledll (Windows), strings are passed as wide char pointers
-        // The str's internal UTF-8 bytes won't work for LPCWSTR
-        // Need to encode as UTF-16 for Windows
-        #[cfg(windows)]
-        {
-            // Convert to UTF-16 (null-terminated) and return pointer
-            // Note: This is a temporary buffer, caller must keep value alive
-            let wide: Vec<u16> = s
-                .as_str()
-                .encode_utf16()
-                .chain(std::iter::once(0))
-                .collect();
-            let addr = wide.as_ptr() as usize;
-            // FIXME: This leaks memory! Need to store the buffer somewhere
-            std::mem::forget(wide);
-            return Ok((Type::pointer(), FfiArgValue::Pointer(addr)));
-        }
-        #[cfg(not(windows))]
-        {
-            let addr = s.as_str().as_ptr() as usize;
-            return Ok((Type::pointer(), FfiArgValue::Pointer(addr)));
-        }
+        let addr = s.as_str().as_ptr() as usize;
+        return Ok((Type::pointer(), FfiArgValue::Pointer(addr)));
     }
 
     // 9. Python bytes -> pointer to buffer

@@ -360,6 +360,49 @@ pub(super) static CDATA_BUFFER_METHODS: BufferMethods = BufferMethods {
     retain: |_| {},
 };
 
+/// Convert Vec<T> to Vec<u8> by reinterpreting the memory (same allocation).
+fn vec_to_bytes<T>(vec: Vec<T>) -> Vec<u8> {
+    let len = vec.len() * std::mem::size_of::<T>();
+    let cap = vec.capacity() * std::mem::size_of::<T>();
+    let ptr = vec.as_ptr() as *mut u8;
+    std::mem::forget(vec);
+    unsafe { Vec::from_raw_parts(ptr, len, cap) }
+}
+
+/// Ensure PyBytes is null-terminated. Returns (PyBytes to keep, pointer).
+/// If already contains null, returns original. Otherwise creates new with null appended.
+pub(super) fn ensure_z_null_terminated(
+    bytes: &PyBytes,
+    vm: &VirtualMachine,
+) -> (PyObjectRef, usize) {
+    let data = bytes.as_bytes();
+    if data.contains(&0) {
+        // Already has null, use original
+        let original: PyObjectRef = vm.ctx.new_bytes(data.to_vec()).into();
+        (original, data.as_ptr() as usize)
+    } else {
+        // Create new with null appended
+        let mut buffer = data.to_vec();
+        buffer.push(0);
+        let ptr = buffer.as_ptr() as usize;
+        let new_bytes: PyObjectRef = vm.ctx.new_bytes(buffer).into();
+        (new_bytes, ptr)
+    }
+}
+
+/// Convert str to null-terminated wchar_t buffer. Returns (PyBytes holder, pointer).
+pub(super) fn str_to_wchar_bytes(s: &str, vm: &VirtualMachine) -> (PyObjectRef, usize) {
+    let wchars: Vec<libc::wchar_t> = s
+        .chars()
+        .map(|c| c as libc::wchar_t)
+        .chain(std::iter::once(0))
+        .collect();
+    let ptr = wchars.as_ptr() as usize;
+    let bytes = vec_to_bytes(wchars);
+    let holder: PyObjectRef = vm.ctx.new_bytes(bytes).into();
+    (holder, ptr)
+}
+
 /// PyCData - base type for all ctypes data types
 #[pyclass(name = "_CData", module = "_ctypes")]
 #[derive(Debug, PyPayload)]
@@ -894,10 +937,10 @@ impl PyCData {
             .ok()
             .and_then(|attr| attr.downcast_ref::<PyStr>().map(|s| s.to_string()));
 
-        let mut bytes = if let Some(type_code) = &field_type_code {
+        let (mut bytes, converted_value) = if let Some(type_code) = &field_type_code {
             PyCField::value_to_bytes_for_type(type_code, &value, size, vm)?
         } else {
-            PyCField::value_to_bytes(&value, size, vm)?
+            (PyCField::value_to_bytes(&value, size, vm)?, None)
         };
 
         // Swap bytes for opposite endianness
@@ -907,9 +950,9 @@ impl PyCData {
 
         self.write_bytes_at_offset(offset, &bytes);
 
-        // KeepRef
-        if value.downcast_ref::<PyBytes>().is_some() {
-            self.keep_ref(index, value, vm)?;
+        // KeepRef: for z/Z types use converted value, otherwise use original
+        if let Some(converted) = converted_value {
+            self.keep_ref(index, converted, vm)?;
         } else if Self::should_keep_ref(&value) {
             let to_keep = Self::get_kept_objects(&value, vm);
             self.keep_ref(index, to_keep, vm)?;
@@ -1360,13 +1403,14 @@ impl PyCField {
         }
     }
 
-    /// Convert a Python value to bytes with type-specific handling for pointer types
+    /// Convert a Python value to bytes with type-specific handling for pointer types.
+    /// Returns (bytes, optional holder for wchar buffer).
     fn value_to_bytes_for_type(
         type_code: &str,
         value: &PyObject,
         size: usize,
         vm: &VirtualMachine,
-    ) -> PyResult<Vec<u8>> {
+    ) -> PyResult<(Vec<u8>, Option<PyObjectRef>)> {
         match type_code {
             // c_float: always convert to float first (f_set)
             "f" => {
@@ -1381,7 +1425,7 @@ impl PyCField {
                     )));
                 };
                 let val = f as f32;
-                Ok(val.to_ne_bytes().to_vec())
+                Ok((val.to_ne_bytes().to_vec(), None))
             }
             // c_double: always convert to float first (d_set)
             "d" => {
@@ -1395,7 +1439,7 @@ impl PyCField {
                         value.class().name()
                     )));
                 };
-                Ok(f.to_ne_bytes().to_vec())
+                Ok((f.to_ne_bytes().to_vec(), None))
             }
             // c_longdouble: convert to float (treated as f64 in RustPython)
             "g" => {
@@ -1409,18 +1453,17 @@ impl PyCField {
                         value.class().name()
                     )));
                 };
-                Ok(f.to_ne_bytes().to_vec())
+                Ok((f.to_ne_bytes().to_vec(), None))
             }
             "z" => {
-                // c_char_p: store pointer to bytes data
+                // c_char_p: store pointer to null-terminated bytes
                 if let Some(bytes) = value.downcast_ref::<PyBytes>() {
-                    let addr = bytes.as_bytes().as_ptr() as usize;
+                    let (converted, ptr) = ensure_z_null_terminated(bytes, vm);
                     let mut result = vec![0u8; size];
-                    let addr_bytes = addr.to_ne_bytes();
+                    let addr_bytes = ptr.to_ne_bytes();
                     let len = std::cmp::min(addr_bytes.len(), size);
                     result[..len].copy_from_slice(&addr_bytes[..len]);
-                    result.push(0);
-                    return Ok(result);
+                    return Ok((result, Some(converted)));
                 }
                 // Integer address
                 if let Ok(int_val) = value.try_index(vm) {
@@ -1429,32 +1472,23 @@ impl PyCField {
                     let bytes = v.to_ne_bytes();
                     let len = std::cmp::min(bytes.len(), size);
                     result[..len].copy_from_slice(&bytes[..len]);
-                    return Ok(result);
+                    return Ok((result, None));
                 }
                 // None -> NULL pointer
                 if vm.is_none(value) {
-                    return Ok(vec![0u8; size]);
+                    return Ok((vec![0u8; size], None));
                 }
-                PyCField::value_to_bytes(value, size, vm)
+                Ok((PyCField::value_to_bytes(value, size, vm)?, None))
             }
             "Z" => {
-                // c_wchar_p: store pointer to wide string
+                // c_wchar_p: store pointer to null-terminated wchar_t buffer
                 if let Some(s) = value.downcast_ref::<PyStr>() {
-                    // Create wchar_t buffer with null terminator and leak it
-                    let mut wchars: Vec<libc::wchar_t> = s
-                        .as_str()
-                        .chars()
-                        .map(|c| c as libc::wchar_t)
-                        .chain(std::iter::once(0))
-                        .collect();
-                    let ptr = wchars.as_mut_ptr();
-                    std::mem::forget(wchars); // Leak to keep the pointer valid
-                    let addr = ptr as usize;
+                    let (holder, ptr) = str_to_wchar_bytes(s.as_str(), vm);
                     let mut result = vec![0u8; size];
-                    let addr_bytes = addr.to_ne_bytes();
+                    let addr_bytes = ptr.to_ne_bytes();
                     let len = std::cmp::min(addr_bytes.len(), size);
                     result[..len].copy_from_slice(&addr_bytes[..len]);
-                    return Ok(result);
+                    return Ok((result, Some(holder)));
                 }
                 // Integer address
                 if let Ok(int_val) = value.try_index(vm) {
@@ -1463,13 +1497,13 @@ impl PyCField {
                     let bytes = v.to_ne_bytes();
                     let len = std::cmp::min(bytes.len(), size);
                     result[..len].copy_from_slice(&bytes[..len]);
-                    return Ok(result);
+                    return Ok((result, None));
                 }
                 // None -> NULL pointer
                 if vm.is_none(value) {
-                    return Ok(vec![0u8; size]);
+                    return Ok((vec![0u8; size], None));
                 }
-                PyCField::value_to_bytes(value, size, vm)
+                Ok((PyCField::value_to_bytes(value, size, vm)?, None))
             }
             "P" => {
                 // c_void_p: store integer as pointer
@@ -1479,15 +1513,15 @@ impl PyCField {
                     let bytes = v.to_ne_bytes();
                     let len = std::cmp::min(bytes.len(), size);
                     result[..len].copy_from_slice(&bytes[..len]);
-                    return Ok(result);
+                    return Ok((result, None));
                 }
                 // None -> NULL pointer
                 if vm.is_none(value) {
-                    return Ok(vec![0u8; size]);
+                    return Ok((vec![0u8; size], None));
                 }
-                PyCField::value_to_bytes(value, size, vm)
+                Ok((PyCField::value_to_bytes(value, size, vm)?, None))
             }
-            _ => PyCField::value_to_bytes(value, size, vm),
+            _ => Ok((PyCField::value_to_bytes(value, size, vm)?, None)),
         }
     }
 

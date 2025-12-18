@@ -721,12 +721,13 @@ impl PyCArray {
                 }
             }
             Some("z") => {
-                let ptr_val = if value.is(&vm.ctx.none) {
-                    0usize
+                let (ptr_val, converted) = if value.is(&vm.ctx.none) {
+                    (0usize, None)
                 } else if let Some(bytes) = value.downcast_ref::<PyBytes>() {
-                    bytes.as_bytes().as_ptr() as usize
+                    let (c, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
+                    (ptr, Some(c))
                 } else if let Ok(int_val) = value.try_index(vm) {
-                    int_val.as_bigint().to_usize().unwrap_or(0)
+                    (int_val.as_bigint().to_usize().unwrap_or(0), None)
                 } else {
                     return Err(vm.new_type_error(
                         "bytes or integer address expected instead of {}".to_owned(),
@@ -735,27 +736,26 @@ impl PyCArray {
                 if offset + element_size <= buffer.len() {
                     buffer[offset..offset + element_size].copy_from_slice(&ptr_val.to_ne_bytes());
                 }
+                if let Some(c) = converted {
+                    return zelf.0.keep_ref(index, c, vm);
+                }
             }
             Some("Z") => {
-                let ptr_val = if value.is(&vm.ctx.none) {
-                    0usize
+                let (ptr_val, converted) = if value.is(&vm.ctx.none) {
+                    (0usize, None)
                 } else if let Some(s) = value.downcast_ref::<PyStr>() {
-                    let mut wchars: Vec<libc::wchar_t> = s
-                        .as_str()
-                        .chars()
-                        .map(|c| c as libc::wchar_t)
-                        .chain(std::iter::once(0))
-                        .collect();
-                    let ptr = wchars.as_mut_ptr();
-                    std::mem::forget(wchars);
-                    ptr as usize
+                    let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_str(), vm);
+                    (ptr, Some(holder))
                 } else if let Ok(int_val) = value.try_index(vm) {
-                    int_val.as_bigint().to_usize().unwrap_or(0)
+                    (int_val.as_bigint().to_usize().unwrap_or(0), None)
                 } else {
                     return Err(vm.new_type_error("unicode string or integer address expected"));
                 };
                 if offset + element_size <= buffer.len() {
                     buffer[offset..offset + element_size].copy_from_slice(&ptr_val.to_ne_bytes());
+                }
+                if let Some(c) = converted {
+                    return zelf.0.keep_ref(index, c, vm);
                 }
             }
             Some("f") => {
@@ -809,10 +809,8 @@ impl PyCArray {
             }
         }
 
-        // KeepRef for c_char_p/c_wchar_p
-        if matches!(type_code, Some("z") | Some("Z")) && !value.is(&vm.ctx.none) {
-            zelf.0.keep_ref(index, value.to_owned(), vm)?;
-        } else if super::base::PyCData::should_keep_ref(value) {
+        // KeepRef
+        if super::base::PyCData::should_keep_ref(value) {
             let to_keep = super::base::PyCData::get_kept_objects(value, vm);
             zelf.0.keep_ref(index, to_keep, vm)?;
         }

@@ -905,47 +905,20 @@ fn value_to_bytes_endian(
             vec![0; std::mem::size_of::<usize>()]
         }
         "z" => {
-            // c_char_p - pointer to char (stores pointer value from bytes or int)
+            // c_char_p - pointer to char (stores pointer value from int)
+            // PyBytes case is handled in slot_new/set_value with make_z_buffer()
             if let Ok(int_val) = value.try_index(vm) {
                 let v = int_val.as_bigint().to_usize().unwrap_or(0);
                 return to_bytes!(v);
-            }
-            if let Some(bytes) = value.downcast_ref::<PyBytes>() {
-                // z_set: store pointer to bytes data
-                // Unlike CPython's PyBytes which has internal null terminator,
-                // RustPython's PyBytes doesn't. We need to create a null-terminated copy.
-                // TODO: This leaks memory. A proper solution would store the buffer
-                // in _objects using a custom wrapper type, like CPython uses b_objects.
-                // For now, we leak the buffer similar to how ctypes inherently works
-                // with raw pointers that outlive the ctypes object.
-                let mut buffer: Vec<u8> = bytes.as_bytes().to_vec();
-                buffer.push(0); // Add null terminator
-                let ptr = buffer.as_ptr();
-                std::mem::forget(buffer);
-                return to_bytes!(ptr as usize);
             }
             vec![0; std::mem::size_of::<usize>()]
         }
         "Z" => {
-            // c_wchar_p - pointer to wchar_t (stores pointer value from str or int)
+            // c_wchar_p - pointer to wchar_t (stores pointer value from int)
+            // PyStr case is handled in slot_new/set_value with make_wchar_buffer()
             if let Ok(int_val) = value.try_index(vm) {
                 let v = int_val.as_bigint().to_usize().unwrap_or(0);
                 return to_bytes!(v);
-            }
-            if let Some(s) = value.downcast_ref::<PyStr>() {
-                // Z_set: store pointer to wide string data
-                // Create wchar_t buffer with null terminator
-                // TODO: This leaks memory. CPython uses PyCapsule to manage the buffer.
-                // A proper solution would use a similar mechanism in _objects.
-                let wchars: Vec<libc::wchar_t> = s
-                    .as_str()
-                    .chars()
-                    .map(|c| c as libc::wchar_t)
-                    .chain(std::iter::once(0))
-                    .collect();
-                let ptr = wchars.as_ptr();
-                std::mem::forget(wchars);
-                return to_bytes!(ptr as usize);
             }
             vec![0; std::mem::size_of::<usize>()]
         }
@@ -1013,6 +986,25 @@ impl Constructor for PyCSimple {
             .ok_or_else(|| vm.new_type_error("abstract class"))?;
         // Save the initial argument for c_char_p/c_wchar_p _objects
         let init_arg = args.0.into_option();
+
+        // Handle z/Z types with PyBytes/PyStr separately to avoid memory leak
+        if let Some(ref v) = init_arg {
+            if _type_ == "z" {
+                if let Some(bytes) = v.downcast_ref::<PyBytes>() {
+                    let (converted, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
+                    let buffer = ptr.to_ne_bytes().to_vec();
+                    let cdata = PyCData::from_bytes(buffer, Some(converted));
+                    return PyCSimple(cdata).into_ref_with_type(vm, cls).map(Into::into);
+                }
+            } else if _type_ == "Z"
+                && let Some(s) = v.downcast_ref::<PyStr>()
+            {
+                let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_str(), vm);
+                let buffer = ptr.to_ne_bytes().to_vec();
+                let cdata = PyCData::from_bytes(buffer, Some(holder));
+                return PyCSimple(cdata).into_ref_with_type(vm, cls).map(Into::into);
+            }
+        }
 
         let value = if let Some(ref v) = init_arg {
             set_primitive(_type_.as_str(), v, vm)?
@@ -1203,6 +1195,23 @@ impl PyCSimple {
             .get_attr("_type_", vm)
             .map_err(|_| vm.new_type_error("no _type_ attribute"))?;
         let type_code = type_attr.str(vm)?.to_string();
+
+        // Handle z/Z types with PyBytes/PyStr separately to avoid memory leak
+        if type_code == "z" {
+            if let Some(bytes) = value.downcast_ref::<PyBytes>() {
+                let (converted, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
+                *zelf.0.buffer.write() = std::borrow::Cow::Owned(ptr.to_ne_bytes().to_vec());
+                *zelf.0.objects.write() = Some(converted);
+                return Ok(());
+            }
+        } else if type_code == "Z"
+            && let Some(s) = value.downcast_ref::<PyStr>()
+        {
+            let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_str(), vm);
+            *zelf.0.buffer.write() = std::borrow::Cow::Owned(ptr.to_ne_bytes().to_vec());
+            *zelf.0.objects.write() = Some(holder);
+            return Ok(());
+        }
 
         let content = set_primitive(&type_code, &value, vm)?;
 

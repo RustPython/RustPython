@@ -569,7 +569,26 @@ impl PyCPointer {
                 std::ptr::copy_nonoverlapping(src_buffer.as_ptr(), dest_ptr, copy_len);
             }
         } else {
-            Self::write_value_at_address(addr, element_size, &value, type_code.as_deref(), vm)?;
+            // Handle z/Z specially to store converted value
+            if type_code.as_deref() == Some("z")
+                && let Some(bytes) = value.downcast_ref::<PyBytes>()
+            {
+                let (converted, ptr_val) = super::base::ensure_z_null_terminated(bytes, vm);
+                unsafe {
+                    *(addr as *mut usize) = ptr_val;
+                }
+                return zelf.0.keep_ref(index as usize, converted, vm);
+            } else if type_code.as_deref() == Some("Z")
+                && let Some(s) = value.downcast_ref::<PyStr>()
+            {
+                let (holder, ptr_val) = super::base::str_to_wchar_bytes(s.as_str(), vm);
+                unsafe {
+                    *(addr as *mut usize) = ptr_val;
+                }
+                return zelf.0.keep_ref(index as usize, holder, vm);
+            } else {
+                Self::write_value_at_address(addr, element_size, &value, type_code.as_deref(), vm)?;
+            }
         }
 
         // KeepRef: store reference to keep value alive using actual index
@@ -621,41 +640,16 @@ impl PyCPointer {
             let ptr = addr as *mut u8;
 
             // Handle c_char_p (z) and c_wchar_p (Z) - store pointer address
+            // Note: PyBytes/PyStr cases are handled by caller (setitem_by_index)
             match type_code {
-                Some("z") => {
-                    // c_char_p: store pointer to bytes buffer
+                Some("z") | Some("Z") => {
                     let ptr_val = if vm.is_none(value) {
                         0usize
-                    } else if let Some(bytes) = value.downcast_ref::<PyBytes>() {
-                        bytes.as_bytes().as_ptr() as usize
-                    } else if let Ok(int_val) = value.try_index(vm) {
-                        int_val.as_bigint().to_usize().unwrap_or(0)
-                    } else {
-                        return Err(vm.new_type_error("bytes or integer address expected"));
-                    };
-                    *(ptr as *mut usize) = ptr_val;
-                    return Ok(());
-                }
-                Some("Z") => {
-                    // c_wchar_p: store pointer to wchar_t buffer
-                    let ptr_val = if vm.is_none(value) {
-                        0usize
-                    } else if let Some(s) = value.downcast_ref::<PyStr>() {
-                        // Create wchar_t buffer (UTF-32 on macOS/Linux)
-                        let mut wchars: Vec<libc::wchar_t> = s
-                            .as_str()
-                            .chars()
-                            .map(|c| c as libc::wchar_t)
-                            .chain(std::iter::once(0))
-                            .collect();
-                        let ptr = wchars.as_mut_ptr();
-                        std::mem::forget(wchars);
-                        ptr as usize
                     } else if let Ok(int_val) = value.try_index(vm) {
                         int_val.as_bigint().to_usize().unwrap_or(0)
                     } else {
                         return Err(vm.new_type_error(
-                            "unicode string or integer address expected".to_owned(),
+                            "bytes/string or integer address expected".to_owned(),
                         ));
                     };
                     *(ptr as *mut usize) = ptr_val;
