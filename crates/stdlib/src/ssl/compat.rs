@@ -30,10 +30,13 @@ use rustpython_vm::{AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObjec
 use std::io::Read;
 use std::sync::{Arc, Once};
 
-// Import PySSLSocket and helper functions from parent module
-use super::_ssl::{
-    PySSLCertVerificationError, PySSLError, PySSLSocket, create_ssl_eof_error,
-    create_ssl_want_read_error, create_ssl_want_write_error, create_ssl_zero_return_error,
+// Import PySSLSocket from parent module
+use super::_ssl::PySSLSocket;
+
+// Import error types and helper functions from error module
+use super::error::{
+    PySSLCertVerificationError, PySSLError, create_ssl_eof_error, create_ssl_want_read_error,
+    create_ssl_want_write_error, create_ssl_zero_return_error,
 };
 
 // SSL Verification Flags
