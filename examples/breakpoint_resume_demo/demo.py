@@ -13,7 +13,10 @@ user = "alice"
 amount = 120
 items = [f"item_{idx}" for idx in range(3)]
 analysis = {"score": 0.6, "summary": "score=0.6"}
+imhere = "Yusuf, I'm here \n"
 print(f"[run] user={user} amount={amount} items={items} analysis={analysis}")
+print(f"IMHERE:\n{imhere}")
+
 
 # 断点 1：必须是“独立语句”，不能写在赋值/条件表达式里
 # 运行到此处 RustPython 会保存 VM 状态并退出进程
@@ -26,8 +29,9 @@ import rustpython_checkpoint as rpc
 print("[run] phase=after_checkpoint_1")
 processed = [f"{user}:{item}" for item in items]
 total = amount + len(processed)
+imhere += "Zeta, I'm here \n"
 print(f"[run] processed={processed} total={total}")
-
+print(f"IMHERE:\n{imhere}")
 # 断点 2：再次保存状态并退出，下一次继续向下执行
 rpc.checkpoint(CHECKPOINT_PATH)
 
@@ -42,7 +46,9 @@ receipt = {
     "processed": processed,
     "status": "ok",
 }
+imhere += "Johny, I'm here \n"
 print(f"[run] receipt={receipt}")
+print(f"IMHERE:\n{imhere}")
 
 # 清理断点文件，方便下次从头开始
 if os.path.exists(CHECKPOINT_PATH):
