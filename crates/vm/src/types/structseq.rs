@@ -199,7 +199,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             .ok_or_else(|| vm.new_type_error("unexpected payload for __repr__"))?;
 
         let field_names = Self::Data::REQUIRED_FIELD_NAMES;
-        let format_field = |(value, name): (&PyObjectRef, _)| {
+        let format_field = |(value, name): (&PyObject, _)| {
             let s = value.repr(vm)?;
             Ok(format!("{name}={s}"))
         };
@@ -212,6 +212,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
                 } else {
                     let fields: PyResult<Vec<_>> = zelf
                         .iter()
+                        .map(|value| value.as_ref())
                         .zip(field_names.iter().copied())
                         .map(format_field)
                         .collect();

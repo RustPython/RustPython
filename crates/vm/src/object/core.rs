@@ -1102,6 +1102,28 @@ where
     }
 }
 
+impl<T: crate::class::PySubclass> Py<T> {
+    /// Converts `&Py<T>` to `&Py<T::Base>`.
+    #[inline]
+    pub fn to_base(&self) -> &Py<T::Base> {
+        debug_assert!(self.as_object().downcast_ref::<T::Base>().is_some());
+        // SAFETY: T is #[repr(transparent)] over T::Base,
+        // so Py<T> and Py<T::Base> have the same layout.
+        unsafe { &*(self as *const Py<T> as *const Py<T::Base>) }
+    }
+
+    /// Converts `&Py<T>` to `&Py<U>` where U is an ancestor type.
+    #[inline]
+    pub fn upcast_ref<U: PyPayload + StaticType>(&self) -> &Py<U>
+    where
+        T: StaticType,
+    {
+        debug_assert!(T::static_type().is_subtype(U::static_type()));
+        // SAFETY: T is a subtype of U, so Py<T> can be viewed as Py<U>.
+        unsafe { &*(self as *const Py<T> as *const Py<U>) }
+    }
+}
+
 impl<T> Borrow<PyObject> for PyRef<T>
 where
     T: PyPayload,

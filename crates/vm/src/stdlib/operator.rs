@@ -323,7 +323,7 @@ mod _operator {
     ) -> PyResult<bool> {
         let res = match (a, b) {
             (Either::A(a), Either::A(b)) => {
-                if !a.is_ascii() || !b.is_ascii() {
+                if !a.isascii() || !b.isascii() {
                     return Err(vm.new_type_error(
                         "comparing strings with non-ASCII characters is not supported",
                     ));
