@@ -17,6 +17,7 @@ cmpop
 denom
 DICTFLAG
 dictoffset
+distpoint
 elts
 excepthandler
 fileutils
