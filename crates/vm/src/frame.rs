@@ -18,6 +18,7 @@ use crate::{
     types::PyTypeFlags,
     vm::{Context, PyMethod},
 };
+use crate::vm::checkpoint;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use rustpython_common::{boxvec::BoxVec, lock::PyMutex, wtf8::Wtf8Buf};
@@ -456,6 +457,12 @@ impl ExecutingFrame<'_> {
             }
             if !do_extend_arg {
                 arg_state.reset()
+            }
+            if let Some(path) = maybe_checkpoint_request(vm, op, idx as u32) {
+                let source_path = self.code.source_path.as_str();
+                let lasti = self.lasti();
+                checkpoint::save_checkpoint_from_exec(vm, source_path, lasti, self.globals, &path)?;
+                std::process::exit(0);
             }
         }
     }
@@ -2573,6 +2580,27 @@ impl ExecutingFrame<'_> {
         dbg!(self);
         panic!("{msg}")
     }
+}
+
+fn maybe_checkpoint_request(
+    vm: &VirtualMachine,
+    op: bytecode::Instruction,
+    idx: u32,
+) -> Option<String> {
+    let mut request = vm.state.checkpoint_request.lock();
+    let Some(pending) = request.as_ref() else {
+        return None;
+    };
+    if pending.expected_lasti != idx {
+        return None;
+    }
+    let path = pending.path.clone();
+    if op != bytecode::Instruction::Pop {
+        *request = None;
+        return None;
+    }
+    *request = None;
+    Some(path)
 }
 
 impl fmt::Debug for Frame {

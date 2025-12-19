@@ -6,6 +6,7 @@ use crate::{
     frame::FrameRef,
     scope::Scope,
 };
+use crate::AsObject;
 use crate::bytecode;
 use crate::builtins::function::PyFunction;
 use std::fs;
@@ -84,22 +85,39 @@ pub(crate) fn save_checkpoint(vm: &VirtualMachine, path: &str) -> PyResult<()> {
     let resume_lasti = compute_resume_lasti(vm, &frame)?;
 
     let stack = frame.checkpoint_stack(vm)?;
-    let globals = extract_globals(vm, &frame)?;
+    if !stack.is_empty() {
+        return Err(vm.new_value_error(
+            "checkpoint requires an empty value stack".to_owned(),
+        ));
+    }
+    let globals = extract_globals_from_dict(vm, &frame.globals)?;
 
     let snapshot = CheckpointSnapshot {
         source_path: frame.code.source_path.as_str().to_owned(),
         lasti: resume_lasti,
-        stack,
+        stack: Vec::new(),
         globals,
     };
 
-    let payload = snapshot.to_pydict(vm)?;
-    let data = marshal_dumps(vm, payload.into())?;
-
-    fs::write(path, data).map_err(|err| {
-        vm.new_os_error(format!("checkpoint write failed: {err}"))
-    })?;
+    write_snapshot(vm, path, snapshot)?;
     Ok(())
+}
+
+pub(crate) fn save_checkpoint_from_exec(
+    vm: &VirtualMachine,
+    source_path: &str,
+    lasti: u32,
+    globals: &PyDictRef,
+    path: &str,
+) -> PyResult<()> {
+    let globals = extract_globals_from_dict(vm, globals)?;
+    let snapshot = CheckpointSnapshot {
+        source_path: source_path.to_owned(),
+        lasti,
+        stack: Vec::new(),
+        globals,
+    };
+    write_snapshot(vm, path, snapshot)
 }
 
 pub(crate) fn resume_script_from_checkpoint(
@@ -157,6 +175,13 @@ fn load_checkpoint(vm: &VirtualMachine, path: &str) -> PyResult<CheckpointSnapsh
     CheckpointSnapshot::from_pydict(vm, dict)
 }
 
+fn write_snapshot(vm: &VirtualMachine, path: &str, snapshot: CheckpointSnapshot) -> PyResult<()> {
+    let payload = snapshot.to_pydict(vm)?;
+    let data = marshal_dumps(vm, payload.into())?;
+    fs::write(path, data).map_err(|err| vm.new_os_error(format!("checkpoint write failed: {err}")))?;
+    Ok(())
+}
+
 fn compute_resume_lasti(vm: &VirtualMachine, frame: &FrameRef) -> PyResult<u32> {
     let lasti = frame.lasti();
     let next = frame
@@ -193,19 +218,44 @@ fn ensure_supported_frame(vm: &VirtualMachine, frame: &FrameRef) -> PyResult<()>
     Ok(())
 }
 
-fn extract_globals(vm: &VirtualMachine, frame: &FrameRef) -> PyResult<Vec<(String, PyObjectRef)>> {
-    let mut globals = Vec::new();
-    for (key, value) in &frame.globals {
+fn extract_globals_from_dict(
+    vm: &VirtualMachine,
+    dict: &PyDictRef,
+) -> PyResult<Vec<(String, PyObjectRef)>> {
+    let mut globals: Vec<(String, PyObjectRef)> = Vec::new();
+    for (key, value) in dict {
         let key = key
             .downcast_ref::<crate::builtins::PyStr>()
             .ok_or_else(|| vm.new_type_error("checkpoint globals key must be str".to_owned()))?;
         let key_str = key.as_str();
-        if key_str == "__builtins__" {
+        if key_str.starts_with("__") {
+            continue;
+        }
+        if !is_marshaled_value(&value, vm) {
             continue;
         }
         globals.push((key_str.to_owned(), value));
     }
     Ok(globals)
+}
+
+fn is_marshaled_value(obj: &PyObjectRef, vm: &VirtualMachine) -> bool {
+    if vm.is_none(obj) {
+        return true;
+    }
+    obj.fast_isinstance(vm.ctx.types.int_type)
+        || obj.fast_isinstance(vm.ctx.types.bool_type)
+        || obj.fast_isinstance(vm.ctx.types.float_type)
+        || obj.fast_isinstance(vm.ctx.types.complex_type)
+        || obj.fast_isinstance(vm.ctx.types.str_type)
+        || obj.fast_isinstance(vm.ctx.types.bytes_type)
+        || obj.fast_isinstance(vm.ctx.types.bytearray_type)
+        || obj.fast_isinstance(vm.ctx.types.list_type)
+        || obj.fast_isinstance(vm.ctx.types.tuple_type)
+        || obj.fast_isinstance(vm.ctx.types.dict_type)
+        || obj.fast_isinstance(vm.ctx.types.set_type)
+        || obj.fast_isinstance(vm.ctx.types.frozenset_type)
+        || obj.fast_isinstance(vm.ctx.types.ellipsis_type)
 }
 
 fn marshal_dumps(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Vec<u8>> {
