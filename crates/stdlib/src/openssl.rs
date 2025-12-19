@@ -248,8 +248,6 @@ mod _ssl {
     #[pyattr]
     const VERIFY_DEFAULT: u32 = 0;
     #[pyattr]
-    const SSL_ERROR_EOF: u32 = 8; // custom for python
-    #[pyattr]
     const HAS_SNI: bool = true;
     #[pyattr]
     const HAS_ECDH: bool = true;
@@ -3391,15 +3389,8 @@ mod _ssl {
                 Some(io_err) => return io_err.to_pyexception(vm),
                 // When no I/O error and OpenSSL error queue is empty,
                 // this is an EOF in violation of protocol -> SSLEOFError
-                // Need to set args[0] = SSL_ERROR_EOF for suppress_ragged_eofs check
                 None => {
-                    return vm
-                        .new_os_subtype_error(
-                            PySSLEOFError::class(&vm.ctx).to_owned(),
-                            Some(SSL_ERROR_EOF as i32),
-                            "EOF occurred in violation of protocol",
-                        )
-                        .upcast();
+                    return create_ssl_eof_error(vm).upcast();
                 }
             },
             ssl::ErrorCode::SSL => {
@@ -3412,13 +3403,7 @@ mod _ssl {
                         let reason = sys::ERR_GET_REASON(err_code);
                         let lib = sys::ERR_GET_LIB(err_code);
                         if lib == ERR_LIB_SSL && reason == SSL_R_UNEXPECTED_EOF_WHILE_READING {
-                            return vm
-                                .new_os_subtype_error(
-                                    PySSLEOFError::class(&vm.ctx).to_owned(),
-                                    Some(SSL_ERROR_EOF as i32),
-                                    "EOF occurred in violation of protocol",
-                                )
-                                .upcast();
+                            return create_ssl_eof_error(vm).upcast();
                         }
                     }
                     return convert_openssl_error(vm, ssl_err.clone());

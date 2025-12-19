@@ -207,28 +207,6 @@ mod _ssl {
     #[pyattr]
     const OP_ALL: i32 = 0x00000BFB; // Combined "safe" options (reduced for i32, excluding OP_LEGACY_SERVER_CONNECT for OpenSSL 3.0.0+ compatibility)
 
-    // Error types
-    #[pyattr]
-    const SSL_ERROR_NONE: i32 = 0;
-    #[pyattr]
-    const SSL_ERROR_SSL: i32 = 1;
-    #[pyattr]
-    const SSL_ERROR_WANT_READ: i32 = 2;
-    #[pyattr]
-    const SSL_ERROR_WANT_WRITE: i32 = 3;
-    #[pyattr]
-    const SSL_ERROR_WANT_X509_LOOKUP: i32 = 4;
-    #[pyattr]
-    const SSL_ERROR_SYSCALL: i32 = 5;
-    #[pyattr]
-    const SSL_ERROR_ZERO_RETURN: i32 = 6;
-    #[pyattr]
-    const SSL_ERROR_WANT_CONNECT: i32 = 7;
-    #[pyattr]
-    const SSL_ERROR_EOF: i32 = 8;
-    #[pyattr]
-    const SSL_ERROR_INVALID_ERROR_CODE: i32 = 10;
-
     // Alert types (matching _TLSAlertType enum)
     #[pyattr]
     const ALERT_DESCRIPTION_CLOSE_NOTIFY: i32 = 0;
