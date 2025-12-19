@@ -6,6 +6,7 @@
 #[cfg(feature = "rustpython-compiler")]
 mod compile;
 mod context;
+pub(crate) mod checkpoint;
 mod interpreter;
 mod method;
 mod setting;

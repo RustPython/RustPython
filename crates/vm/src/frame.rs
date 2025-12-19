@@ -222,6 +222,47 @@ impl Frame {
         }
         Ok(locals.clone())
     }
+
+    pub(crate) fn checkpoint_stack(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        let state = self.state.lock();
+        if !state.blocks.is_empty() {
+            return Err(vm.new_runtime_error(
+                "checkpoint does not support active block stacks".to_owned(),
+            ));
+        }
+        Ok(state.stack.iter().cloned().collect())
+    }
+
+    pub(crate) fn restore_stack(
+        &self,
+        stack: Vec<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let mut state = self.state.lock();
+        if stack.len() > state.stack.capacity() {
+            return Err(vm.new_runtime_error(
+                "checkpoint stack exceeds frame capacity".to_owned(),
+            ));
+        }
+        state.stack.clear();
+        for value in stack {
+            state.stack.push(value);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn set_lasti(&self, value: u32) {
+        #[cfg(feature = "threading")]
+        {
+            let mut state = self.state.lock();
+            state.lasti = value;
+            self.lasti.store(value, atomic::Ordering::Relaxed);
+        }
+        #[cfg(not(feature = "threading"))]
+        {
+            self.lasti.set(value);
+        }
+    }
 }
 
 impl Py<Frame> {

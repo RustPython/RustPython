@@ -52,6 +52,7 @@ struct CliArgs {
     warning_control: Vec<String>,
     implementation_option: Vec<String>,
     check_hash_based_pycs: CheckHashPycsMode,
+    resume_path: Option<String>,
 
     #[cfg(feature = "flame-it")]
     profile_output: Option<std::ffi::OsString>,
@@ -100,6 +101,7 @@ Options (and corresponding environment variables):
 --help-all: print complete help information and exit
 
 RustPython extensions:
+--resume path : resume execution from a checkpoint file
 
 
 Arguments:
@@ -149,6 +151,9 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
 
             Long("check-hash-based-pycs") => {
                 args.check_hash_based_pycs = parser.value()?.parse()?
+            }
+            Long("resume") => {
+                args.resume_path = Some(parser.value()?.string()?);
             }
 
             // TODO: make these more specific
@@ -326,6 +331,7 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     };
 
     settings.argv = argv;
+    settings.resume_path = args.resume_path;
 
     #[cfg(feature = "flame-it")]
     {

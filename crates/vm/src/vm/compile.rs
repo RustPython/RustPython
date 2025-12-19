@@ -5,6 +5,7 @@ use crate::{
     convert::TryFromObject,
     scope::Scope,
 };
+use crate::vm::checkpoint;
 
 impl VirtualMachine {
     pub fn compile(
@@ -48,6 +49,25 @@ impl VirtualMachine {
         }
 
         self.run_any_file(scope, path)
+    }
+
+    pub fn run_script_resume(&self, scope: Scope, path: &str, checkpoint_path: &str) -> PyResult<()> {
+        if get_importer(path, self)?.is_some() {
+            return Err(self.new_runtime_error(
+                "checkpoint resume does not support importers".to_owned(),
+            ));
+        }
+
+        if !self.state.settings.safe_path {
+            let dir = std::path::Path::new(path)
+                .parent()
+                .unwrap()
+                .to_str()
+                .unwrap();
+            self.insert_sys_path(self.new_pyobj(dir))?;
+        }
+
+        checkpoint::resume_script_from_checkpoint(self, scope, path, checkpoint_path)
     }
 
     // = _PyRun_AnyFileObject

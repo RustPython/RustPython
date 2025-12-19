@@ -11,6 +11,7 @@ pub mod io;
 mod itertools;
 mod marshal;
 mod operator;
+mod rustpython_checkpoint;
 // TODO: maybe make this an extension module, if we ever get those
 // mod re;
 mod sre;
@@ -95,6 +96,7 @@ pub fn get_module_inits() -> StdlibMap {
             "_io" => io::make_module,
             "marshal" => marshal::make_module,
             "_operator" => operator::make_module,
+            "rustpython_checkpoint" => rustpython_checkpoint::make_module,
             "_signal" => signal::make_module,
             "_sre" => sre::make_module,
             "_stat" => stat::make_module,

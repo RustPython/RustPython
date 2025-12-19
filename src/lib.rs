@@ -198,6 +198,11 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     }
 
     let is_repl = matches!(run_mode, RunMode::Repl);
+    if vm.state.settings.resume_path.is_some() && !matches!(run_mode, RunMode::Script(_)) {
+        return Err(vm.new_runtime_error(
+            "--resume can only be used with script execution".to_owned(),
+        ));
+    }
     if !vm.state.settings.quiet
         && (vm.state.settings.verbose > 0 || (is_repl && std::io::stdin().is_terminal()))
     {
@@ -228,7 +233,11 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
         RunMode::Script(script_path) => {
             // pymain_run_file
             debug!("Running script {}", &script_path);
-            vm.run_script(scope.clone(), &script_path)
+            if let Some(resume_path) = vm.state.settings.resume_path.as_deref() {
+                vm.run_script_resume(scope.clone(), &script_path, resume_path)
+            } else {
+                vm.run_script(scope.clone(), &script_path)
+            }
         }
         RunMode::Repl => Ok(()),
     };

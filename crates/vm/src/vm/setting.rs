@@ -38,6 +38,9 @@ pub struct Settings {
     /// sys.argv
     pub argv: Vec<String>,
 
+    /// RustPython checkpoint resume path
+    pub resume_path: Option<String>,
+
     // spell-checker:ignore Xfoo
     /// -Xfoo[=bar]
     pub xoptions: Vec<(String, Option<String>)>,
@@ -158,6 +161,7 @@ impl Default for Settings {
             warnoptions: vec![],
             path_list: vec![],
             argv: vec![],
+            resume_path: None,
             hash_seed: None,
             faulthandler: false,
             buffered_stdio: true,
