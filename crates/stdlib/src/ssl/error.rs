@@ -1,0 +1,117 @@
+// SSL exception types shared between ssl (rustls) and openssl backends
+
+pub(crate) use ssl_error::*;
+
+#[pymodule(sub)]
+pub(crate) mod ssl_error {
+    use crate::vm::{
+        PyPayload, PyRef, PyResult, VirtualMachine,
+        builtins::{PyBaseExceptionRef, PyOSError, PyStrRef},
+        types::Constructor,
+    };
+
+    // Error type constants (needed for create_ssl_want_read_error etc.)
+    pub(crate) const SSL_ERROR_WANT_READ: i32 = 2;
+    pub(crate) const SSL_ERROR_WANT_WRITE: i32 = 3;
+
+    #[pyattr]
+    #[pyexception(name = "SSLError", base = PyOSError)]
+    #[derive(Debug)]
+    #[repr(transparent)]
+    pub struct PySSLError(PyOSError);
+
+    #[pyexception]
+    impl PySSLError {
+        // Returns strerror attribute if available, otherwise str(args)
+        #[pymethod]
+        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            use crate::vm::AsObject;
+            // Try to get strerror attribute first (OSError compatibility)
+            if let Ok(strerror) = exc.as_object().get_attr("strerror", vm)
+                && !vm.is_none(&strerror)
+            {
+                return strerror.str(vm);
+            }
+
+            // Otherwise return str(args)
+            let args = exc.args();
+            if args.len() == 1 {
+                args.as_slice()[0].str(vm)
+            } else {
+                args.as_object().str(vm)
+            }
+        }
+    }
+
+    #[pyattr]
+    #[pyexception(name = "SSLZeroReturnError", base = PySSLError)]
+    #[derive(Debug)]
+    #[repr(transparent)]
+    pub struct PySSLZeroReturnError(PySSLError);
+
+    #[pyexception]
+    impl PySSLZeroReturnError {}
+
+    #[pyattr]
+    #[pyexception(name = "SSLWantReadError", base = PySSLError, impl)]
+    #[derive(Debug)]
+    #[repr(transparent)]
+    pub struct PySSLWantReadError(PySSLError);
+
+    #[pyattr]
+    #[pyexception(name = "SSLWantWriteError", base = PySSLError, impl)]
+    #[derive(Debug)]
+    #[repr(transparent)]
+    pub struct PySSLWantWriteError(PySSLError);
+
+    #[pyattr]
+    #[pyexception(name = "SSLSyscallError", base = PySSLError, impl)]
+    #[derive(Debug)]
+    #[repr(transparent)]
+    pub struct PySSLSyscallError(PySSLError);
+
+    #[pyattr]
+    #[pyexception(name = "SSLEOFError", base = PySSLError, impl)]
+    #[derive(Debug)]
+    #[repr(transparent)]
+    pub struct PySSLEOFError(PySSLError);
+
+    #[pyattr]
+    #[pyexception(name = "SSLCertVerificationError", base = PySSLError, impl)]
+    #[derive(Debug)]
+    #[repr(transparent)]
+    pub struct PySSLCertVerificationError(PySSLError);
+
+    // Helper functions to create SSL exceptions with proper errno attribute
+    pub fn create_ssl_want_read_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
+        vm.new_os_subtype_error(
+            PySSLWantReadError::class(&vm.ctx).to_owned(),
+            Some(SSL_ERROR_WANT_READ),
+            "The operation did not complete (read)",
+        )
+    }
+
+    pub fn create_ssl_want_write_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
+        vm.new_os_subtype_error(
+            PySSLWantWriteError::class(&vm.ctx).to_owned(),
+            Some(SSL_ERROR_WANT_WRITE),
+            "The operation did not complete (write)",
+        )
+    }
+
+    pub fn create_ssl_eof_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
+        vm.new_os_subtype_error(
+            PySSLEOFError::class(&vm.ctx).to_owned(),
+            None,
+            "EOF occurred in violation of protocol",
+        )
+    }
+
+    pub fn create_ssl_zero_return_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
+        vm.new_os_subtype_error(
+            PySSLZeroReturnError::class(&vm.ctx).to_owned(),
+            None,
+            "TLS/SSL connection has been closed (EOF)",
+        )
+    }
+}

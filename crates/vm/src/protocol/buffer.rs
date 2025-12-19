@@ -202,14 +202,18 @@ impl BufferDescriptor {
     #[cfg(debug_assertions)]
     pub fn validate(self) -> Self {
         assert!(self.itemsize != 0);
-        assert!(self.ndim() != 0);
-        let mut shape_product = 1;
-        for (shape, stride, suboffset) in self.dim_desc.iter().cloned() {
-            shape_product *= shape;
-            assert!(suboffset >= 0);
-            assert!(stride != 0);
+        // ndim=0 is valid for scalar types (e.g., ctypes Structure)
+        if self.ndim() == 0 {
+            assert!(self.itemsize == self.len);
+        } else {
+            let mut shape_product = 1;
+            for (shape, stride, suboffset) in self.dim_desc.iter().cloned() {
+                shape_product *= shape;
+                assert!(suboffset >= 0);
+                assert!(stride != 0);
+            }
+            assert!(shape_product * self.itemsize == self.len);
         }
-        assert!(shape_product * self.itemsize == self.len);
         self
     }
 

@@ -165,7 +165,8 @@ pub(crate) mod ssl_cert {
                             format!("{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3])
                         } else if ip.len() == 16 {
                             // IPv6 - format with all zeros visible (not compressed)
-                            let ip_addr = std::net::Ipv6Addr::from(ip[0..16]);
+                            let ip_addr =
+                                std::net::Ipv6Addr::from(<[u8; 16]>::try_from(&ip[0..16]).unwrap());
                             let s = ip_addr.segments();
                             format!(
                                 "{:X}:{:X}:{:X}:{:X}:{:X}:{:X}:{:X}:{:X}",
