@@ -30,3 +30,4 @@ Lib/site-packages/*
 Lib/test/data/*
 !Lib/test/data/README
 
+Cargo.lock
