@@ -114,7 +114,7 @@ impl PyNativeFunction {
         zelf.0.value.doc
     }
 
-    #[pygetset(name = "__self__")]
+    #[pygetset]
     fn __self__(_zelf: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.none()
     }
@@ -181,7 +181,7 @@ impl PyNativeMethod {
         Ok((getattr, (target, name)))
     }
 
-    #[pygetset(name = "__self__")]
+    #[pygetset]
     fn __self__(zelf: PyRef<Self>, _vm: &VirtualMachine) -> Option<PyObjectRef> {
         zelf.func.zelf.clone()
     }
