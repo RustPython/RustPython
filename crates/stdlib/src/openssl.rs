@@ -53,11 +53,10 @@ cfg_if::cfg_if! {
 mod _ssl {
     use super::{bio, probe};
 
-    // Import error types used in this module (others are exposed via pymodule(with(...)))
+    // Import error types and helpers used in this module (others are exposed via pymodule(with(...)))
     use super::ssl_error::{
-        PySSLCertVerificationError as PySslCertVerificationError, PySSLEOFError as PySslEOFError,
-        PySSLError as PySslError, PySSLWantReadError as PySslWantReadError,
-        PySSLWantWriteError as PySslWantWriteError,
+        PySSLCertVerificationError, PySSLError, create_ssl_eof_error, create_ssl_want_read_error,
+        create_ssl_want_write_error,
     };
     use crate::{
         common::lock::{
@@ -723,7 +722,68 @@ mod _ssl {
         _ssl_ptr: *mut sys::SSL,
         _arg: *mut libc::c_void,
     ) {
-        // Intentionally empty to avoid deadlocks
+        if ssl_ptr.is_null() {
+            return;
+        }
+
+        unsafe {
+            // Get SSL socket from SSL_get_app_data (index 0)
+            let ssl_socket_ptr = sys::SSL_get_ex_data(ssl_ptr, 0);
+            if ssl_socket_ptr.is_null() {
+                return;
+            }
+
+            let ssl_socket = &*(ssl_socket_ptr as *const PySslSocket);
+
+            // Get the callback from the context
+            let callback_opt = ssl_socket.ctx.read().msg_callback.lock().clone();
+            let Some(callback) = callback_opt else {
+                return;
+            };
+
+            // Get VM from thread-local storage (set by HandshakeVmGuard in do_handshake)
+            let Some(vm_ptr) = HANDSHAKE_VM.with(|cell| cell.get()) else {
+                // VM not available - this shouldn't happen during handshake
+                return;
+            };
+            let vm = &*vm_ptr;
+
+            // Get SSL socket owner object
+            let ssl_socket_obj = ssl_socket
+                .owner
+                .read()
+                .as_ref()
+                .and_then(|weak| weak.upgrade())
+                .unwrap_or_else(|| vm.ctx.none());
+
+            // Create the message bytes
+            let buf_slice = std::slice::from_raw_parts(buf as *const u8, len);
+            let msg_bytes = vm.ctx.new_bytes(buf_slice.to_vec());
+
+            // Determine direction string
+            let direction_str = if write_p != 0 { "write" } else { "read" };
+
+            // Call the Python callback
+            // Signature: callback(conn, direction, version, content_type, msg_type, data)
+            // For simplicity, we'll pass msg_type as 0 (would need more parsing to get the actual type)
+            match callback.call(
+                (
+                    ssl_socket_obj,
+                    vm.ctx.new_str(direction_str),
+                    vm.ctx.new_int(version),
+                    vm.ctx.new_int(content_type),
+                    vm.ctx.new_int(0), // msg_type - would need parsing
+                    msg_bytes,
+                ),
+                vm,
+            ) {
+                Ok(_) => {}
+                Err(exc) => {
+                    // Log the exception but don't propagate it
+                    vm.run_unraisable(exc, None, vm.ctx.none());
+                }
+            }
+        }
     }
 
     #[pyfunction(name = "RAND_pseudo_bytes")]
@@ -2172,17 +2232,17 @@ mod _ssl {
 
         #[pymethod]
         fn version(&self) -> Option<&'static str> {
-            let v = self.connection.read().ssl().version_str();
+            // Use thread-local SSL pointer during handshake to avoid deadlock
+            let ssl_ptr = get_ssl_ptr_for_context_change(&self.connection);
+            let v = unsafe { ssl::SslRef::from_ptr(ssl_ptr).version_str() };
             if v == "unknown" { None } else { Some(v) }
         }
 
         #[pymethod]
         fn cipher(&self) -> Option<CipherTuple> {
-            self.connection
-                .read()
-                .ssl()
-                .current_cipher()
-                .map(cipher_to_tuple)
+            // Use thread-local SSL pointer during handshake to avoid deadlock
+            let ssl_ptr = get_ssl_ptr_for_context_change(&self.connection);
+            unsafe { ssl::SslRef::from_ptr(ssl_ptr).current_cipher() }.map(cipher_to_tuple)
         }
 
         #[pymethod]
@@ -2195,14 +2255,15 @@ mod _ssl {
         fn shared_ciphers(&self, vm: &VirtualMachine) -> Option<PyListRef> {
             #[cfg(ossl110)]
             {
-                let stream = self.connection.read();
+                // Use thread-local SSL pointer during handshake to avoid deadlock
+                let ssl_ptr = get_ssl_ptr_for_context_change(&self.connection);
                 unsafe {
-                    let server_ciphers = SSL_get_ciphers(stream.ssl().as_ptr());
+                    let server_ciphers = SSL_get_ciphers(ssl_ptr);
                     if server_ciphers.is_null() {
                         return None;
                     }
 
-                    let client_ciphers = SSL_get_client_ciphers(stream.ssl().as_ptr());
+                    let client_ciphers = SSL_get_client_ciphers(ssl_ptr);
                     if client_ciphers.is_null() {
                         return None;
                     }
@@ -2258,12 +2319,13 @@ mod _ssl {
         fn selected_alpn_protocol(&self) -> Option<String> {
             #[cfg(ossl102)]
             {
-                let stream = self.connection.read();
+                // Use thread-local SSL pointer during handshake to avoid deadlock
+                let ssl_ptr = get_ssl_ptr_for_context_change(&self.connection);
                 unsafe {
                     let mut out: *const libc::c_uchar = std::ptr::null();
                     let mut outlen: libc::c_uint = 0;
 
-                    sys::SSL_get0_alpn_selected(stream.ssl().as_ptr(), &mut out, &mut outlen);
+                    sys::SSL_get0_alpn_selected(ssl_ptr, &mut out, &mut outlen);
 
                     if out.is_null() {
                         None
@@ -2389,8 +2451,9 @@ mod _ssl {
         #[cfg(not(osslconf = "OPENSSL_NO_COMP"))]
         #[pymethod]
         fn compression(&self) -> Option<&'static str> {
-            let stream = self.connection.read();
-            let comp_method = unsafe { sys::SSL_get_current_compression(stream.ssl().as_ptr()) };
+            // Use thread-local SSL pointer during handshake to avoid deadlock
+            let ssl_ptr = get_ssl_ptr_for_context_change(&self.connection);
+            let comp_method = unsafe { sys::SSL_get_current_compression(ssl_ptr) };
             if comp_method.is_null() {
                 return None;
             }
@@ -2416,7 +2479,7 @@ mod _ssl {
                 let result = stream.do_handshake().map_err(|e| {
                     let exc = convert_ssl_error(vm, e);
                     // If it's a cert verification error, set verify info
-                    if exc.class().is(PySslCertVerificationError::class(&vm.ctx)) {
+                    if exc.class().is(PySSLCertVerificationError::class(&vm.ctx)) {
                         set_verify_error_info(&exc, ssl_ptr, vm);
                     }
                     exc
@@ -2473,7 +2536,7 @@ mod _ssl {
                 }
                 let exc = convert_ssl_error(vm, err);
                 // If it's a cert verification error, set verify info
-                if exc.class().is(PySslCertVerificationError::class(&vm.ctx)) {
+                if exc.class().is(PySSLCertVerificationError::class(&vm.ctx)) {
                     set_verify_error_info(&exc, ssl_ptr, vm);
                 }
                 // Clean up SNI ex_data before returning error
@@ -2603,8 +2666,9 @@ mod _ssl {
 
         #[pygetset]
         fn session_reused(&self) -> bool {
-            let stream = self.connection.read();
-            unsafe { sys::SSL_session_reused(stream.ssl().as_ptr()) != 0 }
+            // Use thread-local SSL pointer during handshake to avoid deadlock
+            let ssl_ptr = get_ssl_ptr_for_context_change(&self.connection);
+            unsafe { sys::SSL_session_reused(ssl_ptr) != 0 }
         }
 
         #[pymethod]
@@ -3175,7 +3239,7 @@ mod _ssl {
 
     /// Helper function to create SSL error with proper OSError subtype handling
     fn new_ssl_error(vm: &VirtualMachine, msg: impl ToString) -> PyBaseExceptionRef {
-        vm.new_os_subtype_error(PySslError::class(&vm.ctx).to_owned(), None, msg.to_string())
+        vm.new_os_subtype_error(PySSLError::class(&vm.ctx).to_owned(), None, msg.to_string())
             .upcast()
     }
 
@@ -3235,9 +3299,9 @@ mod _ssl {
 
                 // Use SSLCertVerificationError for certificate verification failures
                 let cls = if is_cert_verify_error {
-                    PySslCertVerificationError::class(&vm.ctx).to_owned()
+                    PySSLCertVerificationError::class(&vm.ctx).to_owned()
                 } else {
-                    PySslError::class(&vm.ctx).to_owned()
+                    PySSLError::class(&vm.ctx).to_owned()
                 };
 
                 // Build message
@@ -3278,7 +3342,7 @@ mod _ssl {
                 )
             }
             None => {
-                let cls = PySslError::class(&vm.ctx).to_owned();
+                let cls = PySSLError::class(&vm.ctx).to_owned();
                 vm.new_os_subtype_error(cls, None, "unknown SSL error")
                     .upcast()
             }
@@ -3317,14 +3381,12 @@ mod _ssl {
     ) -> PyBaseExceptionRef {
         let e = e.borrow();
         let (cls, msg) = match e.code() {
-            ssl::ErrorCode::WANT_READ => (
-                PySslWantReadError::class(&vm.ctx).to_owned(),
-                "The operation did not complete (read)",
-            ),
-            ssl::ErrorCode::WANT_WRITE => (
-                PySslWantWriteError::class(&vm.ctx).to_owned(),
-                "The operation did not complete (write)",
-            ),
+            ssl::ErrorCode::WANT_READ => {
+                return create_ssl_want_read_error(vm).upcast();
+            }
+            ssl::ErrorCode::WANT_WRITE => {
+                return create_ssl_want_write_error(vm).upcast();
+            }
             ssl::ErrorCode::SYSCALL => match e.io_error() {
                 Some(io_err) => return io_err.to_pyexception(vm),
                 // When no I/O error and OpenSSL error queue is empty,
@@ -3333,7 +3395,7 @@ mod _ssl {
                 None => {
                     return vm
                         .new_os_subtype_error(
-                            PySslEOFError::class(&vm.ctx).to_owned(),
+                            PySSLEOFError::class(&vm.ctx).to_owned(),
                             Some(SSL_ERROR_EOF as i32),
                             "EOF occurred in violation of protocol",
                         )
@@ -3352,7 +3414,7 @@ mod _ssl {
                         if lib == ERR_LIB_SSL && reason == SSL_R_UNEXPECTED_EOF_WHILE_READING {
                             return vm
                                 .new_os_subtype_error(
-                                    PySslEOFError::class(&vm.ctx).to_owned(),
+                                    PySSLEOFError::class(&vm.ctx).to_owned(),
                                     Some(SSL_ERROR_EOF as i32),
                                     "EOF occurred in violation of protocol",
                                 )
@@ -3362,12 +3424,12 @@ mod _ssl {
                     return convert_openssl_error(vm, ssl_err.clone());
                 }
                 (
-                    PySslError::class(&vm.ctx).to_owned(),
+                    PySSLError::class(&vm.ctx).to_owned(),
                     "A failure in the SSL library occurred",
                 )
             }
             _ => (
-                PySslError::class(&vm.ctx).to_owned(),
+                PySSLError::class(&vm.ctx).to_owned(),
                 "A failure in the SSL library occurred",
             ),
         };
