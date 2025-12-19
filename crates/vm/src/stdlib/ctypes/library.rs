@@ -2,12 +2,12 @@ use crate::VirtualMachine;
 use libloading::Library;
 use rustpython_common::lock::{PyMutex, PyRwLock};
 use std::collections::HashMap;
-use std::ffi::c_void;
+use std::ffi::{OsStr, c_void};
 use std::fmt;
 use std::ptr::null;
 
-pub struct SharedLibrary {
-    pub(crate) lib: PyMutex<Option<Library>>,
+pub(super) struct SharedLibrary {
+    pub(super) lib: PyMutex<Option<Library>>,
 }
 
 impl fmt::Debug for SharedLibrary {
@@ -17,13 +17,13 @@ impl fmt::Debug for SharedLibrary {
 }
 
 impl SharedLibrary {
-    pub fn new(name: &str) -> Result<SharedLibrary, libloading::Error> {
+    fn new(name: impl AsRef<OsStr>) -> Result<SharedLibrary, libloading::Error> {
         Ok(SharedLibrary {
-            lib: PyMutex::new(unsafe { Some(Library::new(name)?) }),
+            lib: PyMutex::new(unsafe { Some(Library::new(name.as_ref())?) }),
         })
     }
 
-    pub fn get_pointer(&self) -> usize {
+    fn get_pointer(&self) -> usize {
         let lib_lock = self.lib.lock();
         if let Some(l) = &*lib_lock {
             l as *const Library as usize
@@ -32,12 +32,12 @@ impl SharedLibrary {
         }
     }
 
-    pub fn is_closed(&self) -> bool {
+    fn is_closed(&self) -> bool {
         let lib_lock = self.lib.lock();
         lib_lock.is_none()
     }
 
-    pub fn close(&self) {
+    fn close(&self) {
         *self.lib.lock() = None;
     }
 }
@@ -48,25 +48,24 @@ impl Drop for SharedLibrary {
     }
 }
 
-pub struct ExternalLibs {
+pub(super) struct ExternalLibs {
     libraries: HashMap<usize, SharedLibrary>,
 }
 
 impl ExternalLibs {
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             libraries: HashMap::new(),
         }
     }
 
-    #[allow(dead_code)]
     pub fn get_lib(&self, key: usize) -> Option<&SharedLibrary> {
         self.libraries.get(&key)
     }
 
     pub fn get_or_insert_lib(
         &mut self,
-        library_path: &str,
+        library_path: impl AsRef<OsStr>,
         _vm: &VirtualMachine,
     ) -> Result<(usize, &SharedLibrary), libloading::Error> {
         let new_lib = SharedLibrary::new(library_path)?;
@@ -83,7 +82,7 @@ impl ExternalLibs {
             }
         };
 
-        Ok((key, self.libraries.get(&key).unwrap()))
+        Ok((key, self.libraries.get(&key).expect("just inserted")))
     }
 
     pub fn drop_lib(&mut self, key: usize) {
@@ -91,10 +90,9 @@ impl ExternalLibs {
     }
 }
 
-rustpython_common::static_cell! {
-    static LIBCACHE: PyRwLock<ExternalLibs>;
-}
-
-pub fn libcache() -> &'static PyRwLock<ExternalLibs> {
+pub(super) fn libcache() -> &'static PyRwLock<ExternalLibs> {
+    rustpython_common::static_cell! {
+        static LIBCACHE: PyRwLock<ExternalLibs>;
+    }
     LIBCACHE.get_or_init(|| PyRwLock::new(ExternalLibs::new()))
 }

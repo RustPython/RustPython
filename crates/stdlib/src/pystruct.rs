@@ -28,7 +28,7 @@ pub(crate) mod _struct {
             // CPython turns str to bytes but we do reversed way here
             // The only performance difference is this transition cost
             let fmt = match_class!(match obj {
-                s @ PyStr => s.is_ascii().then_some(s),
+                s @ PyStr => s.isascii().then_some(s),
                 b @ PyBytes => ascii::AsciiStr::from_ascii(&b)
                     .ok()
                     .map(|s| vm.ctx.new_str(s)),

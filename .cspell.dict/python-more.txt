@@ -148,6 +148,7 @@ nbytes
 ncallbacks
 ndigits
 ndim
+needsfree
 nldecoder
 nlocals
 NOARGS
@@ -168,6 +169,7 @@ pycache
 pycodecs
 pycs
 pyexpat
+PYTHONAPI
 PYTHONBREAKPOINT
 PYTHONDEBUG
 PYTHONDONTWRITEBYTECODE

@@ -1445,8 +1445,8 @@ impl GetAttr for PyType {
 
 #[pyclass]
 impl Py<PyType> {
-    #[pygetset(name = "__mro__")]
-    fn get_mro(&self) -> PyTuple {
+    #[pygetset]
+    fn __mro__(&self) -> PyTuple {
         let elements: Vec<PyObjectRef> = self.mro_map_collect(|x| x.as_object().to_owned());
         PyTuple::new_unchecked(elements.into_boxed_slice())
     }

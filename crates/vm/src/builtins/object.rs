@@ -450,8 +450,8 @@ impl PyBaseObject {
         Ok(())
     }
 
-    #[pygetset(name = "__class__")]
-    fn get_class(obj: PyObjectRef) -> PyTypeRef {
+    #[pygetset]
+    fn __class__(obj: PyObjectRef) -> PyTypeRef {
         obj.class().to_owned()
     }
 
