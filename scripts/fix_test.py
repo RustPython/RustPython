@@ -159,7 +159,11 @@ if __name__ == "__main__":
     if not test_path.exists():
         print(f"Error: File not found: {test_path}")
         sys.exit(1)
-    test_name = test_path.stem
+    # Detect package tests (e.g., test_ctypes/test_random_things.py)
+    if test_path.parent.name.startswith("test_"):
+        test_name = f"{test_path.parent.name}.{test_path.stem}"
+    else:
+        test_name = test_path.stem
     tests = run_test(test_name)
     f = test_path.read_text(encoding="utf-8")
 
