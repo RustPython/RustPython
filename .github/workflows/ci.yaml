@@ -153,13 +153,13 @@ jobs:
           cargo run --manifest-path example_projects/frozen_stdlib/Cargo.toml
         if: runner.os == 'Linux'
 
-      - name: prepare AppleSilicon build
+      - name: prepare Intel MacOS build
         uses: dtolnay/rust-toolchain@stable
         with:
-          target: aarch64-apple-darwin
+          target: x86_64-apple-darwin
         if: runner.os == 'macOS'
-      - name: Check compilation for Apple Silicon
-        run: cargo check --target aarch64-apple-darwin
+      - name: Check compilation for Intel MacOS
+        run: cargo check --target x86_64-apple-darwin
         if: runner.os == 'macOS'
       - name: prepare iOS build
         uses: dtolnay/rust-toolchain@stable
