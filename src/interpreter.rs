@@ -108,7 +108,6 @@ pub fn init_stdlib(vm: &mut VirtualMachine) {
         use rustpython_vm::common::rc::PyRc;
 
         let state = PyRc::get_mut(&mut vm.state).unwrap();
-        let settings = &mut state.settings;
 
         // Collect additional paths to add
         let mut additional_paths = Vec::new();
@@ -127,8 +126,7 @@ pub fn init_stdlib(vm: &mut VirtualMachine) {
         // Add to both path_list (for compatibility) and module_search_paths (for sys.path)
         // Insert at the beginning so stdlib comes before user paths
         for path in additional_paths.into_iter().rev() {
-            settings.path_list.insert(0, path.clone());
-            settings.module_search_paths.insert(0, path);
+            state.config.paths.module_search_paths.insert(0, path);
         }
     }
 }

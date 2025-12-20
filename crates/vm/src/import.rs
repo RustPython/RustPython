@@ -206,7 +206,7 @@ fn remove_importlib_frames_inner(
 // TODO: This function should do nothing on verbose mode.
 // TODO: Fix this function after making PyTraceback.next mutable
 pub fn remove_importlib_frames(vm: &VirtualMachine, exc: &Py<PyBaseException>) {
-    if vm.state.settings.verbose != 0 {
+    if vm.state.config.settings.verbose != 0 {
         return;
     }
 

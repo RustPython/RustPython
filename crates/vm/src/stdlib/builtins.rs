@@ -132,7 +132,7 @@ mod builtins {
 
             let optimize: i32 = args.optimize.map_or(Ok(-1), |v| v.try_to_primitive(vm))?;
             let optimize: u8 = if optimize == -1 {
-                vm.state.settings.optimize
+                vm.state.config.settings.optimize
             } else {
                 optimize
                     .try_into()
@@ -1080,7 +1080,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
 
     builtins::extend_module(vm, module).unwrap();
 
-    let debug_mode: bool = vm.state.settings.optimize == 0;
+    let debug_mode: bool = vm.state.config.settings.optimize == 0;
     // Create dynamic ExceptionGroup with multiple inheritance (BaseExceptionGroup + Exception)
     let exception_group = crate::exception_group::exception_group();
 

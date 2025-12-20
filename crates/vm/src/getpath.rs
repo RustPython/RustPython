@@ -2,71 +2,60 @@
 //!
 //! This module provides path calculation logic but implemented directly in Rust.
 //!
-//! The main entry point is `init_path_config()` which should be called
-//! before interpreter initialization to populate Settings with path info.
+//! The main entry point is `init_path_config()` which computes Paths from Settings.
 
 use std::env;
 use std::path::{Path, PathBuf};
 
 use crate::version;
-use crate::vm::Settings;
+use crate::vm::{Paths, Settings};
 
-/// Initialize path configuration in Settings (like getpath.py)
+/// Compute path configuration from Settings
 ///
 /// This function should be called before interpreter initialization.
-/// It computes executable, base_executable, prefix, and module_search_paths.
-pub fn init_path_config(settings: &mut Settings) {
-    // Skip if already configured
-    if settings.module_search_paths_set {
-        return;
-    }
+/// It returns a Paths struct with all computed path values.
+pub fn init_path_config(settings: &Settings) -> Paths {
+    let mut paths = Paths::default();
 
     // 1. Compute executable path
-    if settings.executable.is_none() {
-        settings.executable = get_executable_path().map(|p| p.to_string_lossy().into_owned());
-    }
+    paths.executable = get_executable_path()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
 
-    let exe_path = settings
-        .executable
-        .as_ref()
-        .map(PathBuf::from)
-        .or_else(get_executable_path);
-
-    // 2. Compute base_executable (for venv support)
-    if settings.base_executable.is_none() {
-        settings.base_executable = compute_base_executable(exe_path.as_deref());
-    }
-
-    // 3. Compute prefix paths (with fallbacks to ensure all values are set)
-    let (prefix, base_prefix) = compute_prefixes(exe_path.as_deref());
-    let default_prefix = || {
-        std::option_env!("RUSTPYTHON_PREFIX")
-            .map(String::from)
-            .unwrap_or_else(|| if cfg!(windows) { "C:" } else { "/usr/local" }.to_owned())
+    let exe_path = if paths.executable.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(&paths.executable))
     };
 
-    if settings.prefix.is_none() {
-        settings.prefix = Some(prefix.clone().unwrap_or_else(default_prefix));
-    }
-    if settings.base_prefix.is_none() {
-        settings.base_prefix = Some(
-            base_prefix
-                .clone()
-                .or_else(|| prefix.clone())
-                .unwrap_or_else(default_prefix),
-        );
-    }
-    if settings.exec_prefix.is_none() {
-        settings.exec_prefix = settings.prefix.clone();
-    }
-    if settings.base_exec_prefix.is_none() {
-        settings.base_exec_prefix = settings.base_prefix.clone();
-    }
+    // 2. Compute base_executable (for venv support)
+    paths.base_executable =
+        compute_base_executable(exe_path.as_deref()).unwrap_or_else(|| paths.executable.clone());
 
-    // 4. Build module_search_paths (use settings.base_prefix which is now guaranteed to be set)
-    settings.module_search_paths =
-        compute_module_search_paths(settings, settings.base_prefix.as_deref());
-    settings.module_search_paths_set = true;
+    // 3. Compute prefix paths
+    let (prefix, base_prefix) = compute_prefixes(exe_path.as_deref());
+    paths.prefix = prefix.unwrap_or_else(default_prefix);
+    paths.base_prefix = base_prefix.unwrap_or_else(|| paths.prefix.clone());
+    paths.exec_prefix = paths.prefix.clone();
+    paths.base_exec_prefix = paths.base_prefix.clone();
+
+    // 4. Build module_search_paths
+    paths.module_search_paths = compute_module_search_paths(settings, &paths.base_prefix);
+
+    paths
+}
+
+/// Get default prefix value
+fn default_prefix() -> String {
+    std::option_env!("RUSTPYTHON_PREFIX")
+        .map(String::from)
+        .unwrap_or_else(|| {
+            if cfg!(windows) {
+                "C:".to_owned()
+            } else {
+                "/usr/local".to_owned()
+            }
+        })
 }
 
 /// Compute base_executable from executable path
@@ -84,10 +73,6 @@ fn compute_base_executable(exe_path: Option<&Path>) -> Option<String> {
         let home_path = PathBuf::from(&venv_home);
         let exe_name = exe_path.file_name()?;
         let base_exe = home_path.join(exe_name);
-        if base_exe.exists() {
-            return Some(base_exe.to_string_lossy().into_owned());
-        }
-        // Fallback: just return the home directory path with exe name
         return Some(base_exe.to_string_lossy().into_owned());
     }
 
@@ -100,10 +85,8 @@ fn compute_prefixes(exe_path: Option<&Path>) -> (Option<String>, Option<String>)
     let Some(exe_path) = exe_path else {
         return (None, None);
     };
-
-    let exe_dir = match exe_path.parent() {
-        Some(d) => d,
-        None => return (None, None),
+    let Some(exe_dir) = exe_path.parent() else {
+        return (None, None);
     };
 
     // Check if we're in a venv
@@ -124,60 +107,19 @@ fn compute_prefixes(exe_path: Option<&Path>) -> (Option<String>, Option<String>)
 }
 
 /// Build the complete module_search_paths (sys.path)
-fn compute_module_search_paths(settings: &Settings, base_prefix: Option<&str>) -> Vec<String> {
+fn compute_module_search_paths(settings: &Settings, base_prefix: &str) -> Vec<String> {
     let mut paths = Vec::new();
 
     // 1. Add paths from path_list (PYTHONPATH/RUSTPYTHONPATH)
     paths.extend(settings.path_list.iter().cloned());
 
     // 2. Add zip stdlib path
-    if let Some(base_prefix) = base_prefix {
-        let platlibdir = "lib";
-        let zip_name = format!("rustpython{}{}", version::MAJOR, version::MINOR);
-        let zip_path = PathBuf::from(base_prefix).join(platlibdir).join(&zip_name);
-        paths.push(zip_path.to_string_lossy().into_owned());
-    }
-
-    paths
-}
-
-/// Get the zip stdlib path to add to sys.path
-///
-/// Returns a path like `/usr/local/lib/rustpython313` or
-/// `/path/to/venv/lib/rustpython313` for virtual environments.
-pub fn get_zip_stdlib_path() -> Option<String> {
-    // ZIP_LANDMARK pattern: {platlibdir}/{impl_name}{VERSION_MAJOR}{VERSION_MINOR}
     let platlibdir = "lib";
     let zip_name = format!("rustpython{}{}", version::MAJOR, version::MINOR);
+    let zip_path = PathBuf::from(base_prefix).join(platlibdir).join(&zip_name);
+    paths.push(zip_path.to_string_lossy().into_owned());
 
-    let base_prefix = get_base_prefix()?;
-    let zip_path = base_prefix.join(platlibdir).join(&zip_name);
-
-    Some(zip_path.to_string_lossy().into_owned())
-}
-
-/// Get the base prefix directory
-///
-/// For installed Python: parent of the bin directory
-/// For venv: the 'home' value from pyvenv.cfg
-fn get_base_prefix() -> Option<PathBuf> {
-    let exe_path = get_executable_path()?;
-    let exe_dir = exe_path.parent()?;
-
-    // Check if we're in a venv by looking for pyvenv.cfg
-    if let Some(venv_home) = get_venv_home(&exe_path) {
-        // venv_home is the directory containing the base Python
-        // Go up one level to get the prefix (e.g., /usr/local from /usr/local/bin)
-        let home_path = PathBuf::from(&venv_home);
-        if let Some(parent) = home_path.parent() {
-            return Some(parent.to_path_buf());
-        }
-        return Some(home_path);
-    }
-
-    // Not in venv: go up from bin/ to get prefix
-    // e.g., /usr/local/bin/rustpython -> /usr/local
-    exe_dir.parent().map(|p| p.to_path_buf())
+    paths
 }
 
 /// Get the current executable path
@@ -230,8 +172,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_zip_stdlib_path_format() {
-        // Just verify it returns something and doesn't panic
-        let _path = get_zip_stdlib_path();
+    fn test_init_path_config() {
+        let settings = Settings::default();
+        let paths = init_path_config(&settings);
+        // Just verify it doesn't panic and returns valid paths
+        assert!(!paths.prefix.is_empty());
     }
 }

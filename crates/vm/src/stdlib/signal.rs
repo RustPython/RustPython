@@ -114,7 +114,7 @@ pub(crate) mod _signal {
         module: &Py<crate::builtins::PyModule>,
         vm: &VirtualMachine,
     ) {
-        if vm.state.settings.install_signal_handlers {
+        if vm.state.config.settings.install_signal_handlers {
             let sig_dfl = vm.new_pyobj(SIG_DFL as u8);
             let sig_ign = vm.new_pyobj(SIG_IGN as u8);
 

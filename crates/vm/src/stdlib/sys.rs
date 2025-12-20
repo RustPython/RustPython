@@ -95,36 +95,20 @@ mod sys {
     const DLLHANDLE: usize = 0;
 
     #[pyattr]
-    fn prefix(vm: &VirtualMachine) -> PyObjectRef {
-        // Copy from Settings (computed by init_path_config)
-        match &vm.state.settings.prefix {
-            Some(p) => vm.ctx.new_str(p.clone()).into(),
-            None => vm.ctx.new_str(ascii!("")).into(),
-        }
+    fn prefix(vm: &VirtualMachine) -> String {
+        vm.state.config.paths.prefix.clone()
     }
     #[pyattr]
-    fn base_prefix(vm: &VirtualMachine) -> PyObjectRef {
-        // Copy from Settings (computed by init_path_config)
-        match &vm.state.settings.base_prefix {
-            Some(p) => vm.ctx.new_str(p.clone()).into(),
-            None => vm.ctx.new_str(ascii!("")).into(),
-        }
+    fn base_prefix(vm: &VirtualMachine) -> String {
+        vm.state.config.paths.base_prefix.clone()
     }
     #[pyattr]
-    fn exec_prefix(vm: &VirtualMachine) -> PyObjectRef {
-        // Copy from Settings (computed by init_path_config)
-        match &vm.state.settings.exec_prefix {
-            Some(p) => vm.ctx.new_str(p.clone()).into(),
-            None => vm.ctx.new_str(ascii!("")).into(),
-        }
+    fn exec_prefix(vm: &VirtualMachine) -> String {
+        vm.state.config.paths.exec_prefix.clone()
     }
     #[pyattr]
-    fn base_exec_prefix(vm: &VirtualMachine) -> PyObjectRef {
-        // Copy from Settings (computed by init_path_config)
-        match &vm.state.settings.base_exec_prefix {
-            Some(p) => vm.ctx.new_str(p.clone()).into(),
-            None => vm.ctx.new_str(ascii!("")).into(),
-        }
+    fn base_exec_prefix(vm: &VirtualMachine) -> String {
+        vm.state.config.paths.base_exec_prefix.clone()
     }
     #[pyattr]
     fn platlibdir(_vm: &VirtualMachine) -> &'static str {
@@ -136,6 +120,7 @@ mod sys {
     #[pyattr]
     fn argv(vm: &VirtualMachine) -> Vec<PyObjectRef> {
         vm.state
+            .config
             .settings
             .argv
             .iter()
@@ -172,26 +157,18 @@ mod sys {
     }
 
     #[pyattr]
-    fn _base_executable(vm: &VirtualMachine) -> PyObjectRef {
-        // Use pre-computed base_executable from Settings (set by init_path_config)
-        match &vm.state.settings.base_executable {
-            Some(path) => vm.ctx.new_str(path.clone()).into(),
-            None => executable(vm),
-        }
+    fn _base_executable(vm: &VirtualMachine) -> String {
+        vm.state.config.paths.base_executable.clone()
     }
 
     #[pyattr]
     fn dont_write_bytecode(vm: &VirtualMachine) -> bool {
-        !vm.state.settings.write_bytecode
+        !vm.state.config.settings.write_bytecode
     }
 
     #[pyattr]
-    fn executable(vm: &VirtualMachine) -> PyObjectRef {
-        // Use pre-computed executable from Settings (set by init_path_config)
-        match &vm.state.settings.executable {
-            Some(path) => vm.ctx.new_str(path.clone()).into(),
-            None => vm.ctx.new_str(ascii!("")).into(),
-        }
+    fn executable(vm: &VirtualMachine) -> String {
+        vm.state.config.paths.executable.clone()
     }
 
     #[pyattr]
@@ -230,9 +207,9 @@ mod sys {
 
     #[pyattr]
     fn path(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        // Use pre-computed module_search_paths from Settings (set by init_path_config)
         vm.state
-            .settings
+            .config
+            .paths
             .module_search_paths
             .iter()
             .map(|path| vm.ctx.new_str(path.clone()).into())
@@ -270,7 +247,7 @@ mod sys {
     fn _xoptions(vm: &VirtualMachine) -> PyDictRef {
         let ctx = &vm.ctx;
         let xopts = ctx.new_dict();
-        for (key, value) in &vm.state.settings.xoptions {
+        for (key, value) in &vm.state.config.settings.xoptions {
             let value = value.as_ref().map_or_else(
                 || ctx.new_bool(true).into(),
                 |s| ctx.new_str(s.clone()).into(),
@@ -283,6 +260,7 @@ mod sys {
     #[pyattr]
     fn warnoptions(vm: &VirtualMachine) -> Vec<PyObjectRef> {
         vm.state
+            .config
             .settings
             .warnoptions
             .iter()
@@ -427,7 +405,7 @@ mod sys {
 
     #[pyattr]
     fn flags(vm: &VirtualMachine) -> PyTupleRef {
-        PyFlags::from_data(FlagsData::from_settings(&vm.state.settings), vm)
+        PyFlags::from_data(FlagsData::from_settings(&vm.state.config.settings), vm)
     }
 
     #[pyattr]
