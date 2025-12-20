@@ -1397,8 +1397,21 @@ pub(super) fn ssl_read(
             return Ok(n);
         }
 
-        // No plaintext available and cannot read more TLS records
+        // No plaintext available and rustls doesn't want to read more TLS records
         if !needs_more_tls {
+            // Check if connection needs to write data first (e.g., TLS key update, renegotiation)
+            // This mirrors the handshake logic which checks both wants_read() and wants_write()
+            if conn.wants_write() && !is_bio {
+                // Flush pending TLS data before continuing
+                let tls_data = ssl_write_tls_records(conn)?;
+                if !tls_data.is_empty() {
+                    socket.sock_send(tls_data, vm).map_err(SslError::Py)?;
+                }
+                // After flushing, rustls may want to read again - continue loop
+                continue;
+            }
+
+            // BIO mode: check for EOF
             if is_bio && let Some(bio_obj) = socket.incoming_bio() {
                 let is_eof = bio_obj
                     .get_attr("eof", vm)
