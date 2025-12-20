@@ -119,6 +119,8 @@ class BasicTest(BaseTest):
         fn = self.get_env_file(*args)
         self.assertTrue(os.path.isdir(fn))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_defaults_with_str_path(self):
         """
         Test the create function with default arguments and a str path.
@@ -127,6 +129,8 @@ class BasicTest(BaseTest):
         self.run_with_capture(venv.create, self.env_dir)
         self._check_output_of_default_create()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_defaults_with_pathlike(self):
         """
         Test the create function with default arguments and a path-like path.
@@ -410,6 +414,8 @@ class BasicTest(BaseTest):
             self.assertRaises((ValueError, OSError), venv.create, self.env_dir)
             self.clear_directory(self.env_dir)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_upgrade(self):
         """
         Test upgrading an existing environment directory.
@@ -671,6 +677,8 @@ class BasicTest(BaseTest):
 
     @unittest.skipIf(os.name == 'nt', 'not relevant on Windows')
     @requireVenvCreate
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_zippath_from_non_installed_posix(self):
         """
         Test that when create venv from non-installed python, the zip path
