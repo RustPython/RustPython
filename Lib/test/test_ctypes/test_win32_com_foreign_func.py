@@ -158,6 +158,8 @@ class ForeignFunctionsThatWillCallComMethodsTests(unittest.TestCase):
 
         self.assertEqual(0, ppst.Release())
 
+    # TODO: RUSTPYTHON - COM iid parameter handling not implemented
+    @unittest.expectedFailure
     def test_with_paramflags_and_iid(self):
         class IUnknown(c_void_p):
             QueryInterface = proto_query_interface(None, IID_IUnknown)

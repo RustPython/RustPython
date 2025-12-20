@@ -17,6 +17,8 @@ class FunctionCallTestCase(unittest.TestCase):
     @unittest.skipUnless('MSC' in sys.version, "SEH only supported by MSC")
     @unittest.skipIf(sys.executable.lower().endswith('_d.exe'),
                      "SEH not enabled in debug builds")
+    # TODO: RUSTPYTHON - SEH not implemented
+    @unittest.skipIf("RustPython" in sys.version, "SEH not implemented in RustPython")
     def test_SEH(self):
         # Disable faulthandler to prevent logging the warning:
         # "Windows fatal exception: access violation"

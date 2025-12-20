@@ -939,7 +939,6 @@ class UtimeTests(unittest.TestCase):
                 return buf.value
         # return None if the filesystem is unknown
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; (ModuleNotFoundError: No module named '_ctypes')")
     def test_large_time(self):
         # Many filesystems are limited to the year 2038. At least, the test
         # pass with NTFS filesystem.
@@ -2712,12 +2711,10 @@ class Win32KillTests(unittest.TestCase):
         os.kill(proc.pid, sig)
         self.assertEqual(proc.wait(), sig)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; (ModuleNotFoundError: No module named '_ctypes')")
     def test_kill_sigterm(self):
         # SIGTERM doesn't mean anything special, but make sure it works
         self._kill(signal.SIGTERM)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; (ModuleNotFoundError: No module named '_ctypes')")
     def test_kill_int(self):
         # os.kill on Windows can take an int which gets set as the exit code
         self._kill(100)

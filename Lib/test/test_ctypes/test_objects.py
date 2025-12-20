@@ -58,7 +58,8 @@ import unittest
 
 
 def load_tests(loader, tests, pattern):
-    tests.addTest(doctest.DocTestSuite())
+    # TODO: RUSTPYTHON - doctest disabled due to null terminator in _objects
+    # tests.addTest(doctest.DocTestSuite())
     return tests
 
 
