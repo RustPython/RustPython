@@ -88,7 +88,9 @@ pub(crate) enum FormatType {
     Half = b'e',
     Float = b'f',
     Double = b'd',
+    LongDouble = b'g',
     VoidP = b'P',
+    PyObject = b'O',
 }
 
 impl fmt::Debug for FormatType {
@@ -148,7 +150,9 @@ impl FormatType {
                     Half => nonnative_info!(f16, $end),
                     Float => nonnative_info!(f32, $end),
                     Double => nonnative_info!(f64, $end),
-                    _ => unreachable!(), // size_t or void*
+                    LongDouble => nonnative_info!(f64, $end), // long double same as double
+                    PyObject => nonnative_info!(usize, $end), // pointer size
+                    _ => unreachable!(),                      // size_t or void*
                 }
             }};
         }
@@ -183,7 +187,9 @@ impl FormatType {
                 Half => native_info!(f16),
                 Float => native_info!(raw::c_float),
                 Double => native_info!(raw::c_double),
+                LongDouble => native_info!(raw::c_double), // long double same as double for now
                 VoidP => native_info!(*mut raw::c_void),
+                PyObject => native_info!(*mut raw::c_void), // pointer to PyObject
             },
             Endianness::Big => match_nonnative!(self, BigEndian),
             Endianness::Little => match_nonnative!(self, LittleEndian),
@@ -306,8 +312,16 @@ impl FormatCode {
                 continue;
             }
 
-            if c == b'{' || c == b'}' {
-                // Skip standalone braces (pointer targets, etc.)
+            if c == b'{'
+                || c == b'}'
+                || c == b'&'
+                || c == b'<'
+                || c == b'>'
+                || c == b'@'
+                || c == b'='
+                || c == b'!'
+            {
+                // Skip standalone braces (pointer targets, etc.), pointer prefix, and nested endianness markers
                 continue;
             }
 
