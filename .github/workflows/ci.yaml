@@ -147,6 +147,11 @@ jobs:
       - name: check compilation without threading
         run: cargo check ${{ env.CARGO_ARGS }}
 
+      - name: Test openssl build
+        run:
+          cargo build --no-default-features --features ssl-openssl
+        if: runner.os == 'Linux'
+
       - name: Test example projects
         run:
           cargo run --manifest-path example_projects/barebone/Cargo.toml
