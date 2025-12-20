@@ -25,7 +25,6 @@ mod sys {
     use std::{
         env::{self, VarError},
         io::Read,
-        path,
         sync::atomic::Ordering,
     };
 
@@ -96,25 +95,36 @@ mod sys {
     const DLLHANDLE: usize = 0;
 
     #[pyattr]
-    const fn default_prefix(_vm: &VirtualMachine) -> &'static str {
-        // TODO: the windows one doesn't really make sense
-        if cfg!(windows) { "C:" } else { "/usr/local" }
+    fn prefix(vm: &VirtualMachine) -> PyObjectRef {
+        // Copy from Settings (computed by init_path_config)
+        match &vm.state.settings.prefix {
+            Some(p) => vm.ctx.new_str(p.clone()).into(),
+            None => vm.ctx.new_str(ascii!("")).into(),
+        }
     }
     #[pyattr]
-    fn prefix(vm: &VirtualMachine) -> &'static str {
-        option_env!("RUSTPYTHON_PREFIX").unwrap_or_else(|| default_prefix(vm))
+    fn base_prefix(vm: &VirtualMachine) -> PyObjectRef {
+        // Copy from Settings (computed by init_path_config)
+        match &vm.state.settings.base_prefix {
+            Some(p) => vm.ctx.new_str(p.clone()).into(),
+            None => vm.ctx.new_str(ascii!("")).into(),
+        }
     }
     #[pyattr]
-    fn base_prefix(vm: &VirtualMachine) -> &'static str {
-        option_env!("RUSTPYTHON_BASEPREFIX").unwrap_or_else(|| prefix(vm))
+    fn exec_prefix(vm: &VirtualMachine) -> PyObjectRef {
+        // Copy from Settings (computed by init_path_config)
+        match &vm.state.settings.exec_prefix {
+            Some(p) => vm.ctx.new_str(p.clone()).into(),
+            None => vm.ctx.new_str(ascii!("")).into(),
+        }
     }
     #[pyattr]
-    fn exec_prefix(vm: &VirtualMachine) -> &'static str {
-        option_env!("RUSTPYTHON_BASEPREFIX").unwrap_or_else(|| prefix(vm))
-    }
-    #[pyattr]
-    fn base_exec_prefix(vm: &VirtualMachine) -> &'static str {
-        option_env!("RUSTPYTHON_BASEPREFIX").unwrap_or_else(|| exec_prefix(vm))
+    fn base_exec_prefix(vm: &VirtualMachine) -> PyObjectRef {
+        // Copy from Settings (computed by init_path_config)
+        match &vm.state.settings.base_exec_prefix {
+            Some(p) => vm.ctx.new_str(p.clone()).into(),
+            None => vm.ctx.new_str(ascii!("")).into(),
+        }
     }
     #[pyattr]
     fn platlibdir(_vm: &VirtualMachine) -> &'static str {
@@ -163,71 +173,11 @@ mod sys {
 
     #[pyattr]
     fn _base_executable(vm: &VirtualMachine) -> PyObjectRef {
-        let ctx = &vm.ctx;
-        // First check __PYVENV_LAUNCHER__ environment variable
-        if let Ok(var) = env::var("__PYVENV_LAUNCHER__") {
-            return ctx.new_str(var).into();
+        // Use pre-computed base_executable from Settings (set by init_path_config)
+        match &vm.state.settings.base_executable {
+            Some(path) => vm.ctx.new_str(path.clone()).into(),
+            None => executable(vm),
         }
-
-        // Try to detect if we're running from a venv by looking for pyvenv.cfg
-        if let Some(base_exe) = get_venv_base_executable() {
-            return ctx.new_str(base_exe).into();
-        }
-
-        executable(vm)
-    }
-
-    /// Try to find base executable from pyvenv.cfg (see getpath.py)
-    fn get_venv_base_executable() -> Option<String> {
-        // TODO: This is a minimal implementation of getpath.py
-        // To fully support all cases, `getpath.py` should be placed in @crates/vm/Lib/python_builtins/
-
-        // Get current executable path
-        #[cfg(not(target_arch = "wasm32"))]
-        let exe_path = {
-            let exec_arg = env::args_os().next()?;
-            which::which(exec_arg).ok()?
-        };
-        #[cfg(target_arch = "wasm32")]
-        let exe_path = {
-            let exec_arg = env::args().next()?;
-            path::PathBuf::from(exec_arg)
-        };
-
-        let exe_dir = exe_path.parent()?;
-        let exe_name = exe_path.file_name()?;
-
-        // Look for pyvenv.cfg in parent directory (typical venv layout: venv/bin/python)
-        let venv_dir = exe_dir.parent()?;
-        let pyvenv_cfg = venv_dir.join("pyvenv.cfg");
-
-        if !pyvenv_cfg.exists() {
-            return None;
-        }
-
-        // Parse pyvenv.cfg and extract home directory
-        let content = std::fs::read_to_string(&pyvenv_cfg).ok()?;
-
-        for line in content.lines() {
-            if let Some((key, value)) = line.split_once('=') {
-                let key = key.trim().to_lowercase();
-                let value = value.trim();
-
-                if key == "home" {
-                    // First try to resolve symlinks (getpath.py line 373-377)
-                    if let Ok(resolved) = std::fs::canonicalize(&exe_path)
-                        && resolved != exe_path
-                    {
-                        return Some(resolved.to_string_lossy().into_owned());
-                    }
-                    // Fallback: home_dir + executable_name (getpath.py line 381)
-                    let base_exe = path::Path::new(value).join(exe_name);
-                    return Some(base_exe.to_string_lossy().into_owned());
-                }
-            }
-        }
-
-        None
     }
 
     #[pyattr]
@@ -237,42 +187,11 @@ mod sys {
 
     #[pyattr]
     fn executable(vm: &VirtualMachine) -> PyObjectRef {
-        let ctx = &vm.ctx;
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            if let Some(exec_path) = env::args_os().next()
-                && let Ok(path) = which::which(exec_path)
-            {
-                return ctx
-                    .new_str(
-                        path.into_os_string()
-                            .into_string()
-                            .unwrap_or_else(|p| p.to_string_lossy().into_owned()),
-                    )
-                    .into();
-            }
+        // Use pre-computed executable from Settings (set by init_path_config)
+        match &vm.state.settings.executable {
+            Some(path) => vm.ctx.new_str(path.clone()).into(),
+            None => vm.ctx.new_str(ascii!("")).into(),
         }
-        if let Some(exec_path) = env::args().next() {
-            let path = path::Path::new(&exec_path);
-            if !path.exists() {
-                return ctx.new_str(ascii!("")).into();
-            }
-            if path.is_absolute() {
-                return ctx.new_str(exec_path).into();
-            }
-            if let Ok(dir) = env::current_dir()
-                && let Ok(dir) = dir.into_os_string().into_string()
-            {
-                return ctx
-                    .new_str(format!(
-                        "{}/{}",
-                        dir,
-                        exec_path.strip_prefix("./").unwrap_or(&exec_path)
-                    ))
-                    .into();
-            }
-        }
-        ctx.none()
     }
 
     #[pyattr]
@@ -311,9 +230,10 @@ mod sys {
 
     #[pyattr]
     fn path(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        // Use pre-computed module_search_paths from Settings (set by init_path_config)
         vm.state
             .settings
-            .path_list
+            .module_search_paths
             .iter()
             .map(|path| vm.ctx.new_str(path.clone()).into())
             .collect()

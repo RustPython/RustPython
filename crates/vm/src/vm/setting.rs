@@ -98,6 +98,24 @@ pub struct Settings {
     /// Environment PYTHONPATH (and RUSTPYTHONPATH)
     pub path_list: Vec<String>,
 
+    // /* --- Path configuration outputs ------------ */
+    /// sys.executable
+    pub executable: Option<String>,
+    /// sys._base_executable (original interpreter in venv)
+    pub base_executable: Option<String>,
+    /// sys.prefix
+    pub prefix: Option<String>,
+    /// sys.base_prefix
+    pub base_prefix: Option<String>,
+    /// sys.exec_prefix
+    pub exec_prefix: Option<String>,
+    /// sys.base_exec_prefix
+    pub base_exec_prefix: Option<String>,
+    /// Computed module_search_paths (complete sys.path)
+    pub module_search_paths: Vec<String>,
+    /// Whether module_search_paths has been set
+    pub module_search_paths_set: bool,
+
     // wchar_t *home;
     // wchar_t *platlibdir;
     /// -d command line switch
@@ -157,6 +175,14 @@ impl Default for Settings {
             warn_default_encoding: false,
             warnoptions: vec![],
             path_list: vec![],
+            executable: None,
+            base_executable: None,
+            prefix: None,
+            base_prefix: None,
+            exec_prefix: None,
+            base_exec_prefix: None,
+            module_search_paths: vec![],
+            module_search_paths_set: false,
             argv: vec![],
             hash_seed: None,
             faulthandler: false,

@@ -48,7 +48,11 @@ impl InterpreterConfig {
         Self::default()
     }
     pub fn interpreter(self) -> Interpreter {
-        let settings = self.settings.unwrap_or_default();
+        let mut settings = self.settings.unwrap_or_default();
+
+        // Initialize path configuration before interpreter creation (like getpath.py)
+        rustpython_vm::getpath::init_path_config(&mut settings);
+
         Interpreter::with_init(settings, |vm| {
             for hook in self.init_hooks {
                 hook(vm);
@@ -106,21 +110,25 @@ pub fn init_stdlib(vm: &mut VirtualMachine) {
         let state = PyRc::get_mut(&mut vm.state).unwrap();
         let settings = &mut state.settings;
 
-        let path_list = std::mem::take(&mut settings.path_list);
+        // Collect additional paths to add
+        let mut additional_paths = Vec::new();
 
         // BUILDTIME_RUSTPYTHONPATH should be set when distributing
         if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
-            settings.path_list.extend(
+            additional_paths.extend(
                 crate::settings::split_paths(paths)
                     .map(|path| path.into_os_string().into_string().unwrap()),
             )
         } else {
             #[cfg(feature = "rustpython-pylib")]
-            settings
-                .path_list
-                .push(rustpython_pylib::LIB_PATH.to_owned())
+            additional_paths.push(rustpython_pylib::LIB_PATH.to_owned())
         }
 
-        settings.path_list.extend(path_list);
+        // Add to both path_list (for compatibility) and module_search_paths (for sys.path)
+        // Insert at the beginning so stdlib comes before user paths
+        for path in additional_paths.into_iter().rev() {
+            settings.path_list.insert(0, path.clone());
+            settings.module_search_paths.insert(0, path);
+        }
     }
 }
