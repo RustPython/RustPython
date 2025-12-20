@@ -241,7 +241,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     #[cfg(feature = "flame-it")]
     {
         main_guard.end();
-        if let Err(e) = write_profile(&vm.state.as_ref().settings) {
+        if let Err(e) = write_profile(&vm.state.as_ref().config.settings) {
             error!("Error writing profile information: {}", e);
         }
     }

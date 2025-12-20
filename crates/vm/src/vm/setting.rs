@@ -22,7 +22,7 @@ pub struct Paths {
 
 /// Combined configuration: user settings + computed paths
 /// CPython directly exposes every fields under both of them.
-/// We separates them to maintain better ownership discipline.
+/// We separate them to maintain better ownership discipline.
 pub struct PyConfig {
     pub settings: Settings,
     pub paths: Paths,

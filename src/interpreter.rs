@@ -48,11 +48,7 @@ impl InterpreterConfig {
         Self::default()
     }
     pub fn interpreter(self) -> Interpreter {
-        let mut settings = self.settings.unwrap_or_default();
-
-        // Initialize path configuration before interpreter creation (like getpath.py)
-        rustpython_vm::getpath::init_path_config(&mut settings);
-
+        let settings = self.settings.unwrap_or_default();
         Interpreter::with_init(settings, |vm| {
             for hook in self.init_hooks {
                 hook(vm);

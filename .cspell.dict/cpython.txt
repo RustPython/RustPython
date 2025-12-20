@@ -42,6 +42,7 @@ numer
 orelse
 pathconfig
 patma
+platstdlib
 posonlyarg
 posonlyargs
 prec
