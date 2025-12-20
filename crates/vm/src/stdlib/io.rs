@@ -2398,7 +2398,9 @@ mod _io {
             *data = None;
 
             let encoding = match args.encoding {
-                None if vm.state.settings.utf8_mode > 0 => identifier_utf8!(vm, utf_8).to_owned(),
+                None if vm.state.config.settings.utf8_mode > 0 => {
+                    identifier_utf8!(vm, utf_8).to_owned()
+                }
                 Some(enc) if enc.as_str() != "locale" => enc,
                 _ => {
                     // None without utf8_mode or "locale" encoding

@@ -38,7 +38,7 @@ impl VirtualMachine {
         }
 
         // TODO: check if this is proper place
-        if !self.state.settings.safe_path {
+        if !self.state.config.settings.safe_path {
             let dir = std::path::Path::new(path)
                 .parent()
                 .unwrap()

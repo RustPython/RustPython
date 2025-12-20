@@ -104,23 +104,25 @@ pub fn init_stdlib(vm: &mut VirtualMachine) {
         use rustpython_vm::common::rc::PyRc;
 
         let state = PyRc::get_mut(&mut vm.state).unwrap();
-        let settings = &mut state.settings;
 
-        let path_list = std::mem::take(&mut settings.path_list);
+        // Collect additional paths to add
+        let mut additional_paths = Vec::new();
 
         // BUILDTIME_RUSTPYTHONPATH should be set when distributing
         if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
-            settings.path_list.extend(
+            additional_paths.extend(
                 crate::settings::split_paths(paths)
                     .map(|path| path.into_os_string().into_string().unwrap()),
             )
         } else {
             #[cfg(feature = "rustpython-pylib")]
-            settings
-                .path_list
-                .push(rustpython_pylib::LIB_PATH.to_owned())
+            additional_paths.push(rustpython_pylib::LIB_PATH.to_owned())
         }
 
-        settings.path_list.extend(path_list);
+        // Add to both path_list (for compatibility) and module_search_paths (for sys.path)
+        // Insert at the beginning so stdlib comes before user paths
+        for path in additional_paths.into_iter().rev() {
+            state.config.paths.module_search_paths.insert(0, path);
+        }
     }
 }

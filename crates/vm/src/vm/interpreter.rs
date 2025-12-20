@@ -1,5 +1,5 @@
-use super::{Context, VirtualMachine, setting::Settings, thread};
-use crate::{PyResult, stdlib::atexit, vm::PyBaseExceptionRef};
+use super::{Context, PyConfig, VirtualMachine, setting::Settings, thread};
+use crate::{PyResult, getpath, stdlib::atexit, vm::PyBaseExceptionRef};
 use std::sync::atomic::Ordering;
 
 /// The general interface for the VM
@@ -47,10 +47,14 @@ impl Interpreter {
     where
         F: FnOnce(&mut VirtualMachine),
     {
+        // Compute path configuration from settings
+        let paths = getpath::init_path_config(&settings);
+        let config = PyConfig::new(settings, paths);
+
         let ctx = Context::genesis();
         crate::types::TypeZoo::extend(ctx);
         crate::exceptions::ExceptionZoo::extend(ctx);
-        let mut vm = VirtualMachine::new(settings, ctx.clone());
+        let mut vm = VirtualMachine::new(config, ctx.clone());
         init(&mut vm);
         vm.initialize();
         Self { vm }

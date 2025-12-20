@@ -1,8 +1,40 @@
 #[cfg(feature = "flame-it")]
 use std::ffi::OsString;
 
-/// Struct containing all kind of settings for the python vm.
-/// Mostly `PyConfig` in CPython.
+/// Path configuration computed at runtime (like PyConfig path outputs)
+#[derive(Debug, Clone, Default)]
+pub struct Paths {
+    /// sys.executable
+    pub executable: String,
+    /// sys._base_executable (original interpreter in venv)
+    pub base_executable: String,
+    /// sys.prefix
+    pub prefix: String,
+    /// sys.base_prefix
+    pub base_prefix: String,
+    /// sys.exec_prefix
+    pub exec_prefix: String,
+    /// sys.base_exec_prefix
+    pub base_exec_prefix: String,
+    /// Computed module_search_paths (complete sys.path)
+    pub module_search_paths: Vec<String>,
+}
+
+/// Combined configuration: user settings + computed paths
+/// CPython directly exposes every fields under both of them.
+/// We separate them to maintain better ownership discipline.
+pub struct PyConfig {
+    pub settings: Settings,
+    pub paths: Paths,
+}
+
+impl PyConfig {
+    pub fn new(settings: Settings, paths: Paths) -> Self {
+        Self { settings, paths }
+    }
+}
+
+/// User-configurable settings for the python vm.
 #[non_exhaustive]
 pub struct Settings {
     /// -I

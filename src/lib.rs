@@ -169,7 +169,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
 
     let scope = setup_main_module(vm)?;
 
-    if !vm.state.settings.safe_path {
+    if !vm.state.config.settings.safe_path {
         // TODO: The prepending path depends on running mode
         // See https://docs.python.org/3/using/cmdline.html#cmdoption-P
         vm.run_code_string(
@@ -189,7 +189,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
 
     // Enable faulthandler if -X faulthandler, PYTHONFAULTHANDLER or -X dev is set
     // _PyFaulthandler_Init()
-    if vm.state.settings.faulthandler {
+    if vm.state.config.settings.faulthandler {
         let _ = vm.run_code_string(
             vm.new_scope_with_builtins(),
             "import faulthandler; faulthandler.enable()",
@@ -198,8 +198,8 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     }
 
     let is_repl = matches!(run_mode, RunMode::Repl);
-    if !vm.state.settings.quiet
-        && (vm.state.settings.verbose > 0 || (is_repl && std::io::stdin().is_terminal()))
+    if !vm.state.config.settings.quiet
+        && (vm.state.config.settings.verbose > 0 || (is_repl && std::io::stdin().is_terminal()))
     {
         eprintln!(
             "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
@@ -232,7 +232,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
         }
         RunMode::Repl => Ok(()),
     };
-    if is_repl || vm.state.settings.inspect {
+    if is_repl || vm.state.config.settings.inspect {
         shell::run_shell(vm, scope)?;
     } else {
         res?;
@@ -241,7 +241,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     #[cfg(feature = "flame-it")]
     {
         main_guard.end();
-        if let Err(e) = write_profile(&vm.state.as_ref().settings) {
+        if let Err(e) = write_profile(&vm.state.as_ref().config.settings) {
             error!("Error writing profile information: {}", e);
         }
     }

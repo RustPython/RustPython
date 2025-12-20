@@ -26,7 +26,7 @@ mod syslog {
     use libc::{LOG_AUTHPRIV, LOG_CRON, LOG_PERROR};
 
     fn get_argv(vm: &VirtualMachine) -> Option<PyStrRef> {
-        if let Some(argv) = vm.state.settings.argv.first()
+        if let Some(argv) = vm.state.config.settings.argv.first()
             && !argv.is_empty()
         {
             return Some(
