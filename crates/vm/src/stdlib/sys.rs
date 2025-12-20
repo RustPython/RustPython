@@ -164,11 +164,70 @@ mod sys {
     #[pyattr]
     fn _base_executable(vm: &VirtualMachine) -> PyObjectRef {
         let ctx = &vm.ctx;
+        // First check __PYVENV_LAUNCHER__ environment variable
         if let Ok(var) = env::var("__PYVENV_LAUNCHER__") {
-            ctx.new_str(var).into()
-        } else {
-            executable(vm)
+            return ctx.new_str(var).into();
         }
+
+        // Try to detect if we're running from a venv by looking for pyvenv.cfg
+        if let Some(base_exe) = get_venv_base_executable() {
+            return ctx.new_str(base_exe).into();
+        }
+
+        executable(vm)
+    }
+
+    /// Try to find base executable from pyvenv.cfg (see getpath.py)
+    fn get_venv_base_executable() -> Option<String> {
+        // TODO: This is a minimal implementation of getpath.py
+        // To fully support all cases, `getpath.py` should be placed in @crates/vm/Lib/python_builtins/
+
+        // Get current executable path
+        #[cfg(not(target_arch = "wasm32"))]
+        let exe_path = {
+            let exec_arg = env::args_os().next()?;
+            which::which(exec_arg).ok()?
+        };
+        #[cfg(target_arch = "wasm32")]
+        let exe_path = {
+            let exec_arg = env::args().next()?;
+            path::PathBuf::from(exec_arg)
+        };
+
+        let exe_dir = exe_path.parent()?;
+        let exe_name = exe_path.file_name()?;
+
+        // Look for pyvenv.cfg in parent directory (typical venv layout: venv/bin/python)
+        let venv_dir = exe_dir.parent()?;
+        let pyvenv_cfg = venv_dir.join("pyvenv.cfg");
+
+        if !pyvenv_cfg.exists() {
+            return None;
+        }
+
+        // Parse pyvenv.cfg and extract home directory
+        let content = std::fs::read_to_string(&pyvenv_cfg).ok()?;
+
+        for line in content.lines() {
+            if let Some((key, value)) = line.split_once('=') {
+                let key = key.trim().to_lowercase();
+                let value = value.trim();
+
+                if key == "home" {
+                    // First try to resolve symlinks (getpath.py line 373-377)
+                    if let Ok(resolved) = std::fs::canonicalize(&exe_path)
+                        && resolved != exe_path
+                    {
+                        return Some(resolved.to_string_lossy().into_owned());
+                    }
+                    // Fallback: home_dir + executable_name (getpath.py line 381)
+                    let base_exe = path::Path::new(value).join(exe_name);
+                    return Some(base_exe.to_string_lossy().into_owned());
+                }
+            }
+        }
+
+        None
     }
 
     #[pyattr]
