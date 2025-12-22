@@ -24,12 +24,13 @@ use ruff_python_ast::{
     Alias, Arguments, BoolOp, CmpOp, Comprehension, ConversionFlag, DebugText, Decorator, DictItem,
     ExceptHandler, ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprContext,
     ExprFString, ExprList, ExprName, ExprSlice, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp,
-    FString, FStringFlags, FStringPart, Identifier, Int, InterpolatedElement,
-    InterpolatedStringElement, InterpolatedStringElements, Keyword, MatchCase, ModExpression,
-    ModModule, Operator, Parameters, Pattern, PatternMatchAs, PatternMatchClass,
-    PatternMatchMapping, PatternMatchOr, PatternMatchSequence, PatternMatchSingleton,
-    PatternMatchStar, PatternMatchValue, Singleton, Stmt, StmtExpr, TypeParam, TypeParamParamSpec,
-    TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams, UnaryOp, WithItem,
+    FString, FStringFlags, FStringPart, Identifier, Int, InterpolatedStringElement,
+    InterpolatedStringElements, Keyword, MatchCase, ModExpression, ModModule, Operator, Parameters,
+    Pattern, PatternMatchAs, PatternMatchClass, PatternMatchMapping, PatternMatchOr,
+    PatternMatchSequence, PatternMatchSingleton, PatternMatchStar, PatternMatchValue, Singleton,
+    Stmt, StmtExpr, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple,
+    TypeParams, UnaryOp, WithItem,
+    visitor::{Visitor, walk_expr},
 };
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_core::{
@@ -5435,134 +5436,35 @@ impl Compiler {
 
     /// Whether the expression contains an await expression and
     /// thus requires the function to be async.
-    /// Async with and async for are statements, so I won't check for them here
+    ///
+    /// Both:
+    /// ```py
+    /// async with: ...
+    /// async for: ...
+    /// ```
+    /// are statements, so we won't check for them here
     fn contains_await(expression: &Expr) -> bool {
-        use ruff_python_ast::*;
-
-        match &expression {
-            Expr::Call(ExprCall {
-                func, arguments, ..
-            }) => {
-                Self::contains_await(func)
-                    || arguments.args.iter().any(Self::contains_await)
-                    || arguments
-                        .keywords
-                        .iter()
-                        .any(|kw| Self::contains_await(&kw.value))
-            }
-            Expr::BoolOp(ExprBoolOp { values, .. }) => values.iter().any(Self::contains_await),
-            Expr::BinOp(ExprBinOp { left, right, .. }) => {
-                Self::contains_await(left) || Self::contains_await(right)
-            }
-            Expr::Subscript(ExprSubscript { value, slice, .. }) => {
-                Self::contains_await(value) || Self::contains_await(slice)
-            }
-            Expr::UnaryOp(ExprUnaryOp { operand, .. }) => Self::contains_await(operand),
-            Expr::Attribute(ExprAttribute { value, .. }) => Self::contains_await(value),
-            Expr::Compare(ExprCompare {
-                left, comparators, ..
-            }) => Self::contains_await(left) || comparators.iter().any(Self::contains_await),
-            Expr::List(ExprList { elts, .. }) => elts.iter().any(Self::contains_await),
-            Expr::Tuple(ExprTuple { elts, .. }) => elts.iter().any(Self::contains_await),
-            Expr::Set(ExprSet { elts, .. }) => elts.iter().any(Self::contains_await),
-            Expr::Dict(ExprDict { items, .. }) => items
-                .iter()
-                .flat_map(|item| &item.key)
-                .any(Self::contains_await),
-            Expr::Slice(ExprSlice {
-                lower, upper, step, ..
-            }) => {
-                lower.as_deref().is_some_and(Self::contains_await)
-                    || upper.as_deref().is_some_and(Self::contains_await)
-                    || step.as_deref().is_some_and(Self::contains_await)
-            }
-            Expr::Yield(ExprYield { value, .. }) => {
-                value.as_deref().is_some_and(Self::contains_await)
-            }
-            Expr::Await(ExprAwait { .. }) => true,
-            Expr::YieldFrom(ExprYieldFrom { value, .. }) => Self::contains_await(value),
-            Expr::Name(ExprName { .. }) => false,
-            Expr::Lambda(ExprLambda { body, .. }) => Self::contains_await(body),
-            Expr::ListComp(ExprListComp {
-                elt, generators, ..
-            }) => {
-                Self::contains_await(elt)
-                    || generators.iter().any(|jen| Self::contains_await(&jen.iter))
-            }
-            Expr::SetComp(ExprSetComp {
-                elt, generators, ..
-            }) => {
-                Self::contains_await(elt)
-                    || generators.iter().any(|jen| Self::contains_await(&jen.iter))
-            }
-            Expr::DictComp(ExprDictComp {
-                key,
-                value,
-                generators,
-                ..
-            }) => {
-                Self::contains_await(key)
-                    || Self::contains_await(value)
-                    || generators.iter().any(|jen| Self::contains_await(&jen.iter))
-            }
-            Expr::Generator(ExprGenerator {
-                elt, generators, ..
-            }) => {
-                Self::contains_await(elt)
-                    || generators.iter().any(|jen| Self::contains_await(&jen.iter))
-            }
-            Expr::Starred(expr) => Self::contains_await(&expr.value),
-            Expr::If(ExprIf {
-                test, body, orelse, ..
-            }) => {
-                Self::contains_await(test)
-                    || Self::contains_await(body)
-                    || Self::contains_await(orelse)
-            }
-
-            Expr::Named(ExprNamed {
-                target,
-                value,
-                node_index: _,
-                range: _,
-            }) => Self::contains_await(target) || Self::contains_await(value),
-            Expr::FString(fstring) => {
-                Self::interpolated_string_contains_await(fstring.value.elements())
-            }
-            Expr::TString(tstring) => {
-                Self::interpolated_string_contains_await(tstring.value.elements())
-            }
-            Expr::StringLiteral(_)
-            | Expr::BytesLiteral(_)
-            | Expr::NumberLiteral(_)
-            | Expr::BooleanLiteral(_)
-            | Expr::NoneLiteral(_)
-            | Expr::EllipsisLiteral(_)
-            | Expr::IpyEscapeCommand(_) => false,
-        }
-    }
-
-    fn interpolated_string_contains_await<'a>(
-        mut elements: impl Iterator<Item = &'a InterpolatedStringElement>,
-    ) -> bool {
-        fn interpolated_element_contains_await<F: Copy + Fn(&Expr) -> bool>(
-            expr_element: &InterpolatedElement,
-            contains_await: F,
-        ) -> bool {
-            contains_await(&expr_element.expression)
-                || expr_element
-                    .format_spec
-                    .iter()
-                    .flat_map(|spec| spec.elements.interpolations())
-                    .any(|element| interpolated_element_contains_await(element, contains_await))
+        #[derive(Default)]
+        struct AwaitVisitor {
+            found: bool,
         }
 
-        elements.any(|element| match element {
-            InterpolatedStringElement::Interpolation(expr_element) => {
-                interpolated_element_contains_await(expr_element, Self::contains_await)
+        impl Visitor<'_> for AwaitVisitor {
+            fn visit_expr(&mut self, expr: &Expr) {
+                if self.found {
+                    return;
+                }
+
+                match expr {
+                    Expr::Await(_) => self.found = true,
+                    _ => walk_expr(self, expr),
+                }
             }
-            InterpolatedStringElement::Literal(_) => false,
-        })
+        }
+
+        let mut visitor = AwaitVisitor::default();
+        visitor.visit_expr(expression);
+        visitor.found
     }
 
     fn compile_expr_fstring(&mut self, fstring: &ExprFString) -> CompileResult<()> {
