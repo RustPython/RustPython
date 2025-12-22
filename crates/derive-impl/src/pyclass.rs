@@ -735,12 +735,7 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
 
     let with_contains = |with_items: &[Ident], s: &str| {
         // Check if Constructor is in the list
-        for ident in with_items {
-            if ident.to_string().as_str() == s {
-                return true;
-            }
-        }
-        false
+        with_items.iter().any(|ident| ident == s)
     };
 
     let syn::ItemImpl {
@@ -768,8 +763,8 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
                 fn py_new(
                     _cls: &::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
                     _args: Self::Args,
-                    _vm: &VirtualMachine
-                ) -> PyResult<Self> {
+                    _vm: &::rustpython_vm::VirtualMachine
+                ) -> ::rustpython_vm::PyResult<Self> {
                     unreachable!("slot_new is defined")
                 }
             }
@@ -792,15 +787,15 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
                     zelf: ::rustpython_vm::PyObjectRef,
                     args: ::rustpython_vm::function::FuncArgs,
                     vm: &::rustpython_vm::VirtualMachine,
-                ) -> PyResult<()> {
+                ) -> ::rustpython_vm::PyResult<()> {
                     <Self as ::rustpython_vm::class::PyClassDef>::Base::slot_init(zelf, args, vm)
                 }
 
                 fn init(
                     _zelf: ::rustpython_vm::PyRef<Self>,
                     _args: Self::Args,
-                    _vm: &VirtualMachine
-                ) -> PyResult<()> {
+                    _vm: &::rustpython_vm::VirtualMachine
+                ) -> ::rustpython_vm::PyResult<()> {
                     unreachable!("slot_init is defined")
                 }
             }

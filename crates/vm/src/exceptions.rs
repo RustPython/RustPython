@@ -2130,9 +2130,9 @@ pub(super) mod types {
     impl Initializer for PyIncompleteInputError {
         type Args = FuncArgs;
 
-        fn slot_init(zelf: PyObjectRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             zelf.set_attr("name", vm.ctx.new_str("SyntaxError"), vm)?;
-            Ok(())
+            PySyntaxError::slot_init(zelf, args, vm)
         }
 
         fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {

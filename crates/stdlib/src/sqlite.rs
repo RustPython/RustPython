@@ -1932,9 +1932,9 @@ mod _sqlite {
     }
 
     impl Initializer for Cursor {
-        type Args = FuncArgs;
+        type Args = PyRef<Connection>;
 
-        fn init(zelf: PyRef<Self>, _connection: FuncArgs, _vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: PyRef<Self>, _connection: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
             let mut guard = zelf.inner.lock();
             if guard.is_some() {
                 // Already initialized (e.g., from a call to super().__init__)

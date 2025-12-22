@@ -39,6 +39,7 @@ pub(crate) mod _ast {
             let zelf = vm.ctx.new_base_object(cls, dict);
 
             // Initialize the instance with the provided arguments
+            // FIXME: This is probably incorrect. Please check if init should be called outside of __new__
             Self::slot_init(zelf.clone(), args, vm)?;
 
             Ok(zelf)

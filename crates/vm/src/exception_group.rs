@@ -242,19 +242,21 @@ pub(super) mod types {
     }
 
     impl Constructor for PyBaseExceptionGroup {
-        type Args = FuncArgs;
+        type Args = crate::function::PosArgs;
 
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let args: Self::Args = args.bind(vm)?;
+            let args = args.into_vec();
             // Validate exactly 2 positional arguments
-            if args.args.len() != 2 {
+            if args.len() != 2 {
                 return Err(vm.new_type_error(format!(
                     "BaseExceptionGroup.__new__() takes exactly 2 positional arguments ({} given)",
-                    args.args.len()
+                    args.len()
                 )));
             }
 
             // Validate message is str
-            let message = args.args[0].clone();
+            let message = args[0].clone();
             if !message.fast_isinstance(vm.ctx.types.str_type) {
                 return Err(vm.new_type_error(format!(
                     "argument 1 must be str, not {}",
@@ -263,7 +265,7 @@ pub(super) mod types {
             }
 
             // Validate exceptions is a sequence (not set or None)
-            let exceptions_arg = &args.args[1];
+            let exceptions_arg = &args[1];
 
             // Check for set/frozenset (not a sequence - unordered)
             if exceptions_arg.fast_isinstance(vm.ctx.types.set_type)
@@ -343,7 +345,7 @@ pub(super) mod types {
                 .map(Into::into)
         }
 
-        fn py_new(_cls: &Py<PyType>, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<Self> {
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             unimplemented!("use slot_new")
         }
     }
