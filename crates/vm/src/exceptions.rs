@@ -1371,17 +1371,18 @@ pub(super) mod types {
     #[repr(transparent)]
     pub struct PyStopIteration(PyException);
 
-    #[pyexception]
-    impl PyStopIteration {
-        #[pyslot]
-        #[pymethod(name = "__init__")]
-        pub(crate) fn slot_init(
-            zelf: PyObjectRef,
-            args: ::rustpython_vm::function::FuncArgs,
-            vm: &::rustpython_vm::VirtualMachine,
-        ) -> ::rustpython_vm::PyResult<()> {
+    #[pyexception(with(Initializer))]
+    impl PyStopIteration {}
+
+    impl Initializer for PyStopIteration {
+        type Args = FuncArgs;
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             zelf.set_attr("value", vm.unwrap_or_none(args.args.first().cloned()), vm)?;
             Ok(())
+        }
+
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
         }
     }
 
@@ -1419,15 +1420,13 @@ pub(super) mod types {
     #[repr(transparent)]
     pub struct PyAttributeError(PyException);
 
-    #[pyexception]
-    impl PyAttributeError {
-        #[pyslot]
-        #[pymethod(name = "__init__")]
-        pub(crate) fn slot_init(
-            zelf: PyObjectRef,
-            args: ::rustpython_vm::function::FuncArgs,
-            vm: &::rustpython_vm::VirtualMachine,
-        ) -> ::rustpython_vm::PyResult<()> {
+    #[pyexception(with(Initializer))]
+    impl PyAttributeError {}
+
+    impl Initializer for PyAttributeError {
+        type Args = FuncArgs;
+
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             zelf.set_attr(
                 "name",
                 vm.unwrap_or_none(args.kwargs.get("name").cloned()),
@@ -1439,6 +1438,10 @@ pub(super) mod types {
                 vm,
             )?;
             Ok(())
+        }
+
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
         }
     }
 
@@ -1457,15 +1460,28 @@ pub(super) mod types {
     #[repr(transparent)]
     pub struct PyImportError(PyException);
 
-    #[pyexception]
+    #[pyexception(with(Initializer))]
     impl PyImportError {
-        #[pyslot]
-        #[pymethod(name = "__init__")]
-        pub(crate) fn slot_init(
-            zelf: PyObjectRef,
-            args: ::rustpython_vm::function::FuncArgs,
-            vm: &::rustpython_vm::VirtualMachine,
-        ) -> ::rustpython_vm::PyResult<()> {
+        #[pymethod]
+        fn __reduce__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
+            let obj = exc.as_object().to_owned();
+            let mut result: Vec<PyObjectRef> = vec![
+                obj.class().to_owned().into(),
+                vm.new_tuple((exc.get_arg(0).unwrap(),)).into(),
+            ];
+
+            if let Some(dict) = obj.dict().filter(|x| !x.is_empty()) {
+                result.push(dict.into());
+            }
+
+            result.into_pytuple(vm)
+        }
+    }
+
+    impl Initializer for PyImportError {
+        type Args = FuncArgs;
+
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             let mut kwargs = args.kwargs.clone();
             let name = kwargs.swap_remove("name");
             let path = kwargs.swap_remove("path");
@@ -1482,19 +1498,9 @@ pub(super) mod types {
             dict.set_item("path", vm.unwrap_or_none(path), vm)?;
             PyBaseException::slot_init(zelf, args, vm)
         }
-        #[pymethod]
-        fn __reduce__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
-            let obj = exc.as_object().to_owned();
-            let mut result: Vec<PyObjectRef> = vec![
-                obj.class().to_owned().into(),
-                vm.new_tuple((exc.get_arg(0).unwrap(),)).into(),
-            ];
 
-            if let Some(dict) = obj.dict().filter(|x| !x.is_empty()) {
-                result.push(dict.into());
-            }
-
-            result.into_pytuple(vm)
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
         }
     }
 
@@ -1660,11 +1666,10 @@ pub(super) mod types {
         }
     }
 
-    #[pyexception(with(Constructor))]
-    impl PyOSError {
-        #[pyslot]
-        #[pymethod(name = "__init__")]
-        pub fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+    impl Initializer for PyOSError {
+        type Args = FuncArgs;
+
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             let len = args.args.len();
             let mut new_args = args;
 
@@ -1718,6 +1723,13 @@ pub(super) mod types {
             PyBaseException::slot_init(zelf, new_args, vm)
         }
 
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
+        }
+    }
+
+    #[pyexception(with(Constructor, Initializer))]
+    impl PyOSError {
         #[pymethod]
         fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
             let obj = exc.as_object().to_owned();
@@ -2011,44 +2023,8 @@ pub(super) mod types {
     #[repr(transparent)]
     pub struct PySyntaxError(PyException);
 
-    #[pyexception]
+    #[pyexception(with(Initializer))]
     impl PySyntaxError {
-        #[pyslot]
-        #[pymethod(name = "__init__")]
-        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            let len = args.args.len();
-            let new_args = args;
-
-            zelf.set_attr("print_file_and_line", vm.ctx.none(), vm)?;
-
-            if len == 2
-                && let Ok(location_tuple) = new_args.args[1]
-                    .clone()
-                    .downcast::<crate::builtins::PyTuple>()
-            {
-                let location_tup_len = location_tuple.len();
-                for (i, &attr) in [
-                    "filename",
-                    "lineno",
-                    "offset",
-                    "text",
-                    "end_lineno",
-                    "end_offset",
-                ]
-                .iter()
-                .enumerate()
-                {
-                    if location_tup_len > i {
-                        zelf.set_attr(attr, location_tuple[i].to_owned(), vm)?;
-                    } else {
-                        break;
-                    }
-                }
-            }
-
-            PyBaseException::slot_init(zelf, new_args, vm)
-        }
-
         #[pymethod]
         fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
             fn basename(filename: &str) -> &str {
@@ -2097,6 +2073,48 @@ pub(super) mod types {
         }
     }
 
+    impl Initializer for PySyntaxError {
+        type Args = FuncArgs;
+
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let len = args.args.len();
+            let new_args = args;
+
+            zelf.set_attr("print_file_and_line", vm.ctx.none(), vm)?;
+
+            if len == 2
+                && let Ok(location_tuple) = new_args.args[1]
+                    .clone()
+                    .downcast::<crate::builtins::PyTuple>()
+            {
+                let location_tup_len = location_tuple.len();
+                for (i, &attr) in [
+                    "filename",
+                    "lineno",
+                    "offset",
+                    "text",
+                    "end_lineno",
+                    "end_offset",
+                ]
+                .iter()
+                .enumerate()
+                {
+                    if location_tup_len > i {
+                        zelf.set_attr(attr, location_tuple[i].to_owned(), vm)?;
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            PyBaseException::slot_init(zelf, new_args, vm)
+        }
+
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
+        }
+    }
+
     #[pyexception(
         name = "_IncompleteInputError",
         base = PySyntaxError,
@@ -2106,17 +2124,19 @@ pub(super) mod types {
     #[repr(transparent)]
     pub struct PyIncompleteInputError(PySyntaxError);
 
-    #[pyexception]
-    impl PyIncompleteInputError {
-        #[pyslot]
-        #[pymethod(name = "__init__")]
-        pub(crate) fn slot_init(
-            zelf: PyObjectRef,
-            _args: FuncArgs,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
+    #[pyexception(with(Initializer))]
+    impl PyIncompleteInputError {}
+
+    impl Initializer for PyIncompleteInputError {
+        type Args = FuncArgs;
+
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             zelf.set_attr("name", vm.ctx.new_str("SyntaxError"), vm)?;
-            Ok(())
+            PySyntaxError::slot_init(zelf, args, vm)
+        }
+
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
         }
     }
 
@@ -2155,26 +2175,8 @@ pub(super) mod types {
     #[repr(transparent)]
     pub struct PyUnicodeDecodeError(PyUnicodeError);
 
-    #[pyexception]
+    #[pyexception(with(Initializer))]
     impl PyUnicodeDecodeError {
-        #[pyslot]
-        #[pymethod(name = "__init__")]
-        pub(crate) fn slot_init(
-            zelf: PyObjectRef,
-            args: FuncArgs,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            type Args = (PyStrRef, ArgBytesLike, isize, isize, PyStrRef);
-            let (encoding, object, start, end, reason): Args = args.bind(vm)?;
-            zelf.set_attr("encoding", encoding, vm)?;
-            let object_as_bytes = vm.ctx.new_bytes(object.borrow_buf().to_vec());
-            zelf.set_attr("object", object_as_bytes, vm)?;
-            zelf.set_attr("start", vm.ctx.new_int(start), vm)?;
-            zelf.set_attr("end", vm.ctx.new_int(end), vm)?;
-            zelf.set_attr("reason", reason, vm)?;
-            Ok(())
-        }
-
         #[pymethod]
         fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<String> {
             let Ok(object) = exc.as_object().get_attr("object", vm) else {
@@ -2202,30 +2204,33 @@ pub(super) mod types {
         }
     }
 
-    #[pyexception(name, base = PyUnicodeError, ctx = "unicode_encode_error")]
-    #[derive(Debug)]
-    #[repr(transparent)]
-    pub struct PyUnicodeEncodeError(PyUnicodeError);
+    impl Initializer for PyUnicodeDecodeError {
+        type Args = FuncArgs;
 
-    #[pyexception]
-    impl PyUnicodeEncodeError {
-        #[pyslot]
-        #[pymethod(name = "__init__")]
-        pub(crate) fn slot_init(
-            zelf: PyObjectRef,
-            args: FuncArgs,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            type Args = (PyStrRef, PyStrRef, isize, isize, PyStrRef);
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            type Args = (PyStrRef, ArgBytesLike, isize, isize, PyStrRef);
             let (encoding, object, start, end, reason): Args = args.bind(vm)?;
             zelf.set_attr("encoding", encoding, vm)?;
-            zelf.set_attr("object", object, vm)?;
+            let object_as_bytes = vm.ctx.new_bytes(object.borrow_buf().to_vec());
+            zelf.set_attr("object", object_as_bytes, vm)?;
             zelf.set_attr("start", vm.ctx.new_int(start), vm)?;
             zelf.set_attr("end", vm.ctx.new_int(end), vm)?;
             zelf.set_attr("reason", reason, vm)?;
             Ok(())
         }
 
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
+        }
+    }
+
+    #[pyexception(name, base = PyUnicodeError, ctx = "unicode_encode_error")]
+    #[derive(Debug)]
+    #[repr(transparent)]
+    pub struct PyUnicodeEncodeError(PyUnicodeError);
+
+    #[pyexception(with(Initializer))]
+    impl PyUnicodeEncodeError {
         #[pymethod]
         fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<String> {
             let Ok(object) = exc.as_object().get_attr("object", vm) else {
@@ -2254,22 +2259,13 @@ pub(super) mod types {
         }
     }
 
-    #[pyexception(name, base = PyUnicodeError, ctx = "unicode_translate_error")]
-    #[derive(Debug)]
-    #[repr(transparent)]
-    pub struct PyUnicodeTranslateError(PyUnicodeError);
+    impl Initializer for PyUnicodeEncodeError {
+        type Args = FuncArgs;
 
-    #[pyexception]
-    impl PyUnicodeTranslateError {
-        #[pyslot]
-        #[pymethod(name = "__init__")]
-        pub(crate) fn slot_init(
-            zelf: PyObjectRef,
-            args: FuncArgs,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            type Args = (PyStrRef, isize, isize, PyStrRef);
-            let (object, start, end, reason): Args = args.bind(vm)?;
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            type Args = (PyStrRef, PyStrRef, isize, isize, PyStrRef);
+            let (encoding, object, start, end, reason): Args = args.bind(vm)?;
+            zelf.set_attr("encoding", encoding, vm)?;
             zelf.set_attr("object", object, vm)?;
             zelf.set_attr("start", vm.ctx.new_int(start), vm)?;
             zelf.set_attr("end", vm.ctx.new_int(end), vm)?;
@@ -2277,6 +2273,18 @@ pub(super) mod types {
             Ok(())
         }
 
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
+        }
+    }
+
+    #[pyexception(name, base = PyUnicodeError, ctx = "unicode_translate_error")]
+    #[derive(Debug)]
+    #[repr(transparent)]
+    pub struct PyUnicodeTranslateError(PyUnicodeError);
+
+    #[pyexception(with(Initializer))]
+    impl PyUnicodeTranslateError {
         #[pymethod]
         fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<String> {
             let Ok(object) = exc.as_object().get_attr("object", vm) else {
@@ -2298,6 +2306,24 @@ pub(super) mod types {
                     end - 1,
                 ))
             }
+        }
+    }
+
+    impl Initializer for PyUnicodeTranslateError {
+        type Args = FuncArgs;
+
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            type Args = (PyStrRef, isize, isize, PyStrRef);
+            let (object, start, end, reason): Args = args.bind(vm)?;
+            zelf.set_attr("object", object, vm)?;
+            zelf.set_attr("start", vm.ctx.new_int(start), vm)?;
+            zelf.set_attr("end", vm.ctx.new_int(end), vm)?;
+            zelf.set_attr("reason", reason, vm)?;
+            Ok(())
+        }
+
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
         }
     }
 

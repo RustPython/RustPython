@@ -63,6 +63,7 @@ impl FromStr for AttrName {
 
 #[derive(Default)]
 struct ImplContext {
+    is_trait: bool,
     attribute_items: ItemNursery,
     method_items: MethodNursery,
     getset_items: GetSetNursery,
@@ -232,7 +233,10 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
             }
         }
         Item::Trait(mut trai) => {
-            let mut context = ImplContext::default();
+            let mut context = ImplContext {
+                is_trait: true,
+                ..Default::default()
+            };
             let mut has_extend_slots = false;
             for item in &trai.items {
                 let has = match item {
@@ -710,21 +714,16 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
     };
 
     // Check if with(Constructor) is specified. If Constructor trait is used, don't generate slot_new
-    let mut has_slot_new = false;
-
     let mut extra_attrs = Vec::new();
+    let mut with_items = vec![];
     for nested in &attr {
         if let NestedMeta::Meta(Meta::List(MetaList { path, nested, .. })) = nested {
             // If we already found the constructor trait, no need to keep looking for it
-            if !has_slot_new && path.is_ident("with") {
-                // Check if Constructor is in the list
+            if path.is_ident("with") {
                 for meta in nested {
-                    if let NestedMeta::Meta(Meta::Path(p)) = meta
-                        && p.is_ident("Constructor")
-                    {
-                        has_slot_new = true;
-                    }
+                    with_items.push(meta.get_ident().expect("with() has non-ident item").clone());
                 }
+                continue;
             }
             extra_attrs.push(NestedMeta::Meta(Meta::List(MetaList {
                 path: path.clone(),
@@ -734,43 +733,40 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
         }
     }
 
-    let mut has_slot_init = false;
+    let with_contains = |with_items: &[Ident], s: &str| {
+        // Check if Constructor is in the list
+        with_items.iter().any(|ident| ident == s)
+    };
+
     let syn::ItemImpl {
         generics,
         self_ty,
         items,
         ..
     } = &imp;
-    for item in items {
-        // FIXME: better detection or correct wrapper implementation
-        let Some(ident) = item.get_ident() else {
-            continue;
-        };
-        let item_name = ident.to_string();
-        match item_name.as_str() {
-            "slot_new" => {
-                has_slot_new = true;
-            }
-            "slot_init" => {
-                has_slot_init = true;
-            }
-            _ => continue,
-        }
-    }
 
-    // TODO: slot_new, slot_init must be Constructor or Initializer later
-
-    let slot_new = if has_slot_new {
+    let slot_new = if with_contains(&with_items, "Constructor") {
         quote!()
     } else {
+        with_items.push(Ident::new("Constructor", Span::call_site()));
         quote! {
-            #[pyslot]
-            pub fn slot_new(
-                cls: ::rustpython_vm::builtins::PyTypeRef,
-                args: ::rustpython_vm::function::FuncArgs,
-                vm: &::rustpython_vm::VirtualMachine,
-            ) -> ::rustpython_vm::PyResult {
-                <Self as ::rustpython_vm::class::PyClassDef>::Base::slot_new(cls, args, vm)
+            impl ::rustpython_vm::types::Constructor for #self_ty {
+                type Args = ::rustpython_vm::function::FuncArgs;
+
+                fn slot_new(
+                    cls: ::rustpython_vm::builtins::PyTypeRef,
+                    args: ::rustpython_vm::function::FuncArgs,
+                    vm: &::rustpython_vm::VirtualMachine,
+                ) -> ::rustpython_vm::PyResult {
+                    <Self as ::rustpython_vm::class::PyClassDef>::Base::slot_new(cls, args, vm)
+                }
+                fn py_new(
+                    _cls: &::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
+                    _args: Self::Args,
+                    _vm: &::rustpython_vm::VirtualMachine
+                ) -> ::rustpython_vm::PyResult<Self> {
+                    unreachable!("slot_new is defined")
+                }
             }
         }
     };
@@ -779,19 +775,29 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
     // from `BaseException` in `SimpleExtendsException` macro.
     // See: `(initproc)BaseException_init`
     // spell-checker:ignore initproc
-    let slot_init = if has_slot_init {
+    let slot_init = if with_contains(&with_items, "Initializer") {
         quote!()
     } else {
-        // FIXME: this is a generic logic for types not only for exceptions
+        with_items.push(Ident::new("Initializer", Span::call_site()));
         quote! {
-            #[pyslot]
-            #[pymethod(name="__init__")]
-            pub fn slot_init(
-                zelf: ::rustpython_vm::PyObjectRef,
-                args: ::rustpython_vm::function::FuncArgs,
-                vm: &::rustpython_vm::VirtualMachine,
-            ) -> ::rustpython_vm::PyResult<()> {
-                <Self as ::rustpython_vm::class::PyClassDef>::Base::slot_init(zelf, args, vm)
+            impl ::rustpython_vm::types::Initializer for #self_ty {
+                type Args = ::rustpython_vm::function::FuncArgs;
+
+                fn slot_init(
+                    zelf: ::rustpython_vm::PyObjectRef,
+                    args: ::rustpython_vm::function::FuncArgs,
+                    vm: &::rustpython_vm::VirtualMachine,
+                ) -> ::rustpython_vm::PyResult<()> {
+                    <Self as ::rustpython_vm::class::PyClassDef>::Base::slot_init(zelf, args, vm)
+                }
+
+                fn init(
+                    _zelf: ::rustpython_vm::PyRef<Self>,
+                    _args: Self::Args,
+                    _vm: &::rustpython_vm::VirtualMachine
+                ) -> ::rustpython_vm::PyResult<()> {
+                    unreachable!("slot_init is defined")
+                }
             }
         }
     };
@@ -803,13 +809,13 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
     };
 
     Ok(quote! {
-        #[pyclass(flags(BASETYPE, HAS_DICT) #extra_attrs_tokens)]
+        #[pyclass(flags(BASETYPE, HAS_DICT), with(#(#with_items),*) #extra_attrs_tokens)]
         impl #generics #self_ty {
             #(#items)*
-
-            #slot_new
-            #slot_init
         }
+
+        #slot_new
+        #slot_init
     })
 }
 
@@ -892,6 +898,23 @@ where
         let item_meta = MethodItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.method_name()?;
+
+        // Disallow __new__ and __init__ as pymethod in impl blocks (not in traits)
+        if !args.context.is_trait {
+            if py_name == "__new__" {
+                return Err(syn::Error::new(
+                    ident.span(),
+                    "#[pymethod] cannot define '__new__'. Use #[pyclass(with(Constructor))] instead.",
+                ));
+            }
+            if py_name == "__init__" {
+                return Err(syn::Error::new(
+                    ident.span(),
+                    "#[pymethod] cannot define '__init__'. Use #[pyclass(with(Initializer))] instead.",
+                ));
+            }
+        }
+
         let raw = item_meta.raw()?;
         let sig_doc = text_signature(func.sig(), &py_name);
 
