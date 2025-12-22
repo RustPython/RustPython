@@ -132,7 +132,7 @@ oid-registry = { version = "0.8", features = ["x509", "pkcs1", "nist_algs"], opt
 pkcs8 = { version = "0.10", features = ["encryption", "pkcs5", "pem"], optional = true }
 
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
-libsqlite3-sys = { version = "0.28", features = ["bundled"], optional = true }
+libsqlite3-sys = { version = "0.36", features = ["bundled"], optional = true }
 lzma-sys = "0.1"
 xz2 = "0.1"
 
