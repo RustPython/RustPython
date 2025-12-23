@@ -157,7 +157,7 @@ impl CompiledCode {
         Ok(unsafe { self.invoke_raw(&cif_args) })
     }
 
-    unsafe fn invoke_raw(&self, cif_args: &[libffi::middle::Arg]) -> Option<AbiValue> {
+    unsafe fn invoke_raw(&self, cif_args: &[libffi::middle::Arg<'_>]) -> Option<AbiValue> {
         unsafe {
             let cif = self.sig.to_cif();
             let value = cif.call::<UnTypedAbiValue>(
@@ -219,7 +219,7 @@ pub enum AbiValue {
 }
 
 impl AbiValue {
-    fn to_libffi_arg(&self) -> libffi::middle::Arg {
+    fn to_libffi_arg(&self) -> libffi::middle::Arg<'_> {
         match self {
             AbiValue::Int(i) => libffi::middle::Arg::new(i),
             AbiValue::Float(f) => libffi::middle::Arg::new(f),
@@ -350,26 +350,25 @@ impl<'a> ArgsBuilder<'a> {
     }
 
     pub fn into_args(self) -> Option<Args<'a>> {
-        self.values
-            .iter()
-            .map(|v| v.as_ref().map(AbiValue::to_libffi_arg))
-            .collect::<Option<_>>()
-            .map(|cif_args| Args {
-                _values: self.values,
-                cif_args,
-                code: self.code,
-            })
+        // Ensure all values are set
+        if self.values.iter().any(|v| v.is_none()) {
+            return None;
+        }
+        Some(Args {
+            values: self.values.into_iter().map(|v| v.unwrap()).collect(),
+            code: self.code,
+        })
     }
 }
 
 pub struct Args<'a> {
-    _values: Vec<Option<AbiValue>>,
-    cif_args: Vec<libffi::middle::Arg>,
+    values: Vec<AbiValue>,
     code: &'a CompiledCode,
 }
 
 impl Args<'_> {
     pub fn invoke(&self) -> Option<AbiValue> {
-        unsafe { self.code.invoke_raw(&self.cif_args) }
+        let cif_args: Vec<_> = self.values.iter().map(AbiValue::to_libffi_arg).collect();
+        unsafe { self.code.invoke_raw(&cif_args) }
     }
 }

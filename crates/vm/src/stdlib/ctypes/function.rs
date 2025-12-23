@@ -1449,7 +1449,7 @@ enum RawResult {
 fn ctypes_callproc(code_ptr: CodePtr, arguments: &[Argument], call_info: &CallInfo) -> RawResult {
     let ffi_arg_types: Vec<Type> = arguments.iter().map(|a| a.ffi_type.clone()).collect();
     let cif = Cif::new(ffi_arg_types, call_info.ffi_return_type.clone());
-    let ffi_args: Vec<Arg> = arguments.iter().map(|a| a.value.as_arg()).collect();
+    let ffi_args: Vec<Arg<'_>> = arguments.iter().map(|a| a.value.as_arg()).collect();
 
     if call_info.restype_is_none {
         unsafe { cif.call::<()>(code_ptr, &ffi_args) };

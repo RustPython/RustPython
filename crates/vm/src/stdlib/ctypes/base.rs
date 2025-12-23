@@ -1821,7 +1821,7 @@ pub enum FfiArgValue {
 
 impl FfiArgValue {
     /// Create an Arg reference to this owned value
-    pub fn as_arg(&self) -> libffi::middle::Arg {
+    pub fn as_arg(&self) -> libffi::middle::Arg<'_> {
         match self {
             FfiArgValue::U8(v) => libffi::middle::Arg::new(v),
             FfiArgValue::I8(v) => libffi::middle::Arg::new(v),

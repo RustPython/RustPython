@@ -1102,7 +1102,7 @@ pub(crate) mod _ctypes {
             return Err(vm.new_value_error("NULL function pointer"));
         }
 
-        let mut ffi_args: Vec<Arg> = Vec::with_capacity(args.len());
+        let mut ffi_args: Vec<Arg<'_>> = Vec::with_capacity(args.len());
         let mut arg_values: Vec<isize> = Vec::with_capacity(args.len());
         let mut arg_types: Vec<Type> = Vec::with_capacity(args.len());
 
