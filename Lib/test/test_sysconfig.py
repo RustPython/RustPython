@@ -598,7 +598,6 @@ class TestSysConfig(unittest.TestCase):
         self.assertTrue(suffix.endswith(f"-{expected_triplet}.so"),
                         f"{machine=}, {suffix=}")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipUnless(sys.platform == 'darwin', 'OS X-specific test')
     def test_osx_ext_suffix(self):
         suffix = sysconfig.get_config_var('EXT_SUFFIX')

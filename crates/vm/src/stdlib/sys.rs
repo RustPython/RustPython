@@ -1,6 +1,8 @@
 use crate::{Py, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyObject};
 
-pub(crate) use sys::{__module_def, DOC, MAXSIZE, MULTIARCH, UnraisableHookArgsData};
+pub(crate) use sys::{
+    __module_def, DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, multiarch,
+};
 
 #[pymodule]
 mod sys {
@@ -37,10 +39,14 @@ mod sys {
         System::LibraryLoader::{GetModuleFileNameW, GetModuleHandleW},
     };
 
-    // not the same as CPython (e.g. rust's x86_x64-unknown-linux-gnu is just x86_64-linux-gnu)
-    // but hopefully that's just an implementation detail? TODO: copy CPython's multiarch exactly,
-    // https://github.com/python/cpython/blob/3.8/configure.ac#L725
-    pub(crate) const MULTIARCH: &str = env!("RUSTPYTHON_TARGET_TRIPLE");
+    // Rust target triple (e.g., "x86_64-unknown-linux-gnu")
+    pub(crate) const RUST_MULTIARCH: &str = env!("RUSTPYTHON_TARGET_TRIPLE");
+
+    /// Convert Rust target triple to CPython-style multiarch
+    /// e.g., "x86_64-unknown-linux-gnu" -> "x86_64-linux-gnu"
+    pub(crate) fn multiarch() -> String {
+        RUST_MULTIARCH.replace("-unknown", "")
+    }
 
     #[pyattr(name = "_rustpython_debugbuild")]
     const RUSTPYTHON_DEBUGBUILD: bool = cfg!(debug_assertions);
@@ -189,7 +195,7 @@ mod sys {
         py_namespace!(vm, {
             "name" => ctx.new_str(NAME),
             "cache_tag" => ctx.new_str(cache_tag),
-            "_multiarch" => ctx.new_str(MULTIARCH.to_owned()),
+            "_multiarch" => ctx.new_str(multiarch()),
             "version" => version_info(vm),
             "hexversion" => ctx.new_int(version::VERSION_HEX),
         })
@@ -1249,6 +1255,6 @@ pub(crate) fn sysconfigdata_name() -> String {
         "_sysconfigdata_{}_{}_{}",
         sys::ABIFLAGS,
         sys::PLATFORM,
-        sys::MULTIARCH
+        sys::multiarch()
     )
 }
