@@ -601,12 +601,6 @@ impl PyCStructure {
     fn _b0_(&self) -> Option<PyObjectRef> {
         self.0.base.read().clone()
     }
-
-    #[pygetset]
-    fn _fields_(&self, vm: &VirtualMachine) -> PyObjectRef {
-        // Return the _fields_ from the class, not instance
-        vm.ctx.none()
-    }
 }
 
 impl AsBuffer for PyCStructure {

@@ -1080,7 +1080,7 @@ def _sys_version(sys_version=None):
               match.groups()
 
         # XXX: RUSTPYTHON support
-        if "rustc" in sys_version:
+        if "RustPython" in sys_version:
             name = "RustPython"
         else:
             name = 'CPython'

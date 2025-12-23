@@ -14,11 +14,46 @@ use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods};
 use crate::types::{AsBuffer, AsNumber, Constructor, Initializer, Representable};
 use crate::{AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
 use num_traits::ToPrimitive;
+use std::borrow::Cow;
 use std::fmt::Debug;
 
 /// Valid type codes for ctypes simple types
 // spell-checker: disable-next-line
 pub(super) const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfuzZqQPXOv?g";
+
+/// Convert ctypes type code to PEP 3118 format code.
+/// Some ctypes codes need to be mapped to standard-size codes based on platform.
+/// _ctypes_alloc_format_string_for_type
+fn ctypes_code_to_pep3118(code: char) -> char {
+    match code {
+        // c_int: map based on sizeof(int)
+        'i' if std::mem::size_of::<std::ffi::c_int>() == 2 => 'h',
+        'i' if std::mem::size_of::<std::ffi::c_int>() == 4 => 'i',
+        'i' if std::mem::size_of::<std::ffi::c_int>() == 8 => 'q',
+        'I' if std::mem::size_of::<std::ffi::c_int>() == 2 => 'H',
+        'I' if std::mem::size_of::<std::ffi::c_int>() == 4 => 'I',
+        'I' if std::mem::size_of::<std::ffi::c_int>() == 8 => 'Q',
+        // c_long: map based on sizeof(long)
+        'l' if std::mem::size_of::<std::ffi::c_long>() == 4 => 'l',
+        'l' if std::mem::size_of::<std::ffi::c_long>() == 8 => 'q',
+        'L' if std::mem::size_of::<std::ffi::c_long>() == 4 => 'L',
+        'L' if std::mem::size_of::<std::ffi::c_long>() == 8 => 'Q',
+        // c_bool: map based on sizeof(bool) - typically 1 byte on all platforms
+        '?' if std::mem::size_of::<bool>() == 1 => '?',
+        '?' if std::mem::size_of::<bool>() == 2 => 'H',
+        '?' if std::mem::size_of::<bool>() == 4 => 'L',
+        '?' if std::mem::size_of::<bool>() == 8 => 'Q',
+        // Default: use the same code
+        _ => code,
+    }
+}
+
+/// _ctypes_alloc_format_string_for_type
+fn alloc_format_string_for_type(code: char, big_endian: bool) -> String {
+    let prefix = if big_endian { ">" } else { "<" };
+    let pep_code = ctypes_code_to_pep3118(code);
+    format!("{}{}", prefix, pep_code)
+}
 
 /// Create a new simple type instance from a class
 fn new_simple_type(
@@ -165,6 +200,20 @@ fn set_primitive(_type_: &str, value: &PyObject, vm: &VirtualMachine) -> PyResul
         }
         // O_set: py_object accepts any Python object
         "O" => Ok(value.to_owned()),
+        // X_set: BSTR - same as Z (c_wchar_p), accepts None, int, or str
+        "X" => {
+            if value.is(&vm.ctx.none)
+                || value.downcast_ref_if_exact::<PyInt>(vm).is_some()
+                || value.downcast_ref_if_exact::<PyStr>(vm).is_some()
+            {
+                Ok(value.to_owned())
+            } else {
+                Err(vm.new_type_error(format!(
+                    "unicode string or integer address expected instead of {} instance",
+                    value.class().name()
+                )))
+            }
+        }
         _ => {
             // "P"
             if value.downcast_ref_if_exact::<PyInt>(vm).is_some()
@@ -313,7 +362,7 @@ impl PyCSimpleType {
                     .to_pyobject(vm));
                 }
                 // 2. Array/Pointer with c_wchar element type
-                if is_cwchar_array_or_pointer(&value, vm) {
+                if is_cwchar_array_or_pointer(&value, vm)? {
                     return Ok(value);
                 }
                 // 3. CArgObject (byref(c_wchar(...)))
@@ -521,13 +570,10 @@ impl Initializer for PyCSimpleType {
         let mut stg_info = StgInfo::new(size, align);
 
         // Set format for PEP 3118 buffer protocol
-        // Format is endian prefix + type code (e.g., "<i" for little-endian int)
-        let endian_prefix = if cfg!(target_endian = "little") {
-            "<"
-        } else {
-            ">"
-        };
-        stg_info.format = Some(format!("{}{}", endian_prefix, type_str));
+        stg_info.format = Some(alloc_format_string_for_type(
+            type_str.chars().next().unwrap_or('?'),
+            cfg!(target_endian = "big"),
+        ));
         stg_info.paramfunc = super::base::ParamFunc::Simple;
 
         // Set TYPEFLAG_ISPOINTER for pointer types: z (c_char_p), Z (c_wchar_p),
@@ -619,13 +665,14 @@ fn create_swapped_types(
     swapped_type.set_attr("_swappedbytes_", vm.ctx.none(), vm)?;
 
     // Update swapped type's StgInfo format to use opposite endian prefix
-    // Native uses '<' on little-endian, '>' on big-endian
-    // Swapped uses the opposite
     if let Ok(swapped_type_ref) = swapped_type.clone().downcast::<PyType>()
         && let Some(mut sw_stg) = swapped_type_ref.get_type_data_mut::<StgInfo>()
     {
-        let swapped_prefix = if is_little_endian { ">" } else { "<" };
-        sw_stg.format = Some(format!("{}{}", swapped_prefix, type_str));
+        // Swapped: little-endian system uses big-endian prefix and vice versa
+        sw_stg.format = Some(alloc_format_string_for_type(
+            type_str.chars().next().unwrap_or('?'),
+            is_little_endian,
+        ));
     }
 
     // Set attributes based on system byte order
@@ -734,63 +781,56 @@ fn value_to_bytes_endian(
         }
         "b" => {
             // c_byte - signed char (1 byte)
-            // PyLong_AsLongMask pattern: wrapping for overflow values
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_i128().unwrap_or(0) as i8;
+                let v = int_val.as_bigint().to_i128().expect("int too large") as i8;
                 return vec![v as u8];
             }
             vec![0]
         }
         "B" => {
             // c_ubyte - unsigned char (1 byte)
-            // PyLong_AsUnsignedLongMask: wrapping for negative values
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_i128().map(|n| n as u8).unwrap_or(0);
+                let v = int_val.as_bigint().to_i128().expect("int too large") as u8;
                 return vec![v];
             }
             vec![0]
         }
         "h" => {
             // c_short (2 bytes)
-            // PyLong_AsLongMask pattern: wrapping for overflow values
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_i128().unwrap_or(0) as i16;
+                let v = int_val.as_bigint().to_i128().expect("int too large") as i16;
                 return to_bytes!(v);
             }
             vec![0; 2]
         }
         "H" => {
             // c_ushort (2 bytes)
-            // PyLong_AsUnsignedLongMask: wrapping for negative values
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_i128().map(|n| n as u16).unwrap_or(0);
+                let v = int_val.as_bigint().to_i128().expect("int too large") as u16;
                 return to_bytes!(v);
             }
             vec![0; 2]
         }
         "i" => {
             // c_int (4 bytes)
-            // PyLong_AsLongMask pattern: wrapping for overflow values
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_i128().unwrap_or(0) as i32;
+                let v = int_val.as_bigint().to_i128().expect("int too large") as i32;
                 return to_bytes!(v);
             }
             vec![0; 4]
         }
         "I" => {
             // c_uint (4 bytes)
-            // PyLong_AsUnsignedLongMask: wrapping for negative values
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_i128().map(|n| n as u32).unwrap_or(0);
+                let v = int_val.as_bigint().to_i128().expect("int too large") as u32;
                 return to_bytes!(v);
             }
             vec![0; 4]
         }
         "l" => {
             // c_long (platform dependent)
-            // PyLong_AsLongMask pattern: wrapping for overflow values
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_i128().unwrap_or(0) as libc::c_long;
+                let v = int_val.as_bigint().to_i128().expect("int too large") as libc::c_long;
                 return to_bytes!(v);
             }
             const SIZE: usize = std::mem::size_of::<libc::c_long>();
@@ -798,13 +838,8 @@ fn value_to_bytes_endian(
         }
         "L" => {
             // c_ulong (platform dependent)
-            // PyLong_AsUnsignedLongMask: wrapping for negative values
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val
-                    .as_bigint()
-                    .to_i128()
-                    .map(|n| n as libc::c_ulong)
-                    .unwrap_or(0);
+                let v = int_val.as_bigint().to_i128().expect("int too large") as libc::c_ulong;
                 return to_bytes!(v);
             }
             const SIZE: usize = std::mem::size_of::<libc::c_ulong>();
@@ -812,18 +847,16 @@ fn value_to_bytes_endian(
         }
         "q" => {
             // c_longlong (8 bytes)
-            // PyLong_AsLongMask pattern: wrapping for overflow values
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_i128().unwrap_or(0) as i64;
+                let v = int_val.as_bigint().to_i128().expect("int too large") as i64;
                 return to_bytes!(v);
             }
             vec![0; 8]
         }
         "Q" => {
             // c_ulonglong (8 bytes)
-            // PyLong_AsUnsignedLongLongMask: wrapping for negative values
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_i128().map(|n| n as u64).unwrap_or(0);
+                let v = int_val.as_bigint().to_i128().expect("int too large") as u64;
                 return to_bytes!(v);
             }
             vec![0; 8]
@@ -899,7 +932,10 @@ fn value_to_bytes_endian(
         "P" => {
             // c_void_p - pointer type (platform pointer size)
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_usize().unwrap_or(0);
+                let v = int_val
+                    .as_bigint()
+                    .to_usize()
+                    .expect("int too large for pointer");
                 return to_bytes!(v);
             }
             vec![0; std::mem::size_of::<usize>()]
@@ -908,7 +944,10 @@ fn value_to_bytes_endian(
             // c_char_p - pointer to char (stores pointer value from int)
             // PyBytes case is handled in slot_new/set_value with make_z_buffer()
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_usize().unwrap_or(0);
+                let v = int_val
+                    .as_bigint()
+                    .to_usize()
+                    .expect("int too large for pointer");
                 return to_bytes!(v);
             }
             vec![0; std::mem::size_of::<usize>()]
@@ -917,7 +956,10 @@ fn value_to_bytes_endian(
             // c_wchar_p - pointer to wchar_t (stores pointer value from int)
             // PyStr case is handled in slot_new/set_value with make_wchar_buffer()
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_usize().unwrap_or(0);
+                let v = int_val
+                    .as_bigint()
+                    .to_usize()
+                    .expect("int too large for pointer");
                 return to_bytes!(v);
             }
             vec![0; std::mem::size_of::<usize>()]
@@ -939,7 +981,7 @@ fn is_cchar_array_or_pointer(value: &PyObject, vm: &VirtualMachine) -> bool {
     if let Some(arr) = value.downcast_ref::<PyCArray>()
         && let Some(info) = arr.class().stg_info_opt()
         && let Some(ref elem_type) = info.element_type
-        && let Some(elem_code) = elem_type.class().type_code(vm)
+        && let Some(elem_code) = elem_type.type_code(vm)
     {
         return elem_code == "c";
     }
@@ -947,7 +989,7 @@ fn is_cchar_array_or_pointer(value: &PyObject, vm: &VirtualMachine) -> bool {
     if let Some(ptr) = value.downcast_ref::<PyCPointer>()
         && let Some(info) = ptr.class().stg_info_opt()
         && let Some(ref proto) = info.proto
-        && let Some(proto_code) = proto.class().type_code(vm)
+        && let Some(proto_code) = proto.type_code(vm)
     {
         return proto_code == "c";
     }
@@ -955,25 +997,25 @@ fn is_cchar_array_or_pointer(value: &PyObject, vm: &VirtualMachine) -> bool {
 }
 
 /// Check if value is a c_wchar array or pointer(c_wchar)
-fn is_cwchar_array_or_pointer(value: &PyObject, vm: &VirtualMachine) -> bool {
+fn is_cwchar_array_or_pointer(value: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
     // Check Array with c_wchar element type
     if let Some(arr) = value.downcast_ref::<PyCArray>() {
-        let info = arr.class().stg_info_opt().expect("array has StgInfo");
+        let info = arr.class().stg_info(vm)?;
         let elem_type = info.element_type.as_ref().expect("array has element_type");
-        if let Some(elem_code) = elem_type.class().type_code(vm) {
-            return elem_code == "u";
+        if let Some(elem_code) = elem_type.type_code(vm) {
+            return Ok(elem_code == "u");
         }
     }
     // Check Pointer to c_wchar
     if let Some(ptr) = value.downcast_ref::<PyCPointer>() {
-        let info = ptr.class().stg_info_opt().expect("pointer has StgInfo");
+        let info = ptr.class().stg_info(vm)?;
         if let Some(ref proto) = info.proto
-            && let Some(proto_code) = proto.class().type_code(vm)
+            && let Some(proto_code) = proto.type_code(vm)
         {
-            return proto_code == "u";
+            return Ok(proto_code == "u");
         }
     }
-    false
+    Ok(false)
 }
 
 impl Constructor for PyCSimple {
@@ -1121,15 +1163,27 @@ impl PyCSimple {
                 return Ok(vm.ctx.none());
             }
             // Read null-terminated wide string at the address
+            // Windows: wchar_t = u16 (UTF-16) -> use Wtf8Buf::from_wide for surrogate pairs
+            // Unix: wchar_t = i32 (UTF-32) -> convert via char::from_u32
             unsafe {
                 let w_ptr = ptr as *const libc::wchar_t;
                 let len = libc::wcslen(w_ptr);
                 let wchars = std::slice::from_raw_parts(w_ptr, len);
-                let s: String = wchars
-                    .iter()
-                    .filter_map(|&c| char::from_u32(c as u32))
-                    .collect();
-                return Ok(vm.ctx.new_str(s).into());
+                #[cfg(windows)]
+                {
+                    use rustpython_common::wtf8::Wtf8Buf;
+                    let wide: Vec<u16> = wchars.to_vec();
+                    let wtf8 = Wtf8Buf::from_wide(&wide);
+                    return Ok(vm.ctx.new_str(wtf8).into());
+                }
+                #[cfg(not(windows))]
+                {
+                    let s: String = wchars
+                        .iter()
+                        .filter_map(|&c| char::from_u32(c as u32))
+                        .collect();
+                    return Ok(vm.ctx.new_str(s).into());
+                }
             }
         }
 
@@ -1349,12 +1403,25 @@ impl PyCSimple {
 
 impl AsBuffer for PyCSimple {
     fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
-        let buffer_len = zelf.0.buffer.read().len();
-        let buf = PyBuffer::new(
-            zelf.to_owned().into(),
-            BufferDescriptor::simple(buffer_len, false), // readonly=false for ctypes
-            &CDATA_BUFFER_METHODS,
-        );
+        let stg_info = zelf
+            .class()
+            .stg_info_opt()
+            .expect("PyCSimple type must have StgInfo");
+        let format = stg_info
+            .format
+            .clone()
+            .map(Cow::Owned)
+            .unwrap_or(Cow::Borrowed("B"));
+        let itemsize = stg_info.size;
+        // Simple types are scalars with ndim=0, shape=()
+        let desc = BufferDescriptor {
+            len: itemsize,
+            readonly: false,
+            itemsize,
+            format,
+            dim_desc: vec![],
+        };
+        let buf = PyBuffer::new(zelf.to_owned().into(), desc, &CDATA_BUFFER_METHODS);
         Ok(buf)
     }
 }

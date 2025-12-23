@@ -361,7 +361,9 @@ def compare():
 
     if platform.python_implementation() == "CPython":
         if not_implementeds:
-            sys.exit("ERROR: CPython should have all the methods")
+            sys.exit(
+                f"ERROR: CPython should have all the methods but missing: {not_implementeds}"
+            )
 
     mod_names = [
         name.decode()
@@ -455,6 +457,7 @@ result = subprocess.run(
 )
 # The last line should be json output, the rest of the lines can contain noise
 # because importing certain modules can print stuff to stdout/stderr
+print(result.stderr, file=sys.stderr)
 result = json.loads(result.stdout.splitlines()[-1])
 
 if args.json:

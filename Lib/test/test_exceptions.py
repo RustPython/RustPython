@@ -430,6 +430,7 @@ class ExceptionTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == 'win32',
                          'test specific to Windows')
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_windows_message(self):
         """Should fill in unknown error code in Windows error message"""
         ctypes = import_module('ctypes')
