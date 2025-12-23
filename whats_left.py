@@ -361,7 +361,9 @@ def compare():
 
     if platform.python_implementation() == "CPython":
         if not_implementeds:
-            sys.exit(f"ERROR: CPython should have all the methods but missing: {not_implementeds}")
+            sys.exit(
+                f"ERROR: CPython should have all the methods but missing: {not_implementeds}"
+            )
 
     mod_names = [
         name.decode()
