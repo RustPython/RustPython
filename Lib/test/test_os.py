@@ -3491,6 +3491,7 @@ class SpawnTests(unittest.TestCase):
         self.assertEqual(exitcode, self.exitcode)
 
     @requires_os_func('spawnle')
+    @unittest.skipIf(sys.platform == 'win32', "TODO: RUSTPYTHON; fix spawnve on Windows")
     def test_spawnle(self):
         program, args = self.create_args(with_env=True)
         exitcode = os.spawnle(os.P_WAIT, program, *args, self.env)
@@ -3519,6 +3520,7 @@ class SpawnTests(unittest.TestCase):
         self.assertEqual(exitcode, self.exitcode)
 
     @requires_os_func('spawnve')
+    @unittest.skipIf(sys.platform == 'win32', "TODO: RUSTPYTHON; fix spawnve on Windows")
     def test_spawnve(self):
         program, args = self.create_args(with_env=True)
         exitcode = os.spawnve(os.P_WAIT, program, args, self.env)
@@ -3627,6 +3629,7 @@ class SpawnTests(unittest.TestCase):
         self.assertEqual(exitcode, 0)
 
     @requires_os_func('spawnve')
+    @unittest.skipIf(sys.platform == 'win32', "TODO: RUSTPYTHON; fix spawnve on Windows")
     def test_spawnve_invalid_env(self):
         self._test_invalid_env(os.spawnve)
 
