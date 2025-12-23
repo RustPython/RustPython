@@ -6,7 +6,9 @@ use std::ffi::OsStr;
 use std::fmt;
 
 #[cfg(unix)]
-use libloading::os::unix::Library as UnixLibrary;
+use libloading::os::unix::Library as OsLibrary;
+#[cfg(windows)]
+use libloading::os::windows::Library as OsLibrary;
 
 pub struct SharedLibrary {
     pub(crate) lib: PyMutex<Option<Library>>,
@@ -33,7 +35,7 @@ impl SharedLibrary {
     ) -> Result<SharedLibrary, libloading::Error> {
         Ok(SharedLibrary {
             lib: PyMutex::new(Some(unsafe {
-                UnixLibrary::open(Some(name.as_ref()), mode)?.into()
+                OsLibrary::open(Some(name.as_ref()), mode)?.into()
             })),
         })
     }
@@ -42,19 +44,39 @@ impl SharedLibrary {
     #[cfg(unix)]
     pub fn from_raw_handle(handle: *mut libc::c_void) -> SharedLibrary {
         SharedLibrary {
-            lib: PyMutex::new(Some(unsafe { UnixLibrary::from_raw(handle).into() })),
+            lib: PyMutex::new(Some(unsafe { OsLibrary::from_raw(handle).into() })),
         }
     }
 
     /// Get the underlying OS handle (HMODULE on Windows, dlopen handle on Unix)
+    #[cfg(unix)]
     pub fn get_pointer(&self) -> usize {
-        let lib_lock = self.lib.lock();
-        if let Some(l) = &*lib_lock {
-            // libloading::Library internally stores the OS handle directly
-            // On Windows: HMODULE (*mut c_void)
-            // On Unix: *mut c_void from dlopen
-            // We use transmute_copy to read the handle without consuming the Library
-            unsafe { std::mem::transmute_copy::<Library, usize>(l) }
+        let mut lib_lock = self.lib.lock();
+        if let Some(lib) = lib_lock.take() {
+            // Use official libloading API: convert to platform-specific type,
+            // extract raw handle, then reconstruct
+            let unix_lib: OsLibrary = lib.into();
+            let handle = unix_lib.into_raw();
+            // Reconstruct the library from the raw handle and put it back
+            *lib_lock = Some(unsafe { OsLibrary::from_raw(handle) }.into());
+            handle as usize
+        } else {
+            0
+        }
+    }
+
+    /// Get the underlying OS handle (HMODULE on Windows, dlopen handle on Unix)
+    #[cfg(windows)]
+    pub fn get_pointer(&self) -> usize {
+        let mut lib_lock = self.lib.lock();
+        if let Some(lib) = lib_lock.take() {
+            // Use official libloading API: convert to platform-specific type,
+            // extract raw handle, then reconstruct
+            let win_lib: OsLibrary = lib.into();
+            let handle = win_lib.into_raw();
+            // Reconstruct the library from the raw handle and put it back
+            *lib_lock = Some(unsafe { OsLibrary::from_raw(handle) }.into());
+            handle as usize
         } else {
             0
         }
