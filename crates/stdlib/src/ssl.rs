@@ -841,6 +841,12 @@ mod _ssl {
         password: OptionalArg<PyObjectRef>,
     }
 
+    #[derive(FromArgs)]
+    struct GetCertArgs {
+        #[pyarg(any, optional)]
+        binary_form: OptionalArg<bool>,
+    }
+
     #[pyclass(with(Constructor), flags(BASETYPE))]
     impl PySSLContext {
         // Helper method to convert DER certificate bytes to Python dict
@@ -1688,12 +1694,8 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn get_ca_certs(
-            &self,
-            binary_form: OptionalArg<bool>,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyListRef> {
-            let binary_form = binary_form.unwrap_or(false);
+        fn get_ca_certs(&self, args: GetCertArgs, vm: &VirtualMachine) -> PyResult<PyListRef> {
+            let binary_form = args.binary_form.unwrap_or(false);
             let ca_certs_der = self.ca_certs_der.read();
 
             let mut certs = Vec::new();
@@ -3444,10 +3446,10 @@ mod _ssl {
         #[pymethod]
         fn getpeercert(
             &self,
-            binary_form: OptionalArg<bool>,
+            args: GetCertArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyObjectRef>> {
-            let binary = binary_form.unwrap_or(false);
+            let binary = args.binary_form.unwrap_or(false);
 
             // Check if handshake is complete
             if !*self.handshake_done.lock() {

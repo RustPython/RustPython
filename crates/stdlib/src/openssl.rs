@@ -1543,10 +1543,10 @@ mod _ssl {
         #[pymethod]
         fn get_ca_certs(
             &self,
-            binary_form: OptionalArg<bool>,
+            args: GetCertArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Vec<PyObjectRef>> {
-            let binary_form = binary_form.unwrap_or(false);
+            let binary_form = args.binary_form.unwrap_or(false);
             let ctx = self.ctx();
             #[cfg(ossl300)]
             let certs = ctx.cert_store().all_certificates();
@@ -2259,6 +2259,12 @@ mod _ssl {
         password: Option<PyObjectRef>,
     }
 
+    #[derive(FromArgs)]
+    struct GetCertArgs {
+        #[pyarg(any, optional)]
+        binary_form: OptionalArg<bool>,
+    }
+
     // Err is true if the socket is blocking
     type SocketDeadline = Result<Instant, bool>;
 
@@ -2516,10 +2522,10 @@ mod _ssl {
         #[pymethod]
         fn getpeercert(
             &self,
-            binary: OptionalArg<bool>,
+            args: GetCertArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyObjectRef>> {
-            let binary = binary.unwrap_or(false);
+            let binary = args.binary_form.unwrap_or(false);
             let stream = self.connection.read();
             if !stream.ssl().is_init_finished() {
                 return Err(vm.new_value_error("handshake not done yet"));
