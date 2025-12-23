@@ -1349,14 +1349,14 @@ mod _sqlite {
         fn set_trace_callback(&self, callable: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let db = self.db_lock(vm)?;
             let Some(data) = CallbackData::new(callable, vm) else {
-                unsafe { sqlite3_trace_v2(db.db, SQLITE_TRACE_STMT as u32, None, null_mut()) };
+                unsafe { sqlite3_trace_v2(db.db, SQLITE_TRACE_STMT, None, null_mut()) };
                 return Ok(());
             };
 
             let ret = unsafe {
                 sqlite3_trace_v2(
                     db.db,
-                    SQLITE_TRACE_STMT as u32,
+                    SQLITE_TRACE_STMT,
                     Some(CallbackData::trace_callback),
                     Box::into_raw(Box::new(data)).cast(),
                 )
