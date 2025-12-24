@@ -7,6 +7,7 @@ use crate::{
 };
 use std::{borrow::Cow, ffi::OsStr, path::PathBuf};
 
+/// Helper to implement os.fspath()
 #[derive(Clone)]
 pub enum FsPath {
     Str(PyStrRef),
@@ -27,7 +28,7 @@ impl FsPath {
         )
     }
 
-    // PyOS_FSPath in CPython
+    // PyOS_FSPath
     pub fn try_from(
         obj: PyObjectRef,
         check_for_nul: bool,

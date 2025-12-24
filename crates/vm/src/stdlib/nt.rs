@@ -925,7 +925,7 @@ pub(crate) mod module {
             .as_ref()
             .canonicalize()
             .map_err(|e| e.to_pyexception(vm))?;
-        Ok(path.mode.process_path(real, vm))
+        Ok(path.mode().process_path(real, vm))
     }
 
     #[pyfunction]
@@ -958,7 +958,7 @@ pub(crate) mod module {
             }
         }
         let buffer = widestring::WideCString::from_vec_truncate(buffer);
-        Ok(path.mode.process_path(buffer.to_os_string(), vm))
+        Ok(path.mode().process_path(buffer.to_os_string(), vm))
     }
 
     #[pyfunction]
@@ -973,7 +973,7 @@ pub(crate) mod module {
             return Err(vm.new_last_os_error());
         }
         let buffer = widestring::WideCString::from_vec_truncate(buffer);
-        Ok(path.mode.process_path(buffer.to_os_string(), vm))
+        Ok(path.mode().process_path(buffer.to_os_string(), vm))
     }
 
     /// Implements _Py_skiproot logic for Windows paths
@@ -1053,7 +1053,7 @@ pub(crate) mod module {
         use crate::builtins::{PyBytes, PyStr};
         use rustpython_common::wtf8::Wtf8Buf;
 
-        // Handle path-like objects via os.fspath, but without null check (nonstrict=True)
+        // Handle path-like objects via os.fspath, but without null check (non_strict=True)
         let path = if let Some(fspath) = vm.get_method(path.clone(), identifier!(vm, __fspath__)) {
             fspath?.call((), vm)?
         } else {
@@ -1585,7 +1585,7 @@ pub(crate) mod module {
         use windows_sys::Win32::System::IO::DeviceIoControl;
         use windows_sys::Win32::System::Ioctl::FSCTL_GET_REPARSE_POINT;
 
-        let mode = path.mode;
+        let mode = path.mode();
         let wide_path = path.as_ref().to_wide_with_nul();
 
         // Open the file/directory with reparse point flag
