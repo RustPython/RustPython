@@ -1098,11 +1098,7 @@ pub trait Hashable: PyPayload {
         Self::hash(zelf, vm)
     }
 
-    #[inline]
-    #[pymethod]
-    fn __hash__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
-        Self::slot_hash(&zelf, vm)
-    }
+    // __hash__ is now exposed via SlotFunc::Hash wrapper in extend_class()
 
     fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash>;
 }
