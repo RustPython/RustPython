@@ -30,7 +30,7 @@ mod _sqlite {
         sqlite3_bind_null, sqlite3_bind_parameter_count, sqlite3_bind_parameter_name,
         sqlite3_bind_text, sqlite3_blob, sqlite3_blob_bytes, sqlite3_blob_close, sqlite3_blob_open,
         sqlite3_blob_read, sqlite3_blob_write, sqlite3_busy_timeout, sqlite3_changes,
-        sqlite3_close_v2, sqlite3_column_blob, sqlite3_column_bytes, sqlite3_column_count,
+        sqlite3_close, sqlite3_column_blob, sqlite3_column_bytes, sqlite3_column_count,
         sqlite3_column_decltype, sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name,
         sqlite3_column_text, sqlite3_column_type, sqlite3_complete, sqlite3_context,
         sqlite3_context_db_handle, sqlite3_create_collation_v2, sqlite3_create_function_v2,
@@ -1349,14 +1349,14 @@ mod _sqlite {
         fn set_trace_callback(&self, callable: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let db = self.db_lock(vm)?;
             let Some(data) = CallbackData::new(callable, vm) else {
-                unsafe { sqlite3_trace_v2(db.db, SQLITE_TRACE_STMT as u32, None, null_mut()) };
+                unsafe { sqlite3_trace_v2(db.db, SQLITE_TRACE_STMT, None, null_mut()) };
                 return Ok(());
             };
 
             let ret = unsafe {
                 sqlite3_trace_v2(
                     db.db,
-                    SQLITE_TRACE_STMT as u32,
+                    SQLITE_TRACE_STMT,
                     Some(CallbackData::trace_callback),
                     Box::into_raw(Box::new(data)).cast(),
                 )
@@ -2661,7 +2661,7 @@ mod _sqlite {
 
     impl Drop for Sqlite {
         fn drop(&mut self) {
-            unsafe { sqlite3_close_v2(self.raw.db) };
+            unsafe { sqlite3_close(self.raw.db) };
         }
     }
 
