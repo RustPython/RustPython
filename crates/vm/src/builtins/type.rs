@@ -404,6 +404,9 @@ impl PyType {
             None,
         );
 
+        // Note: inherit_slots is called in PyClassImpl::init_class after
+        // slots are fully initialized by make_slots()
+
         Self::set_new(&new_type.slots, &new_type.base);
 
         let weakref_type = super::PyWeak::static_type();
@@ -420,6 +423,12 @@ impl PyType {
     }
 
     pub(crate) fn init_slots(&self, ctx: &Context) {
+        // Inherit slots from direct bases (not MRO)
+        for base in self.bases.read().iter() {
+            self.inherit_slots(base);
+        }
+
+        // Wire dunder methods to slots
         #[allow(clippy::mutable_key_type)]
         let mut slot_name_set = std::collections::HashSet::new();
 
@@ -452,6 +461,114 @@ impl PyType {
                     .unwrap_or(None),
             )
         }
+    }
+
+    /// Inherit slots from base type. typeobject.c: inherit_slots
+    pub(crate) fn inherit_slots(&self, base: &Self) {
+        macro_rules! copyslot {
+            ($slot:ident) => {
+                if self.slots.$slot.load().is_none() {
+                    if let Some(base_val) = base.slots.$slot.load() {
+                        self.slots.$slot.store(Some(base_val));
+                    }
+                }
+            };
+        }
+
+        // Core slots
+        copyslot!(hash);
+        copyslot!(call);
+        copyslot!(str);
+        copyslot!(repr);
+        copyslot!(getattro);
+        copyslot!(setattro);
+        copyslot!(richcompare);
+        copyslot!(iter);
+        copyslot!(iternext);
+        copyslot!(descr_get);
+        copyslot!(descr_set);
+        // Note: init is NOT inherited here because object_init has special
+        // handling in CPython (checks if type->tp_init != object_init).
+        // TODO: implement proper init inheritance with object_init check
+        copyslot!(del);
+        // new is handled by set_new()
+
+        // Number slots
+        self.inherit_number_slots(base);
+    }
+
+    /// Inherit number sub-slots from base type
+    fn inherit_number_slots(&self, base: &Self) {
+        macro_rules! copy_num_slot {
+            ($slot:ident) => {
+                if self.slots.as_number.$slot.load().is_none() {
+                    if let Some(base_val) = base.slots.as_number.$slot.load() {
+                        self.slots.as_number.$slot.store(Some(base_val));
+                    }
+                }
+            };
+        }
+
+        // Binary operations
+        copy_num_slot!(add);
+        copy_num_slot!(right_add);
+        copy_num_slot!(inplace_add);
+        copy_num_slot!(subtract);
+        copy_num_slot!(right_subtract);
+        copy_num_slot!(inplace_subtract);
+        copy_num_slot!(multiply);
+        copy_num_slot!(right_multiply);
+        copy_num_slot!(inplace_multiply);
+        copy_num_slot!(remainder);
+        copy_num_slot!(right_remainder);
+        copy_num_slot!(inplace_remainder);
+        copy_num_slot!(divmod);
+        copy_num_slot!(right_divmod);
+        copy_num_slot!(power);
+        copy_num_slot!(right_power);
+        copy_num_slot!(inplace_power);
+
+        // Bitwise operations
+        copy_num_slot!(lshift);
+        copy_num_slot!(right_lshift);
+        copy_num_slot!(inplace_lshift);
+        copy_num_slot!(rshift);
+        copy_num_slot!(right_rshift);
+        copy_num_slot!(inplace_rshift);
+        copy_num_slot!(and);
+        copy_num_slot!(right_and);
+        copy_num_slot!(inplace_and);
+        copy_num_slot!(xor);
+        copy_num_slot!(right_xor);
+        copy_num_slot!(inplace_xor);
+        copy_num_slot!(or);
+        copy_num_slot!(right_or);
+        copy_num_slot!(inplace_or);
+
+        // Division operations
+        copy_num_slot!(floor_divide);
+        copy_num_slot!(right_floor_divide);
+        copy_num_slot!(inplace_floor_divide);
+        copy_num_slot!(true_divide);
+        copy_num_slot!(right_true_divide);
+        copy_num_slot!(inplace_true_divide);
+
+        // Matrix multiplication
+        copy_num_slot!(matrix_multiply);
+        copy_num_slot!(right_matrix_multiply);
+        copy_num_slot!(inplace_matrix_multiply);
+
+        // Unary operations
+        copy_num_slot!(negative);
+        copy_num_slot!(positive);
+        copy_num_slot!(absolute);
+        copy_num_slot!(boolean);
+        copy_num_slot!(invert);
+
+        // Conversion
+        copy_num_slot!(int);
+        copy_num_slot!(float);
+        copy_num_slot!(index);
     }
 
     // This is used for class initialization where the vm is not yet available.
@@ -1414,11 +1531,9 @@ impl GetAttr for PyType {
 
         if let Some(ref attr) = mcl_attr {
             let attr_class = attr.class();
-            let has_descr_set = attr_class
-                .mro_find_map(|cls| cls.slots.descr_set.load())
-                .is_some();
+            let has_descr_set = attr_class.slots.descr_set.load().is_some();
             if has_descr_set {
-                let descr_get = attr_class.mro_find_map(|cls| cls.slots.descr_get.load());
+                let descr_get = attr_class.slots.descr_get.load();
                 if let Some(descr_get) = descr_get {
                     let mcl = mcl.to_owned().into();
                     return descr_get(attr.clone(), Some(zelf.to_owned().into()), Some(mcl), vm);
@@ -1429,7 +1544,7 @@ impl GetAttr for PyType {
         let zelf_attr = zelf.get_attr(name);
 
         if let Some(attr) = zelf_attr {
-            let descr_get = attr.class().mro_find_map(|cls| cls.slots.descr_get.load());
+            let descr_get = attr.class().slots.descr_get.load();
             if let Some(descr_get) = descr_get {
                 descr_get(attr, None, Some(zelf.to_owned().into()), vm)
             } else {
@@ -1467,9 +1582,7 @@ impl Py<PyType> {
         // CPython returns None if __doc__ is not in the type's own dict
         if let Some(doc_attr) = self.get_direct_attr(vm.ctx.intern_str("__doc__")) {
             // If it's a descriptor, call its __get__ method
-            let descr_get = doc_attr
-                .class()
-                .mro_find_map(|cls| cls.slots.descr_get.load());
+            let descr_get = doc_attr.class().slots.descr_get.load();
             if let Some(descr_get) = descr_get {
                 descr_get(doc_attr, None, Some(self.to_owned().into()), vm)
             } else {
@@ -1545,7 +1658,7 @@ impl SetAttr for PyType {
         // TODO: pass PyRefExact instead of &str
         let attr_name = vm.ctx.intern_str(attr_name.as_str());
         if let Some(attr) = zelf.get_class_attr(attr_name) {
-            let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
+            let descr_set = attr.class().slots.descr_set.load();
             if let Some(descriptor) = descr_set {
                 return descriptor(&attr, zelf.to_owned().into(), value, vm);
             }
@@ -1702,7 +1815,9 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
             // Call the descriptor's tp_descr_set
             let descr_set = descr
                 .class()
-                .mro_find_map(|cls| cls.slots.descr_set.load())
+                .slots
+                .descr_set
+                .load()
                 .ok_or_else(|| raise_dict_descriptor_error(&obj, vm))?;
             descr_set(&descr, obj, PySetterValue::Assign(value), vm)
         } else {
@@ -1764,8 +1879,9 @@ pub(crate) fn call_slot_new(
     }
 
     let slot_new = typ
-        .deref()
-        .mro_find_map(|cls| cls.slots.new.load())
+        .slots
+        .new
+        .load()
         .expect("Should be able to find a new slot somewhere in the mro");
     slot_new(subtype, args, vm)
 }

@@ -104,14 +104,11 @@ where
     T: TryFromObject,
 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let iter_fn = {
-            let cls = obj.class();
-            let iter_fn = cls.mro_find_map(|x| x.slots.iter.load());
-            if iter_fn.is_none() && !cls.has_attr(identifier!(vm, __getitem__)) {
-                return Err(vm.new_type_error(format!("'{}' object is not iterable", cls.name())));
-            }
-            iter_fn
-        };
+        let cls = obj.class();
+        let iter_fn = cls.slots.iter.load();
+        if iter_fn.is_none() && !cls.has_attr(identifier!(vm, __getitem__)) {
+            return Err(vm.new_type_error(format!("'{}' object is not iterable", cls.name())));
+        }
         Ok(Self {
             iterable: obj,
             iter_fn,

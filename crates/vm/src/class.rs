@@ -176,6 +176,11 @@ pub trait PyClassImpl: PyClassDef {
             add_slot_wrapper!(hash, __hash__, Hash, "Return hash(self).");
         }
 
+        // Inherit slots from base types after slots are fully initialized
+        for base in class.bases.read().iter() {
+            class.inherit_slots(base);
+        }
+
         class.extend_methods(class.slots.methods, ctx);
     }
 
