@@ -1115,12 +1115,6 @@ pub trait Representable: PyPayload {
     }
 
     #[inline]
-    #[pymethod]
-    fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-        Self::slot_repr(&zelf, vm)
-    }
-
-    #[inline]
     fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
         let repr = Self::repr_str(zelf, vm)?;
         Ok(vm.ctx.new_str(repr))

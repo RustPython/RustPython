@@ -174,6 +174,20 @@ pub trait PyClassImpl: PyClassDef {
             class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
         }
 
+        // Add __repr__ slot wrapper if slot exists and not already in dict
+        if let Some(repr_func) = class.slots.repr.load() {
+            let repr_name = identifier!(ctx, __repr__);
+            if !class.attributes.read().contains_key(repr_name) {
+                let wrapper = PySlotWrapper {
+                    typ: class,
+                    name: ctx.intern_str("__repr__"),
+                    wrapped: SlotFunc::Repr(repr_func),
+                    doc: Some("Return repr(self)."),
+                };
+                class.set_attr(repr_name, wrapper.into_ref(ctx).into());
+            }
+        }
+
         class.extend_methods(class.slots.methods, ctx);
     }
 
