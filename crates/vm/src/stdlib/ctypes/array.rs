@@ -1058,14 +1058,6 @@ impl PyCArray {
     }
 }
 
-impl PyCArray {
-    #[allow(unused)]
-    pub fn to_arg(&self, _vm: &VirtualMachine) -> PyResult<libffi::middle::Arg> {
-        let buffer = self.0.buffer.read();
-        Ok(libffi::middle::Arg::new(&*buffer))
-    }
-}
-
 impl AsBuffer for PyCArray {
     fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let buffer_len = zelf.0.buffer.read().len();
