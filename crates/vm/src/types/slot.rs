@@ -6,7 +6,7 @@ use crate::{
     builtins::{PyInt, PyStr, PyStrInterned, PyStrRef, PyType, PyTypeRef, type_::PointerSlot},
     bytecode::ComparisonOperator,
     common::hash::PyHash,
-    convert::{ToPyObject, ToPyResult},
+    convert::ToPyObject,
     function::{
         Either, FromArgs, FuncArgs, OptionalArg, PyComparisonValue, PyMethodDef, PySetterValue,
     },
@@ -1435,10 +1435,7 @@ pub trait Iterable: PyPayload {
         Self::iter(zelf, vm)
     }
 
-    #[pymethod]
-    fn __iter__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Self::slot_iter(zelf, vm)
-    }
+    // __iter__ is exposed via SlotFunc::Iter wrapper in extend_class()
 
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult;
 
@@ -1458,11 +1455,7 @@ pub trait IterNext: PyPayload + Iterable {
 
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn>;
 
-    #[inline]
-    #[pymethod]
-    fn __next__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Self::slot_iternext(&zelf, vm).to_pyresult(vm)
-    }
+    // __next__ is exposed via SlotFunc::IterNext wrapper in extend_class()
 }
 
 pub trait SelfIter: PyPayload {}
@@ -1477,9 +1470,7 @@ where
         unreachable!("slot must be overridden for {}", repr.as_str());
     }
 
-    fn __iter__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self_iter(zelf, vm)
-    }
+    // __iter__ is exposed via SlotFunc::Iter wrapper in extend_class()
 
     #[cold]
     fn iter(_zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
