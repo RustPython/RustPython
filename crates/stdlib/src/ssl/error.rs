@@ -5,8 +5,8 @@ pub(crate) use ssl_error::*;
 #[pymodule(sub)]
 pub(crate) mod ssl_error {
     use crate::vm::{
-        PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyOSError, PyStrRef},
+        Py, PyPayload, PyRef, PyResult, VirtualMachine,
+        builtins::{PyBaseException, PyOSError, PyStrRef},
         types::{Constructor, Initializer},
     };
 
@@ -42,7 +42,7 @@ pub(crate) mod ssl_error {
     impl PySSLError {
         // Returns strerror attribute if available, otherwise str(args)
         #[pymethod]
-        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        fn __str__(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
             use crate::vm::AsObject;
             // Try to get strerror attribute first (OSError compatibility)
             if let Ok(strerror) = exc.as_object().get_attr("strerror", vm)

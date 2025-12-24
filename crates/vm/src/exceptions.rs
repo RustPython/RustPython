@@ -560,7 +560,7 @@ impl PyBaseException {
 }
 
 #[pyclass(
-    with(PyRef, Constructor, Initializer, Representable),
+    with(Py, PyRef, Constructor, Initializer, Representable),
     flags(BASETYPE, HAS_DICT)
 )]
 impl PyBaseException {
@@ -633,15 +633,18 @@ impl PyBaseException {
     fn set_suppress_context(&self, suppress_context: bool) {
         self.suppress_context.store(suppress_context);
     }
+}
 
+#[pyclass]
+impl Py<PyBaseException> {
     #[pymethod]
-    pub(super) fn __str__(&self, vm: &VirtualMachine) -> PyStrRef {
+    pub(super) fn __str__(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let str_args = vm.exception_args_as_string(self.args(), true);
-        match str_args.into_iter().exactly_one() {
+        Ok(match str_args.into_iter().exactly_one() {
             Err(i) if i.len() == 0 => vm.ctx.empty_str.to_owned(),
             Ok(s) => s,
             Err(i) => PyStr::from(format!("({})", i.format(", "))).into_ref(&vm.ctx),
-        }
+        })
     }
 }
 
@@ -1527,16 +1530,16 @@ pub(super) mod types {
     #[pyexception]
     impl PyKeyError {
         #[pymethod]
-        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
-            let args = exc.args();
-            if args.len() == 1 {
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let args = zelf.args();
+            Ok(if args.len() == 1 {
                 vm.exception_args_as_string(args, false)
                     .into_iter()
                     .exactly_one()
                     .unwrap()
             } else {
-                exc.__str__(vm)
-            }
+                zelf.__str__(vm)?
+            })
         }
     }
 
@@ -1731,8 +1734,8 @@ pub(super) mod types {
     #[pyexception(with(Constructor, Initializer))]
     impl PyOSError {
         #[pymethod]
-        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            let obj = exc.as_object().to_owned();
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let obj = zelf.as_object();
 
             // Get OSError fields directly
             let errno_field = obj.get_attr("errno", vm).ok().filter(|v| !vm.is_none(v));
@@ -1819,7 +1822,7 @@ pub(super) mod types {
             }
 
             // fallback to BaseException.__str__
-            Ok(exc.__str__(vm))
+            zelf.__str__(vm)
         }
 
         #[pymethod]
@@ -2026,7 +2029,7 @@ pub(super) mod types {
     #[pyexception(with(Initializer))]
     impl PySyntaxError {
         #[pymethod]
-        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
             fn basename(filename: &str) -> &str {
                 let splitted = if cfg!(windows) {
                     filename.rsplit(&['/', '\\']).next()
@@ -2036,16 +2039,16 @@ pub(super) mod types {
                 splitted.unwrap_or(filename)
             }
 
-            let maybe_lineno = exc.as_object().get_attr("lineno", vm).ok().map(|obj| {
+            let maybe_lineno = zelf.as_object().get_attr("lineno", vm).ok().map(|obj| {
                 obj.str(vm)
                     .unwrap_or_else(|_| vm.ctx.new_str("<lineno str() failed>"))
             });
-            let maybe_filename = exc.as_object().get_attr("filename", vm).ok().map(|obj| {
+            let maybe_filename = zelf.as_object().get_attr("filename", vm).ok().map(|obj| {
                 obj.str(vm)
                     .unwrap_or_else(|_| vm.ctx.new_str("<filename str() failed>"))
             });
 
-            let args = exc.args();
+            let args = zelf.args();
 
             let msg = if args.len() == 1 {
                 vm.exception_args_as_string(args, false)
@@ -2053,7 +2056,7 @@ pub(super) mod types {
                     .exactly_one()
                     .unwrap()
             } else {
-                return exc.__str__(vm);
+                return zelf.__str__(vm);
             };
 
             let msg_with_location_info: String = match (maybe_lineno, maybe_filename) {
@@ -2069,7 +2072,7 @@ pub(super) mod types {
                 (None, None) => msg.to_string(),
             };
 
-            vm.ctx.new_str(msg_with_location_info)
+            Ok(vm.ctx.new_str(msg_with_location_info))
         }
     }
 
@@ -2178,29 +2181,32 @@ pub(super) mod types {
     #[pyexception(with(Initializer))]
     impl PyUnicodeDecodeError {
         #[pymethod]
-        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<String> {
-            let Ok(object) = exc.as_object().get_attr("object", vm) else {
-                return Ok("".to_owned());
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let Ok(object) = zelf.as_object().get_attr("object", vm) else {
+                return Ok(vm.ctx.empty_str.to_owned());
             };
             let object: ArgBytesLike = object.try_into_value(vm)?;
-            let encoding: PyStrRef = exc
+            let encoding: PyStrRef = zelf
                 .as_object()
                 .get_attr("encoding", vm)?
                 .try_into_value(vm)?;
-            let start: usize = exc.as_object().get_attr("start", vm)?.try_into_value(vm)?;
-            let end: usize = exc.as_object().get_attr("end", vm)?.try_into_value(vm)?;
-            let reason: PyStrRef = exc.as_object().get_attr("reason", vm)?.try_into_value(vm)?;
-            if start < object.len() && end <= object.len() && end == start + 1 {
+            let start: usize = zelf.as_object().get_attr("start", vm)?.try_into_value(vm)?;
+            let end: usize = zelf.as_object().get_attr("end", vm)?.try_into_value(vm)?;
+            let reason: PyStrRef = zelf
+                .as_object()
+                .get_attr("reason", vm)?
+                .try_into_value(vm)?;
+            Ok(vm.ctx.new_str(if start < object.len() && end <= object.len() && end == start + 1 {
                 let b = object.borrow_buf()[start];
-                Ok(format!(
+                format!(
                     "'{encoding}' codec can't decode byte {b:#02x} in position {start}: {reason}"
-                ))
+                )
             } else {
-                Ok(format!(
+                format!(
                     "'{encoding}' codec can't decode bytes in position {start}-{}: {reason}",
                     end - 1,
-                ))
-            }
+                )
+            }))
         }
     }
 
@@ -2232,30 +2238,33 @@ pub(super) mod types {
     #[pyexception(with(Initializer))]
     impl PyUnicodeEncodeError {
         #[pymethod]
-        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<String> {
-            let Ok(object) = exc.as_object().get_attr("object", vm) else {
-                return Ok("".to_owned());
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let Ok(object) = zelf.as_object().get_attr("object", vm) else {
+                return Ok(vm.ctx.empty_str.to_owned());
             };
             let object: PyStrRef = object.try_into_value(vm)?;
-            let encoding: PyStrRef = exc
+            let encoding: PyStrRef = zelf
                 .as_object()
                 .get_attr("encoding", vm)?
                 .try_into_value(vm)?;
-            let start: usize = exc.as_object().get_attr("start", vm)?.try_into_value(vm)?;
-            let end: usize = exc.as_object().get_attr("end", vm)?.try_into_value(vm)?;
-            let reason: PyStrRef = exc.as_object().get_attr("reason", vm)?.try_into_value(vm)?;
-            if start < object.char_len() && end <= object.char_len() && end == start + 1 {
+            let start: usize = zelf.as_object().get_attr("start", vm)?.try_into_value(vm)?;
+            let end: usize = zelf.as_object().get_attr("end", vm)?.try_into_value(vm)?;
+            let reason: PyStrRef = zelf
+                .as_object()
+                .get_attr("reason", vm)?
+                .try_into_value(vm)?;
+            Ok(vm.ctx.new_str(if start < object.char_len() && end <= object.char_len() && end == start + 1 {
                 let ch = object.as_wtf8().code_points().nth(start).unwrap();
-                Ok(format!(
+                format!(
                     "'{encoding}' codec can't encode character '{}' in position {start}: {reason}",
                     UnicodeEscapeCodepoint(ch)
-                ))
+                )
             } else {
-                Ok(format!(
+                format!(
                     "'{encoding}' codec can't encode characters in position {start}-{}: {reason}",
                     end - 1,
-                ))
-            }
+                )
+            }))
         }
     }
 
@@ -2286,26 +2295,31 @@ pub(super) mod types {
     #[pyexception(with(Initializer))]
     impl PyUnicodeTranslateError {
         #[pymethod]
-        fn __str__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<String> {
-            let Ok(object) = exc.as_object().get_attr("object", vm) else {
-                return Ok("".to_owned());
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let Ok(object) = zelf.as_object().get_attr("object", vm) else {
+                return Ok(vm.ctx.empty_str.to_owned());
             };
             let object: PyStrRef = object.try_into_value(vm)?;
-            let start: usize = exc.as_object().get_attr("start", vm)?.try_into_value(vm)?;
-            let end: usize = exc.as_object().get_attr("end", vm)?.try_into_value(vm)?;
-            let reason: PyStrRef = exc.as_object().get_attr("reason", vm)?.try_into_value(vm)?;
-            if start < object.char_len() && end <= object.char_len() && end == start + 1 {
-                let ch = object.as_wtf8().code_points().nth(start).unwrap();
-                Ok(format!(
-                    "can't translate character '{}' in position {start}: {reason}",
-                    UnicodeEscapeCodepoint(ch)
-                ))
-            } else {
-                Ok(format!(
-                    "can't translate characters in position {start}-{}: {reason}",
-                    end - 1,
-                ))
-            }
+            let start: usize = zelf.as_object().get_attr("start", vm)?.try_into_value(vm)?;
+            let end: usize = zelf.as_object().get_attr("end", vm)?.try_into_value(vm)?;
+            let reason: PyStrRef = zelf
+                .as_object()
+                .get_attr("reason", vm)?
+                .try_into_value(vm)?;
+            Ok(vm.ctx.new_str(
+                if start < object.char_len() && end <= object.char_len() && end == start + 1 {
+                    let ch = object.as_wtf8().code_points().nth(start).unwrap();
+                    format!(
+                        "can't translate character '{}' in position {start}: {reason}",
+                        UnicodeEscapeCodepoint(ch)
+                    )
+                } else {
+                    format!(
+                        "can't translate characters in position {start}-{}: {reason}",
+                        end - 1,
+                    )
+                },
+            ))
         }
     }
 

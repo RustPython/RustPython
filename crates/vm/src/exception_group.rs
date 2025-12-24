@@ -182,7 +182,7 @@ pub(super) mod types {
         }
 
         #[pymethod]
-        fn __str__(zelf: PyRef<PyBaseException>, vm: &VirtualMachine) -> PyResult<String> {
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
             let message = zelf
                 .get_arg(0)
                 .map(|m| m.str(vm))
@@ -196,10 +196,10 @@ pub(super) mod types {
                 .unwrap_or(0);
 
             let suffix = if num_excs == 1 { "" } else { "s" };
-            Ok(format!(
+            Ok(vm.ctx.new_str(format!(
                 "{} ({} sub-exception{})",
                 message, num_excs, suffix
-            ))
+            )))
         }
 
         #[pymethod]

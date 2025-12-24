@@ -529,7 +529,6 @@ impl Py<PyStr> {
 #[pyclass(
     flags(BASETYPE, _MATCH_SELF),
     with(
-        PyRef,
         AsMapping,
         AsNumber,
         AsSequence,
@@ -1448,15 +1447,16 @@ impl PyStr {
     fn __getnewargs__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
         (zelf.as_str(),).to_pyobject(vm)
     }
-}
 
-#[pyclass]
-impl PyRef<PyStr> {
     #[pymethod]
-    fn __str__(self, vm: &VirtualMachine) -> PyRefExact<PyStr> {
-        self.into_exact_or(&vm.ctx, |zelf| {
-            PyStr::from(zelf.data.clone()).into_exact_ref(&vm.ctx)
-        })
+    fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        if zelf.class().is(vm.ctx.types.str_type) {
+            // Already exact str, just return a reference
+            Ok(zelf.to_owned())
+        } else {
+            // Subclass, create a new exact str
+            Ok(PyStr::from(zelf.data.clone()).into_ref(&vm.ctx))
+        }
     }
 }
 
