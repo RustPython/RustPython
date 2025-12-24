@@ -518,3 +518,13 @@ if not sys.platform.startswith("win"):
             if option in ["PC_MAX_CANON", "PC_MAX_INPUT", "PC_VDISABLE"]:
                 continue
         assert os.pathconf("/", index) == os.pathconf("/", option)
+
+# os.access - test with empty path and nonexistent files
+assert os.access("", os.F_OK) is False
+assert os.access("", os.R_OK) is False
+assert os.access("", os.W_OK) is False
+assert os.access("", os.X_OK) is False
+assert os.access("nonexistent_file_12345", os.F_OK) is False
+assert os.access("nonexistent_file_12345", os.W_OK) is False
+assert os.access("README.md", os.F_OK) is True
+assert os.access("README.md", os.R_OK) is True
