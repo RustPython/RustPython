@@ -425,8 +425,8 @@ impl PyBaseObject {
     }
 
     /// Return str(self).
-    #[pymethod]
-    fn __str__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    #[pyslot]
+    fn slot_str(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         // FIXME: try tp_repr first and fallback to object.__repr__
         zelf.repr(vm)
     }

@@ -399,6 +399,7 @@ pub fn init(ctx: &Context) {
 pub enum SlotFunc {
     Init(InitFunc),
     Hash(HashFunc),
+    Str(StringifyFunc),
     Repr(StringifyFunc),
     Iter(IterFunc),
     IterNext(IterNextFunc),
@@ -409,6 +410,7 @@ impl std::fmt::Debug for SlotFunc {
         match self {
             SlotFunc::Init(_) => write!(f, "SlotFunc::Init(...)"),
             SlotFunc::Hash(_) => write!(f, "SlotFunc::Hash(...)"),
+            SlotFunc::Str(_) => write!(f, "SlotFunc::Str(...)"),
             SlotFunc::Repr(_) => write!(f, "SlotFunc::Repr(...)"),
             SlotFunc::Iter(_) => write!(f, "SlotFunc::Iter(...)"),
             SlotFunc::IterNext(_) => write!(f, "SlotFunc::IterNext(...)"),
@@ -433,11 +435,14 @@ impl SlotFunc {
                 let hash = func(&obj, vm)?;
                 Ok(vm.ctx.new_int(hash).into())
             }
-            SlotFunc::Repr(func) => {
+            SlotFunc::Repr(func) | SlotFunc::Str(func) => {
                 if !args.args.is_empty() || !args.kwargs.is_empty() {
-                    return Err(
-                        vm.new_type_error("__repr__() takes no arguments (1 given)".to_owned())
-                    );
+                    let name = match self {
+                        SlotFunc::Repr(_) => "__repr__",
+                        SlotFunc::Str(_) => "__str__",
+                        _ => unreachable!(),
+                    };
+                    return Err(vm.new_type_error(format!("{name}() takes no arguments (1 given)")));
                 }
                 let s = func(&obj, vm)?;
                 Ok(s.into())
