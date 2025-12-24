@@ -118,7 +118,46 @@ impl Constructor for PyBaseObject {
 impl Initializer for PyBaseObject {
     type Args = FuncArgs;
 
-    fn slot_init(_zelf: PyObjectRef, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<()> {
+    // object_init: excess_args validation
+    fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let typ = zelf.class();
+        let object_type = &vm.ctx.types.object_type;
+
+        let typ_init = typ.slots.init.load().map(|f| f as usize);
+        let object_init = object_type.slots.init.load().map(|f| f as usize);
+        let typ_new = typ.slots.new.load().map(|f| f as usize);
+        let object_new = object_type.slots.new.load().map(|f| f as usize);
+
+        // For heap types (Python classes), check if __new__ is defined anywhere in MRO
+        // (before object) because heap types always have slots.new = new_wrapper via MRO
+        let is_heap_type = typ
+            .slots
+            .flags
+            .contains(crate::types::PyTypeFlags::HEAPTYPE);
+        let new_overridden = if is_heap_type {
+            // Check if __new__ is defined in any base class (excluding object)
+            let new_id = identifier!(vm, __new__);
+            typ.mro_collect()
+                .into_iter()
+                .take_while(|t| !std::ptr::eq(t.as_ref(), *object_type))
+                .any(|t| t.attributes.read().contains_key(new_id))
+        } else {
+            // For built-in types, use slot comparison
+            typ_new != object_new
+        };
+
+        // If both __init__ and __new__ are overridden, allow excess args
+        if typ_init != object_init && new_overridden {
+            return Ok(());
+        }
+
+        // Otherwise, reject excess args
+        if !args.is_empty() {
+            return Err(vm.new_type_error(format!(
+                "{}.__init__() takes exactly one argument (the instance to initialize)",
+                typ.name()
+            )));
+        }
         Ok(())
     }
 

@@ -1,7 +1,8 @@
 //! Utilities to define a new Python class
 
 use crate::{
-    builtins::{PyBaseObject, PyType, PyTypeRef},
+    PyPayload,
+    builtins::{PyBaseObject, PyType, PyTypeRef, descriptor::PySlotWrapper},
     function::PyMethodDef,
     object::Py,
     types::{PyTypeFlags, PyTypeSlots, hash_not_implemented},
@@ -132,6 +133,20 @@ pub trait PyClassImpl: PyClassDef {
                     class,
                 );
                 class.set_attr(identifier!(ctx, __new__), bound_new.into());
+            }
+        }
+
+        // Add __init__ slot wrapper if slot exists and not already in dict
+        if let Some(init_func) = class.slots.init.load() {
+            let init_name = identifier!(ctx, __init__);
+            if !class.attributes.read().contains_key(init_name) {
+                let wrapper = PySlotWrapper {
+                    typ: class,
+                    name: ctx.intern_str("__init__"),
+                    wrapped: init_func,
+                    doc: Some("Initialize self. See help(type(self)) for accurate signature."),
+                };
+                class.set_attr(init_name, wrapper.into_ref(ctx).into());
             }
         }
 
