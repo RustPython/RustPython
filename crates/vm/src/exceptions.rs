@@ -9,7 +9,7 @@ use crate::{
     },
     class::{PyClassImpl, StaticType},
     convert::{ToPyException, ToPyObject},
-    function::{ArgIterable, FuncArgs, IntoFuncArgs},
+    function::{ArgIterable, FuncArgs, IntoFuncArgs, PySetterValue},
     py_io::{self, Write},
     stdlib::sys,
     suggestion::offer_suggestions,
@@ -994,7 +994,12 @@ impl ExceptionZoo {
         extend_exception!(PyRecursionError, ctx, excs.recursion_error);
 
         extend_exception!(PySyntaxError, ctx, excs.syntax_error, {
-            "msg" => ctx.new_readonly_getset("msg", excs.syntax_error, make_arg_getter(0)),
+            "msg" => ctx.new_static_getset(
+                "msg",
+                excs.syntax_error,
+                make_arg_getter(0),
+                syntax_error_set_msg,
+            ),
             // TODO: members
             "filename" => ctx.none(),
             "lineno" => ctx.none(),
@@ -1039,6 +1044,23 @@ impl ExceptionZoo {
 
 fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef) -> Option<PyObjectRef> {
     move |exc| exc.get_arg(idx)
+}
+
+fn syntax_error_set_msg(
+    exc: PyBaseExceptionRef,
+    value: PySetterValue,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let value = value.unwrap_or_none(vm);
+    let mut args = exc.args.write();
+    let mut new_args = args.as_slice().to_vec();
+    if new_args.is_empty() {
+        new_args.push(value);
+    } else {
+        new_args[0] = value;
+    }
+    *args = PyTuple::new_ref(new_args, &vm.ctx);
+    Ok(())
 }
 
 fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
@@ -2045,18 +2067,14 @@ pub(super) mod types {
             });
             let maybe_filename = zelf.as_object().get_attr("filename", vm).ok().map(|obj| {
                 obj.str(vm)
-                    .unwrap_or_else(|_| vm.ctx.new_str("<filename str() failed>"))
+                .unwrap_or_else(|_| vm.ctx.new_str("<filename str() failed>"))
             });
 
-            let args = zelf.args();
-
-            let msg = if args.len() == 1 {
-                vm.exception_args_as_string(args, false)
-                    .into_iter()
-                    .exactly_one()
-                    .unwrap()
-            } else {
-                return zelf.__str__(vm);
+            let msg = match zelf.as_object().get_attr("msg", vm) {
+                Ok(obj) => obj
+                    .str(vm)
+                    .unwrap_or_else(|_| vm.ctx.new_str("<msg str() failed>")),
+                Err(_) => return zelf.__str__(vm),
             };
 
             let msg_with_location_info: String = match (maybe_lineno, maybe_filename) {
