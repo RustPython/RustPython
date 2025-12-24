@@ -69,6 +69,7 @@ struct ImplContext {
     getset_items: GetSetNursery,
     extend_slots_items: ItemNursery,
     class_extensions: Vec<TokenStream>,
+    extra_impl_items: Vec<syn::ImplItem>,
     errors: Vec<syn::Error>,
     /// Set when the impl has no generic parameters, so `Self` in argument
     /// types can be replaced before it appears in a nested const.
@@ -223,6 +224,9 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 },
             ];
             imp.items.extend(extra_methods);
+            for item in context.extra_impl_items {
+                imp.items.push(item);
+            }
             // `#[pyclass(...)] impl Py<T>` with attributes is the class impl.
             // A bare `#[pyclass] impl Py<T>` stays a method extension pulled in
             // by `with(Py)` on the payload impl.
@@ -360,6 +364,8 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 },
             ];
             trai.items.extend(extra_methods);
+            // Note: extra_impl_items (like __slot_str__ for __str__) are not added to traits,
+            // because traits define the method signature, not the slot wrapper implementation.
 
             trai.into_token_stream()
         }
@@ -1342,6 +1348,94 @@ where
             args.attrs.push(allow_attr);
         }
 
+        // Special handling for __str__: generate slot wrapper instead of pymethod
+        if py_name == "__str__" {
+            // Validate __str__ signature
+            let sig = func.sig();
+            let params: Vec<_> = sig.inputs.iter().collect();
+
+            // Check parameter count (should be 2: zelf and vm)
+            if params.len() != 2 {
+                return Err(syn::Error::new(
+                    sig.inputs.span(),
+                    format!(
+                        "#[pymethod] __str__ must have exactly 2 parameters (zelf, vm), found {}.\n\
+                         Expected signature: fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef>",
+                        params.len()
+                    ),
+                ));
+            }
+
+            // Check first parameter is a reference (should be &Py<...> or &self for impl Py<T>)
+            if let Some(syn::FnArg::Typed(pat_type)) = params.first() {
+                let ty = &pat_type.ty;
+                let is_reference = matches!(ty.as_ref(), syn::Type::Reference(_));
+                if !is_reference {
+                    return Err(syn::Error::new_spanned(
+                        ty,
+                        "#[pymethod] __str__ first parameter must be a reference type.\n\
+                         Expected: &Py<Self> or &self (for impl Py<T>)\n\
+                         Hint: Use `zelf: &Py<Self>` instead of `PyRef<Self>`",
+                    ));
+                }
+            } else if let Some(syn::FnArg::Receiver(recv)) = params.first() {
+                // &self is allowed for impl Py<T> blocks (where &self == &Py<T>)
+                // self by value is not allowed
+                if recv.reference.is_none() {
+                    return Err(syn::Error::new_spanned(
+                        recv,
+                        "#[pymethod] __str__ cannot take `self` by value.\n\
+                         Expected: fn __str__(zelf: &Py<T>, vm: &VirtualMachine) -> PyResult<PyStrRef>",
+                    ));
+                }
+            }
+
+            // Check return type (should be PyResult<PyStrRef> or PyResult<PyRef<PyStr>>)
+            let valid_return_type = match &sig.output {
+                syn::ReturnType::Type(_, ty) => {
+                    let ty_str = quote!(#ty).to_string().replace(' ', "");
+                    ty_str.contains("PyResult")
+                        && (ty_str.contains("PyStrRef") || ty_str.contains("PyRef<PyStr>"))
+                }
+                syn::ReturnType::Default => false,
+            };
+            if !valid_return_type {
+                return Err(syn::Error::new_spanned(
+                    &sig.output,
+                    "#[pymethod] __str__ must return PyResult<PyStrRef>.\n\
+                     Hint: Use `-> PyResult<PyStrRef>` instead of `-> String` or other types",
+                ));
+            }
+
+            // 1. Generate wrapper function as impl item
+            let wrapper_fn: syn::ImplItem = parse_quote! {
+                fn slot_str(
+                    zelf: &::rustpython_vm::PyObject,
+                    vm: &::rustpython_vm::VirtualMachine,
+                ) -> ::rustpython_vm::PyResult<::rustpython_vm::builtins::PyStrRef> {
+                    let zelf: &::rustpython_vm::Py<_> = zelf.downcast_ref()
+                        .ok_or_else(|| vm.new_type_error("unexpected payload for __str__"))?;
+                    Self::#ident(zelf, vm)
+                }
+            };
+            args.context.extra_impl_items.push(wrapper_fn);
+
+            // 2. Add slot assignment to extend_slots_items
+            let slot_tokens = quote_spanned! { ident.span() =>
+                slots.str.store(Some(Self::slot_str as _));
+            };
+            args.context.extend_slots_items.add_item(
+                ident.clone(),
+                vec!["(slot str)".to_string()],
+                args.cfgs.to_vec(),
+                slot_tokens,
+                2,
+            )?;
+
+            // 3. Don't add to method_items - PySlotWrapper handles dict entry
+            return Ok(());
+        }
+
         let rust_doc = args.attrs.doc();
         let doc = internal_doc_tokens(
             func.sig(),
@@ -1367,6 +1461,7 @@ where
             coexist,
             attr_name: self.inner.attr_name,
         });
+
         Ok(())
     }
 }
