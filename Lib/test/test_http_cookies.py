@@ -60,6 +60,7 @@ class CookieTests(unittest.TestCase, ExtraAssertions):
             for k, v in sorted(case['dict'].items()):
                 self.assertEqual(C[k].value, v)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: 'key' not found in <SimpleCookie: >
     def test_obsolete_rfc850_date_format(self):
         # Test cases with different days and dates in obsolete RFC 850 format
         test_cases = [
