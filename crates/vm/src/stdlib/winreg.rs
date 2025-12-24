@@ -9,7 +9,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 
 #[pymodule]
 mod winreg {
-    use crate::builtins::{PyInt, PyTuple, PyTypeRef};
+    use crate::builtins::{PyInt, PyStr, PyTuple, PyTypeRef};
     use crate::common::hash::PyHash;
     use crate::common::windows::ToWideString;
     use crate::convert::TryFromObject;
@@ -233,8 +233,8 @@ mod winreg {
         }
 
         #[pymethod]
-        fn __str__(&self) -> String {
-            format!("<PyHkey:{:p}>", self.hkey.load())
+        fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
+            Ok(vm.ctx.new_str(format!("<PyHkey:{:p}>", zelf.hkey.load())))
         }
     }
 
@@ -1029,7 +1029,7 @@ mod winreg {
                     return Ok(Some(vec![0u8, 0u8]));
                 }
                 let s = value
-                    .downcast::<crate::builtins::PyStr>()
+                    .downcast::<PyStr>()
                     .map_err(|_| vm.new_type_error("value must be a string".to_string()))?;
                 let wide = s.as_str().to_wide_with_nul();
                 // Convert Vec<u16> to Vec<u8>
@@ -1047,11 +1047,9 @@ mod winreg {
 
                 let mut bytes: Vec<u8> = Vec::new();
                 for item in list.borrow_vec().iter() {
-                    let s = item
-                        .downcast_ref::<crate::builtins::PyStr>()
-                        .ok_or_else(|| {
-                            vm.new_type_error("list items must be strings".to_string())
-                        })?;
+                    let s = item.downcast_ref::<PyStr>().ok_or_else(|| {
+                        vm.new_type_error("list items must be strings".to_string())
+                    })?;
                     let wide = s.as_str().to_wide_with_nul();
                     bytes.extend(wide.iter().flat_map(|&c| c.to_le_bytes()));
                 }
