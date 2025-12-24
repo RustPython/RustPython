@@ -1240,6 +1240,12 @@ pub mod module {
             .map_err(|err| err.into_pyexception(vm))
     }
 
+    #[pyfunction]
+    fn setpgrp(vm: &VirtualMachine) -> PyResult<()> {
+        // setpgrp() is equivalent to setpgid(0, 0)
+        unistd::setpgid(Pid::from_raw(0), Pid::from_raw(0)).map_err(|err| err.into_pyexception(vm))
+    }
+
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyfunction]
     fn setsid(vm: &VirtualMachine) -> PyResult<()> {
