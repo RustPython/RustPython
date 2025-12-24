@@ -7,7 +7,7 @@ use crate::{
     function::{FuncArgs, PyMethodDef, PyMethodFlags, PySetterValue},
     types::{
         Callable, Comparable, GetDescriptor, HashFunc, Hashable, InitFunc, PyComparisonOp,
-        Representable,
+        Representable, StringifyFunc,
     },
 };
 use rustpython_common::lock::PyRwLock;
@@ -398,6 +398,7 @@ pub fn init(ctx: &Context) {
 pub enum SlotFunc {
     Init(InitFunc),
     Hash(HashFunc),
+    Repr(StringifyFunc),
 }
 
 impl std::fmt::Debug for SlotFunc {
@@ -405,6 +406,7 @@ impl std::fmt::Debug for SlotFunc {
         match self {
             SlotFunc::Init(_) => write!(f, "SlotFunc::Init(...)"),
             SlotFunc::Hash(_) => write!(f, "SlotFunc::Hash(...)"),
+            SlotFunc::Repr(_) => write!(f, "SlotFunc::Repr(...)"),
         }
     }
 }
@@ -425,6 +427,15 @@ impl SlotFunc {
                 }
                 let hash = func(&obj, vm)?;
                 Ok(vm.ctx.new_int(hash).into())
+            }
+            SlotFunc::Repr(func) => {
+                if !args.args.is_empty() || !args.kwargs.is_empty() {
+                    return Err(
+                        vm.new_type_error("__repr__() takes no arguments (1 given)".to_owned())
+                    );
+                }
+                let s = func(&obj, vm)?;
+                Ok(s.into())
             }
         }
     }
@@ -456,7 +467,6 @@ impl GetDescriptor for PySlotWrapper {
     ) -> PyResult {
         match obj {
             None => Ok(zelf),
-            Some(obj) if vm.is_none(&obj) => Ok(zelf),
             Some(obj) => {
                 let zelf = zelf.downcast::<Self>().unwrap();
                 Ok(PyMethodWrapper { wrapper: zelf, obj }.into_pyobject(vm))
