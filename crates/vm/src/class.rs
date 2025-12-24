@@ -139,52 +139,50 @@ pub trait PyClassImpl: PyClassDef {
             }
         }
 
-        // Add __init__ slot wrapper if slot exists and not already in dict
-        if let Some(init_func) = class.slots.init.load() {
-            let init_name = identifier!(ctx, __init__);
-            if !class.attributes.read().contains_key(init_name) {
-                let wrapper = PySlotWrapper {
-                    typ: class,
-                    name: ctx.intern_str("__init__"),
-                    wrapped: SlotFunc::Init(init_func),
-                    doc: Some("Initialize self. See help(type(self)) for accurate signature."),
-                };
-                class.set_attr(init_name, wrapper.into_ref(ctx).into());
-            }
+        // Add slot wrappers for slots that exist and are not already in dict
+        // This mirrors CPython's add_operators() in typeobject.c
+        macro_rules! add_slot_wrapper {
+            ($slot:ident, $name:ident, $variant:ident, $doc:expr) => {
+                if let Some(func) = class.slots.$slot.load() {
+                    let attr_name = identifier!(ctx, $name);
+                    if !class.attributes.read().contains_key(attr_name) {
+                        let wrapper = PySlotWrapper {
+                            typ: class,
+                            name: ctx.intern_str(stringify!($name)),
+                            wrapped: SlotFunc::$variant(func),
+                            doc: Some($doc),
+                        };
+                        class.set_attr(attr_name, wrapper.into_ref(ctx).into());
+                    }
+                }
+            };
         }
 
-        // Add __hash__ slot wrapper if slot exists and not already in dict
-        // Note: hash_not_implemented is handled separately (sets __hash__ = None)
-        if let Some(hash_func) = class.slots.hash.load()
-            && hash_func as usize != hash_not_implemented as usize
-        {
-            let hash_name = identifier!(ctx, __hash__);
-            if !class.attributes.read().contains_key(hash_name) {
-                let wrapper = PySlotWrapper {
-                    typ: class,
-                    name: ctx.intern_str("__hash__"),
-                    wrapped: SlotFunc::Hash(hash_func),
-                    doc: Some("Return hash(self)."),
-                };
-                class.set_attr(hash_name, wrapper.into_ref(ctx).into());
-            }
-        }
+        add_slot_wrapper!(
+            init,
+            __init__,
+            Init,
+            "Initialize self.  See help(type(self)) for accurate signature."
+        );
+        add_slot_wrapper!(repr, __repr__, Repr, "Return repr(self).");
+        add_slot_wrapper!(iter, __iter__, Iter, "Implement iter(self).");
+        add_slot_wrapper!(iternext, __next__, IterNext, "Implement next(self).");
 
-        if class.slots.hash.load().map_or(0, |h| h as usize) == hash_not_implemented as usize {
-            class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
-        }
-
-        // Add __repr__ slot wrapper if slot exists and not already in dict
-        if let Some(repr_func) = class.slots.repr.load() {
-            let repr_name = identifier!(ctx, __repr__);
-            if !class.attributes.read().contains_key(repr_name) {
-                let wrapper = PySlotWrapper {
-                    typ: class,
-                    name: ctx.intern_str("__repr__"),
-                    wrapped: SlotFunc::Repr(repr_func),
-                    doc: Some("Return repr(self)."),
-                };
-                class.set_attr(repr_name, wrapper.into_ref(ctx).into());
+        // __hash__ needs special handling: hash_not_implemented sets __hash__ = None
+        if let Some(hash_func) = class.slots.hash.load() {
+            if hash_func as usize == hash_not_implemented as usize {
+                class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
+            } else {
+                let hash_name = identifier!(ctx, __hash__);
+                if !class.attributes.read().contains_key(hash_name) {
+                    let wrapper = PySlotWrapper {
+                        typ: class,
+                        name: ctx.intern_str("__hash__"),
+                        wrapped: SlotFunc::Hash(hash_func),
+                        doc: Some("Return hash(self)."),
+                    };
+                    class.set_attr(hash_name, wrapper.into_ref(ctx).into());
+                }
             }
         }
 

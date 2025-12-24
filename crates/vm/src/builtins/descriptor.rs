@@ -4,10 +4,11 @@ use crate::{
     builtins::{PyTypeRef, builtin_func::PyNativeMethod, type_},
     class::PyClassImpl,
     common::hash::PyHash,
+    convert::ToPyResult,
     function::{FuncArgs, PyMethodDef, PyMethodFlags, PySetterValue},
     types::{
-        Callable, Comparable, GetDescriptor, HashFunc, Hashable, InitFunc, PyComparisonOp,
-        Representable, StringifyFunc,
+        Callable, Comparable, GetDescriptor, HashFunc, Hashable, InitFunc, IterFunc, IterNextFunc,
+        PyComparisonOp, Representable, StringifyFunc,
     },
 };
 use rustpython_common::lock::PyRwLock;
@@ -399,6 +400,8 @@ pub enum SlotFunc {
     Init(InitFunc),
     Hash(HashFunc),
     Repr(StringifyFunc),
+    Iter(IterFunc),
+    IterNext(IterNextFunc),
 }
 
 impl std::fmt::Debug for SlotFunc {
@@ -407,6 +410,8 @@ impl std::fmt::Debug for SlotFunc {
             SlotFunc::Init(_) => write!(f, "SlotFunc::Init(...)"),
             SlotFunc::Hash(_) => write!(f, "SlotFunc::Hash(...)"),
             SlotFunc::Repr(_) => write!(f, "SlotFunc::Repr(...)"),
+            SlotFunc::Iter(_) => write!(f, "SlotFunc::Iter(...)"),
+            SlotFunc::IterNext(_) => write!(f, "SlotFunc::IterNext(...)"),
         }
     }
 }
@@ -436,6 +441,22 @@ impl SlotFunc {
                 }
                 let s = func(&obj, vm)?;
                 Ok(s.into())
+            }
+            SlotFunc::Iter(func) => {
+                if !args.args.is_empty() || !args.kwargs.is_empty() {
+                    return Err(
+                        vm.new_type_error("__iter__() takes no arguments (1 given)".to_owned())
+                    );
+                }
+                func(obj, vm)
+            }
+            SlotFunc::IterNext(func) => {
+                if !args.args.is_empty() || !args.kwargs.is_empty() {
+                    return Err(
+                        vm.new_type_error("__next__() takes no arguments (1 given)".to_owned())
+                    );
+                }
+                func(&obj, vm).to_pyresult(vm)
             }
         }
     }
