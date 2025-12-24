@@ -1105,10 +1105,13 @@ impl Node for ruff::StmtImportFrom {
                 source_file,
                 get_node_field(vm, &_object, "names", "ImportFrom")?,
             )?,
-            level: get_node_field(vm, &_object, "level", "ImportFrom")?
-                .downcast_exact::<PyInt>(vm)
-                .unwrap()
-                .try_to_primitive::<u32>(vm)?,
+            level: get_node_field_opt(vm, &_object, "level")?
+                .map(|obj| -> PyResult<u32> {
+                    let int: PyRef<PyInt> = obj.try_into_value(vm)?;
+                    int.try_to_primitive(vm)
+                })
+                .transpose()?
+                .unwrap_or(0),
             range: range_from_object(vm, source_file, _object, "ImportFrom")?,
         })
     }

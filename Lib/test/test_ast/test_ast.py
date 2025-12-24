@@ -191,7 +191,6 @@ class AST_Tests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     compile(tree, "<string>", "exec")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_compilation_of_ast_nodes_with_default_end_position_values(self):
         tree = ast.Module(
             body=[
@@ -212,7 +211,6 @@ class AST_Tests(unittest.TestCase):
         # Check that compilation doesn't crash. Note: this may crash explicitly only on debug mode.
         compile(tree, "<string>", "exec")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: required field "end_lineno" missing from alias
     def test_negative_locations_for_compile(self):
         # See https://github.com/python/cpython/issues/130775
         alias = ast.alias(name='traceback', lineno=0, col_offset=0)
@@ -1725,7 +1723,6 @@ Module(
             compile(mod, "test", "exec")
         self.assertIn("invalid integer value: None", str(cm.exception))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_level_as_none(self):
         body = [
             ast.ImportFrom(
