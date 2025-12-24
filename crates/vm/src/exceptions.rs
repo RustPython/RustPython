@@ -1051,13 +1051,15 @@ fn syntax_error_set_msg(
     value: PySetterValue,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    let value = value.unwrap_or_none(vm);
     let mut args = exc.args.write();
     let mut new_args = args.as_slice().to_vec();
+    // Ensure the message slot at index 0 always exists for SyntaxError.args.
     if new_args.is_empty() {
-        new_args.push(value);
-    } else {
-        new_args[0] = value;
+        new_args.push(vm.ctx.none());
+    }
+    match value {
+        PySetterValue::Assign(value) => new_args[0] = value,
+        PySetterValue::Delete => new_args[0] = vm.ctx.none(),
     }
     *args = PyTuple::new_ref(new_args, &vm.ctx);
     Ok(())
@@ -2067,14 +2069,17 @@ pub(super) mod types {
             });
             let maybe_filename = zelf.as_object().get_attr("filename", vm).ok().map(|obj| {
                 obj.str(vm)
-                .unwrap_or_else(|_| vm.ctx.new_str("<filename str() failed>"))
+                    .unwrap_or_else(|_| vm.ctx.new_str("<filename str() failed>"))
             });
 
             let msg = match zelf.as_object().get_attr("msg", vm) {
                 Ok(obj) => obj
                     .str(vm)
                     .unwrap_or_else(|_| vm.ctx.new_str("<msg str() failed>")),
-                Err(_) => return zelf.__str__(vm),
+                Err(_) => {
+                    // Fallback to the base formatting if the msg attribute was deleted or attribute lookup fails for any reason.
+                    return Py::<PyBaseException>::__str__(zelf, vm);
+                }
             };
 
             let msg_with_location_info: String = match (maybe_lineno, maybe_filename) {
