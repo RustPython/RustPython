@@ -85,6 +85,13 @@ assert exc.lineno is None
 assert exc.offset is None
 assert exc.text is None
 
+err = SyntaxError("bad bad", ("bad.py", 1, 2, "abcdefg"))
+err.msg = "changed"
+assert err.msg == "changed"
+assert str(err) == "changed (bad.py, line 1)"
+del err.msg
+assert err.msg is None
+
 # Regression to:
 # https://github.com/RustPython/RustPython/issues/2779
 
