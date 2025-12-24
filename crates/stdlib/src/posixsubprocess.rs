@@ -33,9 +33,6 @@ mod _posixsubprocess {
 
     #[pyfunction]
     fn fork_exec(args: ForkExecArgs<'_>, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
-        if args.preexec_fn.is_some() {
-            return Err(vm.new_not_implemented_error("preexec_fn not supported yet"));
-        }
         let extra_groups = args
             .groups_list
             .as_ref()
@@ -49,7 +46,7 @@ mod _posixsubprocess {
             extra_groups: extra_groups.as_deref(),
         };
         match unsafe { nix::unistd::fork() }.map_err(|err| err.into_pyexception(vm))? {
-            nix::unistd::ForkResult::Child => exec(&args, procargs),
+            nix::unistd::ForkResult::Child => exec(&args, procargs, vm),
             nix::unistd::ForkResult::Parent { child } => Ok(child.as_raw()),
         }
     }
@@ -227,13 +224,19 @@ struct ProcArgs<'a> {
     extra_groups: Option<&'a [Gid]>,
 }
 
-fn exec(args: &ForkExecArgs<'_>, procargs: ProcArgs<'_>) -> ! {
+fn exec(args: &ForkExecArgs<'_>, procargs: ProcArgs<'_>, vm: &VirtualMachine) -> ! {
     let mut ctx = ExecErrorContext::NoExec;
-    match exec_inner(args, procargs, &mut ctx) {
+    match exec_inner(args, procargs, &mut ctx, vm) {
         Ok(x) => match x {},
         Err(e) => {
             let mut pipe = args.errpipe_write;
-            let _ = write!(pipe, "OSError:{}:{}", e as i32, ctx.as_msg());
+            if matches!(ctx, ExecErrorContext::PreExec) {
+                // For preexec_fn errors, use SubprocessError format (errno=0)
+                let _ = write!(pipe, "SubprocessError:0:{}", ctx.as_msg());
+            } else {
+                // errno is written in hex format
+                let _ = write!(pipe, "OSError:{:x}:{}", e as i32, ctx.as_msg());
+            }
             std::process::exit(255)
         }
     }
@@ -242,6 +245,7 @@ fn exec(args: &ForkExecArgs<'_>, procargs: ProcArgs<'_>) -> ! {
 enum ExecErrorContext {
     NoExec,
     ChDir,
+    PreExec,
     Exec,
 }
 
@@ -250,6 +254,7 @@ impl ExecErrorContext {
         match self {
             Self::NoExec => "noexec",
             Self::ChDir => "noexec:chdir",
+            Self::PreExec => "Exception occurred in preexec_fn.",
             Self::Exec => "",
         }
     }
@@ -259,6 +264,7 @@ fn exec_inner(
     args: &ForkExecArgs<'_>,
     procargs: ProcArgs<'_>,
     ctx: &mut ExecErrorContext,
+    vm: &VirtualMachine,
 ) -> nix::Result<Never> {
     for &fd in args.fds_to_keep.as_slice() {
         if fd.as_raw_fd() != args.errpipe_write.as_raw_fd() {
@@ -343,6 +349,18 @@ fn exec_inner(
     if let Some(uid) = args.uid.filter(|x| x.as_raw() != u32::MAX) {
         let ret = unsafe { libc::setreuid(uid.as_raw(), uid.as_raw()) };
         nix::Error::result(ret)?;
+    }
+
+    // Call preexec_fn after all process setup but before closing FDs
+    if let Some(ref preexec_fn) = args.preexec_fn {
+        match preexec_fn.call((), vm) {
+            Ok(_) => {}
+            Err(_e) => {
+                // Cannot safely stringify exception after fork
+                *ctx = ExecErrorContext::PreExec;
+                return Err(Errno::UnknownErrno);
+            }
+        }
     }
 
     *ctx = ExecErrorContext::Exec;
