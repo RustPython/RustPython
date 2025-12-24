@@ -17,6 +17,7 @@ pub(crate) mod module {
         builtins::{PyBaseExceptionRef, PyDictRef, PyListRef, PyStrRef, PyTupleRef},
         common::{crt_fd, suppress_iph, windows::ToWideString},
         convert::ToPyException,
+        exceptions::OSErrorBuilder,
         function::{Either, OptionalArg},
         ospath::{OsPath, OsPathOrFd},
         stdlib::os::{_os, DirFd, SupportFunc, TargetIsDirectory},
@@ -193,10 +194,12 @@ pub(crate) mod module {
         };
 
         // Use symlink_metadata to avoid following dangling symlinks
-        let meta = fs::symlink_metadata(&actual_path).map_err(|err| err.to_pyexception(vm))?;
+        let meta = fs::symlink_metadata(&actual_path)
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
         let mut permissions = meta.permissions();
         permissions.set_readonly(mode & S_IWRITE == 0);
-        fs::set_permissions(&*actual_path, permissions).map_err(|err| err.to_pyexception(vm))
+        fs::set_permissions(&*actual_path, permissions)
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     /// Get the real file name (with correct case) without accessing the file.
@@ -1602,7 +1605,11 @@ pub(crate) mod module {
         };
 
         if handle == INVALID_HANDLE_VALUE {
-            return Err(io::Error::last_os_error().to_pyexception(vm));
+            return Err(OSErrorBuilder::with_filename(
+                &io::Error::last_os_error(),
+                path.clone(),
+                vm,
+            ));
         }
 
         // Buffer for reparse data - MAXIMUM_REPARSE_DATA_BUFFER_SIZE is 16384
@@ -1626,7 +1633,11 @@ pub(crate) mod module {
         unsafe { CloseHandle(handle) };
 
         if result == 0 {
-            return Err(io::Error::last_os_error().to_pyexception(vm));
+            return Err(OSErrorBuilder::with_filename(
+                &io::Error::last_os_error(),
+                path.clone(),
+                vm,
+            ));
         }
 
         // Parse the reparse data buffer
