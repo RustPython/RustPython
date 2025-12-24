@@ -579,7 +579,9 @@ pub(crate) mod _ctypes {
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         // Default mode: RTLD_NOW | RTLD_LOCAL, always force RTLD_NOW
-        let mode = load_flags.unwrap_or(libc::RTLD_NOW | libc::RTLD_LOCAL) | libc::RTLD_NOW;
+        let mode = load_flags
+            .map(|m| m | libc::RTLD_NOW)
+            .unwrap_or(libc::RTLD_NOW | libc::RTLD_LOCAL);
 
         match name {
             Some(name) => {
@@ -641,6 +643,13 @@ pub(crate) mod _ctypes {
         name: crate::builtins::PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
+        // Validate the handle exists in the library cache before calling dlsym
+        let cache = library::libcache().read();
+        if cache.get_lib(handle).is_none() {
+            return Err(vm.new_os_error("invalid library handle"));
+        }
+        drop(cache);
+
         let symbol_name = std::ffi::CString::new(name.as_str())
             .map_err(|_| vm.new_value_error("symbol name contains null byte"))?;
 
