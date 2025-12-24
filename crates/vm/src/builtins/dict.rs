@@ -70,13 +70,21 @@ impl PyDict {
             Err(other) => other,
         };
         let dict = &self.entries;
-        if let Some(keys) = vm.get_method(other.clone(), vm.ctx.intern_str("keys")) {
-            let keys = keys?.call((), vm)?.get_iter(vm)?;
-            while let PyIterReturn::Return(key) = keys.next(vm)? {
-                let val = other.get_item(&*key, vm)?;
-                dict.insert(vm, &*key, val)?;
+        // Use get_attr to properly invoke __getattribute__ for proxy objects
+        let keys_result = other.get_attr(vm.ctx.intern_str("keys"), vm);
+        let has_keys = match keys_result {
+            Ok(keys_method) => {
+                let keys = keys_method.call((), vm)?.get_iter(vm)?;
+                while let PyIterReturn::Return(key) = keys.next(vm)? {
+                    let val = other.get_item(&*key, vm)?;
+                    dict.insert(vm, &*key, val)?;
+                }
+                true
             }
-        } else {
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => false,
+            Err(e) => return Err(e),
+        };
+        if !has_keys {
             let iter = other.get_iter(vm)?;
             loop {
                 fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
