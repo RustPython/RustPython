@@ -165,25 +165,15 @@ pub trait PyClassImpl: PyClassDef {
             "Initialize self.  See help(type(self)) for accurate signature."
         );
         add_slot_wrapper!(repr, __repr__, Repr, "Return repr(self).");
+        add_slot_wrapper!(str, __str__, Str, "Return str(self).");
         add_slot_wrapper!(iter, __iter__, Iter, "Implement iter(self).");
         add_slot_wrapper!(iternext, __next__, IterNext, "Implement next(self).");
 
         // __hash__ needs special handling: hash_not_implemented sets __hash__ = None
-        if let Some(hash_func) = class.slots.hash.load() {
-            if hash_func as usize == hash_not_implemented as usize {
-                class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
-            } else {
-                let hash_name = identifier!(ctx, __hash__);
-                if !class.attributes.read().contains_key(hash_name) {
-                    let wrapper = PySlotWrapper {
-                        typ: class,
-                        name: ctx.intern_str("__hash__"),
-                        wrapped: SlotFunc::Hash(hash_func),
-                        doc: Some("Return hash(self)."),
-                    };
-                    class.set_attr(hash_name, wrapper.into_ref(ctx).into());
-                }
-            }
+        if class.slots.hash.load().map_or(0, |h| h as usize) == hash_not_implemented as usize {
+            class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
+        } else {
+            add_slot_wrapper!(hash, __hash__, Hash, "Return hash(self).");
         }
 
         class.extend_methods(class.slots.methods, ctx);
