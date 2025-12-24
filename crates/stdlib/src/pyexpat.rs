@@ -31,7 +31,10 @@ macro_rules! create_bool_property {
             $name,
             $class,
             move |this: &PyExpatLikeXmlParser| this.$element.read().clone(),
-            move |this: &PyExpatLikeXmlParser, value: PyObjectRef, vm: &VirtualMachine| -> PyResult<()> {
+            move |this: &PyExpatLikeXmlParser,
+                  value: PyObjectRef,
+                  vm: &VirtualMachine|
+                  -> PyResult<()> {
                 let bool_value = value.is_true(vm)?;
                 *this.$element.write() = vm.ctx.new_bool(bool_value).into();
                 Ok(())
@@ -155,29 +158,119 @@ mod _pyexpat {
             );
             create_property!(ctx, attributes, "EntityDeclHandler", class, entity_decl);
             create_bool_property!(ctx, attributes, "buffer_text", class, buffer_text);
-            create_bool_property!(ctx, attributes, "namespace_prefixes", class, namespace_prefixes);
-            create_bool_property!(ctx, attributes, "ordered_attributes", class, ordered_attributes);
-            create_bool_property!(ctx, attributes, "specified_attributes", class, specified_attributes);
+            create_bool_property!(
+                ctx,
+                attributes,
+                "namespace_prefixes",
+                class,
+                namespace_prefixes
+            );
+            create_bool_property!(
+                ctx,
+                attributes,
+                "ordered_attributes",
+                class,
+                ordered_attributes
+            );
+            create_bool_property!(
+                ctx,
+                attributes,
+                "specified_attributes",
+                class,
+                specified_attributes
+            );
             create_property!(ctx, attributes, "intern", class, intern);
             // Additional handlers (stubs for compatibility)
-            create_property!(ctx, attributes, "ProcessingInstructionHandler", class, processing_instruction);
-            create_property!(ctx, attributes, "UnparsedEntityDeclHandler", class, unparsed_entity_decl);
+            create_property!(
+                ctx,
+                attributes,
+                "ProcessingInstructionHandler",
+                class,
+                processing_instruction
+            );
+            create_property!(
+                ctx,
+                attributes,
+                "UnparsedEntityDeclHandler",
+                class,
+                unparsed_entity_decl
+            );
             create_property!(ctx, attributes, "NotationDeclHandler", class, notation_decl);
-            create_property!(ctx, attributes, "StartNamespaceDeclHandler", class, start_namespace_decl);
-            create_property!(ctx, attributes, "EndNamespaceDeclHandler", class, end_namespace_decl);
+            create_property!(
+                ctx,
+                attributes,
+                "StartNamespaceDeclHandler",
+                class,
+                start_namespace_decl
+            );
+            create_property!(
+                ctx,
+                attributes,
+                "EndNamespaceDeclHandler",
+                class,
+                end_namespace_decl
+            );
             create_property!(ctx, attributes, "CommentHandler", class, comment);
-            create_property!(ctx, attributes, "StartCdataSectionHandler", class, start_cdata_section);
-            create_property!(ctx, attributes, "EndCdataSectionHandler", class, end_cdata_section);
+            create_property!(
+                ctx,
+                attributes,
+                "StartCdataSectionHandler",
+                class,
+                start_cdata_section
+            );
+            create_property!(
+                ctx,
+                attributes,
+                "EndCdataSectionHandler",
+                class,
+                end_cdata_section
+            );
             create_property!(ctx, attributes, "DefaultHandler", class, default);
-            create_property!(ctx, attributes, "DefaultHandlerExpand", class, default_expand);
-            create_property!(ctx, attributes, "NotStandaloneHandler", class, not_standalone);
-            create_property!(ctx, attributes, "ExternalEntityRefHandler", class, external_entity_ref);
-            create_property!(ctx, attributes, "StartDoctypeDeclHandler", class, start_doctype_decl);
-            create_property!(ctx, attributes, "EndDoctypeDeclHandler", class, end_doctype_decl);
+            create_property!(
+                ctx,
+                attributes,
+                "DefaultHandlerExpand",
+                class,
+                default_expand
+            );
+            create_property!(
+                ctx,
+                attributes,
+                "NotStandaloneHandler",
+                class,
+                not_standalone
+            );
+            create_property!(
+                ctx,
+                attributes,
+                "ExternalEntityRefHandler",
+                class,
+                external_entity_ref
+            );
+            create_property!(
+                ctx,
+                attributes,
+                "StartDoctypeDeclHandler",
+                class,
+                start_doctype_decl
+            );
+            create_property!(
+                ctx,
+                attributes,
+                "EndDoctypeDeclHandler",
+                class,
+                end_doctype_decl
+            );
             create_property!(ctx, attributes, "XmlDeclHandler", class, xml_decl);
             create_property!(ctx, attributes, "ElementDeclHandler", class, element_decl);
             create_property!(ctx, attributes, "AttlistDeclHandler", class, attlist_decl);
-            create_property!(ctx, attributes, "SkippedEntityHandler", class, skipped_entity);
+            create_property!(
+                ctx,
+                attributes,
+                "SkippedEntityHandler",
+                class,
+                skipped_entity
+            );
         }
 
         fn create_config(&self) -> xml::ParserConfig {
