@@ -1857,6 +1857,8 @@ pub mod module {
             SupportFunc::new("umask", Some(false), Some(false), Some(false)),
             SupportFunc::new("execv", None, None, None),
             SupportFunc::new("pathconf", Some(true), None, None),
+            SupportFunc::new("fpathconf", Some(true), None, None),
+            SupportFunc::new("fchdir", Some(true), None, None),
         ]
     }
 

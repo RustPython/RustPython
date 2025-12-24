@@ -641,6 +641,7 @@ pub(super) mod _os {
                     OsPath {
                         path: self.pathval.as_os_str().to_owned(),
                         mode: OutputMode::String,
+                        origin: None,
                     }
                     .into(),
                     dir_fd,
@@ -730,6 +731,11 @@ pub(super) mod _os {
         ) -> PyGenericAlias {
             PyGenericAlias::from_args(cls, args, vm)
         }
+
+        #[pymethod]
+        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("cannot pickle 'DirEntry' object".to_owned()))
+        }
     }
 
     impl Representable for DirEntry {
@@ -784,6 +790,11 @@ pub(super) mod _os {
         #[pymethod]
         fn __exit__(zelf: PyRef<Self>, _args: FuncArgs) {
             zelf.close()
+        }
+
+        #[pymethod]
+        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("cannot pickle 'ScandirIterator' object".to_owned()))
         }
     }
     impl SelfIter for ScandirIterator {}
@@ -1708,6 +1719,8 @@ pub(super) mod _os {
             SupportFunc::new("fstat", Some(true), Some(STAT_DIR_FD), Some(true)),
             SupportFunc::new("symlink", Some(false), Some(SYMLINK_DIR_FD), Some(false)),
             SupportFunc::new("truncate", Some(true), Some(false), Some(false)),
+            SupportFunc::new("ftruncate", Some(true), Some(false), Some(false)),
+            SupportFunc::new("fsync", Some(true), Some(false), Some(false)),
             SupportFunc::new(
                 "utime",
                 Some(false),

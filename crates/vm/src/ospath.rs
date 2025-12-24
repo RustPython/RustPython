@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 pub struct OsPath {
     pub path: std::ffi::OsString,
     pub(super) mode: OutputMode,
+    /// Original Python object for identity preservation in OSError
+    pub(super) origin: Option<PyObjectRef>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -41,16 +43,21 @@ impl OsPath {
         Self {
             path,
             mode: OutputMode::String,
+            origin: None,
         }
     }
 
     pub(crate) fn from_fspath(fspath: FsPath, vm: &VirtualMachine) -> PyResult<Self> {
         let path = fspath.as_os_str(vm)?.into_owned();
-        let mode = match fspath {
-            FsPath::Str(_) => OutputMode::String,
-            FsPath::Bytes(_) => OutputMode::Bytes,
+        let (mode, origin) = match fspath {
+            FsPath::Str(s) => (OutputMode::String, s.into()),
+            FsPath::Bytes(b) => (OutputMode::Bytes, b.into()),
         };
-        Ok(Self { path, mode })
+        Ok(Self {
+            path,
+            mode,
+            origin: Some(origin),
+        })
     }
 
     /// Convert an object to OsPath using the os.fspath-style error message.
@@ -83,7 +90,11 @@ impl OsPath {
     }
 
     pub fn filename(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.mode.process_path(self.path.clone(), vm)
+        if let Some(ref origin) = self.origin {
+            origin.clone()
+        } else {
+            self.mode.process_path(self.path.clone(), vm)
+        }
     }
 }
 
@@ -94,14 +105,9 @@ impl AsRef<Path> for OsPath {
 }
 
 impl TryFromObject for OsPath {
-    // TODO: path_converter with allow_fd=0 in CPython
+    // path_converter with allow_fd=0
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let fspath = FsPath::try_from(
-            obj,
-            true,
-            "should be string, bytes, os.PathLike or integer",
-            vm,
-        )?;
+        let fspath = FsPath::try_from(obj, true, "should be string, bytes or os.PathLike", vm)?;
         Self::from_fspath(fspath, vm)
     }
 }
