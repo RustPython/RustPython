@@ -9,7 +9,7 @@ CHECKPOINT_PATH = str(Path(__file__).with_suffix(".rpsnap"))
 
 # 第一段逻辑：准备变量和上下文
 print("[run] phase=init")
-user = "alice"
+user = "Tony"
 amount = 120
 items = [f"item_{idx}" for idx in range(3)]
 analysis = {"score": 0.6, "summary": "score=0.6"}

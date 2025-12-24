@@ -22,6 +22,20 @@
 ./target/release/rustpython --resume examples/breakpoint_resume_demo/demo.rpsnap examples/breakpoint_resume_demo/demo.py
 ```
 
+## 测试程序
+
+可直接运行自动化测试脚本验证断点续跑是否正常：
+
+```
+./target/release/rustpython examples/breakpoint_resume_demo/test_checkpoint.py
+```
+
+如需指定 rustpython 可执行文件路径：
+
+```
+./target/release/rustpython examples/breakpoint_resume_demo/test_checkpoint.py --bin /path/to/rustpython
+```
+
 ## 断点文件
 
 断点状态保存在：
