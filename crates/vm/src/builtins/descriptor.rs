@@ -6,7 +6,8 @@ use crate::{
     common::hash::PyHash,
     function::{FuncArgs, PyMethodDef, PyMethodFlags, PySetterValue},
     types::{
-        Callable, Comparable, GetDescriptor, Hashable, InitFunc, PyComparisonOp, Representable,
+        Callable, Comparable, GetDescriptor, HashFunc, Hashable, InitFunc, PyComparisonOp,
+        Representable,
     },
 };
 use rustpython_common::lock::PyRwLock;
@@ -391,6 +392,44 @@ pub fn init(ctx: &Context) {
 
 // PySlotWrapper - wrapper_descriptor
 
+/// Type-erased slot function - mirrors CPython's void* d_wrapped
+/// Each variant knows how to call the wrapped function with proper types
+#[derive(Clone, Copy)]
+pub enum SlotFunc {
+    Init(InitFunc),
+    Hash(HashFunc),
+}
+
+impl std::fmt::Debug for SlotFunc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SlotFunc::Init(_) => write!(f, "SlotFunc::Init(...)"),
+            SlotFunc::Hash(_) => write!(f, "SlotFunc::Hash(...)"),
+        }
+    }
+}
+
+impl SlotFunc {
+    /// Call the wrapped slot function with proper type handling
+    pub fn call(&self, obj: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        match self {
+            SlotFunc::Init(func) => {
+                func(obj, args, vm)?;
+                Ok(vm.ctx.none())
+            }
+            SlotFunc::Hash(func) => {
+                if !args.args.is_empty() || !args.kwargs.is_empty() {
+                    return Err(
+                        vm.new_type_error("__hash__() takes no arguments (1 given)".to_owned())
+                    );
+                }
+                let hash = func(&obj, vm)?;
+                Ok(vm.ctx.new_int(hash).into())
+            }
+        }
+    }
+}
+
 /// wrapper_descriptor: wraps a slot function as a Python method
 // = PyWrapperDescrObject
 #[pyclass(name = "wrapper_descriptor", module = false)]
@@ -398,7 +437,7 @@ pub fn init(ctx: &Context) {
 pub struct PySlotWrapper {
     pub typ: &'static Py<PyType>,
     pub name: &'static PyStrInterned,
-    pub wrapped: InitFunc,
+    pub wrapped: SlotFunc,
     pub doc: Option<&'static str>,
 }
 
@@ -430,7 +469,7 @@ impl Callable for PySlotWrapper {
     type Args = FuncArgs;
 
     fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        // list.__init__(l, [1,2,3]) form
+        // list.__init__(l, [1,2,3]) form - first arg is self
         let (obj, rest): (PyObjectRef, FuncArgs) = args.bind(vm)?;
 
         if !obj.fast_isinstance(zelf.typ) {
@@ -442,8 +481,7 @@ impl Callable for PySlotWrapper {
             )));
         }
 
-        (zelf.wrapped)(obj, rest, vm)?;
-        Ok(vm.ctx.none())
+        zelf.wrapped.call(obj, rest, vm)
     }
 }
 
@@ -506,8 +544,7 @@ impl Callable for PyMethodWrapper {
     type Args = FuncArgs;
 
     fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        (zelf.wrapper.wrapped)(zelf.obj.clone(), args, vm)?;
-        Ok(vm.ctx.none())
+        zelf.wrapper.wrapped.call(zelf.obj.clone(), args, vm)
     }
 }
 

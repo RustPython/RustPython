@@ -2,7 +2,10 @@
 
 use crate::{
     PyPayload,
-    builtins::{PyBaseObject, PyType, PyTypeRef, descriptor::PySlotWrapper},
+    builtins::{
+        PyBaseObject, PyType, PyTypeRef,
+        descriptor::{PySlotWrapper, SlotFunc},
+    },
     function::PyMethodDef,
     object::Py,
     types::{PyTypeFlags, PyTypeSlots, hash_not_implemented},
@@ -143,10 +146,27 @@ pub trait PyClassImpl: PyClassDef {
                 let wrapper = PySlotWrapper {
                     typ: class,
                     name: ctx.intern_str("__init__"),
-                    wrapped: init_func,
+                    wrapped: SlotFunc::Init(init_func),
                     doc: Some("Initialize self. See help(type(self)) for accurate signature."),
                 };
                 class.set_attr(init_name, wrapper.into_ref(ctx).into());
+            }
+        }
+
+        // Add __hash__ slot wrapper if slot exists and not already in dict
+        // Note: hash_not_implemented is handled separately (sets __hash__ = None)
+        if let Some(hash_func) = class.slots.hash.load()
+            && hash_func as usize != hash_not_implemented as usize
+        {
+            let hash_name = identifier!(ctx, __hash__);
+            if !class.attributes.read().contains_key(hash_name) {
+                let wrapper = PySlotWrapper {
+                    typ: class,
+                    name: ctx.intern_str("__hash__"),
+                    wrapped: SlotFunc::Hash(hash_func),
+                    doc: Some("Return hash(self)."),
+                };
+                class.set_attr(hash_name, wrapper.into_ref(ctx).into());
             }
         }
 
