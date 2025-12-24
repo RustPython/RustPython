@@ -31,9 +31,10 @@ macro_rules! create_bool_property {
             $name,
             $class,
             move |this: &PyExpatLikeXmlParser| this.$element.read().clone(),
-            move |this: &PyExpatLikeXmlParser, value: PyObjectRef, vm: &VirtualMachine| {
-                let bool_value = value.is_true(vm).unwrap_or(false);
+            move |this: &PyExpatLikeXmlParser, value: PyObjectRef, vm: &VirtualMachine| -> PyResult<()> {
+                let bool_value = value.is_true(vm)?;
                 *this.$element.write() = vm.ctx.new_bool(bool_value).into();
+                Ok(())
             },
         );
 
@@ -113,6 +114,8 @@ mod _pyexpat {
                 namespace_prefixes: MutableObject::new(vm.ctx.new_bool(false).into()),
                 ordered_attributes: MutableObject::new(vm.ctx.new_bool(false).into()),
                 specified_attributes: MutableObject::new(vm.ctx.new_bool(false).into()),
+                // String interning dictionary - used by the parser to intern element/attribute names
+                // for memory efficiency and faster comparisons. See CPython's pyexpat documentation.
                 intern: MutableObject::new(vm.ctx.new_dict().into()),
                 // Additional handlers (stubs for compatibility)
                 processing_instruction: MutableObject::new(vm.ctx.none()),
