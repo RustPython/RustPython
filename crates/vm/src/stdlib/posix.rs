@@ -405,15 +405,16 @@ pub mod module {
         )
         })?;
 
-        let metadata = fs::metadata(&path.path);
+        let metadata = match fs::metadata(&path.path) {
+            Ok(m) => m,
+            // If the file doesn't exist, return False for any access check
+            Err(_) => return Ok(false),
+        };
 
         // if it's only checking for F_OK
         if flags == AccessFlags::F_OK {
-            return Ok(metadata.is_ok());
+            return Ok(true); // File exists
         }
-
-        let metadata =
-            metadata.map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
 
         let user_id = metadata.uid();
         let group_id = metadata.gid();
