@@ -590,6 +590,7 @@ impl Py<PyDict> {
         let (attrs, non_string) = self.to_attributes_with_nonstring(vm)?;
         if let Some(non_string) = non_string {
             let (key, _) = non_string
+                .clone()
                 .into_iter()
                 .next()
                 .unwrap_or_else(|| unreachable!("non_string must be non-empty when present"));
