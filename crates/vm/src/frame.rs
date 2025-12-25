@@ -1331,11 +1331,6 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::Nop => Ok(None),
-            bytecode::Instruction::Pop => {
-                // Pop value from stack and ignore.
-                self.pop_value();
-                Ok(None)
-            }
             bytecode::Instruction::PopBlock => {
                 self.pop_block();
                 Ok(None)
@@ -1354,6 +1349,11 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::PopJumpIfTrue { target } => {
                 self.pop_jump_if(vm, target.get(arg), true)
+            }
+            bytecode::Instruction::PopTop => {
+                // Pop value from stack and ignore.
+                self.pop_value();
+                Ok(None)
             }
             bytecode::Instruction::Raise { kind } => self.execute_raise(vm, kind.get(arg)),
             bytecode::Instruction::Resume { arg: resume_arg } => {

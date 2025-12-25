@@ -1063,7 +1063,7 @@ impl Compiler {
                         }
                     );
 
-                    emit!(self, Instruction::Pop);
+                    emit!(self, Instruction::PopTop);
                 } else {
                     self.compile_statement(statement)?;
                 }
@@ -1079,7 +1079,7 @@ impl Compiler {
                     }
                 );
 
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
             } else {
                 self.compile_statement(last)?;
                 self.emit_load_const(ConstantData::None);
@@ -1104,7 +1104,7 @@ impl Compiler {
         if let Some(last_statement) = body.last() {
             match last_statement {
                 Stmt::Expr(_) => {
-                    self.current_block().instructions.pop(); // pop Instruction::Pop
+                    self.current_block().instructions.pop(); // pop Instruction::PopTop
                 }
                 Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
                     let pop_instructions = self.current_block().instructions.pop();
@@ -1401,14 +1401,14 @@ impl Compiler {
                     }
 
                     // Pop module from stack:
-                    emit!(self, Instruction::Pop);
+                    emit!(self, Instruction::PopTop);
                 }
             }
             Stmt::Expr(StmtExpr { value, .. }) => {
                 self.compile_expression(value)?;
 
                 // Pop result of stack, since we not use it:
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
             }
             Stmt::Global(_) | Stmt::Nonlocal(_) => {
                 // Handled during symbol table construction.
@@ -2051,12 +2051,12 @@ impl Compiler {
                     self.store_name(alias.as_str())?
                 } else {
                     // Drop exception from top of stack:
-                    emit!(self, Instruction::Pop);
+                    emit!(self, Instruction::PopTop);
                 }
             } else {
                 // Catch all!
                 // Drop exception from top of stack:
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
             }
 
             // Handler code:
@@ -2950,7 +2950,7 @@ impl Compiler {
                     self.compile_store(var)?;
                 }
                 None => {
-                    emit!(self, Instruction::Pop);
+                    emit!(self, Instruction::PopTop);
                 }
             }
             final_block
@@ -3143,7 +3143,7 @@ impl Compiler {
         for &label in pc.fail_pop.iter().skip(1).rev() {
             self.switch_to_block(label);
             // Emit the POP instruction.
-            emit!(self, Instruction::Pop);
+            emit!(self, Instruction::PopTop);
         }
         // Finally, use the first label.
         self.switch_to_block(pc.fail_pop[0]);
@@ -3187,7 +3187,7 @@ impl Compiler {
         match n {
             // If no name is provided, simply pop the top of the stack.
             None => {
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
                 Ok(())
             }
             Some(name) => {
@@ -3313,7 +3313,7 @@ impl Compiler {
         }
         // Pop the subject off the stack.
         pc.on_top -= 1;
-        emit!(self, Instruction::Pop);
+        emit!(self, Instruction::PopTop);
         Ok(())
     }
 
@@ -3497,7 +3497,7 @@ impl Compiler {
             pc.on_top -= 1;
 
             if is_true_wildcard {
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
                 continue; // Don't compile wildcard patterns
             }
 
@@ -3548,7 +3548,7 @@ impl Compiler {
         if size == 0 && star_target.is_none() {
             // If the pattern is just "{}", we're done! Pop the subject
             pc.on_top -= 1;
-            emit!(self, Instruction::Pop);
+            emit!(self, Instruction::PopTop);
             return Ok(());
         }
 
@@ -3703,8 +3703,8 @@ impl Compiler {
             // Non-rest pattern: just clean up the stack
 
             // Pop them as we're not using them
-            emit!(self, Instruction::Pop); // Pop keys_tuple
-            emit!(self, Instruction::Pop); // Pop subject
+            emit!(self, Instruction::PopTop); // Pop keys_tuple
+            emit!(self, Instruction::PopTop); // Pop subject
         }
 
         Ok(())
@@ -3792,7 +3792,7 @@ impl Compiler {
         // In Rust, old_pc is a local clone, so we need not worry about that.
 
         // No alternative matched: pop the subject and fail.
-        emit!(self, Instruction::Pop);
+        emit!(self, Instruction::PopTop);
         self.jump_to_fail_pop(pc, JumpOp::Jump)?;
 
         // Use the label "end".
@@ -3814,7 +3814,7 @@ impl Compiler {
 
         // Old context and control will be dropped automatically.
         // Finally, pop the copy of the subject.
-        emit!(self, Instruction::Pop);
+        emit!(self, Instruction::PopTop);
         Ok(())
     }
 
@@ -3888,7 +3888,7 @@ impl Compiler {
         pc.on_top -= 1;
         if only_wildcard {
             // Patterns like: [] / [_] / [_, _] / [*_] / [_, *_] / [_, _, *_] / etc.
-            emit!(self, Instruction::Pop);
+            emit!(self, Instruction::PopTop);
         } else if star_wildcard {
             self.pattern_helper_sequence_subscr(patterns, star.unwrap(), pc)?;
         } else {
@@ -4012,7 +4012,7 @@ impl Compiler {
             }
 
             if i != case_count - 1 {
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
             }
 
             self.compile_statements(&m.body)?;
@@ -4023,7 +4023,7 @@ impl Compiler {
         if has_default {
             let m = &cases[num_cases - 1];
             if num_cases == 1 {
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
             } else {
                 emit!(self, Instruction::Nop);
             }
@@ -4129,7 +4129,7 @@ impl Compiler {
             // early exit left us with stack: `rhs, comparison_result`. We need to clean up rhs.
             self.switch_to_block(break_block);
             emit!(self, Instruction::Swap { index: 2 });
-            emit!(self, Instruction::Pop);
+            emit!(self, Instruction::PopTop);
 
             self.switch_to_block(after_block);
         }
@@ -4196,7 +4196,7 @@ impl Compiler {
             emit!(self, Instruction::StoreSubscript);
         } else {
             // Drop annotation if not assigned to simple identifier.
-            emit!(self, Instruction::Pop);
+            emit!(self, Instruction::PopTop);
         }
 
         Ok(())
@@ -4831,7 +4831,7 @@ impl Compiler {
                                 arg: bytecode::ResumeType::AfterYield as u32
                             }
                         );
-                        emit!(compiler, Instruction::Pop);
+                        emit!(compiler, Instruction::PopTop);
 
                         Ok(())
                     },
