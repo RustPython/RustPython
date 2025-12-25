@@ -150,6 +150,7 @@ impl TryFromObject for std::time::Duration {
 fn duration_from_f64_floor(f: f64, vm: &VirtualMachine) -> PyResult<std::time::Duration> {
     const NANOS_PER_SEC: f64 = 1_000_000_000.0;
     const NANOS_PER_SEC_U128: u128 = 1_000_000_000;
+    // Maximum duration representable by (secs, nanos) with u64 seconds and <1e9 nanoseconds.
     const MAX_TOTAL_NANOS: u128 =
         ((u64::MAX as u128) * NANOS_PER_SEC_U128) + (NANOS_PER_SEC_U128 - 1);
 
@@ -161,16 +162,13 @@ fn duration_from_f64_floor(f: f64, vm: &VirtualMachine) -> PyResult<std::time::D
     }
 
     let total_nanos = (f * NANOS_PER_SEC).floor();
-    if total_nanos.is_sign_negative() {
-        return Err(vm.new_value_error("negative duration"));
-    }
     if total_nanos > MAX_TOTAL_NANOS as f64 {
         return Err(vm.new_value_error("value out of range"));
     }
 
-    let total_nanos = total_nanos as u128;
-    let secs = (total_nanos / NANOS_PER_SEC_U128) as u64;
-    let nanos = (total_nanos % NANOS_PER_SEC_U128) as u32;
+    let total_nanos_u128 = total_nanos as u128;
+    let secs = (total_nanos_u128 / NANOS_PER_SEC_U128) as u64;
+    let nanos = (total_nanos_u128 % NANOS_PER_SEC_U128) as u32;
 
     Ok(std::time::Duration::new(secs, nanos))
 }
