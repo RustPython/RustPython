@@ -512,8 +512,6 @@ impl PyBaseObject {
                     if current_cls.slots.basicsize != cls.slots.basicsize
                         || current_cls.slots.member_count != cls.slots.member_count
                         || has_dict(current_cls) != has_dict(&cls)
-                        || (cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
-                            && instance.typeid() != PyBaseObject::payload_type_id())
                     {
                         return Err(vm.new_type_error(format!(
                             "__class__ assignment: '{}' object layout differs from '{}'",
