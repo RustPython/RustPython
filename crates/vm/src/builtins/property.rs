@@ -55,7 +55,8 @@ impl GetDescriptor for PyProperty {
         let (zelf, obj) = Self::_unwrap(&zelf_obj, obj, vm)?;
         if vm.is_none(&obj) {
             Ok(zelf_obj)
-        } else if let Some(getter) = zelf.getter.read().as_ref() {
+        } else if let Some(getter) = zelf.getter.read().clone() {
+            // Clone and release lock before calling Python code to prevent deadlock
             getter.call((obj,), vm)
         } else {
             let error_msg = zelf.format_property_error(&obj, "getter", vm)?;
@@ -70,12 +71,12 @@ impl PyProperty {
     // Returns the name if available, None if not found, or propagates errors
     fn get_property_name(&self, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
         // First check if name was set via __set_name__
-        if let Some(name) = self.name.read().as_ref() {
-            return Ok(Some(name.clone()));
+        if let Some(name) = self.name.read().clone() {
+            return Ok(Some(name));
         }
 
-        let getter = self.getter.read();
-        let Some(getter) = getter.as_ref() else {
+        // Clone and release lock before calling Python code to prevent deadlock
+        let Some(getter) = self.getter.read().clone() else {
             return Ok(None);
         };
 
@@ -105,7 +106,8 @@ impl PyProperty {
         let zelf = zelf.try_to_ref::<Self>(vm)?;
         match value {
             PySetterValue::Assign(value) => {
-                if let Some(setter) = zelf.setter.read().as_ref() {
+                // Clone and release lock before calling Python code to prevent deadlock
+                if let Some(setter) = zelf.setter.read().clone() {
                     setter.call((obj, value), vm).map(drop)
                 } else {
                     let error_msg = zelf.format_property_error(&obj, "setter", vm)?;
@@ -113,7 +115,8 @@ impl PyProperty {
                 }
             }
             PySetterValue::Delete => {
-                if let Some(deleter) = zelf.deleter.read().as_ref() {
+                // Clone and release lock before calling Python code to prevent deadlock
+                if let Some(deleter) = zelf.deleter.read().clone() {
                     deleter.call((obj,), vm).map(drop)
                 } else {
                     let error_msg = zelf.format_property_error(&obj, "deleter", vm)?;
@@ -273,23 +276,24 @@ impl PyProperty {
             }
         };
 
+        // Clone and release lock before calling Python code to prevent deadlock
         // Check getter
-        if let Some(getter) = self.getter.read().as_ref()
-            && is_abstract(getter)?
+        if let Some(getter) = self.getter.read().clone()
+            && is_abstract(&getter)?
         {
             return Ok(vm.ctx.new_bool(true).into());
         }
 
         // Check setter
-        if let Some(setter) = self.setter.read().as_ref()
-            && is_abstract(setter)?
+        if let Some(setter) = self.setter.read().clone()
+            && is_abstract(&setter)?
         {
             return Ok(vm.ctx.new_bool(true).into());
         }
 
         // Check deleter
-        if let Some(deleter) = self.deleter.read().as_ref()
-            && is_abstract(deleter)?
+        if let Some(deleter) = self.deleter.read().clone()
+            && is_abstract(&deleter)?
         {
             return Ok(vm.ctx.new_bool(true).into());
         }
@@ -299,7 +303,8 @@ impl PyProperty {
 
     #[pygetset(setter)]
     fn set___isabstractmethod__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(getter) = self.getter.read().to_owned() {
+        // Clone and release lock before calling Python code to prevent deadlock
+        if let Some(getter) = self.getter.read().clone() {
             getter.set_attr("__isabstractmethod__", value, vm)?;
         }
         Ok(())
