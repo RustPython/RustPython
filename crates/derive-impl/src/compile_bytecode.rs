@@ -47,6 +47,12 @@ struct CompiledModule {
     package: bool,
 }
 
+struct ExcludeCtx<'a> {
+    root: &'a Path,
+    resolved_root: Option<&'a Path>,
+    exclude: &'a [PathBuf],
+}
+
 struct CompilationSource {
     kind: CompilationSourceKind,
     span: (Span, Span),
@@ -89,15 +95,12 @@ impl CompilationSource {
             CompilationSourceKind::Dir(rel_path) => {
                 let path = CARGO_MANIFEST_DIR.join(rel_path);
                 let resolved_root = Self::resolve_root(&path);
-                self.compile_dir(
-                    &path,
-                    resolved_root.as_deref(),
-                    &path,
-                    String::new(),
-                    mode,
-                    compiler,
+                let exclude_ctx = ExcludeCtx {
+                    root: &path,
+                    resolved_root: resolved_root.as_deref(),
                     exclude,
-                )
+                };
+                self.compile_dir(&path, String::new(), mode, compiler, &exclude_ctx)
             }
             _ => Ok(hashmap! {
                 module_name.clone() => CompiledModule {
@@ -151,29 +154,24 @@ impl CompilationSource {
         }
     }
 
-    /// Check whether `path` should be excluded. The `resolved_root` argument is used
-    /// on Windows when `root` is a file that stores the real library path created
+    /// Check whether `path` should be excluded. The `resolved_root` is used on
+    /// Windows when `root` is a file that stores the real library path created
     /// from a git symlink; otherwise exclusions are evaluated relative to `root`.
-    fn should_exclude(
-        path: &Path,
-        root: &Path,
-        resolved_root: Option<&Path>,
-        exclude: &[PathBuf],
-    ) -> bool {
+    fn should_exclude(path: &Path, ctx: &ExcludeCtx<'_>) -> bool {
         // Return true when the entry is under `base` and has an excluded prefix.
         let matches_root = |base: &Path| match path.strip_prefix(base) {
-            Ok(rel_path) => exclude.iter().any(|e| rel_path.starts_with(e)),
+            Ok(rel_path) => ctx.exclude.iter().any(|e| rel_path.starts_with(e)),
             Err(_) => false,
         };
 
-        if matches_root(root) {
+        if matches_root(ctx.root) {
             return true;
         }
 
-        if let Some(real_root) = resolved_root {
-            if matches_root(real_root) {
-                return true;
-            }
+        if let Some(real_root) = ctx.resolved_root
+            && matches_root(real_root)
+        {
+            return true;
         }
 
         false
@@ -182,12 +180,10 @@ impl CompilationSource {
     fn compile_dir(
         &self,
         path: &Path,
-        resolved_root: Option<&Path>,
-        root: &Path,
         parent: String,
         mode: Mode,
         compiler: &dyn Compiler,
-        exclude: &[PathBuf],
+        exclude_ctx: &ExcludeCtx<'_>,
     ) -> Result<HashMap<String, CompiledModule>, Diagnostic> {
         let mut code_map = HashMap::new();
         let paths = fs::read_dir(path)
@@ -207,7 +203,7 @@ impl CompilationSource {
                 Diagnostic::spans_error(self.span, format!("Failed to list file: {err}"))
             })?;
             let path = path.path();
-            if Self::should_exclude(&path, root, resolved_root, exclude) {
+            if Self::should_exclude(&path, exclude_ctx) {
                 continue;
             }
             let file_name = path.file_name().unwrap().to_str().ok_or_else(|| {
@@ -216,8 +212,6 @@ impl CompilationSource {
             if path.is_dir() {
                 code_map.extend(self.compile_dir(
                     &path,
-                    resolved_root,
-                    root,
                     if parent.is_empty() {
                         file_name.to_string()
                     } else {
@@ -225,7 +219,7 @@ impl CompilationSource {
                     },
                     mode,
                     compiler,
-                    exclude,
+                    exclude_ctx,
                 )?);
             } else if file_name.ends_with(".py") {
                 let stem = path.file_stem().unwrap().to_str().unwrap();
