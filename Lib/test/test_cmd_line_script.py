@@ -225,8 +225,6 @@ class CmdLineTest(unittest.TestCase):
     def test_repl_stderr_flush_separate_stderr(self):
         self.check_repl_stderr_flush(True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basic_script(self):
         with os_helper.temp_dir() as script_dir:
             script_name = _make_test_script(script_dir, 'script')
