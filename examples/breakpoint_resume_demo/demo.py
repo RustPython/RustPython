@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import rustpython_checkpoint as rpc
+import rustpython_checkpoint as rpc  # type: ignore
 
 # 断点文件路径：保存为字符串，确保可序列化
 CHECKPOINT_PATH = str(Path(__file__).with_suffix(".rpsnap"))
@@ -23,7 +23,7 @@ print(f"IMHERE:\n{imhere}")
 rpc.checkpoint(CHECKPOINT_PATH)
 
 # 断点恢复后重新导入模块，确保后续断点可用
-import rustpython_checkpoint as rpc
+import rustpython_checkpoint as rpc  # type: ignore
 
 # 第二段逻辑：继续使用上一次保存的变量
 print("[run] phase=after_checkpoint_1")
@@ -34,6 +34,9 @@ print(f"[run] processed={processed} total={total}")
 print(f"IMHERE:\n{imhere}")
 # 断点 2：再次保存状态并退出，下一次继续向下执行
 rpc.checkpoint(CHECKPOINT_PATH)
+
+
+
 
 # 断点恢复后准备清理工具
 import os
