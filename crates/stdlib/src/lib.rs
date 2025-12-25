@@ -57,7 +57,7 @@ mod faulthandler;
 mod fcntl;
 #[cfg(not(target_arch = "wasm32"))]
 mod multiprocessing;
-#[cfg(all(unix, not(target_os = "redox")))]
+#[cfg(all(unix, not(target_os = "redox"), not(target_os = "android")))]
 mod posixshmem;
 #[cfg(unix)]
 mod posixsubprocess;
@@ -192,7 +192,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         {
             "_posixsubprocess" => posixsubprocess::make_module,
         }
-        #[cfg(all(unix, not(target_os = "redox")))]
+        #[cfg(all(unix, not(target_os = "redox"), not(target_os = "android")))]
         {
             "_posixshmem" => posixshmem::make_module,
         }

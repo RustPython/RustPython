@@ -1,7 +1,15 @@
-#[cfg(all(unix, not(target_os = "redox")))]
+#[cfg(all(
+    unix,
+    not(target_os = "redox"),
+    not(target_os = "android")
+))]
 pub(crate) use _posixshmem::make_module;
 
-#[cfg(all(unix, not(target_os = "redox")))]
+#[cfg(all(
+    unix,
+    not(target_os = "redox"),
+    not(target_os = "android")
+))]
 #[pymodule]
 mod _posixshmem {
     use std::ffi::CString;

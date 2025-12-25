@@ -124,6 +124,8 @@
     "wasi",
     "zelf",
     // unix
+    "posixshmem",
+    "shm",
     "CLOEXEC",
     "codeset",
     "endgrent",
