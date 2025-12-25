@@ -298,7 +298,10 @@ pub(crate) mod _thread {
         kwargs: OptionalArg<PyDictRef>,
         vm: &VirtualMachine,
     ) -> PyResult<u64> {
-        let kw_attrs = kwargs.map_or_else(|| Ok(Default::default()), |k| k.to_attributes(vm))?;
+        let kw_attrs = kwargs
+            .map(|k| k.to_attributes(vm))
+            .transpose()?
+            .unwrap_or_default();
         let args = FuncArgs::new(
             args.to_vec(),
             kw_attrs

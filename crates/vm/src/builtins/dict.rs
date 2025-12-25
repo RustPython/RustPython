@@ -592,7 +592,7 @@ impl Py<PyDict> {
             let (key, _) = non_string
                 .into_iter()
                 .next()
-                .expect("non-empty dictionary must have at least one element");
+                .unwrap_or_else(|| unreachable!("non_string must be non-empty when present"));
             return Err(vm.new_type_error(format!(
                 "attributes must be strings, not '{}'",
                 key.class().name()

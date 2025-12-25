@@ -57,10 +57,9 @@ unsafe impl crate::object::Traverse for PyType {
             .iter()
             .map(|(_, v)| v.traverse(tracer_fn))
             .count();
-        self.nonstring_attributes
-            .read_recursive()
-            .iter()
-            .for_each(|dict| dict.traverse(tracer_fn));
+        if let Some(dict) = self.nonstring_attributes.read_recursive().as_ref() {
+            dict.traverse(tracer_fn);
+        }
     }
 }
 
