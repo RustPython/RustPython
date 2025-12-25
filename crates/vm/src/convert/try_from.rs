@@ -126,10 +126,7 @@ impl TryFromObject for std::time::Duration {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         if let Some(float) = obj.downcast_ref::<PyFloat>() {
             let f = float.to_f64();
-            if f < 0.0 {
-                return Err(vm.new_value_error("negative duration"));
-            }
-            Ok(Self::from_secs_f64(f))
+            duration_from_f64_floor(f, vm)
         } else if let Some(int) = obj.try_index_opt(vm) {
             let int = int?;
             let bigint = int.as_bigint();
@@ -148,4 +145,32 @@ impl TryFromObject for std::time::Duration {
             )))
         }
     }
+}
+
+fn duration_from_f64_floor(f: f64, vm: &VirtualMachine) -> PyResult<std::time::Duration> {
+    const NANOS_PER_SEC: f64 = 1_000_000_000.0;
+    const NANOS_PER_SEC_U128: u128 = 1_000_000_000;
+    const MAX_TOTAL_NANOS: u128 =
+        ((u64::MAX as u128) * NANOS_PER_SEC_U128) + (NANOS_PER_SEC_U128 - 1);
+
+    if !f.is_finite() {
+        return Err(vm.new_value_error("value out of range"));
+    }
+    if f < 0.0 {
+        return Err(vm.new_value_error("negative duration"));
+    }
+
+    let total_nanos = (f * NANOS_PER_SEC).floor();
+    if total_nanos.is_sign_negative() {
+        return Err(vm.new_value_error("negative duration"));
+    }
+    if total_nanos > MAX_TOTAL_NANOS as f64 {
+        return Err(vm.new_value_error("value out of range"));
+    }
+
+    let total_nanos = total_nanos as u128;
+    let secs = (total_nanos / NANOS_PER_SEC_U128) as u64;
+    let nanos = (total_nanos % NANOS_PER_SEC_U128) as u32;
+
+    Ok(std::time::Duration::new(secs, nanos))
 }
