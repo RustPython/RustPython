@@ -4030,7 +4030,9 @@ impl Compiler {
             if let Some(ref guard) = m.guard {
                 // Compile guard and jump to end if false
                 self.compile_expression(guard)?;
-                emit!(self, Instruction::JumpIfFalseOrPop { target: end });
+                emit!(self, Instruction::CopyItem { index: 1_u32 });
+                emit!(self, Instruction::PopJumpIfFalse { target: end });
+                emit!(self, Instruction::Pop);
             }
             self.compile_statements(&m.body)?;
         }
@@ -4101,12 +4103,14 @@ impl Compiler {
 
             // if comparison result is false, we break with this value; if true, try the next one.
             if let Some((break_block, _)) = end_blocks {
+                emit!(self, Instruction::CopyItem { index: 1_u32 });
                 emit!(
                     self,
-                    Instruction::JumpIfFalseOrPop {
+                    Instruction::PopJumpIfFalse {
                         target: break_block,
                     }
                 );
+                emit!(self, Instruction::Pop);
             }
         }
 
@@ -4457,14 +4461,16 @@ impl Compiler {
         let after_block = self.new_block();
 
         let (last_value, values) = values.split_last().unwrap();
+
         for value in values {
             self.compile_expression(value)?;
 
+            emit!(self, Instruction::CopyItem { index: 1_u32 });
             match op {
                 BoolOp::And => {
                     emit!(
                         self,
-                        Instruction::JumpIfFalseOrPop {
+                        Instruction::PopJumpIfFalse {
                             target: after_block,
                         }
                     );
@@ -4472,12 +4478,14 @@ impl Compiler {
                 BoolOp::Or => {
                     emit!(
                         self,
-                        Instruction::JumpIfTrueOrPop {
+                        Instruction::PopJumpIfTrue {
                             target: after_block,
                         }
                     );
                 }
             }
+
+            emit!(self, Instruction::Pop);
         }
 
         // If all values did not qualify, take the value of the last value:

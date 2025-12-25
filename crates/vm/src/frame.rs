@@ -981,9 +981,6 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(value).into());
                 Ok(None)
             }
-            bytecode::Instruction::JumpIfFalseOrPop { target } => {
-                self.jump_if_or_pop(vm, target.get(arg), false)
-            }
             bytecode::Instruction::JumpIfNotExcMatch(target) => {
                 let b = self.pop_value();
                 let a = self.pop_value();
@@ -1006,9 +1003,6 @@ impl ExecutingFrame<'_> {
                 let value = a.is_instance(&b, vm)?;
                 self.push_value(vm.ctx.new_bool(value).into());
                 self.pop_jump_if(vm, target.get(arg), false)
-            }
-            bytecode::Instruction::JumpIfTrueOrPop { target } => {
-                self.jump_if_or_pop(vm, target.get(arg), true)
             }
             bytecode::Instruction::Jump { target } => {
                 self.jump(target.get(arg));
@@ -2043,23 +2037,6 @@ impl ExecutingFrame<'_> {
         let value = obj.try_to_bool(vm)?;
         if value == flag {
             self.jump(target);
-        }
-        Ok(None)
-    }
-
-    #[inline]
-    fn jump_if_or_pop(
-        &mut self,
-        vm: &VirtualMachine,
-        target: bytecode::Label,
-        flag: bool,
-    ) -> FrameResult {
-        let obj = self.top_value();
-        let value = obj.to_owned().try_to_bool(vm)?;
-        if value == flag {
-            self.jump(target);
-        } else {
-            self.pop_value();
         }
         Ok(None)
     }
