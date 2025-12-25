@@ -409,7 +409,6 @@ class TestPredicates(IsTestBase):
 
         coro.close(); gen_coro.close() # silence warnings
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_isroutine(self):
         # method
         self.assertTrue(inspect.isroutine(git.argue))
