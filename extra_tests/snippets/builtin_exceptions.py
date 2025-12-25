@@ -373,7 +373,9 @@ try:
     raise ValueError("x")
 except* ValueError as err:
     assert isinstance(err, ExceptionGroup)
-    assert err.exceptions == (ValueError("x"),)
+    assert len(err.exceptions) == 1
+    assert isinstance(err.exceptions[0], ValueError)
+    assert err.exceptions[0].args == ("x",)
 else:
     assert False, "except* handler did not run"
 
