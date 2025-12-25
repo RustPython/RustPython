@@ -792,6 +792,10 @@ pub enum Instruction {
     PopJumpIfTrue {
         target: Arg<Label>,
     },
+    /// Removes the top-of-stack item:
+    /// ```py
+    /// STACK.pop()
+    /// ```
     PopTop,
     Raise {
         kind: Arg<RaiseKind>,
