@@ -436,6 +436,18 @@ fn iter_wrapper(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     vm.call_special_method(&zelf, identifier!(vm, __iter__), ())
 }
 
+fn bool_wrapper(num: PyNumber<'_>, vm: &VirtualMachine) -> PyResult<bool> {
+    let result = vm.call_special_method(num.obj(), identifier!(vm, __bool__), ())?;
+    // __bool__ must return exactly bool, not int subclass
+    if !result.class().is(vm.ctx.types.bool_type) {
+        return Err(vm.new_type_error(format!(
+            "__bool__ should return bool, returned {}",
+            result.class().name()
+        )));
+    }
+    Ok(crate::builtins::bool_::get_value(&result))
+}
+
 // PyObject_SelfIter in CPython
 const fn self_iter(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
     Ok(zelf)
@@ -655,6 +667,9 @@ impl PyType {
             }
             _ if name == identifier!(ctx, __del__) => {
                 toggle_slot!(del, del_wrapper);
+            }
+            _ if name == identifier!(ctx, __bool__) => {
+                toggle_sub_slot!(as_number, boolean, bool_wrapper);
             }
             _ if name == identifier!(ctx, __int__) => {
                 toggle_sub_slot!(as_number, int, number_unary_op_wrapper!(__int__));
