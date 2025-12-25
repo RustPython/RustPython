@@ -57,6 +57,8 @@ mod faulthandler;
 mod fcntl;
 #[cfg(not(target_arch = "wasm32"))]
 mod multiprocessing;
+#[cfg(all(unix, not(target_os = "redox")))]
+mod posixshmem;
 #[cfg(unix)]
 mod posixsubprocess;
 // libc is missing constants on redox
@@ -189,6 +191,10 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         #[cfg(unix)]
         {
             "_posixsubprocess" => posixsubprocess::make_module,
+        }
+        #[cfg(all(unix, not(target_os = "redox")))]
+        {
+            "_posixshmem" => posixshmem::make_module,
         }
         #[cfg(any(unix, windows))]
         {
