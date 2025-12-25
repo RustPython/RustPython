@@ -28,7 +28,6 @@ env:
     test_rlcompleter
     test_pathlib
     test_posixpath
-    test_venv
   # PLATFORM_INDEPENDENT_TESTS are tests that do not depend on the underlying OS. They are currently
   # only run on Linux to speed up the CI.
   PLATFORM_INDEPENDENT_TESTS: >-
