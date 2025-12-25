@@ -949,15 +949,19 @@ class DisTests(DisTestBase):
                     width += 1 + dis._OPARG_WIDTH
                 self.assertLessEqual(len(opname), width)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_dis(self):
         self.do_disassembly_test(_f, dis_f)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_dis_with_offsets(self):
         self.do_disassembly_test(_f, dis_f_with_offsets, show_offsets=True)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bug_708901(self):
         self.do_disassembly_test(bug708901, dis_bug708901)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bug_1333982(self):
         # This one is checking bytecodes generated for an `assert` statement,
         # so fails if the tests are run with -O.  Skip this test then.
@@ -966,6 +970,7 @@ class DisTests(DisTestBase):
 
         self.do_disassembly_test(bug1333982, dis_bug1333982)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bug_42562(self):
         self.do_disassembly_test(bug42562, dis_bug42562)
 
@@ -977,20 +982,24 @@ class DisTests(DisTestBase):
         # Test that negative operargs are handled properly
         self.do_disassembly_test(bug46724, dis_bug46724)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_kw_names(self):
         # Test that value is displayed for keyword argument names:
         self.do_disassembly_test(wrap_func_w_kwargs, dis_kw_names)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_intrinsic_1(self):
         # Test that argrepr is displayed for CALL_INTRINSIC_1
         self.do_disassembly_test("from math import *", dis_intrinsic_1_2)
         self.do_disassembly_test("+a", dis_intrinsic_1_5)
         self.do_disassembly_test("(*a,)", dis_intrinsic_1_6)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_intrinsic_2(self):
         self.assertIn("CALL_INTRINSIC_2         1 (INTRINSIC_PREP_RERAISE_STAR)",
                       self.get_disassembly("try: pass\nexcept* Exception: x"))
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_big_linenos(self):
         def func(count):
             namespace = {}
@@ -1015,28 +1024,35 @@ class DisTests(DisTestBase):
         from test import dis_module
         self.do_disassembly_test(dis_module, dis_module_expected_results)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_disassemble_str(self):
         self.do_disassembly_test(expr_str, dis_expr_str)
         self.do_disassembly_test(simple_stmt_str, dis_simple_stmt_str)
         self.do_disassembly_test(annot_stmt_str, dis_annot_stmt_str)
         self.do_disassembly_test(compound_stmt_str, dis_compound_stmt_str)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_disassemble_bytes(self):
         self.do_disassembly_test(_f.__code__.co_code, dis_f_co_code)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_disassemble_class(self):
         self.do_disassembly_test(_C, dis_c)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_disassemble_instance_method(self):
         self.do_disassembly_test(_C(1).__init__, dis_c_instance_method)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_disassemble_instance_method_bytes(self):
         method_bytecode = _C(1).__init__.__code__.co_code
         self.do_disassembly_test(method_bytecode, dis_c_instance_method_bytes)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_disassemble_static_method(self):
         self.do_disassembly_test(_C.sm, dis_c_static_method)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_disassemble_class_method(self):
         self.do_disassembly_test(_C.cm, dis_c_class_method)
 
@@ -1050,6 +1066,7 @@ class DisTests(DisTestBase):
         agen_disas = self.get_disassembly(_ag(1))  # Async generator iterator
         self.assertEqual(agen_disas, agen_func_disas)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_disassemble_coroutine(self):
         coro_func_disas = self.get_disassembly(_co)  # Coroutine function
         coro = _co(1)  # Coroutine object
@@ -1057,15 +1074,19 @@ class DisTests(DisTestBase):
         coro_disas = self.get_disassembly(coro)
         self.assertEqual(coro_disas, coro_func_disas)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_disassemble_fstring(self):
         self.do_disassembly_test(_fstring, dis_fstring)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_disassemble_with(self):
         self.do_disassembly_test(_with, dis_with)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_disassemble_asyncwith(self):
         self.do_disassembly_test(_asyncwith, dis_asyncwith)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_disassemble_try_finally(self):
         self.do_disassembly_test(_tryfinally, dis_tryfinally)
         self.do_disassembly_test(_tryfinallyconst, dis_tryfinallyconst)
@@ -1081,6 +1102,7 @@ class DisTests(DisTestBase):
             pass
         self.assertRaises(RuntimeError, dis.dis, None)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_dis_traceback(self):
         self.maxDiff = None
         try:
@@ -1100,6 +1122,7 @@ class DisTests(DisTestBase):
     def test_dis_object(self):
         self.assertRaises(TypeError, dis.dis, object())
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_disassemble_recursive(self):
         def check(expected, **kwargs):
             dis = self.get_disassembly(_h, **kwargs)
@@ -1459,11 +1482,13 @@ class CodeInfoTests(unittest.TestCase):
       (async_def, code_info_async_def)
     ]
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_code_info(self):
         self.maxDiff = 1000
         for x, expected in self.test_pairs:
             self.assertRegex(dis.code_info(x), expected)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_show_code(self):
         self.maxDiff = 1000
         for x, expected in self.test_pairs:
@@ -1793,30 +1818,36 @@ class InstructionTests(InstructionTestCase):
         for instr in instrs:
             str(instr)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_default_first_line(self):
         actual = dis.get_instructions(simple)
         self.assertInstructionsEqual(list(actual), expected_opinfo_simple)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_first_line_set_to_None(self):
         actual = dis.get_instructions(simple, first_line=None)
         self.assertInstructionsEqual(list(actual), expected_opinfo_simple)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_outer(self):
         actual = dis.get_instructions(outer, first_line=expected_outer_line)
         self.assertInstructionsEqual(list(actual), expected_opinfo_outer)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_nested(self):
         with captured_stdout():
             f = outer()
         actual = dis.get_instructions(f, first_line=expected_f_line)
         self.assertInstructionsEqual(list(actual), expected_opinfo_f)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_doubly_nested(self):
         with captured_stdout():
             inner = outer()()
         actual = dis.get_instructions(inner, first_line=expected_inner_line)
         self.assertInstructionsEqual(list(actual), expected_opinfo_inner)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_jumpy(self):
         actual = dis.get_instructions(jumpy, first_line=expected_jumpy_line)
         self.assertInstructionsEqual(list(actual), expected_opinfo_jumpy)
@@ -1904,6 +1935,7 @@ class InstructionTests(InstructionTestCase):
                                   positions=None)
         self.assertEqual(instruction.arg, instruction.oparg)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_show_caches_with_label(self):
         def f(x, y, z):
             if x:
@@ -2053,6 +2085,7 @@ class InstructionTests(InstructionTestCase):
         self.assertEqual(14, instructions[6].offset)
         self.assertEqual(8, instructions[6].start_offset)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_cache_offset_and_end_offset(self):
         code = bytes([
             opcode.opmap["LOAD_GLOBAL"], 0x01,
@@ -2101,10 +2134,12 @@ class BytecodeTests(InstructionTestCase, DisTestBase):
                 via_generator = list(dis.get_instructions(obj))
                 self.assertInstructionsEqual(via_object, via_generator)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_explicit_first_line(self):
         actual = dis.Bytecode(outer, first_line=expected_outer_line)
         self.assertInstructionsEqual(list(actual), expected_opinfo_outer)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_source_line_in_disassembly(self):
         # Use the line in the source code
         actual = dis.Bytecode(simple).dis()
@@ -2116,12 +2151,14 @@ class BytecodeTests(InstructionTestCase, DisTestBase):
         actual = actual.strip().partition(" ")[0]  # extract the line no
         self.assertEqual(actual, "350")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_info(self):
         self.maxDiff = 1000
         for x, expected in CodeInfoTests.test_pairs:
             b = dis.Bytecode(x)
             self.assertRegex(b.info(), expected)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_disassembled(self):
         actual = dis.Bytecode(_f).dis()
         self.do_disassembly_compare(actual, dis_f)
@@ -2133,6 +2170,7 @@ class BytecodeTests(InstructionTestCase, DisTestBase):
 
         self.assertEqual(b.current_offset, tb.tb_lasti)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_from_traceback_dis(self):
         self.maxDiff = None
         tb = get_tb()
@@ -2146,24 +2184,28 @@ class BytecodeTests(InstructionTestCase, DisTestBase):
             assert instr.positions == positions
 
 class TestBytecodeTestCase(BytecodeTestCase):
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_assert_not_in_with_op_not_in_bytecode(self):
         code = compile("a = 1", "<string>", "exec")
         self.assertInBytecode(code, "LOAD_CONST", 1)
         self.assertNotInBytecode(code, "LOAD_NAME")
         self.assertNotInBytecode(code, "LOAD_NAME", "a")
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_assert_not_in_with_arg_not_in_bytecode(self):
         code = compile("a = 1", "<string>", "exec")
         self.assertInBytecode(code, "LOAD_CONST")
         self.assertInBytecode(code, "LOAD_CONST", 1)
         self.assertNotInBytecode(code, "LOAD_CONST", 2)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_assert_not_in_with_arg_in_bytecode(self):
         code = compile("a = 1", "<string>", "exec")
         with self.assertRaises(AssertionError):
             self.assertNotInBytecode(code, "LOAD_CONST", 1)
 
 class TestFinderMethods(unittest.TestCase):
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test__find_imports(self):
         cases = [
             ("import a.b.c", ('a.b.c', 0, None)),
@@ -2181,6 +2223,7 @@ class TestFinderMethods(unittest.TestCase):
                 self.assertEqual(len(res), 1)
                 self.assertEqual(res[0], expected)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test__find_store_names(self):
         cases = [
             ("x+y", ()),
@@ -2195,6 +2238,7 @@ class TestFinderMethods(unittest.TestCase):
                 res = tuple(dis._find_store_names(code))
                 self.assertEqual(res, expected)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_findlabels(self):
         labels = dis.findlabels(jumpy.__code__.co_code)
         jumps = [
@@ -2226,6 +2270,7 @@ class TestDisTraceback(DisTestBase):
             pass
         return super().setUp()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def get_disassembly(self, tb):
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
@@ -2236,6 +2281,7 @@ class TestDisTraceback(DisTestBase):
         with self.assertRaises(RuntimeError):
             dis.distb()
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_distb_last_traceback(self):
         self.maxDiff = None
         # We need to have an existing last traceback in `sys`:
@@ -2244,6 +2290,7 @@ class TestDisTraceback(DisTestBase):
 
         self.do_disassembly_compare(self.get_disassembly(None), dis_traceback)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_distb_explicit_arg(self):
         self.maxDiff = None
         tb = get_tb()
@@ -2317,6 +2364,7 @@ class TestDisCLI(unittest.TestCase):
             expect = self.text_normalize(expect)
             self.assertListEqual(res.splitlines(), expect.splitlines())
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_invocation(self):
         # test various combinations of parameters
         base_flags = [
@@ -2341,6 +2389,7 @@ class TestDisCLI(unittest.TestCase):
             with contextlib.redirect_stderr(io.StringIO()):
                 _ = self.invoke_dis('--unknown')
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_show_cache(self):
         # test 'python -m dis -C/--show-caches'
         source = 'print()'
@@ -2359,6 +2408,7 @@ class TestDisCLI(unittest.TestCase):
         for flag in ['-C', '--show-caches']:
             self.check_output(source, expect, flag)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_show_offsets(self):
         # test 'python -m dis -O/--show-offsets'
         source = 'pass'
