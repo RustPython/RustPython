@@ -41,7 +41,8 @@ mod _multiprocessing {
     }
 }
 
-#[cfg(unix)]
+// Apple platforms don't support sem_timedwait/sem_getvalue in libc crate
+#[cfg(all(unix, not(target_vendor = "apple")))]
 #[pymodule]
 mod _multiprocessing {
     use crate::vm::{
@@ -57,10 +58,6 @@ mod _multiprocessing {
         sync::atomic::{AtomicU64, AtomicUsize, Ordering},
         time::Duration,
     };
-    unsafe extern "C" {
-        fn sem_getvalue(sem: *mut sem_t, sval: *mut libc::c_int) -> libc::c_int;
-        fn sem_timedwait(sem: *mut sem_t, abs_timeout: *const libc::timespec) -> libc::c_int;
-    }
 
     const RECURSIVE_MUTEX_KIND: i32 = 0;
     const SEMAPHORE_KIND: i32 = 1;
@@ -223,31 +220,27 @@ mod _multiprocessing {
 
         #[pymethod]
         fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
-            let tid = current_thread_id();
-            if self.kind == RECURSIVE_MUTEX_KIND && self.owner.load(Ordering::Acquire) != tid {
-                return Err(vm.new_value_error("cannot release un-acquired lock".to_owned()));
-            }
-
-            let owner_tid = self.owner.load(Ordering::Acquire);
-            if owner_tid == tid {
-                let current = self.count.load(Ordering::Acquire);
-                if current == 0 {
-                    return Err(vm.new_value_error("cannot release un-acquired lock".to_owned()));
+            if self.kind == RECURSIVE_MUTEX_KIND {
+                if !self._is_mine() {
+                    return Err(vm.new_exception_msg(
+                        vm.ctx.exceptions.assertion_error.to_owned(),
+                        "attempt to release recursive lock not owned by thread".to_owned(),
+                    ));
                 }
-                if self.kind == RECURSIVE_MUTEX_KIND && current > 1 {
+                let current = self.count.load(Ordering::Acquire);
+                if current > 1 {
                     self.count.store(current - 1, Ordering::Release);
                     return Ok(());
                 }
-                let new_val = current.saturating_sub(1);
-                self.count.store(new_val, Ordering::Release);
-                if new_val == 0 {
-                    self.owner.store(0, Ordering::Release);
+                // count == 1, will post and decrement below
+            } else {
+                // SEMAPHORE: check maxvalue before posting
+                let sval = self._get_value(vm)?;
+                if sval >= self.maxvalue {
+                    return Err(
+                        vm.new_value_error("semaphore or lock released too many times".to_owned())
+                    );
                 }
-            } else if self.kind != RECURSIVE_MUTEX_KIND {
-                // releasing semaphore or non-recursive lock from another thread;
-                // drop ownership information.
-                self.owner.store(0, Ordering::Release);
-                self.count.store(0, Ordering::Release);
             }
 
             let res = unsafe { libc::sem_post(self.handle.as_ptr()) };
@@ -255,6 +248,12 @@ mod _multiprocessing {
                 let err = Errno::last();
                 return Err(os_error(vm, err, None));
             }
+
+            self.count
+                .fetch_update(Ordering::Release, Ordering::Acquire, |c| {
+                    Some(c.saturating_sub(1))
+                })
+                .ok();
             Ok(())
         }
 
@@ -301,7 +300,6 @@ mod _multiprocessing {
 
         #[pymethod]
         fn _after_fork(&self, _vm: &VirtualMachine) -> PyResult<()> {
-            self.owner.store(0, Ordering::Release);
             self.count.store(0, Ordering::Release);
             Ok(())
         }
@@ -314,7 +312,8 @@ mod _multiprocessing {
                 let err = Errno::last();
                 return Err(os_error(vm, err, None));
             }
-            Ok(value)
+            // Some POSIX implementations use negative numbers for waiting threads
+            Ok(if value < 0 { 0 } else { value })
         }
 
         #[pymethod]
@@ -324,16 +323,13 @@ mod _multiprocessing {
 
         #[pymethod]
         fn _is_mine(&self) -> bool {
-            self.owner.load(Ordering::Acquire) == current_thread_id()
+            self.count.load(Ordering::Acquire) > 0
+                && self.owner.load(Ordering::Acquire) == current_thread_id()
         }
 
         #[pymethod]
         fn _count(&self) -> usize {
-            if self._is_mine() {
-                self.count.load(Ordering::Acquire)
-            } else {
-                0
-            }
+            self.count.load(Ordering::Acquire)
         }
 
         #[extend_class]
@@ -381,9 +377,10 @@ mod _multiprocessing {
         fn wait_timeout(&self, duration: Duration, vm: &VirtualMachine) -> PyResult<bool> {
             let mut ts = current_timespec(vm)?;
             let nsec_total = ts.tv_nsec as i64 + i64::from(duration.subsec_nanos());
+            let extra_secs = (nsec_total / 1_000_000_000) as libc::time_t;
             ts.tv_sec = ts
                 .tv_sec
-                .saturating_add(duration.as_secs() as libc::time_t + nsec_total / 1_000_000_000);
+                .saturating_add(duration.as_secs() as libc::time_t + extra_secs);
             ts.tv_nsec = (nsec_total % 1_000_000_000) as _;
             loop {
                 let res = unsafe { libc::sem_timedwait(self.handle.as_ptr(), &ts) };
@@ -404,6 +401,9 @@ mod _multiprocessing {
         type Args = SemLockArgs;
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            if args.kind != RECURSIVE_MUTEX_KIND && args.kind != SEMAPHORE_KIND {
+                return Err(vm.new_value_error("unrecognized kind".to_owned()));
+            }
             if args.value < 0 || args.value > args.maxvalue {
                 return Err(vm.new_value_error("semaphore or lock value out of range".to_owned()));
             }
@@ -479,6 +479,11 @@ mod _multiprocessing {
         unsafe { libc::pthread_self() as u64 }
     }
 }
+
+// Apple platforms (macOS, iOS, etc.) - empty module
+#[cfg(all(unix, target_vendor = "apple"))]
+#[pymodule]
+mod _multiprocessing {}
 
 #[cfg(all(not(unix), not(windows)))]
 #[pymodule]
