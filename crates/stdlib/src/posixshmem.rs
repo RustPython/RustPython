@@ -24,7 +24,7 @@ mod _posixshmem {
         let name = CString::new(name.as_str()).map_err(|e| e.into_pyexception(vm))?;
         let mode = mode.unwrap_or(0o600);
         // SAFETY: `name` is a NUL-terminated string and `shm_open` does not write through it.
-        let fd = unsafe { libc::shm_open(name.as_ptr(), flags, mode) };
+        let fd = unsafe { libc::shm_open(name.as_ptr(), flags, mode as libc::c_uint) };
         if fd == -1 {
             Err(errno_io_error().into_pyexception(vm))
         } else {
