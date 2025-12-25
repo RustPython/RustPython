@@ -110,8 +110,6 @@ class WinAPIBatchedWaitForMultipleObjectsTests(unittest.TestCase):
 
 
 class WinAPITests(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_getlongpathname(self):
         testfn = pathlib.Path(os.getenv("ProgramFiles")).parents[-1] / "PROGRA~1"
         if not os.path.isdir(testfn):
@@ -128,8 +126,6 @@ class WinAPITests(unittest.TestCase):
         candidates = set(testfn.parent.glob("Progra*"))
         self.assertIn(pathlib.Path(actual), candidates)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_getshortpathname(self):
         testfn = pathlib.Path(os.getenv("ProgramFiles"))
         if not os.path.isdir(testfn):

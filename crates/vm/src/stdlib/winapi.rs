@@ -677,4 +677,52 @@ mod _winapi {
 
         Ok(WinHandle(handle))
     }
+
+    /// Helper for GetShortPathName and GetLongPathName
+    fn get_path_name_impl(
+        path: &PyStrRef,
+        api_fn: unsafe extern "system" fn(*const u16, *mut u16, u32) -> u32,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyStrRef> {
+        use rustpython_common::wtf8::Wtf8Buf;
+
+        let path_wide = path.as_wtf8().to_wide_with_nul();
+
+        // First call to get required buffer size
+        let size = unsafe { api_fn(path_wide.as_ptr(), null_mut(), 0) };
+
+        if size == 0 {
+            return Err(vm.new_last_os_error());
+        }
+
+        // Second call to get the actual path
+        let mut buffer: Vec<u16> = vec![0; size as usize];
+        let result =
+            unsafe { api_fn(path_wide.as_ptr(), buffer.as_mut_ptr(), buffer.len() as u32) };
+
+        if result == 0 {
+            return Err(vm.new_last_os_error());
+        }
+
+        // Truncate to actual length (excluding null terminator)
+        buffer.truncate(result as usize);
+
+        // Convert UTF-16 back to WTF-8 (handles surrogates properly)
+        let result_str = Wtf8Buf::from_wide(&buffer);
+        Ok(vm.ctx.new_str(result_str))
+    }
+
+    /// GetShortPathName - Return the short version of the provided path.
+    #[pyfunction]
+    fn GetShortPathName(path: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
+        get_path_name_impl(&path, GetShortPathNameW, vm)
+    }
+
+    /// GetLongPathName - Return the long version of the provided path.
+    #[pyfunction]
+    fn GetLongPathName(path: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        use windows_sys::Win32::Storage::FileSystem::GetLongPathNameW;
+        get_path_name_impl(&path, GetLongPathNameW, vm)
+    }
 }
