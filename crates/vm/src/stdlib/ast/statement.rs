@@ -257,8 +257,7 @@ impl Node for ruff::StmtFunctionDef {
             type_params: Node::ast_from_object(
                 _vm,
                 source_file,
-                get_node_field_opt(_vm, &_object, "type_params")?
-                    .unwrap_or_else(|| _vm.ctx.none()),
+                get_node_field_opt(_vm, &_object, "type_params")?.unwrap_or_else(|| _vm.ctx.none()),
             )?,
             range: range_from_object(_vm, source_file, _object, "FunctionDef")?,
             is_async,
@@ -342,8 +341,7 @@ impl Node for ruff::StmtClassDef {
             type_params: Node::ast_from_object(
                 _vm,
                 source_file,
-                get_node_field_opt(_vm, &_object, "type_params")?
-                    .unwrap_or_else(|| _vm.ctx.none()),
+                get_node_field_opt(_vm, &_object, "type_params")?.unwrap_or_else(|| _vm.ctx.none()),
             )?,
             range: range_from_object(_vm, source_file, _object, "ClassDef")?,
         })
@@ -505,8 +503,7 @@ impl Node for ruff::StmtTypeAlias {
             type_params: Node::ast_from_object(
                 _vm,
                 source_file,
-                get_node_field_opt(_vm, &_object, "type_params")?
-                    .unwrap_or_else(|| _vm.ctx.none()),
+                get_node_field_opt(_vm, &_object, "type_params")?.unwrap_or_else(|| _vm.ctx.none()),
             )?,
             value: Node::ast_from_object(
                 _vm,
