@@ -593,7 +593,7 @@ impl Py<PyDict> {
                 .clone()
                 .into_iter()
                 .next()
-                .unwrap_or_else(|| unreachable!("non_string must be non-empty when present"));
+                .expect("non_string must be non-empty when present");
             return Err(vm.new_type_error(format!(
                 "attributes must be strings, not '{}'",
                 key.class().name()
