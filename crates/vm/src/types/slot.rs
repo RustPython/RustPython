@@ -505,7 +505,12 @@ impl PyType {
                     self.slots.$name.store(Some($func));
                 } else {
                     // When deleting, re-inherit from MRO (skip self)
-                    let inherited = self.mro.read().iter().skip(1).find_map(|cls| cls.slots.$name.load());
+                    let inherited = self
+                        .mro
+                        .read()
+                        .iter()
+                        .skip(1)
+                        .find_map(|cls| cls.slots.$name.load());
                     self.slots.$name.store(inherited);
                 }
             }};
@@ -517,7 +522,12 @@ impl PyType {
                     self.slots.$group.$name.store(Some($func));
                 } else {
                     // When deleting, re-inherit from MRO (skip self)
-                    let inherited = self.mro.read().iter().skip(1).find_map(|cls| cls.slots.$group.$name.load());
+                    let inherited = self
+                        .mro
+                        .read()
+                        .iter()
+                        .skip(1)
+                        .find_map(|cls| cls.slots.$group.$name.load());
                     self.slots.$group.$name.store(inherited);
                 }
             }};

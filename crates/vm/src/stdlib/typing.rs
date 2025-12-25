@@ -1,11 +1,16 @@
 // spell-checker:ignore typevarobject funcobj
-use crate::{PyPayload, PyRef, VirtualMachine, class::PyClassImpl, stdlib::PyModule};
+use crate::{Context, PyPayload, PyRef, VirtualMachine, class::PyClassImpl, stdlib::PyModule};
 
 pub use crate::stdlib::typevar::{
     Generic, ParamSpec, ParamSpecArgs, ParamSpecKwargs, TypeVar, TypeVarTuple,
     set_typeparam_default,
 };
 pub use decl::*;
+
+/// Initialize typing types (call extend_class)
+pub fn init(ctx: &Context) {
+    NoDefault::extend_class(ctx, ctx.types.typing_no_default_type);
+}
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = decl::make_module(vm);
