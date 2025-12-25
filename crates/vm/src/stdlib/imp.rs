@@ -188,7 +188,7 @@ mod _imp {
             Err(e) => return Err(e.to_pyexception(name.as_str(), vm)),
         };
 
-        let origname = name; // FIXME: origname != name
+        let origname = vm.ctx.new_str(info.origname);
         Ok(Some((None, info.package, origname)))
     }
 

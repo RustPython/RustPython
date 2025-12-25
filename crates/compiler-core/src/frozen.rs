@@ -1,11 +1,14 @@
 use crate::bytecode::*;
 use crate::marshal::{self, Read, ReadBorrowed, Write};
 
-/// A frozen module. Holds a frozen code object and whether it is part of a package
+/// A frozen module. Holds a frozen code object and whether it is part of a package.
+/// The `origname` type is generic to allow either static names (runtime) or
+/// borrowed/owned names during compile-time freezing.
 #[derive(Copy, Clone)]
-pub struct FrozenModule<B = &'static [u8]> {
+pub struct FrozenModule<B = &'static [u8], N = &'static str> {
     pub code: FrozenCodeObject<B>,
     pub package: bool,
+    pub origname: N,
 }
 
 #[derive(Copy, Clone)]
@@ -55,7 +58,7 @@ impl<B: AsRef<[u8]> + ?Sized> FrozenLib<B> {
 }
 
 impl<'a, B: AsRef<[u8]> + ?Sized> IntoIterator for &'a FrozenLib<B> {
-    type Item = (&'a str, FrozenModule<&'a [u8]>);
+    type Item = (&'a str, FrozenModule<&'a [u8], &'a str>);
     type IntoIter = FrozenModulesIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -69,7 +72,7 @@ pub struct FrozenModulesIter<'a> {
 }
 
 impl<'a> Iterator for FrozenModulesIter<'a> {
-    type Item = (&'a str, FrozenModule<&'a [u8]>);
+    type Item = (&'a str, FrozenModule<&'a [u8], &'a str>);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.remaining > 0 {
@@ -90,21 +93,30 @@ impl ExactSizeIterator for FrozenModulesIter<'_> {}
 
 fn read_entry<'a>(
     rdr: &mut &'a [u8],
-) -> Result<(&'a str, FrozenModule<&'a [u8]>), marshal::MarshalError> {
+) -> Result<(&'a str, FrozenModule<&'a [u8], &'a str>), marshal::MarshalError> {
     let len = rdr.read_u32()?;
     let name = rdr.read_str_borrow(len)?;
     let len = rdr.read_u32()?;
     let code_slice = rdr.read_slice_borrow(len)?;
     let code = FrozenCodeObject { bytes: code_slice };
     let package = rdr.read_u8()? != 0;
-    Ok((name, FrozenModule { code, package }))
+    let len = rdr.read_u32()?;
+    let origname = rdr.read_str_borrow(len)?;
+    Ok((
+        name,
+        FrozenModule {
+            code,
+            package,
+            origname,
+        },
+    ))
 }
 
 impl FrozenLib<Vec<u8>> {
     /// Encode the given iterator of frozen modules into a compressed vector of bytes
-    pub fn encode<'a, I, B: AsRef<[u8]>>(lib: I) -> Self
+    pub fn encode<'a, I, B: AsRef<[u8]>, N: AsRef<str>>(lib: I) -> Self
     where
-        I: IntoIterator<Item = (&'a str, FrozenModule<B>), IntoIter: ExactSizeIterator + Clone>,
+        I: IntoIterator<Item = (&'a str, FrozenModule<B, N>), IntoIter: ExactSizeIterator + Clone>,
     {
         let iter = lib.into_iter();
         let mut bytes = Vec::new();
@@ -113,9 +125,9 @@ impl FrozenLib<Vec<u8>> {
     }
 }
 
-fn write_lib<'a, B: AsRef<[u8]>>(
+fn write_lib<'a, B: AsRef<[u8]>, N: AsRef<str>>(
     buf: &mut Vec<u8>,
-    lib: impl ExactSizeIterator<Item = (&'a str, FrozenModule<B>)>,
+    lib: impl ExactSizeIterator<Item = (&'a str, FrozenModule<B, N>)>,
 ) {
     marshal::write_len(buf, lib.len());
     for (name, module) in lib {
@@ -123,8 +135,13 @@ fn write_lib<'a, B: AsRef<[u8]>>(
     }
 }
 
-fn write_entry(buf: &mut Vec<u8>, name: &str, module: FrozenModule<impl AsRef<[u8]>>) {
+fn write_entry<N: AsRef<str>>(
+    buf: &mut Vec<u8>,
+    name: &str,
+    module: FrozenModule<impl AsRef<[u8]>, N>,
+) {
     marshal::write_vec(buf, name.as_bytes());
     marshal::write_vec(buf, module.code.bytes.as_ref());
     buf.write_u8(module.package as u8);
+    marshal::write_vec(buf, module.origname.as_ref().as_bytes());
 }
