@@ -138,6 +138,9 @@ impl CompilationSource {
         }
     }
 
+    /// Returns an alternate base path when `root` is a git-symlink text file on
+    /// Windows so exclusions still apply to the real directory; otherwise returns
+    /// `None` to use `root` directly.
     fn resolve_root(root: &Path) -> Option<PathBuf> {
         if cfg!(windows) && root.is_file() {
             fs::read_to_string(root)
@@ -148,12 +151,16 @@ impl CompilationSource {
         }
     }
 
+    /// Check whether `path` should be excluded. The `resolved_root` argument is used
+    /// on Windows when `root` is a file that stores the real library path created
+    /// from a git symlink; otherwise exclusions are evaluated relative to `root`.
     fn should_exclude(
         path: &Path,
         root: &Path,
         resolved_root: Option<&Path>,
         exclude: &[PathBuf],
     ) -> bool {
+        // Return true when the entry is under `base` and has an excluded prefix.
         let matches_root = |base: &Path| match path.strip_prefix(base) {
             Ok(rel_path) => exclude.iter().any(|e| rel_path.starts_with(e)),
             Err(_) => false,
