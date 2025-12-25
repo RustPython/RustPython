@@ -70,6 +70,9 @@ pub struct ModuleInitArgs {
 }
 
 impl PyModule {
+    const STATE_TYPE_ERROR: &'static str =
+        "module state has already been initialized with a different type";
+
     #[allow(clippy::new_without_default)]
     pub const fn new() -> Self {
         Self {
@@ -92,6 +95,8 @@ impl PyModule {
         module.init_dict(module.name.unwrap(), doc, vm);
     }
 
+    /// Return the stored module state if it exists and matches `T`. Returns `None` when no state
+    /// has been set or when the stored state is of a different type.
     pub fn get_state<T: PyPayload>(&self) -> Option<PyRef<T>> {
         self.state
             .read()
@@ -99,21 +104,25 @@ impl PyModule {
             .and_then(|obj| obj.clone().downcast().ok())
     }
 
+    /// Get or initialize the module state of type `T`, using `init` only when no state exists and
+    /// creating it while holding a write lock. Raises `TypeError` if an incompatible state is
+    /// already stored.
     pub fn get_or_try_init_state<T, F>(&self, vm: &VirtualMachine, init: F) -> PyResult<PyRef<T>>
     where
         T: PyPayload,
         F: FnOnce(&VirtualMachine) -> PyResult<PyRef<T>>,
     {
-        if let Some(state) = self.get_state() {
-            return Ok(state);
-        }
-
-        if self.state.read().is_some() {
-            return Err(vm.new_type_error("module state has incompatible type".to_owned()));
+        let mut lock = self.state.write();
+        if let Some(existing) = lock.as_ref() {
+            return existing
+                .clone()
+                .downcast()
+                .map_err(|_| vm.new_type_error(Self::STATE_TYPE_ERROR));
         }
 
         let state = init(vm)?;
-        *self.state.write() = Some(state.clone().into());
+
+        *lock = Some(state.as_object().to_owned());
         Ok(state)
     }
 }
@@ -261,7 +270,7 @@ mod tests {
         builtins::{PyInt, PyStr},
         vm::Interpreter,
     };
-    use malachite_bigint::ToBigInt;
+    use malachite_bigint::BigInt;
 
     #[test]
     fn module_state_is_per_module_and_typed() {
@@ -278,8 +287,8 @@ mod tests {
                 .get_or_try_init_state(vm, |vm| Ok(vm.ctx.new_int(2)))
                 .unwrap();
 
-            assert_eq!(s1.as_bigint(), &1.to_bigint().unwrap());
-            assert_eq!(s2.as_bigint(), &2.to_bigint().unwrap());
+            assert_eq!(s1.as_bigint(), &BigInt::from(1));
+            assert_eq!(s2.as_bigint(), &BigInt::from(2));
 
             let s1_again = m1.get_state::<PyInt>().unwrap();
             assert!(s1_again.is(&s1));
