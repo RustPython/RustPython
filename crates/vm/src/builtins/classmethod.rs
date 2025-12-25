@@ -124,7 +124,7 @@ impl PyClassMethod {
 }
 
 #[pyclass(
-    with(GetDescriptor, Constructor, Representable),
+    with(GetDescriptor, Constructor, Initializer, Representable),
     flags(BASETYPE, HAS_DICT)
 )]
 impl PyClassMethod {

@@ -467,7 +467,7 @@ impl SetAttr for PyCStructType {
 
         // Check for data descriptor first
         if let Some(attr) = pytype.get_class_attr(attr_name_interned) {
-            let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
+            let descr_set = attr.class().slots.descr_set.load();
             if let Some(descriptor) = descr_set {
                 return descriptor(&attr, pytype.to_owned().into(), value, vm);
             }

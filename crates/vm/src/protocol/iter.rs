@@ -23,9 +23,7 @@ unsafe impl<O: Borrow<PyObject>> Traverse for PyIter<O> {
 
 impl PyIter<PyObjectRef> {
     pub fn check(obj: &PyObject) -> bool {
-        obj.class()
-            .mro_find_map(|x| x.slots.iternext.load())
-            .is_some()
+        obj.class().slots.iternext.load().is_some()
     }
 }
 
@@ -37,18 +35,19 @@ where
         Self(obj)
     }
     pub fn next(&self, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        let iternext = {
-            self.0
-                .borrow()
-                .class()
-                .mro_find_map(|x| x.slots.iternext.load())
-                .ok_or_else(|| {
-                    vm.new_type_error(format!(
-                        "'{}' object is not an iterator",
-                        self.0.borrow().class().name()
-                    ))
-                })?
-        };
+        let iternext = self
+            .0
+            .borrow()
+            .class()
+            .slots
+            .iternext
+            .load()
+            .ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "'{}' object is not an iterator",
+                    self.0.borrow().class().name()
+                ))
+            })?;
         iternext(self.0.borrow(), vm)
     }
 
@@ -126,10 +125,7 @@ impl TryFromObject for PyIter<PyObjectRef> {
     // in the vm when a for loop is entered. Next, it is used when the builtin
     // function 'iter' is called.
     fn try_from_object(vm: &VirtualMachine, iter_target: PyObjectRef) -> PyResult<Self> {
-        let get_iter = {
-            let cls = iter_target.class();
-            cls.mro_find_map(|x| x.slots.iter.load())
-        };
+        let get_iter = iter_target.class().slots.iter.load();
         if let Some(get_iter) = get_iter {
             let iter = get_iter(iter_target, vm)?;
             if Self::check(&iter) {

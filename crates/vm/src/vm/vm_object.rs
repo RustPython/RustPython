@@ -96,9 +96,7 @@ impl VirtualMachine {
         obj: Option<PyObjectRef>,
         cls: Option<PyObjectRef>,
     ) -> Option<PyResult> {
-        let descr_get = descr
-            .class()
-            .mro_find_map(|cls| cls.slots.descr_get.load())?;
+        let descr_get = descr.class().slots.descr_get.load()?;
         Some(descr_get(descr.to_owned(), obj, cls, self))
     }
 

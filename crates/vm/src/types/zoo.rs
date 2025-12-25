@@ -242,5 +242,6 @@ impl TypeZoo {
         genericalias::init(context);
         union_::init(context);
         descriptor::init(context);
+        crate::stdlib::typing::init(context);
     }
 }
