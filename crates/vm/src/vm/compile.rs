@@ -81,7 +81,7 @@ impl VirtualMachine {
             todo!("running pyc is not implemented yet");
         } else {
             if path != "<stdin>" {
-                // TODO: set_main_loader(dict, filename, "SourceFileLoader");
+                set_main_loader(&module_dict, path, self)?;
             }
             // TODO: replace to something equivalent to py_run_file
             match std::fs::read_to_string(path) {
@@ -123,6 +123,16 @@ impl VirtualMachine {
         // trace!("Code object: {:?}", code_obj.borrow());
         self.run_code_obj(code_obj, scope)
     }
+}
+
+fn set_main_loader(module_dict: &PyDictRef, filename: &str, vm: &VirtualMachine) -> PyResult<()> {
+    vm.import("importlib.machinery", 0)?;
+    let sys_modules = vm.sys_module.get_attr(identifier!(vm, modules), vm)?;
+    let machinery = sys_modules.get_item("importlib.machinery", vm)?;
+    let loader_class = machinery.get_attr("SourceFileLoader", vm)?;
+    let loader = loader_class.call((identifier!(vm, __main__).to_owned(), filename), vm)?;
+    module_dict.set_item("__loader__", loader, vm)?;
+    Ok(())
 }
 
 fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
