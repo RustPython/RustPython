@@ -339,17 +339,15 @@ mod _multiprocessing {
         #[extend_class]
         fn extend_class(ctx: &Context, class: &Py<PyType>) {
             class.set_attr(
-                ctx.interned_str("RECURSIVE_MUTEX")
-                    .expect("intern RECURSIVE_MUTEX"),
+                ctx.intern_str("RECURSIVE_MUTEX"),
                 ctx.new_int(RECURSIVE_MUTEX_KIND).into(),
             );
             class.set_attr(
-                ctx.interned_str("SEMAPHORE").expect("intern SEMAPHORE"),
+                ctx.intern_str("SEMAPHORE"),
                 ctx.new_int(SEMAPHORE_KIND).into(),
             );
             class.set_attr(
-                ctx.interned_str("SEM_VALUE_MAX")
-                    .expect("intern SEM_VALUE_MAX"),
+                ctx.intern_str("SEM_VALUE_MAX"),
                 ctx.new_int(SEM_VALUE_MAX_CONST).into(),
             );
         }
