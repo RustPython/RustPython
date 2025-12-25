@@ -501,17 +501,26 @@ impl PyType {
 
         macro_rules! toggle_slot {
             ($name:ident, $func:expr) => {{
-                self.slots.$name.store(if ADD { Some($func) } else { None });
+                if ADD {
+                    self.slots.$name.store(Some($func));
+                } else {
+                    // When deleting, re-inherit from MRO (skip self)
+                    let inherited = self.mro.read().iter().skip(1).find_map(|cls| cls.slots.$name.load());
+                    self.slots.$name.store(inherited);
+                }
             }};
         }
 
         macro_rules! toggle_sub_slot {
-            ($group:ident, $name:ident, $func:expr) => {
-                self.slots
-                    .$group
-                    .$name
-                    .store(if ADD { Some($func) } else { None });
-            };
+            ($group:ident, $name:ident, $func:expr) => {{
+                if ADD {
+                    self.slots.$group.$name.store(Some($func));
+                } else {
+                    // When deleting, re-inherit from MRO (skip self)
+                    let inherited = self.mro.read().iter().skip(1).find_map(|cls| cls.slots.$group.$name.load());
+                    self.slots.$group.$name.store(inherited);
+                }
+            }};
         }
 
         macro_rules! update_slot {
