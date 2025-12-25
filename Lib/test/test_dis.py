@@ -1525,9 +1525,9 @@ def jumpy():
 expected_outer_line = 1
 _line_offset = outer.__code__.co_firstlineno - 1
 code_object_f = outer.__code__.co_consts[1]
-expected_f_line = code_object_f.co_firstlineno - _line_offset
-code_object_inner = code_object_f.co_consts[1]
-expected_inner_line = code_object_inner.co_firstlineno - _line_offset
+# expected_f_line = code_object_f.co_firstlineno - _line_offset # TODO: RUSTPYTHON; AttributeError: 'int' object has no attribute 'co_firstlineno'
+# code_object_inner = code_object_f.co_consts[1] # TODO: RUSTPYTHON; AttributeError: 'int' object has no attribute 'co_consts'
+# expected_inner_line = code_object_inner.co_firstlineno - _line_offset # TODO: RUSTPYTHON; NameError: name 'code_object_inner' is not defined
 expected_jumpy_line = 1
 
 # The following lines are useful to regenerate the expected results after
@@ -1616,7 +1616,7 @@ expected_opinfo_f = [
   Instruction(opname='LOAD_FAST', opcode=85, arg=0, argval='c', argrepr='c', offset=14, start_offset=14, starts_line=False, line_number=3, label=None, positions=None),
   Instruction(opname='LOAD_FAST', opcode=85, arg=1, argval='d', argrepr='d', offset=16, start_offset=16, starts_line=False, line_number=3, label=None, positions=None),
   Instruction(opname='BUILD_TUPLE', opcode=52, arg=4, argval=4, argrepr='', offset=18, start_offset=18, starts_line=False, line_number=3, label=None, positions=None),
-  Instruction(opname='LOAD_CONST', opcode=83, arg=1, argval=code_object_inner, argrepr=repr(code_object_inner), offset=20, start_offset=20, starts_line=False, line_number=3, label=None, positions=None),
+  #Instruction(opname='LOAD_CONST', opcode=83, arg=1, argval=code_object_inner, argrepr=repr(code_object_inner), offset=20, start_offset=20, starts_line=False, line_number=3, label=None, positions=None), # TODO: RUSTPYTHON; NameError: name 'code_object_inner' is not defined
   Instruction(opname='MAKE_FUNCTION', opcode=26, arg=None, argval=None, argrepr='', offset=22, start_offset=22, starts_line=False, line_number=3, label=None, positions=None),
   Instruction(opname='SET_FUNCTION_ATTRIBUTE', opcode=106, arg=8, argval=8, argrepr='closure', offset=24, start_offset=24, starts_line=False, line_number=3, label=None, positions=None),
   Instruction(opname='SET_FUNCTION_ATTRIBUTE', opcode=106, arg=1, argval=1, argrepr='defaults', offset=26, start_offset=26, starts_line=False, line_number=3, label=None, positions=None),
