@@ -72,6 +72,15 @@ assert isinstance(type.__doc__, str)
 assert object.__qualname__ == "object"
 assert int.__qualname__ == "int"
 
+with assert_raises(TypeError):
+    type.__module__ = "nope"
+
+with assert_raises(TypeError):
+    object.__module__ = "nope"
+
+with assert_raises(TypeError):
+    map.__module__ = "nope"
+
 
 class A(type):
     pass

@@ -906,11 +906,13 @@ impl PyType {
             .unwrap_or_else(|| vm.ctx.new_str(ascii!("builtins")).into())
     }
 
-    #[pygetset(setter)]
-    fn set___module__(&self, value: PyObjectRef, vm: &VirtualMachine) {
+#[pygetset(setter)]
+    fn set___module__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.check_set_special_type_attr(value.as_ref(), identifier!(vm, __module__), vm)?;
         self.attributes
             .write()
             .insert(identifier!(vm, __module__), value);
+        Ok(())
     }
 
     #[pyclassmethod]
