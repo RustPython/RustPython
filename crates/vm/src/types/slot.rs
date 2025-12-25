@@ -511,23 +511,6 @@ impl PyType {
         debug_assert!(name.as_str().starts_with("__"));
         debug_assert!(name.as_str().ends_with("__"));
 
-        macro_rules! toggle_slot {
-            ($name:ident, $func:expr) => {{
-                if ADD {
-                    self.slots.$name.store(Some($func));
-                } else {
-                    // When deleting, re-inherit from MRO (skip self)
-                    let inherited = self
-                        .mro
-                        .read()
-                        .iter()
-                        .skip(1)
-                        .find_map(|cls| cls.slots.$name.load());
-                    self.slots.$name.store(inherited);
-                }
-            }};
-        }
-
         macro_rules! toggle_sub_slot {
             ($group:ident, $name:ident, $func:expr) => {{
                 if ADD {
@@ -545,9 +528,114 @@ impl PyType {
             }};
         }
 
-        macro_rules! update_slot {
-            ($name:ident, $func:expr) => {{
-                self.slots.$name.store(Some($func));
+        // If the method is a slot wrapper, extract and use the original slot directly.
+        // Otherwise use the generic wrapper.
+        macro_rules! update_one_slot {
+            ($slot:ident, $wrapper:expr, $variant:ident) => {{
+                use crate::builtins::descriptor::SlotFunc;
+                if ADD {
+                    // Try to extract the original slot from a slot wrapper
+                    if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| {
+                        if let SlotFunc::$variant(f) = sf {
+                            Some(*f)
+                        } else {
+                            None
+                        }
+                    }) {
+                        // Found slot wrapper - use the original slot directly
+                        self.slots.$slot.store(Some(func));
+                    } else {
+                        // Real method found or no method - use generic wrapper
+                        self.slots.$slot.store(Some($wrapper));
+                    }
+                } else {
+                    // When deleting, re-inherit from MRO (skip self)
+                    let inherited = self
+                        .mro
+                        .read()
+                        .iter()
+                        .skip(1)
+                        .find_map(|cls| cls.slots.$slot.load());
+                    self.slots.$slot.store(inherited);
+                }
+            }};
+        }
+
+        // For setattro slot: matches SetAttro or DelAttro
+        macro_rules! update_setattro {
+            ($wrapper:expr) => {{
+                use crate::builtins::descriptor::SlotFunc;
+                if ADD {
+                    if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| match sf {
+                        SlotFunc::SetAttro(f) | SlotFunc::DelAttro(f) => Some(*f),
+                        _ => None,
+                    }) {
+                        self.slots.setattro.store(Some(func));
+                    } else {
+                        self.slots.setattro.store(Some($wrapper));
+                    }
+                } else {
+                    let inherited = self
+                        .mro
+                        .read()
+                        .iter()
+                        .skip(1)
+                        .find_map(|cls| cls.slots.setattro.load());
+                    self.slots.setattro.store(inherited);
+                }
+            }};
+        }
+
+        // For richcompare slot: matches RichCompare with any op
+        macro_rules! update_richcompare {
+            ($wrapper:expr) => {{
+                use crate::builtins::descriptor::SlotFunc;
+                if ADD {
+                    if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| {
+                        if let SlotFunc::RichCompare(f, _) = sf {
+                            Some(*f)
+                        } else {
+                            None
+                        }
+                    }) {
+                        self.slots.richcompare.store(Some(func));
+                    } else {
+                        self.slots.richcompare.store(Some($wrapper));
+                    }
+                } else {
+                    let inherited = self
+                        .mro
+                        .read()
+                        .iter()
+                        .skip(1)
+                        .find_map(|cls| cls.slots.richcompare.load());
+                    self.slots.richcompare.store(inherited);
+                }
+            }};
+        }
+
+        // For descr_set slot: matches DescrSet or DescrDel
+        macro_rules! update_descr_set {
+            ($wrapper:expr) => {{
+                use crate::builtins::descriptor::SlotFunc;
+                if ADD {
+                    if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| match sf {
+                        SlotFunc::DescrSet(f) | SlotFunc::DescrDel(f) => Some(*f),
+                        _ => None,
+                    }) {
+                        self.slots.descr_set.store(Some(func));
+                    } else {
+                        self.slots.descr_set.store(Some($wrapper));
+                    }
+                } else {
+                    let inherited = self
+                        .mro
+                        .read()
+                        .iter()
+                        .skip(1)
+                        .find_map(|cls| cls.slots.descr_set.load());
+                    self.slots.descr_set.store(inherited);
+                }
             }};
         }
 
@@ -581,34 +669,55 @@ impl PyType {
                 });
             }
             _ if name == identifier!(ctx, __repr__) => {
-                update_slot!(repr, repr_wrapper);
+                update_one_slot!(repr, repr_wrapper, Repr);
             }
             _ if name == identifier!(ctx, __str__) => {
-                update_slot!(str, str_wrapper);
+                update_one_slot!(str, str_wrapper, Str);
             }
             _ if name == identifier!(ctx, __hash__) => {
-                let is_unhashable = self
-                    .attributes
-                    .read()
-                    .get(identifier!(ctx, __hash__))
-                    .is_some_and(|a| a.is(&ctx.none));
-                let wrapper = if is_unhashable {
-                    hash_not_implemented
+                use crate::builtins::descriptor::SlotFunc;
+                if ADD {
+                    // Check for __hash__ = None first (descr == Py_None)
+                    let method = self.attributes.read().get(name).cloned().or_else(|| {
+                        self.mro
+                            .read()
+                            .iter()
+                            .find_map(|cls| cls.attributes.read().get(name).cloned())
+                    });
+
+                    if method.as_ref().is_some_and(|m| m.is(&ctx.none)) {
+                        self.slots.hash.store(Some(hash_not_implemented));
+                    } else if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| {
+                        if let SlotFunc::Hash(f) = sf {
+                            Some(*f)
+                        } else {
+                            None
+                        }
+                    }) {
+                        self.slots.hash.store(Some(func));
+                    } else {
+                        self.slots.hash.store(Some(hash_wrapper));
+                    }
                 } else {
-                    hash_wrapper
-                };
-                toggle_slot!(hash, wrapper);
+                    let inherited = self
+                        .mro
+                        .read()
+                        .iter()
+                        .skip(1)
+                        .find_map(|cls| cls.slots.hash.load());
+                    self.slots.hash.store(inherited);
+                }
             }
             _ if name == identifier!(ctx, __call__) => {
-                toggle_slot!(call, call_wrapper);
+                update_one_slot!(call, call_wrapper, Call);
             }
             _ if name == identifier!(ctx, __getattr__)
                 || name == identifier!(ctx, __getattribute__) =>
             {
-                update_slot!(getattro, getattro_wrapper);
+                update_one_slot!(getattro, getattro_wrapper, GetAttro);
             }
             _ if name == identifier!(ctx, __setattr__) || name == identifier!(ctx, __delattr__) => {
-                update_slot!(setattro, setattro_wrapper);
+                update_setattro!(setattro_wrapper);
             }
             _ if name == identifier!(ctx, __eq__)
                 || name == identifier!(ctx, __ne__)
@@ -617,63 +726,39 @@ impl PyType {
                 || name == identifier!(ctx, __ge__)
                 || name == identifier!(ctx, __gt__) =>
             {
-                update_slot!(richcompare, richcompare_wrapper);
+                update_richcompare!(richcompare_wrapper);
             }
             _ if name == identifier!(ctx, __iter__) => {
-                toggle_slot!(iter, iter_wrapper);
+                update_one_slot!(iter, iter_wrapper, Iter);
             }
             _ if name == identifier!(ctx, __next__) => {
-                toggle_slot!(iternext, iternext_wrapper);
+                update_one_slot!(iternext, iternext_wrapper, IterNext);
             }
             _ if name == identifier!(ctx, __get__) => {
-                toggle_slot!(descr_get, descr_get_wrapper);
+                update_one_slot!(descr_get, descr_get_wrapper, DescrGet);
             }
             _ if name == identifier!(ctx, __set__) || name == identifier!(ctx, __delete__) => {
-                update_slot!(descr_set, descr_set_wrapper);
+                update_descr_set!(descr_set_wrapper);
             }
             _ if name == identifier!(ctx, __init__) => {
-                // Special handling: check if this type or any base has a real __init__ method
-                // If only slot wrappers exist, use the inherited slot from copyslot!
-                if ADD {
-                    // First check if this type has __init__ in its own dict
-                    let has_own_init = self.attributes.read().contains_key(name);
-                    if has_own_init {
-                        // This type defines __init__ - use wrapper
-                        self.slots.init.store(Some(init_wrapper));
-                    } else if self.has_real_method_in_mro(name, ctx) {
-                        // A base class defines a real __init__ method - use wrapper
-                        self.slots.init.store(Some(init_wrapper));
-                    }
-                    // else: keep inherited slot from copyslot!
-                } else {
-                    let inherited = self
-                        .mro
-                        .read()
-                        .iter()
-                        .skip(1)
-                        .find_map(|cls| cls.slots.init.load());
-                    self.slots.init.store(inherited);
-                }
+                update_one_slot!(init, init_wrapper, Init);
             }
             _ if name == identifier!(ctx, __new__) => {
-                toggle_slot!(new, new_wrapper);
-            }
-            _ if name == identifier!(ctx, __del__) => {
-                // Same special handling as __init__
+                // __new__ is not wrapped via PyWrapper
                 if ADD {
-                    let has_own_del = self.attributes.read().contains_key(name);
-                    if has_own_del || self.has_real_method_in_mro(name, ctx) {
-                        self.slots.del.store(Some(del_wrapper));
-                    }
+                    self.slots.new.store(Some(new_wrapper));
                 } else {
                     let inherited = self
                         .mro
                         .read()
                         .iter()
                         .skip(1)
-                        .find_map(|cls| cls.slots.del.load());
-                    self.slots.del.store(inherited);
+                        .find_map(|cls| cls.slots.new.load());
+                    self.slots.new.store(inherited);
                 }
+            }
+            _ if name == identifier!(ctx, __del__) => {
+                update_one_slot!(del, del_wrapper, Del);
             }
             _ if name == identifier!(ctx, __bool__) => {
                 toggle_sub_slot!(as_number, boolean, bool_wrapper);
@@ -926,34 +1011,46 @@ impl PyType {
         }
     }
 
-    /// Check if there's a real method (not a slot wrapper) for `name` anywhere in the MRO.
-    /// If a real method exists, we should use a wrapper function. Otherwise, use the inherited slot.
-    fn has_real_method_in_mro(&self, name: &'static PyStrInterned, ctx: &Context) -> bool {
-        use crate::builtins::descriptor::PySlotWrapper;
+    /// Look up a method in MRO and extract the slot function if it's a slot wrapper.
+    /// Returns Some(slot_func) if a matching slot wrapper is found, None if a real method
+    /// is found or no method exists.
+    fn lookup_slot_in_mro<T: Copy>(
+        &self,
+        name: &'static PyStrInterned,
+        ctx: &Context,
+        extract: impl Fn(&crate::builtins::descriptor::SlotFunc) -> Option<T>,
+    ) -> Option<T> {
+        use crate::builtins::descriptor::PyWrapper;
 
-        // Check the entire MRO (including self) for the method
+        // Helper to extract slot from an attribute if it's a wrapper descriptor
+        let try_extract = |attr: &PyObjectRef| -> Option<T> {
+            if attr.class().is(ctx.types.wrapper_descriptor_type) {
+                attr.downcast_ref::<PyWrapper>()
+                    .and_then(|wrapper| extract(&wrapper.wrapped))
+            } else {
+                None
+            }
+        };
+
+        // Look up in self's dict first
+        if let Some(attr) = self.attributes.read().get(name).cloned() {
+            if let Some(func) = try_extract(&attr) {
+                return Some(func);
+            }
+            return None;
+        }
+
+        // Look up in MRO
         for cls in self.mro.read().iter() {
             if let Some(attr) = cls.attributes.read().get(name).cloned() {
-                // Found the method - check if it's a slot wrapper
-                if attr.class().is(ctx.types.wrapper_descriptor_type) {
-                    if let Some(wrapper) = attr.downcast_ref::<PySlotWrapper>() {
-                        // It's a slot wrapper - check if it belongs to this class
-                        let wrapper_typ: *const _ = wrapper.typ;
-                        let cls_ptr: *const _ = cls.as_ref();
-                        if wrapper_typ == cls_ptr {
-                            // Slot wrapper defined on this exact class - use inherited slot
-                            return false;
-                        }
-                    }
-                    // Inherited slot wrapper - continue checking MRO
-                } else {
-                    // Real method found - use wrapper function
-                    return true;
+                if let Some(func) = try_extract(&attr) {
+                    return Some(func);
                 }
+                return None;
             }
         }
-        // No real method found in MRO - use inherited slot
-        false
+        // No method found in MRO
+        None
     }
 }
 
