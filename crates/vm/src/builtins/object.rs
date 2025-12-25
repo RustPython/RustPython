@@ -507,7 +507,8 @@ impl PyBaseObject {
                     && !cls.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE);
                 // FIXME(#1979) cls instances might have a payload
                 if both_mutable || both_module {
-                    let has_dict = |typ: &Py<PyType>| typ.slots.flags.has_feature(PyTypeFlags::HAS_DICT);
+                    let has_dict =
+                        |typ: &Py<PyType>| typ.slots.flags.has_feature(PyTypeFlags::HAS_DICT);
                     if current_cls.slots.basicsize != cls.slots.basicsize
                         || current_cls.slots.member_count != cls.slots.member_count
                         || has_dict(current_cls) != has_dict(&cls)
