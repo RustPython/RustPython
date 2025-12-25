@@ -1258,6 +1258,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             mro: PyRwLock::default(),
             subclasses: PyRwLock::default(),
             attributes: PyRwLock::new(Default::default()),
+            nonstring_attributes: PyRwLock::default(),
             slots: PyType::make_slots(),
             heaptype_ext: None,
         };
@@ -1267,6 +1268,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             mro: PyRwLock::default(),
             subclasses: PyRwLock::default(),
             attributes: PyRwLock::new(Default::default()),
+            nonstring_attributes: PyRwLock::default(),
             slots: object::PyBaseObject::make_slots(),
             heaptype_ext: None,
         };
@@ -1324,6 +1326,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         mro: PyRwLock::new(vec![object_type.clone()]),
         subclasses: PyRwLock::default(),
         attributes: PyRwLock::default(),
+        nonstring_attributes: PyRwLock::default(),
         slots: PyWeak::make_slots(),
         heaptype_ext: None,
     };

@@ -1,4 +1,4 @@
-use super::{PyDict, PyDictRef, PyGenericAlias, PyList, PyTuple, PyType, PyTypeRef};
+use super::{PyDictRef, PyGenericAlias, PyList, PyTuple, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     atomic_func,
@@ -91,11 +91,23 @@ impl Constructor for PyMappingProxy {
 impl PyMappingProxy {
     fn get_inner(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
         match &self.mapping {
-            MappingProxyInner::Class(class) => Ok(key
-                .as_interned_str(vm)
-                .and_then(|key| class.attributes.read().get(key).cloned())),
+            MappingProxyInner::Class(class) => Self::class_get_inner(class, &key, vm),
             MappingProxyInner::Mapping(mapping) => mapping.mapping().subscript(&*key, vm).map(Some),
         }
+    }
+
+    fn class_get_inner(
+        class: &PyTypeRef,
+        key: &PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        if let Some(key) = key.as_interned_str(vm) {
+            return Ok(class.attributes.read().get(key).cloned());
+        }
+        if let Some(extra) = class.nonstring_attributes.read().as_ref() {
+            return extra.get_item_opt(key.as_object(), vm);
+        }
+        Ok(None)
     }
 
     #[pymethod]
@@ -121,9 +133,15 @@ impl PyMappingProxy {
 
     fn _contains(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         match &self.mapping {
-            MappingProxyInner::Class(class) => Ok(key
-                .as_interned_str(vm)
-                .is_some_and(|key| class.attributes.read().contains_key(key))),
+            MappingProxyInner::Class(class) => {
+                if let Some(key) = key.as_interned_str(vm) {
+                    Ok(class.attributes.read().contains_key(key))
+                } else if let Some(extra) = class.nonstring_attributes.read().as_ref() {
+                    extra.get_item_opt(key, vm).map(|opt| opt.is_some())
+                } else {
+                    Ok(false)
+                }
+            }
             MappingProxyInner::Mapping(mapping) => mapping.to_sequence().contains(key, vm),
         }
     }
@@ -136,9 +154,7 @@ impl PyMappingProxy {
     fn to_object(&self, vm: &VirtualMachine) -> PyResult {
         Ok(match &self.mapping {
             MappingProxyInner::Mapping(d) => d.as_ref().to_owned(),
-            MappingProxyInner::Class(c) => {
-                PyDict::from_attributes(c.attributes.read().clone(), vm)?.to_pyobject(vm)
-            }
+            MappingProxyInner::Class(c) => c.as_object_dict(vm)?.to_pyobject(vm),
         })
     }
 
@@ -164,9 +180,7 @@ impl PyMappingProxy {
     pub fn copy(&self, vm: &VirtualMachine) -> PyResult {
         match &self.mapping {
             MappingProxyInner::Mapping(d) => vm.call_method(d, identifier!(vm, copy).as_str(), ()),
-            MappingProxyInner::Class(c) => {
-                Ok(PyDict::from_attributes(c.attributes.read().clone(), vm)?.to_pyobject(vm))
-            }
+            MappingProxyInner::Class(c) => Ok(c.as_object_dict(vm)?.to_pyobject(vm)),
         }
     }
 

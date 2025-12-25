@@ -1,5 +1,5 @@
 use super::{
-    PyClassMethod, PyDictRef, PyList, PyStr, PyStrInterned, PyStrRef, PyTupleRef, PyWeak,
+    PyClassMethod, PyDict, PyDictRef, PyList, PyStr, PyStrInterned, PyStrRef, PyTupleRef, PyWeak,
     mappingproxy::PyMappingProxy, object, union_,
 };
 use crate::{
@@ -41,6 +41,7 @@ pub struct PyType {
     pub mro: PyRwLock<Vec<PyTypeRef>>,
     pub subclasses: PyRwLock<Vec<PyRef<PyWeak>>>,
     pub attributes: PyRwLock<PyAttributes>,
+    pub nonstring_attributes: PyRwLock<Option<PyDictRef>>,
     pub slots: PyTypeSlots,
     pub heaptype_ext: Option<Pin<Box<HeapTypeExt>>>,
 }
@@ -56,6 +57,10 @@ unsafe impl crate::object::Traverse for PyType {
             .iter()
             .map(|(_, v)| v.traverse(tracer_fn))
             .count();
+        self.nonstring_attributes
+            .read_recursive()
+            .iter()
+            .for_each(|dict| dict.traverse(tracer_fn));
     }
 }
 
@@ -347,6 +352,7 @@ impl PyType {
                 mro: PyRwLock::new(mro),
                 subclasses: PyRwLock::default(),
                 attributes: PyRwLock::new(attrs),
+                nonstring_attributes: PyRwLock::default(),
                 slots,
                 heaptype_ext: Some(Pin::new(Box::new(heaptype_ext))),
             },
@@ -397,6 +403,7 @@ impl PyType {
                 mro: PyRwLock::new(mro),
                 subclasses: PyRwLock::default(),
                 attributes: PyRwLock::new(attrs),
+                nonstring_attributes: PyRwLock::default(),
                 slots,
                 heaptype_ext: None,
             },
@@ -542,6 +549,16 @@ impl PyType {
         }
 
         attributes
+    }
+
+    pub(crate) fn as_object_dict(&self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        let dict = PyDict::from_attributes(self.attributes.read().clone(), vm)?.into_ref(&vm.ctx);
+        if let Some(extra) = self.nonstring_attributes.read().clone() {
+            for (key, value) in extra {
+                dict.set_item(key.as_object(), value, vm)?;
+            }
+        }
+        Ok(dict)
     }
 
     // bound method for every type
@@ -1128,7 +1145,7 @@ impl Constructor for PyType {
                 // If __qualname__ is not provided, we can use the name as default
                 name.clone()
             });
-        let mut attributes = dict.to_attributes(vm);
+        let (mut attributes, nonstring_attributes) = dict.to_attributes_with_nonstring(vm)?;
 
         if let Some(f) = attributes.get_mut(identifier!(vm, __init_subclass__))
             && f.class().is(vm.ctx.types.function_type)
@@ -1245,6 +1262,10 @@ impl Constructor for PyType {
             &vm.ctx,
         )
         .map_err(|e| vm.new_type_error(e))?;
+
+        if let Some(extra) = nonstring_attributes {
+            *typ.nonstring_attributes.write() = Some(extra);
+        }
 
         if let Some(ref slots) = heaptype_slots {
             let mut offset = base_member_count;
