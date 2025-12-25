@@ -1,6 +1,6 @@
+import _ast
 import platform
 import types
-import _ast
 
 from testutils import assert_raises
 
