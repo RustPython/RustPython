@@ -2164,6 +2164,15 @@ impl Compiler {
 
             // Compile exception type
             if let Some(exc_type) = type_ {
+                // Check for unparenthesized tuple (e.g., `except* A, B:` instead of `except* (A, B):`)
+                if let Expr::Tuple(ExprTuple { elts, range, .. }) = exc_type.as_ref()
+                    && let Some(first) = elts.first()
+                    && range.start().to_u32() == first.range().start().to_u32()
+                {
+                    return Err(self.error(CodegenErrorType::SyntaxError(
+                        "multiple exception types must be parenthesized".to_owned(),
+                    )));
+                }
                 self.compile_expression(exc_type)?;
             } else {
                 return Err(self.error(CodegenErrorType::SyntaxError(
