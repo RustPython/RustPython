@@ -1,6 +1,6 @@
 use super::{
     IterStatus, PositionIterInternal, PyBaseExceptionRef, PyGenericAlias, PyMappingProxy, PySet,
-    PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, set::PySetInner,
+    PyStrRef, PyTupleRef, PyType, PyTypeRef, set::PySetInner,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
@@ -568,14 +568,37 @@ impl Py<PyDict> {
         }
     }
 
-    /// Take a python dictionary and convert it to attributes.
-    pub fn to_attributes(&self, vm: &VirtualMachine) -> PyAttributes {
+    pub fn to_attributes_with_nonstring(
+        &self,
+        vm: &VirtualMachine,
+    ) -> PyResult<(PyAttributes, Option<PyDictRef>)> {
         let mut attrs = PyAttributes::default();
+        let mut non_string: Option<PyDictRef> = None;
         for (key, value) in self {
-            let key: PyRefExact<PyStr> = key.downcast_exact(vm).expect("dict has non-string keys");
-            attrs.insert(vm.ctx.intern_str(key), value);
+            if let Some(key) = key.as_interned_str(vm) {
+                attrs.insert(key, value);
+            } else {
+                let dict = non_string.get_or_insert_with(|| vm.ctx.new_dict());
+                dict.set_item(key.as_object(), value, vm)?;
+            }
         }
-        attrs
+        Ok((attrs, non_string))
+    }
+
+    /// Take a python dictionary and convert it to attributes.
+    pub fn to_attributes(&self, vm: &VirtualMachine) -> PyResult<PyAttributes> {
+        let (attrs, non_string) = self.to_attributes_with_nonstring(vm)?;
+        if let Some(non_string) = non_string {
+            let (key, _) = non_string
+                .into_iter()
+                .next()
+                .expect("internal error: non_string dict should not be empty when present");
+            return Err(vm.new_type_error(format!(
+                "attributes must be strings, not '{}'",
+                key.class().name()
+            )));
+        }
+        Ok(attrs)
     }
 
     pub fn get_item_opt<K: DictKey + ?Sized>(
