@@ -189,7 +189,7 @@ impl TypeZoo {
             generic_alias_type: genericalias::PyGenericAlias::init_builtin_type(),
             union_type: union_::PyUnion::init_builtin_type(),
             member_descriptor_type: descriptor::PyMemberDescriptor::init_builtin_type(),
-            wrapper_descriptor_type: descriptor::PySlotWrapper::init_builtin_type(),
+            wrapper_descriptor_type: descriptor::PyWrapper::init_builtin_type(),
             method_wrapper_type: descriptor::PyMethodWrapper::init_builtin_type(),
 
             method_def: crate::function::HeapMethodDef::init_builtin_type(),
