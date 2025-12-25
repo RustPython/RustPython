@@ -391,6 +391,8 @@ pub(super) enum SslError {
     ZeroReturn,
     /// Unexpected EOF without close_notify (protocol violation)
     Eof,
+    /// Non-TLS data received before handshake completed
+    PreauthData,
     /// Certificate verification error
     CertVerification(rustls::CertificateError),
     /// I/O error
@@ -562,6 +564,15 @@ impl SslError {
                 .upcast(),
             SslError::ZeroReturn => create_ssl_zero_return_error(vm).upcast(),
             SslError::Eof => create_ssl_eof_error(vm).upcast(),
+            SslError::PreauthData => {
+                // Non-TLS data received before handshake
+                Self::create_ssl_error_with_reason(
+                    vm,
+                    None,
+                    "before TLS handshake with data",
+                    "before TLS handshake with data",
+                )
+            }
             SslError::CertVerification(cert_err) => {
                 // Use the proper cert verification error creator
                 create_ssl_cert_verification_error(vm, &cert_err).expect("unlikely to happen")
@@ -1243,6 +1254,12 @@ pub(super) fn ssl_do_handshake(
                 {
                     let _ = socket.sock_send(alert_data, vm);
                 }
+            }
+
+            // InvalidMessage during handshake means non-TLS data was received
+            // before the handshake completed (e.g., HTTP request to TLS server)
+            if matches!(e, rustls::Error::InvalidMessage(_)) {
+                return Err(SslError::PreauthData);
             }
 
             // Certificate verification errors are already handled by from_rustls
