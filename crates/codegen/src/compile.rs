@@ -4032,7 +4032,7 @@ impl Compiler {
                 self.compile_expression(guard)?;
                 emit!(self, Instruction::CopyItem { index: 1_u32 });
                 emit!(self, Instruction::PopJumpIfFalse { target: end });
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
             }
             self.compile_statements(&m.body)?;
         }
@@ -4110,7 +4110,7 @@ impl Compiler {
                         target: break_block,
                     }
                 );
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
             }
         }
 
@@ -4485,7 +4485,7 @@ impl Compiler {
                 }
             }
 
-            emit!(self, Instruction::Pop);
+            emit!(self, Instruction::PopTop);
         }
 
         // If all values did not qualify, take the value of the last value:
