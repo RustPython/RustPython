@@ -20,8 +20,8 @@ pub type PyNumberTernaryFunc = fn(&PyObject, &PyObject, &PyObject, &VirtualMachi
 
 impl PyObject {
     #[inline]
-    pub const fn to_number(&self) -> PyNumber<'_> {
-        PyNumber(self)
+    pub const fn number(&self) -> PyNumber<'_> {
+        PyNumber { obj: self }
     }
 
     pub fn try_index_opt(&self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
@@ -30,7 +30,7 @@ impl PyObject {
         } else if let Some(i) = self.downcast_ref::<PyInt>() {
             Some(Ok(vm.ctx.new_bigint(i.as_bigint())))
         } else {
-            self.to_number().index(vm)
+            self.number().index(vm)
         }
     }
 
@@ -56,7 +56,11 @@ impl PyObject {
 
         if let Some(i) = self.downcast_ref_if_exact::<PyInt>(vm) {
             Ok(i.to_owned())
-        } else if let Some(i) = self.to_number().int(vm).or_else(|| self.try_index_opt(vm)) {
+        } else if let Some(i) = self
+            .number()
+            .int(vm)
+            .or_else(|| self.try_index_opt(vm))
+        {
             i
         } else if let Ok(Some(f)) = vm.get_special_method(self, identifier!(vm, __trunc__)) {
             warnings::warn(
@@ -92,7 +96,7 @@ impl PyObject {
     pub fn try_float_opt(&self, vm: &VirtualMachine) -> Option<PyResult<PyRef<PyFloat>>> {
         if let Some(float) = self.downcast_ref_if_exact::<PyFloat>(vm) {
             Some(Ok(float.to_owned()))
-        } else if let Some(f) = self.to_number().float(vm) {
+        } else if let Some(f) = self.number().float(vm) {
             Some(f)
         } else {
             self.try_index_opt(vm)
@@ -420,11 +424,13 @@ impl PyNumberSlots {
     }
 }
 #[derive(Copy, Clone)]
-pub struct PyNumber<'a>(&'a PyObject);
+pub struct PyNumber<'a> {
+    pub obj: &'a PyObject,
+}
 
 unsafe impl Traverse for PyNumber<'_> {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        self.0.traverse(tracer_fn)
+        self.obj.traverse(tracer_fn)
     }
 }
 
@@ -432,15 +438,11 @@ impl Deref for PyNumber<'_> {
     type Target = PyObject;
 
     fn deref(&self) -> &Self::Target {
-        self.0
+        self.obj
     }
 }
 
 impl<'a> PyNumber<'a> {
-    pub(crate) const fn obj(self) -> &'a PyObject {
-        self.0
-    }
-
     // PyNumber_Check - slots are now inherited
     pub fn check(obj: &PyObject) -> bool {
         let methods = &obj.class().slots.as_number;

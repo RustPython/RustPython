@@ -4,7 +4,7 @@ use crate::{
     convert::ToPyObject,
     function::PyArithmeticValue,
     object::{Traverse, TraverseFn},
-    protocol::{PyMapping, PyNumberBinaryOp},
+    protocol::PyNumberBinaryOp,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -108,8 +108,17 @@ impl PySequenceMethods {
 
 impl PyObject {
     #[inline]
-    pub fn to_sequence(&self) -> PySequence<'_> {
+    pub fn sequence_unchecked(&self) -> PySequence<'_> {
         PySequence { obj: self }
+    }
+
+    pub fn try_sequence(&self, vm: &VirtualMachine) -> PyResult<PySequence<'_>> {
+        let seq = self.sequence_unchecked();
+        if seq.check() {
+            Ok(seq)
+        } else {
+            Err(vm.new_type_error(format!("'{}' is not a sequence", self.class())))
+        }
     }
 }
 
@@ -121,17 +130,6 @@ pub struct PySequence<'a> {
 unsafe impl Traverse for PySequence<'_> {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.obj.traverse(tracer_fn)
-    }
-}
-
-impl<'a> PySequence<'a> {
-    pub fn try_protocol(obj: &'a PyObject, vm: &VirtualMachine) -> PyResult<Self> {
-        let seq = obj.to_sequence();
-        if seq.check() {
-            Ok(seq)
-        } else {
-            Err(vm.new_type_error(format!("'{}' is not a sequence", obj.class())))
-        }
     }
 }
 
@@ -164,7 +162,7 @@ impl PySequence<'_> {
         }
 
         // if both arguments appear to be sequences, try fallback to __add__
-        if self.check() && other.to_sequence().check() {
+        if self.check() && other.sequence_unchecked().check() {
             let ret = vm.binary_op1(self.obj, other, PyNumberBinaryOp::Add)?;
             if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
                 return Ok(ret);
@@ -202,7 +200,7 @@ impl PySequence<'_> {
         }
 
         // if both arguments appear to be sequences, try fallback to __iadd__
-        if self.check() && other.to_sequence().check() {
+        if self.check() && other.sequence_unchecked().check() {
             let ret = vm._iadd(self.obj, other)?;
             if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
                 return Ok(ret);
@@ -267,7 +265,7 @@ impl PySequence<'_> {
     }
 
     pub fn get_slice(&self, start: isize, stop: isize, vm: &VirtualMachine) -> PyResult {
-        if let Ok(mapping) = PyMapping::try_protocol(self.obj, vm) {
+        if let Ok(mapping) = self.obj.try_mapping(vm) {
             let slice = PySlice {
                 start: Some(start.to_pyobject(vm)),
                 stop: stop.to_pyobject(vm),
@@ -286,7 +284,7 @@ impl PySequence<'_> {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let mapping = self.obj.to_mapping();
+        let mapping = self.obj.mapping_unchecked();
         if let Some(f) = mapping.slots().ass_subscript.load() {
             let slice = PySlice {
                 start: Some(start.to_pyobject(vm)),

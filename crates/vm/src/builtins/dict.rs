@@ -1145,7 +1145,7 @@ impl ViewSetOps for PyDictKeys {}
 impl PyDictKeys {
     #[pymethod]
     fn __contains__(zelf: PyObjectRef, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        zelf.to_sequence().contains(&key, vm)
+        zelf.sequence_unchecked().contains(&key, vm)
     }
 
     #[pygetset]
@@ -1210,7 +1210,7 @@ impl ViewSetOps for PyDictItems {}
 impl PyDictItems {
     #[pymethod]
     fn __contains__(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        zelf.to_sequence().contains(&needle, vm)
+        zelf.sequence_unchecked().contains(&needle, vm)
     }
     #[pygetset]
     fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {

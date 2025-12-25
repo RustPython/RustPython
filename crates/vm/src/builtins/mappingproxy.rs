@@ -62,7 +62,7 @@ impl Constructor for PyMappingProxy {
     type Args = PyObjectRef;
 
     fn py_new(_cls: &Py<PyType>, mapping: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-        if mapping.to_mapping().check()
+        if mapping.mapping_unchecked().check()
             && !mapping.downcastable::<PyList>()
             && !mapping.downcastable::<PyTuple>()
         {
@@ -122,7 +122,7 @@ impl PyMappingProxy {
             MappingProxyInner::Class(class) => Ok(key
                 .as_interned_str(vm)
                 .is_some_and(|key| class.attributes.read().contains_key(key))),
-            MappingProxyInner::Mapping(mapping) => mapping.to_sequence().contains(key, vm),
+            MappingProxyInner::Mapping(mapping) => mapping.sequence_unchecked().contains(key, vm),
         }
     }
 

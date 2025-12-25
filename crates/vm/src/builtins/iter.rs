@@ -8,7 +8,7 @@ use crate::{
     class::PyClassImpl,
     function::ArgCallable,
     object::{Traverse, TraverseFn},
-    protocol::{PyIterReturn, PySequence},
+    protocol::PyIterReturn,
     types::{IterNext, Iterable, SelfIter},
 };
 use rustpython_common::{
@@ -190,7 +190,7 @@ impl PyPayload for PySequenceIterator {
 #[pyclass(with(IterNext, Iterable))]
 impl PySequenceIterator {
     pub fn new(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-        let _seq = PySequence::try_protocol(&obj, vm)?;
+        let _seq = obj.try_sequence(vm)?;
         Ok(Self {
             internal: PyMutex::new(PositionIterInternal::new(obj, 0)),
         })
@@ -200,7 +200,7 @@ impl PySequenceIterator {
     fn __length_hint__(&self, vm: &VirtualMachine) -> PyObjectRef {
         let internal = self.internal.lock();
         if let IterStatus::Active(obj) = &internal.status {
-            let seq = obj.to_sequence();
+            let seq = obj.sequence_unchecked();
             seq.length(vm)
                 .map(|x| PyInt::from(x).into_pyobject(vm))
                 .unwrap_or_else(|_| vm.ctx.not_implemented())
@@ -224,7 +224,7 @@ impl SelfIter for PySequenceIterator {}
 impl IterNext for PySequenceIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|obj, pos| {
-            let seq = obj.to_sequence();
+            let seq = obj.sequence_unchecked();
             PyIterReturn::from_getitem_result(seq.get_item(pos as isize, vm), vm)
         })
     }

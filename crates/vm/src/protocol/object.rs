@@ -12,7 +12,7 @@ use crate::{
     dict_inner::DictKey,
     function::{Either, FuncArgs, PyArithmeticValue, PySetterValue},
     object::PyPayload,
-    protocol::{PyIter, PyMapping, PySequence},
+    protocol::PyIter,
     types::{Constructor, PyComparisonOp},
 };
 
@@ -669,9 +669,9 @@ impl PyObject {
     }
 
     pub fn length_opt(&self, vm: &VirtualMachine) -> Option<PyResult<usize>> {
-        self.to_sequence()
+        self.sequence_unchecked()
             .length_opt(vm)
-            .or_else(|| self.to_mapping().length_opt(vm))
+            .or_else(|| self.mapping_unchecked().length_opt(vm))
     }
 
     pub fn length(&self, vm: &VirtualMachine) -> PyResult<usize> {
@@ -690,9 +690,9 @@ impl PyObject {
 
         let needle = needle.to_pyobject(vm);
 
-        if let Ok(mapping) = PyMapping::try_protocol(self, vm) {
+        if let Ok(mapping) = self.try_mapping(vm) {
             mapping.subscript(&needle, vm)
-        } else if let Ok(seq) = PySequence::try_protocol(self, vm) {
+        } else if let Ok(seq) = self.try_sequence(vm) {
             let i = needle.key_as_isize(vm)?;
             seq.get_item(i, vm)
         } else {
@@ -722,13 +722,13 @@ impl PyObject {
             return dict.set_item(needle, value, vm);
         }
 
-        let mapping = self.to_mapping();
+        let mapping = self.mapping_unchecked();
         if let Some(f) = mapping.slots().ass_subscript.load() {
             let needle = needle.to_pyobject(vm);
             return f(mapping, &needle, Some(value), vm);
         }
 
-        let seq = self.to_sequence();
+        let seq = self.sequence_unchecked();
         if let Some(f) = seq.slots().ass_item.load() {
             let i = needle.key_as_isize(vm)?;
             return f(seq, i, Some(value), vm);
@@ -745,12 +745,12 @@ impl PyObject {
             return dict.del_item(needle, vm);
         }
 
-        let mapping = self.to_mapping();
+        let mapping = self.mapping_unchecked();
         if let Some(f) = mapping.slots().ass_subscript.load() {
             let needle = needle.to_pyobject(vm);
             return f(mapping, &needle, None, vm);
         }
-        let seq = self.to_sequence();
+        let seq = self.sequence_unchecked();
         if let Some(f) = seq.slots().ass_item.load() {
             let i = needle.key_as_isize(vm)?;
             return f(seq, i, None, vm);

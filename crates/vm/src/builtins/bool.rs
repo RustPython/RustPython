@@ -43,7 +43,7 @@ impl PyObjectRef {
             return Ok(false);
         }
         let rs_bool = if let Some(nb_bool) = self.class().slots.as_number.boolean.load() {
-            nb_bool(self.as_object().to_number(), vm)?
+            nb_bool(self.as_object().number(), vm)?
         } else {
             // TODO: Fully implement AsNumber and remove this block
             match vm.get_method(self.clone(), identifier!(vm, __bool__)) {

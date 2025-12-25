@@ -73,8 +73,17 @@ impl PyMappingMethods {
 }
 
 impl PyObject {
-    pub fn to_mapping(&self) -> PyMapping<'_> {
+    pub fn mapping_unchecked(&self) -> PyMapping<'_> {
         PyMapping { obj: self }
+    }
+
+    pub fn try_mapping(&self, vm: &VirtualMachine) -> PyResult<PyMapping<'_>> {
+        let mapping = self.mapping_unchecked();
+        if mapping.check() {
+            Ok(mapping)
+        } else {
+            Err(vm.new_type_error(format!("{} is not a mapping object", self.class())))
+        }
     }
 }
 
@@ -93,17 +102,6 @@ impl AsRef<PyObject> for PyMapping<'_> {
     #[inline(always)]
     fn as_ref(&self) -> &PyObject {
         self.obj
-    }
-}
-
-impl<'a> PyMapping<'a> {
-    pub fn try_protocol(obj: &'a PyObject, vm: &VirtualMachine) -> PyResult<Self> {
-        let mapping = obj.to_mapping();
-        if mapping.check() {
-            Ok(mapping)
-        } else {
-            Err(vm.new_type_error(format!("{} is not a mapping object", obj.class())))
-        }
     }
 }
 

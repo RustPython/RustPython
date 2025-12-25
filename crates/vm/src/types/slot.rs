@@ -437,7 +437,7 @@ fn iter_wrapper(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 }
 
 fn bool_wrapper(num: PyNumber<'_>, vm: &VirtualMachine) -> PyResult<bool> {
-    let result = vm.call_special_method(num.obj(), identifier!(vm, __bool__), ())?;
+    let result = vm.call_special_method(num.obj, identifier!(vm, __bool__), ())?;
     // __bool__ must return exactly bool, not int subclass
     if !result.class().is(vm.ctx.types.bool_type) {
         return Err(vm.new_type_error(format!(
@@ -1437,7 +1437,7 @@ pub trait AsNumber: PyPayload {
 
     #[inline]
     fn number_downcast(num: PyNumber<'_>) -> &Py<Self> {
-        unsafe { num.obj().downcast_unchecked_ref() }
+        unsafe { num.obj.downcast_unchecked_ref() }
     }
 
     #[inline]

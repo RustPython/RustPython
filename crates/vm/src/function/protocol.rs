@@ -135,7 +135,7 @@ impl ArgMapping {
 
     #[inline(always)]
     pub fn mapping(&self) -> PyMapping<'_> {
-        self.obj.to_mapping()
+        self.obj.mapping_unchecked()
     }
 }
 
@@ -177,7 +177,7 @@ impl ToPyObject for ArgMapping {
 
 impl TryFromObject for ArgMapping {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let _mapping = PyMapping::try_protocol(&obj, vm)?;
+        let _mapping = obj.try_mapping(vm)?;
         Ok(Self { obj })
     }
 }

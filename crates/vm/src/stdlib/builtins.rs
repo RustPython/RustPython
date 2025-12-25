@@ -268,7 +268,7 @@ mod builtins {
                 if !globals.fast_isinstance(vm.ctx.types.dict_type) {
                     return Err(match func_name {
                         "eval" => {
-                            let is_mapping = globals.to_mapping().check();
+                            let is_mapping = globals.mapping_unchecked().check();
                             vm.new_type_error(if is_mapping {
                                 "globals must be a real dict; try eval(expr, {}, mapping)"
                                     .to_owned()

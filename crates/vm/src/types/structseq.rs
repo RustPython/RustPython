@@ -85,7 +85,10 @@ static STRUCT_SEQUENCE_AS_SEQUENCE: LazyLock<PySequenceMethods> =
             let visible: Vec<_> = tuple.iter().take(n_seq).cloned().collect();
             let visible_tuple = PyTuple::new_ref(visible, &vm.ctx);
             // Use tuple's concat implementation
-            visible_tuple.as_object().to_sequence().concat(other, vm)
+            visible_tuple
+                .as_object()
+                .sequence_unchecked()
+                .concat(other, vm)
         }),
         repeat: atomic_func!(|seq, n, vm| {
             // Convert to visible-only tuple, then use regular tuple repeat
@@ -94,7 +97,7 @@ static STRUCT_SEQUENCE_AS_SEQUENCE: LazyLock<PySequenceMethods> =
             let visible: Vec<_> = tuple.iter().take(n_seq).cloned().collect();
             let visible_tuple = PyTuple::new_ref(visible, &vm.ctx);
             // Use tuple's repeat implementation
-            visible_tuple.as_object().to_sequence().repeat(n, vm)
+            visible_tuple.as_object().sequence_unchecked().repeat(n, vm)
         }),
         item: atomic_func!(|seq, i, vm| {
             let n_seq = get_visible_len(seq.obj, vm)?;

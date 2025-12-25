@@ -488,7 +488,7 @@ mod _sqlite {
                 let text2 = vm.ctx.new_str(text2);
 
                 let val = callable.call((text1, text2), vm)?;
-                let Some(val) = val.to_number().index(vm) else {
+                let Some(val) = val.number().index(vm) else {
                     return Ok(0);
                 };
 
@@ -2980,7 +2980,7 @@ mod _sqlite {
         fn bind_parameters(self, parameters: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
             if let Some(dict) = parameters.downcast_ref::<PyDict>() {
                 self.bind_parameters_name(dict, vm)
-            } else if let Ok(seq) = PySequence::try_protocol(parameters, vm) {
+            } else if let Ok(seq) = parameters.try_sequence(vm) {
                 self.bind_parameters_sequence(seq, vm)
             } else {
                 Err(new_programming_error(

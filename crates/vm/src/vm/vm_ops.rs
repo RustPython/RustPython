@@ -4,7 +4,7 @@ use crate::{
     PyRef,
     builtins::{PyInt, PyStr, PyStrRef, PyUtf8Str},
     object::{AsObject, PyObject, PyObjectRef, PyResult},
-    protocol::{PyNumberBinaryOp, PyNumberTernaryOp, PySequence},
+    protocol::{PyNumberBinaryOp, PyNumberTernaryOp},
     types::PyComparisonOp,
 };
 use num_traits::ToPrimitive;
@@ -380,7 +380,7 @@ impl VirtualMachine {
         if !result.is(&self.ctx.not_implemented) {
             return Ok(result);
         }
-        if let Ok(seq_a) = PySequence::try_protocol(a, self) {
+        if let Ok(seq_a) = a.try_sequence(self) {
             let result = seq_a.concat(b, self)?;
             if !result.is(&self.ctx.not_implemented) {
                 return Ok(result);
@@ -394,7 +394,7 @@ impl VirtualMachine {
         if !result.is(&self.ctx.not_implemented) {
             return Ok(result);
         }
-        if let Ok(seq_a) = PySequence::try_protocol(a, self) {
+        if let Ok(seq_a) = a.try_sequence(self) {
             let result = seq_a.inplace_concat(b, self)?;
             if !result.is(&self.ctx.not_implemented) {
                 return Ok(result);
@@ -408,14 +408,14 @@ impl VirtualMachine {
         if !result.is(&self.ctx.not_implemented) {
             return Ok(result);
         }
-        if let Ok(seq_a) = PySequence::try_protocol(a, self) {
+        if let Ok(seq_a) = a.try_sequence(self) {
             let n = b
                 .try_index(self)?
                 .as_bigint()
                 .to_isize()
                 .ok_or_else(|| self.new_overflow_error("repeated bytes are too long"))?;
             return seq_a.repeat(n, self);
-        } else if let Ok(seq_b) = PySequence::try_protocol(b, self) {
+        } else if let Ok(seq_b) = b.try_sequence(self) {
             let n = a
                 .try_index(self)?
                 .as_bigint()
@@ -436,14 +436,14 @@ impl VirtualMachine {
         if !result.is(&self.ctx.not_implemented) {
             return Ok(result);
         }
-        if let Ok(seq_a) = PySequence::try_protocol(a, self) {
+        if let Ok(seq_a) = a.try_sequence(self) {
             let n = b
                 .try_index(self)?
                 .as_bigint()
                 .to_isize()
                 .ok_or_else(|| self.new_overflow_error("repeated bytes are too long"))?;
             return seq_a.inplace_repeat(n, self);
-        } else if let Ok(seq_b) = PySequence::try_protocol(b, self) {
+        } else if let Ok(seq_b) = b.try_sequence(self) {
             let n = a
                 .try_index(self)?
                 .as_bigint()
@@ -524,7 +524,7 @@ impl VirtualMachine {
     }
 
     pub fn _contains(&self, haystack: &PyObject, needle: &PyObject) -> PyResult<bool> {
-        let seq = haystack.to_sequence();
+        let seq = haystack.sequence_unchecked();
         seq.contains(needle, self)
     }
 }

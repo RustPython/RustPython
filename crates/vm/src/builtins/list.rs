@@ -354,7 +354,11 @@ where
     } else {
         let iter = obj.to_owned().get_iter(vm)?;
         let iter = iter.iter::<PyObjectRef>(vm)?;
-        let len = obj.to_sequence().length_opt(vm).transpose()?.unwrap_or(0);
+        let len = obj
+            .sequence_unchecked()
+            .length_opt(vm)
+            .transpose()?
+            .unwrap_or(0);
         let mut v = Vec::with_capacity(len);
         for x in iter {
             v.push(f(x?)?);
