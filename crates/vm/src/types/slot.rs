@@ -358,6 +358,16 @@ fn repr_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> 
     })
 }
 
+fn str_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
+    let ret = vm.call_special_method(zelf, identifier!(vm, __str__), ())?;
+    ret.downcast::<PyStr>().map_err(|obj| {
+        vm.new_type_error(format!(
+            "__str__ returned non-string (type {})",
+            obj.class()
+        ))
+    })
+}
+
 fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
     let hash_obj = vm.call_special_method(zelf, identifier!(vm, __hash__), ())?;
     let py_int = hash_obj
@@ -569,6 +579,9 @@ impl PyType {
             }
             _ if name == identifier!(ctx, __repr__) => {
                 update_slot!(repr, repr_wrapper);
+            }
+            _ if name == identifier!(ctx, __str__) => {
+                update_slot!(str, str_wrapper);
             }
             _ if name == identifier!(ctx, __hash__) => {
                 let is_unhashable = self
