@@ -45,6 +45,7 @@ use rustpython_wtf8::Wtf8Buf;
 use std::{borrow::Cow, collections::HashSet};
 
 const MAXBLOCKS: usize = 20;
+const COPY_TOP: u32 = 1;
 
 #[derive(Debug, Clone, Copy)]
 pub enum FBlockType {
@@ -2193,7 +2194,7 @@ impl Compiler {
                 }
             );
             emit!(self, Instruction::UnpackSequence { size: 2 }); // stack: [rest, match]
-            emit!(self, Instruction::CopyItem { index: 1_u32 }); // duplicate match for truthiness test
+            emit!(self, Instruction::CopyItem { index: COPY_TOP }); // duplicate match for truthiness test
             emit!(self, Instruction::ToBool);
             emit!(self, Instruction::PopJumpIfFalse { target: skip_block });
 
@@ -2226,7 +2227,7 @@ impl Compiler {
         let handled_block = self.new_block();
 
         // If remainder is truthy, re-raise it
-        emit!(self, Instruction::CopyItem { index: 1_u32 });
+        emit!(self, Instruction::CopyItem { index: COPY_TOP });
         emit!(self, Instruction::ToBool);
         emit!(
             self,
