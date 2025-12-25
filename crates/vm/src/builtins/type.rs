@@ -1050,10 +1050,12 @@ impl PyType {
     }
 
     #[pygetset(setter)]
-    fn set___module__(&self, value: PyObjectRef, vm: &VirtualMachine) {
+    fn set___module__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.check_set_special_type_attr(identifier!(vm, __module__), vm)?;
         self.attributes
             .write()
             .insert(identifier!(vm, __module__), value);
+        Ok(())
     }
 
     #[pyclassmethod]
@@ -1103,7 +1105,6 @@ impl PyType {
 
     fn check_set_special_type_attr(
         &self,
-        _value: &PyObject,
         name: &PyStrInterned,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -1119,7 +1120,7 @@ impl PyType {
 
     #[pygetset(setter)]
     fn set___name__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.check_set_special_type_attr(&value, identifier!(vm, __name__), vm)?;
+        self.check_set_special_type_attr(identifier!(vm, __name__), vm)?;
         let name = value.downcast::<PyStr>().map_err(|value| {
             vm.new_type_error(format!(
                 "can only assign string to {}.__name__, not '{}'",
@@ -1172,7 +1173,7 @@ impl PyType {
         match value {
             PySetterValue::Assign(ref val) => {
                 let key = identifier!(vm, __type_params__);
-                self.check_set_special_type_attr(val.as_ref(), key, vm)?;
+                self.check_set_special_type_attr(key, vm)?;
                 let mut attrs = self.attributes.write();
                 attrs.insert(key, val.clone().into());
             }
@@ -1628,7 +1629,7 @@ impl Py<PyType> {
         })?;
 
         // Check if we can set this special type attribute
-        self.check_set_special_type_attr(&value, identifier!(vm, __doc__), vm)?;
+        self.check_set_special_type_attr(identifier!(vm, __doc__), vm)?;
 
         // Set the __doc__ in the type's dict
         self.attributes
