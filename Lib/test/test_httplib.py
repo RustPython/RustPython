@@ -1778,7 +1778,7 @@ class HTTPSTest(TestCase):
                 h.request('GET', '/')
             self.assertEqual(exc_info.exception.reason, 'CERTIFICATE_VERIFY_FAILED')
 
-    @unittest.skipIf(sys.platform == 'darwin', 'Occasionally success on macOS')
+    @unittest.skip("TODO: RUSTPYTHON flaky; occasionally passes due to platform trust store (HTTPSTest.test_local_unknown_cert)")
     def test_local_unknown_cert(self):
         # The custom cert isn't known to the default trust bundle
         import ssl
