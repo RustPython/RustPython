@@ -98,17 +98,6 @@ impl<T> AsRef<T> for PointerSlot<T> {
     }
 }
 
-impl<T> PointerSlot<T> {
-    pub unsafe fn from_heaptype<F>(typ: &PyType, f: F) -> Option<Self>
-    where
-        F: FnOnce(&HeapTypeExt) -> &T,
-    {
-        typ.heaptype_ext
-            .as_ref()
-            .map(|ext| Self(NonNull::from(f(ext))))
-    }
-}
-
 pub type PyTypeRef = PyRef<PyType>;
 
 cfg_if::cfg_if! {
@@ -327,6 +316,8 @@ impl PyType {
             slots.basicsize = base.slots.basicsize;
         }
 
+        Self::inherit_readonly_slots(&mut slots, &base);
+
         if let Some(qualname) = attrs.get(identifier!(ctx, __qualname__))
             && !qualname.fast_isinstance(ctx.types.str_type)
         {
@@ -382,6 +373,8 @@ impl PyType {
         if slots.basicsize == 0 {
             slots.basicsize = base.slots.basicsize;
         }
+
+        Self::inherit_readonly_slots(&mut slots, &base);
 
         let bases = PyRwLock::new(vec![base.clone()]);
         let mro = base.mro_map_collect(|x| x.to_owned());
@@ -459,6 +452,14 @@ impl PyType {
         }
     }
 
+    /// Inherit readonly slots from base type at creation time.
+    /// These slots are not AtomicCell and must be set before the type is used.
+    fn inherit_readonly_slots(slots: &mut PyTypeSlots, base: &Self) {
+        if slots.as_buffer.is_none() {
+            slots.as_buffer = base.slots.as_buffer;
+        }
+    }
+
     /// Inherit slots from base type. typeobject.c: inherit_slots
     pub(crate) fn inherit_slots(&self, base: &Self) {
         macro_rules! copyslot {
@@ -488,6 +489,7 @@ impl PyType {
         // TODO: implement proper init inheritance with object_init check
         copyslot!(del);
         // new is handled by set_new()
+        // as_buffer is inherited at type creation time (not AtomicCell)
 
         // Sub-slots (number, sequence, mapping)
         self.inherit_number_slots(base);
@@ -815,19 +817,6 @@ impl Py<PyType> {
             .chain(self.mro.read().iter().map(|x| x.deref()))
             .map(|x| x.to_owned())
             .collect()
-    }
-
-    pub(crate) fn mro_find_map<F, R>(&self, f: F) -> Option<R>
-    where
-        F: Fn(&Self) -> Option<R>,
-    {
-        // the hot path will be primitive types which usually hit the result from itself.
-        // try std::intrinsics::likely once it is stabilized
-        if let Some(r) = f(self) {
-            Some(r)
-        } else {
-            self.mro.read().iter().find_map(|cls| f(cls))
-        }
     }
 
     pub fn iter_base_chain(&self) -> impl Iterator<Item = &Self> {
