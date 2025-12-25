@@ -1,12 +1,12 @@
 ---
-source: compiler/codegen/src/compile.rs
+source: crates/codegen/src/compile.rs
 expression: "compile_exec(\"\\\nif True and False and False:\n    pass\n\")"
 ---
-  1           0 LoadConst            (True)
-              1 PopJumpIfFalse       (6)
-              2 LoadConst            (False)
-              3 PopJumpIfFalse       (6)
-              4 LoadConst            (False)
-              5 PopJumpIfFalse       (6)
+  1           0 LOAD_CONST           (True)
+              1 POP_JUMP_IF_FALSE    (6)
+              2 LOAD_CONST           (False)
+              3 POP_JUMP_IF_FALSE    (6)
+              4 LOAD_CONST           (False)
+              5 POP_JUMP_IF_FALSE    (6)
 
-  2     >>    6 ReturnConst          (None)
+  2     >>    6 RETURN_CONST         (None)
