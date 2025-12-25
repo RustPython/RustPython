@@ -240,6 +240,26 @@ class C(B, BB):
 assert C.mro() == [C, B, A, BB, AA, object]
 
 
+class TypeA:
+    def __init__(self):
+        self.a = 1
+
+
+class TypeB:
+    __slots__ = "b"
+
+    def __init__(self):
+        self.b = 2
+
+
+obj = TypeA()
+with assert_raises(TypeError) as cm:
+    obj.__class__ = TypeB
+assert "__class__ assignment: 'TypeB' object layout differs from 'TypeA'" in str(
+    cm.exception
+)
+
+
 assert type(Exception.args).__name__ == "getset_descriptor"
 assert type(None).__bool__(None) is False
 
