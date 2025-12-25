@@ -632,13 +632,48 @@ impl PyType {
                 update_slot!(descr_set, descr_set_wrapper);
             }
             _ if name == identifier!(ctx, __init__) => {
-                toggle_slot!(init, init_wrapper);
+                // Special handling: check if this type or any base has a real __init__ method
+                // If only slot wrappers exist, use the inherited slot from copyslot!
+                if ADD {
+                    // First check if this type has __init__ in its own dict
+                    let has_own_init = self.attributes.read().contains_key(name);
+                    if has_own_init {
+                        // This type defines __init__ - use wrapper
+                        self.slots.init.store(Some(init_wrapper));
+                    } else if self.has_real_method_in_mro(name, ctx) {
+                        // A base class defines a real __init__ method - use wrapper
+                        self.slots.init.store(Some(init_wrapper));
+                    }
+                    // else: keep inherited slot from copyslot!
+                } else {
+                    let inherited = self
+                        .mro
+                        .read()
+                        .iter()
+                        .skip(1)
+                        .find_map(|cls| cls.slots.init.load());
+                    self.slots.init.store(inherited);
+                }
             }
             _ if name == identifier!(ctx, __new__) => {
                 toggle_slot!(new, new_wrapper);
             }
             _ if name == identifier!(ctx, __del__) => {
-                toggle_slot!(del, del_wrapper);
+                // Same special handling as __init__
+                if ADD {
+                    let has_own_del = self.attributes.read().contains_key(name);
+                    if has_own_del || self.has_real_method_in_mro(name, ctx) {
+                        self.slots.del.store(Some(del_wrapper));
+                    }
+                } else {
+                    let inherited = self
+                        .mro
+                        .read()
+                        .iter()
+                        .skip(1)
+                        .find_map(|cls| cls.slots.del.load());
+                    self.slots.del.store(inherited);
+                }
             }
             _ if name == identifier!(ctx, __bool__) => {
                 toggle_sub_slot!(as_number, boolean, bool_wrapper);
@@ -889,6 +924,36 @@ impl PyType {
             }
             _ => {}
         }
+    }
+
+    /// Check if there's a real method (not a slot wrapper) for `name` anywhere in the MRO.
+    /// If a real method exists, we should use a wrapper function. Otherwise, use the inherited slot.
+    fn has_real_method_in_mro(&self, name: &'static PyStrInterned, ctx: &Context) -> bool {
+        use crate::builtins::descriptor::PySlotWrapper;
+
+        // Check the entire MRO (including self) for the method
+        for cls in self.mro.read().iter() {
+            if let Some(attr) = cls.attributes.read().get(name).cloned() {
+                // Found the method - check if it's a slot wrapper
+                if attr.class().is(ctx.types.wrapper_descriptor_type) {
+                    if let Some(wrapper) = attr.downcast_ref::<PySlotWrapper>() {
+                        // It's a slot wrapper - check if it belongs to this class
+                        let wrapper_typ: *const _ = wrapper.typ;
+                        let cls_ptr: *const _ = cls.as_ref();
+                        if wrapper_typ == cls_ptr {
+                            // Slot wrapper defined on this exact class - use inherited slot
+                            return false;
+                        }
+                    }
+                    // Inherited slot wrapper - continue checking MRO
+                } else {
+                    // Real method found - use wrapper function
+                    return true;
+                }
+            }
+        }
+        // No real method found in MRO - use inherited slot
+        false
     }
 }
 

@@ -353,21 +353,13 @@ pub(super) mod types {
     impl Initializer for PyBaseExceptionGroup {
         type Args = FuncArgs;
 
-        fn slot_init(
-            _zelf: PyObjectRef,
-            _args: ::rustpython_vm::function::FuncArgs,
-            _vm: &::rustpython_vm::VirtualMachine,
-        ) -> ::rustpython_vm::PyResult<()> {
-            // CPython's BaseExceptionGroup.__init__ just calls BaseException.__init__
-            // which stores args as-is. Since __new__ already set up the correct args
-            // (message, exceptions_tuple), we don't need to do anything here.
-            // This also allows subclasses to pass extra arguments to __new__ without
-            // __init__ complaining about argument count.
+        fn slot_init(_zelf: PyObjectRef, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<()> {
+            // No-op: __new__ already set up the correct args (message, exceptions_tuple)
             Ok(())
         }
 
         fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
-            unreachable!("slot_init is defined")
+            unreachable!("slot_init is overridden")
         }
     }
 
