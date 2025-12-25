@@ -56,11 +56,7 @@ impl PyObject {
 
         if let Some(i) = self.downcast_ref_if_exact::<PyInt>(vm) {
             Ok(i.to_owned())
-        } else if let Some(i) = self
-            .number()
-            .int(vm)
-            .or_else(|| self.try_index_opt(vm))
-        {
+        } else if let Some(i) = self.number().int(vm).or_else(|| self.try_index_opt(vm)) {
             i
         } else if let Ok(Some(f)) = vm.get_special_method(self, identifier!(vm, __trunc__)) {
             warnings::warn(
