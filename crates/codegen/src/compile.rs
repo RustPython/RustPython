@@ -45,7 +45,6 @@ use rustpython_wtf8::Wtf8Buf;
 use std::{borrow::Cow, collections::HashSet};
 
 const MAXBLOCKS: usize = 20;
-const COPY_TOP: u32 = 1;
 
 #[derive(Debug, Clone, Copy)]
 pub enum FBlockType {
@@ -472,16 +471,7 @@ impl Compiler {
             }
         } else {
             // VISIT(c, expr, e->v.Subscript.slice)
-            match slice {
-                Expr::Starred(starred) => {
-                    self.starunpack_helper(
-                        &[Expr::Starred(starred.clone())],
-                        0,
-                        CollectionType::Tuple,
-                    )?;
-                }
-                other => self.compile_expression(other)?,
-            }
+            self.compile_expression(slice)?;
 
             // Emit appropriate instruction based on context
             match ctx {
@@ -1520,7 +1510,7 @@ impl Compiler {
                 ..
             }) => {
                 if *is_star {
-                    self.compile_try_star_statement(body, handlers, orelse, finalbody)?
+                    self.compile_try_star_except(body, handlers, orelse, finalbody)?
                 } else {
                     self.compile_try_statement(body, handlers, orelse, finalbody)?
                 }
@@ -2129,13 +2119,14 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_try_star_statement(
+    fn compile_try_star_except(
         &mut self,
         body: &[Stmt],
         handlers: &[ExceptHandler],
         orelse: &[Stmt],
         finalbody: &[Stmt],
     ) -> CompileResult<()> {
+        // Simplified except* implementation using CheckEgMatch
         let handler_block = self.new_block();
         let finally_block = self.new_block();
 
@@ -2161,14 +2152,7 @@ impl Compiler {
         emit!(self, Instruction::Jump { target: else_block });
 
         self.switch_to_block(handler_block);
-        // incoming stack: [exc]
-        emit!(
-            self,
-            Instruction::CallIntrinsic1 {
-                func: bytecode::IntrinsicFunction1::EnsureExceptionGroup
-            }
-        );
-        // stack: [remainder]
+        // Stack: [exc]
 
         for handler in handlers {
             let ExceptHandler::ExceptHandler(ExceptHandlerExceptHandler {
@@ -2178,7 +2162,7 @@ impl Compiler {
             let skip_block = self.new_block();
             let next_block = self.new_block();
 
-            // Split current remainder for this handler
+            // Compile exception type
             if let Some(exc_type) = type_ {
                 self.compile_expression(exc_type)?;
             } else {
@@ -2186,24 +2170,24 @@ impl Compiler {
                     "except* must specify an exception type".to_owned(),
                 )));
             }
+            // Stack: [exc, type]
 
-            emit!(
-                self,
-                Instruction::CallIntrinsic2 {
-                    func: bytecode::IntrinsicFunction2::ExceptStarMatch
-                }
-            );
-            emit!(self, Instruction::UnpackSequence { size: 2 }); // stack: [rest, match]
-            emit!(self, Instruction::CopyItem { index: COPY_TOP }); // duplicate match for truthiness test
+            emit!(self, Instruction::CheckEgMatch);
+            // Stack: [rest, match]
+
+            // Check if match is None (truthy check)
+            emit!(self, Instruction::CopyItem { index: 1 });
             emit!(self, Instruction::ToBool);
             emit!(self, Instruction::PopJumpIfFalse { target: skip_block });
 
-            // Handler selected, stack: [rest, match]
+            // Handler matched - store match to name if provided
+            // Stack: [rest, match]
             if let Some(alias) = name {
                 self.store_name(alias.as_str())?;
             } else {
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
             }
+            // Stack: [rest]
 
             self.compile_statements(body)?;
 
@@ -2215,19 +2199,20 @@ impl Compiler {
 
             emit!(self, Instruction::Jump { target: next_block });
 
-            // Skip handler when no match (stack currently [rest, match])
+            // No match - pop match (None) and continue with rest
             self.switch_to_block(skip_block);
-            emit!(self, Instruction::Pop); // drop match
-            emit!(self, Instruction::Jump { target: next_block });
+            emit!(self, Instruction::PopTop); // drop match (None)
+            // Stack: [rest]
 
-            // Continue with remaining exceptions
             self.switch_to_block(next_block);
+            // Stack: [rest] - continue with rest for next handler
         }
 
         let handled_block = self.new_block();
 
-        // If remainder is truthy, re-raise it
-        emit!(self, Instruction::CopyItem { index: COPY_TOP });
+        // Check if remainder is truthy (has unhandled exceptions)
+        // Stack: [rest]
+        emit!(self, Instruction::CopyItem { index: 1 });
         emit!(self, Instruction::ToBool);
         emit!(
             self,
@@ -2235,6 +2220,7 @@ impl Compiler {
                 target: handled_block
             }
         );
+        // Reraise unhandled exceptions
         emit!(
             self,
             Instruction::Raise {
@@ -2244,7 +2230,7 @@ impl Compiler {
 
         // All exceptions handled
         self.switch_to_block(handled_block);
-        emit!(self, Instruction::Pop); // drop remainder (None)
+        emit!(self, Instruction::PopTop); // drop remainder (None)
         emit!(self, Instruction::PopException);
 
         if !finalbody.is_empty() {

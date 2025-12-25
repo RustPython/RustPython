@@ -2432,3 +2432,127 @@ pub(super) mod types {
     #[repr(transparent)]
     pub struct PyEncodingWarning(PyWarning);
 }
+
+/// Match exception against except* handler type.
+/// Returns (rest, match) tuple.
+pub fn exception_group_match(
+    exc_value: &PyObjectRef,
+    match_type: &PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<(PyObjectRef, PyObjectRef)> {
+    // Implements _PyEval_ExceptionGroupMatch
+
+    // If exc_value is None, return (None, None)
+    if vm.is_none(exc_value) {
+        return Ok((vm.ctx.none(), vm.ctx.none()));
+    }
+
+    // Check if exc_value matches match_type
+    if exc_value.is_instance(match_type, vm)? {
+        // Full match of exc itself
+        let is_eg = exc_value.fast_isinstance(vm.ctx.exceptions.base_exception_group);
+        let matched = if is_eg {
+            exc_value.clone()
+        } else {
+            // Naked exception - wrap it in ExceptionGroup
+            let excs = vm.ctx.new_tuple(vec![exc_value.clone()]);
+            let eg_type: PyObjectRef = crate::exception_group::exception_group().to_owned().into();
+            let wrapped = eg_type.call((vm.ctx.new_str(""), excs), vm)?;
+            // Copy traceback from original exception
+            if let Ok(exc) = exc_value.clone().downcast::<types::PyBaseException>()
+                && let Some(tb) = exc.__traceback__()
+                && let Ok(wrapped_exc) = wrapped.clone().downcast::<types::PyBaseException>()
+            {
+                let _ = wrapped_exc.set___traceback__(tb.into(), vm);
+            }
+            wrapped
+        };
+        return Ok((vm.ctx.none(), matched));
+    }
+
+    // Check for partial match if it's an exception group
+    if exc_value.fast_isinstance(vm.ctx.exceptions.base_exception_group) {
+        let pair = vm.call_method(exc_value, "split", (match_type.clone(),))?;
+        let pair_tuple: PyTupleRef = pair.try_into_value(vm)?;
+        if pair_tuple.len() < 2 {
+            return Err(vm.new_type_error(format!(
+                "{}.split must return a 2-tuple, got tuple of size {}",
+                exc_value.class().name(),
+                pair_tuple.len()
+            )));
+        }
+        let matched = pair_tuple[0].clone();
+        let rest = pair_tuple[1].clone();
+        return Ok((rest, matched));
+    }
+
+    // No match
+    Ok((exc_value.clone(), vm.ctx.none()))
+}
+
+/// Prepare exception for reraise in except* block.
+pub fn prep_reraise_star(orig: PyObjectRef, excs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    // Implements _PyExc_PrepReraiseStar
+    use crate::builtins::PyList;
+
+    let excs_list = excs
+        .downcast::<PyList>()
+        .map_err(|_| vm.new_type_error("expected list for prep_reraise_star"))?;
+
+    let excs_vec: Vec<PyObjectRef> = excs_list.borrow_vec().to_vec();
+
+    // Filter out None values
+    let mut raised: Vec<PyObjectRef> = Vec::new();
+    let mut reraised: Vec<PyObjectRef> = Vec::new();
+
+    for exc in excs_vec {
+        if vm.is_none(&exc) {
+            continue;
+        }
+        // Check if this exception was in the original exception group
+        if !vm.is_none(&orig) && is_same_exception_metadata(&exc, &orig, vm) {
+            reraised.push(exc);
+        } else {
+            raised.push(exc);
+        }
+    }
+
+    // If no exceptions to reraise, return None
+    if raised.is_empty() && reraised.is_empty() {
+        return Ok(vm.ctx.none());
+    }
+
+    // Combine raised and reraised exceptions
+    let mut all_excs = raised;
+    all_excs.extend(reraised);
+
+    if all_excs.len() == 1 {
+        // If only one exception, just return it
+        return Ok(all_excs.into_iter().next().unwrap());
+    }
+
+    // Create new ExceptionGroup
+    let excs_tuple = vm.ctx.new_tuple(all_excs);
+    let eg_type: PyObjectRef = crate::exception_group::exception_group().to_owned().into();
+    eg_type.call((vm.ctx.new_str(""), excs_tuple), vm)
+}
+
+/// Check if two exceptions have the same metadata (for reraise detection)
+fn is_same_exception_metadata(exc1: &PyObjectRef, exc2: &PyObjectRef, vm: &VirtualMachine) -> bool {
+    // Check if exc1 is part of exc2's exception group
+    if exc2.fast_isinstance(vm.ctx.exceptions.base_exception_group) {
+        let exc_class: PyObjectRef = exc1.class().to_owned().into();
+        if let Ok(result) = vm.call_method(exc2, "subgroup", (exc_class,))
+            && !vm.is_none(&result)
+            && let Ok(subgroup_excs) = result.get_attr("exceptions", vm)
+            && let Ok(tuple) = subgroup_excs.downcast::<PyTuple>()
+        {
+            for e in tuple.iter() {
+                if e.is(exc1) {
+                    return true;
+                }
+            }
+        }
+    }
+    exc1.is(exc2)
+}

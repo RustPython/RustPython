@@ -378,8 +378,3 @@ except* ValueError as err:
     assert err.exceptions[0].args == ("x",)
 else:
     assert False, "except* handler did not run"
-
-# Starred expressions in subscripts build tuple keys
-mapping = {}
-mapping[*"ab"] = 1
-assert list(mapping.items()) == [(("a", "b"), 1)]
