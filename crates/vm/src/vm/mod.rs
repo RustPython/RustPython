@@ -1001,6 +1001,10 @@ impl AsRef<Context> for VirtualMachine {
     }
 }
 
+use std::sync::OnceLock;
+
+static FROZEN_ORIGNAME_ALIASES: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
+
 fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
     let iter = core::iter::empty();
     macro_rules! ext_modules {
@@ -1036,6 +1040,23 @@ fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
         crate_name = "rustpython_compiler_core"
     );
 
+    let aliases = FROZEN_ORIGNAME_ALIASES.get_or_init(|| {
+        HashMap::from([
+            ("_frozen_importlib", "importlib._bootstrap"),
+            (
+                "_frozen_importlib_external",
+                "importlib._bootstrap_external",
+            ),
+        ])
+    });
+
+    let iter = iter.map(|(name, mut module)| {
+        if let Some(origname) = aliases.get(name) {
+            module.origname = *origname;
+        }
+        (name, module)
+    });
+
     iter
 }
 
@@ -1063,4 +1084,27 @@ fn test_nested_frozen() {
             panic!();
         }
     })
+}
+
+#[test]
+fn frozen_origname_matches() {
+    use rustpython_vm as vm;
+
+    vm::Interpreter::with_init(Default::default(), |_vm| {}).enter(|vm| {
+        let check = |name, expected| {
+            let module = import::import_frozen(vm, name).unwrap();
+            let origname: PyStrRef = module
+                .get_attr("__origname__", vm)
+                .unwrap()
+                .try_into_value(vm)
+                .unwrap();
+            assert_eq!(origname.as_str(), expected);
+        };
+
+        check("_frozen_importlib", "importlib._bootstrap");
+        check(
+            "_frozen_importlib_external",
+            "importlib._bootstrap_external",
+        );
+    });
 }
