@@ -497,16 +497,29 @@ impl PyBaseObject {
     ) -> PyResult<()> {
         match value.downcast::<PyType>() {
             Ok(cls) => {
-                let both_module = instance.class().fast_issubclass(vm.ctx.types.module_type)
+                let current_cls = instance.class();
+                let both_module = current_cls.fast_issubclass(vm.ctx.types.module_type)
                     && cls.fast_issubclass(vm.ctx.types.module_type);
-                let both_mutable = !instance
-                    .class()
+                let both_mutable = !current_cls
                     .slots
                     .flags
                     .has_feature(PyTypeFlags::IMMUTABLETYPE)
                     && !cls.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE);
                 // FIXME(#1979) cls instances might have a payload
                 if both_mutable || both_module {
+                    let has_dict = |typ: &Py<PyType>| typ.slots.flags.has_feature(PyTypeFlags::HAS_DICT);
+                    if current_cls.slots.basicsize != cls.slots.basicsize
+                        || current_cls.slots.member_count != cls.slots.member_count
+                        || has_dict(current_cls) != has_dict(&cls)
+                        || (cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
+                            && instance.typeid() != PyBaseObject::payload_type_id())
+                    {
+                        return Err(vm.new_type_error(format!(
+                            "__class__ assignment: '{}' object layout differs from '{}'",
+                            cls.name(),
+                            current_cls.name()
+                        )));
+                    }
                     instance.set_class(cls, vm);
                     Ok(())
                 } else {

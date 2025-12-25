@@ -169,4 +169,31 @@ mod tests {
             assert_eq!(value.as_str(), "Hello Hello Hello Hello ")
         })
     }
+
+    #[test]
+    fn class_assignment_layout_mismatch_error() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let scope = vm.new_scope_with_builtins();
+            let source = r#"
+class TypeA:
+    def __init__(self):
+        self.a = 1
+
+class TypeB:
+    __slots__ = "b"
+    def __init__(self):
+        self.b = 2
+
+obj = TypeA()
+try:
+    obj.__class__ = TypeB
+except TypeError as e:
+    assert str(e) == "__class__ assignment: 'TypeB' object layout differs from 'TypeA'"
+else:
+    raise AssertionError("TypeError not raised")
+"#;
+            vm.run_code_string(scope, source, "<test>".to_owned())
+                .expect("script should complete without uncaught exceptions");
+        })
+    }
 }
