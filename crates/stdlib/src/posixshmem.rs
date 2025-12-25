@@ -9,7 +9,8 @@ mod _posixshmem {
     use crate::{
         common::os::errno_io_error,
         vm::{
-            PyResult, VirtualMachine, convert::IntoPyException, function::OptionalArg, prelude::*,
+            PyResult, VirtualMachine, builtins::PyStrRef, convert::IntoPyException,
+            function::OptionalArg,
         },
     };
 
