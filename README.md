@@ -123,7 +123,6 @@ cargo build --release --target wasm32-wasip1 --features="freeze-stdlib"
 ```
 
 > Note: we use the `freeze-stdlib` to include the standard library inside the binary. You also have to run once `rustup target add wasm32-wasip1`.
-> Enable the `freeze-stdlib-full` feature if you need the frozen `Lib/test` or `Lib/ensurepip` modules, for example when running tests in a WASM build.
 
 ### JIT (Just in time) compiler
 

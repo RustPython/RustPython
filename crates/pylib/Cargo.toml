@@ -11,7 +11,6 @@ repository.workspace = true
 
 [features]
 freeze-stdlib = ["dep:rustpython-compiler-core", "dep:rustpython-derive"]
-freeze-stdlib-full = ["freeze-stdlib"]
 
 [dependencies]
 rustpython-compiler-core = { workspace = true, optional = true }
