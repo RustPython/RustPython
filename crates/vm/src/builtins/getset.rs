@@ -7,7 +7,7 @@ use crate::{
     builtins::type_::PointerSlot,
     class::PyClassImpl,
     function::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc, PySetterValue},
-    types::GetDescriptor,
+    types::{GetDescriptor, Representable},
 };
 
 #[pyclass(module = false, name = "getset_descriptor")]
@@ -96,7 +96,7 @@ impl PyGetSet {
     }
 }
 
-#[pyclass(flags(DISALLOW_INSTANTIATION), with(GetDescriptor))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(GetDescriptor, Representable))]
 impl PyGetSet {
     // Descriptor methods
 
@@ -150,6 +150,23 @@ impl PyGetSet {
     fn __objclass__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf: &Py<Self> = zelf.try_to_value(vm)?;
         Ok(unsafe { zelf.class.borrow_static() }.to_owned().into())
+    }
+}
+
+impl Representable for PyGetSet {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        let class = unsafe { zelf.class.borrow_static() };
+        // Special case for object type
+        if std::ptr::eq(class, vm.ctx.types.object_type) {
+            Ok(format!("<attribute '{}'>", zelf.name))
+        } else {
+            Ok(format!(
+                "<attribute '{}' of '{}' objects>",
+                zelf.name,
+                class.name()
+            ))
+        }
     }
 }
 
