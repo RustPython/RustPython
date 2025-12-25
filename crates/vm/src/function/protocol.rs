@@ -1,11 +1,11 @@
 use super::IntoFuncArgs;
 use crate::{
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyDict, PyDictRef, iter::PySequenceIterator},
+    builtins::{PyDictRef, iter::PySequenceIterator},
     convert::ToPyObject,
     object::{Traverse, TraverseFn},
-    protocol::{PyIter, PyIterIter, PyMapping, PyMappingMethods},
-    types::{AsMapping, GenericMethod},
+    protocol::{PyIter, PyIterIter, PyMapping},
+    types::GenericMethod,
 };
 use std::{borrow::Borrow, marker::PhantomData, ops::Deref};
 
@@ -120,30 +120,22 @@ where
 #[derive(Debug, Clone, Traverse)]
 pub struct ArgMapping {
     obj: PyObjectRef,
-    #[pytraverse(skip)]
-    methods: &'static PyMappingMethods,
 }
 
 impl ArgMapping {
     #[inline]
-    pub const fn with_methods(obj: PyObjectRef, methods: &'static PyMappingMethods) -> Self {
-        Self { obj, methods }
+    pub const fn new(obj: PyObjectRef) -> Self {
+        Self { obj }
     }
 
     #[inline(always)]
     pub fn from_dict_exact(dict: PyDictRef) -> Self {
-        Self {
-            obj: dict.into(),
-            methods: PyDict::as_mapping(),
-        }
+        Self { obj: dict.into() }
     }
 
     #[inline(always)]
     pub fn mapping(&self) -> PyMapping<'_> {
-        PyMapping {
-            obj: &self.obj,
-            methods: self.methods,
-        }
+        self.obj.to_mapping()
     }
 }
 
@@ -185,9 +177,8 @@ impl ToPyObject for ArgMapping {
 
 impl TryFromObject for ArgMapping {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let mapping = PyMapping::try_protocol(&obj, vm)?;
-        let methods = mapping.methods;
-        Ok(Self { obj, methods })
+        let _mapping = PyMapping::try_protocol(&obj, vm)?;
+        Ok(Self { obj })
     }
 }
 

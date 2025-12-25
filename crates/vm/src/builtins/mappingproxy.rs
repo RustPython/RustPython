@@ -6,7 +6,7 @@ use crate::{
     convert::ToPyObject,
     function::{ArgMapping, OptionalArg, PyComparisonValue},
     object::{Traverse, TraverseFn},
-    protocol::{PyMapping, PyMappingMethods, PyNumberMethods, PySequenceMethods},
+    protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{
         AsMapping, AsNumber, AsSequence, Comparable, Constructor, Iterable, PyComparisonOp,
         Representable,
@@ -62,14 +62,12 @@ impl Constructor for PyMappingProxy {
     type Args = PyObjectRef;
 
     fn py_new(_cls: &Py<PyType>, mapping: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-        if let Some(methods) = PyMapping::find_methods(&mapping)
+        if mapping.to_mapping().check()
             && !mapping.downcastable::<PyList>()
             && !mapping.downcastable::<PyTuple>()
         {
             return Ok(Self {
-                mapping: MappingProxyInner::Mapping(ArgMapping::with_methods(mapping, unsafe {
-                    methods.borrow_static()
-                })),
+                mapping: MappingProxyInner::Mapping(ArgMapping::new(mapping)),
             });
         }
         Err(vm.new_type_error(format!(

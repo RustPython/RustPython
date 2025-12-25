@@ -1,8 +1,6 @@
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
-    builtins::{
-        PyBaseExceptionRef, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, type_::PointerSlot,
-    },
+    builtins::{PyBaseExceptionRef, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
     class::{PyClassImpl, StaticType},
     function::{Either, PyComparisonValue},
     iter::PyExactSizeIterator,
@@ -306,12 +304,14 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         );
 
         // Override as_sequence and as_mapping slots to use visible length
-        class.slots.as_sequence.store(Some(PointerSlot::from(
-            &*STRUCT_SEQUENCE_AS_SEQUENCE as &'static PySequenceMethods,
-        )));
-        class.slots.as_mapping.store(Some(PointerSlot::from(
-            &*STRUCT_SEQUENCE_AS_MAPPING as &'static PyMappingMethods,
-        )));
+        class
+            .slots
+            .as_sequence
+            .copy_from(&STRUCT_SEQUENCE_AS_SEQUENCE);
+        class
+            .slots
+            .as_mapping
+            .copy_from(&STRUCT_SEQUENCE_AS_MAPPING);
 
         // Override iter slot to return only visible elements
         class.slots.iter.store(Some(struct_sequence_iter));

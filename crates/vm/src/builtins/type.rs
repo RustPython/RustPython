@@ -23,7 +23,7 @@ use crate::{
     convert::ToPyResult,
     function::{FuncArgs, KwArgs, OptionalArg, PyMethodDef, PySetterValue},
     object::{Traverse, TraverseFn},
-    protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
+    protocol::{PyIterReturn, PyNumberMethods},
     types::{
         AsNumber, Callable, Constructor, GetAttr, PyTypeFlags, PyTypeSlots, Representable, SetAttr,
         TypeDataRef, TypeDataRefMut, TypeDataSlot,
@@ -64,8 +64,6 @@ pub struct HeapTypeExt {
     pub name: PyRwLock<PyStrRef>,
     pub qualname: PyRwLock<PyStrRef>,
     pub slots: Option<PyRef<PyTuple<PyStrRef>>>,
-    pub sequence_methods: PySequenceMethods,
-    pub mapping_methods: PyMappingMethods,
     pub type_data: PyRwLock<Option<TypeDataSlot>>,
 }
 
@@ -206,8 +204,6 @@ impl PyType {
             name: PyRwLock::new(name.clone()),
             qualname: PyRwLock::new(name),
             slots: None,
-            sequence_methods: PySequenceMethods::default(),
-            mapping_methods: PyMappingMethods::default(),
             type_data: PyRwLock::new(None),
         };
         let base = bases[0].clone();
@@ -493,8 +489,10 @@ impl PyType {
         copyslot!(del);
         // new is handled by set_new()
 
-        // Number slots
+        // Sub-slots (number, sequence, mapping)
         self.inherit_number_slots(base);
+        self.inherit_sequence_slots(base);
+        self.inherit_mapping_slots(base);
     }
 
     /// Inherit number sub-slots from base type
@@ -569,6 +567,45 @@ impl PyType {
         copy_num_slot!(int);
         copy_num_slot!(float);
         copy_num_slot!(index);
+    }
+
+    /// Inherit sequence sub-slots from base type
+    fn inherit_sequence_slots(&self, base: &Self) {
+        macro_rules! copy_seq_slot {
+            ($slot:ident) => {
+                if self.slots.as_sequence.$slot.load().is_none() {
+                    if let Some(base_val) = base.slots.as_sequence.$slot.load() {
+                        self.slots.as_sequence.$slot.store(Some(base_val));
+                    }
+                }
+            };
+        }
+
+        copy_seq_slot!(length);
+        copy_seq_slot!(concat);
+        copy_seq_slot!(repeat);
+        copy_seq_slot!(item);
+        copy_seq_slot!(ass_item);
+        copy_seq_slot!(contains);
+        copy_seq_slot!(inplace_concat);
+        copy_seq_slot!(inplace_repeat);
+    }
+
+    /// Inherit mapping sub-slots from base type
+    fn inherit_mapping_slots(&self, base: &Self) {
+        macro_rules! copy_map_slot {
+            ($slot:ident) => {
+                if self.slots.as_mapping.$slot.load().is_none() {
+                    if let Some(base_val) = base.slots.as_mapping.$slot.load() {
+                        self.slots.as_mapping.$slot.store(Some(base_val));
+                    }
+                }
+            };
+        }
+
+        copy_map_slot!(length);
+        copy_map_slot!(subscript);
+        copy_map_slot!(ass_subscript);
     }
 
     // This is used for class initialization where the vm is not yet available.
@@ -1345,8 +1382,6 @@ impl Constructor for PyType {
                 name: PyRwLock::new(name),
                 qualname: PyRwLock::new(qualname),
                 slots: heaptype_slots.clone(),
-                sequence_methods: PySequenceMethods::default(),
-                mapping_methods: PyMappingMethods::default(),
                 type_data: PyRwLock::new(None),
             };
             (slots, heaptype_ext)

@@ -3,7 +3,7 @@ use crate::common::lock::{
 };
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    builtins::{PyInt, PyStr, PyStrInterned, PyStrRef, PyType, PyTypeRef, type_::PointerSlot},
+    builtins::{PyInt, PyStr, PyStrInterned, PyStrRef, PyType, PyTypeRef},
     bytecode::ComparisonOperator,
     common::hash::PyHash,
     convert::ToPyObject,
@@ -11,8 +11,8 @@ use crate::{
         Either, FromArgs, FuncArgs, OptionalArg, PyComparisonValue, PyMethodDef, PySetterValue,
     },
     protocol::{
-        PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyNumber, PyNumberMethods,
-        PyNumberSlots, PySequence, PySequenceMethods,
+        PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyMappingSlots, PyNumber,
+        PyNumberMethods, PyNumberSlots, PySequence, PySequenceMethods, PySequenceSlots,
     },
     vm::Context,
 };
@@ -134,8 +134,8 @@ pub struct PyTypeSlots {
 
     // Method suites for standard classes
     pub as_number: PyNumberSlots,
-    pub as_sequence: AtomicCell<Option<PointerSlot<PySequenceMethods>>>,
-    pub as_mapping: AtomicCell<Option<PointerSlot<PyMappingMethods>>>,
+    pub as_sequence: PySequenceSlots,
+    pub as_mapping: PyMappingSlots,
 
     // More standard operations (here for binary compatibility)
     pub hash: AtomicCell<Option<HashFunc>>,
@@ -551,62 +551,34 @@ impl PyType {
             }};
         }
 
-        macro_rules! update_pointer_slot {
-            ($name:ident, $pointed:ident) => {{
-                self.slots
-                    .$name
-                    .store(unsafe { PointerSlot::from_heaptype(self, |ext| &ext.$pointed) });
-            }};
-        }
-
-        macro_rules! toggle_ext_func {
-            ($n1:ident, $n2:ident, $func:expr) => {{
-                self.heaptype_ext.as_ref().unwrap().$n1.$n2.store(if ADD {
-                    Some($func)
-                } else {
-                    None
-                });
-            }};
-        }
-
         match name {
             _ if name == identifier!(ctx, __len__) => {
-                // update_slot!(as_mapping, slot_as_mapping);
-                toggle_ext_func!(sequence_methods, length, |seq, vm| len_wrapper(seq.obj, vm));
-                update_pointer_slot!(as_sequence, sequence_methods);
-                toggle_ext_func!(mapping_methods, length, |mapping, vm| len_wrapper(
+                toggle_sub_slot!(as_sequence, length, |seq, vm| len_wrapper(seq.obj, vm));
+                toggle_sub_slot!(as_mapping, length, |mapping, vm| len_wrapper(
                     mapping.obj,
                     vm
                 ));
-                update_pointer_slot!(as_mapping, mapping_methods);
             }
             _ if name == identifier!(ctx, __getitem__) => {
-                // update_slot!(as_mapping, slot_as_mapping);
-                toggle_ext_func!(sequence_methods, item, |seq, i, vm| getitem_wrapper(
+                toggle_sub_slot!(as_sequence, item, |seq, i, vm| getitem_wrapper(
                     seq.obj, i, vm
                 ));
-                update_pointer_slot!(as_sequence, sequence_methods);
-                toggle_ext_func!(mapping_methods, subscript, |mapping, key, vm| {
+                toggle_sub_slot!(as_mapping, subscript, |mapping, key, vm| {
                     getitem_wrapper(mapping.obj, key, vm)
                 });
-                update_pointer_slot!(as_mapping, mapping_methods);
             }
             _ if name == identifier!(ctx, __setitem__) || name == identifier!(ctx, __delitem__) => {
-                // update_slot!(as_mapping, slot_as_mapping);
-                toggle_ext_func!(sequence_methods, ass_item, |seq, i, value, vm| {
+                toggle_sub_slot!(as_sequence, ass_item, |seq, i, value, vm| {
                     setitem_wrapper(seq.obj, i, value, vm)
                 });
-                update_pointer_slot!(as_sequence, sequence_methods);
-                toggle_ext_func!(mapping_methods, ass_subscript, |mapping, key, value, vm| {
+                toggle_sub_slot!(as_mapping, ass_subscript, |mapping, key, value, vm| {
                     setitem_wrapper(mapping.obj, key, value, vm)
                 });
-                update_pointer_slot!(as_mapping, mapping_methods);
             }
             _ if name == identifier!(ctx, __contains__) => {
-                toggle_ext_func!(sequence_methods, contains, |seq, needle, vm| {
+                toggle_sub_slot!(as_sequence, contains, |seq, needle, vm| {
                     contains_wrapper(seq.obj, needle, vm)
                 });
-                update_pointer_slot!(as_sequence, sequence_methods);
             }
             _ if name == identifier!(ctx, __repr__) => {
                 update_slot!(repr, repr_wrapper);
@@ -1427,23 +1399,29 @@ pub trait AsBuffer: PyPayload {
 
 #[pyclass]
 pub trait AsMapping: PyPayload {
-    #[pyslot]
     fn as_mapping() -> &'static PyMappingMethods;
 
     #[inline]
     fn mapping_downcast(mapping: PyMapping<'_>) -> &Py<Self> {
         unsafe { mapping.obj.downcast_unchecked_ref() }
     }
+
+    fn extend_slots(slots: &mut PyTypeSlots) {
+        slots.as_mapping.copy_from(Self::as_mapping());
+    }
 }
 
 #[pyclass]
 pub trait AsSequence: PyPayload {
-    #[pyslot]
     fn as_sequence() -> &'static PySequenceMethods;
 
     #[inline]
     fn sequence_downcast(seq: PySequence<'_>) -> &Py<Self> {
         unsafe { seq.obj.downcast_unchecked_ref() }
+    }
+
+    fn extend_slots(slots: &mut PyTypeSlots) {
+        slots.as_sequence.copy_from(Self::as_sequence());
     }
 }
 
