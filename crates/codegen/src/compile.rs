@@ -4046,6 +4046,24 @@ impl Compiler {
         Ok(())
     }
 
+    fn compile_cmpop(&mut self, op: &CmpOp) {
+        use bytecode::ComparisonOperator::*;
+        match op {
+            CmpOp::Eq => emit!(self, Instruction::CompareOperation { op: Equal }),
+            CmpOp::NotEq => emit!(self, Instruction::CompareOperation { op: NotEqual }),
+            CmpOp::Lt => emit!(self, Instruction::CompareOperation { op: Less }),
+            CmpOp::LtE => emit!(self, Instruction::CompareOperation { op: LessOrEqual }),
+            CmpOp::Gt => emit!(self, Instruction::CompareOperation { op: Greater }),
+            CmpOp::GtE => {
+                emit!(self, Instruction::CompareOperation { op: GreaterOrEqual })
+            }
+            CmpOp::In => emit!(self, Instruction::ContainsOp(Invert::No)),
+            CmpOp::NotIn => emit!(self, Instruction::ContainsOp(Invert::Yes)),
+            CmpOp::Is => emit!(self, Instruction::IsOp(Invert::No)),
+            CmpOp::IsNot => emit!(self, Instruction::IsOp(Invert::Yes)),
+        }
+    }
+
     fn compile_chained_comparison(
         &mut self,
         left: &Expr,
@@ -4056,22 +4074,6 @@ impl Compiler {
         assert_eq!(exprs.len(), ops.len());
         let (last_op, mid_ops) = ops.split_last().unwrap();
         let (last_val, mid_exprs) = exprs.split_last().unwrap();
-
-        use bytecode::ComparisonOperator::*;
-        let compile_cmpop = |c: &mut Self, op: &CmpOp| match op {
-            CmpOp::Eq => emit!(c, Instruction::CompareOperation { op: Equal }),
-            CmpOp::NotEq => emit!(c, Instruction::CompareOperation { op: NotEqual }),
-            CmpOp::Lt => emit!(c, Instruction::CompareOperation { op: Less }),
-            CmpOp::LtE => emit!(c, Instruction::CompareOperation { op: LessOrEqual }),
-            CmpOp::Gt => emit!(c, Instruction::CompareOperation { op: Greater }),
-            CmpOp::GtE => {
-                emit!(c, Instruction::CompareOperation { op: GreaterOrEqual })
-            }
-            CmpOp::In => emit!(c, Instruction::ContainsOp(Invert::No)),
-            CmpOp::NotIn => emit!(c, Instruction::ContainsOp(Invert::Yes)),
-            CmpOp::Is => emit!(c, Instruction::IsOp(Invert::No)),
-            CmpOp::IsNot => emit!(c, Instruction::IsOp(Invert::Yes)),
-        };
 
         // a == b == c == d
         // compile into (pseudo code):
@@ -4099,7 +4101,7 @@ impl Compiler {
             emit!(self, Instruction::Swap { index: 2 });
             emit!(self, Instruction::CopyItem { index: 2_u32 });
 
-            compile_cmpop(self, op);
+            self.compile_cmpop(op);
 
             // if comparison result is false, we break with this value; if true, try the next one.
             if let Some((break_block, _)) = end_blocks {
@@ -4116,7 +4118,7 @@ impl Compiler {
 
         // handle the last comparison
         self.compile_expression(last_val)?;
-        compile_cmpop(self, last_op);
+        self.compile_cmpop(last_op);
 
         if let Some((break_block, after_block)) = end_blocks {
             emit!(
