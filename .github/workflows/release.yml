@@ -182,7 +182,6 @@ jobs:
               --title="RustPython $RELEASE_TYPE_NAME $today-$tag #$run" \
               --target="$tag" \
               --notes "⚠️ **Important**: To run RustPython, you must download both the binary for your platform AND the \`rustpython-lib.tar.gz\` (or \`.zip\`) archive. Extract the Lib directory from the archive to the same location as the binary, or set the \`RUSTPYTHONPATH\` environment variable to point to the Lib directory." \
-              --notes-start-tag "" \
               --generate-notes \
               $PRERELEASE_ARG \
               bin/rustpython-release-*
