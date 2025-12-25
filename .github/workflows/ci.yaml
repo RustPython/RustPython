@@ -182,6 +182,24 @@ jobs:
         run: cargo check --target aarch64-apple-ios ${{ env.CARGO_ARGS_NO_SSL }}
         if: runner.os == 'macOS'
 
+  codecov:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    name: Collect code coverage data
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6.0.1
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+      - name: Run cargo-llvm-cov with Rust tests
+        run: cargo llvm-cov --workspace --exclude rustpython_wasm --exclude rustpython-compiler-source --features threading ${{ env.CARGO_ARGS }} --lcov --output-path=codecov.lcov
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          file: ./codecov.lcov
+          fail_ci_if_error: false
+
   exotic_targets:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Ensure compilation on various targets
