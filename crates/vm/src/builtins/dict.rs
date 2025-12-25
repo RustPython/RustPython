@@ -590,10 +590,9 @@ impl Py<PyDict> {
         let (attrs, non_string) = self.to_attributes_with_nonstring(vm)?;
         if let Some(non_string) = non_string {
             let (key, _) = non_string
-                .clone()
                 .into_iter()
                 .next()
-                .expect("non_string must be non-empty when present");
+                .expect("internal error: non_string dict should not be empty when present");
             return Err(vm.new_type_error(format!(
                 "attributes must be strings, not '{}'",
                 key.class().name()
