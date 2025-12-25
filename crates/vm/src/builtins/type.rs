@@ -906,7 +906,7 @@ impl PyType {
             .unwrap_or_else(|| vm.ctx.new_str(ascii!("builtins")).into())
     }
 
-#[pygetset(setter)]
+    #[pygetset(setter)]
     fn set___module__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.check_set_special_type_attr(identifier!(vm, __module__), vm)?;
         self.attributes
@@ -960,7 +960,11 @@ impl PyType {
         ))
     }
 
-    fn check_set_special_type_attr(&self, name: &PyStrInterned, vm: &VirtualMachine) -> PyResult<()> {
+    fn check_set_special_type_attr(
+        &self,
+        name: &PyStrInterned,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         if self.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
             return Err(vm.new_type_error(format!(
                 "cannot set '{}' attribute of immutable type '{}'",
