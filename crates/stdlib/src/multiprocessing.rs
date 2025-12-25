@@ -41,7 +41,8 @@ mod _multiprocessing {
     }
 }
 
-#[cfg(unix)]
+// Apple platforms don't support sem_timedwait/sem_getvalue in libc crate
+#[cfg(all(unix, not(target_vendor = "apple")))]
 #[pymodule]
 mod _multiprocessing {
     use crate::vm::{
@@ -57,10 +58,6 @@ mod _multiprocessing {
         sync::atomic::{AtomicU64, AtomicUsize, Ordering},
         time::Duration,
     };
-    unsafe extern "C" {
-        fn sem_getvalue(sem: *mut sem_t, sval: *mut libc::c_int) -> libc::c_int;
-        fn sem_timedwait(sem: *mut sem_t, abs_timeout: *const libc::timespec) -> libc::c_int;
-    }
 
     const RECURSIVE_MUTEX_KIND: i32 = 0;
     const SEMAPHORE_KIND: i32 = 1;
@@ -381,9 +378,10 @@ mod _multiprocessing {
         fn wait_timeout(&self, duration: Duration, vm: &VirtualMachine) -> PyResult<bool> {
             let mut ts = current_timespec(vm)?;
             let nsec_total = ts.tv_nsec as i64 + i64::from(duration.subsec_nanos());
+            let extra_secs = (nsec_total / 1_000_000_000) as libc::time_t;
             ts.tv_sec = ts
                 .tv_sec
-                .saturating_add(duration.as_secs() as libc::time_t + nsec_total / 1_000_000_000);
+                .saturating_add(duration.as_secs() as libc::time_t + extra_secs);
             ts.tv_nsec = (nsec_total % 1_000_000_000) as _;
             loop {
                 let res = unsafe { libc::sem_timedwait(self.handle.as_ptr(), &ts) };
@@ -479,6 +477,11 @@ mod _multiprocessing {
         unsafe { libc::pthread_self() as u64 }
     }
 }
+
+// Apple platforms (macOS, iOS, etc.) - empty module
+#[cfg(all(unix, target_vendor = "apple"))]
+#[pymodule]
+mod _multiprocessing {}
 
 #[cfg(all(not(unix), not(windows)))]
 #[pymodule]
