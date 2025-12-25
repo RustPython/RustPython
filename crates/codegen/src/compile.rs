@@ -471,7 +471,16 @@ impl Compiler {
             }
         } else {
             // VISIT(c, expr, e->v.Subscript.slice)
-            self.compile_expression(slice)?;
+            match slice {
+                Expr::Starred(starred) => {
+                    self.starunpack_helper(
+                        &[Expr::Starred(starred.clone())],
+                        0,
+                        CollectionType::Tuple,
+                    )?;
+                }
+                other => self.compile_expression(other)?,
+            }
 
             // Emit appropriate instruction based on context
             match ctx {
@@ -2121,12 +2130,150 @@ impl Compiler {
 
     fn compile_try_star_statement(
         &mut self,
-        _body: &[Stmt],
-        _handlers: &[ExceptHandler],
-        _orelse: &[Stmt],
-        _finalbody: &[Stmt],
+        body: &[Stmt],
+        handlers: &[ExceptHandler],
+        orelse: &[Stmt],
+        finalbody: &[Stmt],
     ) -> CompileResult<()> {
-        Err(self.error(CodegenErrorType::NotImplementedYet))
+        let handler_block = self.new_block();
+        let finally_block = self.new_block();
+
+        if !finalbody.is_empty() {
+            emit!(
+                self,
+                Instruction::SetupFinally {
+                    handler: finally_block,
+                }
+            );
+        }
+
+        let else_block = self.new_block();
+
+        emit!(
+            self,
+            Instruction::SetupExcept {
+                handler: handler_block,
+            }
+        );
+        self.compile_statements(body)?;
+        emit!(self, Instruction::PopBlock);
+        emit!(self, Instruction::Jump { target: else_block });
+
+        self.switch_to_block(handler_block);
+        // incoming stack: [exc]
+        emit!(
+            self,
+            Instruction::CallIntrinsic1 {
+                func: bytecode::IntrinsicFunction1::EnsureExceptionGroup
+            }
+        );
+        // stack: [remainder]
+
+        for handler in handlers {
+            let ExceptHandler::ExceptHandler(ExceptHandlerExceptHandler {
+                type_, name, body, ..
+            }) = handler;
+
+            let skip_block = self.new_block();
+            let next_block = self.new_block();
+
+            // Split current remainder for this handler
+            if let Some(exc_type) = type_ {
+                self.compile_expression(exc_type)?;
+            } else {
+                return Err(self.error(CodegenErrorType::SyntaxError(
+                    "except* must specify an exception type".to_owned(),
+                )));
+            }
+
+            emit!(
+                self,
+                Instruction::CallIntrinsic2 {
+                    func: bytecode::IntrinsicFunction2::ExceptStarMatch
+                }
+            );
+            emit!(self, Instruction::UnpackSequence { size: 2 }); // stack: [rest, match]
+            emit!(self, Instruction::CopyItem { index: 1_u32 }); // duplicate match for truthiness test
+            emit!(self, Instruction::ToBool);
+            emit!(self, Instruction::PopJumpIfFalse { target: skip_block });
+
+            // Handler selected, stack: [rest, match]
+            if let Some(alias) = name {
+                self.store_name(alias.as_str())?;
+            } else {
+                emit!(self, Instruction::Pop);
+            }
+
+            self.compile_statements(body)?;
+
+            if let Some(alias) = name {
+                self.emit_load_const(ConstantData::None);
+                self.store_name(alias.as_str())?;
+                self.compile_name(alias.as_str(), NameUsage::Delete)?;
+            }
+
+            emit!(self, Instruction::Jump { target: next_block });
+
+            // Skip handler when no match (stack currently [rest, match])
+            self.switch_to_block(skip_block);
+            emit!(self, Instruction::Pop); // drop match
+            emit!(self, Instruction::Jump { target: next_block });
+
+            // Continue with remaining exceptions
+            self.switch_to_block(next_block);
+        }
+
+        let handled_block = self.new_block();
+
+        // If remainder is truthy, re-raise it
+        emit!(self, Instruction::CopyItem { index: 1_u32 });
+        emit!(self, Instruction::ToBool);
+        emit!(
+            self,
+            Instruction::PopJumpIfFalse {
+                target: handled_block
+            }
+        );
+        emit!(
+            self,
+            Instruction::Raise {
+                kind: bytecode::RaiseKind::Raise
+            }
+        );
+
+        // All exceptions handled
+        self.switch_to_block(handled_block);
+        emit!(self, Instruction::Pop); // drop remainder (None)
+        emit!(self, Instruction::PopException);
+
+        if !finalbody.is_empty() {
+            emit!(self, Instruction::PopBlock);
+            emit!(self, Instruction::EnterFinally);
+        }
+
+        emit!(
+            self,
+            Instruction::Jump {
+                target: finally_block,
+            }
+        );
+
+        // try-else path
+        self.switch_to_block(else_block);
+        self.compile_statements(orelse)?;
+
+        if !finalbody.is_empty() {
+            emit!(self, Instruction::PopBlock);
+            emit!(self, Instruction::EnterFinally);
+        }
+
+        self.switch_to_block(finally_block);
+        if !finalbody.is_empty() {
+            self.compile_statements(finalbody)?;
+            emit!(self, Instruction::EndFinally);
+        }
+
+        Ok(())
     }
 
     fn is_forbidden_arg_name(name: &str) -> bool {

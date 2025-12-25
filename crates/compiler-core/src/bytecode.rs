@@ -566,6 +566,8 @@ op_arg_enum!(
         /// Generic subscript for PEP 695
         SubscriptGeneric = 10,
         TypeAlias = 11,
+        /// Ensure an exception is normalized to BaseExceptionGroup
+        EnsureExceptionGroup = 12,
     }
 );
 
@@ -580,6 +582,8 @@ op_arg_enum!(
         SetFunctionTypeParams = 4,
         /// Set default value for type parameter (PEP 695)
         SetTypeparamDefault = 5,
+        /// Split an ExceptionGroup according to except* handler condition
+        ExceptStarMatch = 6,
     }
 );
 

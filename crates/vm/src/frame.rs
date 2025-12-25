@@ -8,7 +8,7 @@ use crate::{
         tuple::{PyTuple, PyTupleRef},
     },
     bytecode,
-    convert::{IntoObject, ToPyResult},
+    convert::{IntoObject, ToPyObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
     function::{ArgMapping, Either, FuncArgs},
@@ -2460,6 +2460,18 @@ impl ExecutingFrame<'_> {
                     .map_err(|_| vm.new_type_error("LIST_TO_TUPLE expects a list"))?;
                 Ok(vm.ctx.new_tuple(list.borrow_vec().to_vec()).into())
             }
+            bytecode::IntrinsicFunction1::EnsureExceptionGroup => {
+                if arg.fast_isinstance(vm.ctx.exceptions.base_exception_group) {
+                    Ok(arg)
+                } else {
+                    let exception_group_type = crate::exception_group::exception_group();
+                    let wrapped = exception_group_type
+                        .to_owned()
+                        .to_pyobject(vm)
+                        .call((vm.ctx.new_str(""), vm.ctx.new_tuple(vec![arg])), vm)?;
+                    Ok(wrapped)
+                }
+            }
         }
     }
 
@@ -2493,6 +2505,16 @@ impl ExecutingFrame<'_> {
                         .into_ref(&vm.ctx)
                         .into();
                 Ok(type_var)
+            }
+            bytecode::IntrinsicFunction2::ExceptStarMatch => {
+                let result = vm.call_method(&arg1, "split", (arg2,))?;
+                let result_tuple: PyTupleRef = result.try_into_value(vm)?;
+                if result_tuple.len() != 2 {
+                    return Err(vm.new_type_error("ExceptionGroup.split must return 2-tuple"));
+                }
+                let matched = result_tuple[0].clone();
+                let rest = result_tuple[1].clone();
+                Ok(vm.ctx.new_tuple(vec![matched, rest]).into())
             }
         }
     }
