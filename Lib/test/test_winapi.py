@@ -77,34 +77,22 @@ class WinAPIBatchedWaitForMultipleObjectsTests(unittest.TestCase):
                 evts[i] = old_evt
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_few_events_waitall(self):
         self._events_waitall_test(16)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_many_events_waitall(self):
         self._events_waitall_test(256)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_max_events_waitall(self):
         self._events_waitall_test(MAXIMUM_BATCHED_WAIT_OBJECTS)
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_few_events_waitany(self):
         self._events_waitany_test(16)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_many_events_waitany(self):
         self._events_waitany_test(256)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_max_events_waitany(self):
         self._events_waitany_test(MAXIMUM_BATCHED_WAIT_OBJECTS)
 
@@ -140,8 +128,6 @@ class WinAPITests(unittest.TestCase):
         # Should contain "PROGRA~" but we can't predict the number
         self.assertIsNotNone(re.match(r".\:\\PROGRA~\d", actual.upper()), actual)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_namedpipe(self):
         pipe_name = rf"\\.\pipe\LOCAL\{os_helper.TESTFN}"
 
