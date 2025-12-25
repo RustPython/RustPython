@@ -3,6 +3,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyStrInterned, pystr::AsPyStr},
     class::PyClassImpl,
+    common::lock::PyRwLock,
     convert::ToPyObject,
     function::{FuncArgs, PyMethodDef},
     types::{GetAttr, Initializer, Representable},
@@ -48,6 +49,7 @@ pub struct PyModule {
     // PyObject *md_dict;
     pub def: Option<&'static PyModuleDef>,
     // state: Any
+    state: PyRwLock<Option<PyObjectRef>>,
     // weaklist
     // for logging purposes after md_dict is cleared
     pub name: Option<&'static PyStrInterned>,
@@ -72,6 +74,7 @@ impl PyModule {
     pub const fn new() -> Self {
         Self {
             def: None,
+            state: PyRwLock::new(None),
             name: None,
         }
     }
@@ -79,6 +82,7 @@ impl PyModule {
     pub const fn from_def(def: &'static PyModuleDef) -> Self {
         Self {
             def: Some(def),
+            state: PyRwLock::new(None),
             name: Some(def.name),
         }
     }
@@ -86,6 +90,31 @@ impl PyModule {
     pub fn __init_dict_from_def(vm: &VirtualMachine, module: &Py<Self>) {
         let doc = module.def.unwrap().doc.map(|doc| doc.to_owned());
         module.init_dict(module.name.unwrap(), doc, vm);
+    }
+
+    pub fn get_state<T: PyPayload>(&self) -> Option<PyRef<T>> {
+        self.state
+            .read()
+            .as_ref()
+            .and_then(|obj| obj.clone().downcast().ok())
+    }
+
+    pub fn get_or_try_init_state<T, F>(&self, vm: &VirtualMachine, init: F) -> PyResult<PyRef<T>>
+    where
+        T: PyPayload,
+        F: FnOnce(&VirtualMachine) -> PyResult<PyRef<T>>,
+    {
+        if let Some(state) = self.get_state() {
+            return Ok(state);
+        }
+
+        if self.state.read().is_some() {
+            return Err(vm.new_type_error("module state has incompatible type".to_owned()));
+        }
+
+        let state = init(vm)?;
+        *self.state.write() = Some(state.clone().into());
+        Ok(state)
     }
 }
 
@@ -223,4 +252,42 @@ impl Representable for PyModule {
 
 pub(crate) fn init(context: &Context) {
     PyModule::extend_class(context, context.types.module_type);
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        AsObject,
+        builtins::{PyInt, PyStr},
+        vm::Interpreter,
+    };
+    use malachite_bigint::ToBigInt;
+
+    #[test]
+    fn module_state_is_per_module_and_typed() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let m1 = vm.new_module("m1", vm.ctx.new_dict(), None);
+            let m2 = vm.new_module("m2", vm.ctx.new_dict(), None);
+
+            assert!(m1.get_state::<PyInt>().is_none());
+
+            let s1 = m1
+                .get_or_try_init_state(vm, |vm| Ok(vm.ctx.new_int(1)))
+                .unwrap();
+            let s2 = m2
+                .get_or_try_init_state(vm, |vm| Ok(vm.ctx.new_int(2)))
+                .unwrap();
+
+            assert_eq!(s1.as_bigint(), &1.to_bigint().unwrap());
+            assert_eq!(s2.as_bigint(), &2.to_bigint().unwrap());
+
+            let s1_again = m1.get_state::<PyInt>().unwrap();
+            assert!(s1_again.is(&s1));
+
+            let err = m1
+                .get_or_try_init_state::<PyStr, _>(vm, |vm| Ok(vm.ctx.new_str("oops")))
+                .unwrap_err();
+            assert!(err.class().is(vm.ctx.exceptions.type_error));
+        });
+    }
 }
