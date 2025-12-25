@@ -57,6 +57,10 @@ mod _multiprocessing {
         sync::atomic::{AtomicU64, AtomicUsize, Ordering},
         time::Duration,
     };
+    unsafe extern "C" {
+        fn sem_getvalue(sem: *mut sem_t, sval: *mut libc::c_int) -> libc::c_int;
+        fn sem_timedwait(sem: *mut sem_t, abs_timeout: *const libc::timespec) -> libc::c_int;
+    }
 
     const RECURSIVE_MUTEX_KIND: i32 = 0;
     const SEMAPHORE_KIND: i32 = 1;
