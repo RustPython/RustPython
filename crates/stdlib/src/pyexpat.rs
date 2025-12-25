@@ -102,7 +102,9 @@ mod _pyexpat {
     where
         T: IntoFuncArgs,
     {
-        handler.read().call(args, vm).ok();
+        // Clone the handler while holding the read lock, then release the lock
+        let handler = handler.read().clone();
+        handler.call(args, vm).ok();
     }
 
     #[pyclass]
