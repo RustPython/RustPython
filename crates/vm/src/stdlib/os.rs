@@ -164,7 +164,7 @@ pub(super) mod _os {
         convert::{IntoPyException, ToPyObject},
         exceptions::OSErrorBuilder,
         function::{ArgBytesLike, FsPath, FuncArgs, OptionalArg},
-        ospath::{OsPath, OsPathOrFd, OutputMode},
+        ospath::{OsPath, OsPathOrFd, OutputMode, PathConverter},
         protocol::PyIterReturn,
         recursion::ReprGuard,
         types::{IterNext, Iterable, PyStructSequence, Representable, SelfIter},
@@ -366,10 +366,12 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn listdir(
-        path: OptionalArg<OsPathOrFd<'_>>,
+        path: OptionalArg<Option<OsPathOrFd<'_>>>,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<PyObjectRef>> {
-        let path = path.unwrap_or_else(|| OsPathOrFd::Path(OsPath::new_str(".")));
+        let path = path
+            .flatten()
+            .unwrap_or_else(|| OsPathOrFd::Path(OsPath::new_str(".")));
         let list = match path {
             OsPathOrFd::Path(path) => {
                 let dir_iter = match fs::read_dir(&path) {
@@ -378,9 +380,10 @@ pub(super) mod _os {
                         return Err(OSErrorBuilder::with_filename(&err, path, vm));
                     }
                 };
+                let mode = path.mode();
                 dir_iter
                     .map(|entry| match entry {
-                        Ok(entry_path) => Ok(path.mode.process_path(entry_path.file_name(), vm)),
+                        Ok(entry_path) => Ok(mode.process_path(entry_path.file_name(), vm)),
                         Err(err) => Err(OSErrorBuilder::with_filename(&err, path.clone(), vm)),
                     })
                     .collect::<PyResult<_>>()?
@@ -545,7 +548,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn readlink(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult {
-        let mode = path.mode;
+        let mode = path.mode();
         let [] = dir_fd.0;
         let path =
             fs::read_link(&path).map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))?;
@@ -640,7 +643,7 @@ pub(super) mod _os {
                 stat(
                     OsPath {
                         path: self.pathval.as_os_str().to_owned(),
-                        mode: OutputMode::String,
+                        origin: None,
                     }
                     .into(),
                     dir_fd,
@@ -671,11 +674,7 @@ pub(super) mod _os {
                 Some(ino) => Ok(ino),
                 None => {
                     let stat = stat_inner(
-                        OsPath {
-                            path: self.pathval.as_os_str().to_owned(),
-                            mode: OutputMode::String,
-                        }
-                        .into(),
+                        OsPath::new_str(self.pathval.as_os_str()).into(),
                         DirFd::default(),
                         FollowSymlinks(false),
                     )
@@ -729,6 +728,11 @@ pub(super) mod _os {
             vm: &VirtualMachine,
         ) -> PyGenericAlias {
             PyGenericAlias::from_args(cls, args, vm)
+        }
+
+        #[pymethod]
+        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("cannot pickle 'DirEntry' object".to_owned()))
         }
     }
 
@@ -784,6 +788,11 @@ pub(super) mod _os {
         #[pymethod]
         fn __exit__(zelf: PyRef<Self>, _args: FuncArgs) {
             zelf.close()
+        }
+
+        #[pymethod]
+        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("cannot pickle 'ScandirIterator' object".to_owned()))
         }
     }
     impl SelfIter for ScandirIterator {}
@@ -861,7 +870,7 @@ pub(super) mod _os {
             .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
         Ok(ScandirIterator {
             entries: PyRwLock::new(Some(entries)),
-            mode: path.mode,
+            mode: path.mode(),
         }
         .into_ref(&vm.ctx)
         .into())
@@ -1124,7 +1133,16 @@ pub(super) mod _os {
 
     #[pyfunction]
     #[pyfunction(name = "replace")]
-    fn rename(src: OsPath, dst: OsPath, vm: &VirtualMachine) -> PyResult<()> {
+    fn rename(src: PyObjectRef, dst: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let src = PathConverter::new()
+            .function("rename")
+            .argument("src")
+            .try_path(src, vm)?;
+        let dst = PathConverter::new()
+            .function("rename")
+            .argument("dst")
+            .try_path(dst, vm)?;
+
         fs::rename(&src.path, &dst.path).map_err(|err| {
             let builder = err.to_os_error_builder(vm);
             let builder = builder.filename(src.filename(vm));
@@ -1708,6 +1726,8 @@ pub(super) mod _os {
             SupportFunc::new("fstat", Some(true), Some(STAT_DIR_FD), Some(true)),
             SupportFunc::new("symlink", Some(false), Some(SYMLINK_DIR_FD), Some(false)),
             SupportFunc::new("truncate", Some(true), Some(false), Some(false)),
+            SupportFunc::new("ftruncate", Some(true), Some(false), Some(false)),
+            SupportFunc::new("fsync", Some(true), Some(false), Some(false)),
             SupportFunc::new(
                 "utime",
                 Some(false),

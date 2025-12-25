@@ -1240,12 +1240,36 @@ pub mod module {
             .map_err(|err| err.into_pyexception(vm))
     }
 
+    #[pyfunction]
+    fn setpgrp(vm: &VirtualMachine) -> PyResult<()> {
+        // setpgrp() is equivalent to setpgid(0, 0)
+        unistd::setpgid(Pid::from_raw(0), Pid::from_raw(0)).map_err(|err| err.into_pyexception(vm))
+    }
+
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyfunction]
     fn setsid(vm: &VirtualMachine) -> PyResult<()> {
         unistd::setsid()
             .map(|_ok| ())
             .map_err(|err| err.into_pyexception(vm))
+    }
+
+    #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
+    #[pyfunction]
+    fn tcgetpgrp(fd: i32, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
+        use std::os::fd::BorrowedFd;
+        let fd = unsafe { BorrowedFd::borrow_raw(fd) };
+        unistd::tcgetpgrp(fd)
+            .map(|pid| pid.as_raw())
+            .map_err(|err| err.into_pyexception(vm))
+    }
+
+    #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
+    #[pyfunction]
+    fn tcsetpgrp(fd: i32, pgid: libc::pid_t, vm: &VirtualMachine) -> PyResult<()> {
+        use std::os::fd::BorrowedFd;
+        let fd = unsafe { BorrowedFd::borrow_raw(fd) };
+        unistd::tcsetpgrp(fd, Pid::from_raw(pgid)).map_err(|err| err.into_pyexception(vm))
     }
 
     fn try_from_id(vm: &VirtualMachine, obj: PyObjectRef, typ_name: &str) -> PyResult<u32> {
@@ -1833,6 +1857,8 @@ pub mod module {
             SupportFunc::new("umask", Some(false), Some(false), Some(false)),
             SupportFunc::new("execv", None, None, None),
             SupportFunc::new("pathconf", Some(true), None, None),
+            SupportFunc::new("fpathconf", Some(true), None, None),
+            SupportFunc::new("fchdir", Some(true), None, None),
         ]
     }
 

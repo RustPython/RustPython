@@ -1725,15 +1725,15 @@ class BytesWalkTests(WalkTests):
             bdirs[:] = list(map(os.fsencode, dirs))
             bfiles[:] = list(map(os.fsencode, files))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; (TypeError: Can't mix strings and bytes in path components)
+    @unittest.expectedFailure # TODO: RUSTPYTHON; WalkTests doesn't have these methods
     def test_compare_to_walk(self):
         return super().test_compare_to_walk()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; (TypeError: Can't mix strings and bytes in path components)
+    @unittest.expectedFailure # TODO: RUSTPYTHON; WalkTests doesn't have these methods
     def test_dir_fd(self):
         return super().test_dir_fd()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; (TypeError: Can't mix strings and bytes in path components)
+    @unittest.expectedFailure # TODO: RUSTPYTHON; WalkTests doesn't have these methods
     def test_yields_correct_dir_fd(self):
         return super().test_yields_correct_dir_fd()
 
@@ -4502,7 +4502,6 @@ class OSErrorTests(unittest.TestCase):
 
         self.filenames = self.bytes_filenames + self.unicode_filenames
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; (AssertionError: b'@test_22106_tmp\xe7w\xf0' is not b'@test_22106_tmp\xe7w\xf0' : <built-in function chdir>)
     def test_oserror_filename(self):
         funcs = [
             (self.filenames, os.chdir,),
@@ -4906,7 +4905,6 @@ class TestDirEntry(unittest.TestCase):
     def test_uninstantiable(self):
         self.assertRaises(TypeError, os.DirEntry)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; (pickle.PicklingError: Can't pickle <class '_os.DirEntry'>: it's not found as _os.DirEntry)
     def test_unpickable(self):
         filename = create_file(os.path.join(self.path, "file.txt"), b'python')
         entry = [entry for entry in os.scandir(self.path)].pop()
@@ -5337,7 +5335,6 @@ class TestPEP519(unittest.TestCase):
                 return ''
         self.assertFalse(hasattr(A(), '__dict__'))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_fspath_set_to_None(self):
         class Foo:
             __fspath__ = None
