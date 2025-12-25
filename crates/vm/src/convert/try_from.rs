@@ -162,11 +162,13 @@ fn duration_from_f64_floor(f: f64, vm: &VirtualMachine) -> PyResult<std::time::D
     }
 
     let total_nanos = (f * NANOS_PER_SEC).floor();
-    if !(0.0..=MAX_TOTAL_NANOS as f64).contains(&total_nanos) {
+    if total_nanos.is_sign_negative() {
         return Err(vm.new_value_error("value out of range"));
     }
-
     let total_nanos_u128 = total_nanos as u128;
+    if total_nanos_u128 > MAX_TOTAL_NANOS {
+        return Err(vm.new_value_error("value out of range"));
+    }
 
     let secs = (total_nanos_u128 / NANOS_PER_SEC_U128) as u64;
     let nanos = (total_nanos_u128 % NANOS_PER_SEC_U128) as u32;
