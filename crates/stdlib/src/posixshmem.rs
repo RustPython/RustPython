@@ -22,9 +22,11 @@ mod _posixshmem {
         vm: &VirtualMachine,
     ) -> PyResult<libc::c_int> {
         let name = CString::new(name.as_str()).map_err(|e| e.into_pyexception(vm))?;
-        let mode = mode.unwrap_or(0o600);
+        let mode: libc::c_uint = mode.unwrap_or(0o600) as _;
+        #[cfg(target_os = "freebsd")]
+        let mode = mode.try_into().unwrap();
         // SAFETY: `name` is a NUL-terminated string and `shm_open` does not write through it.
-        let fd = unsafe { libc::shm_open(name.as_ptr(), flags, mode as libc::c_uint) };
+        let fd = unsafe { libc::shm_open(name.as_ptr(), flags, mode) };
         if fd == -1 {
             Err(errno_io_error().into_pyexception(vm))
         } else {
