@@ -327,15 +327,6 @@ class MagicNumberTests:
  ) = util.test_both(MagicNumberTests, util=importlib_util)
 
 
-# TODO: RUSTPYTHON
-@unittest.expectedFailure
-def test_incorporates_rn_MONKEYPATCH(self):
-    self.assertTrue(self.util.MAGIC_NUMBER.endswith(b'\r\n'))
-
-# TODO: RUSTPYTHON
-Frozen_MagicNumberTests.test_incorporates_rn = test_incorporates_rn_MONKEYPATCH
-
-
 class PEP3147Tests:
 
     """Tests of PEP 3147-related functions: cache_from_source and source_from_cache."""

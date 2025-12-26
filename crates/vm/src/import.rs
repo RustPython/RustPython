@@ -5,7 +5,6 @@ use crate::{
     builtins::{PyCode, list, traceback::PyTraceback},
     exceptions::types::PyBaseException,
     scope::Scope,
-    version::get_git_revision,
     vm::{VirtualMachine, thread},
 };
 
@@ -44,16 +43,6 @@ pub(crate) fn init_importlib_package(vm: &VirtualMachine, importlib: PyObjectRef
 
         let install_external = importlib.get_attr("_install_external_importers", vm)?;
         install_external.call((), vm)?;
-        // Set pyc magic number to commit hash. Should be changed when bytecode will be more stable.
-        let importlib_external = vm.import("_frozen_importlib_external", 0)?;
-        let mut magic = get_git_revision().into_bytes();
-        magic.truncate(4);
-        if magic.len() != 4 {
-            // os_random is expensive, but this is only ever called once
-            magic = rustpython_common::rand::os_random::<4>().to_vec();
-        }
-        let magic: PyObjectRef = vm.ctx.new_bytes(magic).into();
-        importlib_external.set_attr("MAGIC_NUMBER", magic, vm)?;
         let zipimport_res = (|| -> PyResult<()> {
             let zipimport = vm.import("zipimport", 0)?;
             let zipimporter = zipimport.get_attr("zipimporter", vm)?;

@@ -85,7 +85,7 @@ mod _imp {
         PyObjectRef, PyRef, PyResult, VirtualMachine,
         builtins::{PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef},
         function::OptionalArg,
-        import,
+        import, version,
     };
 
     #[pyattr]
@@ -93,6 +93,9 @@ mod _imp {
         vm.ctx
             .new_str(vm.state.config.settings.check_hash_pycs_mode.to_string())
     }
+
+    #[pyattr(name = "pyc_magic_number_token")]
+    use version::PYC_MAGIC_NUMBER_TOKEN;
 
     #[pyfunction]
     const fn extension_suffixes() -> PyResult<Vec<PyObjectRef>> {

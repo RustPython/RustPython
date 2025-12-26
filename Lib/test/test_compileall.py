@@ -325,8 +325,6 @@ class CompileallTestsBase:
             self.assertEqual(mod_code_obj.co_filename, expected_in)
             self.assertIn(f'"{expected_in}"', os.fsdecode(err))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_ddir_only_one_worker(self):
         """Recursive compile_dir ddir= contains package paths; bpo39769."""
         return self._test_ddir_only(ddir="<a prefix>", parallel=False)
@@ -336,8 +334,6 @@ class CompileallTestsBase:
         """Recursive compile_dir ddir= contains package paths; bpo39769."""
         return self._test_ddir_only(ddir="<a prefix>", parallel=True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_ddir_empty_only_one_worker(self):
         """Recursive compile_dir ddir='' contains package paths; bpo39769."""
         return self._test_ddir_only(ddir="", parallel=False)
@@ -347,8 +343,6 @@ class CompileallTestsBase:
         """Recursive compile_dir ddir='' contains package paths; bpo39769."""
         return self._test_ddir_only(ddir="", parallel=True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_strip_only(self):
         fullpath = ["test", "build", "real", "path"]
         path = os.path.join(self.directory, *fullpath)
@@ -408,8 +402,6 @@ class CompileallTestsBase:
             str(err, encoding=sys.getdefaultencoding())
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_strip_and_prepend(self):
         fullpath = ["test", "build", "real", "path"]
         path = os.path.join(self.directory, *fullpath)
@@ -887,8 +879,6 @@ class CommandLineTestsBase:
             self.assertTrue(compile_dir.called)
             self.assertEqual(compile_dir.call_args[-1]['workers'], 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_strip_and_prepend(self):
         fullpath = ["test", "build", "real", "path"]
         path = os.path.join(self.directory, *fullpath)
