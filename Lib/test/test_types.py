@@ -838,8 +838,6 @@ class UnionTests(unittest.TestCase):
         self.assertEqual((list[T] | list[S])[int, T], list[int] | list[T])
         self.assertEqual((list[T] | list[S])[int, int], list[int])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_union_parameter_substitution(self):
         def eq(actual, expected, typed=True):
             self.assertEqual(actual, expected)

@@ -14,7 +14,6 @@ use std::fmt;
 use std::sync::LazyLock;
 
 const CLS_ATTRS: &[&str] = &["__module__"];
-const TYPING_MODULE: &str = "typing";
 
 #[pyclass(module = "types", name = "UnionType", traverse)]
 pub struct PyUnion {
@@ -153,46 +152,16 @@ impl PyUnion {
 }
 
 pub fn is_unionable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
-    if obj.class().is(vm.ctx.types.none_type)
+    let cls = obj.class();
+    cls.is(vm.ctx.types.none_type)
         || obj.downcastable::<PyType>()
-        || obj.class().is(vm.ctx.types.generic_alias_type)
-        || obj.class().is(vm.ctx.types.union_type)
-    {
-        return true;
-    }
-    is_typing_generic_alias(obj, vm)
+        || cls.fast_issubclass(vm.ctx.types.generic_alias_type)
+        || cls.fast_issubclass(vm.ctx.types.union_type)
 }
 
 fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
     let parameters = genericalias::make_parameters(args, vm);
     dedup_and_flatten_args(&parameters, vm)
-}
-
-/// Treat objects from typing that expose __origin__ and __args__ as unionable,
-/// matching typing's generic alias helpers such as typing.Callable.
-fn is_typing_generic_alias(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
-    let module = vm
-        .get_attribute_opt(obj.clone(), identifier!(vm, __module__))
-        .ok()
-        .flatten();
-
-    let Some(_) = module
-        .as_ref()
-        .and_then(|m| m.downcast_ref::<PyStr>())
-        .filter(|m| m.as_str() == TYPING_MODULE)
-    else {
-        return false;
-    };
-
-    vm.get_attribute_opt(obj.clone(), identifier!(vm, __origin__))
-        .ok()
-        .flatten()
-        .is_some()
-        && vm
-            .get_attribute_opt(obj, identifier!(vm, __args__))
-            .ok()
-            .flatten()
-            .is_some()
 }
 
 fn flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
@@ -225,9 +194,10 @@ fn dedup_and_flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef
     let mut new_args: Vec<PyObjectRef> = Vec::with_capacity(args.len());
     for arg in &*args {
         if !new_args.iter().any(|param| {
-            param
-                .rich_compare_bool(arg, PyComparisonOp::Eq, vm)
-                .expect("types are always comparable")
+            match param.rich_compare_bool(arg, PyComparisonOp::Eq, vm) {
+                Ok(val) => val,
+                Err(_) => false,
+            }
         }) {
             new_args.push(arg.clone());
         }
