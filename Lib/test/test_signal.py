@@ -24,8 +24,6 @@ except ImportError:
 
 class GenericTests(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_enums(self):
         for name in dir(signal):
             sig = getattr(signal, name)
