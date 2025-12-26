@@ -127,8 +127,6 @@ class PosixTests(unittest.TestCase):
         self.assertIn("Terminated", signal.strsignal(signal.SIGTERM))
         self.assertIn("Hangup", signal.strsignal(signal.SIGHUP))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # Issue 3864, unknown if this affects earlier versions of freebsd also
     def test_interprocess_signal(self):
         dirname = os.path.dirname(__file__)
