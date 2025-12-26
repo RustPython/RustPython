@@ -1,8 +1,8 @@
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
-        PyBaseExceptionRef, PyBaseException, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyList, PySet,
-        PySlice, PyStr, PyStrInterned, PyStrRef, PyTraceback, PyType,
+        PyBaseException, PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator,
+        PyList, PySet, PySlice, PyStr, PyStrInterned, PyStrRef, PyTraceback, PyType,
         asyncgenerator::PyAsyncGenWrappedValue,
         function::{PyCell, PyCellRef, PyFunction},
         tuple::{PyTuple, PyTupleRef},

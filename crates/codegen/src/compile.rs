@@ -2233,13 +2233,14 @@ impl Compiler {
             emit!(self, Instruction::CheckEgMatch);
             // Stack: [orig, list, new_rest, match]
 
-            // Check if match is not None
+            // Check if match is not None (use identity check, not truthiness)
             // CopyItem is 1-indexed: CopyItem(1) = TOS, CopyItem(2) = second from top
             emit!(self, Instruction::CopyItem { index: 1 });
-            emit!(self, Instruction::ToBool);
+            self.emit_load_const(ConstantData::None);
+            emit!(self, Instruction::IsOp(bytecode::Invert::No)); // is None?
             emit!(
                 self,
-                Instruction::PopJumpIfFalse {
+                Instruction::PopJumpIfTrue {
                     target: no_match_block
                 }
             );
@@ -2369,9 +2370,10 @@ impl Compiler {
         );
         // Stack: [result] (exception to reraise or None)
 
-        // CopyItem(1) copies TOS
+        // Check if result is not None (use identity check, not truthiness)
         emit!(self, Instruction::CopyItem { index: 1 });
-        emit!(self, Instruction::ToBool);
+        self.emit_load_const(ConstantData::None);
+        emit!(self, Instruction::IsOp(bytecode::Invert::Yes)); // is not None?
         emit!(
             self,
             Instruction::PopJumpIfTrue {

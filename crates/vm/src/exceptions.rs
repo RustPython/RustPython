@@ -2459,7 +2459,7 @@ fn check_except_star_type_valid(match_type: &PyObjectRef, vm: &VirtualMachine) -
     // If it's a tuple, check each element
     if let Ok(tuple) = match_type.clone().downcast::<PyTuple>() {
         for item in tuple.iter() {
-            check_one(&item)?;
+            check_one(item)?;
         }
     } else {
         check_one(match_type)?;
@@ -2510,6 +2510,13 @@ pub fn exception_group_match(
     // Check for partial match if it's an exception group
     if exc_value.fast_isinstance(vm.ctx.exceptions.base_exception_group) {
         let pair = vm.call_method(exc_value, "split", (match_type.clone(),))?;
+        if !pair.class().is(vm.ctx.types.tuple_type) {
+            return Err(vm.new_type_error(format!(
+                "{}.split must return a tuple, not {}",
+                exc_value.class().name(),
+                pair.class().name()
+            )));
+        }
         let pair_tuple: PyTupleRef = pair.try_into_value(vm)?;
         if pair_tuple.len() < 2 {
             return Err(vm.new_type_error(format!(
@@ -2528,7 +2535,7 @@ pub fn exception_group_match(
 }
 
 /// Prepare exception for reraise in except* block.
-/// Implements _PyExc_PrepReraiseStar from Objects/exceptions.c
+/// Implements _PyExc_PrepReraiseStar
 pub fn prep_reraise_star(orig: PyObjectRef, excs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     use crate::builtins::PyList;
 
@@ -2633,11 +2640,11 @@ fn collect_exception_group_leaf_ids(
     }
 
     // Recurse into exception group's exceptions
-    if let Ok(excs_attr) = exc.get_attr("exceptions", vm) {
-        if let Ok(tuple) = excs_attr.downcast::<PyTuple>() {
-            for e in tuple.iter() {
-                collect_exception_group_leaf_ids(&e, leaf_ids, vm);
-            }
+    if let Ok(excs_attr) = exc.get_attr("exceptions", vm)
+        && let Ok(tuple) = excs_attr.downcast::<PyTuple>()
+    {
+        for e in tuple.iter() {
+            collect_exception_group_leaf_ids(e, leaf_ids, vm);
         }
     }
 }
@@ -2689,7 +2696,7 @@ fn split_by_leaf_ids(
 
     let mut matched = Vec::new();
     for e in tuple.iter() {
-        let m = split_by_leaf_ids(&e, leaf_ids, vm)?;
+        let m = split_by_leaf_ids(e, leaf_ids, vm)?;
         if !vm.is_none(&m) {
             matched.push(m);
         }
@@ -2699,7 +2706,7 @@ fn split_by_leaf_ids(
         return Ok(vm.ctx.none());
     }
 
-    // Reconstruct using derive() to preserve the exception group type
+    // Reconstruct using derive() to preserve the structure (not necessarily the subclass type)
     let matched_tuple = vm.ctx.new_tuple(matched);
     vm.call_method(exc, "derive", (matched_tuple,))
 }
