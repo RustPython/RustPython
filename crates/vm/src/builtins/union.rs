@@ -165,14 +165,15 @@ fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
 }
 
 fn is_typing_generic_alias(obj: &PyObject, vm: &VirtualMachine) -> bool {
-    if let Ok(Some(module)) = vm.get_attribute_opt(obj.to_owned(), identifier!(vm, __module__)) {
+    let obj_ref = obj.to_owned();
+    if let Ok(Some(module)) = vm.get_attribute_opt(obj_ref.clone(), identifier!(vm, __module__)) {
         if let Some(module) = module.downcast_ref::<PyStr>() {
             if module.as_str() == "typing"
                 && vm
-                    .get_attribute_opt(obj.to_owned(), identifier!(vm, __origin__))
+                    .get_attribute_opt(obj_ref.clone(), identifier!(vm, __origin__))
                     .is_ok_and(|o| o.is_some())
                 && vm
-                    .get_attribute_opt(obj.to_owned(), identifier!(vm, __args__))
+                    .get_attribute_opt(obj_ref, identifier!(vm, __args__))
                     .is_ok_and(|o| o.is_some())
             {
                 return true;
