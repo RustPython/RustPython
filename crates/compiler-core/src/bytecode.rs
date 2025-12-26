@@ -574,7 +574,7 @@ op_arg_enum!(
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     #[repr(u8)]
     pub enum IntrinsicFunction2 {
-        // PrepReraiseS tar = 1,
+        PrepReraiseStar = 1,
         TypeVarWithBound = 2,
         TypeVarWithConstraint = 3,
         SetFunctionTypeParams = 4,
@@ -652,6 +652,9 @@ pub enum Instruction {
     CallMethodPositional {
         nargs: Arg<u32>,
     },
+    /// Check if exception matches except* handler type.
+    /// Pops exc_value and match_type, pushes (rest, match).
+    CheckEgMatch,
     CompareOperation {
         op: Arg<ComparisonOperator>,
     },
@@ -1721,6 +1724,7 @@ impl Instruction {
             CallMethodKeyword { nargs } => -1 - (nargs.get(arg) as i32) - 3 + 1,
             CallFunctionEx { has_kwargs } => -1 - (has_kwargs.get(arg) as i32) - 1 + 1,
             CallMethodEx { has_kwargs } => -1 - (has_kwargs.get(arg) as i32) - 3 + 1,
+            CheckEgMatch => 0, // pops 2 (exc, type), pushes 2 (rest, match)
             ConvertValue { .. } => 0,
             FormatSimple => 0,
             FormatWithSpec => -1,
@@ -1887,6 +1891,7 @@ impl Instruction {
             CallMethodEx { has_kwargs } => w!(CALL_METHOD_EX, has_kwargs),
             CallMethodKeyword { nargs } => w!(CALL_METHOD_KEYWORD, nargs),
             CallMethodPositional { nargs } => w!(CALL_METHOD_POSITIONAL, nargs),
+            CheckEgMatch => w!(CHECK_EG_MATCH),
             CompareOperation { op } => w!(COMPARE_OPERATION, ?op),
             ContainsOp(inv) => w!(CONTAINS_OP, ?inv),
             Continue { target } => w!(CONTINUE, target),

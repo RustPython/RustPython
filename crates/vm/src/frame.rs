@@ -691,6 +691,15 @@ impl ExecutingFrame<'_> {
                 let args = self.collect_positional_args(nargs.get(arg));
                 self.execute_method_call(args, vm)
             }
+            bytecode::Instruction::CheckEgMatch => {
+                let match_type = self.pop_value();
+                let exc_value = self.pop_value();
+                let (rest, matched) =
+                    crate::exceptions::exception_group_match(&exc_value, &match_type, vm)?;
+                self.push_value(rest);
+                self.push_value(matched);
+                Ok(None)
+            }
             bytecode::Instruction::CompareOperation { op } => self.execute_compare(vm, op.get(arg)),
             bytecode::Instruction::ContainsOp(invert) => {
                 let b = self.pop_value();
@@ -2493,6 +2502,12 @@ impl ExecutingFrame<'_> {
                         .into_ref(&vm.ctx)
                         .into();
                 Ok(type_var)
+            }
+            bytecode::IntrinsicFunction2::PrepReraiseStar => {
+                // arg1 = orig (original exception)
+                // arg2 = excs (list of exceptions raised/reraised in except* blocks)
+                // Returns: exception to reraise, or None if nothing to reraise
+                crate::exceptions::prep_reraise_star(arg1, arg2, vm)
             }
         }
     }
