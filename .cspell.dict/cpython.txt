@@ -1,6 +1,7 @@
 argtypes
 asdl
 asname
+attro
 augassign
 badcert
 badsyntax

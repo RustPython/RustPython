@@ -2,16 +2,59 @@
 
 use crate::{
     PyPayload,
-    builtins::{
-        PyBaseObject, PyType, PyTypeRef,
-        descriptor::{PyWrapper, SlotFunc},
-    },
+    builtins::{PyBaseObject, PyType, PyTypeRef, descriptor::PyWrapper},
     function::PyMethodDef,
     object::Py,
-    types::{PyComparisonOp, PyTypeFlags, PyTypeSlots, hash_not_implemented},
+    types::{PyTypeFlags, PyTypeSlots, SLOT_DEFS, hash_not_implemented},
     vm::Context,
 };
 use rustpython_common::static_cell;
+
+/// Add slot wrapper descriptors to a type's dict
+///
+/// Iterates SLOT_DEFS and creates a PyWrapper for each slot that:
+/// 1. Has a function set in the type's slots
+/// 2. Doesn't already have an attribute in the type's dict
+fn add_operators(class: &'static Py<PyType>, ctx: &Context) {
+    for def in SLOT_DEFS.iter() {
+        // Skip __new__ - it has special handling
+        if def.name == "__new__" {
+            continue;
+        }
+
+        // Special handling for __hash__ = None
+        if def.name == "__hash__"
+            && class
+                .slots
+                .hash
+                .load()
+                .is_some_and(|h| h as usize == hash_not_implemented as usize)
+        {
+            class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
+            continue;
+        }
+
+        // Get the slot function wrapped in SlotFunc
+        let Some(slot_func) = def.accessor.get_slot_func(&class.slots) else {
+            continue;
+        };
+
+        // Check if attribute already exists in dict
+        let attr_name = ctx.intern_str(def.name);
+        if class.attributes.read().contains_key(attr_name) {
+            continue;
+        }
+
+        // Create and add the wrapper
+        let wrapper = PyWrapper {
+            typ: class,
+            name: attr_name,
+            wrapped: slot_func,
+            doc: Some(def.doc),
+        };
+        class.set_attr(attr_name, wrapper.into_ref(ctx).into());
+    }
+}
 
 pub trait StaticType {
     // Ideally, saving PyType is better than PyTypeRef
@@ -139,138 +182,8 @@ pub trait PyClassImpl: PyClassDef {
             }
         }
 
-        // Add slot wrappers for slots that exist and are not already in dict
-        // This mirrors CPython's add_operators() in typeobject.c
-        macro_rules! add_slot_wrapper {
-            ($slot:ident, $name:ident, $variant:ident, $doc:expr) => {
-                if let Some(func) = class.slots.$slot.load() {
-                    let attr_name = identifier!(ctx, $name);
-                    if !class.attributes.read().contains_key(attr_name) {
-                        let wrapper = PyWrapper {
-                            typ: class,
-                            name: ctx.intern_str(stringify!($name)),
-                            wrapped: SlotFunc::$variant(func),
-                            doc: Some($doc),
-                        };
-                        class.set_attr(attr_name, wrapper.into_ref(ctx).into());
-                    }
-                }
-            };
-        }
-
-        add_slot_wrapper!(
-            init,
-            __init__,
-            Init,
-            "Initialize self.  See help(type(self)) for accurate signature."
-        );
-        add_slot_wrapper!(repr, __repr__, Repr, "Return repr(self).");
-        add_slot_wrapper!(str, __str__, Str, "Return str(self).");
-        add_slot_wrapper!(iter, __iter__, Iter, "Implement iter(self).");
-        add_slot_wrapper!(iternext, __next__, IterNext, "Implement next(self).");
-
-        // __hash__ needs special handling: hash_not_implemented sets __hash__ = None
-        if class.slots.hash.load().map_or(0, |h| h as usize) == hash_not_implemented as usize {
-            class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
-        } else {
-            add_slot_wrapper!(hash, __hash__, Hash, "Return hash(self).");
-        }
-
-        add_slot_wrapper!(call, __call__, Call, "Call self as a function.");
-        add_slot_wrapper!(
-            del,
-            __del__,
-            Del,
-            "Called when the instance is about to be destroyed."
-        );
-
-        // Attribute access slots
-        add_slot_wrapper!(
-            getattro,
-            __getattribute__,
-            GetAttro,
-            "Return getattr(self, name)."
-        );
-        // setattro is shared by __setattr__ and __delattr__
-        if let Some(func) = class.slots.setattro.load() {
-            let attr_name = identifier!(ctx, __setattr__);
-            if !class.attributes.read().contains_key(attr_name) {
-                let wrapper = PyWrapper {
-                    typ: class,
-                    name: ctx.intern_str("__setattr__"),
-                    wrapped: SlotFunc::SetAttro(func),
-                    doc: Some("Implement setattr(self, name, value)."),
-                };
-                class.set_attr(attr_name, wrapper.into_ref(ctx).into());
-            }
-            let attr_name = identifier!(ctx, __delattr__);
-            if !class.attributes.read().contains_key(attr_name) {
-                let wrapper = PyWrapper {
-                    typ: class,
-                    name: ctx.intern_str("__delattr__"),
-                    wrapped: SlotFunc::DelAttro(func),
-                    doc: Some("Implement delattr(self, name)."),
-                };
-                class.set_attr(attr_name, wrapper.into_ref(ctx).into());
-            }
-        }
-
-        // Rich comparison slots
-        macro_rules! add_richcompare_wrapper {
-            ($name:ident, $op:expr, $doc:expr) => {
-                if let Some(func) = class.slots.richcompare.load() {
-                    let attr_name = identifier!(ctx, $name);
-                    if !class.attributes.read().contains_key(attr_name) {
-                        let wrapper = PyWrapper {
-                            typ: class,
-                            name: ctx.intern_str(stringify!($name)),
-                            wrapped: SlotFunc::RichCompare(func, $op),
-                            doc: Some($doc),
-                        };
-                        class.set_attr(attr_name, wrapper.into_ref(ctx).into());
-                    }
-                }
-            };
-        }
-        add_richcompare_wrapper!(__eq__, PyComparisonOp::Eq, "Return self==value.");
-        add_richcompare_wrapper!(__ne__, PyComparisonOp::Ne, "Return self!=value.");
-        add_richcompare_wrapper!(__lt__, PyComparisonOp::Lt, "Return self<value.");
-        add_richcompare_wrapper!(__le__, PyComparisonOp::Le, "Return self<=value.");
-        add_richcompare_wrapper!(__gt__, PyComparisonOp::Gt, "Return self>value.");
-        add_richcompare_wrapper!(__ge__, PyComparisonOp::Ge, "Return self>=value.");
-
-        // Descriptor slots
-        add_slot_wrapper!(
-            descr_get,
-            __get__,
-            DescrGet,
-            "Return an attribute of instance, which is of type owner."
-        );
-        // descr_set is shared by __set__ and __delete__
-        if let Some(func) = class.slots.descr_set.load() {
-            let attr_name = identifier!(ctx, __set__);
-            if !class.attributes.read().contains_key(attr_name) {
-                let wrapper = PyWrapper {
-                    typ: class,
-                    name: ctx.intern_str("__set__"),
-                    wrapped: SlotFunc::DescrSet(func),
-                    doc: Some("Set an attribute of instance to value."),
-                };
-                class.set_attr(attr_name, wrapper.into_ref(ctx).into());
-            }
-            let attr_name = identifier!(ctx, __delete__);
-            if !class.attributes.read().contains_key(attr_name) {
-                let wrapper = PyWrapper {
-                    typ: class,
-                    name: ctx.intern_str("__delete__"),
-                    wrapped: SlotFunc::DescrDel(func),
-                    doc: Some("Delete an attribute of instance."),
-                };
-                class.set_attr(attr_name, wrapper.into_ref(ctx).into());
-            }
-        }
-
-        // Note: __new__ is handled specially at the beginning of extend_class
+        // Add slot wrappers using SLOT_DEFS array
+        add_operators(class, ctx);
 
         // Inherit slots from base types after slots are fully initialized
         for base in class.bases.read().iter() {

@@ -1399,7 +1399,6 @@ class ClassPropertiesAndMethods(unittest.TestCase, ExtraAssertions):
                 __qualname__ = object()
                 __slots__ = ["__qualname__"]
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_slots_descriptor(self):
         # Issue2115: slot descriptors did not correctly check
         # the type of the given object

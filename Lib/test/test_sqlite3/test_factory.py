@@ -241,8 +241,6 @@ class RowFactoryTests(unittest.TestCase):
 
         self.assertEqual(hash(row_1), hash(row_2))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_sqlite_row_as_sequence(self):
         """ Checks if the row object can act like a sequence """
         self.con.row_factory = sqlite.Row

@@ -12,6 +12,6 @@ pub use iter::{PyIter, PyIterIter, PyIterReturn};
 pub use mapping::{PyMapping, PyMappingMethods, PyMappingSlots};
 pub use number::{
     PyNumber, PyNumberBinaryFunc, PyNumberBinaryOp, PyNumberMethods, PyNumberSlots,
-    PyNumberTernaryOp, PyNumberUnaryFunc, handle_bytes_to_int_err,
+    PyNumberTernaryFunc, PyNumberTernaryOp, PyNumberUnaryFunc, handle_bytes_to_int_err,
 };
 pub use sequence::{PySequence, PySequenceMethods, PySequenceSlots};
