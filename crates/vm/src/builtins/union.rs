@@ -152,11 +152,14 @@ impl PyUnion {
 }
 
 pub fn is_unionable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
-    obj.class().is(vm.ctx.types.none_type)
+    if obj.class().is(vm.ctx.types.none_type)
         || obj.downcastable::<PyType>()
         || obj.class().is(vm.ctx.types.generic_alias_type)
         || obj.class().is(vm.ctx.types.union_type)
-        || is_typing_generic_alias(obj.as_ref(), vm)
+    {
+        return true;
+    }
+    is_typing_generic_alias(obj, vm)
 }
 
 fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
@@ -166,10 +169,9 @@ fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
 
 /// Treat objects from typing that expose __origin__ and __args__ as unionable,
 /// matching typing's generic alias helpers such as typing.Callable.
-fn is_typing_generic_alias(obj: &PyObject, vm: &VirtualMachine) -> bool {
-    let obj_ref = obj.to_owned();
+fn is_typing_generic_alias(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
     let module = vm
-        .get_attribute_opt(obj_ref.clone(), identifier!(vm, __module__))
+        .get_attribute_opt(obj.clone(), identifier!(vm, __module__))
         .ok()
         .flatten();
 
@@ -178,10 +180,10 @@ fn is_typing_generic_alias(obj: &PyObject, vm: &VirtualMachine) -> bool {
         .and_then(|m| m.downcast_ref::<PyStr>())
         .filter(|m| m.as_str() == "typing")
         .is_some_and(|_| {
-            vm.get_attribute_opt(obj_ref.clone(), identifier!(vm, __origin__))
+            vm.get_attribute_opt(obj.clone(), identifier!(vm, __origin__))
                 .is_ok_and(|o| o.is_some())
                 && vm
-                    .get_attribute_opt(obj_ref, identifier!(vm, __args__))
+                    .get_attribute_opt(obj, identifier!(vm, __args__))
                     .is_ok_and(|o| o.is_some())
         })
 }
