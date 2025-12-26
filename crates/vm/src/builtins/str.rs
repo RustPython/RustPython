@@ -668,8 +668,19 @@ impl PyStr {
 
     // casefold is much more aggressive than lower
     #[pymethod]
-    fn casefold(&self) -> String {
-        caseless::default_case_fold_str(self.as_str())
+    fn casefold(&self) -> Self {
+        match self.as_str_kind() {
+            PyKindStr::Ascii(s) => caseless::default_case_fold_str(s.as_str()).into(),
+            PyKindStr::Utf8(s) => caseless::default_case_fold_str(s).into(),
+            PyKindStr::Wtf8(w) => w
+                .chunks()
+                .map(|c| match c {
+                    Wtf8Chunk::Utf8(s) => Wtf8Buf::from_string(caseless::default_case_fold_str(s)),
+                    Wtf8Chunk::Surrogate(c) => Wtf8Buf::from(c),
+                })
+                .collect::<Wtf8Buf>()
+                .into(),
+        }
     }
 
     #[pymethod]

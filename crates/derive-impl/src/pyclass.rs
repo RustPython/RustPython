@@ -223,8 +223,8 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                         const METHOD_DEFS: &'static [::rustpython_vm::function::PyMethodDef] = &#method_defs;
 
                         fn extend_slots(slots: &mut ::rustpython_vm::types::PyTypeSlots) {
-                            #impl_ty::__extend_slots(slots);
                             #with_slots
+                            #impl_ty::__extend_slots(slots);
                         }
                     }
                 }
@@ -1672,9 +1672,24 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
                             #extend_class(ctx, class);
                         });
                         with_method_defs.push(method_defs);
-                        with_slots.push(quote_spanned! { item_span =>
-                            #extend_slots(slots);
-                        });
+                        // For Initializer and Constructor traits, directly set the slot
+                        // instead of calling __extend_slots. This ensures that the trait
+                        // impl's override (e.g., slot_init in impl Initializer) is used,
+                        // not the trait's default implementation.
+                        let slot_code = if path.is_ident("Initializer") {
+                            quote_spanned! { item_span =>
+                                slots.init.store(Some(<Self as ::rustpython_vm::types::Initializer>::slot_init as _));
+                            }
+                        } else if path.is_ident("Constructor") {
+                            quote_spanned! { item_span =>
+                                slots.new.store(Some(<Self as ::rustpython_vm::types::Constructor>::slot_new as _));
+                            }
+                        } else {
+                            quote_spanned! { item_span =>
+                                #extend_slots(slots);
+                            }
+                        };
+                        with_slots.push(slot_code);
                     }
                 } else if path.is_ident("flags") {
                     for meta in nested {

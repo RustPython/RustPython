@@ -25,8 +25,8 @@ use crate::{
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyNumberMethods},
     types::{
-        AsNumber, Callable, Constructor, GetAttr, PyTypeFlags, PyTypeSlots, Representable, SetAttr,
-        TypeDataRef, TypeDataRefMut, TypeDataSlot,
+        AsNumber, Callable, Constructor, GetAttr, Initializer, PyTypeFlags, PyTypeSlots,
+        Representable, SetAttr, TypeDataRef, TypeDataRefMut, TypeDataSlot,
     },
 };
 use indexmap::{IndexMap, map::Entry};
@@ -412,8 +412,10 @@ impl PyType {
     }
 
     pub(crate) fn init_slots(&self, ctx: &Context) {
-        // Inherit slots from direct bases (not MRO)
-        for base in self.bases.read().iter() {
+        // Inherit slots from MRO
+        // Note: self.mro does NOT include self, so we iterate all elements
+        let mro: Vec<_> = self.mro.read().iter().cloned().collect();
+        for base in mro.iter() {
             self.inherit_slots(base);
         }
 
@@ -460,13 +462,35 @@ impl PyType {
         }
     }
 
-    /// Inherit slots from base type. typeobject.c: inherit_slots
+    /// Inherit slots from base type. inherit_slots
     pub(crate) fn inherit_slots(&self, base: &Self) {
         macro_rules! copyslot {
             ($slot:ident) => {
                 if self.slots.$slot.load().is_none() {
                     if let Some(base_val) = base.slots.$slot.load() {
                         self.slots.$slot.store(Some(base_val));
+                    }
+                }
+            };
+        }
+
+        // Copy init slot only if base actually defines it (not just inherited)
+        // This is needed for multiple inheritance where a later base might
+        // have a more specific init slot
+        macro_rules! copyslot_defined {
+            ($slot:ident) => {
+                if self.slots.$slot.load().is_none() {
+                    if let Some(base_val) = base.slots.$slot.load() {
+                        // SLOTDEFINED: base->SLOT && (basebase == NULL || base->SLOT != basebase->SLOT)
+                        let basebase = base.base.as_ref();
+                        let slot_defined = match basebase {
+                            None => true,
+                            Some(bb) => bb.slots.$slot.load().map(|v| v as usize)
+                                != Some(base_val as usize),
+                        };
+                        if slot_defined {
+                            self.slots.$slot.store(Some(base_val));
+                        }
                     }
                 }
             };
@@ -484,9 +508,8 @@ impl PyType {
         copyslot!(iternext);
         copyslot!(descr_get);
         copyslot!(descr_set);
-        // Note: init is NOT inherited here because object_init has special
-        // handling in CPython (checks if type->tp_init != object_init).
-        // TODO: implement proper init inheritance with object_init check
+        // init uses SLOTDEFINED check for multiple inheritance support
+        copyslot_defined!(init);
         copyslot!(del);
         // new is handled by set_new()
         // as_buffer is inherited at type creation time (not AtomicCell)
@@ -832,7 +855,16 @@ impl Py<PyType> {
 }
 
 #[pyclass(
-    with(Py, Constructor, GetAttr, SetAttr, Callable, AsNumber, Representable),
+    with(
+        Py,
+        Constructor,
+        Initializer,
+        GetAttr,
+        SetAttr,
+        Callable,
+        AsNumber,
+        Representable
+    ),
     flags(BASETYPE)
 )]
 impl PyType {
@@ -1530,6 +1562,26 @@ fn get_doc_from_internal_doc<'a>(name: &str, internal_doc: &'a str) -> &'a str {
     }
     // If no signature found, return the whole doc
     internal_doc
+}
+
+impl Initializer for PyType {
+    type Args = FuncArgs;
+
+    // type_init
+    fn slot_init(_zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        // type.__init__() takes 1 or 3 arguments
+        if args.args.len() == 1 && !args.kwargs.is_empty() {
+            return Err(vm.new_type_error("type.__init__() takes no keyword arguments".to_owned()));
+        }
+        if args.args.len() != 1 && args.args.len() != 3 {
+            return Err(vm.new_type_error("type.__init__() takes 1 or 3 arguments".to_owned()));
+        }
+        Ok(())
+    }
+
+    fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        unreachable!("slot_init is defined")
+    }
 }
 
 impl GetAttr for PyType {

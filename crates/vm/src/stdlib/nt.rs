@@ -567,6 +567,97 @@ pub(crate) mod module {
             .is_some_and(|p| _test_file_exists(&p, false))
     }
 
+    /// Check if a path is on a Windows Dev Drive.
+    #[pyfunction]
+    fn _path_isdevdrive(path: OsPath, vm: &VirtualMachine) -> PyResult<bool> {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
+            FILE_SHARE_WRITE, GetDriveTypeW, GetVolumePathNameW, OPEN_EXISTING,
+        };
+        use windows_sys::Win32::System::IO::DeviceIoControl;
+        use windows_sys::Win32::System::Ioctl::FSCTL_QUERY_PERSISTENT_VOLUME_STATE;
+        use windows_sys::Win32::System::WindowsProgramming::DRIVE_FIXED;
+
+        // PERSISTENT_VOLUME_STATE_DEV_VOLUME flag - not yet in windows-sys
+        const PERSISTENT_VOLUME_STATE_DEV_VOLUME: u32 = 0x00002000;
+
+        // FILE_FS_PERSISTENT_VOLUME_INFORMATION structure
+        #[repr(C)]
+        struct FileFsPersistentVolumeInformation {
+            volume_flags: u32,
+            flag_mask: u32,
+            version: u32,
+            reserved: u32,
+        }
+
+        let wide_path = path.to_wide_cstring(vm)?;
+        let mut volume = [0u16; Foundation::MAX_PATH as usize];
+
+        // Get volume path
+        let ret = unsafe {
+            GetVolumePathNameW(wide_path.as_ptr(), volume.as_mut_ptr(), volume.len() as _)
+        };
+        if ret == 0 {
+            return Err(vm.new_last_os_error());
+        }
+
+        // Check if it's a fixed drive
+        if unsafe { GetDriveTypeW(volume.as_ptr()) } != DRIVE_FIXED {
+            return Ok(false);
+        }
+
+        // Open the volume
+        let handle = unsafe {
+            CreateFileW(
+                volume.as_ptr(),
+                FILE_READ_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS,
+                std::ptr::null_mut(),
+            )
+        };
+        if handle == INVALID_HANDLE_VALUE {
+            return Err(vm.new_last_os_error());
+        }
+
+        // Query persistent volume state
+        let mut volume_state = FileFsPersistentVolumeInformation {
+            volume_flags: 0,
+            flag_mask: PERSISTENT_VOLUME_STATE_DEV_VOLUME,
+            version: 1,
+            reserved: 0,
+        };
+
+        let ret = unsafe {
+            DeviceIoControl(
+                handle,
+                FSCTL_QUERY_PERSISTENT_VOLUME_STATE,
+                &volume_state as *const _ as *const std::ffi::c_void,
+                std::mem::size_of::<FileFsPersistentVolumeInformation>() as u32,
+                &mut volume_state as *mut _ as *mut std::ffi::c_void,
+                std::mem::size_of::<FileFsPersistentVolumeInformation>() as u32,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+
+        unsafe { CloseHandle(handle) };
+
+        if ret == 0 {
+            let err = io::Error::last_os_error();
+            // ERROR_INVALID_PARAMETER means not supported on this platform
+            if err.raw_os_error() == Some(Foundation::ERROR_INVALID_PARAMETER as i32) {
+                return Ok(false);
+            }
+            return Err(err.to_pyexception(vm));
+        }
+
+        Ok((volume_state.volume_flags & PERSISTENT_VOLUME_STATE_DEV_VOLUME) != 0)
+    }
+
     // cwait is available on MSVC only
     #[cfg(target_env = "msvc")]
     unsafe extern "C" {
