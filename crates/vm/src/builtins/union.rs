@@ -172,7 +172,8 @@ fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
 fn is_typing_generic_alias(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
     let module = vm
         .get_attribute_opt(obj.clone(), identifier!(vm, __module__))
-        .unwrap_or(None);
+        .ok()
+        .flatten();
     let has_attr = |name| vm.get_attribute_opt(obj.clone(), name).unwrap_or(None).is_some();
 
     module
