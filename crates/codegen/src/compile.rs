@@ -4046,7 +4046,8 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_cmpop(&mut self, op: &CmpOp) {
+    /// [CPython `compiler_addcompare`](https://github.com/python/cpython/blob/627894459a84be3488a1789919679c997056a03c/Python/compile.c#L2880-L2924)
+    fn compile_addcompare(&mut self, op: &CmpOp) {
         use bytecode::ComparisonOperator::*;
         match op {
             CmpOp::Eq => emit!(self, Instruction::CompareOperation { op: Equal }),
@@ -4064,78 +4065,74 @@ impl Compiler {
         }
     }
 
-    fn compile_chained_comparison(
+    /// Compile a chained comparison.
+    ///
+    /// ```py
+    /// a == b == c == d
+    /// ```
+    ///
+    /// Will compile into (pseudo code):
+    ///
+    /// ```py
+    /// result = a == b
+    /// if result:
+    ///   result = b == c
+    ///   if result:
+    ///     result = c == d
+    /// ```
+    ///
+    /// # See Also
+    /// - [CPython `compiler_compare`](https://github.com/python/cpython/blob/627894459a84be3488a1789919679c997056a03c/Python/compile.c#L4678-L4717)
+    fn compile_compare(
         &mut self,
         left: &Expr,
         ops: &[CmpOp],
-        exprs: &[Expr],
+        comparators: &[Expr],
     ) -> CompileResult<()> {
-        assert!(!ops.is_empty());
-        assert_eq!(exprs.len(), ops.len());
         let (last_op, mid_ops) = ops.split_last().unwrap();
-        let (last_val, mid_exprs) = exprs.split_last().unwrap();
-
-        // a == b == c == d
-        // compile into (pseudo code):
-        // result = a == b
-        // if result:
-        //   result = b == c
-        //   if result:
-        //     result = c == d
+        let (last_comparator, mid_comparators) = comparators.split_last().unwrap();
 
         // initialize lhs outside of loop
         self.compile_expression(left)?;
 
-        let end_blocks = if mid_exprs.is_empty() {
-            None
-        } else {
-            let break_block = self.new_block();
-            let after_block = self.new_block();
-            Some((break_block, after_block))
-        };
+        if mid_comparators.is_empty() {
+            self.compile_expression(last_comparator)?;
+            self.compile_addcompare(last_op);
+
+            return Ok(());
+        }
+
+        let cleanup = self.new_block();
 
         // for all comparisons except the last (as the last one doesn't need a conditional jump)
-        for (op, val) in mid_ops.iter().zip(mid_exprs) {
-            self.compile_expression(val)?;
+        for (op, comparator) in mid_ops.iter().zip(mid_comparators) {
+            self.compile_expression(comparator)?;
+
             // store rhs for the next comparison in chain
             emit!(self, Instruction::Swap { index: 2 });
-            emit!(self, Instruction::CopyItem { index: 2_u32 });
+            emit!(self, Instruction::CopyItem { index: 2 });
 
-            self.compile_cmpop(op);
+            self.compile_addcompare(op);
 
             // if comparison result is false, we break with this value; if true, try the next one.
-            if let Some((break_block, _)) = end_blocks {
-                emit!(self, Instruction::CopyItem { index: 1_u32 });
-                emit!(
-                    self,
-                    Instruction::PopJumpIfFalse {
-                        target: break_block,
-                    }
-                );
-                emit!(self, Instruction::PopTop);
-            }
-        }
-
-        // handle the last comparison
-        self.compile_expression(last_val)?;
-        self.compile_cmpop(last_op);
-
-        if let Some((break_block, after_block)) = end_blocks {
-            emit!(
-                self,
-                Instruction::Jump {
-                    target: after_block,
-                }
-            );
-
-            // early exit left us with stack: `rhs, comparison_result`. We need to clean up rhs.
-            self.switch_to_block(break_block);
-            emit!(self, Instruction::Swap { index: 2 });
+            emit!(self, Instruction::CopyItem { index: 1 });
+            // emit!(self, Instruction::ToBool); // TODO: Uncomment this
+            emit!(self, Instruction::PopJumpIfFalse { target: cleanup });
             emit!(self, Instruction::PopTop);
-
-            self.switch_to_block(after_block);
         }
 
+        self.compile_expression(last_comparator)?;
+        self.compile_addcompare(last_op);
+
+        let end = self.new_block();
+        emit!(self, Instruction::Jump { target: end });
+
+        // early exit left us with stack: `rhs, comparison_result`. We need to clean up rhs.
+        self.switch_to_block(cleanup);
+        emit!(self, Instruction::Swap { index: 2 });
+        emit!(self, Instruction::PopTop);
+
+        self.switch_to_block(end);
         Ok(())
     }
 
@@ -4564,7 +4561,7 @@ impl Compiler {
                 comparators,
                 ..
             }) => {
-                self.compile_chained_comparison(left, ops, comparators)?;
+                self.compile_compare(left, ops, comparators)?;
             }
             // Expr::Constant(ExprConstant { value, .. }) => {
             //     self.emit_load_const(compile_constant(value));
