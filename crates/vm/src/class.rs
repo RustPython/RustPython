@@ -70,6 +70,7 @@ pub trait PyClassDef {
     const TP_NAME: &'static str;
     const DOC: Option<&'static str> = None;
     const BASICSIZE: usize;
+    const ITEMSIZE: usize = 0;
     const UNHASHABLE: bool = false;
 
     // due to restriction of rust trait system, object.__base__ is None
@@ -210,6 +211,7 @@ pub trait PyClassImpl: PyClassDef {
             flags: Self::TP_FLAGS,
             name: Self::TP_NAME,
             basicsize: Self::BASICSIZE,
+            itemsize: Self::ITEMSIZE,
             doc: Self::DOC,
             methods: Self::METHOD_DEFS,
             ..Default::default()

@@ -165,6 +165,7 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 with_impl,
                 with_method_defs,
                 with_slots,
+                itemsize,
             } = extract_impl_attrs(attr, &impl_ty)?;
             let payload_ty = attr_payload.unwrap_or(payload_guess);
             let method_def = &context.method_items;
@@ -189,9 +190,17 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                         #(#class_extensions)*
                     }
                 },
-                parse_quote! {
-                    fn __extend_slots(slots: &mut ::rustpython_vm::types::PyTypeSlots) {
-                        #slots_impl
+                {
+                    let itemsize_impl = itemsize.as_ref().map(|size| {
+                        quote! {
+                            slots.itemsize = #size;
+                        }
+                    });
+                    parse_quote! {
+                        fn __extend_slots(slots: &mut ::rustpython_vm::types::PyTypeSlots) {
+                            #itemsize_impl
+                            #slots_impl
+                        }
                     }
                 },
             ];
@@ -1618,6 +1627,7 @@ struct ExtractedImplAttrs {
     with_impl: TokenStream,
     with_method_defs: Vec<TokenStream>,
     with_slots: TokenStream,
+    itemsize: Option<syn::Expr>,
 }
 
 fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<ExtractedImplAttrs> {
@@ -1636,6 +1646,7 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
         }
     }];
     let mut payload = None;
+    let mut itemsize = None;
 
     for attr in attr {
         match attr {
@@ -1721,6 +1732,8 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
                     } else {
                         bail_span!(value, "payload must be a string literal")
                     }
+                } else if path.is_ident("itemsize") {
+                    itemsize = Some(value);
                 } else {
                     bail_span!(path, "Unknown pyimpl attribute")
                 }
@@ -1741,6 +1754,7 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
         with_slots: quote! {
             #(#with_slots)*
         },
+        itemsize,
     })
 }
 

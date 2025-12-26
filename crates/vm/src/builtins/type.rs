@@ -949,6 +949,11 @@ impl PyType {
     }
 
     #[pygetset]
+    fn __itemsize__(&self) -> usize {
+        self.slots.itemsize
+    }
+
+    #[pygetset]
     pub fn __name__(&self, vm: &VirtualMachine) -> PyStrRef {
         self.name_inner(
             |name| {
@@ -2088,12 +2093,16 @@ fn solid_base<'a>(typ: &'a Py<PyType>, vm: &VirtualMachine) -> &'a Py<PyType> {
         vm.ctx.types.object_type
     };
 
-    // TODO: requires itemsize comparison too
-    if typ.__basicsize__() != base.__basicsize__() {
-        typ
-    } else {
-        base
-    }
+    // Check for extra instance variables (CPython's extra_ivars)
+    let t_size = typ.__basicsize__();
+    let b_size = base.__basicsize__();
+    let t_itemsize = typ.slots.itemsize;
+    let b_itemsize = base.slots.itemsize;
+
+    // Has extra ivars if: sizes differ AND (has items OR t_size > b_size)
+    let has_extra_ivars = t_size != b_size && (t_itemsize > 0 || b_itemsize > 0 || t_size > b_size);
+
+    if has_extra_ivars { typ } else { base }
 }
 
 fn best_base<'a>(bases: &'a [PyTypeRef], vm: &VirtualMachine) -> PyResult<&'a Py<PyType>> {

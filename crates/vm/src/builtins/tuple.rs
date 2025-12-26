@@ -257,16 +257,9 @@ impl<T> PyTuple<PyRef<T>> {
 }
 
 #[pyclass(
+    itemsize = std::mem::size_of::<crate::PyObjectRef>(),
     flags(BASETYPE, SEQUENCE, _MATCH_SELF),
-    with(
-        AsMapping,
-        AsSequence,
-        Hashable,
-        Comparable,
-        Iterable,
-        Constructor,
-        Representable
-    )
+    with(AsMapping, AsSequence, Hashable, Comparable, Iterable, Constructor, Representable)
 )]
 impl PyTuple {
     #[pymethod]
