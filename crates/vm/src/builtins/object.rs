@@ -509,8 +509,25 @@ impl PyBaseObject {
                 if both_mutable || both_module {
                     let has_dict =
                         |typ: &Py<PyType>| typ.slots.flags.has_feature(PyTypeFlags::HAS_DICT);
+                    // Compare slots tuples
+                    let slots_equal = match (
+                        current_cls
+                            .heaptype_ext
+                            .as_ref()
+                            .and_then(|e| e.slots.as_ref()),
+                        cls.heaptype_ext.as_ref().and_then(|e| e.slots.as_ref()),
+                    ) {
+                        (Some(a), Some(b)) => {
+                            a.len() == b.len()
+                                && a.iter()
+                                    .zip(b.iter())
+                                    .all(|(x, y)| x.as_str() == y.as_str())
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    };
                     if current_cls.slots.basicsize != cls.slots.basicsize
-                        || current_cls.slots.member_count != cls.slots.member_count
+                        || !slots_equal
                         || has_dict(current_cls) != has_dict(&cls)
                     {
                         return Err(vm.new_type_error(format!(
