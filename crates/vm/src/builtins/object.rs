@@ -497,16 +497,45 @@ impl PyBaseObject {
     ) -> PyResult<()> {
         match value.downcast::<PyType>() {
             Ok(cls) => {
-                let both_module = instance.class().fast_issubclass(vm.ctx.types.module_type)
+                let current_cls = instance.class();
+                let both_module = current_cls.fast_issubclass(vm.ctx.types.module_type)
                     && cls.fast_issubclass(vm.ctx.types.module_type);
-                let both_mutable = !instance
-                    .class()
+                let both_mutable = !current_cls
                     .slots
                     .flags
                     .has_feature(PyTypeFlags::IMMUTABLETYPE)
                     && !cls.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE);
                 // FIXME(#1979) cls instances might have a payload
                 if both_mutable || both_module {
+                    let has_dict =
+                        |typ: &Py<PyType>| typ.slots.flags.has_feature(PyTypeFlags::HAS_DICT);
+                    // Compare slots tuples
+                    let slots_equal = match (
+                        current_cls
+                            .heaptype_ext
+                            .as_ref()
+                            .and_then(|e| e.slots.as_ref()),
+                        cls.heaptype_ext.as_ref().and_then(|e| e.slots.as_ref()),
+                    ) {
+                        (Some(a), Some(b)) => {
+                            a.len() == b.len()
+                                && a.iter()
+                                    .zip(b.iter())
+                                    .all(|(x, y)| x.as_str() == y.as_str())
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    };
+                    if current_cls.slots.basicsize != cls.slots.basicsize
+                        || !slots_equal
+                        || has_dict(current_cls) != has_dict(&cls)
+                    {
+                        return Err(vm.new_type_error(format!(
+                            "__class__ assignment: '{}' object layout differs from '{}'",
+                            cls.name(),
+                            current_cls.name()
+                        )));
+                    }
                     instance.set_class(cls, vm);
                     Ok(())
                 } else {
