@@ -164,23 +164,26 @@ fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
     dedup_and_flatten_args(&parameters, vm)
 }
 
+/// Treat objects from typing that expose __origin__ and __args__ as unionable,
+/// matching typing's generic alias helpers such as typing.Callable.
 fn is_typing_generic_alias(obj: &PyObject, vm: &VirtualMachine) -> bool {
     let obj_ref = obj.to_owned();
-    if let Ok(Some(module)) = vm.get_attribute_opt(obj_ref.clone(), identifier!(vm, __module__)) {
-        if let Some(module) = module.downcast_ref::<PyStr>() {
-            if module.as_str() == "typing"
-                && vm
-                    .get_attribute_opt(obj_ref.clone(), identifier!(vm, __origin__))
-                    .is_ok_and(|o| o.is_some())
+    let module = vm
+        .get_attribute_opt(obj_ref.clone(), identifier!(vm, __module__))
+        .ok()
+        .flatten();
+
+    module
+        .as_ref()
+        .and_then(|m| m.downcast_ref::<PyStr>())
+        .filter(|m| m.as_str() == "typing")
+        .is_some_and(|_| {
+            vm.get_attribute_opt(obj_ref.clone(), identifier!(vm, __origin__))
+                .is_ok_and(|o| o.is_some())
                 && vm
                     .get_attribute_opt(obj_ref, identifier!(vm, __args__))
                     .is_ok_and(|o| o.is_some())
-            {
-                return true;
-            }
-        }
-    }
-    false
+        })
 }
 
 fn flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
