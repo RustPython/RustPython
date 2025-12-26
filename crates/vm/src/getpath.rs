@@ -110,19 +110,26 @@ pub fn init_path_config(settings: &Settings) -> Paths {
 
     // Step 0: Get executable path
     let executable = get_executable_path();
-    paths.executable = executable
+    let real_executable = executable
         .as_ref()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
 
-    let exe_dir = executable
-        .as_ref()
-        .and_then(|p| p.parent().map(PathBuf::from));
-
     // Step 1: Check for __PYVENV_LAUNCHER__ environment variable
-    if let Ok(launcher) = env::var("__PYVENV_LAUNCHER__") {
-        paths.base_executable = launcher;
-    }
+    // When launched from a venv launcher, __PYVENV_LAUNCHER__ contains the venv's python.exe path
+    // In this case:
+    //   - sys.executable should be the launcher path (where user invoked Python)
+    //   - sys._base_executable should be the real Python executable
+    let exe_dir = if let Ok(launcher) = env::var("__PYVENV_LAUNCHER__") {
+        paths.executable = launcher.clone();
+        paths.base_executable = real_executable;
+        PathBuf::from(&launcher).parent().map(PathBuf::from)
+    } else {
+        paths.executable = real_executable;
+        executable
+            .as_ref()
+            .and_then(|p| p.parent().map(PathBuf::from))
+    };
 
     // Step 2: Check for venv (pyvenv.cfg) and get 'home'
     let (venv_prefix, home_dir) = detect_venv(&exe_dir);

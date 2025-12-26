@@ -366,3 +366,15 @@ for exc in filter(
     vars(builtins).values(),
 ):
     assert isinstance(exc.__doc__, str)
+
+
+# except* handling should normalize non-group exceptions
+try:
+    raise ValueError("x")
+except* ValueError as err:
+    assert isinstance(err, ExceptionGroup)
+    assert len(err.exceptions) == 1
+    assert isinstance(err.exceptions[0], ValueError)
+    assert err.exceptions[0].args == ("x",)
+else:
+    assert False, "except* handler did not run"

@@ -3189,7 +3189,6 @@ class TransformCodecTest(unittest.TestCase):
                 sout = reader.readline()
                 self.assertEqual(sout, b"\x80")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_buffer_api_usage(self):
         # We check all the transform codecs accept memoryview input
         # for encoding and decoding

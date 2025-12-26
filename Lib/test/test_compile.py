@@ -1536,8 +1536,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_try_except_star_qualified(self):
         snippet = """
             try:
@@ -1549,8 +1547,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_try_except_star_as(self):
         snippet = """
             try:
@@ -1562,8 +1558,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_try_except_star_finally(self):
         snippet = """
                 try:

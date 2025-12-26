@@ -1,6 +1,5 @@
 use super::*;
-use num_traits::ToPrimitive;
-use rustpython_compiler_core::{SourceFile, bytecode};
+use rustpython_compiler_core::SourceFile;
 
 impl Node for ruff::ConversionFlag {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
@@ -12,16 +11,15 @@ impl Node for ruff::ConversionFlag {
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        i32::try_from_object(vm, object)?
-            .to_u32()
-            .and_then(bytecode::ConvertValueOparg::from_op_arg)
-            .map(|flag| match flag {
-                bytecode::ConvertValueOparg::None => Self::None,
-                bytecode::ConvertValueOparg::Str => Self::Str,
-                bytecode::ConvertValueOparg::Repr => Self::Repr,
-                bytecode::ConvertValueOparg::Ascii => Self::Ascii,
-            })
-            .ok_or_else(|| vm.new_value_error("invalid conversion flag"))
+        // Python's AST uses ASCII codes: 's', 'r', 'a', -1=None
+        // Note: 255 is -1i8 as u8 (ruff's ConversionFlag::None)
+        match i32::try_from_object(vm, object)? {
+            -1 | 255 => Ok(Self::None),
+            x if x == b's' as i32 => Ok(Self::Str),
+            x if x == b'r' as i32 => Ok(Self::Repr),
+            x if x == b'a' as i32 => Ok(Self::Ascii),
+            _ => Err(vm.new_value_error("invalid conversion flag")),
+        }
     }
 }
 

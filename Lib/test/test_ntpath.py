@@ -1279,8 +1279,6 @@ class TestNtpath(NtpathTestCase):
             self.assertTrue(ntpath.ismount(b"\\\\localhost\\c$"))
             self.assertTrue(ntpath.ismount(b"\\\\localhost\\c$\\"))
 
-    # TODO: RUSTPYTHON
-    @unittest.skipIf(sys.platform == 'win32', "TODO: RUSTPYTHON; crash")
     def test_ismount_invalid_paths(self):
         ismount = ntpath.ismount
         self.assertFalse(ismount("c:\\\udfff"))
@@ -1464,8 +1462,6 @@ class TestNtpath(NtpathTestCase):
         self.assertTrue(os.path.lexists is nt._path_lexists)
         self.assertFalse(inspect.isfunction(os.path.lexists))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(os.name != 'nt', "Dev Drives only exist on Win32")
     def test_isdevdrive(self):
         # Result may be True or False, but shouldn't raise

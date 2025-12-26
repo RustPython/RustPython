@@ -48,6 +48,7 @@ posonlyarg
 posonlyargs
 prec
 preinitialized
+pythonw
 PYTHREAD_NAME
 SA_ONSTACK
 SOABI
@@ -65,6 +66,11 @@ unparse
 unparser
 VARKEYWORDS
 varkwarg
+venvlauncher
+venvlaunchert
+venvw
+venvwlauncher
+venvwlaunchert
 wbits
 weakreflist
 webpki

@@ -18,6 +18,11 @@ concurrency:
 env:
   CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls
   CARGO_ARGS_NO_SSL: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite
+  # Crates excluded from workspace builds:
+  # - rustpython_wasm: requires wasm target
+  # - rustpython-compiler-source: deprecated
+  # - rustpython-venvlauncher: Windows-only
+  WORKSPACE_EXCLUDES: --exclude rustpython_wasm --exclude rustpython-compiler-source --exclude rustpython-venvlauncher
   # Skip additional tests on Windows. They are checked on Linux and MacOS.
   # test_glob: many failing tests
   # test_pathlib: panic by surrogate chars
@@ -110,7 +115,7 @@ jobs:
       RUST_BACKTRACE: full
     name: Run rust tests
     runs-on:  ${{ matrix.os }}
-    timeout-minutes: ${{ contains(matrix.os, 'windows') && 45 || 35 }}
+    timeout-minutes: 45
     strategy:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
@@ -135,13 +140,13 @@ jobs:
         if: runner.os == 'macOS'
 
       - name: run clippy
-        run: cargo clippy ${{ env.CARGO_ARGS }} --workspace --all-targets --exclude rustpython_wasm --exclude rustpython-compiler-source -- -Dwarnings
+        run: cargo clippy ${{ env.CARGO_ARGS }} --workspace --all-targets ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
 
       - name: run rust tests
-        run: cargo test --workspace --exclude rustpython_wasm --exclude rustpython-compiler-source --verbose --features threading ${{ env.CARGO_ARGS }}
+        run: cargo test --workspace ${{ env.WORKSPACE_EXCLUDES }} --verbose --features threading ${{ env.CARGO_ARGS }}
         if: runner.os != 'macOS'
       - name: run rust tests
-        run: cargo test --workspace --exclude rustpython_wasm --exclude rustpython-jit --exclude rustpython-compiler-source --verbose --features threading  ${{ env.CARGO_ARGS }}
+        run: cargo test --workspace ${{ env.WORKSPACE_EXCLUDES }} --exclude rustpython-jit --verbose --features threading ${{ env.CARGO_ARGS }}
         if: runner.os == 'macOS'
 
       - name: check compilation without threading
