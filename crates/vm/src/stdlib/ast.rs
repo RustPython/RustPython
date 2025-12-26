@@ -15,7 +15,6 @@ use crate::{
     builtins::PyIntRef,
     builtins::{PyDict, PyModule, PyStrRef, PyType},
     class::{PyClassImpl, StaticType},
-    compiler::core::bytecode::OpArgType,
     compiler::{CompileError, ParseError},
     convert::ToPyObject,
 };
