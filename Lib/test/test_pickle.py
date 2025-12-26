@@ -182,11 +182,6 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    def test_optional_frames(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_optional_frames()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_buffers_error(self): # TODO(RUSTPYTHON): Remove this test when it passes
         return super().test_buffers_error()
 
@@ -219,11 +214,6 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
     @unittest.expectedFailure
     def test_oob_buffers_writable_to_readonly(self): # TODO(RUSTPYTHON): Remove this test when it passes
         return super().test_oob_buffers_writable_to_readonly()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_optional_frames(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_optional_frames()
 
 
 class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
@@ -308,11 +298,6 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     @unittest.expectedFailure
     def test_oob_buffers(self): # TODO(RUSTPYTHON): Remove this test when it passes
         return super().test_oob_buffers()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_optional_frames(self): # TODO(RUSTPYTHON): Remove this test when it passes
-        return super().test_optional_frames()
 
 class PersistentPicklerUnpicklerMixin(object):
 

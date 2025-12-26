@@ -3679,23 +3679,31 @@ mod _io {
     }
 
     impl Constructor for StringIO {
+        type Args = FuncArgs;
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self {
+                _base: Default::default(),
+                buffer: PyRwLock::new(BufferedIO::new(Cursor::new(Vec::new()))),
+                closed: AtomicCell::new(false),
+            })
+        }
+    }
+
+    impl Initializer for StringIO {
         type Args = StringIONewArgs;
 
         #[allow(unused_variables)]
-        fn py_new(
-            _cls: &Py<PyType>,
+        fn init(
+            zelf: PyRef<Self>,
             Self::Args { object, newline }: Self::Args,
             _vm: &VirtualMachine,
-        ) -> PyResult<Self> {
+        ) -> PyResult<()> {
             let raw_bytes = object
                 .flatten()
                 .map_or_else(Vec::new, |v| v.as_bytes().to_vec());
-
-            Ok(Self {
-                _base: Default::default(),
-                buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
-                closed: AtomicCell::new(false),
-            })
+            *zelf.buffer.write() = BufferedIO::new(Cursor::new(raw_bytes));
+            Ok(())
         }
     }
 
@@ -3709,7 +3717,7 @@ mod _io {
         }
     }
 
-    #[pyclass(flags(BASETYPE, HAS_DICT), with(Constructor))]
+    #[pyclass(flags(BASETYPE, HAS_DICT), with(Constructor, Initializer))]
     impl StringIO {
         #[pymethod]
         const fn readable(&self) -> bool {
@@ -3814,19 +3822,32 @@ mod _io {
     }
 
     impl Constructor for BytesIO {
-        type Args = OptionalArg<Option<PyBytesRef>>;
+        type Args = FuncArgs;
 
-        fn py_new(_cls: &Py<PyType>, object: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-            let raw_bytes = object
-                .flatten()
-                .map_or_else(Vec::new, |input| input.as_bytes().to_vec());
-
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             Ok(Self {
                 _base: Default::default(),
-                buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
+                buffer: PyRwLock::new(BufferedIO::new(Cursor::new(Vec::new()))),
                 closed: AtomicCell::new(false),
                 exports: AtomicCell::new(0),
             })
+        }
+    }
+
+    impl Initializer for BytesIO {
+        type Args = OptionalArg<Option<ArgBytesLike>>;
+
+        fn init(zelf: PyRef<Self>, object: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            if zelf.exports.load() > 0 {
+                return Err(vm.new_buffer_error(
+                    "Existing exports of data: object cannot be re-sized".to_owned(),
+                ));
+            }
+            let raw_bytes = object
+                .flatten()
+                .map_or_else(Vec::new, |input| input.borrow_buf().to_vec());
+            *zelf.buffer.write() = BufferedIO::new(Cursor::new(raw_bytes));
+            Ok(())
         }
     }
 
@@ -3840,7 +3861,7 @@ mod _io {
         }
     }
 
-    #[pyclass(flags(BASETYPE, HAS_DICT), with(PyRef, Constructor))]
+    #[pyclass(flags(BASETYPE, HAS_DICT), with(PyRef, Constructor, Initializer))]
     impl BytesIO {
         #[pymethod]
         const fn readable(&self) -> bool {
