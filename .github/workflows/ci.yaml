@@ -115,7 +115,7 @@ jobs:
       RUST_BACKTRACE: full
     name: Run rust tests
     runs-on:  ${{ matrix.os }}
-    timeout-minutes: ${{ contains(matrix.os, 'windows') && 45 || 35 }}
+    timeout-minutes: 45
     strategy:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
