@@ -256,6 +256,7 @@ pub struct PyNumberSlots {
     pub int: AtomicCell<Option<PyNumberUnaryFunc>>,
     pub float: AtomicCell<Option<PyNumberUnaryFunc>>,
 
+    // Right variants (internal - not exposed in SlotAccessor)
     pub right_add: AtomicCell<Option<PyNumberBinaryFunc>>,
     pub right_subtract: AtomicCell<Option<PyNumberBinaryFunc>>,
     pub right_multiply: AtomicCell<Option<PyNumberBinaryFunc>>,
@@ -295,8 +296,7 @@ pub struct PyNumberSlots {
 
 impl From<&PyNumberMethods> for PyNumberSlots {
     fn from(value: &PyNumberMethods) -> Self {
-        // right_* functions will use the same left function as PyNumberMethods
-        // allows both f(self, other) and f(other, self)
+        // right_* slots use the same function as left ops for native types
         Self {
             add: AtomicCell::new(value.add),
             subtract: AtomicCell::new(value.subtract),

@@ -440,6 +440,7 @@ pub enum SlotFunc {
     NumBoolean(PyNumberUnaryFunc<bool>), // __bool__
     NumUnary(PyNumberUnaryFunc),         // __int__, __float__, __index__
     NumBinary(PyNumberBinaryFunc),       // __add__, __sub__, __mul__, etc.
+    NumBinaryRight(PyNumberBinaryFunc),  // __radd__, __rsub__, etc. (swapped args)
     NumTernary(PyNumberTernaryFunc),     // __pow__
 }
 
@@ -476,6 +477,7 @@ impl std::fmt::Debug for SlotFunc {
             SlotFunc::NumBoolean(_) => write!(f, "SlotFunc::NumBoolean(...)"),
             SlotFunc::NumUnary(_) => write!(f, "SlotFunc::NumUnary(...)"),
             SlotFunc::NumBinary(_) => write!(f, "SlotFunc::NumBinary(...)"),
+            SlotFunc::NumBinaryRight(_) => write!(f, "SlotFunc::NumBinaryRight(...)"),
             SlotFunc::NumTernary(_) => write!(f, "SlotFunc::NumTernary(...)"),
         }
     }
@@ -636,6 +638,10 @@ impl SlotFunc {
             SlotFunc::NumBinary(func) => {
                 let (other,): (PyObjectRef,) = args.bind(vm)?;
                 func(&obj, &other, vm)
+            }
+            SlotFunc::NumBinaryRight(func) => {
+                let (other,): (PyObjectRef,) = args.bind(vm)?;
+                func(&other, &obj, vm) // Swapped: other op obj
             }
             SlotFunc::NumTernary(func) => {
                 let (y, z): (PyObjectRef, crate::function::OptionalArg<PyObjectRef>) =

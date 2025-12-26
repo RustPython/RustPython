@@ -35,7 +35,7 @@ fn add_operators(class: &'static Py<PyType>, ctx: &Context) {
         }
 
         // Get the slot function wrapped in SlotFunc
-        let Some(slot_func) = def.accessor.get_slot_func(&class.slots) else {
+        let Some(slot_func) = def.accessor.get_slot_func_with_op(&class.slots, def.op) else {
             continue;
         };
 

@@ -51,6 +51,7 @@ prec
 preinitialized
 pythonw
 PYTHREAD_NAME
+releasebuffer
 SA_ONSTACK
 SOABI
 stackdepth
