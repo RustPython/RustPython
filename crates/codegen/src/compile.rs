@@ -4115,10 +4115,14 @@ impl Compiler {
             self.compile_addcompare(op);
 
             // if comparison result is false, we break with this value; if true, try the next one.
+            /*
             emit!(self, Instruction::CopyItem { index: 1 });
             // emit!(self, Instruction::ToBool); // TODO: Uncomment this
             emit!(self, Instruction::PopJumpIfFalse { target: cleanup });
             emit!(self, Instruction::PopTop);
+            */
+
+            emit!(self, Instruction::JumpIfFalseOrPop { target: cleanup });
         }
 
         self.compile_expression(last_comparator)?;
