@@ -8,6 +8,7 @@ use crate::{
     convert::{ToPyObject, ToPyResult},
     function::PyComparisonValue,
     protocol::{PyMappingMethods, PyNumberMethods},
+    stdlib::typing::TypeAliasType,
     types::{AsMapping, AsNumber, Comparable, GetAttr, Hashable, PyComparisonOp, Representable},
 };
 use std::fmt;
@@ -156,7 +157,8 @@ pub fn is_unionable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
     cls.is(vm.ctx.types.none_type)
         || obj.downcastable::<PyType>()
         || cls.fast_issubclass(vm.ctx.types.generic_alias_type)
-        || cls.fast_issubclass(vm.ctx.types.union_type)
+        || cls.is(vm.ctx.types.union_type)
+        || obj.downcast_ref::<TypeAliasType>().is_some()
 }
 
 fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {

@@ -1963,7 +1963,7 @@ pub(crate) fn call_slot_new(
     slot_new(subtype, args, vm)
 }
 
-pub(super) fn or_(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn or_(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
     if !union_::is_unionable(zelf.clone(), vm) || !union_::is_unionable(other.clone(), vm) {
         return vm.ctx.not_implemented();
     }
