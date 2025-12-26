@@ -736,10 +736,20 @@ pub enum Instruction {
     },
     /// Performs `is` comparison, or `is not` if `invert` is 1.
     IsOp(Arg<Invert>),
+    /// Peek at the top of the stack, and jump if this value is false.
+    /// Otherwise, pop top of stack.
+    JumpIfFalseOrPop {
+        target: Arg<Label>,
+    },
     /// Performs exception matching for except.
     /// Tests whether the STACK[-2] is an exception matching STACK[-1].
     /// Pops STACK[-1] and pushes the boolean result of the test.
     JumpIfNotExcMatch(Arg<Label>),
+    /// Peek at the top of the stack, and jump if this value is true.
+    /// Otherwise, pop top of stack.
+    JumpIfTrueOrPop {
+        target: Arg<Label>,
+    },
     Jump {
         target: Arg<Label>,
     },
@@ -1611,6 +1621,8 @@ impl Instruction {
             | JumpIfNotExcMatch(l)
             | PopJumpIfTrue { target: l }
             | PopJumpIfFalse { target: l }
+            | JumpIfTrueOrPop { target: l }
+            | JumpIfFalseOrPop { target: l }
             | ForIter { target: l }
             | SetupFinally { handler: l }
             | SetupExcept { handler: l }
@@ -1688,6 +1700,13 @@ impl Instruction {
             Break { .. } => 0,
             Jump { .. } => 0,
             PopJumpIfTrue { .. } | PopJumpIfFalse { .. } => -1,
+            JumpIfTrueOrPop { .. } | JumpIfFalseOrPop { .. } => {
+                if jump {
+                    0
+                } else {
+                    -1
+                }
+            }
             MakeFunction => {
                 // CPython 3.13 style: MakeFunction only pops code object
                 -1 + 1 // pop code, push function
@@ -1895,7 +1914,9 @@ impl Instruction {
             ImportFrom { idx } => w!(IMPORT_FROM, name = idx),
             ImportName { idx } => w!(IMPORT_NAME, name = idx),
             IsOp(inv) => w!(IS_OP, ?inv),
+            JumpIfFalseOrPop { target } => w!(JUMP_IF_FALSE_OR_POP, target),
             JumpIfNotExcMatch(target) => w!(JUMP_IF_NOT_EXC_MATCH, target),
+            JumpIfTrueOrPop { target } => w!(JUMP_IF_TRUE_OR_POP, target),
             Jump { target } => w!(JUMP, target),
             ListAppend { i } => w!(LIST_APPEND, i),
             LoadAttr { idx } => w!(LOAD_ATTR, name = idx),
