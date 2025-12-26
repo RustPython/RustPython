@@ -174,14 +174,16 @@ fn is_typing_generic_alias(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
         .get_attribute_opt(obj.clone(), identifier!(vm, __module__))
         .ok()
         .flatten();
-    let has_attr = |name| vm.get_attribute_opt(obj.clone(), name).unwrap_or(None).is_some();
+    let obj_ref = obj.clone();
+    let has_attr = |name| vm.get_attribute_opt(obj_ref.clone(), name).ok().flatten().is_some();
 
     module
         .as_ref()
         .and_then(|m| m.downcast_ref::<PyStr>())
-        .filter(|m| m.as_str() == "typing")
-        .is_some_and(|_| {
-            has_attr(identifier!(vm, __origin__)) && has_attr(identifier!(vm, __args__))
+        .is_some_and(|m| {
+            m.as_str() == "typing"
+                && has_attr(identifier!(vm, __origin__))
+                && has_attr(identifier!(vm, __args__))
         })
 }
 
