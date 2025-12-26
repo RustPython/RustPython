@@ -1,4 +1,6 @@
 use rustpython_vm::{Interpreter, PyRef, Settings, VirtualMachine, builtins::PyModule};
+#[cfg(not(feature = "freeze-stdlib"))]
+use std::path::Path;
 
 pub type InitHook = Box<dyn FnOnce(&mut VirtualMachine)>;
 
@@ -122,5 +124,48 @@ pub fn init_stdlib(vm: &mut VirtualMachine) {
         }
 
         settings.path_list.extend(path_list);
+
+        ensure_stdlib_path(settings);
     }
+}
+
+#[cfg(not(feature = "freeze-stdlib"))]
+fn ensure_stdlib_path(settings: &mut Settings) {
+    if settings
+        .path_list
+        .iter()
+        .any(|path| has_encodings_path(Path::new(path)))
+    {
+        return;
+    }
+
+    let mut add_candidate = |candidate: std::path::PathBuf| -> bool {
+        if !has_encodings_path(&candidate) {
+            return false;
+        }
+
+        let candidate = match candidate.into_os_string().into_string() {
+            Ok(path) => path,
+            Err(_) => return false,
+        };
+        if !settings.path_list.iter().any(|path| path == &candidate) {
+            settings.path_list.push(candidate);
+        }
+        true
+    };
+
+    if let Some(manifest_dir) = option_env!("CARGO_MANIFEST_DIR") {
+        if add_candidate(Path::new(manifest_dir).join("Lib")) {
+            return;
+        }
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        let _ = add_candidate(cwd.join("Lib"));
+    }
+}
+
+#[cfg(not(feature = "freeze-stdlib"))]
+fn has_encodings_path(path: &Path) -> bool {
+    path.join("encodings").join("__init__.py").is_file()
 }
