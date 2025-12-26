@@ -194,10 +194,9 @@ fn dedup_and_flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef
     let mut new_args: Vec<PyObjectRef> = Vec::with_capacity(args.len());
     for arg in &*args {
         if !new_args.iter().any(|param| {
-            match param.rich_compare_bool(arg, PyComparisonOp::Eq, vm) {
-                Ok(val) => val,
-                Err(_) => false,
-            }
+            param
+                .rich_compare_bool(arg, PyComparisonOp::Eq, vm)
+                .unwrap_or_default()
         }) {
             new_args.push(arg.clone());
         }
