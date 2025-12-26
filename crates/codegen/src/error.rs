@@ -88,6 +88,8 @@ pub enum CodegenErrorType {
     UnreachablePattern(PatternUnreachableReason),
     RepeatedAttributePattern,
     ConflictingNameBindPattern,
+    /// break/continue/return inside except* block
+    BreakContinueReturnInExceptStar,
     NotImplementedYet, // RustPython marker for unimplemented features
 }
 
@@ -147,6 +149,12 @@ impl fmt::Display for CodegenErrorType {
             }
             ConflictingNameBindPattern => {
                 write!(f, "alternative patterns bind different names")
+            }
+            BreakContinueReturnInExceptStar => {
+                write!(
+                    f,
+                    "'break', 'continue' and 'return' cannot appear in an except* block"
+                )
             }
             NotImplementedYet => {
                 write!(f, "RustPython does not implement this feature yet")

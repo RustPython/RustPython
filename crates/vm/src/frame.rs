@@ -1,7 +1,7 @@
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
-        PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyList, PySet,
+        PyBaseExceptionRef, PyBaseException, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyList, PySet,
         PySlice, PyStr, PyStrInterned, PyStrRef, PyTraceback, PyType,
         asyncgenerator::PyAsyncGenWrappedValue,
         function::{PyCell, PyCellRef, PyFunction},
@@ -361,10 +361,6 @@ impl ExecutingFrame<'_> {
         let mut arg_state = bytecode::OpArgState::default();
         loop {
             let idx = self.lasti() as usize;
-            // eprintln!(
-            //     "location: {:?} {}",
-            //     self.code.locations[idx], self.code.source_path
-            // );
             self.update_lasti(|i| *i += 1);
             let bytecode::CodeUnit { op, arg } = instructions[idx];
             let arg = arg_state.extend(arg);
@@ -1358,6 +1354,15 @@ impl ExecutingFrame<'_> {
                 } else {
                     self.fatal("block type must be ExceptHandler here.")
                 }
+            }
+            bytecode::Instruction::SetExcInfo => {
+                // Set the current exception to TOS (for except* handlers)
+                // This updates sys.exc_info() so bare 'raise' will reraise the matched exception
+                let exc = self.top_value();
+                if let Some(exc) = exc.downcast_ref::<PyBaseException>() {
+                    vm.set_exception(Some(exc.to_owned()));
+                }
+                Ok(None)
             }
             bytecode::Instruction::PopJumpIfFalse { target } => {
                 self.pop_jump_if(vm, target.get(arg), false)
