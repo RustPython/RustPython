@@ -2481,8 +2481,6 @@ class TestType(unittest.TestCase):
         with self.assertRaises(TypeError):
             type('A', (int, str), {})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bad_slots(self):
         with self.assertRaises(TypeError):
             type('A', (), {'__slots__': b'x'})
