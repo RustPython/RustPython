@@ -247,8 +247,6 @@ class CmdLineTest(unittest.TestCase):
                                script_dir, None,
                                importlib.machinery.SourceFileLoader)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_script_compiled(self):
         with os_helper.temp_dir() as script_dir:
             script_name = _make_test_script(script_dir, 'script')

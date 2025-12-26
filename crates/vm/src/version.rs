@@ -126,3 +126,14 @@ pub fn get_git_datetime() -> String {
 
     format!("{date} {time}")
 }
+
+// Must be aligned to Lib/importlib/_bootstrap_external.py
+pub const PYC_MAGIC_NUMBER: u16 = 3531;
+
+// CPython format: magic_number | ('\r' << 16) | ('\n' << 24)
+// This protects against text-mode file reads
+pub const PYC_MAGIC_NUMBER_TOKEN: u32 =
+    (PYC_MAGIC_NUMBER as u32) | ((b'\r' as u32) << 16) | ((b'\n' as u32) << 24);
+
+/// Magic number as little-endian bytes for .pyc files
+pub const PYC_MAGIC_NUMBER_BYTES: [u8; 4] = PYC_MAGIC_NUMBER_TOKEN.to_le_bytes();
