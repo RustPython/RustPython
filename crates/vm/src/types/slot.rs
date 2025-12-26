@@ -289,7 +289,7 @@ pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type InitFunc = fn(PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;
 
-// Sequence sub-slot function types (protocol/sequence.rs)
+// Sequence sub-slot function types
 pub(crate) type SeqLenFunc = fn(PySequence<'_>, &VirtualMachine) -> PyResult<usize>;
 pub(crate) type SeqConcatFunc = fn(PySequence<'_>, &PyObject, &VirtualMachine) -> PyResult;
 pub(crate) type SeqRepeatFunc = fn(PySequence<'_>, isize, &VirtualMachine) -> PyResult;
@@ -298,7 +298,7 @@ pub(crate) type SeqAssItemFunc =
     fn(PySequence<'_>, isize, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
 pub(crate) type SeqContainsFunc = fn(PySequence<'_>, &PyObject, &VirtualMachine) -> PyResult<bool>;
 
-// Mapping sub-slot function types (protocol/mapping.rs)
+// Mapping sub-slot function types
 pub(crate) type MapLenFunc = fn(PyMapping<'_>, &VirtualMachine) -> PyResult<usize>;
 pub(crate) type MapSubscriptFunc = fn(PyMapping<'_>, &PyObject, &VirtualMachine) -> PyResult;
 pub(crate) type MapAssSubscriptFunc =
@@ -350,24 +350,22 @@ macro_rules! number_binary_right_op_wrapper {
 macro_rules! number_ternary_op_wrapper {
     ($name:ident) => {
         |a, b, c, vm: &VirtualMachine| {
-            let args: Vec<PyObjectRef> = if vm.is_none(c) {
-                vec![b.to_owned()]
+            if vm.is_none(c) {
+                vm.call_special_method(a, identifier!(vm, $name), (b.to_owned(),))
             } else {
-                vec![b.to_owned(), c.to_owned()]
-            };
-            vm.call_special_method(a, identifier!(vm, $name), args)
+                vm.call_special_method(a, identifier!(vm, $name), (b.to_owned(), c.to_owned()))
+            }
         }
     };
 }
 macro_rules! number_ternary_right_op_wrapper {
     ($name:ident) => {
         |a, b, c, vm: &VirtualMachine| {
-            let args: Vec<PyObjectRef> = if vm.is_none(c) {
-                vec![a.to_owned()]
+            if vm.is_none(c) {
+                vm.call_special_method(b, identifier!(vm, $name), (a.to_owned(),))
             } else {
-                vec![a.to_owned(), c.to_owned()]
-            };
-            vm.call_special_method(b, identifier!(vm, $name), args)
+                vm.call_special_method(b, identifier!(vm, $name), (a.to_owned(), c.to_owned()))
+            }
         }
     };
 }
@@ -613,9 +611,9 @@ impl PyType {
 
         match accessor {
             // === Main slots ===
-            SlotAccessor::Repr => update_main_slot!(repr, repr_wrapper, Repr),
-            SlotAccessor::Str => update_main_slot!(str, str_wrapper, Str),
-            SlotAccessor::Hash => {
+            SlotAccessor::TpRepr => update_main_slot!(repr, repr_wrapper, Repr),
+            SlotAccessor::TpStr => update_main_slot!(str, str_wrapper, Str),
+            SlotAccessor::TpHash => {
                 // Special handling for __hash__ = None
                 if ADD {
                     let method = self.attributes.read().get(name).cloned().or_else(|| {
@@ -642,11 +640,11 @@ impl PyType {
                     accessor.inherit_from_mro(self);
                 }
             }
-            SlotAccessor::Call => update_main_slot!(call, call_wrapper, Call),
-            SlotAccessor::Iter => update_main_slot!(iter, iter_wrapper, Iter),
-            SlotAccessor::IterNext => update_main_slot!(iternext, iternext_wrapper, IterNext),
-            SlotAccessor::Init => update_main_slot!(init, init_wrapper, Init),
-            SlotAccessor::New => {
+            SlotAccessor::TpCall => update_main_slot!(call, call_wrapper, Call),
+            SlotAccessor::TpIter => update_main_slot!(iter, iter_wrapper, Iter),
+            SlotAccessor::TpIternext => update_main_slot!(iternext, iternext_wrapper, IterNext),
+            SlotAccessor::TpInit => update_main_slot!(init, init_wrapper, Init),
+            SlotAccessor::TpNew => {
                 // __new__ is not wrapped via PyWrapper
                 if ADD {
                     self.slots.new.store(Some(new_wrapper));
@@ -654,10 +652,10 @@ impl PyType {
                     accessor.inherit_from_mro(self);
                 }
             }
-            SlotAccessor::Del => update_main_slot!(del, del_wrapper, Del),
-            SlotAccessor::GetAttro => update_main_slot!(getattro, getattro_wrapper, GetAttro),
-            SlotAccessor::SetAttro | SlotAccessor::DelAttro => {
-                // SetAttro and DelAttro share the same slot
+            SlotAccessor::TpDel => update_main_slot!(del, del_wrapper, Del),
+            SlotAccessor::TpGetattro => update_main_slot!(getattro, getattro_wrapper, GetAttro),
+            SlotAccessor::TpSetattro => {
+                // __setattr__ and __delattr__ share the same slot
                 if ADD {
                     if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| match sf {
                         SlotFunc::SetAttro(f) | SlotFunc::DelAttro(f) => Some(*f),
@@ -671,9 +669,9 @@ impl PyType {
                     accessor.inherit_from_mro(self);
                 }
             }
-            SlotAccessor::DescrGet => update_main_slot!(descr_get, descr_get_wrapper, DescrGet),
-            SlotAccessor::DescrSet | SlotAccessor::DescrDel => {
-                // DescrSet and DescrDel share the same slot
+            SlotAccessor::TpDescrGet => update_main_slot!(descr_get, descr_get_wrapper, DescrGet),
+            SlotAccessor::TpDescrSet => {
+                // __set__ and __delete__ share the same slot
                 if ADD {
                     if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| match sf {
                         SlotFunc::DescrSet(f) | SlotFunc::DescrDel(f) => Some(*f),
@@ -688,15 +686,45 @@ impl PyType {
                 }
             }
 
-            // === Rich compare (all share richcompare slot) ===
-            SlotAccessor::RichCompareLt
-            | SlotAccessor::RichCompareLe
-            | SlotAccessor::RichCompareEq
-            | SlotAccessor::RichCompareNe
-            | SlotAccessor::RichCompareGt
-            | SlotAccessor::RichCompareGe => {
+            // === Rich compare (__lt__, __le__, __eq__, __ne__, __gt__, __ge__) ===
+            SlotAccessor::TpRichcompare => {
                 if ADD {
-                    if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| {
+                    // Check if self or any class in MRO has a Python-defined comparison method
+                    // All comparison ops share the same slot, so if any is overridden anywhere
+                    // in the hierarchy with a Python function, we need to use the wrapper
+                    let cmp_names = [
+                        identifier!(ctx, __eq__),
+                        identifier!(ctx, __ne__),
+                        identifier!(ctx, __lt__),
+                        identifier!(ctx, __le__),
+                        identifier!(ctx, __gt__),
+                        identifier!(ctx, __ge__),
+                    ];
+
+                    let has_python_cmp = {
+                        // Check self first
+                        let attrs = self.attributes.read();
+                        let in_self = cmp_names.iter().any(|n| attrs.contains_key(*n));
+                        drop(attrs);
+
+                        in_self
+                            || self.mro.read().iter().any(|cls| {
+                                let attrs = cls.attributes.read();
+                                cmp_names.iter().any(|n| {
+                                    if let Some(attr) = attrs.get(*n) {
+                                        // Check if it's a Python function (not wrapper_descriptor)
+                                        !attr.class().is(ctx.types.wrapper_descriptor_type)
+                                    } else {
+                                        false
+                                    }
+                                })
+                            })
+                    };
+
+                    if has_python_cmp {
+                        // Use wrapper to call the Python method
+                        self.slots.richcompare.store(Some(richcompare_wrapper));
+                    } else if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| {
                         if let SlotFunc::RichCompare(f, _) = sf {
                             Some(*f)
                         } else {
@@ -713,23 +741,24 @@ impl PyType {
             }
 
             // === Number binary operations ===
-            SlotAccessor::NumAdd => {
-                update_sub_slot!(
-                    as_number,
-                    add,
-                    number_binary_op_wrapper!(__add__),
-                    NumBinary
-                )
+            SlotAccessor::NbAdd => {
+                if name.as_str() == "__radd__" {
+                    update_sub_slot!(
+                        as_number,
+                        right_add,
+                        number_binary_right_op_wrapper!(__radd__),
+                        NumBinary
+                    )
+                } else {
+                    update_sub_slot!(
+                        as_number,
+                        add,
+                        number_binary_op_wrapper!(__add__),
+                        NumBinary
+                    )
+                }
             }
-            SlotAccessor::NumRightAdd => {
-                update_sub_slot!(
-                    as_number,
-                    right_add,
-                    number_binary_right_op_wrapper!(__radd__),
-                    NumBinary
-                )
-            }
-            SlotAccessor::NumInplaceAdd => {
+            SlotAccessor::NbInplaceAdd => {
                 update_sub_slot!(
                     as_number,
                     inplace_add,
@@ -737,23 +766,24 @@ impl PyType {
                     NumBinary
                 )
             }
-            SlotAccessor::NumSubtract => {
-                update_sub_slot!(
-                    as_number,
-                    subtract,
-                    number_binary_op_wrapper!(__sub__),
-                    NumBinary
-                )
+            SlotAccessor::NbSubtract => {
+                if name.as_str() == "__rsub__" {
+                    update_sub_slot!(
+                        as_number,
+                        right_subtract,
+                        number_binary_right_op_wrapper!(__rsub__),
+                        NumBinary
+                    )
+                } else {
+                    update_sub_slot!(
+                        as_number,
+                        subtract,
+                        number_binary_op_wrapper!(__sub__),
+                        NumBinary
+                    )
+                }
             }
-            SlotAccessor::NumRightSubtract => {
-                update_sub_slot!(
-                    as_number,
-                    right_subtract,
-                    number_binary_right_op_wrapper!(__rsub__),
-                    NumBinary
-                )
-            }
-            SlotAccessor::NumInplaceSubtract => {
+            SlotAccessor::NbInplaceSubtract => {
                 update_sub_slot!(
                     as_number,
                     inplace_subtract,
@@ -761,23 +791,24 @@ impl PyType {
                     NumBinary
                 )
             }
-            SlotAccessor::NumMultiply => {
-                update_sub_slot!(
-                    as_number,
-                    multiply,
-                    number_binary_op_wrapper!(__mul__),
-                    NumBinary
-                )
+            SlotAccessor::NbMultiply => {
+                if name.as_str() == "__rmul__" {
+                    update_sub_slot!(
+                        as_number,
+                        right_multiply,
+                        number_binary_right_op_wrapper!(__rmul__),
+                        NumBinary
+                    )
+                } else {
+                    update_sub_slot!(
+                        as_number,
+                        multiply,
+                        number_binary_op_wrapper!(__mul__),
+                        NumBinary
+                    )
+                }
             }
-            SlotAccessor::NumRightMultiply => {
-                update_sub_slot!(
-                    as_number,
-                    right_multiply,
-                    number_binary_right_op_wrapper!(__rmul__),
-                    NumBinary
-                )
-            }
-            SlotAccessor::NumInplaceMultiply => {
+            SlotAccessor::NbInplaceMultiply => {
                 update_sub_slot!(
                     as_number,
                     inplace_multiply,
@@ -785,23 +816,24 @@ impl PyType {
                     NumBinary
                 )
             }
-            SlotAccessor::NumRemainder => {
-                update_sub_slot!(
-                    as_number,
-                    remainder,
-                    number_binary_op_wrapper!(__mod__),
-                    NumBinary
-                )
+            SlotAccessor::NbRemainder => {
+                if name.as_str() == "__rmod__" {
+                    update_sub_slot!(
+                        as_number,
+                        right_remainder,
+                        number_binary_right_op_wrapper!(__rmod__),
+                        NumBinary
+                    )
+                } else {
+                    update_sub_slot!(
+                        as_number,
+                        remainder,
+                        number_binary_op_wrapper!(__mod__),
+                        NumBinary
+                    )
+                }
             }
-            SlotAccessor::NumRightRemainder => {
-                update_sub_slot!(
-                    as_number,
-                    right_remainder,
-                    number_binary_right_op_wrapper!(__rmod__),
-                    NumBinary
-                )
-            }
-            SlotAccessor::NumInplaceRemainder => {
+            SlotAccessor::NbInplaceRemainder => {
                 update_sub_slot!(
                     as_number,
                     inplace_remainder,
@@ -809,39 +841,41 @@ impl PyType {
                     NumBinary
                 )
             }
-            SlotAccessor::NumDivmod => {
-                update_sub_slot!(
-                    as_number,
-                    divmod,
-                    number_binary_op_wrapper!(__divmod__),
-                    NumBinary
-                )
+            SlotAccessor::NbDivmod => {
+                if name.as_str() == "__rdivmod__" {
+                    update_sub_slot!(
+                        as_number,
+                        right_divmod,
+                        number_binary_right_op_wrapper!(__rdivmod__),
+                        NumBinary
+                    )
+                } else {
+                    update_sub_slot!(
+                        as_number,
+                        divmod,
+                        number_binary_op_wrapper!(__divmod__),
+                        NumBinary
+                    )
+                }
             }
-            SlotAccessor::NumRightDivmod => {
-                update_sub_slot!(
-                    as_number,
-                    right_divmod,
-                    number_binary_right_op_wrapper!(__rdivmod__),
-                    NumBinary
-                )
+            SlotAccessor::NbPower => {
+                if name.as_str() == "__rpow__" {
+                    update_sub_slot!(
+                        as_number,
+                        right_power,
+                        number_ternary_right_op_wrapper!(__rpow__),
+                        NumTernary
+                    )
+                } else {
+                    update_sub_slot!(
+                        as_number,
+                        power,
+                        number_ternary_op_wrapper!(__pow__),
+                        NumTernary
+                    )
+                }
             }
-            SlotAccessor::NumPower => {
-                update_sub_slot!(
-                    as_number,
-                    power,
-                    number_ternary_op_wrapper!(__pow__),
-                    NumTernary
-                )
-            }
-            SlotAccessor::NumRightPower => {
-                update_sub_slot!(
-                    as_number,
-                    right_power,
-                    number_ternary_right_op_wrapper!(__rpow__),
-                    NumTernary
-                )
-            }
-            SlotAccessor::NumInplacePower => {
+            SlotAccessor::NbInplacePower => {
                 update_sub_slot!(
                     as_number,
                     inplace_power,
@@ -849,23 +883,24 @@ impl PyType {
                     NumTernary
                 )
             }
-            SlotAccessor::NumFloorDivide => {
-                update_sub_slot!(
-                    as_number,
-                    floor_divide,
-                    number_binary_op_wrapper!(__floordiv__),
-                    NumBinary
-                )
+            SlotAccessor::NbFloorDivide => {
+                if name.as_str() == "__rfloordiv__" {
+                    update_sub_slot!(
+                        as_number,
+                        right_floor_divide,
+                        number_binary_right_op_wrapper!(__rfloordiv__),
+                        NumBinary
+                    )
+                } else {
+                    update_sub_slot!(
+                        as_number,
+                        floor_divide,
+                        number_binary_op_wrapper!(__floordiv__),
+                        NumBinary
+                    )
+                }
             }
-            SlotAccessor::NumRightFloorDivide => {
-                update_sub_slot!(
-                    as_number,
-                    right_floor_divide,
-                    number_binary_right_op_wrapper!(__rfloordiv__),
-                    NumBinary
-                )
-            }
-            SlotAccessor::NumInplaceFloorDivide => {
+            SlotAccessor::NbInplaceFloorDivide => {
                 update_sub_slot!(
                     as_number,
                     inplace_floor_divide,
@@ -873,23 +908,24 @@ impl PyType {
                     NumBinary
                 )
             }
-            SlotAccessor::NumTrueDivide => {
-                update_sub_slot!(
-                    as_number,
-                    true_divide,
-                    number_binary_op_wrapper!(__truediv__),
-                    NumBinary
-                )
+            SlotAccessor::NbTrueDivide => {
+                if name.as_str() == "__rtruediv__" {
+                    update_sub_slot!(
+                        as_number,
+                        right_true_divide,
+                        number_binary_right_op_wrapper!(__rtruediv__),
+                        NumBinary
+                    )
+                } else {
+                    update_sub_slot!(
+                        as_number,
+                        true_divide,
+                        number_binary_op_wrapper!(__truediv__),
+                        NumBinary
+                    )
+                }
             }
-            SlotAccessor::NumRightTrueDivide => {
-                update_sub_slot!(
-                    as_number,
-                    right_true_divide,
-                    number_binary_right_op_wrapper!(__rtruediv__),
-                    NumBinary
-                )
-            }
-            SlotAccessor::NumInplaceTrueDivide => {
+            SlotAccessor::NbInplaceTrueDivide => {
                 update_sub_slot!(
                     as_number,
                     inplace_true_divide,
@@ -897,23 +933,24 @@ impl PyType {
                     NumBinary
                 )
             }
-            SlotAccessor::NumMatrixMultiply => {
-                update_sub_slot!(
-                    as_number,
-                    matrix_multiply,
-                    number_binary_op_wrapper!(__matmul__),
-                    NumBinary
-                )
+            SlotAccessor::NbMatrixMultiply => {
+                if name.as_str() == "__rmatmul__" {
+                    update_sub_slot!(
+                        as_number,
+                        right_matrix_multiply,
+                        number_binary_right_op_wrapper!(__rmatmul__),
+                        NumBinary
+                    )
+                } else {
+                    update_sub_slot!(
+                        as_number,
+                        matrix_multiply,
+                        number_binary_op_wrapper!(__matmul__),
+                        NumBinary
+                    )
+                }
             }
-            SlotAccessor::NumRightMatrixMultiply => {
-                update_sub_slot!(
-                    as_number,
-                    right_matrix_multiply,
-                    number_binary_right_op_wrapper!(__rmatmul__),
-                    NumBinary
-                )
-            }
-            SlotAccessor::NumInplaceMatrixMultiply => {
+            SlotAccessor::NbInplaceMatrixMultiply => {
                 update_sub_slot!(
                     as_number,
                     inplace_matrix_multiply,
@@ -923,23 +960,24 @@ impl PyType {
             }
 
             // === Number bitwise operations ===
-            SlotAccessor::NumLshift => {
-                update_sub_slot!(
-                    as_number,
-                    lshift,
-                    number_binary_op_wrapper!(__lshift__),
-                    NumBinary
-                )
+            SlotAccessor::NbLshift => {
+                if name.as_str() == "__rlshift__" {
+                    update_sub_slot!(
+                        as_number,
+                        right_lshift,
+                        number_binary_right_op_wrapper!(__rlshift__),
+                        NumBinary
+                    )
+                } else {
+                    update_sub_slot!(
+                        as_number,
+                        lshift,
+                        number_binary_op_wrapper!(__lshift__),
+                        NumBinary
+                    )
+                }
             }
-            SlotAccessor::NumRightLshift => {
-                update_sub_slot!(
-                    as_number,
-                    right_lshift,
-                    number_binary_right_op_wrapper!(__rlshift__),
-                    NumBinary
-                )
-            }
-            SlotAccessor::NumInplaceLshift => {
+            SlotAccessor::NbInplaceLshift => {
                 update_sub_slot!(
                     as_number,
                     inplace_lshift,
@@ -947,23 +985,24 @@ impl PyType {
                     NumBinary
                 )
             }
-            SlotAccessor::NumRshift => {
-                update_sub_slot!(
-                    as_number,
-                    rshift,
-                    number_binary_op_wrapper!(__rshift__),
-                    NumBinary
-                )
+            SlotAccessor::NbRshift => {
+                if name.as_str() == "__rrshift__" {
+                    update_sub_slot!(
+                        as_number,
+                        right_rshift,
+                        number_binary_right_op_wrapper!(__rrshift__),
+                        NumBinary
+                    )
+                } else {
+                    update_sub_slot!(
+                        as_number,
+                        rshift,
+                        number_binary_op_wrapper!(__rshift__),
+                        NumBinary
+                    )
+                }
             }
-            SlotAccessor::NumRightRshift => {
-                update_sub_slot!(
-                    as_number,
-                    right_rshift,
-                    number_binary_right_op_wrapper!(__rrshift__),
-                    NumBinary
-                )
-            }
-            SlotAccessor::NumInplaceRshift => {
+            SlotAccessor::NbInplaceRshift => {
                 update_sub_slot!(
                     as_number,
                     inplace_rshift,
@@ -971,23 +1010,24 @@ impl PyType {
                     NumBinary
                 )
             }
-            SlotAccessor::NumAnd => {
-                update_sub_slot!(
-                    as_number,
-                    and,
-                    number_binary_op_wrapper!(__and__),
-                    NumBinary
-                )
+            SlotAccessor::NbAnd => {
+                if name.as_str() == "__rand__" {
+                    update_sub_slot!(
+                        as_number,
+                        right_and,
+                        number_binary_right_op_wrapper!(__rand__),
+                        NumBinary
+                    )
+                } else {
+                    update_sub_slot!(
+                        as_number,
+                        and,
+                        number_binary_op_wrapper!(__and__),
+                        NumBinary
+                    )
+                }
             }
-            SlotAccessor::NumRightAnd => {
-                update_sub_slot!(
-                    as_number,
-                    right_and,
-                    number_binary_right_op_wrapper!(__rand__),
-                    NumBinary
-                )
-            }
-            SlotAccessor::NumInplaceAnd => {
+            SlotAccessor::NbInplaceAnd => {
                 update_sub_slot!(
                     as_number,
                     inplace_and,
@@ -995,23 +1035,24 @@ impl PyType {
                     NumBinary
                 )
             }
-            SlotAccessor::NumXor => {
-                update_sub_slot!(
-                    as_number,
-                    xor,
-                    number_binary_op_wrapper!(__xor__),
-                    NumBinary
-                )
+            SlotAccessor::NbXor => {
+                if name.as_str() == "__rxor__" {
+                    update_sub_slot!(
+                        as_number,
+                        right_xor,
+                        number_binary_right_op_wrapper!(__rxor__),
+                        NumBinary
+                    )
+                } else {
+                    update_sub_slot!(
+                        as_number,
+                        xor,
+                        number_binary_op_wrapper!(__xor__),
+                        NumBinary
+                    )
+                }
             }
-            SlotAccessor::NumRightXor => {
-                update_sub_slot!(
-                    as_number,
-                    right_xor,
-                    number_binary_right_op_wrapper!(__rxor__),
-                    NumBinary
-                )
-            }
-            SlotAccessor::NumInplaceXor => {
+            SlotAccessor::NbInplaceXor => {
                 update_sub_slot!(
                     as_number,
                     inplace_xor,
@@ -1019,18 +1060,19 @@ impl PyType {
                     NumBinary
                 )
             }
-            SlotAccessor::NumOr => {
-                update_sub_slot!(as_number, or, number_binary_op_wrapper!(__or__), NumBinary)
+            SlotAccessor::NbOr => {
+                if name.as_str() == "__ror__" {
+                    update_sub_slot!(
+                        as_number,
+                        right_or,
+                        number_binary_right_op_wrapper!(__ror__),
+                        NumBinary
+                    )
+                } else {
+                    update_sub_slot!(as_number, or, number_binary_op_wrapper!(__or__), NumBinary)
+                }
             }
-            SlotAccessor::NumRightOr => {
-                update_sub_slot!(
-                    as_number,
-                    right_or,
-                    number_binary_right_op_wrapper!(__ror__),
-                    NumBinary
-                )
-            }
-            SlotAccessor::NumInplaceOr => {
+            SlotAccessor::NbInplaceOr => {
                 update_sub_slot!(
                     as_number,
                     inplace_or,
@@ -1040,7 +1082,7 @@ impl PyType {
             }
 
             // === Number unary operations ===
-            SlotAccessor::NumNegative => {
+            SlotAccessor::NbNegative => {
                 update_sub_slot!(
                     as_number,
                     negative,
@@ -1048,7 +1090,7 @@ impl PyType {
                     NumUnary
                 )
             }
-            SlotAccessor::NumPositive => {
+            SlotAccessor::NbPositive => {
                 update_sub_slot!(
                     as_number,
                     positive,
@@ -1056,7 +1098,7 @@ impl PyType {
                     NumUnary
                 )
             }
-            SlotAccessor::NumAbsolute => {
+            SlotAccessor::NbAbsolute => {
                 update_sub_slot!(
                     as_number,
                     absolute,
@@ -1064,7 +1106,7 @@ impl PyType {
                     NumUnary
                 )
             }
-            SlotAccessor::NumInvert => {
+            SlotAccessor::NbInvert => {
                 update_sub_slot!(
                     as_number,
                     invert,
@@ -1072,13 +1114,13 @@ impl PyType {
                     NumUnary
                 )
             }
-            SlotAccessor::NumBoolean => {
+            SlotAccessor::NbBool => {
                 update_sub_slot!(as_number, boolean, bool_wrapper, NumBoolean)
             }
-            SlotAccessor::NumInt => {
+            SlotAccessor::NbInt => {
                 update_sub_slot!(as_number, int, number_unary_op_wrapper!(__int__), NumUnary)
             }
-            SlotAccessor::NumFloat => {
+            SlotAccessor::NbFloat => {
                 update_sub_slot!(
                     as_number,
                     float,
@@ -1086,7 +1128,7 @@ impl PyType {
                     NumUnary
                 )
             }
-            SlotAccessor::NumIndex => {
+            SlotAccessor::NbIndex => {
                 update_sub_slot!(
                     as_number,
                     index,
@@ -1096,7 +1138,7 @@ impl PyType {
             }
 
             // === Sequence slots ===
-            SlotAccessor::SeqLength => {
+            SlotAccessor::SqLength => {
                 update_sub_slot!(
                     as_sequence,
                     length,
@@ -1104,21 +1146,21 @@ impl PyType {
                     SeqLength
                 )
             }
-            SlotAccessor::SeqConcat | SlotAccessor::SeqInplaceConcat => {
+            SlotAccessor::SqConcat | SlotAccessor::SqInplaceConcat => {
                 // Sequence concat uses sq_concat slot - no generic wrapper needed
                 // (handled by number protocol fallback)
                 if !ADD {
                     accessor.inherit_from_mro(self);
                 }
             }
-            SlotAccessor::SeqRepeat | SlotAccessor::SeqInplaceRepeat => {
+            SlotAccessor::SqRepeat | SlotAccessor::SqInplaceRepeat => {
                 // Sequence repeat uses sq_repeat slot - no generic wrapper needed
                 // (handled by number protocol fallback)
                 if !ADD {
                     accessor.inherit_from_mro(self);
                 }
             }
-            SlotAccessor::SeqItem => {
+            SlotAccessor::SqItem => {
                 update_sub_slot!(
                     as_sequence,
                     item,
@@ -1126,7 +1168,7 @@ impl PyType {
                     SeqItem
                 )
             }
-            SlotAccessor::SeqAssItem => {
+            SlotAccessor::SqAssItem => {
                 update_sub_slot!(
                     as_sequence,
                     ass_item,
@@ -1134,7 +1176,7 @@ impl PyType {
                     SeqAssItem
                 )
             }
-            SlotAccessor::SeqContains => {
+            SlotAccessor::SqContains => {
                 update_sub_slot!(
                     as_sequence,
                     contains,
@@ -1144,7 +1186,7 @@ impl PyType {
             }
 
             // === Mapping slots ===
-            SlotAccessor::MapLength => {
+            SlotAccessor::MpLength => {
                 update_sub_slot!(
                     as_mapping,
                     length,
@@ -1152,7 +1194,7 @@ impl PyType {
                     MapLength
                 )
             }
-            SlotAccessor::MapSubscript => {
+            SlotAccessor::MpSubscript => {
                 update_sub_slot!(
                     as_mapping,
                     subscript,
@@ -1160,7 +1202,7 @@ impl PyType {
                     MapSubscript
                 )
             }
-            SlotAccessor::MapAssSubscript => {
+            SlotAccessor::MpAssSubscript => {
                 update_sub_slot!(
                     as_mapping,
                     ass_subscript,
@@ -1168,6 +1210,9 @@ impl PyType {
                     MapAssSubscript
                 )
             }
+
+            // Reserved slots - no-op
+            _ => {}
         }
     }
 
@@ -1490,60 +1535,8 @@ pub trait Comparable: PyPayload {
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue>;
 
-    #[inline]
-    #[pymethod]
-    fn __eq__(
-        zelf: &Py<Self>,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(zelf, &other, PyComparisonOp::Eq, vm)
-    }
-    #[inline]
-    #[pymethod]
-    fn __ne__(
-        zelf: &Py<Self>,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(zelf, &other, PyComparisonOp::Ne, vm)
-    }
-    #[inline]
-    #[pymethod]
-    fn __lt__(
-        zelf: &Py<Self>,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(zelf, &other, PyComparisonOp::Lt, vm)
-    }
-    #[inline]
-    #[pymethod]
-    fn __le__(
-        zelf: &Py<Self>,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(zelf, &other, PyComparisonOp::Le, vm)
-    }
-    #[inline]
-    #[pymethod]
-    fn __ge__(
-        zelf: &Py<Self>,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(zelf, &other, PyComparisonOp::Ge, vm)
-    }
-    #[inline]
-    #[pymethod]
-    fn __gt__(
-        zelf: &Py<Self>,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(zelf, &other, PyComparisonOp::Gt, vm)
-    }
+    // Comparison methods are exposed as wrapper_descriptor via slot_richcompare
+    // No #[pymethod] - add_operators creates wrapper from SLOT_DEFS
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -1751,6 +1744,10 @@ pub trait AsSequence: PyPayload {
 pub trait AsNumber: PyPayload {
     #[pyslot]
     fn as_number() -> &'static PyNumberMethods;
+
+    fn extend_slots(slots: &mut PyTypeSlots) {
+        slots.as_number.copy_from(Self::as_number());
+    }
 
     fn clone_exact(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
         // not all AsNumber requires this implementation.

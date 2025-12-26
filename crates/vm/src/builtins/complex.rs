@@ -5,11 +5,7 @@ use crate::{
     class::PyClassImpl,
     common::format::FormatSpec,
     convert::{IntoPyException, ToPyObject, ToPyResult},
-    function::{
-        FuncArgs, OptionalArg, OptionalOption,
-        PyArithmeticValue::{self, *},
-        PyComparisonValue,
-    },
+    function::{FuncArgs, OptionalArg, PyComparisonValue},
     protocol::PyNumberMethods,
     stdlib::warnings,
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -489,7 +485,12 @@ impl AsNumber for PyComplex {
             }),
             absolute: Some(|number, vm| {
                 let value = PyComplex::number_downcast(number).value;
-                value.norm().to_pyresult(vm)
+                let result = value.norm();
+                // Check for overflow: hypot returns inf for finite inputs that overflow
+                if result.is_infinite() && value.re.is_finite() && value.im.is_finite() {
+                    return Err(vm.new_overflow_error("absolute value too large".to_owned()));
+                }
+                result.to_pyresult(vm)
             }),
             boolean: Some(|number, _vm| Ok(!PyComplex::number_downcast(number).value.is_zero())),
             true_divide: Some(|a, b, vm| PyComplex::number_op(a, b, inner_div, vm)),

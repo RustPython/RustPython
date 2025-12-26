@@ -465,7 +465,7 @@ impl PyType {
     /// Inherit slots from base type. inherit_slots
     pub(crate) fn inherit_slots(&self, base: &Self) {
         // Use SLOT_DEFS to iterate all slots
-        // Note: as_buffer is handled in inherit_static_slots (not AtomicCell)
+        // Note: as_buffer is handled in inherit_readonly_slots (not AtomicCell)
         for def in SLOT_DEFS {
             def.accessor.copyslot_if_none(self, base);
         }

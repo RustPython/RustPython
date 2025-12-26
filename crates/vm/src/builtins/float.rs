@@ -8,8 +8,7 @@ use crate::{
     common::{float_ops, format::FormatSpec, hash},
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
-        ArgBytesLike, FuncArgs, OptionalArg, OptionalOption,
-        PyArithmeticValue::{self, *},
+        ArgBytesLike, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue::*,
         PyComparisonValue,
     },
     protocol::PyNumberMethods,
