@@ -14,6 +14,7 @@ use crate::{
         PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyMappingSlots, PyNumber,
         PyNumberMethods, PyNumberSlots, PySequence, PySequenceMethods, PySequenceSlots,
     },
+    types::slot_defs::{SlotAccessor, find_slot_defs_by_name},
     vm::Context,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -288,6 +289,21 @@ pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type InitFunc = fn(PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;
 
+// Sequence sub-slot function types (protocol/sequence.rs)
+pub(crate) type SeqLenFunc = fn(PySequence<'_>, &VirtualMachine) -> PyResult<usize>;
+pub(crate) type SeqConcatFunc = fn(PySequence<'_>, &PyObject, &VirtualMachine) -> PyResult;
+pub(crate) type SeqRepeatFunc = fn(PySequence<'_>, isize, &VirtualMachine) -> PyResult;
+pub(crate) type SeqItemFunc = fn(PySequence<'_>, isize, &VirtualMachine) -> PyResult;
+pub(crate) type SeqAssItemFunc =
+    fn(PySequence<'_>, isize, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
+pub(crate) type SeqContainsFunc = fn(PySequence<'_>, &PyObject, &VirtualMachine) -> PyResult<bool>;
+
+// Mapping sub-slot function types (protocol/mapping.rs)
+pub(crate) type MapLenFunc = fn(PyMapping<'_>, &VirtualMachine) -> PyResult<usize>;
+pub(crate) type MapSubscriptFunc = fn(PyMapping<'_>, &PyObject, &VirtualMachine) -> PyResult;
+pub(crate) type MapAssSubscriptFunc =
+    fn(PyMapping<'_>, &PyObject, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
+
 // slot_sq_length
 pub(crate) fn len_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
     let ret = vm.call_special_method(obj, identifier!(vm, __len__), ())?;
@@ -329,6 +345,30 @@ macro_rules! number_binary_op_wrapper {
 macro_rules! number_binary_right_op_wrapper {
     ($name:ident) => {
         |a, b, vm| vm.call_special_method(b, identifier!(vm, $name), (a.to_owned(),))
+    };
+}
+macro_rules! number_ternary_op_wrapper {
+    ($name:ident) => {
+        |a, b, c, vm: &VirtualMachine| {
+            let args: Vec<PyObjectRef> = if vm.is_none(c) {
+                vec![b.to_owned()]
+            } else {
+                vec![b.to_owned(), c.to_owned()]
+            };
+            vm.call_special_method(a, identifier!(vm, $name), args)
+        }
+    };
+}
+macro_rules! number_ternary_right_op_wrapper {
+    ($name:ident) => {
+        |a, b, c, vm: &VirtualMachine| {
+            let args: Vec<PyObjectRef> = if vm.is_none(c) {
+                vec![a.to_owned()]
+            } else {
+                vec![a.to_owned(), c.to_owned()]
+            };
+            vm.call_special_method(b, identifier!(vm, $name), args)
+        }
     };
 }
 fn getitem_wrapper<K: ToPyObject>(obj: &PyObject, needle: K, vm: &VirtualMachine) -> PyResult {
@@ -507,34 +547,32 @@ fn del_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
 }
 
 impl PyType {
+    /// Update slots based on dunder method changes
+    ///
+    /// Iterates SLOT_DEFS to find all slots matching the given name and updates them.
     pub(crate) fn update_slot<const ADD: bool>(&self, name: &'static PyStrInterned, ctx: &Context) {
         debug_assert!(name.as_str().starts_with("__"));
         debug_assert!(name.as_str().ends_with("__"));
 
-        macro_rules! toggle_sub_slot {
-            ($group:ident, $name:ident, $func:expr) => {{
-                if ADD {
-                    self.slots.$group.$name.store(Some($func));
-                } else {
-                    // When deleting, re-inherit from MRO (skip self)
-                    let inherited = self
-                        .mro
-                        .read()
-                        .iter()
-                        .skip(1)
-                        .find_map(|cls| cls.slots.$group.$name.load());
-                    self.slots.$group.$name.store(inherited);
-                }
-            }};
+        // Find all slot_defs matching this name and update each
+        for def in find_slot_defs_by_name(name.as_str()) {
+            self.update_one_slot::<ADD>(&def.accessor, name, ctx);
         }
+    }
 
-        // If the method is a slot wrapper, extract and use the original slot directly.
-        // Otherwise use the generic wrapper.
-        macro_rules! update_one_slot {
+    /// Update a single slot
+    fn update_one_slot<const ADD: bool>(
+        &self,
+        accessor: &SlotAccessor,
+        name: &'static PyStrInterned,
+        ctx: &Context,
+    ) {
+        use crate::builtins::descriptor::SlotFunc;
+
+        // Helper macro for main slots
+        macro_rules! update_main_slot {
             ($slot:ident, $wrapper:expr, $variant:ident) => {{
-                use crate::builtins::descriptor::SlotFunc;
                 if ADD {
-                    // Try to extract the original slot from a slot wrapper
                     if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| {
                         if let SlotFunc::$variant(f) = sf {
                             Some(*f)
@@ -542,142 +580,44 @@ impl PyType {
                             None
                         }
                     }) {
-                        // Found slot wrapper - use the original slot directly
                         self.slots.$slot.store(Some(func));
                     } else {
-                        // Real method found or no method - use generic wrapper
                         self.slots.$slot.store(Some($wrapper));
                     }
                 } else {
-                    // When deleting, re-inherit from MRO (skip self)
-                    let inherited = self
-                        .mro
-                        .read()
-                        .iter()
-                        .skip(1)
-                        .find_map(|cls| cls.slots.$slot.load());
-                    self.slots.$slot.store(inherited);
+                    accessor.inherit_from_mro(self);
                 }
             }};
         }
 
-        // For setattro slot: matches SetAttro or DelAttro
-        macro_rules! update_setattro {
-            ($wrapper:expr) => {{
-                use crate::builtins::descriptor::SlotFunc;
-                if ADD {
-                    if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| match sf {
-                        SlotFunc::SetAttro(f) | SlotFunc::DelAttro(f) => Some(*f),
-                        _ => None,
-                    }) {
-                        self.slots.setattro.store(Some(func));
-                    } else {
-                        self.slots.setattro.store(Some($wrapper));
-                    }
-                } else {
-                    let inherited = self
-                        .mro
-                        .read()
-                        .iter()
-                        .skip(1)
-                        .find_map(|cls| cls.slots.setattro.load());
-                    self.slots.setattro.store(inherited);
-                }
-            }};
-        }
-
-        // For richcompare slot: matches RichCompare with any op
-        macro_rules! update_richcompare {
-            ($wrapper:expr) => {{
-                use crate::builtins::descriptor::SlotFunc;
+        // Helper macro for number/sequence/mapping sub-slots
+        macro_rules! update_sub_slot {
+            ($group:ident, $slot:ident, $wrapper:expr, $variant:ident) => {{
                 if ADD {
                     if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| {
-                        if let SlotFunc::RichCompare(f, _) = sf {
+                        if let SlotFunc::$variant(f) = sf {
                             Some(*f)
                         } else {
                             None
                         }
                     }) {
-                        self.slots.richcompare.store(Some(func));
+                        self.slots.$group.$slot.store(Some(func));
                     } else {
-                        self.slots.richcompare.store(Some($wrapper));
+                        self.slots.$group.$slot.store(Some($wrapper));
                     }
                 } else {
-                    let inherited = self
-                        .mro
-                        .read()
-                        .iter()
-                        .skip(1)
-                        .find_map(|cls| cls.slots.richcompare.load());
-                    self.slots.richcompare.store(inherited);
+                    accessor.inherit_from_mro(self);
                 }
             }};
         }
 
-        // For descr_set slot: matches DescrSet or DescrDel
-        macro_rules! update_descr_set {
-            ($wrapper:expr) => {{
-                use crate::builtins::descriptor::SlotFunc;
+        match accessor {
+            // === Main slots ===
+            SlotAccessor::Repr => update_main_slot!(repr, repr_wrapper, Repr),
+            SlotAccessor::Str => update_main_slot!(str, str_wrapper, Str),
+            SlotAccessor::Hash => {
+                // Special handling for __hash__ = None
                 if ADD {
-                    if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| match sf {
-                        SlotFunc::DescrSet(f) | SlotFunc::DescrDel(f) => Some(*f),
-                        _ => None,
-                    }) {
-                        self.slots.descr_set.store(Some(func));
-                    } else {
-                        self.slots.descr_set.store(Some($wrapper));
-                    }
-                } else {
-                    let inherited = self
-                        .mro
-                        .read()
-                        .iter()
-                        .skip(1)
-                        .find_map(|cls| cls.slots.descr_set.load());
-                    self.slots.descr_set.store(inherited);
-                }
-            }};
-        }
-
-        match name {
-            _ if name == identifier!(ctx, __len__) => {
-                toggle_sub_slot!(as_sequence, length, |seq, vm| len_wrapper(seq.obj, vm));
-                toggle_sub_slot!(as_mapping, length, |mapping, vm| len_wrapper(
-                    mapping.obj,
-                    vm
-                ));
-            }
-            _ if name == identifier!(ctx, __getitem__) => {
-                toggle_sub_slot!(as_sequence, item, |seq, i, vm| getitem_wrapper(
-                    seq.obj, i, vm
-                ));
-                toggle_sub_slot!(as_mapping, subscript, |mapping, key, vm| {
-                    getitem_wrapper(mapping.obj, key, vm)
-                });
-            }
-            _ if name == identifier!(ctx, __setitem__) || name == identifier!(ctx, __delitem__) => {
-                toggle_sub_slot!(as_sequence, ass_item, |seq, i, value, vm| {
-                    setitem_wrapper(seq.obj, i, value, vm)
-                });
-                toggle_sub_slot!(as_mapping, ass_subscript, |mapping, key, value, vm| {
-                    setitem_wrapper(mapping.obj, key, value, vm)
-                });
-            }
-            _ if name == identifier!(ctx, __contains__) => {
-                toggle_sub_slot!(as_sequence, contains, |seq, needle, vm| {
-                    contains_wrapper(seq.obj, needle, vm)
-                });
-            }
-            _ if name == identifier!(ctx, __repr__) => {
-                update_one_slot!(repr, repr_wrapper, Repr);
-            }
-            _ if name == identifier!(ctx, __str__) => {
-                update_one_slot!(str, str_wrapper, Str);
-            }
-            _ if name == identifier!(ctx, __hash__) => {
-                use crate::builtins::descriptor::SlotFunc;
-                if ADD {
-                    // Check for __hash__ = None first (descr == Py_None)
                     let method = self.attributes.read().get(name).cloned().or_else(|| {
                         self.mro
                             .read()
@@ -699,315 +639,535 @@ impl PyType {
                         self.slots.hash.store(Some(hash_wrapper));
                     }
                 } else {
-                    let inherited = self
-                        .mro
-                        .read()
-                        .iter()
-                        .skip(1)
-                        .find_map(|cls| cls.slots.hash.load());
-                    self.slots.hash.store(inherited);
+                    accessor.inherit_from_mro(self);
                 }
             }
-            _ if name == identifier!(ctx, __call__) => {
-                update_one_slot!(call, call_wrapper, Call);
-            }
-            _ if name == identifier!(ctx, __getattr__)
-                || name == identifier!(ctx, __getattribute__) =>
-            {
-                update_one_slot!(getattro, getattro_wrapper, GetAttro);
-            }
-            _ if name == identifier!(ctx, __setattr__) || name == identifier!(ctx, __delattr__) => {
-                update_setattro!(setattro_wrapper);
-            }
-            _ if name == identifier!(ctx, __eq__)
-                || name == identifier!(ctx, __ne__)
-                || name == identifier!(ctx, __le__)
-                || name == identifier!(ctx, __lt__)
-                || name == identifier!(ctx, __ge__)
-                || name == identifier!(ctx, __gt__) =>
-            {
-                update_richcompare!(richcompare_wrapper);
-            }
-            _ if name == identifier!(ctx, __iter__) => {
-                update_one_slot!(iter, iter_wrapper, Iter);
-            }
-            _ if name == identifier!(ctx, __next__) => {
-                update_one_slot!(iternext, iternext_wrapper, IterNext);
-            }
-            _ if name == identifier!(ctx, __get__) => {
-                update_one_slot!(descr_get, descr_get_wrapper, DescrGet);
-            }
-            _ if name == identifier!(ctx, __set__) || name == identifier!(ctx, __delete__) => {
-                update_descr_set!(descr_set_wrapper);
-            }
-            _ if name == identifier!(ctx, __init__) => {
-                update_one_slot!(init, init_wrapper, Init);
-            }
-            _ if name == identifier!(ctx, __new__) => {
+            SlotAccessor::Call => update_main_slot!(call, call_wrapper, Call),
+            SlotAccessor::Iter => update_main_slot!(iter, iter_wrapper, Iter),
+            SlotAccessor::IterNext => update_main_slot!(iternext, iternext_wrapper, IterNext),
+            SlotAccessor::Init => update_main_slot!(init, init_wrapper, Init),
+            SlotAccessor::New => {
                 // __new__ is not wrapped via PyWrapper
                 if ADD {
                     self.slots.new.store(Some(new_wrapper));
                 } else {
-                    let inherited = self
-                        .mro
-                        .read()
-                        .iter()
-                        .skip(1)
-                        .find_map(|cls| cls.slots.new.load());
-                    self.slots.new.store(inherited);
+                    accessor.inherit_from_mro(self);
                 }
             }
-            _ if name == identifier!(ctx, __del__) => {
-                update_one_slot!(del, del_wrapper, Del);
+            SlotAccessor::Del => update_main_slot!(del, del_wrapper, Del),
+            SlotAccessor::GetAttro => update_main_slot!(getattro, getattro_wrapper, GetAttro),
+            SlotAccessor::SetAttro | SlotAccessor::DelAttro => {
+                // SetAttro and DelAttro share the same slot
+                if ADD {
+                    if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| match sf {
+                        SlotFunc::SetAttro(f) | SlotFunc::DelAttro(f) => Some(*f),
+                        _ => None,
+                    }) {
+                        self.slots.setattro.store(Some(func));
+                    } else {
+                        self.slots.setattro.store(Some(setattro_wrapper));
+                    }
+                } else {
+                    accessor.inherit_from_mro(self);
+                }
             }
-            _ if name == identifier!(ctx, __bool__) => {
-                toggle_sub_slot!(as_number, boolean, bool_wrapper);
+            SlotAccessor::DescrGet => update_main_slot!(descr_get, descr_get_wrapper, DescrGet),
+            SlotAccessor::DescrSet | SlotAccessor::DescrDel => {
+                // DescrSet and DescrDel share the same slot
+                if ADD {
+                    if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| match sf {
+                        SlotFunc::DescrSet(f) | SlotFunc::DescrDel(f) => Some(*f),
+                        _ => None,
+                    }) {
+                        self.slots.descr_set.store(Some(func));
+                    } else {
+                        self.slots.descr_set.store(Some(descr_set_wrapper));
+                    }
+                } else {
+                    accessor.inherit_from_mro(self);
+                }
             }
-            _ if name == identifier!(ctx, __int__) => {
-                toggle_sub_slot!(as_number, int, number_unary_op_wrapper!(__int__));
+
+            // === Rich compare (all share richcompare slot) ===
+            SlotAccessor::RichCompareLt
+            | SlotAccessor::RichCompareLe
+            | SlotAccessor::RichCompareEq
+            | SlotAccessor::RichCompareNe
+            | SlotAccessor::RichCompareGt
+            | SlotAccessor::RichCompareGe => {
+                if ADD {
+                    if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| {
+                        if let SlotFunc::RichCompare(f, _) = sf {
+                            Some(*f)
+                        } else {
+                            None
+                        }
+                    }) {
+                        self.slots.richcompare.store(Some(func));
+                    } else {
+                        self.slots.richcompare.store(Some(richcompare_wrapper));
+                    }
+                } else {
+                    accessor.inherit_from_mro(self);
+                }
             }
-            _ if name == identifier!(ctx, __index__) => {
-                toggle_sub_slot!(as_number, index, number_unary_op_wrapper!(__index__));
+
+            // === Number binary operations ===
+            SlotAccessor::NumAdd => {
+                update_sub_slot!(
+                    as_number,
+                    add,
+                    number_binary_op_wrapper!(__add__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __float__) => {
-                toggle_sub_slot!(as_number, float, number_unary_op_wrapper!(__float__));
-            }
-            _ if name == identifier!(ctx, __add__) => {
-                toggle_sub_slot!(as_number, add, number_binary_op_wrapper!(__add__));
-            }
-            _ if name == identifier!(ctx, __radd__) => {
-                toggle_sub_slot!(
+            SlotAccessor::NumRightAdd => {
+                update_sub_slot!(
                     as_number,
                     right_add,
-                    number_binary_right_op_wrapper!(__radd__)
-                );
+                    number_binary_right_op_wrapper!(__radd__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __iadd__) => {
-                toggle_sub_slot!(as_number, inplace_add, number_binary_op_wrapper!(__iadd__));
+            SlotAccessor::NumInplaceAdd => {
+                update_sub_slot!(
+                    as_number,
+                    inplace_add,
+                    number_binary_op_wrapper!(__iadd__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __sub__) => {
-                toggle_sub_slot!(as_number, subtract, number_binary_op_wrapper!(__sub__));
+            SlotAccessor::NumSubtract => {
+                update_sub_slot!(
+                    as_number,
+                    subtract,
+                    number_binary_op_wrapper!(__sub__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __rsub__) => {
-                toggle_sub_slot!(
+            SlotAccessor::NumRightSubtract => {
+                update_sub_slot!(
                     as_number,
                     right_subtract,
-                    number_binary_right_op_wrapper!(__rsub__)
-                );
+                    number_binary_right_op_wrapper!(__rsub__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __isub__) => {
-                toggle_sub_slot!(
+            SlotAccessor::NumInplaceSubtract => {
+                update_sub_slot!(
                     as_number,
                     inplace_subtract,
-                    number_binary_op_wrapper!(__isub__)
-                );
+                    number_binary_op_wrapper!(__isub__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __mul__) => {
-                toggle_sub_slot!(as_number, multiply, number_binary_op_wrapper!(__mul__));
+            SlotAccessor::NumMultiply => {
+                update_sub_slot!(
+                    as_number,
+                    multiply,
+                    number_binary_op_wrapper!(__mul__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __rmul__) => {
-                toggle_sub_slot!(
+            SlotAccessor::NumRightMultiply => {
+                update_sub_slot!(
                     as_number,
                     right_multiply,
-                    number_binary_right_op_wrapper!(__rmul__)
-                );
+                    number_binary_right_op_wrapper!(__rmul__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __imul__) => {
-                toggle_sub_slot!(
+            SlotAccessor::NumInplaceMultiply => {
+                update_sub_slot!(
                     as_number,
                     inplace_multiply,
-                    number_binary_op_wrapper!(__imul__)
-                );
+                    number_binary_op_wrapper!(__imul__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __mod__) => {
-                toggle_sub_slot!(as_number, remainder, number_binary_op_wrapper!(__mod__));
+            SlotAccessor::NumRemainder => {
+                update_sub_slot!(
+                    as_number,
+                    remainder,
+                    number_binary_op_wrapper!(__mod__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __rmod__) => {
-                toggle_sub_slot!(
+            SlotAccessor::NumRightRemainder => {
+                update_sub_slot!(
                     as_number,
                     right_remainder,
-                    number_binary_right_op_wrapper!(__rmod__)
-                );
+                    number_binary_right_op_wrapper!(__rmod__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __imod__) => {
-                toggle_sub_slot!(
+            SlotAccessor::NumInplaceRemainder => {
+                update_sub_slot!(
                     as_number,
                     inplace_remainder,
-                    number_binary_op_wrapper!(__imod__)
-                );
+                    number_binary_op_wrapper!(__imod__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __divmod__) => {
-                toggle_sub_slot!(as_number, divmod, number_binary_op_wrapper!(__divmod__));
+            SlotAccessor::NumDivmod => {
+                update_sub_slot!(
+                    as_number,
+                    divmod,
+                    number_binary_op_wrapper!(__divmod__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __rdivmod__) => {
-                toggle_sub_slot!(
+            SlotAccessor::NumRightDivmod => {
+                update_sub_slot!(
                     as_number,
                     right_divmod,
-                    number_binary_right_op_wrapper!(__rdivmod__)
-                );
+                    number_binary_right_op_wrapper!(__rdivmod__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __pow__) => {
-                toggle_sub_slot!(as_number, power, |a, b, c, vm| {
-                    let args = if vm.is_none(c) {
-                        vec![b.to_owned()]
-                    } else {
-                        vec![b.to_owned(), c.to_owned()]
-                    };
-                    vm.call_special_method(a, identifier!(vm, __pow__), args)
-                });
-            }
-            _ if name == identifier!(ctx, __rpow__) => {
-                toggle_sub_slot!(as_number, right_power, |a, b, c, vm| {
-                    let args = if vm.is_none(c) {
-                        vec![a.to_owned()]
-                    } else {
-                        vec![a.to_owned(), c.to_owned()]
-                    };
-                    vm.call_special_method(b, identifier!(vm, __rpow__), args)
-                });
-            }
-            _ if name == identifier!(ctx, __ipow__) => {
-                toggle_sub_slot!(as_number, inplace_power, |a, b, _, vm| {
-                    vm.call_special_method(a, identifier!(vm, __ipow__), (b.to_owned(),))
-                });
-            }
-            _ if name == identifier!(ctx, __lshift__) => {
-                toggle_sub_slot!(as_number, lshift, number_binary_op_wrapper!(__lshift__));
-            }
-            _ if name == identifier!(ctx, __rlshift__) => {
-                toggle_sub_slot!(
+            SlotAccessor::NumPower => {
+                update_sub_slot!(
                     as_number,
-                    right_lshift,
-                    number_binary_right_op_wrapper!(__rlshift__)
-                );
+                    power,
+                    number_ternary_op_wrapper!(__pow__),
+                    NumTernary
+                )
             }
-            _ if name == identifier!(ctx, __ilshift__) => {
-                toggle_sub_slot!(
+            SlotAccessor::NumRightPower => {
+                update_sub_slot!(
                     as_number,
-                    inplace_lshift,
-                    number_binary_op_wrapper!(__ilshift__)
-                );
+                    right_power,
+                    number_ternary_right_op_wrapper!(__rpow__),
+                    NumTernary
+                )
             }
-            _ if name == identifier!(ctx, __rshift__) => {
-                toggle_sub_slot!(as_number, rshift, number_binary_op_wrapper!(__rshift__));
-            }
-            _ if name == identifier!(ctx, __rrshift__) => {
-                toggle_sub_slot!(
+            SlotAccessor::NumInplacePower => {
+                update_sub_slot!(
                     as_number,
-                    right_rshift,
-                    number_binary_right_op_wrapper!(__rrshift__)
-                );
+                    inplace_power,
+                    number_ternary_op_wrapper!(__ipow__),
+                    NumTernary
+                )
             }
-            _ if name == identifier!(ctx, __irshift__) => {
-                toggle_sub_slot!(
-                    as_number,
-                    inplace_rshift,
-                    number_binary_op_wrapper!(__irshift__)
-                );
-            }
-            _ if name == identifier!(ctx, __and__) => {
-                toggle_sub_slot!(as_number, and, number_binary_op_wrapper!(__and__));
-            }
-            _ if name == identifier!(ctx, __rand__) => {
-                toggle_sub_slot!(
-                    as_number,
-                    right_and,
-                    number_binary_right_op_wrapper!(__rand__)
-                );
-            }
-            _ if name == identifier!(ctx, __iand__) => {
-                toggle_sub_slot!(as_number, inplace_and, number_binary_op_wrapper!(__iand__));
-            }
-            _ if name == identifier!(ctx, __xor__) => {
-                toggle_sub_slot!(as_number, xor, number_binary_op_wrapper!(__xor__));
-            }
-            _ if name == identifier!(ctx, __rxor__) => {
-                toggle_sub_slot!(
-                    as_number,
-                    right_xor,
-                    number_binary_right_op_wrapper!(__rxor__)
-                );
-            }
-            _ if name == identifier!(ctx, __ixor__) => {
-                toggle_sub_slot!(as_number, inplace_xor, number_binary_op_wrapper!(__ixor__));
-            }
-            _ if name == identifier!(ctx, __or__) => {
-                toggle_sub_slot!(as_number, or, number_binary_op_wrapper!(__or__));
-            }
-            _ if name == identifier!(ctx, __ror__) => {
-                toggle_sub_slot!(
-                    as_number,
-                    right_or,
-                    number_binary_right_op_wrapper!(__ror__)
-                );
-            }
-            _ if name == identifier!(ctx, __ior__) => {
-                toggle_sub_slot!(as_number, inplace_or, number_binary_op_wrapper!(__ior__));
-            }
-            _ if name == identifier!(ctx, __floordiv__) => {
-                toggle_sub_slot!(
+            SlotAccessor::NumFloorDivide => {
+                update_sub_slot!(
                     as_number,
                     floor_divide,
-                    number_binary_op_wrapper!(__floordiv__)
-                );
+                    number_binary_op_wrapper!(__floordiv__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __rfloordiv__) => {
-                toggle_sub_slot!(
+            SlotAccessor::NumRightFloorDivide => {
+                update_sub_slot!(
                     as_number,
                     right_floor_divide,
-                    number_binary_right_op_wrapper!(__rfloordiv__)
-                );
+                    number_binary_right_op_wrapper!(__rfloordiv__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __ifloordiv__) => {
-                toggle_sub_slot!(
+            SlotAccessor::NumInplaceFloorDivide => {
+                update_sub_slot!(
                     as_number,
                     inplace_floor_divide,
-                    number_binary_op_wrapper!(__ifloordiv__)
-                );
+                    number_binary_op_wrapper!(__ifloordiv__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __truediv__) => {
-                toggle_sub_slot!(
+            SlotAccessor::NumTrueDivide => {
+                update_sub_slot!(
                     as_number,
                     true_divide,
-                    number_binary_op_wrapper!(__truediv__)
-                );
+                    number_binary_op_wrapper!(__truediv__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __rtruediv__) => {
-                toggle_sub_slot!(
+            SlotAccessor::NumRightTrueDivide => {
+                update_sub_slot!(
                     as_number,
                     right_true_divide,
-                    number_binary_right_op_wrapper!(__rtruediv__)
-                );
+                    number_binary_right_op_wrapper!(__rtruediv__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __itruediv__) => {
-                toggle_sub_slot!(
+            SlotAccessor::NumInplaceTrueDivide => {
+                update_sub_slot!(
                     as_number,
                     inplace_true_divide,
-                    number_binary_op_wrapper!(__itruediv__)
-                );
+                    number_binary_op_wrapper!(__itruediv__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __matmul__) => {
-                toggle_sub_slot!(
+            SlotAccessor::NumMatrixMultiply => {
+                update_sub_slot!(
                     as_number,
                     matrix_multiply,
-                    number_binary_op_wrapper!(__matmul__)
-                );
+                    number_binary_op_wrapper!(__matmul__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __rmatmul__) => {
-                toggle_sub_slot!(
+            SlotAccessor::NumRightMatrixMultiply => {
+                update_sub_slot!(
                     as_number,
                     right_matrix_multiply,
-                    number_binary_right_op_wrapper!(__rmatmul__)
-                );
+                    number_binary_right_op_wrapper!(__rmatmul__),
+                    NumBinary
+                )
             }
-            _ if name == identifier!(ctx, __imatmul__) => {
-                toggle_sub_slot!(
+            SlotAccessor::NumInplaceMatrixMultiply => {
+                update_sub_slot!(
                     as_number,
                     inplace_matrix_multiply,
-                    number_binary_op_wrapper!(__imatmul__)
-                );
+                    number_binary_op_wrapper!(__imatmul__),
+                    NumBinary
+                )
             }
-            _ => {}
+
+            // === Number bitwise operations ===
+            SlotAccessor::NumLshift => {
+                update_sub_slot!(
+                    as_number,
+                    lshift,
+                    number_binary_op_wrapper!(__lshift__),
+                    NumBinary
+                )
+            }
+            SlotAccessor::NumRightLshift => {
+                update_sub_slot!(
+                    as_number,
+                    right_lshift,
+                    number_binary_right_op_wrapper!(__rlshift__),
+                    NumBinary
+                )
+            }
+            SlotAccessor::NumInplaceLshift => {
+                update_sub_slot!(
+                    as_number,
+                    inplace_lshift,
+                    number_binary_op_wrapper!(__ilshift__),
+                    NumBinary
+                )
+            }
+            SlotAccessor::NumRshift => {
+                update_sub_slot!(
+                    as_number,
+                    rshift,
+                    number_binary_op_wrapper!(__rshift__),
+                    NumBinary
+                )
+            }
+            SlotAccessor::NumRightRshift => {
+                update_sub_slot!(
+                    as_number,
+                    right_rshift,
+                    number_binary_right_op_wrapper!(__rrshift__),
+                    NumBinary
+                )
+            }
+            SlotAccessor::NumInplaceRshift => {
+                update_sub_slot!(
+                    as_number,
+                    inplace_rshift,
+                    number_binary_op_wrapper!(__irshift__),
+                    NumBinary
+                )
+            }
+            SlotAccessor::NumAnd => {
+                update_sub_slot!(
+                    as_number,
+                    and,
+                    number_binary_op_wrapper!(__and__),
+                    NumBinary
+                )
+            }
+            SlotAccessor::NumRightAnd => {
+                update_sub_slot!(
+                    as_number,
+                    right_and,
+                    number_binary_right_op_wrapper!(__rand__),
+                    NumBinary
+                )
+            }
+            SlotAccessor::NumInplaceAnd => {
+                update_sub_slot!(
+                    as_number,
+                    inplace_and,
+                    number_binary_op_wrapper!(__iand__),
+                    NumBinary
+                )
+            }
+            SlotAccessor::NumXor => {
+                update_sub_slot!(
+                    as_number,
+                    xor,
+                    number_binary_op_wrapper!(__xor__),
+                    NumBinary
+                )
+            }
+            SlotAccessor::NumRightXor => {
+                update_sub_slot!(
+                    as_number,
+                    right_xor,
+                    number_binary_right_op_wrapper!(__rxor__),
+                    NumBinary
+                )
+            }
+            SlotAccessor::NumInplaceXor => {
+                update_sub_slot!(
+                    as_number,
+                    inplace_xor,
+                    number_binary_op_wrapper!(__ixor__),
+                    NumBinary
+                )
+            }
+            SlotAccessor::NumOr => {
+                update_sub_slot!(as_number, or, number_binary_op_wrapper!(__or__), NumBinary)
+            }
+            SlotAccessor::NumRightOr => {
+                update_sub_slot!(
+                    as_number,
+                    right_or,
+                    number_binary_right_op_wrapper!(__ror__),
+                    NumBinary
+                )
+            }
+            SlotAccessor::NumInplaceOr => {
+                update_sub_slot!(
+                    as_number,
+                    inplace_or,
+                    number_binary_op_wrapper!(__ior__),
+                    NumBinary
+                )
+            }
+
+            // === Number unary operations ===
+            SlotAccessor::NumNegative => {
+                update_sub_slot!(
+                    as_number,
+                    negative,
+                    number_unary_op_wrapper!(__neg__),
+                    NumUnary
+                )
+            }
+            SlotAccessor::NumPositive => {
+                update_sub_slot!(
+                    as_number,
+                    positive,
+                    number_unary_op_wrapper!(__pos__),
+                    NumUnary
+                )
+            }
+            SlotAccessor::NumAbsolute => {
+                update_sub_slot!(
+                    as_number,
+                    absolute,
+                    number_unary_op_wrapper!(__abs__),
+                    NumUnary
+                )
+            }
+            SlotAccessor::NumInvert => {
+                update_sub_slot!(
+                    as_number,
+                    invert,
+                    number_unary_op_wrapper!(__invert__),
+                    NumUnary
+                )
+            }
+            SlotAccessor::NumBoolean => {
+                update_sub_slot!(as_number, boolean, bool_wrapper, NumBoolean)
+            }
+            SlotAccessor::NumInt => {
+                update_sub_slot!(as_number, int, number_unary_op_wrapper!(__int__), NumUnary)
+            }
+            SlotAccessor::NumFloat => {
+                update_sub_slot!(
+                    as_number,
+                    float,
+                    number_unary_op_wrapper!(__float__),
+                    NumUnary
+                )
+            }
+            SlotAccessor::NumIndex => {
+                update_sub_slot!(
+                    as_number,
+                    index,
+                    number_unary_op_wrapper!(__index__),
+                    NumUnary
+                )
+            }
+
+            // === Sequence slots ===
+            SlotAccessor::SeqLength => {
+                update_sub_slot!(
+                    as_sequence,
+                    length,
+                    |seq, vm| len_wrapper(seq.obj, vm),
+                    SeqLength
+                )
+            }
+            SlotAccessor::SeqConcat | SlotAccessor::SeqInplaceConcat => {
+                // Sequence concat uses sq_concat slot - no generic wrapper needed
+                // (handled by number protocol fallback)
+                if !ADD {
+                    accessor.inherit_from_mro(self);
+                }
+            }
+            SlotAccessor::SeqRepeat | SlotAccessor::SeqInplaceRepeat => {
+                // Sequence repeat uses sq_repeat slot - no generic wrapper needed
+                // (handled by number protocol fallback)
+                if !ADD {
+                    accessor.inherit_from_mro(self);
+                }
+            }
+            SlotAccessor::SeqItem => {
+                update_sub_slot!(
+                    as_sequence,
+                    item,
+                    |seq, i, vm| getitem_wrapper(seq.obj, i, vm),
+                    SeqItem
+                )
+            }
+            SlotAccessor::SeqAssItem => {
+                update_sub_slot!(
+                    as_sequence,
+                    ass_item,
+                    |seq, i, value, vm| setitem_wrapper(seq.obj, i, value, vm),
+                    SeqAssItem
+                )
+            }
+            SlotAccessor::SeqContains => {
+                update_sub_slot!(
+                    as_sequence,
+                    contains,
+                    |seq, needle, vm| contains_wrapper(seq.obj, needle, vm),
+                    SeqContains
+                )
+            }
+
+            // === Mapping slots ===
+            SlotAccessor::MapLength => {
+                update_sub_slot!(
+                    as_mapping,
+                    length,
+                    |mapping, vm| len_wrapper(mapping.obj, vm),
+                    MapLength
+                )
+            }
+            SlotAccessor::MapSubscript => {
+                update_sub_slot!(
+                    as_mapping,
+                    subscript,
+                    |mapping, key, vm| getitem_wrapper(mapping.obj, key, vm),
+                    MapSubscript
+                )
+            }
+            SlotAccessor::MapAssSubscript => {
+                update_sub_slot!(
+                    as_mapping,
+                    ass_subscript,
+                    |mapping, key, value, vm| setitem_wrapper(mapping.obj, key, value, vm),
+                    MapAssSubscript
+                )
+            }
         }
     }
 

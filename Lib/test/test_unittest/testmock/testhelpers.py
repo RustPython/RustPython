@@ -884,8 +884,6 @@ class SpecSignatureTest(unittest.TestCase):
         a.f.assert_called_with(self=10)
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_autospec_data_descriptor(self):
         class Descriptor(object):
             def __init__(self, value):

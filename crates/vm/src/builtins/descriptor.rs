@@ -6,10 +6,13 @@ use crate::{
     common::hash::PyHash,
     convert::{ToPyObject, ToPyResult},
     function::{FuncArgs, PyMethodDef, PyMethodFlags, PySetterValue},
+    protocol::{PyNumberBinaryFunc, PyNumberTernaryFunc, PyNumberUnaryFunc},
     types::{
         Callable, Comparable, DelFunc, DescrGetFunc, DescrSetFunc, GenericMethod, GetDescriptor,
-        GetattroFunc, HashFunc, Hashable, InitFunc, IterFunc, IterNextFunc, PyComparisonOp,
-        Representable, RichCompareFunc, SetattroFunc, StringifyFunc,
+        GetattroFunc, HashFunc, Hashable, InitFunc, IterFunc, IterNextFunc, MapAssSubscriptFunc,
+        MapLenFunc, MapSubscriptFunc, PyComparisonOp, Representable, RichCompareFunc,
+        SeqAssItemFunc, SeqConcatFunc, SeqContainsFunc, SeqItemFunc, SeqLenFunc, SeqRepeatFunc,
+        SetattroFunc, StringifyFunc,
     },
 };
 use rustpython_common::lock::PyRwLock;
@@ -394,7 +397,6 @@ pub fn init(ctx: &Context) {
 
 // PyWrapper - wrapper_descriptor
 
-/// Type-erased slot function - mirrors CPython's void* d_wrapped
 /// Each variant knows how to call the wrapped function with proper types
 #[derive(Clone, Copy)]
 pub enum SlotFunc {
@@ -420,6 +422,25 @@ pub enum SlotFunc {
     DescrGet(DescrGetFunc),
     DescrSet(DescrSetFunc), // __set__
     DescrDel(DescrSetFunc), // __delete__ (same func type, different PySetterValue)
+
+    // Sequence sub-slots (sq_*)
+    SeqLength(SeqLenFunc),
+    SeqConcat(SeqConcatFunc),
+    SeqRepeat(SeqRepeatFunc),
+    SeqItem(SeqItemFunc),
+    SeqAssItem(SeqAssItemFunc),
+    SeqContains(SeqContainsFunc),
+
+    // Mapping sub-slots (mp_*)
+    MapLength(MapLenFunc),
+    MapSubscript(MapSubscriptFunc),
+    MapAssSubscript(MapAssSubscriptFunc),
+
+    // Number sub-slots (nb_*) - grouped by signature
+    NumBoolean(PyNumberUnaryFunc<bool>), // __bool__
+    NumUnary(PyNumberUnaryFunc),         // __int__, __float__, __index__
+    NumBinary(PyNumberBinaryFunc),       // __add__, __sub__, __mul__, etc.
+    NumTernary(PyNumberTernaryFunc),     // __pow__
 }
 
 impl std::fmt::Debug for SlotFunc {
@@ -440,6 +461,22 @@ impl std::fmt::Debug for SlotFunc {
             SlotFunc::DescrGet(_) => write!(f, "SlotFunc::DescrGet(...)"),
             SlotFunc::DescrSet(_) => write!(f, "SlotFunc::DescrSet(...)"),
             SlotFunc::DescrDel(_) => write!(f, "SlotFunc::DescrDel(...)"),
+            // Sequence sub-slots
+            SlotFunc::SeqLength(_) => write!(f, "SlotFunc::SeqLength(...)"),
+            SlotFunc::SeqConcat(_) => write!(f, "SlotFunc::SeqConcat(...)"),
+            SlotFunc::SeqRepeat(_) => write!(f, "SlotFunc::SeqRepeat(...)"),
+            SlotFunc::SeqItem(_) => write!(f, "SlotFunc::SeqItem(...)"),
+            SlotFunc::SeqAssItem(_) => write!(f, "SlotFunc::SeqAssItem(...)"),
+            SlotFunc::SeqContains(_) => write!(f, "SlotFunc::SeqContains(...)"),
+            // Mapping sub-slots
+            SlotFunc::MapLength(_) => write!(f, "SlotFunc::MapLength(...)"),
+            SlotFunc::MapSubscript(_) => write!(f, "SlotFunc::MapSubscript(...)"),
+            SlotFunc::MapAssSubscript(_) => write!(f, "SlotFunc::MapAssSubscript(...)"),
+            // Number sub-slots
+            SlotFunc::NumBoolean(_) => write!(f, "SlotFunc::NumBoolean(...)"),
+            SlotFunc::NumUnary(_) => write!(f, "SlotFunc::NumUnary(...)"),
+            SlotFunc::NumBinary(_) => write!(f, "SlotFunc::NumBinary(...)"),
+            SlotFunc::NumTernary(_) => write!(f, "SlotFunc::NumTernary(...)"),
         }
     }
 }
@@ -540,6 +577,71 @@ impl SlotFunc {
                 let (instance,): (PyObjectRef,) = args.bind(vm)?;
                 func(&obj, instance, PySetterValue::Delete, vm)?;
                 Ok(vm.ctx.none())
+            }
+            // Sequence sub-slots
+            SlotFunc::SeqLength(func) => {
+                args.bind::<()>(vm)?;
+                let len = func(obj.sequence_unchecked(), vm)?;
+                Ok(vm.ctx.new_int(len).into())
+            }
+            SlotFunc::SeqConcat(func) => {
+                let (other,): (PyObjectRef,) = args.bind(vm)?;
+                func(obj.sequence_unchecked(), &other, vm)
+            }
+            SlotFunc::SeqRepeat(func) => {
+                let (n,): (isize,) = args.bind(vm)?;
+                func(obj.sequence_unchecked(), n, vm)
+            }
+            SlotFunc::SeqItem(func) => {
+                let (index,): (isize,) = args.bind(vm)?;
+                func(obj.sequence_unchecked(), index, vm)
+            }
+            SlotFunc::SeqAssItem(func) => {
+                let (index, value): (isize, crate::function::OptionalArg<PyObjectRef>) =
+                    args.bind(vm)?;
+                func(obj.sequence_unchecked(), index, value.into_option(), vm)?;
+                Ok(vm.ctx.none())
+            }
+            SlotFunc::SeqContains(func) => {
+                let (item,): (PyObjectRef,) = args.bind(vm)?;
+                let result = func(obj.sequence_unchecked(), &item, vm)?;
+                Ok(vm.ctx.new_bool(result).into())
+            }
+            // Mapping sub-slots
+            SlotFunc::MapLength(func) => {
+                args.bind::<()>(vm)?;
+                let len = func(obj.mapping_unchecked(), vm)?;
+                Ok(vm.ctx.new_int(len).into())
+            }
+            SlotFunc::MapSubscript(func) => {
+                let (key,): (PyObjectRef,) = args.bind(vm)?;
+                func(obj.mapping_unchecked(), &key, vm)
+            }
+            SlotFunc::MapAssSubscript(func) => {
+                let (key, value): (PyObjectRef, crate::function::OptionalArg<PyObjectRef>) =
+                    args.bind(vm)?;
+                func(obj.mapping_unchecked(), &key, value.into_option(), vm)?;
+                Ok(vm.ctx.none())
+            }
+            // Number sub-slots
+            SlotFunc::NumBoolean(func) => {
+                args.bind::<()>(vm)?;
+                let result = func(obj.number(), vm)?;
+                Ok(vm.ctx.new_bool(result).into())
+            }
+            SlotFunc::NumUnary(func) => {
+                args.bind::<()>(vm)?;
+                func(obj.number(), vm)
+            }
+            SlotFunc::NumBinary(func) => {
+                let (other,): (PyObjectRef,) = args.bind(vm)?;
+                func(&obj, &other, vm)
+            }
+            SlotFunc::NumTernary(func) => {
+                let (y, z): (PyObjectRef, crate::function::OptionalArg<PyObjectRef>) =
+                    args.bind(vm)?;
+                let z = z.unwrap_or_else(|| vm.ctx.none());
+                func(&obj, &y, &z, vm)
             }
         }
     }

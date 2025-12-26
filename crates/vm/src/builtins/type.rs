@@ -26,7 +26,7 @@ use crate::{
     protocol::{PyIterReturn, PyNumberMethods},
     types::{
         AsNumber, Callable, Constructor, GetAttr, Initializer, PyTypeFlags, PyTypeSlots,
-        Representable, SetAttr, TypeDataRef, TypeDataRefMut, TypeDataSlot,
+        Representable, SLOT_DEFS, SetAttr, TypeDataRef, TypeDataRefMut, TypeDataSlot,
     },
 };
 use indexmap::{IndexMap, map::Entry};
@@ -464,173 +464,11 @@ impl PyType {
 
     /// Inherit slots from base type. inherit_slots
     pub(crate) fn inherit_slots(&self, base: &Self) {
-        macro_rules! copyslot {
-            ($slot:ident) => {
-                if self.slots.$slot.load().is_none() {
-                    if let Some(base_val) = base.slots.$slot.load() {
-                        self.slots.$slot.store(Some(base_val));
-                    }
-                }
-            };
+        // Use SLOT_DEFS to iterate all slots
+        // Note: as_buffer is handled in inherit_static_slots (not AtomicCell)
+        for def in SLOT_DEFS {
+            def.accessor.copyslot_if_none(self, base);
         }
-
-        // Copy init slot only if base actually defines it (not just inherited)
-        // This is needed for multiple inheritance where a later base might
-        // have a more specific init slot
-        macro_rules! copyslot_defined {
-            ($slot:ident) => {
-                if self.slots.$slot.load().is_none() {
-                    if let Some(base_val) = base.slots.$slot.load() {
-                        // SLOTDEFINED: base->SLOT && (basebase == NULL || base->SLOT != basebase->SLOT)
-                        let basebase = base.base.as_ref();
-                        let slot_defined = match basebase {
-                            None => true,
-                            Some(bb) => bb.slots.$slot.load().map(|v| v as usize)
-                                != Some(base_val as usize),
-                        };
-                        if slot_defined {
-                            self.slots.$slot.store(Some(base_val));
-                        }
-                    }
-                }
-            };
-        }
-
-        // Core slots
-        copyslot!(hash);
-        copyslot!(call);
-        copyslot!(str);
-        copyslot!(repr);
-        copyslot!(getattro);
-        copyslot!(setattro);
-        copyslot!(richcompare);
-        copyslot!(iter);
-        copyslot!(iternext);
-        copyslot!(descr_get);
-        copyslot!(descr_set);
-        // init uses SLOTDEFINED check for multiple inheritance support
-        copyslot_defined!(init);
-        copyslot!(del);
-        // new is handled by set_new()
-        // as_buffer is inherited at type creation time (not AtomicCell)
-
-        // Sub-slots (number, sequence, mapping)
-        self.inherit_number_slots(base);
-        self.inherit_sequence_slots(base);
-        self.inherit_mapping_slots(base);
-    }
-
-    /// Inherit number sub-slots from base type
-    fn inherit_number_slots(&self, base: &Self) {
-        macro_rules! copy_num_slot {
-            ($slot:ident) => {
-                if self.slots.as_number.$slot.load().is_none() {
-                    if let Some(base_val) = base.slots.as_number.$slot.load() {
-                        self.slots.as_number.$slot.store(Some(base_val));
-                    }
-                }
-            };
-        }
-
-        // Binary operations
-        copy_num_slot!(add);
-        copy_num_slot!(right_add);
-        copy_num_slot!(inplace_add);
-        copy_num_slot!(subtract);
-        copy_num_slot!(right_subtract);
-        copy_num_slot!(inplace_subtract);
-        copy_num_slot!(multiply);
-        copy_num_slot!(right_multiply);
-        copy_num_slot!(inplace_multiply);
-        copy_num_slot!(remainder);
-        copy_num_slot!(right_remainder);
-        copy_num_slot!(inplace_remainder);
-        copy_num_slot!(divmod);
-        copy_num_slot!(right_divmod);
-        copy_num_slot!(power);
-        copy_num_slot!(right_power);
-        copy_num_slot!(inplace_power);
-
-        // Bitwise operations
-        copy_num_slot!(lshift);
-        copy_num_slot!(right_lshift);
-        copy_num_slot!(inplace_lshift);
-        copy_num_slot!(rshift);
-        copy_num_slot!(right_rshift);
-        copy_num_slot!(inplace_rshift);
-        copy_num_slot!(and);
-        copy_num_slot!(right_and);
-        copy_num_slot!(inplace_and);
-        copy_num_slot!(xor);
-        copy_num_slot!(right_xor);
-        copy_num_slot!(inplace_xor);
-        copy_num_slot!(or);
-        copy_num_slot!(right_or);
-        copy_num_slot!(inplace_or);
-
-        // Division operations
-        copy_num_slot!(floor_divide);
-        copy_num_slot!(right_floor_divide);
-        copy_num_slot!(inplace_floor_divide);
-        copy_num_slot!(true_divide);
-        copy_num_slot!(right_true_divide);
-        copy_num_slot!(inplace_true_divide);
-
-        // Matrix multiplication
-        copy_num_slot!(matrix_multiply);
-        copy_num_slot!(right_matrix_multiply);
-        copy_num_slot!(inplace_matrix_multiply);
-
-        // Unary operations
-        copy_num_slot!(negative);
-        copy_num_slot!(positive);
-        copy_num_slot!(absolute);
-        copy_num_slot!(boolean);
-        copy_num_slot!(invert);
-
-        // Conversion
-        copy_num_slot!(int);
-        copy_num_slot!(float);
-        copy_num_slot!(index);
-    }
-
-    /// Inherit sequence sub-slots from base type
-    fn inherit_sequence_slots(&self, base: &Self) {
-        macro_rules! copy_seq_slot {
-            ($slot:ident) => {
-                if self.slots.as_sequence.$slot.load().is_none() {
-                    if let Some(base_val) = base.slots.as_sequence.$slot.load() {
-                        self.slots.as_sequence.$slot.store(Some(base_val));
-                    }
-                }
-            };
-        }
-
-        copy_seq_slot!(length);
-        copy_seq_slot!(concat);
-        copy_seq_slot!(repeat);
-        copy_seq_slot!(item);
-        copy_seq_slot!(ass_item);
-        copy_seq_slot!(contains);
-        copy_seq_slot!(inplace_concat);
-        copy_seq_slot!(inplace_repeat);
-    }
-
-    /// Inherit mapping sub-slots from base type
-    fn inherit_mapping_slots(&self, base: &Self) {
-        macro_rules! copy_map_slot {
-            ($slot:ident) => {
-                if self.slots.as_mapping.$slot.load().is_none() {
-                    if let Some(base_val) = base.slots.as_mapping.$slot.load() {
-                        self.slots.as_mapping.$slot.store(Some(base_val));
-                    }
-                }
-            };
-        }
-
-        copy_map_slot!(length);
-        copy_map_slot!(subscript);
-        copy_map_slot!(ass_subscript);
     }
 
     // This is used for class initialization where the vm is not yet available.
