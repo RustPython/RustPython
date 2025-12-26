@@ -175,16 +175,24 @@ fn is_typing_generic_alias(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
         .get_attribute_opt(obj.clone(), identifier!(vm, __module__))
         .ok()
         .flatten();
-    let has_attr = |name| vm.get_attribute_opt(obj.clone(), name).ok().flatten().is_some();
 
-    module
+    let Some(_) = module
         .as_ref()
         .and_then(|m| m.downcast_ref::<PyStr>())
-        .is_some_and(|m| {
-            m.as_str() == TYPING_MODULE
-                && has_attr(identifier!(vm, __origin__))
-                && has_attr(identifier!(vm, __args__))
-        })
+        .filter(|m| m.as_str() == TYPING_MODULE)
+    else {
+        return false;
+    };
+
+    vm.get_attribute_opt(obj.clone(), identifier!(vm, __origin__))
+        .ok()
+        .flatten()
+        .is_some()
+        && vm
+            .get_attribute_opt(obj, identifier!(vm, __args__))
+            .ok()
+            .flatten()
+            .is_some()
 }
 
 fn flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
