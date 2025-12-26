@@ -818,8 +818,6 @@ class ItimerTest(unittest.TestCase):
         self.hndl_called = True
         signal.setitimer(signal.ITIMER_PROF, 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_itimer_exc(self):
         # XXX I'm assuming -1 is an invalid itimer, but maybe some platform
         # defines it ?
@@ -829,16 +827,12 @@ class ItimerTest(unittest.TestCase):
             self.assertRaises(signal.ItimerError,
                               signal.setitimer, signal.ITIMER_REAL, -1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_itimer_real(self):
         self.itimer = signal.ITIMER_REAL
         signal.setitimer(self.itimer, 1.0)
         signal.pause()
         self.assertEqual(self.hndl_called, True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # Issue 3864, unknown if this affects earlier versions of freebsd also
     @unittest.skipIf(sys.platform in ('netbsd5',),
         'itimer not reliable (does not mix well with threading) on some BSDs.')
@@ -859,8 +853,6 @@ class ItimerTest(unittest.TestCase):
         # and the handler should have been called
         self.assertEqual(self.hndl_called, True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_itimer_prof(self):
         self.itimer = signal.ITIMER_PROF
         signal.signal(signal.SIGPROF, self.sig_prof)
@@ -878,8 +870,6 @@ class ItimerTest(unittest.TestCase):
         # and the handler should have been called
         self.assertEqual(self.hndl_called, True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setitimer_tiny(self):
         # bpo-30807: C setitimer() takes a microsecond-resolution interval.
         # Check that float -> timeval conversion doesn't round
