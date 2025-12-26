@@ -70,9 +70,6 @@ pub struct ModuleInitArgs {
 }
 
 impl PyModule {
-    const STATE_TYPE_ERROR: &'static str =
-        "module state has already been initialized with a different type";
-
     #[allow(clippy::new_without_default)]
     pub const fn new() -> Self {
         Self {
@@ -104,26 +101,9 @@ impl PyModule {
             .and_then(|obj| obj.clone().downcast().ok())
     }
 
-    /// Get or initialize the module state of type `T`, using `init` only when no state exists and
-    /// creating it while holding a write lock. Raises `TypeError` if an incompatible state is
-    /// already stored.
-    pub fn get_or_try_init_state<T, F>(&self, vm: &VirtualMachine, init: F) -> PyResult<PyRef<T>>
-    where
-        T: PyPayload,
-        F: FnOnce(&VirtualMachine) -> PyResult<PyRef<T>>,
-    {
-        let mut lock = self.state.write();
-        if let Some(existing) = lock.as_ref() {
-            return existing
-                .clone()
-                .downcast()
-                .map_err(|_| vm.new_type_error(Self::STATE_TYPE_ERROR));
-        }
-
-        let state = init(vm)?;
-
-        *lock = Some(state.as_object().to_owned());
-        Ok(state)
+    /// Set the module state.
+    pub fn set_state(&self, state: PyObjectRef) {
+        *self.state.write() = Some(state);
     }
 }
 
@@ -265,11 +245,7 @@ pub(crate) fn init(context: &Context) {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        AsObject,
-        builtins::{PyInt, PyStr},
-        vm::Interpreter,
-    };
+    use crate::{AsObject, builtins::PyInt, vm::Interpreter};
     use malachite_bigint::BigInt;
 
     #[test]
@@ -280,23 +256,19 @@ mod tests {
 
             assert!(m1.get_state::<PyInt>().is_none());
 
-            let s1 = m1
-                .get_or_try_init_state(vm, |vm| Ok(vm.ctx.new_int(1)))
-                .unwrap();
-            let s2 = m2
-                .get_or_try_init_state(vm, |vm| Ok(vm.ctx.new_int(2)))
-                .unwrap();
+            let s1 = vm.ctx.new_int(1);
+            let s2 = vm.ctx.new_int(2);
+            m1.set_state(s1.as_object().to_owned());
+            m2.set_state(s2.as_object().to_owned());
 
-            assert_eq!(s1.as_bigint(), &BigInt::from(1));
-            assert_eq!(s2.as_bigint(), &BigInt::from(2));
-
-            let s1_again = m1.get_state::<PyInt>().unwrap();
-            assert!(s1_again.is(&s1));
-
-            let err = m1
-                .get_or_try_init_state::<PyStr, _>(vm, |vm| Ok(vm.ctx.new_str("oops")))
-                .unwrap_err();
-            assert!(err.class().is(vm.ctx.exceptions.type_error));
+            assert_eq!(
+                m1.get_state::<PyInt>().unwrap().as_bigint(),
+                &BigInt::from(1)
+            );
+            assert_eq!(
+                m2.get_state::<PyInt>().unwrap().as_bigint(),
+                &BigInt::from(2)
+            );
         });
     }
 }
