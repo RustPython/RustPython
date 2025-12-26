@@ -174,8 +174,7 @@ fn is_typing_generic_alias(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
         .get_attribute_opt(obj.clone(), identifier!(vm, __module__))
         .ok()
         .flatten();
-    let obj_ref = obj.clone();
-    let has_attr = |name| vm.get_attribute_opt(obj_ref.clone(), name).ok().flatten().is_some();
+    let has_attr = |name| vm.get_attribute_opt(obj.clone(), name).ok().flatten().is_some();
 
     module
         .as_ref()
