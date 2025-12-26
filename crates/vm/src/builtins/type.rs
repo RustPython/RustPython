@@ -1163,6 +1163,7 @@ impl PyType {
         if name.as_bytes().contains(&0) {
             return Err(vm.new_value_error("type name must not contain null characters"));
         }
+        name.ensure_valid_utf8(vm)?;
 
         // Use std::mem::replace to swap the new value in and get the old value out,
         // then drop the old value after releasing the lock (similar to CPython's Py_SETREF)
@@ -1254,6 +1255,7 @@ impl Constructor for PyType {
         if name.as_bytes().contains(&0) {
             return Err(vm.new_value_error("type name must not contain null characters"));
         }
+        name.ensure_valid_utf8(vm)?;
 
         let (metatype, base, bases, base_is_type) = if bases.is_empty() {
             let base = vm.ctx.types.object_type.to_owned();
@@ -1306,6 +1308,13 @@ impl Constructor for PyType {
             });
         let mut attributes = dict.to_attributes(vm);
 
+        // Check __doc__ for surrogates - raises UnicodeEncodeError during type creation
+        if let Some(doc) = attributes.get(identifier!(vm, __doc__))
+            && let Some(doc_str) = doc.downcast_ref::<PyStr>()
+        {
+            doc_str.ensure_valid_utf8(vm)?;
+        }
+
         if let Some(f) = attributes.get_mut(identifier!(vm, __init_subclass__))
             && f.class().is(vm.ctx.types.function_type)
         {
@@ -1340,6 +1349,13 @@ impl Constructor for PyType {
 
         let (heaptype_slots, add_dict): (Option<PyRef<PyTuple<PyStrRef>>>, bool) =
             if let Some(x) = attributes.get(identifier!(vm, __slots__)) {
+                // Check if __slots__ is bytes - not allowed
+                if x.class().is(vm.ctx.types.bytes_type) {
+                    return Err(vm.new_type_error(
+                        "__slots__ items must be strings, not 'bytes'".to_owned(),
+                    ));
+                }
+
                 let slots = if x.class().is(vm.ctx.types.str_type) {
                     let x = unsafe { x.downcast_unchecked_ref::<PyStr>() };
                     PyTuple::new_ref_typed(vec![x.to_owned()], &vm.ctx)
@@ -1348,6 +1364,12 @@ impl Constructor for PyType {
                     let elements = {
                         let mut elements = Vec::new();
                         while let PyIterReturn::Return(element) = iter.next(vm)? {
+                            // Check if any slot item is bytes
+                            if element.class().is(vm.ctx.types.bytes_type) {
+                                return Err(vm.new_type_error(
+                                    "__slots__ items must be strings, not 'bytes'".to_owned(),
+                                ));
+                            }
                             elements.push(element);
                         }
                         elements

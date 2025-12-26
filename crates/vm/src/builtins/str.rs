@@ -441,7 +441,7 @@ impl PyStr {
         self.data.as_str()
     }
 
-    fn ensure_valid_utf8(&self, vm: &VirtualMachine) -> PyResult<()> {
+    pub(crate) fn ensure_valid_utf8(&self, vm: &VirtualMachine) -> PyResult<()> {
         if self.is_utf8() {
             Ok(())
         } else {
