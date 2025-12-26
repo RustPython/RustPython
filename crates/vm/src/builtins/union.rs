@@ -170,17 +170,20 @@ fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
 /// Treat objects from typing that expose __origin__ and __args__ as unionable,
 /// matching typing's generic alias helpers such as typing.Callable.
 fn is_typing_generic_alias(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
+    let obj_ref = obj;
     let module = vm
-        .get_attribute_opt(obj.clone(), identifier!(vm, __module__))
+        .get_attribute_opt(obj_ref.clone(), identifier!(vm, __module__))
         .ok()
         .flatten();
-    let has_attr = |name| vm.get_attribute_opt(obj.clone(), name).ok().flatten().is_some();
+    let has_attr =
+        |name| vm.get_attribute_opt(obj_ref.clone(), name).ok().flatten().is_some();
 
     module
         .as_ref()
         .and_then(|m| m.downcast_ref::<PyStr>())
         .is_some_and(|m| {
-            m.as_str() == "typing"
+            const TYPING_MODULE: &str = "typing";
+            m.as_str() == TYPING_MODULE
                 && has_attr(identifier!(vm, __origin__))
                 && has_attr(identifier!(vm, __args__))
         })
