@@ -156,11 +156,30 @@ pub fn is_unionable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
         || obj.downcastable::<PyType>()
         || obj.class().is(vm.ctx.types.generic_alias_type)
         || obj.class().is(vm.ctx.types.union_type)
+        || is_typing_generic_alias(obj.as_ref(), vm)
 }
 
 fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
     let parameters = genericalias::make_parameters(args, vm);
     dedup_and_flatten_args(&parameters, vm)
+}
+
+fn is_typing_generic_alias(obj: &PyObject, vm: &VirtualMachine) -> bool {
+    if let Ok(Some(module)) = vm.get_attribute_opt(obj.to_owned(), identifier!(vm, __module__)) {
+        if let Some(module) = module.downcast_ref::<PyStr>() {
+            if module.as_str() == "typing"
+                && vm
+                    .get_attribute_opt(obj.to_owned(), identifier!(vm, __origin__))
+                    .is_ok_and(|o| o.is_some())
+                && vm
+                    .get_attribute_opt(obj.to_owned(), identifier!(vm, __args__))
+                    .is_ok_and(|o| o.is_some())
+            {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
