@@ -339,6 +339,7 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
 /// Helper function to retrieve a sequence of paths from an environment variable.
 fn get_paths(env_variable_name: &str) -> impl Iterator<Item = String> + '_ {
     env::var_os(env_variable_name)
+        .filter(|v| !v.is_empty())
         .into_iter()
         .flat_map(move |paths| {
             split_paths(&paths)

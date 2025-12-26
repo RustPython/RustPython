@@ -169,22 +169,31 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
 
     let scope = setup_main_module(vm)?;
 
-    if !vm.state.config.settings.safe_path {
-        // TODO: The prepending path depends on running mode
-        // See https://docs.python.org/3/using/cmdline.html#cmdoption-P
-        vm.run_code_string(
-            vm.new_scope_with_builtins(),
-            "import sys; sys.path.insert(0, '')",
-            "<embedded>".to_owned(),
-        )?;
-    }
-
+    // Import site first, before setting sys.path[0]
+    // This matches CPython's behavior where site.removeduppaths() runs
+    // before sys.path[0] is set, preventing '' from being converted to cwd
     let site_result = vm.import("site", 0);
     if site_result.is_err() {
         warn!(
             "Failed to import site, consider adding the Lib directory to your RUSTPYTHONPATH \
              environment variable",
         );
+    }
+
+    // _PyPathConfig_ComputeSysPath0 - set sys.path[0] after site import
+    if !vm.state.config.settings.safe_path {
+        let path0: Option<String> = match &run_mode {
+            RunMode::Command(_) => Some(String::new()),
+            RunMode::Module(_) => env::current_dir()
+                .ok()
+                .and_then(|p| p.to_str().map(|s| s.to_owned())),
+            RunMode::Script(_) | RunMode::InstallPip(_) => None, // handled by run_script
+            RunMode::Repl => Some(String::new()),
+        };
+
+        if let Some(path) = path0 {
+            vm.insert_sys_path(vm.new_pyobj(path))?;
+        }
     }
 
     // Enable faulthandler if -X faulthandler, PYTHONFAULTHANDLER or -X dev is set
