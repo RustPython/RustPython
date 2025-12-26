@@ -411,8 +411,6 @@ class CmdLineTest(unittest.TestCase):
                                    script_name, script_name, script_dir, 'test_pkg',
                                    importlib.machinery.SourceFileLoader)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_issue8202_dash_c_file_ignored(self):
         # Make sure a "-c" file in the current directory
         # does not alter the value of sys.path[0]
@@ -713,8 +711,6 @@ class CmdLineTest(unittest.TestCase):
                     ]
                 )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_consistent_sys_path_for_direct_execution(self):
         # This test case ensures that the following all give the same
         # sys.path configuration:
