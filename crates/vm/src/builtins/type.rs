@@ -1352,142 +1352,143 @@ impl Constructor for PyType {
             attributes.insert(identifier!(vm, __hash__), vm.ctx.none.clone().into());
         }
 
-        let (heaptype_slots, add_dict): (Option<PyRef<PyTuple<PyStrRef>>>, bool) =
-            if let Some(x) = attributes.get(identifier!(vm, __slots__)) {
-                // Check if __slots__ is bytes - not allowed
-                if x.class().is(vm.ctx.types.bytes_type) {
-                    return Err(vm.new_type_error(
-                        "__slots__ items must be strings, not 'bytes'".to_owned(),
-                    ));
-                }
+        let (heaptype_slots, add_dict): (Option<PyRef<PyTuple<PyStrRef>>>, bool) = if let Some(x) =
+            attributes.get(identifier!(vm, __slots__))
+        {
+            // Check if __slots__ is bytes - not allowed
+            if x.class().is(vm.ctx.types.bytes_type) {
+                return Err(
+                    vm.new_type_error("__slots__ items must be strings, not 'bytes'".to_owned())
+                );
+            }
 
-                let slots = if x.class().is(vm.ctx.types.str_type) {
-                    let x = unsafe { x.downcast_unchecked_ref::<PyStr>() };
-                    PyTuple::new_ref_typed(vec![x.to_owned()], &vm.ctx)
-                } else {
-                    let iter = x.get_iter(vm)?;
-                    let elements = {
-                        let mut elements = Vec::new();
-                        while let PyIterReturn::Return(element) = iter.next(vm)? {
-                            // Check if any slot item is bytes
-                            if element.class().is(vm.ctx.types.bytes_type) {
-                                return Err(vm.new_type_error(
-                                    "__slots__ items must be strings, not 'bytes'".to_owned(),
-                                ));
-                            }
-                            elements.push(element);
+            let slots = if x.class().is(vm.ctx.types.str_type) {
+                let x = unsafe { x.downcast_unchecked_ref::<PyStr>() };
+                PyTuple::new_ref_typed(vec![x.to_owned()], &vm.ctx)
+            } else {
+                let iter = x.get_iter(vm)?;
+                let elements = {
+                    let mut elements = Vec::new();
+                    while let PyIterReturn::Return(element) = iter.next(vm)? {
+                        // Check if any slot item is bytes
+                        if element.class().is(vm.ctx.types.bytes_type) {
+                            return Err(vm.new_type_error(
+                                "__slots__ items must be strings, not 'bytes'".to_owned(),
+                            ));
                         }
-                        elements
-                    };
-                    let tuple = elements.into_pytuple(vm);
-                    tuple.try_into_typed(vm)?
+                        elements.push(element);
+                    }
+                    elements
                 };
+                let tuple = elements.into_pytuple(vm);
+                tuple.try_into_typed(vm)?
+            };
 
-                // Check if base has itemsize > 0 - can't add arbitrary slots to variable-size types
-                // Types like int, bytes, tuple have itemsize > 0 and don't allow custom slots
-                // But types like weakref.ref have itemsize = 0 and DO allow slots
-                let has_custom_slots = slots
-                    .iter()
-                    .any(|s| s.as_str() != "__dict__" && s.as_str() != "__weakref__");
-                if has_custom_slots && base.slots.itemsize > 0 {
-                    return Err(vm.new_type_error(format!(
-                        "nonempty __slots__ not supported for subtype of '{}'",
-                        base.name()
-                    )));
+            // Check if base has itemsize > 0 - can't add arbitrary slots to variable-size types
+            // Types like int, bytes, tuple have itemsize > 0 and don't allow custom slots
+            // But types like weakref.ref have itemsize = 0 and DO allow slots
+            let has_custom_slots = slots
+                .iter()
+                .any(|s| s.as_str() != "__dict__" && s.as_str() != "__weakref__");
+            if has_custom_slots && base.slots.itemsize > 0 {
+                return Err(vm.new_type_error(format!(
+                    "nonempty __slots__ not supported for subtype of '{}'",
+                    base.name()
+                )));
+            }
+
+            // Validate slot names and track duplicates
+            let mut seen_dict = false;
+            let mut seen_weakref = false;
+            for slot in slots.iter() {
+                // Use isidentifier for validation (handles Unicode properly)
+                if !slot.isidentifier() {
+                    return Err(vm.new_type_error("__slots__ must be identifiers".to_owned()));
                 }
 
-                // Validate slot names and track duplicates
-                let mut seen_dict = false;
-                let mut seen_weakref = false;
-                for slot in slots.iter() {
-                    // Use isidentifier for validation (handles Unicode properly)
-                    if !slot.isidentifier() {
-                        return Err(vm.new_type_error("__slots__ must be identifiers".to_owned()));
-                    }
+                let slot_name = slot.as_str();
 
-                    let slot_name = slot.as_str();
-
-                    // Check for duplicate __dict__
-                    if slot_name == "__dict__" {
-                        if seen_dict {
-                            return Err(vm.new_type_error(
-                                "__dict__ slot disallowed: we already got one".to_owned(),
-                            ));
-                        }
-                        seen_dict = true;
+                // Check for duplicate __dict__
+                if slot_name == "__dict__" {
+                    if seen_dict {
+                        return Err(vm.new_type_error(
+                            "__dict__ slot disallowed: we already got one".to_owned(),
+                        ));
                     }
-
-                    // Check for duplicate __weakref__
-                    if slot_name == "__weakref__" {
-                        if seen_weakref {
-                            return Err(vm.new_type_error(
-                                "__weakref__ slot disallowed: we already got one".to_owned(),
-                            ));
-                        }
-                        seen_weakref = true;
-                    }
-
-                    // Check if slot name conflicts with class attributes
-                    if attributes.contains_key(vm.ctx.intern_str(slot_name)) {
-                        return Err(vm.new_value_error(format!(
-                            "'{}' in __slots__ conflicts with a class variable",
-                            slot_name
-                        )));
-                    }
+                    seen_dict = true;
                 }
 
-                // Check if base class already has __dict__ - can't redefine it
-                if seen_dict && base.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
-                    return Err(
-                        vm.new_type_error("__dict__ slot disallowed: we already got one".to_owned())
-                    );
-                }
-
-                // Check if base class already has __weakref__ - can't redefine it
-                // A base has weakref support if:
-                // 1. It's a heap type without explicit __slots__ (automatic weakref), OR
-                // 2. It's a heap type with __weakref__ in its __slots__
-                if seen_weakref {
-                    let base_has_weakref = if let Some(ref ext) = base.heaptype_ext {
-                        match &ext.slots {
-                            // Heap type without __slots__ - has automatic weakref
-                            None => true,
-                            // Heap type with __slots__ - check if __weakref__ is in slots
-                            Some(base_slots) => base_slots.iter().any(|s| s.as_str() == "__weakref__"),
-                        }
-                    } else {
-                        // Builtin type - check if it has __weakref__ descriptor
-                        let weakref_name = vm.ctx.intern_str("__weakref__");
-                        base.attributes.read().contains_key(weakref_name)
-                    };
-
-                    if base_has_weakref {
+                // Check for duplicate __weakref__
+                if slot_name == "__weakref__" {
+                    if seen_weakref {
                         return Err(vm.new_type_error(
                             "__weakref__ slot disallowed: we already got one".to_owned(),
                         ));
                     }
+                    seen_weakref = true;
                 }
 
-                // Check if __dict__ is in slots
-                let dict_name = "__dict__";
-                let has_dict = slots.iter().any(|s| s.as_str() == dict_name);
+                // Check if slot name conflicts with class attributes
+                if attributes.contains_key(vm.ctx.intern_str(slot_name)) {
+                    return Err(vm.new_value_error(format!(
+                        "'{}' in __slots__ conflicts with a class variable",
+                        slot_name
+                    )));
+                }
+            }
 
-                // Filter out __dict__ from slots
-                let filtered_slots = if has_dict {
-                    let filtered: Vec<PyStrRef> = slots
-                        .iter()
-                        .filter(|s| s.as_str() != dict_name)
-                        .cloned()
-                        .collect();
-                    PyTuple::new_ref_typed(filtered, &vm.ctx)
+            // Check if base class already has __dict__ - can't redefine it
+            if seen_dict && base.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
+                return Err(
+                    vm.new_type_error("__dict__ slot disallowed: we already got one".to_owned())
+                );
+            }
+
+            // Check if base class already has __weakref__ - can't redefine it
+            // A base has weakref support if:
+            // 1. It's a heap type without explicit __slots__ (automatic weakref), OR
+            // 2. It's a heap type with __weakref__ in its __slots__
+            if seen_weakref {
+                let base_has_weakref = if let Some(ref ext) = base.heaptype_ext {
+                    match &ext.slots {
+                        // Heap type without __slots__ - has automatic weakref
+                        None => true,
+                        // Heap type with __slots__ - check if __weakref__ is in slots
+                        Some(base_slots) => base_slots.iter().any(|s| s.as_str() == "__weakref__"),
+                    }
                 } else {
-                    slots
+                    // Builtin type - check if it has __weakref__ descriptor
+                    let weakref_name = vm.ctx.intern_str("__weakref__");
+                    base.attributes.read().contains_key(weakref_name)
                 };
 
-                (Some(filtered_slots), has_dict)
+                if base_has_weakref {
+                    return Err(vm.new_type_error(
+                        "__weakref__ slot disallowed: we already got one".to_owned(),
+                    ));
+                }
+            }
+
+            // Check if __dict__ is in slots
+            let dict_name = "__dict__";
+            let has_dict = slots.iter().any(|s| s.as_str() == dict_name);
+
+            // Filter out __dict__ from slots
+            let filtered_slots = if has_dict {
+                let filtered: Vec<PyStrRef> = slots
+                    .iter()
+                    .filter(|s| s.as_str() != dict_name)
+                    .cloned()
+                    .collect();
+                PyTuple::new_ref_typed(filtered, &vm.ctx)
             } else {
-                (None, false)
+                slots
             };
+
+            (Some(filtered_slots), has_dict)
+        } else {
+            (None, false)
+        };
 
         // FIXME: this is a temporary fix. multi bases with multiple slots will break object
         let base_member_count = bases
