@@ -12,8 +12,7 @@ use crate::{
     },
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
-        ArgByteOrder, ArgIntoBool, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue,
-        PyComparisonValue,
+        ArgByteOrder, ArgIntoBool, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue,
     },
     protocol::{PyNumberMethods, handle_bytes_to_int_err},
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},

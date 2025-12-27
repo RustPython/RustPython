@@ -352,6 +352,115 @@ impl From<&PyNumberMethods> for PyNumberSlots {
 }
 
 impl PyNumberSlots {
+    /// Copy from static PyNumberMethods
+    pub fn copy_from(&self, methods: &PyNumberMethods) {
+        if let Some(f) = methods.add {
+            self.add.store(Some(f));
+        }
+        if let Some(f) = methods.subtract {
+            self.subtract.store(Some(f));
+        }
+        if let Some(f) = methods.multiply {
+            self.multiply.store(Some(f));
+        }
+        if let Some(f) = methods.remainder {
+            self.remainder.store(Some(f));
+        }
+        if let Some(f) = methods.divmod {
+            self.divmod.store(Some(f));
+        }
+        if let Some(f) = methods.power {
+            self.power.store(Some(f));
+        }
+        if let Some(f) = methods.negative {
+            self.negative.store(Some(f));
+        }
+        if let Some(f) = methods.positive {
+            self.positive.store(Some(f));
+        }
+        if let Some(f) = methods.absolute {
+            self.absolute.store(Some(f));
+        }
+        if let Some(f) = methods.boolean {
+            self.boolean.store(Some(f));
+        }
+        if let Some(f) = methods.invert {
+            self.invert.store(Some(f));
+        }
+        if let Some(f) = methods.lshift {
+            self.lshift.store(Some(f));
+        }
+        if let Some(f) = methods.rshift {
+            self.rshift.store(Some(f));
+        }
+        if let Some(f) = methods.and {
+            self.and.store(Some(f));
+        }
+        if let Some(f) = methods.xor {
+            self.xor.store(Some(f));
+        }
+        if let Some(f) = methods.or {
+            self.or.store(Some(f));
+        }
+        if let Some(f) = methods.int {
+            self.int.store(Some(f));
+        }
+        if let Some(f) = methods.float {
+            self.float.store(Some(f));
+        }
+        if let Some(f) = methods.inplace_add {
+            self.inplace_add.store(Some(f));
+        }
+        if let Some(f) = methods.inplace_subtract {
+            self.inplace_subtract.store(Some(f));
+        }
+        if let Some(f) = methods.inplace_multiply {
+            self.inplace_multiply.store(Some(f));
+        }
+        if let Some(f) = methods.inplace_remainder {
+            self.inplace_remainder.store(Some(f));
+        }
+        if let Some(f) = methods.inplace_power {
+            self.inplace_power.store(Some(f));
+        }
+        if let Some(f) = methods.inplace_lshift {
+            self.inplace_lshift.store(Some(f));
+        }
+        if let Some(f) = methods.inplace_rshift {
+            self.inplace_rshift.store(Some(f));
+        }
+        if let Some(f) = methods.inplace_and {
+            self.inplace_and.store(Some(f));
+        }
+        if let Some(f) = methods.inplace_xor {
+            self.inplace_xor.store(Some(f));
+        }
+        if let Some(f) = methods.inplace_or {
+            self.inplace_or.store(Some(f));
+        }
+        if let Some(f) = methods.floor_divide {
+            self.floor_divide.store(Some(f));
+        }
+        if let Some(f) = methods.true_divide {
+            self.true_divide.store(Some(f));
+        }
+        if let Some(f) = methods.inplace_floor_divide {
+            self.inplace_floor_divide.store(Some(f));
+        }
+        if let Some(f) = methods.inplace_true_divide {
+            self.inplace_true_divide.store(Some(f));
+        }
+        if let Some(f) = methods.index {
+            self.index.store(Some(f));
+        }
+        if let Some(f) = methods.matrix_multiply {
+            self.matrix_multiply.store(Some(f));
+        }
+        if let Some(f) = methods.inplace_matrix_multiply {
+            self.inplace_matrix_multiply.store(Some(f));
+        }
+    }
+
     pub fn left_binary_op(&self, op_slot: PyNumberBinaryOp) -> Option<PyNumberBinaryFunc> {
         use PyNumberBinaryOp::*;
         match op_slot {

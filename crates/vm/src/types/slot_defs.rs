@@ -800,7 +800,11 @@ impl SlotAccessor {
         if op == Some(SlotOp::Right) {
             match self {
                 Self::NbAdd => {
-                    return slots.as_number.right_add.load().map(SlotFunc::NumBinaryRight);
+                    return slots
+                        .as_number
+                        .right_add
+                        .load()
+                        .map(SlotFunc::NumBinaryRight);
                 }
                 Self::NbSubtract => {
                     return slots
@@ -831,7 +835,11 @@ impl SlotAccessor {
                         .map(SlotFunc::NumBinaryRight);
                 }
                 Self::NbPower => {
-                    return slots.as_number.right_power.load().map(SlotFunc::NumTernary);
+                    return slots
+                        .as_number
+                        .right_power
+                        .load()
+                        .map(SlotFunc::NumTernaryRight);
                 }
                 Self::NbLshift => {
                     return slots
@@ -848,13 +856,25 @@ impl SlotAccessor {
                         .map(SlotFunc::NumBinaryRight);
                 }
                 Self::NbAnd => {
-                    return slots.as_number.right_and.load().map(SlotFunc::NumBinaryRight);
+                    return slots
+                        .as_number
+                        .right_and
+                        .load()
+                        .map(SlotFunc::NumBinaryRight);
                 }
                 Self::NbXor => {
-                    return slots.as_number.right_xor.load().map(SlotFunc::NumBinaryRight);
+                    return slots
+                        .as_number
+                        .right_xor
+                        .load()
+                        .map(SlotFunc::NumBinaryRight);
                 }
                 Self::NbOr => {
-                    return slots.as_number.right_or.load().map(SlotFunc::NumBinaryRight);
+                    return slots
+                        .as_number
+                        .right_or
+                        .load()
+                        .map(SlotFunc::NumBinaryRight);
                 }
                 Self::NbFloorDivide => {
                     return slots

@@ -5,11 +5,7 @@ use crate::{
     class::PyClassImpl,
     common::format::FormatSpec,
     convert::{IntoPyException, ToPyObject, ToPyResult},
-    function::{
-        FuncArgs, OptionalArg, OptionalOption,
-        PyArithmeticValue::{self, *},
-        PyComparisonValue,
-    },
+    function::{FuncArgs, OptionalArg, PyComparisonValue},
     protocol::PyNumberMethods,
     stdlib::warnings,
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},

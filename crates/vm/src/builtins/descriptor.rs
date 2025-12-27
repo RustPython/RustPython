@@ -437,11 +437,12 @@ pub enum SlotFunc {
     MapAssSubscript(MapAssSubscriptFunc),
 
     // Number sub-slots (nb_*) - grouped by signature
-    NumBoolean(PyNumberUnaryFunc<bool>), // __bool__
-    NumUnary(PyNumberUnaryFunc),         // __int__, __float__, __index__
-    NumBinary(PyNumberBinaryFunc),       // __add__, __sub__, __mul__, etc.
-    NumBinaryRight(PyNumberBinaryFunc),  // __radd__, __rsub__, etc. (swapped args)
-    NumTernary(PyNumberTernaryFunc),     // __pow__
+    NumBoolean(PyNumberUnaryFunc<bool>),  // __bool__
+    NumUnary(PyNumberUnaryFunc),          // __int__, __float__, __index__
+    NumBinary(PyNumberBinaryFunc),        // __add__, __sub__, __mul__, etc.
+    NumBinaryRight(PyNumberBinaryFunc),   // __radd__, __rsub__, etc. (swapped args)
+    NumTernary(PyNumberTernaryFunc),      // __pow__
+    NumTernaryRight(PyNumberTernaryFunc), // __rpow__ (swapped first two args)
 }
 
 impl std::fmt::Debug for SlotFunc {
@@ -479,6 +480,7 @@ impl std::fmt::Debug for SlotFunc {
             SlotFunc::NumBinary(_) => write!(f, "SlotFunc::NumBinary(...)"),
             SlotFunc::NumBinaryRight(_) => write!(f, "SlotFunc::NumBinaryRight(...)"),
             SlotFunc::NumTernary(_) => write!(f, "SlotFunc::NumTernary(...)"),
+            SlotFunc::NumTernaryRight(_) => write!(f, "SlotFunc::NumTernaryRight(...)"),
         }
     }
 }
@@ -648,6 +650,12 @@ impl SlotFunc {
                     args.bind(vm)?;
                 let z = z.unwrap_or_else(|| vm.ctx.none());
                 func(&obj, &y, &z, vm)
+            }
+            SlotFunc::NumTernaryRight(func) => {
+                let (y, z): (PyObjectRef, crate::function::OptionalArg<PyObjectRef>) =
+                    args.bind(vm)?;
+                let z = z.unwrap_or_else(|| vm.ctx.none());
+                func(&y, &obj, &z, vm) // Swapped: y ** obj % z
             }
         }
     }

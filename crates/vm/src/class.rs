@@ -15,7 +15,7 @@ use rustpython_common::static_cell;
 /// Iterates SLOT_DEFS and creates a PyWrapper for each slot that:
 /// 1. Has a function set in the type's slots
 /// 2. Doesn't already have an attribute in the type's dict
-fn add_operators(class: &'static Py<PyType>, ctx: &Context) {
+pub fn add_operators(class: &'static Py<PyType>, ctx: &Context) {
     for def in SLOT_DEFS.iter() {
         // Skip __new__ - it has special handling
         if def.name == "__new__" {
