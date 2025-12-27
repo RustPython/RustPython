@@ -240,6 +240,56 @@ class C(B, BB):
 assert C.mro() == [C, B, A, BB, AA, object]
 
 
+class TypeA:
+    def __init__(self):
+        self.a = 1
+
+
+class TypeB:
+    __slots__ = "b"
+
+    def __init__(self):
+        self.b = 2
+
+
+obj = TypeA()
+with assert_raises(TypeError) as cm:
+    obj.__class__ = TypeB
+assert "__class__ assignment: 'TypeB' object layout differs from 'TypeA'" in str(
+    cm.exception
+)
+
+
+# Test: same slot count but different slot names should fail
+class SlotX:
+    __slots__ = ("x",)
+
+
+class SlotY:
+    __slots__ = ("y",)
+
+
+slot_obj = SlotX()
+with assert_raises(TypeError) as cm:
+    slot_obj.__class__ = SlotY
+assert "__class__ assignment: 'SlotY' object layout differs from 'SlotX'" in str(
+    cm.exception
+)
+
+
+# Test: same slots should succeed
+class SlotA:
+    __slots__ = ("a",)
+
+
+class SlotA2:
+    __slots__ = ("a",)
+
+
+slot_a = SlotA()
+slot_a.__class__ = SlotA2  # Should work
+
+
 assert type(Exception.args).__name__ == "getset_descriptor"
 assert type(None).__bool__(None) is False
 
