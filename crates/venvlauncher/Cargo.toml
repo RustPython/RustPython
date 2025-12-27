@@ -8,21 +8,9 @@ rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
 
-[[bin]]
-name = "venvlauncher"
-path = "src/main.rs"
-
-[[bin]]
-name = "venvwlauncher"
-path = "src/main.rs"
-
 # Free-threaded variants (RustPython uses Py_GIL_DISABLED=true)
 [[bin]]
 name = "venvlaunchert"
-path = "src/main.rs"
-
-[[bin]]
-name = "venvwlaunchert"
 path = "src/main.rs"
 
 [target.'cfg(windows)'.dependencies]
