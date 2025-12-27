@@ -19,6 +19,7 @@ from opcode import (
 
 from _opcode import get_executor
 
+
 __all__ = ["code_info", "dis", "disassemble", "distb", "disco",
            "findlinestarts", "findlabels", "show_code",
            "get_instructions", "Instruction", "Bytecode"] + _opcodes_all
@@ -1051,25 +1052,21 @@ class Bytecode:
             return output.getvalue()
 
 
-def main(args=None):
+from _dis import *
+
+
+# Disassembling a file by following cpython Lib/dis.py
+def _test():
+    """Simple test program to disassemble a file."""
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-C', '--show-caches', action='store_true',
-                        help='show inline caches')
-    parser.add_argument('-O', '--show-offsets', action='store_true',
-                        help='show instruction offsets')
-    parser.add_argument('infile', nargs='?', default='-')
-    args = parser.parse_args(args=args)
-    if args.infile == '-':
-        name = '<stdin>'
-        source = sys.stdin.buffer.read()
-    else:
-        name = args.infile
-        with open(args.infile, 'rb') as infile:
-            source = infile.read()
-    code = compile(source, name, "exec")
-    dis(code, show_caches=args.show_caches, show_offsets=args.show_offsets)
+    parser.add_argument('infile', type=argparse.FileType('rb'), nargs='?', default='-')
+    args = parser.parse_args()
+    with args.infile as infile:
+        source = infile.read()
+    code = compile(source, args.infile.name, "exec")
+    dis(code)
 
 if __name__ == "__main__":
-    main()
+    _test()

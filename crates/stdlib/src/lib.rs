@@ -13,6 +13,7 @@ mod bisect;
 mod cmath;
 mod contextvars;
 mod csv;
+mod dis;
 mod gc;
 
 mod bz2;
@@ -130,6 +131,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "cmath" => cmath::make_module,
             "_contextvars" => contextvars::make_module,
             "_csv" => csv::make_module,
+            "_dis" => dis::make_module,
             "faulthandler" => faulthandler::make_module,
             "gc" => gc::make_module,
             "_hashlib" => hashlib::make_module,
