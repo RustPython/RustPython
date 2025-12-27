@@ -152,7 +152,6 @@ class TestFileIOSignalInterrupt:
                     '"got data %r\\nexpected %r" % (got, expected))'
             )
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_readline(self):
         """readline() must handle signals and not lose data."""
         self._test_reading(
@@ -161,7 +160,6 @@ class TestFileIOSignalInterrupt:
                         read_method_name='readline',
                         expected=b'hello, world!\n'))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_readlines(self):
         """readlines() must handle signals and not lose data."""
         self._test_reading(
@@ -170,7 +168,6 @@ class TestFileIOSignalInterrupt:
                         read_method_name='readlines',
                         expected=[b'hello\n', b'world!\n']))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_readall(self):
         """readall() must handle signals and not lose data."""
         self._test_reading(
@@ -189,6 +186,19 @@ class TestFileIOSignalInterrupt:
 class CTestFileIOSignalInterrupt(TestFileIOSignalInterrupt, unittest.TestCase):
     modname = '_io'
 
+    # TODO: RUSTPYTHON - _io module uses _pyio internally, signal handling differs
+    @unittest.expectedFailure
+    def test_readline(self):
+        super().test_readline()
+
+    @unittest.expectedFailure
+    def test_readlines(self):
+        super().test_readlines()
+
+    @unittest.expectedFailure
+    def test_readall(self):
+        super().test_readall()
+
 class PyTestFileIOSignalInterrupt(TestFileIOSignalInterrupt, unittest.TestCase):
     modname = '_pyio'
 
@@ -200,7 +210,6 @@ class TestBufferedIOSignalInterrupt(TestFileIOSignalInterrupt):
                 'assert isinstance(infile, io.BufferedReader)' %
                 self.modname)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_readall(self):
         """BufferedReader.read() must handle signals and not lose data."""
         self._test_reading(
@@ -211,6 +220,19 @@ class TestBufferedIOSignalInterrupt(TestFileIOSignalInterrupt):
 
 class CTestBufferedIOSignalInterrupt(TestBufferedIOSignalInterrupt, unittest.TestCase):
     modname = '_io'
+
+    # TODO: RUSTPYTHON - _io module uses _pyio internally, signal handling differs
+    @unittest.expectedFailure
+    def test_readline(self):
+        super().test_readline()
+
+    @unittest.expectedFailure
+    def test_readlines(self):
+        super().test_readlines()
+
+    @unittest.expectedFailure
+    def test_readall(self):
+        super().test_readall()
 
 class PyTestBufferedIOSignalInterrupt(TestBufferedIOSignalInterrupt, unittest.TestCase):
     modname = '_pyio'
@@ -224,7 +246,6 @@ class TestTextIOSignalInterrupt(TestFileIOSignalInterrupt):
                 'assert isinstance(infile, io.TextIOWrapper)' %
                 self.modname)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_readline(self):
         """readline() must handle signals and not lose data."""
         self._test_reading(
@@ -233,7 +254,6 @@ class TestTextIOSignalInterrupt(TestFileIOSignalInterrupt):
                         read_method_name='readline',
                         expected='hello, world!\n'))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_readlines(self):
         """readlines() must handle signals and not lose data."""
         self._test_reading(
@@ -242,7 +262,6 @@ class TestTextIOSignalInterrupt(TestFileIOSignalInterrupt):
                         read_method_name='readlines',
                         expected=['hello\n', 'world!\n']))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_readall(self):
         """read() must handle signals and not lose data."""
         self._test_reading(
@@ -253,6 +272,19 @@ class TestTextIOSignalInterrupt(TestFileIOSignalInterrupt):
 
 class CTestTextIOSignalInterrupt(TestTextIOSignalInterrupt, unittest.TestCase):
     modname = '_io'
+
+    # TODO: RUSTPYTHON - _io module uses _pyio internally, signal handling differs
+    @unittest.expectedFailure
+    def test_readline(self):
+        super().test_readline()
+
+    @unittest.expectedFailure
+    def test_readlines(self):
+        super().test_readlines()
+
+    @unittest.expectedFailure
+    def test_readall(self):
+        super().test_readall()
 
 class PyTestTextIOSignalInterrupt(TestTextIOSignalInterrupt, unittest.TestCase):
     modname = '_pyio'

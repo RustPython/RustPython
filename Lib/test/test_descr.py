@@ -4961,7 +4961,6 @@ class ClassPropertiesAndMethods(unittest.TestCase, ExtraAssertions):
             self.assertRaises(TypeError, case, 1, 2, 3)
             self.assertRaises(TypeError, case, 1, 2, foo=3)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_subclassing_does_not_duplicate_dict_descriptors(self):
         class Base:
             pass
