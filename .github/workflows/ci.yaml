@@ -182,24 +182,6 @@ jobs:
         run: cargo check --target aarch64-apple-ios ${{ env.CARGO_ARGS_NO_SSL }}
         if: runner.os == 'macOS'
 
-  codecov:
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
-    name: Collect code coverage data
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v6.0.1
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@cargo-llvm-cov
-      - uses: Swatinem/rust-cache@v2
-      - name: Run cargo-llvm-cov with Rust tests
-        run: cargo llvm-cov --workspace --exclude rustpython_wasm --exclude rustpython-compiler-source --features threading ${{ env.CARGO_ARGS }} --lcov --output-path=codecov.lcov
-      - name: Upload to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          file: ./codecov.lcov
-          fail_ci_if_error: false
-
   exotic_targets:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Ensure compilation on various targets
@@ -274,6 +256,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.1
       - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-python@v6.1.0
         with:
@@ -281,6 +264,23 @@ jobs:
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool openssl@3
         if: runner.os == 'macOS'
+      - name: Set up coverage environment (Unix)
+        run: cargo llvm-cov show-env --export-prefix | sed "s/^export //" | sed "s/'//g" >> $GITHUB_ENV
+        if: runner.os != 'Windows'
+      - name: Set up coverage environment (Windows)
+        run: |
+          $env_vars = cargo llvm-cov show-env
+          foreach ($line in $env_vars) {
+            if ($line -match '^export\s+(\w+)=(.*)$') {
+              $name = $Matches[1]
+              $value = $Matches[2] -replace "^'|'$", ""
+              "$name=$value" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            }
+          }
+        shell: pwsh
+        if: runner.os == 'Windows'
+      - name: Clean coverage data
+        run: cargo llvm-cov clean --workspace
       - name: build rustpython
         run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }}
         if: runner.os == 'macOS'
@@ -333,6 +333,41 @@ jobs:
           testvenv/bin/rustpython -m pip install wheel
       - name: Check whats_left is not broken
         run: python -I whats_left.py
+
+      - name: Generate coverage report
+        run: cargo llvm-cov report --release --lcov --output-path=codecov.lcov
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.os }}
+          path: ./codecov.lcov
+
+  coverage:
+    name: Upload coverage to Codecov
+    runs-on: ubuntu-latest
+    needs: snippets_cpython
+    if: always() && !contains(github.event.pull_request.labels.*.name, 'skip:ci')
+    steps:
+      - uses: actions/checkout@v6.0.1
+      - name: Download all coverage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          path: coverage
+          merge-multiple: false
+      - name: List coverage files
+        run: |
+          if [ -d coverage ]; then
+            find coverage -name "*.lcov" -type f
+          else
+            echo "No coverage directory found"
+          fi
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        if: hashFiles('coverage/**/*.lcov') != ''
+        with:
+          directory: ./coverage
+          fail_ci_if_error: false
 
   lint:
     name: Check Rust code with clippy
