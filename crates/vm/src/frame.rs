@@ -1355,15 +1355,6 @@ impl ExecutingFrame<'_> {
                     self.fatal("block type must be ExceptHandler here.")
                 }
             }
-            bytecode::Instruction::SetExcInfo => {
-                // Set the current exception to TOS (for except* handlers)
-                // This updates sys.exc_info() so bare 'raise' will reraise the matched exception
-                let exc = self.top_value();
-                if let Some(exc) = exc.downcast_ref::<PyBaseException>() {
-                    vm.set_exception(Some(exc.to_owned()));
-                }
-                Ok(None)
-            }
             bytecode::Instruction::PopJumpIfFalse { target } => {
                 self.pop_jump_if(vm, target.get(arg), false)
             }
@@ -1409,6 +1400,15 @@ impl ExecutingFrame<'_> {
                     obj.downcast_unchecked_ref()
                 };
                 set.add(item, vm)?;
+                Ok(None)
+            }
+            bytecode::Instruction::SetExcInfo => {
+                // Set the current exception to TOS (for except* handlers)
+                // This updates sys.exc_info() so bare 'raise' will reraise the matched exception
+                let exc = self.top_value();
+                if let Some(exc) = exc.downcast_ref::<PyBaseException>() {
+                    vm.set_exception(Some(exc.to_owned()));
+                }
                 Ok(None)
             }
             bytecode::Instruction::SetFunctionAttribute { attr } => {

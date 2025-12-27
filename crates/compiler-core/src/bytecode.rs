@@ -1965,6 +1965,7 @@ impl Instruction {
             SetupWith { end } => w!(SETUP_WITH, end),
             StoreAttr { idx } => w!(STORE_ATTR, name = idx),
             StoreDeref(idx) => w!(STORE_DEREF, cell_name = idx),
+            SetExcInfo => w!(SET_EXC_INFO),
             StoreFast(idx) => w!(STORE_FAST, varname = idx),
             StoreGlobal(idx) => w!(STORE_GLOBAL, name = idx),
             StoreLocal(idx) => w!(STORE_LOCAL, name = idx),
@@ -1979,7 +1980,6 @@ impl Instruction {
             WithCleanupStart => w!(WITH_CLEANUP_START),
             YieldFrom => w!(YIELD_FROM),
             YieldValue => w!(YIELD_VALUE),
-            SetExcInfo => w!(SET_EXC_INFO),
         }
     }
 }
