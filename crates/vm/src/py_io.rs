@@ -70,11 +70,14 @@ pub fn file_readline(obj: &PyObject, size: Option<usize>, vm: &VirtualMachine) -
     };
     let ret = match_class!(match ret {
         s @ PyStr => {
-            let s_val = s.as_str();
-            if s_val.is_empty() {
+            // Use as_wtf8() to handle strings with surrogates (e.g., surrogateescape)
+            let s_wtf8 = s.as_wtf8();
+            if s_wtf8.is_empty() {
                 return Err(eof_err());
             }
-            if let Some(no_nl) = s_val.strip_suffix('\n') {
+            // '\n' is ASCII, so we can check bytes directly
+            if s_wtf8.as_bytes().last() == Some(&b'\n') {
+                let no_nl = &s_wtf8[..s_wtf8.len() - 1];
                 vm.ctx.new_str(no_nl).into()
             } else {
                 s.into()

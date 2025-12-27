@@ -7,8 +7,6 @@ pub use builtins::{ascii, print, reversed};
 
 #[pymodule]
 mod builtins {
-    use std::io::IsTerminal;
-
     use crate::{
         AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{
@@ -464,6 +462,8 @@ mod builtins {
 
     #[pyfunction]
     fn input(prompt: OptionalArg<PyStrRef>, vm: &VirtualMachine) -> PyResult {
+        use std::io::IsTerminal;
+
         let stdin = sys::get_stdin(vm)?;
         let stdout = sys::get_stdout(vm)?;
         let stderr = sys::get_stderr(vm)?;
@@ -476,8 +476,13 @@ mod builtins {
                 .is_ok_and(|fd| fd == expected)
         };
 
-        // everything is normal, we can just rely on rustyline to use stdin/stdout
-        if fd_matches(&stdin, 0) && fd_matches(&stdout, 1) && std::io::stdin().is_terminal() {
+        // Check if we should use rustyline (interactive terminal, not PTY child)
+        let use_rustyline = fd_matches(&stdin, 0)
+            && fd_matches(&stdout, 1)
+            && std::io::stdin().is_terminal()
+            && !is_pty_child();
+
+        if use_rustyline {
             let prompt = prompt.as_ref().map_or("", |s| s.as_str());
             let mut readline = Readline::new(());
             match readline.readline(prompt) {
@@ -500,6 +505,21 @@ mod builtins {
             let _ = vm.call_method(&stdout, "flush", ());
             py_io::file_readline(&stdin, None, vm)
         }
+    }
+
+    /// Check if we're running in a PTY child process (e.g., after pty.fork()).
+    /// pty.fork() calls setsid(), making the child a session leader.
+    /// In this case, rustyline may hang because it uses raw mode.
+    #[cfg(unix)]
+    fn is_pty_child() -> bool {
+        use nix::unistd::{getsid, getpid};
+        // If this process is a session leader, we're likely in a PTY child
+        getsid(None) == Ok(getpid())
+    }
+
+    #[cfg(not(unix))]
+    fn is_pty_child() -> bool {
+        false
     }
 
     #[pyfunction]
