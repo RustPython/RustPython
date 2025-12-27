@@ -153,8 +153,6 @@ class BuiltinTest(unittest.TestCase):
         it = pickle.loads(d)
         self.assertEqual(list(it), seq[1:])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_import(self):
         __import__('sys')
         __import__('time')

@@ -1403,8 +1403,6 @@ class CircularImportTests(unittest.TestCase):
             str(cm.exception),
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unwritable_module(self):
         self.addCleanup(unload, "test.test_import.data.unwritable")
         self.addCleanup(unload, "test.test_import.data.unwritable.x")
