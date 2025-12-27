@@ -1336,7 +1336,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn isidentifier(&self) -> bool {
+    pub fn isidentifier(&self) -> bool {
         let Some(s) = self.to_str() else { return false };
         let mut chars = s.chars();
         let is_identifier_start = chars.next().is_some_and(|c| c == '_' || is_xid_start(c));

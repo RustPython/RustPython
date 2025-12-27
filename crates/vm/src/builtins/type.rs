@@ -1378,6 +1378,15 @@ impl Constructor for PyType {
                     tuple.try_into_typed(vm)?
                 };
 
+                // Validate that all slots are valid identifiers
+                for slot in slots.iter() {
+                    if !slot.isidentifier() {
+                        return Err(
+                            vm.new_type_error("__slots__ must be identifiers".to_owned())
+                        );
+                    }
+                }
+
                 // Check if __dict__ is in slots
                 let dict_name = "__dict__";
                 let has_dict = slots.iter().any(|s| s.as_str() == dict_name);
