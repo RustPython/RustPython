@@ -1381,9 +1381,7 @@ impl Constructor for PyType {
                 // Validate that all slots are valid identifiers
                 for slot in slots.iter() {
                     if !slot.isidentifier() {
-                        return Err(
-                            vm.new_type_error("__slots__ must be identifiers".to_owned())
-                        );
+                        return Err(vm.new_type_error("__slots__ must be identifiers".to_owned()));
                     }
                 }
 
