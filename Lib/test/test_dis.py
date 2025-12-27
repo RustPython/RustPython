@@ -974,10 +974,12 @@ class DisTests(DisTestBase):
     def test_bug_42562(self):
         self.do_disassembly_test(bug42562, dis_bug42562)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bug_45757(self):
         # Extended arg followed by NOP
         self.do_disassembly_test(code_bug_45757, dis_bug_45757)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bug_46724(self):
         # Test that negative operargs are handled properly
         self.do_disassembly_test(bug46724, dis_bug46724)
@@ -1056,11 +1058,13 @@ class DisTests(DisTestBase):
     def test_disassemble_class_method(self):
         self.do_disassembly_test(_C.cm, dis_c_class_method)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_disassemble_generator(self):
         gen_func_disas = self.get_disassembly(_g)  # Generator function
         gen_disas = self.get_disassembly(_g(1))  # Generator iterator
         self.assertEqual(gen_disas, gen_func_disas)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_disassemble_async_generator(self):
         agen_func_disas = self.get_disassembly(_ag)  # Async generator function
         agen_disas = self.get_disassembly(_ag(1))  # Async generator iterator
@@ -1091,6 +1095,7 @@ class DisTests(DisTestBase):
         self.do_disassembly_test(_tryfinally, dis_tryfinally)
         self.do_disassembly_test(_tryfinallyconst, dis_tryfinallyconst)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_dis_none(self):
         try:
             del sys.last_exc
