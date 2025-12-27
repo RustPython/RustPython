@@ -1580,13 +1580,18 @@ impl Compiler {
             }
             Stmt::Break(_) => {
                 // Find the innermost loop in fblock stack
+                // Error if we encounter ExceptionGroupHandler before finding a loop
                 let found_loop = {
                     let code = self.current_code_info();
-                    let mut result = None;
+                    let mut result = Ok(None);
                     for i in (0..code.fblock.len()).rev() {
                         match code.fblock[i].fb_type {
                             FBlockType::WhileLoop | FBlockType::ForLoop => {
-                                result = Some(code.fblock[i].fb_exit);
+                                result = Ok(Some(code.fblock[i].fb_exit));
+                                break;
+                            }
+                            FBlockType::ExceptionGroupHandler => {
+                                result = Err(());
                                 break;
                             }
                             _ => continue,
@@ -1596,25 +1601,36 @@ impl Compiler {
                 };
 
                 match found_loop {
-                    Some(exit_block) => {
+                    Ok(Some(exit_block)) => {
                         emit!(self, Instruction::Break { target: exit_block });
                     }
-                    None => {
+                    Ok(None) => {
                         return Err(
                             self.error_ranged(CodegenErrorType::InvalidBreak, statement.range())
                         );
+                    }
+                    Err(()) => {
+                        return Err(self.error_ranged(
+                            CodegenErrorType::BreakContinueReturnInExceptStar,
+                            statement.range(),
+                        ));
                     }
                 }
             }
             Stmt::Continue(_) => {
                 // Find the innermost loop in fblock stack
+                // Error if we encounter ExceptionGroupHandler before finding a loop
                 let found_loop = {
                     let code = self.current_code_info();
-                    let mut result = None;
+                    let mut result = Ok(None);
                     for i in (0..code.fblock.len()).rev() {
                         match code.fblock[i].fb_type {
                             FBlockType::WhileLoop | FBlockType::ForLoop => {
-                                result = Some(code.fblock[i].fb_block);
+                                result = Ok(Some(code.fblock[i].fb_block));
+                                break;
+                            }
+                            FBlockType::ExceptionGroupHandler => {
+                                result = Err(());
                                 break;
                             }
                             _ => continue,
@@ -1624,13 +1640,19 @@ impl Compiler {
                 };
 
                 match found_loop {
-                    Some(loop_block) => {
+                    Ok(Some(loop_block)) => {
                         emit!(self, Instruction::Continue { target: loop_block });
                     }
-                    None => {
+                    Ok(None) => {
                         return Err(
                             self.error_ranged(CodegenErrorType::InvalidContinue, statement.range())
                         );
+                    }
+                    Err(()) => {
+                        return Err(self.error_ranged(
+                            CodegenErrorType::BreakContinueReturnInExceptStar,
+                            statement.range(),
+                        ));
                     }
                 }
             }
@@ -1639,6 +1661,18 @@ impl Compiler {
                     return Err(
                         self.error_ranged(CodegenErrorType::InvalidReturn, statement.range())
                     );
+                }
+                // Check if we're inside an except* block in the current function
+                {
+                    let code = self.current_code_info();
+                    for block in code.fblock.iter().rev() {
+                        if matches!(block.fb_type, FBlockType::ExceptionGroupHandler) {
+                            return Err(self.error_ranged(
+                                CodegenErrorType::BreakContinueReturnInExceptStar,
+                                statement.range(),
+                            ));
+                        }
+                    }
                 }
                 match value {
                     Some(v) => {
@@ -2126,9 +2160,14 @@ impl Compiler {
         orelse: &[Stmt],
         finalbody: &[Stmt],
     ) -> CompileResult<()> {
-        // Simplified except* implementation using CheckEgMatch
+        // Simplified except* implementation using PrepReraiseStar intrinsic
+        // Stack layout during handler processing: [orig, list, rest]
         let handler_block = self.new_block();
         let finally_block = self.new_block();
+        let else_block = self.new_block();
+        let end_block = self.new_block();
+        let reraise_star_block = self.new_block();
+        let reraise_block = self.new_block();
 
         if !finalbody.is_empty() {
             emit!(
@@ -2138,8 +2177,6 @@ impl Compiler {
                 }
             );
         }
-
-        let else_block = self.new_block();
 
         emit!(
             self,
@@ -2151,20 +2188,32 @@ impl Compiler {
         emit!(self, Instruction::PopBlock);
         emit!(self, Instruction::Jump { target: else_block });
 
+        // Exception handler entry
         self.switch_to_block(handler_block);
         // Stack: [exc]
 
-        for handler in handlers {
+        // Create list for tracking exception results and copy orig
+        emit!(self, Instruction::BuildList { size: 0 });
+        // Stack: [exc, []]
+        // CopyItem is 1-indexed: CopyItem(1)=TOS, CopyItem(2)=second from top
+        // With stack [exc, []], CopyItem(2) copies exc
+        emit!(self, Instruction::CopyItem { index: 2 });
+        // Stack: [exc, [], exc_copy]
+
+        // Now stack is: [orig, list, rest]
+
+        let n = handlers.len();
+        for (i, handler) in handlers.iter().enumerate() {
             let ExceptHandler::ExceptHandler(ExceptHandlerExceptHandler {
                 type_, name, body, ..
             }) = handler;
 
-            let skip_block = self.new_block();
+            let no_match_block = self.new_block();
             let next_block = self.new_block();
 
             // Compile exception type
             if let Some(exc_type) = type_ {
-                // Check for unparenthesized tuple (e.g., `except* A, B:` instead of `except* (A, B):`)
+                // Check for unparenthesized tuple
                 if let Expr::Tuple(ExprTuple { elts, range, .. }) = exc_type.as_ref()
                     && let Some(first) = elts.first()
                     && range.start().to_u32() == first.range().start().to_u32()
@@ -2179,67 +2228,161 @@ impl Compiler {
                     "except* must specify an exception type".to_owned(),
                 )));
             }
-            // Stack: [exc, type]
+            // Stack: [orig, list, rest, type]
 
             emit!(self, Instruction::CheckEgMatch);
-            // Stack: [rest, match]
+            // Stack: [orig, list, new_rest, match]
 
-            // Check if match is None (truthy check)
+            // Check if match is not None (use identity check, not truthiness)
+            // CopyItem is 1-indexed: CopyItem(1) = TOS, CopyItem(2) = second from top
             emit!(self, Instruction::CopyItem { index: 1 });
-            emit!(self, Instruction::ToBool);
-            emit!(self, Instruction::PopJumpIfFalse { target: skip_block });
+            self.emit_load_const(ConstantData::None);
+            emit!(self, Instruction::IsOp(bytecode::Invert::No)); // is None?
+            emit!(
+                self,
+                Instruction::PopJumpIfTrue {
+                    target: no_match_block
+                }
+            );
 
-            // Handler matched - store match to name if provided
-            // Stack: [rest, match]
+            // Handler matched
+            // Stack: [orig, list, new_rest, match]
+            let handler_except_block = self.new_block();
+            let handler_done_block = self.new_block();
+
+            // Set matched exception as current exception for bare 'raise'
+            emit!(self, Instruction::SetExcInfo);
+
+            // Store match to name if provided
             if let Some(alias) = name {
+                // CopyItem(1) copies TOS (match)
+                emit!(self, Instruction::CopyItem { index: 1 });
                 self.store_name(alias.as_str())?;
-            } else {
-                emit!(self, Instruction::PopTop);
             }
-            // Stack: [rest]
+            // Stack: [orig, list, new_rest, match]
 
+            // Setup exception handler to catch 'raise' in handler body
+            emit!(
+                self,
+                Instruction::SetupExcept {
+                    handler: handler_except_block,
+                }
+            );
+
+            // Push fblock to disallow break/continue/return in except* handler
+            self.push_fblock(
+                FBlockType::ExceptionGroupHandler,
+                handler_done_block,
+                end_block,
+            )?;
+
+            // Execute handler body
             self.compile_statements(body)?;
 
+            // Handler body completed normally (didn't raise)
+            self.pop_fblock(FBlockType::ExceptionGroupHandler);
+            emit!(self, Instruction::PopBlock);
+
+            // Cleanup name binding
             if let Some(alias) = name {
                 self.emit_load_const(ConstantData::None);
                 self.store_name(alias.as_str())?;
                 self.compile_name(alias.as_str(), NameUsage::Delete)?;
             }
 
+            // Stack: [orig, list, new_rest, match]
+            // Pop match (handler consumed it)
+            emit!(self, Instruction::PopTop);
+            // Stack: [orig, list, new_rest]
+
+            // Append None to list (exception was consumed, not reraised)
+            self.emit_load_const(ConstantData::None);
+            // Stack: [orig, list, new_rest, None]
+            emit!(self, Instruction::ListAppend { i: 1 });
+            // Stack: [orig, list, new_rest]
+
+            emit!(
+                self,
+                Instruction::Jump {
+                    target: handler_done_block
+                }
+            );
+
+            // Handler raised an exception (bare 'raise' or other)
+            self.switch_to_block(handler_except_block);
+            // Stack: [orig, list, new_rest, match, raised_exc]
+
+            // Cleanup name binding
+            if let Some(alias) = name {
+                self.emit_load_const(ConstantData::None);
+                self.store_name(alias.as_str())?;
+                self.compile_name(alias.as_str(), NameUsage::Delete)?;
+            }
+
+            // Append raised_exc to list (the actual exception that was raised)
+            // Stack: [orig, list, new_rest, match, raised_exc]
+            // ListAppend(2): pop raised_exc, then append to list at stack[4-2-1]=stack[1]
+            emit!(self, Instruction::ListAppend { i: 2 });
+            // Stack: [orig, list, new_rest, match]
+
+            // Pop match (no longer needed)
+            emit!(self, Instruction::PopTop);
+            // Stack: [orig, list, new_rest]
+
+            self.switch_to_block(handler_done_block);
+            // Stack: [orig, list, new_rest]
+
             emit!(self, Instruction::Jump { target: next_block });
 
-            // No match - pop match (None) and continue with rest
-            self.switch_to_block(skip_block);
-            emit!(self, Instruction::PopTop); // drop match (None)
-            // Stack: [rest]
+            // No match - pop match (None), keep rest unchanged
+            self.switch_to_block(no_match_block);
+            emit!(self, Instruction::PopTop); // pop match (None)
+            // Stack: [orig, list, new_rest]
 
             self.switch_to_block(next_block);
-            // Stack: [rest] - continue with rest for next handler
+            // Stack: [orig, list, rest] (rest may have been updated)
+
+            // After last handler, append remaining rest to list
+            if i == n - 1 {
+                // Stack: [orig, list, rest]
+                // ListAppend(i) pops TOS, then accesses stack[len - i - 1]
+                // After pop, stack is [orig, list], len=2
+                // We want list at index 1, so 2 - i - 1 = 1, i = 0
+                emit!(self, Instruction::ListAppend { i: 0 });
+                // Stack: [orig, list]
+                emit!(
+                    self,
+                    Instruction::Jump {
+                        target: reraise_star_block
+                    }
+                );
+            }
         }
 
-        let handled_block = self.new_block();
+        // Reraise star block
+        self.switch_to_block(reraise_star_block);
+        // Stack: [orig, list]
+        emit!(
+            self,
+            Instruction::CallIntrinsic2 {
+                func: bytecode::IntrinsicFunction2::PrepReraiseStar
+            }
+        );
+        // Stack: [result] (exception to reraise or None)
 
-        // Check if remainder is truthy (has unhandled exceptions)
-        // Stack: [rest]
+        // Check if result is not None (use identity check, not truthiness)
         emit!(self, Instruction::CopyItem { index: 1 });
-        emit!(self, Instruction::ToBool);
+        self.emit_load_const(ConstantData::None);
+        emit!(self, Instruction::IsOp(bytecode::Invert::Yes)); // is not None?
         emit!(
             self,
-            Instruction::PopJumpIfFalse {
-                target: handled_block
-            }
-        );
-        // Reraise unhandled exceptions
-        emit!(
-            self,
-            Instruction::Raise {
-                kind: bytecode::RaiseKind::Raise
+            Instruction::PopJumpIfTrue {
+                target: reraise_block
             }
         );
 
-        // All exceptions handled
-        self.switch_to_block(handled_block);
-        emit!(self, Instruction::PopTop); // drop remainder (None)
+        // Nothing to reraise
+        emit!(self, Instruction::PopTop);
         emit!(self, Instruction::PopException);
 
         if !finalbody.is_empty() {
@@ -2247,10 +2390,17 @@ impl Compiler {
             emit!(self, Instruction::EnterFinally);
         }
 
+        emit!(self, Instruction::Jump { target: end_block });
+
+        // Reraise the result
+        self.switch_to_block(reraise_block);
+        // Don't call PopException before Raise - it truncates the stack and removes the result.
+        // When Raise is executed, the exception propagates through unwind_blocks which
+        // will properly handle the ExceptHandler block.
         emit!(
             self,
-            Instruction::Jump {
-                target: finally_block,
+            Instruction::Raise {
+                kind: bytecode::RaiseKind::Raise
             }
         );
 
@@ -2263,8 +2413,11 @@ impl Compiler {
             emit!(self, Instruction::EnterFinally);
         }
 
-        self.switch_to_block(finally_block);
+        emit!(self, Instruction::Jump { target: end_block });
+
+        self.switch_to_block(end_block);
         if !finalbody.is_empty() {
+            self.switch_to_block(finally_block);
             self.compile_statements(finalbody)?;
             emit!(self, Instruction::EndFinally);
         }

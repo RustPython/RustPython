@@ -865,11 +865,14 @@ pub enum Instruction {
     WithCleanupStart,
     YieldFrom,
     YieldValue,
+    /// Set the current exception to TOS (for except* handlers).
+    /// Does not pop the value.
+    SetExcInfo,
     // If you add a new instruction here, be sure to keep LAST_INSTRUCTION updated
 }
 
 // This must be kept up to date to avoid marshaling errors
-const LAST_INSTRUCTION: Instruction = Instruction::YieldValue;
+const LAST_INSTRUCTION: Instruction = Instruction::SetExcInfo;
 
 const _: () = assert!(mem::size_of::<Instruction>() == 1);
 
@@ -1743,6 +1746,7 @@ impl Instruction {
             Resume { .. } => 0,
             YieldValue => 0,
             YieldFrom => -1,
+            SetExcInfo => 0,
             SetupAnnotation | SetupLoop | SetupFinally { .. } | EnterFinally | EndFinally => 0,
             SetupExcept { .. } => jump as i32,
             SetupWith { .. } => (!jump) as i32,
@@ -1961,6 +1965,7 @@ impl Instruction {
             SetupWith { end } => w!(SETUP_WITH, end),
             StoreAttr { idx } => w!(STORE_ATTR, name = idx),
             StoreDeref(idx) => w!(STORE_DEREF, cell_name = idx),
+            SetExcInfo => w!(SET_EXC_INFO),
             StoreFast(idx) => w!(STORE_FAST, varname = idx),
             StoreGlobal(idx) => w!(STORE_GLOBAL, name = idx),
             StoreLocal(idx) => w!(STORE_LOCAL, name = idx),
