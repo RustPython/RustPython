@@ -2364,7 +2364,6 @@ class TestDisCLI(unittest.TestCase):
             expect = self.text_normalize(expect)
             self.assertListEqual(res.splitlines(), expect.splitlines())
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_invocation(self):
         # test various combinations of parameters
         base_flags = [
