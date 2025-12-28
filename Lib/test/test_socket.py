@@ -824,6 +824,8 @@ class GeneralModuleTests(unittest.TestCase):
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     @unittest.skipUnless(_socket is not None, 'need _socket module')
+    # TODO: RUSTPYTHON gc.is_tracked not implemented
+    @unittest.expectedFailure
     def test_socket_type(self):
         self.assertTrue(gc.is_tracked(_socket.socket))
         with self.assertRaisesRegex(TypeError, "immutable"):

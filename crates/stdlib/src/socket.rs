@@ -226,6 +226,48 @@ mod _socket {
     #[pyattr]
     use c::{AF_SYSTEM, PF_SYSTEM, SYSPROTO_CONTROL, TCP_KEEPALIVE};
 
+    // RFC3542 IPv6 socket options for macOS (netinet6/in6.h)
+    // Not available in libc, define manually
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_RECVHOPLIMIT: i32 = 37;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_RECVRTHDR: i32 = 38;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_RECVHOPOPTS: i32 = 39;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_RECVDSTOPTS: i32 = 40;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_USE_MIN_MTU: i32 = 42;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_RECVPATHMTU: i32 = 43;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_PATHMTU: i32 = 44;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_NEXTHOP: i32 = 48;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_HOPOPTS: i32 = 49;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_DSTOPTS: i32 = 50;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_RTHDR: i32 = 51;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_RTHDRDSTOPTS: i32 = 57;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_RTHDR_TYPE_0: i32 = 0;
+
     #[cfg(windows)]
     #[pyattr]
     use c::{
@@ -491,6 +533,7 @@ mod _socket {
         target_os = "dragonfly",
         target_os = "freebsd",
         target_os = "linux",
+        target_vendor = "apple",
         windows
     ))]
     #[pyattr]
@@ -1595,6 +1638,38 @@ mod _socket {
                 close_inner(sock as RawSocket)?;
             }
             Ok(())
+        }
+
+        #[pymethod]
+        fn __del__(&self, vm: &VirtualMachine) {
+            // Emit ResourceWarning if socket is still open
+            if self.sock.read().is_some() {
+                let laddr = if let Ok(sock) = self.sock()
+                    && let Ok(addr) = sock.local_addr()
+                    && let Ok(repr) = get_addr_tuple(&addr, vm).repr(vm)
+                {
+                    format!(", laddr={}", repr.as_str())
+                } else {
+                    String::new()
+                };
+
+                let msg = format!(
+                    "unclosed <socket.socket fd={}, family={}, type={}, proto={}{}>",
+                    self.fileno(),
+                    self.family.load(),
+                    self.kind.load(),
+                    self.proto.load(),
+                    laddr
+                );
+                let _ = crate::vm::warn::warn(
+                    vm.ctx.new_str(msg),
+                    Some(vm.ctx.exceptions.resource_warning.to_owned()),
+                    1,
+                    None,
+                    vm,
+                );
+            }
+            let _ = self.close();
         }
 
         #[pymethod]
