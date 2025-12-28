@@ -1000,7 +1000,10 @@ mod _io {
                     };
                     if offset >= -self.pos && offset <= available {
                         self.pos += offset;
-                        return Ok(current - available + offset);
+                        // GH-95782: character devices may report raw position 0
+                        // even after reading, which would make this negative
+                        let result = current - available + offset;
+                        return Ok(if result < 0 { 0 } else { result });
                     }
                 }
             }
@@ -1112,7 +1115,7 @@ mod _io {
                 }
             }
 
-            // Handle flush errors like CPython: if BlockingIOError, shift buffer
+            // if BlockingIOError, shift buffer
             // and try to buffer the new data; otherwise propagate the error
             match self.flush(vm) {
                 Ok(()) => {}
@@ -1147,7 +1150,7 @@ mod _io {
                     return Err(vm.invoke_exception(
                         vm.ctx.exceptions.blocking_io_error.to_owned(),
                         vec![
-                            vm.new_pyobj(libc::EAGAIN),
+                            vm.new_pyobj(EAGAIN),
                             vm.new_pyobj("write could not complete without blocking"),
                             vm.new_pyobj(avail),
                         ],
@@ -1738,34 +1741,25 @@ mod _io {
             Ok(self.lock(vm)?.raw.clone())
         }
 
+        /// Get raw stream without holding the lock (for calling Python code safely)
+        fn get_raw_unlocked(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            let data = self.lock(vm)?;
+            Ok(data.check_init(vm)?.to_owned())
+        }
+
         #[pygetset]
         fn closed(&self, vm: &VirtualMachine) -> PyResult {
-            // Don't hold the lock while calling Python code to avoid reentrant lock issues
-            let raw = {
-                let data = self.lock(vm)?;
-                data.check_init(vm)?.to_owned()
-            };
-            raw.get_attr("closed", vm)
+            self.get_raw_unlocked(vm)?.get_attr("closed", vm)
         }
 
         #[pygetset]
         fn name(&self, vm: &VirtualMachine) -> PyResult {
-            // Don't hold the lock while calling Python code to avoid reentrant lock issues
-            let raw = {
-                let data = self.lock(vm)?;
-                data.check_init(vm)?.to_owned()
-            };
-            raw.get_attr("name", vm)
+            self.get_raw_unlocked(vm)?.get_attr("name", vm)
         }
 
         #[pygetset]
         fn mode(&self, vm: &VirtualMachine) -> PyResult {
-            // Don't hold the lock while calling Python code to avoid reentrant lock issues
-            let raw = {
-                let data = self.lock(vm)?;
-                data.check_init(vm)?.to_owned()
-            };
-            raw.get_attr("mode", vm)
+            self.get_raw_unlocked(vm)?.get_attr("mode", vm)
         }
 
         #[pymethod]
@@ -1835,10 +1829,9 @@ mod _io {
             Self::WRITABLE
         }
 
-        // TODO: this should be the default for an equivalent of _PyObject_GetState
         #[pymethod]
-        fn __reduce__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name())))
+        fn __getstate__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error(format!("cannot pickle '{}' instances", zelf.class().name())))
         }
     }
 
@@ -2006,9 +1999,10 @@ mod _io {
         #[pymethod]
         fn write(&self, obj: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
             // Check if close() is in progress (Issue #31976)
-            // If closing, wait for close() to complete by spinning until raw is closed
+            // If closing, wait for close() to complete by spinning until raw is closed.
+            // Note: This spin-wait has no timeout because close() is expected to always
+            // complete (flush + fd close).
             if self.writer().closing().load(Ordering::Acquire) {
-                // Wait for close() to complete - loop until raw.closed is True
                 loop {
                     let raw = {
                         let data = self.writer().lock(vm)?;
@@ -3460,8 +3454,8 @@ mod _io {
         }
 
         #[pymethod]
-        fn __reduce__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name())))
+        fn __getstate__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error(format!("cannot pickle '{}' instances", zelf.class().name())))
         }
     }
 
@@ -5199,8 +5193,8 @@ mod fileio {
         }
 
         #[pymethod]
-        fn __reduce__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name())))
+        fn __getstate__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error(format!("cannot pickle '{}' instances", zelf.class().name())))
         }
     }
 

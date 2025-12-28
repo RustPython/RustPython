@@ -1843,10 +1843,6 @@ class CBufferedReaderTest(BufferedReaderTest, SizeofTest):
     def test_error_through_destructor(self):
         return super().test_error_through_destructor()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_seek_character_device_file(self):
-        return super().test_seek_character_device_file()
-
     def test_truncate_on_read_only(self):
         return super().test_truncate_on_read_only()
 
@@ -2698,10 +2694,6 @@ class CBufferedRandomTest(BufferedRandomTest, SizeofTest):
     @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_error_through_destructor(self):
         return super().test_error_through_destructor()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_seek_character_device_file(self):
-        return super().test_seek_character_device_file()
 
     @unittest.skip('TODO: RUSTPYTHON; fallible allocation')
     def test_constructor(self):
