@@ -191,6 +191,7 @@ mod _io {
         borrow::Cow,
         io::{self, Cursor, SeekFrom, prelude::*},
         ops::Range,
+        sync::atomic::{AtomicBool, Ordering},
     };
 
     #[allow(clippy::let_and_return)]
@@ -935,7 +936,7 @@ mod _io {
             let rewind = self.raw_offset() + (self.pos - self.write_pos);
             if rewind != 0 {
                 self.raw_seek(-rewind, 1, vm)?;
-                self.raw_pos = -rewind;
+                self.raw_pos -= rewind;
             }
 
             while self.write_pos < self.write_end {
@@ -1111,9 +1112,51 @@ mod _io {
                 }
             }
 
-            // TODO: something something check if error is BlockingIOError?
-            let _ = self.flush(vm);
+            // Handle flush errors like CPython: if BlockingIOError, shift buffer
+            // and try to buffer the new data; otherwise propagate the error
+            match self.flush(vm) {
+                Ok(()) => {}
+                Err(e) if e.fast_isinstance(vm.ctx.exceptions.blocking_io_error) => {
+                    if self.readable() {
+                        self.reset_read();
+                    }
+                    // Shift buffer and adjust positions
+                    let shift = self.write_pos;
+                    if shift > 0 {
+                        self.buffer
+                            .copy_within(shift as usize..self.write_end as usize, 0);
+                        self.write_end -= shift;
+                        self.raw_pos -= shift;
+                        self.pos -= shift;
+                        self.write_pos = 0;
+                    }
+                    let avail = self.buffer.len() - self.write_end as usize;
+                    if buf_len <= avail {
+                        // Everything can be buffered
+                        let buf = obj.borrow_buf();
+                        self.buffer[self.write_end as usize..][..buf_len].copy_from_slice(&buf);
+                        self.write_end += buf_len as Offset;
+                        self.pos += buf_len as Offset;
+                        return Ok(buf_len);
+                    }
+                    // Buffer as much as possible and return BlockingIOError
+                    let buf = obj.borrow_buf();
+                    self.buffer[self.write_end as usize..][..avail].copy_from_slice(&buf[..avail]);
+                    self.write_end += avail as Offset;
+                    self.pos += avail as Offset;
+                    return Err(vm.invoke_exception(
+                        vm.ctx.exceptions.blocking_io_error.to_owned(),
+                        vec![
+                            vm.new_pyobj(libc::EAGAIN),
+                            vm.new_pyobj("write could not complete without blocking"),
+                            vm.new_pyobj(avail),
+                        ],
+                    )?);
+                }
+                Err(e) => return Err(e),
+            }
 
+            // Only reach here if flush succeeded
             let offset = self.raw_offset();
             if offset != 0 {
                 self.raw_seek(-offset, 1, vm)?;
@@ -1556,6 +1599,7 @@ mod _io {
         const SEEKABLE: bool = false;
 
         fn data(&self) -> &PyThreadMutex<BufferedData>;
+        fn closing(&self) -> &AtomicBool;
 
         fn lock(&self, vm: &VirtualMachine) -> PyResult<PyThreadMutexGuard<'_, BufferedData>> {
             self.data()
@@ -1696,17 +1740,32 @@ mod _io {
 
         #[pygetset]
         fn closed(&self, vm: &VirtualMachine) -> PyResult {
-            self.lock(vm)?.check_init(vm)?.get_attr("closed", vm)
+            // Don't hold the lock while calling Python code to avoid reentrant lock issues
+            let raw = {
+                let data = self.lock(vm)?;
+                data.check_init(vm)?.to_owned()
+            };
+            raw.get_attr("closed", vm)
         }
 
         #[pygetset]
         fn name(&self, vm: &VirtualMachine) -> PyResult {
-            self.lock(vm)?.check_init(vm)?.get_attr("name", vm)
+            // Don't hold the lock while calling Python code to avoid reentrant lock issues
+            let raw = {
+                let data = self.lock(vm)?;
+                data.check_init(vm)?.to_owned()
+            };
+            raw.get_attr("name", vm)
         }
 
         #[pygetset]
         fn mode(&self, vm: &VirtualMachine) -> PyResult {
-            self.lock(vm)?.check_init(vm)?.get_attr("mode", vm)
+            // Don't hold the lock while calling Python code to avoid reentrant lock issues
+            let raw = {
+                let data = self.lock(vm)?;
+                data.check_init(vm)?.to_owned()
+            };
+            raw.get_attr("mode", vm)
         }
 
         #[pymethod]
@@ -1750,17 +1809,19 @@ mod _io {
 
         #[pymethod]
         fn close(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            {
+            // Don't hold the lock while calling Python code to avoid reentrant lock issues
+            let raw = {
                 let data = zelf.lock(vm)?;
                 let raw = data.check_init(vm)?;
                 if file_closed(raw, vm)? {
                     return Ok(vm.ctx.none());
                 }
-            }
+                raw.to_owned()
+            };
+            // Set closing flag so that concurrent write() calls will fail
+            zelf.closing().store(true, Ordering::Release);
             let flush_res = vm.call_method(zelf.as_object(), "flush", ()).map(drop);
-            let data = zelf.lock(vm)?;
-            let raw = data.raw.as_ref().unwrap();
-            let close_res = vm.call_method(raw, "close", ());
+            let close_res = vm.call_method(&raw, "close", ());
             exception_chain(flush_res, close_res)
         }
 
@@ -1830,6 +1891,10 @@ mod _io {
                 let n = std::cmp::min(have as usize, n);
                 return Ok(data.read_fast(n).unwrap());
             }
+            // Flush write buffer before reading
+            if data.writable() {
+                data.flush_rewind(vm)?;
+            }
             let mut v = vec![0; n];
             data.reset_read();
             let r = data
@@ -1855,6 +1920,19 @@ mod _io {
             ensure_unclosed(raw, "readinto of closed file", vm)?;
             data.readinto_generic(buf.into(), true, vm)
         }
+
+        #[pymethod]
+        fn flush(&self, vm: &VirtualMachine) -> PyResult<()> {
+            // For read-only buffers, flush just calls raw.flush()
+            // Don't hold the lock while calling Python code to avoid reentrant lock issues
+            let raw = {
+                let data = self.reader().lock(vm)?;
+                data.check_init(vm)?.to_owned()
+            };
+            ensure_unclosed(&raw, "flush of closed file", vm)?;
+            vm.call_method(&raw, "flush", ())?;
+            Ok(())
+        }
     }
 
     fn exception_chain<T>(e1: PyResult<()>, e2: PyResult<T>) -> PyResult<T> {
@@ -1874,6 +1952,7 @@ mod _io {
     struct BufferedReader {
         _base: _BufferedIOBase,
         data: PyThreadMutex<BufferedData>,
+        closing: AtomicBool,
     }
 
     impl BufferedMixin for BufferedReader {
@@ -1883,6 +1962,10 @@ mod _io {
 
         fn data(&self) -> &PyThreadMutex<BufferedData> {
             &self.data
+        }
+
+        fn closing(&self) -> &AtomicBool {
+            &self.closing
         }
     }
 
@@ -1922,6 +2005,26 @@ mod _io {
 
         #[pymethod]
         fn write(&self, obj: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+            // Check if close() is in progress (Issue #31976)
+            // If closing, wait for close() to complete by spinning until raw is closed
+            if self.writer().closing().load(Ordering::Acquire) {
+                // Wait for close() to complete - loop until raw.closed is True
+                loop {
+                    let raw = {
+                        let data = self.writer().lock(vm)?;
+                        match &data.raw {
+                            Some(raw) => raw.to_owned(),
+                            None => break, // detached
+                        }
+                    };
+                    if file_closed(&raw, vm)? {
+                        break;
+                    }
+                    // Yield to other threads
+                    std::thread::yield_now();
+                }
+                return Err(vm.new_value_error("write to closed file".to_owned()));
+            }
             let mut data = self.writer().lock(vm)?;
             let raw = data.check_init(vm)?;
             ensure_unclosed(raw, "write to closed file", vm)?;
@@ -1944,6 +2047,7 @@ mod _io {
     struct BufferedWriter {
         _base: _BufferedIOBase,
         data: PyThreadMutex<BufferedData>,
+        closing: AtomicBool,
     }
 
     impl BufferedMixin for BufferedWriter {
@@ -1953,6 +2057,10 @@ mod _io {
 
         fn data(&self) -> &PyThreadMutex<BufferedData> {
             &self.data
+        }
+
+        fn closing(&self) -> &AtomicBool {
+            &self.closing
         }
     }
 
@@ -1990,6 +2098,7 @@ mod _io {
     struct BufferedRandom {
         _base: _BufferedIOBase,
         data: PyThreadMutex<BufferedData>,
+        closing: AtomicBool,
     }
 
     impl BufferedMixin for BufferedRandom {
@@ -2000,6 +2109,10 @@ mod _io {
 
         fn data(&self) -> &PyThreadMutex<BufferedData> {
             &self.data
+        }
+
+        fn closing(&self) -> &AtomicBool {
+            &self.closing
         }
     }
 
@@ -4908,7 +5021,7 @@ mod fileio {
             zelf: &Py<Self>,
             read_byte: OptionalSize,
             vm: &VirtualMachine,
-        ) -> PyResult<Vec<u8>> {
+        ) -> PyResult<Option<Vec<u8>>> {
             if !zelf.mode.load().contains(Mode::READABLE) {
                 return Err(new_unsupported_operation(
                     vm,
@@ -4926,6 +5039,10 @@ mod fileio {
                             vm.check_signals()?;
                             continue;
                         }
+                        // Non-blocking mode: return None if EAGAIN
+                        Err(e) if e.raw_os_error() == Some(libc::EAGAIN) => {
+                            return Ok(None);
+                        }
                         Err(e) => return Err(Self::io_error(zelf, e, vm)),
                     }
                 };
@@ -4941,17 +5058,28 @@ mod fileio {
                             vm.check_signals()?;
                             continue;
                         }
+                        // Non-blocking mode: return None if EAGAIN (only if no data read yet)
+                        Err(e) if e.raw_os_error() == Some(libc::EAGAIN) => {
+                            if bytes.is_empty() {
+                                return Ok(None);
+                            }
+                            break;
+                        }
                         Err(e) => return Err(Self::io_error(zelf, e, vm)),
                     }
                 }
                 bytes
             };
 
-            Ok(bytes)
+            Ok(Some(bytes))
         }
 
         #[pymethod]
-        fn readinto(zelf: &Py<Self>, obj: ArgMemoryBuffer, vm: &VirtualMachine) -> PyResult<usize> {
+        fn readinto(
+            zelf: &Py<Self>,
+            obj: ArgMemoryBuffer,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<usize>> {
             if !zelf.mode.load().contains(Mode::READABLE) {
                 return Err(new_unsupported_operation(
                     vm,
@@ -4971,15 +5099,23 @@ mod fileio {
                         vm.check_signals()?;
                         continue;
                     }
+                    // Non-blocking mode: return None if EAGAIN
+                    Err(e) if e.raw_os_error() == Some(libc::EAGAIN) => {
+                        return Ok(None);
+                    }
                     Err(e) => return Err(Self::io_error(zelf, e, vm)),
                 }
             };
 
-            Ok(ret)
+            Ok(Some(ret))
         }
 
         #[pymethod]
-        fn write(zelf: &Py<Self>, obj: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+        fn write(
+            zelf: &Py<Self>,
+            obj: ArgBytesLike,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<usize>> {
             if !zelf.mode.load().contains(Mode::WRITABLE) {
                 return Err(new_unsupported_operation(
                     vm,
@@ -4989,12 +5125,15 @@ mod fileio {
 
             let mut handle = zelf.get_fd(vm)?;
 
-            let len = obj
-                .with_ref(|b| handle.write(b))
-                .map_err(|err| Self::io_error(zelf, err, vm))?;
+            let len = match obj.with_ref(|b| handle.write(b)) {
+                Ok(n) => n,
+                // Non-blocking mode: return None if EAGAIN
+                Err(e) if e.raw_os_error() == Some(libc::EAGAIN) => return Ok(None),
+                Err(e) => return Err(Self::io_error(zelf, e, vm)),
+            };
 
             //return number of bytes written
-            Ok(len)
+            Ok(Some(len))
         }
 
         #[pymethod]
