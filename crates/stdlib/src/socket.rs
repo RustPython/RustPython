@@ -2804,7 +2804,7 @@ mod _socket {
                 let encoded =
                     vm.state
                         .codec_registry
-                        .encode_text(s.to_owned().into(), "idna", None, vm)?;
+                        .encode_text(s.to_owned(), "idna", None, vm)?;
                 let host_str = std::str::from_utf8(encoded.as_bytes())
                     .map_err(|_| vm.new_runtime_error("idna output is not utf8".to_owned()))?;
                 Some(host_str.to_owned())
