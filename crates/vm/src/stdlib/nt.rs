@@ -78,6 +78,58 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
+    #[pyfunction(name = "unlink")]
+    pub(super) fn remove(
+        path: OsPath,
+        dir_fd: DirFd<'static, 0>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        // On Windows, use DeleteFileW directly.
+        // Rust's std::fs::remove_file may have different behavior for read-only files.
+        // See Py_DeleteFileW.
+        use windows_sys::Win32::Storage::FileSystem::{
+            DeleteFileW, FindClose, FindFirstFileW, RemoveDirectoryW, WIN32_FIND_DATAW,
+        };
+        use windows_sys::Win32::System::SystemServices::{
+            IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK,
+        };
+
+        let [] = dir_fd.0;
+        let wide_path = path.to_wide_cstring(vm)?;
+        let attrs = unsafe { FileSystem::GetFileAttributesW(wide_path.as_ptr()) };
+
+        let mut is_directory = false;
+        let mut is_link = false;
+
+        if attrs != FileSystem::INVALID_FILE_ATTRIBUTES {
+            is_directory = (attrs & FileSystem::FILE_ATTRIBUTE_DIRECTORY) != 0;
+
+            // Check if it's a symlink or junction point
+            if is_directory && (attrs & FileSystem::FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
+                let mut find_data: WIN32_FIND_DATAW = unsafe { std::mem::zeroed() };
+                let handle = unsafe { FindFirstFileW(wide_path.as_ptr(), &mut find_data) };
+                if handle != INVALID_HANDLE_VALUE {
+                    is_link = find_data.dwReserved0 == IO_REPARSE_TAG_SYMLINK
+                        || find_data.dwReserved0 == IO_REPARSE_TAG_MOUNT_POINT;
+                    unsafe { FindClose(handle) };
+                }
+            }
+        }
+
+        let result = if is_directory && is_link {
+            unsafe { RemoveDirectoryW(wide_path.as_ptr()) }
+        } else {
+            unsafe { DeleteFileW(wide_path.as_ptr()) }
+        };
+
+        if result == 0 {
+            let err = io::Error::last_os_error();
+            return Err(OSErrorBuilder::with_filename(&err, path, vm));
+        }
+        Ok(())
+    }
+
+    #[pyfunction]
     pub(super) fn _supports_virtual_terminal() -> PyResult<bool> {
         // TODO: implement this
         Ok(true)
@@ -139,9 +191,9 @@ pub(crate) mod module {
     }
 
     #[derive(FromArgs)]
-    struct ChmodArgs {
+    struct ChmodArgs<'a> {
         #[pyarg(any)]
-        path: OsPath,
+        path: OsPathOrFd<'a>,
         #[pyarg(any)]
         mode: u32,
         #[pyarg(flatten)]
@@ -150,16 +202,84 @@ pub(crate) mod module {
         follow_symlinks: OptionalArg<bool>,
     }
 
+    const S_IWRITE: u32 = 128;
+
+    fn fchmod_impl(fd: i32, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_BASIC_INFO, FileBasicInfo, GetFileInformationByHandleEx,
+            SetFileInformationByHandle,
+        };
+
+        // Get Windows HANDLE from fd
+        let borrowed = unsafe { crt_fd::Borrowed::borrow_raw(fd) };
+        let handle = crt_fd::as_handle(borrowed).map_err(|e| e.to_pyexception(vm))?;
+        let hfile = handle.as_raw_handle() as Foundation::HANDLE;
+
+        // Get current file info
+        let mut info: FILE_BASIC_INFO = unsafe { std::mem::zeroed() };
+        let ret = unsafe {
+            GetFileInformationByHandleEx(
+                hfile,
+                FileBasicInfo,
+                &mut info as *mut _ as *mut _,
+                std::mem::size_of::<FILE_BASIC_INFO>() as u32,
+            )
+        };
+        if ret == 0 {
+            return Err(vm.new_last_os_error());
+        }
+
+        // Modify readonly attribute based on S_IWRITE bit
+        if mode & S_IWRITE != 0 {
+            info.FileAttributes &= !FileSystem::FILE_ATTRIBUTE_READONLY;
+        } else {
+            info.FileAttributes |= FileSystem::FILE_ATTRIBUTE_READONLY;
+        }
+
+        // Set the new attributes
+        let ret = unsafe {
+            SetFileInformationByHandle(
+                hfile,
+                FileBasicInfo,
+                &info as *const _ as *const _,
+                std::mem::size_of::<FILE_BASIC_INFO>() as u32,
+            )
+        };
+        if ret == 0 {
+            return Err(vm.new_last_os_error());
+        }
+
+        Ok(())
+    }
+
     #[pyfunction]
-    fn chmod(args: ChmodArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn fchmod(fd: i32, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
+        fchmod_impl(fd, mode, vm)
+    }
+
+    #[pyfunction]
+    fn chmod(args: ChmodArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
         let ChmodArgs {
             path,
             mode,
             dir_fd,
             follow_symlinks,
         } = args;
-        const S_IWRITE: u32 = 128;
         let [] = dir_fd.0;
+
+        // If path is a file descriptor, use fchmod
+        if let OsPathOrFd::Fd(fd) = path {
+            if follow_symlinks.into_option().is_some() {
+                return Err(vm.new_value_error(
+                    "chmod: follow_symlinks is not supported with fd argument".to_owned(),
+                ));
+            }
+            return fchmod_impl(fd.as_raw(), mode, vm);
+        }
+
+        let OsPathOrFd::Path(path) = path else {
+            unreachable!()
+        };
 
         // On Windows, os.chmod behavior differs based on whether follow_symlinks is explicitly provided:
         // - Not provided (default): use SetFileAttributesW on the path directly (doesn't follow symlinks)

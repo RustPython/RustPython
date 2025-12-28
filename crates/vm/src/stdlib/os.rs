@@ -296,40 +296,6 @@ pub(super) mod _os {
         data.with_ref(|b| crt_fd::write(fd, b))
     }
 
-    #[pyfunction]
-    #[pyfunction(name = "unlink")]
-    fn remove(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult<()> {
-        let [] = dir_fd.0;
-        #[cfg(windows)]
-        let is_dir_link = {
-            // On Windows, we need to check if it's a directory symlink/junction
-            // using GetFileAttributesW, which doesn't follow symlinks.
-            // This is similar to CPython's Py_DeleteFileW.
-            use windows_sys::Win32::Storage::FileSystem::{
-                FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, GetFileAttributesW,
-                INVALID_FILE_ATTRIBUTES,
-            };
-            let wide_path: Vec<u16> = path.path.as_os_str().to_wide_with_nul();
-            let attrs = unsafe { GetFileAttributesW(wide_path.as_ptr()) };
-            if attrs != INVALID_FILE_ATTRIBUTES {
-                let is_dir = (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0;
-                let is_reparse = (attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
-                is_dir && is_reparse
-            } else {
-                false
-            }
-        };
-        #[cfg(not(windows))]
-        let is_dir_link = false;
-
-        let res = if is_dir_link {
-            fs::remove_dir(&path)
-        } else {
-            fs::remove_file(&path)
-        };
-        res.map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
-    }
-
     #[cfg(not(windows))]
     #[pyfunction]
     fn mkdir(
@@ -596,15 +562,16 @@ pub(super) mod _os {
 
         #[pymethod]
         fn is_dir(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
+            // Use cached file_type first to avoid stat() calls that may fail
+            if let Ok(file_type) = &self.file_type {
+                if !follow_symlinks.0 || !file_type.is_symlink() {
+                    return Ok(file_type.is_dir());
+                }
+            }
             match super::fs_metadata(&self.pathval, follow_symlinks.0) {
                 Ok(meta) => Ok(meta.is_dir()),
                 Err(e) => {
                     if e.kind() == io::ErrorKind::NotFound {
-                        // On Windows, use cached file_type when file is removed
-                        #[cfg(windows)]
-                        if let Ok(file_type) = &self.file_type {
-                            return Ok(file_type.is_dir());
-                        }
                         Ok(false)
                     } else {
                         Err(e.into_pyexception(vm))
@@ -615,15 +582,16 @@ pub(super) mod _os {
 
         #[pymethod]
         fn is_file(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
+            // Use cached file_type first to avoid stat() calls that may fail
+            if let Ok(file_type) = &self.file_type {
+                if !follow_symlinks.0 || !file_type.is_symlink() {
+                    return Ok(file_type.is_file());
+                }
+            }
             match super::fs_metadata(&self.pathval, follow_symlinks.0) {
                 Ok(meta) => Ok(meta.is_file()),
                 Err(e) => {
                     if e.kind() == io::ErrorKind::NotFound {
-                        // On Windows, use cached file_type when file is removed
-                        #[cfg(windows)]
-                        if let Ok(file_type) = &self.file_type {
-                            return Ok(file_type.is_file());
-                        }
                         Ok(false)
                     } else {
                         Err(e.into_pyexception(vm))
