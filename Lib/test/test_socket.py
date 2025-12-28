@@ -2052,8 +2052,6 @@ class GeneralModuleTests(unittest.TestCase):
                     fileno=afile.fileno())
             self.assertEqual(cm.exception.errno, errno.ENOTSOCK)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_addressfamily_enum(self):
         import _socket, enum
         CheckedAddressFamily = enum._old_convert_(
@@ -2063,8 +2061,6 @@ class GeneralModuleTests(unittest.TestCase):
                 )
         enum._test_simple_enum(CheckedAddressFamily, socket.AddressFamily)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_socketkind_enum(self):
         import _socket, enum
         CheckedSocketKind = enum._old_convert_(
@@ -2074,8 +2070,6 @@ class GeneralModuleTests(unittest.TestCase):
                 )
         enum._test_simple_enum(CheckedSocketKind, socket.SocketKind)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_msgflag_enum(self):
         import _socket, enum
         CheckedMsgFlag = enum._old_convert_(
@@ -2085,8 +2079,6 @@ class GeneralModuleTests(unittest.TestCase):
                 )
         enum._test_simple_enum(CheckedMsgFlag, socket.MsgFlag)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_addressinfo_enum(self):
         import _socket, enum
         CheckedAddressInfo = enum._old_convert_(

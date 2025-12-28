@@ -5477,7 +5477,6 @@ class TestEnumerations(unittest.TestCase):
             CHANGE_CIPHER_SPEC = 0x0101
         enum._test_simple_enum(Checked_TLSMessageType, _TLSMessageType)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_sslmethod(self):
         Checked_SSLMethod = enum._old_convert_(
                 enum.IntEnum, '_SSLMethod', 'ssl',
@@ -5488,7 +5487,6 @@ class TestEnumerations(unittest.TestCase):
         Checked_SSLMethod.PROTOCOL_SSLv23 = Checked_SSLMethod.PROTOCOL_TLS
         enum._test_simple_enum(Checked_SSLMethod, ssl._SSLMethod)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_options(self):
         CheckedOptions = enum._old_convert_(
                 enum.IntFlag, 'Options', 'ssl',
@@ -5497,7 +5495,6 @@ class TestEnumerations(unittest.TestCase):
                 )
         enum._test_simple_enum(CheckedOptions, ssl.Options)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_alertdescription(self):
         CheckedAlertDescription = enum._old_convert_(
                 enum.IntEnum, 'AlertDescription', 'ssl',
@@ -5506,7 +5503,6 @@ class TestEnumerations(unittest.TestCase):
                 )
         enum._test_simple_enum(CheckedAlertDescription, ssl.AlertDescription)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_sslerrornumber(self):
         Checked_SSLErrorNumber = enum._old_convert_(
                 enum.IntEnum, 'SSLErrorNumber', 'ssl',
@@ -5515,7 +5511,6 @@ class TestEnumerations(unittest.TestCase):
                 )
         enum._test_simple_enum(Checked_SSLErrorNumber, ssl.SSLErrorNumber)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_verifyflags(self):
         CheckedVerifyFlags = enum._old_convert_(
                 enum.IntFlag, 'VerifyFlags', 'ssl',
@@ -5524,7 +5519,6 @@ class TestEnumerations(unittest.TestCase):
                 )
         enum._test_simple_enum(CheckedVerifyFlags, ssl.VerifyFlags)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_verifymode(self):
         CheckedVerifyMode = enum._old_convert_(
                 enum.IntEnum, 'VerifyMode', 'ssl',

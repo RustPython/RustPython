@@ -1499,9 +1499,15 @@ impl Constructor for PyType {
         // Only add if:
         // 1. base is not type (type subclasses inherit __dict__ from type)
         // 2. the class has HAS_DICT flag (i.e., __slots__ was not defined or __dict__ is in __slots__)
+        // 3. no base class in MRO already provides __dict__ descriptor
         if !base_is_type && typ.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
             let __dict__ = identifier!(vm, __dict__);
-            if !typ.attributes.read().contains_key(&__dict__) {
+            let has_inherited_dict = typ
+                .mro
+                .read()
+                .iter()
+                .any(|base| base.attributes.read().contains_key(&__dict__));
+            if !typ.attributes.read().contains_key(&__dict__) && !has_inherited_dict {
                 unsafe {
                     let descriptor =
                         vm.ctx

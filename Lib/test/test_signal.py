@@ -24,8 +24,6 @@ except ImportError:
 
 class GenericTests(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_enums(self):
         for name in dir(signal):
             sig = getattr(signal, name)
@@ -763,8 +761,6 @@ class SiginterruptTest(unittest.TestCase):
                                     % (exitcode, stdout))
                 return (exitcode == 3)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_without_siginterrupt(self):
         # If a signal handler is installed and siginterrupt is not called
         # at all, when that signal arrives, it interrupts a syscall that's in
@@ -772,8 +768,6 @@ class SiginterruptTest(unittest.TestCase):
         interrupted = self.readpipe_interrupted(None)
         self.assertTrue(interrupted)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_siginterrupt_on(self):
         # If a signal handler is installed and siginterrupt is called with
         # a true value for the second argument, when that signal arrives, it

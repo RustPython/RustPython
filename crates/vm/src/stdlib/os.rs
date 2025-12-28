@@ -274,12 +274,21 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn read(fd: crt_fd::Borrowed<'_>, n: usize, vm: &VirtualMachine) -> io::Result<PyBytesRef> {
+    fn read(fd: crt_fd::Borrowed<'_>, n: usize, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
         let mut buffer = vec![0u8; n];
-        let n = crt_fd::read(fd, &mut buffer)?;
-        buffer.truncate(n);
-
-        Ok(vm.ctx.new_bytes(buffer))
+        loop {
+            match crt_fd::read(fd, &mut buffer) {
+                Ok(n) => {
+                    buffer.truncate(n);
+                    return Ok(vm.ctx.new_bytes(buffer));
+                }
+                Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
+                    vm.check_signals()?;
+                    continue;
+                }
+                Err(e) => return Err(e.into_pyexception(vm)),
+            }
+        }
     }
 
     #[pyfunction]
