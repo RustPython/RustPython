@@ -304,8 +304,7 @@ jobs:
           target/release/rustpython -m test -j 1 --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ env.WINDOWS_SKIPS }}
         timeout-minutes: 45
 
-      - if: runner.os != 'Windows'
-        name: check that --install-pip succeeds
+      - name: check that --install-pip succeeds
         run: |
           mkdir site-packages
           target/release/rustpython --install-pip ensurepip --user
@@ -314,11 +313,10 @@ jobs:
         run: |
           target/release/rustpython -m ensurepip
           target/release/rustpython -c "import pip"
-      - if: runner.os != 'Windows'
-        name: Check if pip inside venv is functional
+      - name: Check if pip inside venv is functional
         run: |
           target/release/rustpython -m venv testvenv
-          testvenv/bin/rustpython -m pip install wheel
+          testvenv/bin/rustpython -m pip install flask
       - name: Check whats_left is not broken
         run: python -I whats_left.py
 
