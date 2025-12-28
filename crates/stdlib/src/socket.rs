@@ -1951,13 +1951,31 @@ mod _socket {
             flags: opts.flags,
         };
 
-        let host = opts.host.as_ref().map(|s| s.as_str());
-        let port = opts.port.as_ref().map(|p| -> std::borrow::Cow<'_, str> {
-            match p {
-                Either::A(s) => s.as_str().into(),
-                Either::B(i) => i.to_string().into(),
+        // Encode host using IDNA encoding
+        let host_encoded: Option<String> = match opts.host.as_ref() {
+            Some(s) => {
+                let encoded =
+                    vm.state
+                        .codec_registry
+                        .encode_text(s.to_owned().into(), "idna", None, vm)?;
+                let host_str = std::str::from_utf8(encoded.as_bytes())
+                    .map_err(|_| vm.new_runtime_error("idna output is not utf8".to_owned()))?;
+                Some(host_str.to_owned())
             }
-        });
+            None => None,
+        };
+        let host = host_encoded.as_deref();
+
+        // Encode port using UTF-8
+        let port: Option<std::borrow::Cow<'_, str>> = match opts.port.as_ref() {
+            Some(Either::A(s)) => {
+                Some(std::borrow::Cow::Borrowed(s.to_str().ok_or_else(|| {
+                    vm.new_unicode_encode_error("surrogates not allowed".to_owned())
+                })?))
+            }
+            Some(Either::B(i)) => Some(std::borrow::Cow::Owned(i.to_string())),
+            None => None,
+        };
         let port = port.as_ref().map(|p| p.as_ref());
 
         let addrs = dns_lookup::getaddrinfo(host, port, Some(hints))
