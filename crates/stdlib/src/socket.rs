@@ -925,10 +925,64 @@ mod _socket {
             sock: Socket,
         ) -> io::Result<()> {
             self.family.store(family);
-            self.kind.store(socket_kind);
+            // Mask out SOCK_NONBLOCK and SOCK_CLOEXEC flags from stored type
+            // to ensure consistent cross-platform behavior
+            #[cfg(any(
+                target_os = "android",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "fuchsia",
+                target_os = "illumos",
+                target_os = "linux",
+                target_os = "netbsd",
+                target_os = "openbsd",
+                target_os = "redox"
+            ))]
+            let masked_kind = socket_kind & !(c::SOCK_NONBLOCK | c::SOCK_CLOEXEC);
+            #[cfg(not(any(
+                target_os = "android",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "fuchsia",
+                target_os = "illumos",
+                target_os = "linux",
+                target_os = "netbsd",
+                target_os = "openbsd",
+                target_os = "redox"
+            )))]
+            let masked_kind = socket_kind;
+            self.kind.store(masked_kind);
             self.proto.store(proto);
             let mut s = self.sock.write();
             let sock = s.insert(sock);
+            // If SOCK_NONBLOCK is set, use timeout 0 (non-blocking)
+            #[cfg(any(
+                target_os = "android",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "fuchsia",
+                target_os = "illumos",
+                target_os = "linux",
+                target_os = "netbsd",
+                target_os = "openbsd",
+                target_os = "redox"
+            ))]
+            let timeout = if socket_kind & c::SOCK_NONBLOCK != 0 {
+                0.0
+            } else {
+                DEFAULT_TIMEOUT.load()
+            };
+            #[cfg(not(any(
+                target_os = "android",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "fuchsia",
+                target_os = "illumos",
+                target_os = "linux",
+                target_os = "netbsd",
+                target_os = "openbsd",
+                target_os = "redox"
+            )))]
             let timeout = DEFAULT_TIMEOUT.load();
             self.timeout.store(timeout);
             if timeout >= 0.0 {
