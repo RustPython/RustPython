@@ -782,8 +782,8 @@ impl PyType {
     }
 
     #[pygetset]
-    const fn __basicsize__(&self) -> usize {
-        self.slots.basicsize
+    fn __basicsize__(&self) -> usize {
+        crate::object::SIZEOF_PYOBJECT_HEAD + self.slots.basicsize
     }
 
     #[pygetset]
@@ -1338,10 +1338,16 @@ impl Constructor for PyType {
         let member_count: usize = base_member_count + heaptype_member_count;
 
         let mut flags = PyTypeFlags::heap_type_flags();
+
+        // Check if we may add dict
+        // We can only add a dict if the primary base class doesn't already have one
+        // In CPython, this checks tp_dictoffset == 0
+        let may_add_dict = !base.slots.flags.has_feature(PyTypeFlags::HAS_DICT);
+
         // Add HAS_DICT and MANAGED_DICT if:
-        // 1. __slots__ is not defined, OR
+        // 1. __slots__ is not defined AND base doesn't have dict, OR
         // 2. __dict__ is in __slots__
-        if heaptype_slots.is_none() || add_dict {
+        if (heaptype_slots.is_none() && may_add_dict) || add_dict {
             flags |= PyTypeFlags::HAS_DICT | PyTypeFlags::MANAGED_DICT;
         }
 
@@ -1349,6 +1355,7 @@ impl Constructor for PyType {
             let slots = PyTypeSlots {
                 flags,
                 member_count,
+                itemsize: base.slots.itemsize,
                 ..PyTypeSlots::heap_default()
             };
             let heaptype_ext = HeapTypeExt {
@@ -2009,6 +2016,11 @@ fn calculate_meta_class(
     Ok(winner)
 }
 
+/// Returns true if the two types have different instance layouts.
+fn shape_differs(t1: &Py<PyType>, t2: &Py<PyType>) -> bool {
+    t1.__basicsize__() != t2.__basicsize__() || t1.slots.itemsize != t2.slots.itemsize
+}
+
 fn solid_base<'a>(typ: &'a Py<PyType>, vm: &VirtualMachine) -> &'a Py<PyType> {
     let base = if let Some(base) = &typ.base {
         solid_base(base, vm)
@@ -2016,16 +2028,7 @@ fn solid_base<'a>(typ: &'a Py<PyType>, vm: &VirtualMachine) -> &'a Py<PyType> {
         vm.ctx.types.object_type
     };
 
-    // Check for extra instance variables (CPython's extra_ivars)
-    let t_size = typ.__basicsize__();
-    let b_size = base.__basicsize__();
-    let t_itemsize = typ.slots.itemsize;
-    let b_itemsize = base.slots.itemsize;
-
-    // Has extra ivars if: sizes differ AND (has items OR t_size > b_size)
-    let has_extra_ivars = t_size != b_size && (t_itemsize > 0 || b_itemsize > 0 || t_size > b_size);
-
-    if has_extra_ivars { typ } else { base }
+    if shape_differs(typ, base) { typ } else { base }
 }
 
 fn best_base<'a>(bases: &'a [PyTypeRef], vm: &VirtualMachine) -> PyResult<&'a Py<PyType>> {

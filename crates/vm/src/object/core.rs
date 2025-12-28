@@ -114,6 +114,7 @@ pub(super) struct PyInner<T> {
 
     pub(super) payload: T,
 }
+pub(crate) const SIZEOF_PYOBJECT_HEAD: usize = std::mem::size_of::<PyInner<()>>();
 
 impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
