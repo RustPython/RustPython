@@ -113,7 +113,7 @@ impl<T: Any + 'static> std::ops::DerefMut for TypeDataRefMut<'_, T> {
 #[macro_export]
 macro_rules! atomic_func {
     ($x:expr) => {
-        crossbeam_utils::atomic::AtomicCell::new(Some($x))
+        Some($x)
     };
 }
 
@@ -383,6 +383,59 @@ fn setitem_wrapper<K: ToPyObject>(
         None => vm.call_special_method(obj, identifier!(vm, __delitem__), (needle,)),
     }
     .map(drop)
+}
+
+#[inline(never)]
+fn mapping_setitem_wrapper(
+    mapping: PyMapping<'_>,
+    key: &PyObject,
+    value: Option<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    setitem_wrapper(mapping.obj, key, value, vm)
+}
+
+#[inline(never)]
+fn mapping_getitem_wrapper(
+    mapping: PyMapping<'_>,
+    key: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult {
+    getitem_wrapper(mapping.obj, key, vm)
+}
+
+#[inline(never)]
+fn mapping_len_wrapper(mapping: PyMapping<'_>, vm: &VirtualMachine) -> PyResult<usize> {
+    len_wrapper(mapping.obj, vm)
+}
+
+#[inline(never)]
+fn sequence_len_wrapper(seq: PySequence<'_>, vm: &VirtualMachine) -> PyResult<usize> {
+    len_wrapper(seq.obj, vm)
+}
+
+#[inline(never)]
+fn sequence_getitem_wrapper(seq: PySequence<'_>, i: isize, vm: &VirtualMachine) -> PyResult {
+    getitem_wrapper(seq.obj, i, vm)
+}
+
+#[inline(never)]
+fn sequence_setitem_wrapper(
+    seq: PySequence<'_>,
+    i: isize,
+    value: Option<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    setitem_wrapper(seq.obj, i, value, vm)
+}
+
+#[inline(never)]
+fn sequence_contains_wrapper(
+    seq: PySequence<'_>,
+    needle: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult<bool> {
+    contains_wrapper(seq.obj, needle, vm)
 }
 
 fn repr_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
@@ -1139,12 +1192,7 @@ impl PyType {
 
             // === Sequence slots ===
             SlotAccessor::SqLength => {
-                update_sub_slot!(
-                    as_sequence,
-                    length,
-                    |seq, vm| len_wrapper(seq.obj, vm),
-                    SeqLength
-                )
+                update_sub_slot!(as_sequence, length, sequence_len_wrapper, SeqLength)
             }
             SlotAccessor::SqConcat | SlotAccessor::SqInplaceConcat => {
                 // Sequence concat uses sq_concat slot - no generic wrapper needed
@@ -1161,52 +1209,32 @@ impl PyType {
                 }
             }
             SlotAccessor::SqItem => {
-                update_sub_slot!(
-                    as_sequence,
-                    item,
-                    |seq, i, vm| getitem_wrapper(seq.obj, i, vm),
-                    SeqItem
-                )
+                update_sub_slot!(as_sequence, item, sequence_getitem_wrapper, SeqItem)
             }
             SlotAccessor::SqAssItem => {
-                update_sub_slot!(
-                    as_sequence,
-                    ass_item,
-                    |seq, i, value, vm| setitem_wrapper(seq.obj, i, value, vm),
-                    SeqAssItem
-                )
+                update_sub_slot!(as_sequence, ass_item, sequence_setitem_wrapper, SeqAssItem)
             }
             SlotAccessor::SqContains => {
                 update_sub_slot!(
                     as_sequence,
                     contains,
-                    |seq, needle, vm| contains_wrapper(seq.obj, needle, vm),
+                    sequence_contains_wrapper,
                     SeqContains
                 )
             }
 
             // === Mapping slots ===
             SlotAccessor::MpLength => {
-                update_sub_slot!(
-                    as_mapping,
-                    length,
-                    |mapping, vm| len_wrapper(mapping.obj, vm),
-                    MapLength
-                )
+                update_sub_slot!(as_mapping, length, mapping_len_wrapper, MapLength)
             }
             SlotAccessor::MpSubscript => {
-                update_sub_slot!(
-                    as_mapping,
-                    subscript,
-                    |mapping, key, vm| getitem_wrapper(mapping.obj, key, vm),
-                    MapSubscript
-                )
+                update_sub_slot!(as_mapping, subscript, mapping_getitem_wrapper, MapSubscript)
             }
             SlotAccessor::MpAssSubscript => {
                 update_sub_slot!(
                     as_mapping,
                     ass_subscript,
-                    |mapping, key, value, vm| setitem_wrapper(mapping.obj, key, value, vm),
+                    mapping_setitem_wrapper,
                     MapAssSubscript
                 )
             }

@@ -35,13 +35,13 @@ impl PyMappingSlots {
 
     /// Copy from static PyMappingMethods
     pub fn copy_from(&self, methods: &PyMappingMethods) {
-        if let Some(f) = methods.length.load() {
+        if let Some(f) = methods.length {
             self.length.store(Some(f));
         }
-        if let Some(f) = methods.subscript.load() {
+        if let Some(f) = methods.subscript {
             self.subscript.store(Some(f));
         }
-        if let Some(f) = methods.ass_subscript.load() {
+        if let Some(f) = methods.ass_subscript {
             self.ass_subscript.store(Some(f));
         }
     }
@@ -50,11 +50,10 @@ impl PyMappingSlots {
 #[allow(clippy::type_complexity)]
 #[derive(Default)]
 pub struct PyMappingMethods {
-    pub length: AtomicCell<Option<fn(PyMapping<'_>, &VirtualMachine) -> PyResult<usize>>>,
-    pub subscript: AtomicCell<Option<fn(PyMapping<'_>, &PyObject, &VirtualMachine) -> PyResult>>,
-    pub ass_subscript: AtomicCell<
+    pub length: Option<fn(PyMapping<'_>, &VirtualMachine) -> PyResult<usize>>,
+    pub subscript: Option<fn(PyMapping<'_>, &PyObject, &VirtualMachine) -> PyResult>,
+    pub ass_subscript:
         Option<fn(PyMapping<'_>, &PyObject, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
-    >,
 }
 
 impl std::fmt::Debug for PyMappingMethods {
@@ -64,11 +63,10 @@ impl std::fmt::Debug for PyMappingMethods {
 }
 
 impl PyMappingMethods {
-    #[allow(clippy::declare_interior_mutable_const)]
     pub const NOT_IMPLEMENTED: Self = Self {
-        length: AtomicCell::new(None),
-        subscript: AtomicCell::new(None),
-        ass_subscript: AtomicCell::new(None),
+        length: None,
+        subscript: None,
+        ass_subscript: None,
     };
 }
 

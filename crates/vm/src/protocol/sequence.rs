@@ -42,28 +42,28 @@ impl PySequenceSlots {
 
     /// Copy from static PySequenceMethods
     pub fn copy_from(&self, methods: &PySequenceMethods) {
-        if let Some(f) = methods.length.load() {
+        if let Some(f) = methods.length {
             self.length.store(Some(f));
         }
-        if let Some(f) = methods.concat.load() {
+        if let Some(f) = methods.concat {
             self.concat.store(Some(f));
         }
-        if let Some(f) = methods.repeat.load() {
+        if let Some(f) = methods.repeat {
             self.repeat.store(Some(f));
         }
-        if let Some(f) = methods.item.load() {
+        if let Some(f) = methods.item {
             self.item.store(Some(f));
         }
-        if let Some(f) = methods.ass_item.load() {
+        if let Some(f) = methods.ass_item {
             self.ass_item.store(Some(f));
         }
-        if let Some(f) = methods.contains.load() {
+        if let Some(f) = methods.contains {
             self.contains.store(Some(f));
         }
-        if let Some(f) = methods.inplace_concat.load() {
+        if let Some(f) = methods.inplace_concat {
             self.inplace_concat.store(Some(f));
         }
-        if let Some(f) = methods.inplace_repeat.load() {
+        if let Some(f) = methods.inplace_repeat {
             self.inplace_repeat.store(Some(f));
         }
     }
@@ -72,18 +72,15 @@ impl PySequenceSlots {
 #[allow(clippy::type_complexity)]
 #[derive(Default)]
 pub struct PySequenceMethods {
-    pub length: AtomicCell<Option<fn(PySequence<'_>, &VirtualMachine) -> PyResult<usize>>>,
-    pub concat: AtomicCell<Option<fn(PySequence<'_>, &PyObject, &VirtualMachine) -> PyResult>>,
-    pub repeat: AtomicCell<Option<fn(PySequence<'_>, isize, &VirtualMachine) -> PyResult>>,
-    pub item: AtomicCell<Option<fn(PySequence<'_>, isize, &VirtualMachine) -> PyResult>>,
-    pub ass_item: AtomicCell<
+    pub length: Option<fn(PySequence<'_>, &VirtualMachine) -> PyResult<usize>>,
+    pub concat: Option<fn(PySequence<'_>, &PyObject, &VirtualMachine) -> PyResult>,
+    pub repeat: Option<fn(PySequence<'_>, isize, &VirtualMachine) -> PyResult>,
+    pub item: Option<fn(PySequence<'_>, isize, &VirtualMachine) -> PyResult>,
+    pub ass_item:
         Option<fn(PySequence<'_>, isize, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
-    >,
-    pub contains:
-        AtomicCell<Option<fn(PySequence<'_>, &PyObject, &VirtualMachine) -> PyResult<bool>>>,
-    pub inplace_concat:
-        AtomicCell<Option<fn(PySequence<'_>, &PyObject, &VirtualMachine) -> PyResult>>,
-    pub inplace_repeat: AtomicCell<Option<fn(PySequence<'_>, isize, &VirtualMachine) -> PyResult>>,
+    pub contains: Option<fn(PySequence<'_>, &PyObject, &VirtualMachine) -> PyResult<bool>>,
+    pub inplace_concat: Option<fn(PySequence<'_>, &PyObject, &VirtualMachine) -> PyResult>,
+    pub inplace_repeat: Option<fn(PySequence<'_>, isize, &VirtualMachine) -> PyResult>,
 }
 
 impl std::fmt::Debug for PySequenceMethods {
@@ -93,16 +90,15 @@ impl std::fmt::Debug for PySequenceMethods {
 }
 
 impl PySequenceMethods {
-    #[allow(clippy::declare_interior_mutable_const)]
     pub const NOT_IMPLEMENTED: Self = Self {
-        length: AtomicCell::new(None),
-        concat: AtomicCell::new(None),
-        repeat: AtomicCell::new(None),
-        item: AtomicCell::new(None),
-        ass_item: AtomicCell::new(None),
-        contains: AtomicCell::new(None),
-        inplace_concat: AtomicCell::new(None),
-        inplace_repeat: AtomicCell::new(None),
+        length: None,
+        concat: None,
+        repeat: None,
+        item: None,
+        ass_item: None,
+        contains: None,
+        inplace_concat: None,
+        inplace_repeat: None,
     };
 }
 
