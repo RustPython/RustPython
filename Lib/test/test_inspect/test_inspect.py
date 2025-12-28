@@ -2126,8 +2126,6 @@ class TestIsMethodDescriptor(unittest.TestCase):
         self.assertFalse(inspect.ismethoddescriptor(MethodDescriptorSub))
         self.assertFalse(inspect.ismethoddescriptor(DataDescriptorSub))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_builtin_descriptors(self):
         builtin_slot_wrapper = int.__add__  # This one is mentioned in docs.
         class Owner:
@@ -2217,8 +2215,6 @@ class TestIsDataDescriptor(unittest.TestCase):
         self.assertTrue(inspect.isdatadescriptor(DataDescriptor2()),
                         'class with __set__ = None is a data descriptor')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_slot(self):
         class Slotted:
             __slots__ = 'foo',

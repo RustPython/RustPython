@@ -2,16 +2,59 @@
 
 use crate::{
     PyPayload,
-    builtins::{
-        PyBaseObject, PyType, PyTypeRef,
-        descriptor::{PySlotWrapper, SlotFunc},
-    },
+    builtins::{PyBaseObject, PyType, PyTypeRef, descriptor::PyWrapper},
     function::PyMethodDef,
     object::Py,
-    types::{PyTypeFlags, PyTypeSlots, hash_not_implemented},
+    types::{PyTypeFlags, PyTypeSlots, SLOT_DEFS, hash_not_implemented},
     vm::Context,
 };
 use rustpython_common::static_cell;
+
+/// Add slot wrapper descriptors to a type's dict
+///
+/// Iterates SLOT_DEFS and creates a PyWrapper for each slot that:
+/// 1. Has a function set in the type's slots
+/// 2. Doesn't already have an attribute in the type's dict
+pub fn add_operators(class: &'static Py<PyType>, ctx: &Context) {
+    for def in SLOT_DEFS.iter() {
+        // Skip __new__ - it has special handling
+        if def.name == "__new__" {
+            continue;
+        }
+
+        // Special handling for __hash__ = None
+        if def.name == "__hash__"
+            && class
+                .slots
+                .hash
+                .load()
+                .is_some_and(|h| h as usize == hash_not_implemented as usize)
+        {
+            class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
+            continue;
+        }
+
+        // Get the slot function wrapped in SlotFunc
+        let Some(slot_func) = def.accessor.get_slot_func_with_op(&class.slots, def.op) else {
+            continue;
+        };
+
+        // Check if attribute already exists in dict
+        let attr_name = ctx.intern_str(def.name);
+        if class.attributes.read().contains_key(attr_name) {
+            continue;
+        }
+
+        // Create and add the wrapper
+        let wrapper = PyWrapper {
+            typ: class,
+            name: attr_name,
+            wrapped: slot_func,
+            doc: Some(def.doc),
+        };
+        class.set_attr(attr_name, wrapper.into_ref(ctx).into());
+    }
+}
 
 pub trait StaticType {
     // Ideally, saving PyType is better than PyTypeRef
@@ -140,42 +183,8 @@ pub trait PyClassImpl: PyClassDef {
             }
         }
 
-        // Add slot wrappers for slots that exist and are not already in dict
-        // This mirrors CPython's add_operators() in typeobject.c
-        macro_rules! add_slot_wrapper {
-            ($slot:ident, $name:ident, $variant:ident, $doc:expr) => {
-                if let Some(func) = class.slots.$slot.load() {
-                    let attr_name = identifier!(ctx, $name);
-                    if !class.attributes.read().contains_key(attr_name) {
-                        let wrapper = PySlotWrapper {
-                            typ: class,
-                            name: ctx.intern_str(stringify!($name)),
-                            wrapped: SlotFunc::$variant(func),
-                            doc: Some($doc),
-                        };
-                        class.set_attr(attr_name, wrapper.into_ref(ctx).into());
-                    }
-                }
-            };
-        }
-
-        add_slot_wrapper!(
-            init,
-            __init__,
-            Init,
-            "Initialize self.  See help(type(self)) for accurate signature."
-        );
-        add_slot_wrapper!(repr, __repr__, Repr, "Return repr(self).");
-        add_slot_wrapper!(str, __str__, Str, "Return str(self).");
-        add_slot_wrapper!(iter, __iter__, Iter, "Implement iter(self).");
-        add_slot_wrapper!(iternext, __next__, IterNext, "Implement next(self).");
-
-        // __hash__ needs special handling: hash_not_implemented sets __hash__ = None
-        if class.slots.hash.load().map_or(0, |h| h as usize) == hash_not_implemented as usize {
-            class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
-        } else {
-            add_slot_wrapper!(hash, __hash__, Hash, "Return hash(self).");
-        }
+        // Add slot wrappers using SLOT_DEFS array
+        add_operators(class, ctx);
 
         // Inherit slots from base types after slots are fully initialized
         for base in class.bases.read().iter() {

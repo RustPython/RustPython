@@ -126,10 +126,11 @@ impl PyBool {
             .and_then(|format_spec| format_spec.format_bool(new_bool))
             .map_err(|err| err.into_pyexception(vm))
     }
+}
 
-    #[pymethod(name = "__ror__")]
-    #[pymethod]
-    fn __or__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+impl PyBool {
+    // Called from AsNumber slots, exposed as wrapper_descriptor
+    pub(crate) fn __or__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if lhs.fast_isinstance(vm.ctx.types.bool_type)
             && rhs.fast_isinstance(vm.ctx.types.bool_type)
         {
@@ -143,9 +144,7 @@ impl PyBool {
         }
     }
 
-    #[pymethod(name = "__rand__")]
-    #[pymethod]
-    fn __and__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn __and__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if lhs.fast_isinstance(vm.ctx.types.bool_type)
             && rhs.fast_isinstance(vm.ctx.types.bool_type)
         {
@@ -159,9 +158,7 @@ impl PyBool {
         }
     }
 
-    #[pymethod(name = "__rxor__")]
-    #[pymethod]
-    fn __xor__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn __xor__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if lhs.fast_isinstance(vm.ctx.types.bool_type)
             && rhs.fast_isinstance(vm.ctx.types.bool_type)
         {
