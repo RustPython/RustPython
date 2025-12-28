@@ -1,12 +1,15 @@
+import contextlib
 import errno
 import importlib
 import io
+import logging
 import os
 import shutil
 import socket
 import stat
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import textwrap
 import unittest
@@ -18,11 +21,37 @@ from test.support import os_helper
 from test.support import script_helper
 from test.support import socket_helper
 from test.support import warnings_helper
+from test.support.testcase import ExtraAssertions
 
 TESTFN = os_helper.TESTFN
 
 
-class TestSupport(unittest.TestCase):
+class LogCaptureHandler(logging.StreamHandler):
+    # Inspired by pytest's caplog
+    def __init__(self):
+        super().__init__(io.StringIO())
+        self.records = []
+
+    def emit(self, record) -> None:
+        self.records.append(record)
+        super().emit(record)
+
+    def handleError(self, record):
+        raise
+
+
+@contextlib.contextmanager
+def _caplog():
+    handler = LogCaptureHandler()
+    root_logger = logging.getLogger()
+    root_logger.addHandler(handler)
+    try:
+        yield handler
+    finally:
+        root_logger.removeHandler(handler)
+
+
+class TestSupport(unittest.TestCase, ExtraAssertions):
     @classmethod
     def setUpClass(cls):
         orig_filter_len = len(warnings.filters)
@@ -185,7 +214,7 @@ class TestSupport(unittest.TestCase):
         path = os.path.realpath(path)
 
         try:
-            with warnings_helper.check_warnings() as recorder:
+            with warnings_helper.check_warnings() as recorder, _caplog() as caplog:
                 with os_helper.temp_dir(path, quiet=True) as temp_path:
                     self.assertEqual(path, temp_path)
                 warnings = [str(w.message) for w in recorder.warnings]
@@ -194,11 +223,14 @@ class TestSupport(unittest.TestCase):
         finally:
             shutil.rmtree(path)
 
-        self.assertEqual(len(warnings), 1, warnings)
-        warn = warnings[0]
-        self.assertTrue(warn.startswith(f'tests may fail, unable to create '
-                                        f'temporary directory {path!r}: '),
-                        warn)
+        self.assertListEqual(warnings, [])
+        self.assertEqual(len(caplog.records), 1)
+        record = caplog.records[0]
+        self.assertStartsWith(
+            record.getMessage(),
+            f'tests may fail, unable to create '
+            f'temporary directory {path!r}: '
+        )
 
     @support.requires_fork()
     def test_temp_dir__forked_child(self):
@@ -258,35 +290,41 @@ class TestSupport(unittest.TestCase):
 
         with os_helper.temp_dir() as parent_dir:
             bad_dir = os.path.join(parent_dir, 'does_not_exist')
-            with warnings_helper.check_warnings() as recorder:
+            with warnings_helper.check_warnings() as recorder, _caplog() as caplog:
                 with os_helper.change_cwd(bad_dir, quiet=True) as new_cwd:
                     self.assertEqual(new_cwd, original_cwd)
                     self.assertEqual(os.getcwd(), new_cwd)
                 warnings = [str(w.message) for w in recorder.warnings]
 
-        self.assertEqual(len(warnings), 1, warnings)
-        warn = warnings[0]
-        self.assertTrue(warn.startswith(f'tests may fail, unable to change '
-                                        f'the current working directory '
-                                        f'to {bad_dir!r}: '),
-                        warn)
+        self.assertListEqual(warnings, [])
+        self.assertEqual(len(caplog.records), 1)
+        record = caplog.records[0]
+        self.assertStartsWith(
+            record.getMessage(),
+            f'tests may fail, unable to change '
+            f'the current working directory '
+            f'to {bad_dir!r}: '
+        )
 
     # Tests for change_cwd()
 
     def test_change_cwd__chdir_warning(self):
         """Check the warning message when os.chdir() fails."""
         path = TESTFN + '_does_not_exist'
-        with warnings_helper.check_warnings() as recorder:
+        with warnings_helper.check_warnings() as recorder, _caplog() as caplog:
             with os_helper.change_cwd(path=path, quiet=True):
                 pass
             messages = [str(w.message) for w in recorder.warnings]
 
-        self.assertEqual(len(messages), 1, messages)
-        msg = messages[0]
-        self.assertTrue(msg.startswith(f'tests may fail, unable to change '
-                                       f'the current working directory '
-                                       f'to {path!r}: '),
-                        msg)
+        self.assertListEqual(messages, [])
+        self.assertEqual(len(caplog.records), 1)
+        record = caplog.records[0]
+        self.assertStartsWith(
+            record.getMessage(),
+            f'tests may fail, unable to change '
+            f'the current working directory '
+            f'to {path!r}: ',
+        )
 
     # Tests for temp_cwd()
 
@@ -420,8 +458,6 @@ class TestSupport(unittest.TestCase):
                 self.OtherClass, self.RefClass, ignore=ignore)
         self.assertEqual(set(), missing_items)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_check__all__(self):
         extra = {'tempdir'}
         not_exported = {'template'}
@@ -432,10 +468,8 @@ class TestSupport(unittest.TestCase):
 
         extra = {
             'TextTestResult',
-            'findTestCases',
-            'getTestCaseNames',
             'installHandler',
-            'makeSuite',
+            'IsolatedAsyncioTestCase',
         }
         not_exported = {'load_tests', "TestProgram", "BaseTestSuite"}
         support.check__all__(self,
@@ -551,119 +585,14 @@ class TestSupport(unittest.TestCase):
             with self.subTest(opts=opts):
                 self.check_options(opts, 'optim_args_from_interpreter_flags')
 
-    def test_match_test(self):
-        class Test:
-            def __init__(self, test_id):
-                self.test_id = test_id
-
-            def id(self):
-                return self.test_id
-
-        test_access = Test('test.test_os.FileTests.test_access')
-        test_chdir = Test('test.test_os.Win32ErrorTests.test_chdir')
-
-        # Test acceptance
-        with support.swap_attr(support, '_match_test_func', None):
-            # match all
-            support.set_match_tests([])
-            self.assertTrue(support.match_test(test_access))
-            self.assertTrue(support.match_test(test_chdir))
-
-            # match all using None
-            support.set_match_tests(None, None)
-            self.assertTrue(support.match_test(test_access))
-            self.assertTrue(support.match_test(test_chdir))
-
-            # match the full test identifier
-            support.set_match_tests([test_access.id()], None)
-            self.assertTrue(support.match_test(test_access))
-            self.assertFalse(support.match_test(test_chdir))
-
-            # match the module name
-            support.set_match_tests(['test_os'], None)
-            self.assertTrue(support.match_test(test_access))
-            self.assertTrue(support.match_test(test_chdir))
-
-            # Test '*' pattern
-            support.set_match_tests(['test_*'], None)
-            self.assertTrue(support.match_test(test_access))
-            self.assertTrue(support.match_test(test_chdir))
-
-            # Test case sensitivity
-            support.set_match_tests(['filetests'], None)
-            self.assertFalse(support.match_test(test_access))
-            support.set_match_tests(['FileTests'], None)
-            self.assertTrue(support.match_test(test_access))
-
-            # Test pattern containing '.' and a '*' metacharacter
-            support.set_match_tests(['*test_os.*.test_*'], None)
-            self.assertTrue(support.match_test(test_access))
-            self.assertTrue(support.match_test(test_chdir))
-
-            # Multiple patterns
-            support.set_match_tests([test_access.id(), test_chdir.id()], None)
-            self.assertTrue(support.match_test(test_access))
-            self.assertTrue(support.match_test(test_chdir))
-
-            support.set_match_tests(['test_access', 'DONTMATCH'], None)
-            self.assertTrue(support.match_test(test_access))
-            self.assertFalse(support.match_test(test_chdir))
-
-        # Test rejection
-        with support.swap_attr(support, '_match_test_func', None):
-            # match all
-            support.set_match_tests(ignore_patterns=[])
-            self.assertTrue(support.match_test(test_access))
-            self.assertTrue(support.match_test(test_chdir))
-
-            # match all using None
-            support.set_match_tests(None, None)
-            self.assertTrue(support.match_test(test_access))
-            self.assertTrue(support.match_test(test_chdir))
-
-            # match the full test identifier
-            support.set_match_tests(None, [test_access.id()])
-            self.assertFalse(support.match_test(test_access))
-            self.assertTrue(support.match_test(test_chdir))
-
-            # match the module name
-            support.set_match_tests(None, ['test_os'])
-            self.assertFalse(support.match_test(test_access))
-            self.assertFalse(support.match_test(test_chdir))
-
-            # Test '*' pattern
-            support.set_match_tests(None, ['test_*'])
-            self.assertFalse(support.match_test(test_access))
-            self.assertFalse(support.match_test(test_chdir))
-
-            # Test case sensitivity
-            support.set_match_tests(None, ['filetests'])
-            self.assertTrue(support.match_test(test_access))
-            support.set_match_tests(None, ['FileTests'])
-            self.assertFalse(support.match_test(test_access))
-
-            # Test pattern containing '.' and a '*' metacharacter
-            support.set_match_tests(None, ['*test_os.*.test_*'])
-            self.assertFalse(support.match_test(test_access))
-            self.assertFalse(support.match_test(test_chdir))
-
-            # Multiple patterns
-            support.set_match_tests(None, [test_access.id(), test_chdir.id()])
-            self.assertFalse(support.match_test(test_access))
-            self.assertFalse(support.match_test(test_chdir))
-
-            support.set_match_tests(None, ['test_access', 'DONTMATCH'])
-            self.assertFalse(support.match_test(test_access))
-            self.assertTrue(support.match_test(test_chdir))
-
-    @unittest.skipIf(sys.platform.startswith("win"), "TODO: RUSTPYTHON; os.dup on windows")
+    @unittest.skipIf(support.is_apple_mobile, "Unstable on Apple Mobile")
     @unittest.skipIf(support.is_emscripten, "Unstable in Emscripten")
     @unittest.skipIf(support.is_wasi, "Unavailable on WASI")
     def test_fd_count(self):
-        # We cannot test the absolute value of fd_count(): on old Linux
-        # kernel or glibc versions, os.urandom() keeps a FD open on
-        # /dev/urandom device and Python has 4 FD opens instead of 3.
-        # Test is unstable on Emscripten. The platform starts and stops
+        # We cannot test the absolute value of fd_count(): on old Linux kernel
+        # or glibc versions, os.urandom() keeps a FD open on /dev/urandom
+        # device and Python has 4 FD opens instead of 3. Test is unstable on
+        # Emscripten and Apple Mobile platforms; these platforms start and stop
         # background threads that use pipes and epoll fds.
         start = os_helper.fd_count()
         fd = os.open(__file__, os.O_RDONLY)
@@ -685,13 +614,16 @@ class TestSupport(unittest.TestCase):
         self.check_print_warning("a\nb",
                                  'Warning -- a\nWarning -- b\n')
 
-    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON - strftime extension not fully supported on non-Windows
+    @unittest.skipUnless(sys.platform == "win32" or support.is_emscripten,
+                         "strftime extension not fully supported on non-Windows")
     def test_has_strftime_extensions(self):
         if support.is_emscripten or sys.platform == "win32":
             self.assertFalse(support.has_strftime_extensions)
         else:
             self.assertTrue(support.has_strftime_extensions)
 
+    # TODO: RUSTPYTHON - _testinternalcapi module not available
     @unittest.expectedFailure
     def test_get_recursion_depth(self):
         # test support.get_recursion_depth()
@@ -736,13 +668,15 @@ class TestSupport(unittest.TestCase):
         """)
         script_helper.assert_python_ok("-c", code)
 
+    # TODO: RUSTPYTHON - stack overflow in debug mode with deep recursion
+    @unittest.skip("TODO: RUSTPYTHON - causes segfault in debug builds")
     def test_recursion(self):
         # Test infinite_recursion() and get_recursion_available() functions.
         def recursive_function(depth):
             if depth:
                 recursive_function(depth - 1)
 
-        for max_depth in (5, 25, 250):
+        for max_depth in (5, 25, 250, 2500):
             with support.infinite_recursion(max_depth):
                 available = support.get_recursion_available()
 
@@ -768,7 +702,85 @@ class TestSupport(unittest.TestCase):
             else:
                 self.fail("RecursionError was not raised")
 
-        #self.assertEqual(available, 2)
+    def test_parse_memlimit(self):
+        parse = support._parse_memlimit
+        KiB = 1024
+        MiB = KiB * 1024
+        GiB = MiB * 1024
+        TiB = GiB * 1024
+        self.assertEqual(parse('0k'), 0)
+        self.assertEqual(parse('3k'), 3 * KiB)
+        self.assertEqual(parse('2.4m'), int(2.4 * MiB))
+        self.assertEqual(parse('4g'), int(4 * GiB))
+        self.assertEqual(parse('1t'), TiB)
+
+        for limit in ('', '3', '3.5.10k', '10x'):
+            with self.subTest(limit=limit):
+                with self.assertRaises(ValueError):
+                    parse(limit)
+
+    def test_set_memlimit(self):
+        _4GiB = 4 * 1024 ** 3
+        TiB = 1024 ** 4
+        old_max_memuse = support.max_memuse
+        old_real_max_memuse = support.real_max_memuse
+        try:
+            if sys.maxsize > 2**32:
+                support.set_memlimit('4g')
+                self.assertEqual(support.max_memuse, _4GiB)
+                self.assertEqual(support.real_max_memuse, _4GiB)
+
+                big = 2**100 // TiB
+                support.set_memlimit(f'{big}t')
+                self.assertEqual(support.max_memuse, sys.maxsize)
+                self.assertEqual(support.real_max_memuse, big * TiB)
+            else:
+                support.set_memlimit('4g')
+                self.assertEqual(support.max_memuse, sys.maxsize)
+                self.assertEqual(support.real_max_memuse, _4GiB)
+        finally:
+            support.max_memuse = old_max_memuse
+            support.real_max_memuse = old_real_max_memuse
+
+    def test_copy_python_src_ignore(self):
+        # Get source directory
+        src_dir = sysconfig.get_config_var('abs_srcdir')
+        if not src_dir:
+            src_dir = sysconfig.get_config_var('srcdir')
+        src_dir = os.path.abspath(src_dir)
+
+        # Check that the source code is available
+        if not os.path.exists(src_dir):
+            self.skipTest(f"cannot access Python source code directory:"
+                          f" {src_dir!r}")
+        # Check that the landmark copy_python_src_ignore() expects is available
+        # (Previously we looked for 'Lib\os.py', which is always present on Windows.)
+        landmark = os.path.join(src_dir, 'Modules')
+        if not os.path.exists(landmark):
+            self.skipTest(f"cannot access Python source code directory:"
+                          f" {landmark!r} landmark is missing")
+
+        # Test support.copy_python_src_ignore()
+
+        # Source code directory
+        ignored = {'.git', '__pycache__'}
+        names = os.listdir(src_dir)
+        self.assertEqual(support.copy_python_src_ignore(src_dir, names),
+                         ignored | {'build'})
+
+        # Doc/ directory
+        path = os.path.join(src_dir, 'Doc')
+        self.assertEqual(support.copy_python_src_ignore(path, os.listdir(path)),
+                         ignored | {'build', 'venv'})
+
+        # Another directory
+        path = os.path.join(src_dir, 'Objects')
+        self.assertEqual(support.copy_python_src_ignore(path, os.listdir(path)),
+                         ignored)
+
+    def test_linked_to_musl(self):
+        linked = support.linked_to_musl()
+        self.assertIsInstance(linked, bool)
 
     # XXX -follows a list of untested API
     # make_legacy_pyc
@@ -781,12 +793,10 @@ class TestSupport(unittest.TestCase):
     # EnvironmentVarGuard
     # transient_internet
     # run_with_locale
-    # set_memlimit
     # bigmemtest
     # precisionbigmemtest
     # bigaddrspacetest
     # requires_resource
-    # run_doctest
     # threading_cleanup
     # reap_threads
     # can_symlink
