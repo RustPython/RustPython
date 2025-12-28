@@ -138,6 +138,82 @@ mod _socket {
         SOL_CAN_RAW,
     };
 
+    // CAN BCM opcodes
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_TX_SETUP: i32 = 1;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_TX_DELETE: i32 = 2;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_TX_READ: i32 = 3;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_TX_SEND: i32 = 4;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_SETUP: i32 = 5;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_DELETE: i32 = 6;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_READ: i32 = 7;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_TX_STATUS: i32 = 8;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_TX_EXPIRED: i32 = 9;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_STATUS: i32 = 10;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_TIMEOUT: i32 = 11;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_CHANGED: i32 = 12;
+
+    // CAN BCM flags (linux/can/bcm.h)
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_SETTIMER: i32 = 0x0001;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_STARTTIMER: i32 = 0x0002;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_TX_COUNTEVT: i32 = 0x0004;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_TX_ANNOUNCE: i32 = 0x0008;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_TX_CP_CAN_ID: i32 = 0x0010;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_FILTER_ID: i32 = 0x0020;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_CHECK_DLC: i32 = 0x0040;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_NO_AUTOTIMER: i32 = 0x0080;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_ANNOUNCE_RESUME: i32 = 0x0100;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_TX_RESET_MULTI_IDX: i32 = 0x0200;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_RTR_FRAME: i32 = 0x0400;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_CAN_FD_FRAME: i32 = 0x0800;
+
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     #[pyattr]
     use c::SOL_RDS;
