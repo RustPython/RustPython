@@ -363,27 +363,6 @@ class CAutoFileTests(AutoFileTests, unittest.TestCase):
     FileIO = _io.FileIO
     modulename = '_io'
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def testBlksize(self):
-        return super().testBlksize()
-
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
-    def testErrnoOnClosedTruncate(self):
-        return super().testErrnoOnClosedTruncate()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def testMethods(self):
-        return super().testMethods()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def testOpenDirFD(self):
-        return super().testOpenDirFD()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_subclass_repr(self):
-        return super().test_subclass_repr()
-
-@unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, test setUp errors on Windows")
 class PyAutoFileTests(AutoFileTests, unittest.TestCase):
     FileIO = _pyio.FileIO
     modulename = '_pyio'
@@ -506,7 +485,6 @@ class OtherFileTests:
             import msvcrt
             self.assertRaises(OSError, msvcrt.get_osfhandle, make_bad_fd())
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def testBooleanFd(self):
         for fd in False, True:
             with self.assertWarnsRegex(RuntimeWarning,
@@ -633,10 +611,6 @@ class COtherFileTests(OtherFileTests, unittest.TestCase):
         with _io.open_code(__file__) as f:
             actual = f.read()
         self.assertEqual(expected, actual)
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def testUnclosedFDOnException(self):
-        return super().testUnclosedFDOnException()
 
 
 class PyOtherFileTests(OtherFileTests, unittest.TestCase):

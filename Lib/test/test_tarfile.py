@@ -1050,19 +1050,15 @@ class GNUReadTest(LongnameTest, ReadTest, unittest.TestCase):
             s = os.stat(filename)
             self.assertLess(s.st_blocks * 512, s.st_size)
 
-    @unittest.expectedFailureIf(sys.platform == "linux", "TODO: RUSTPYTHON")
     def test_sparse_file_old(self):
         self._test_sparse_file("gnu/sparse")
 
-    @unittest.expectedFailureIf(sys.platform == "linux", "TODO: RUSTPYTHON")
     def test_sparse_file_00(self):
         self._test_sparse_file("gnu/sparse-0.0")
 
-    @unittest.expectedFailureIf(sys.platform == "linux", "TODO: RUSTPYTHON")
     def test_sparse_file_01(self):
         self._test_sparse_file("gnu/sparse-0.1")
 
-    @unittest.expectedFailureIf(sys.platform == "linux", "TODO: RUSTPYTHON")
     def test_sparse_file_10(self):
         self._test_sparse_file("gnu/sparse-1.0")
 

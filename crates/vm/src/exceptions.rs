@@ -1592,6 +1592,9 @@ pub(super) mod types {
         filename2: PyAtomicRef<Option<PyObject>>,
         #[cfg(windows)]
         winerror: PyAtomicRef<Option<PyObject>>,
+        // For BlockingIOError: characters written before blocking occurred
+        // -1 means not set (AttributeError when accessed)
+        written: AtomicCell<isize>,
     }
 
     impl crate::class::PySubclass for PyOSError {
@@ -1666,6 +1669,7 @@ pub(super) mod types {
                 filename2: filename2.into(),
                 #[cfg(windows)]
                 winerror: None.into(),
+                written: AtomicCell::new(-1),
             })
         }
 
@@ -1707,8 +1711,14 @@ pub(super) mod types {
             #[allow(deprecated)]
             let exc: &Py<PyOSError> = zelf.downcast_ref::<PyOSError>().unwrap();
 
+            // Check if this is BlockingIOError - need to handle characters_written
+            let is_blocking_io_error =
+                zelf.class()
+                    .is(vm.ctx.exceptions.blocking_io_error.as_ref());
+
             // SAFETY: slot_init is called during object initialization,
             // so fields are None and swap result can be safely ignored
+            let mut set_filename = true;
             if len <= 5 {
                 // Only set errno/strerror when args len is 2-5
                 if 2 <= len {
@@ -1716,7 +1726,22 @@ pub(super) mod types {
                     let _ = unsafe { exc.strerror.swap(Some(new_args.args[1].clone())) };
                 }
                 if 3 <= len {
-                    let _ = unsafe { exc.filename.swap(Some(new_args.args[2].clone())) };
+                    let third_arg = &new_args.args[2];
+                    // BlockingIOError's 3rd argument can be the number of characters written
+                    if is_blocking_io_error
+                        && !vm.is_none(third_arg)
+                        && crate::protocol::PyNumber::check(third_arg)
+                        && let Ok(written) = third_arg.try_index(vm)
+                        && let Ok(n) = written.try_to_primitive::<isize>(vm)
+                    {
+                        exc.written.store(n);
+                        set_filename = false;
+                        // Clear filename that was set in py_new
+                        let _ = unsafe { exc.filename.swap(None) };
+                    }
+                    if set_filename {
+                        let _ = unsafe { exc.filename.swap(Some(third_arg.clone())) };
+                    }
                 }
                 #[cfg(windows)]
                 if 4 <= len {
@@ -1937,6 +1962,47 @@ pub(super) mod types {
         #[pygetset(setter)]
         fn set_winerror(&self, value: Option<PyObjectRef>, vm: &VirtualMachine) {
             self.winerror.swap_to_temporary_refs(value, vm);
+        }
+
+        #[pygetset]
+        fn characters_written(&self, vm: &VirtualMachine) -> PyResult<isize> {
+            let written = self.written.load();
+            if written == -1 {
+                Err(vm.new_attribute_error("characters_written".to_owned()))
+            } else {
+                Ok(written)
+            }
+        }
+
+        #[pygetset(setter)]
+        fn set_characters_written(
+            &self,
+            value: Option<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            match value {
+                None => {
+                    // Deleting the attribute
+                    if self.written.load() == -1 {
+                        Err(vm.new_attribute_error("characters_written".to_owned()))
+                    } else {
+                        self.written.store(-1);
+                        Ok(())
+                    }
+                }
+                Some(v) => {
+                    let n = v
+                        .try_index(vm)?
+                        .try_to_primitive::<isize>(vm)
+                        .map_err(|_| {
+                            vm.new_value_error(
+                                "cannot convert characters_written value to isize".to_owned(),
+                            )
+                        })?;
+                    self.written.store(n);
+                    Ok(())
+                }
+            }
         }
     }
 

@@ -334,7 +334,21 @@ pub fn close(fd: Owned) -> io::Result<()> {
 }
 
 pub fn ftruncate(fd: Borrowed<'_>, len: Offset) -> io::Result<()> {
-    cvt(unsafe { suppress_iph!(c::ftruncate(fd.as_raw(), len)) })?;
+    let ret = unsafe { suppress_iph!(c::ftruncate(fd.as_raw(), len)) };
+    // On Windows, _chsize_s returns 0 on success, or a positive error code (errno value) on failure.
+    // On other platforms, ftruncate returns 0 on success, or -1 on failure with errno set.
+    #[cfg(windows)]
+    {
+        if ret != 0 {
+            // _chsize_s returns errno directly, convert to Windows error code
+            let winerror = crate::os::errno_to_winerror(ret);
+            return Err(io::Error::from_raw_os_error(winerror));
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        cvt(ret)?;
+    }
     Ok(())
 }
 
