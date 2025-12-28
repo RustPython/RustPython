@@ -320,6 +320,7 @@ impl PyInt {
 }
 
 #[pyclass(
+    itemsize = 4,
     flags(BASETYPE, _MATCH_SELF),
     with(PyRef, Comparable, Hashable, Constructor, AsNumber, Representable)
 )]

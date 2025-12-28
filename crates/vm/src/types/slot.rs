@@ -128,7 +128,7 @@ pub struct PyTypeSlots {
     pub(crate) name: &'static str, // tp_name with <module>.<class> for print, not class name
 
     pub basicsize: usize,
-    // tp_itemsize
+    pub itemsize: usize, // tp_itemsize
 
     // Methods to implement standard operations
 
