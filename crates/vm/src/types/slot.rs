@@ -5,7 +5,7 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyInt, PyStr, PyStrInterned, PyStrRef, PyType, PyTypeRef},
     bytecode::ComparisonOperator,
-    common::hash::PyHash,
+    common::hash::{hash_bigint, PyHash},
     convert::ToPyObject,
     function::{
         Either, FromArgs, FuncArgs, OptionalArg, PyComparisonValue, PyMethodDef, PySetterValue,
@@ -18,7 +18,6 @@ use crate::{
     vm::Context,
 };
 use crossbeam_utils::atomic::AtomicCell;
-use malachite_bigint::BigInt;
 use num_traits::{Signed, ToPrimitive};
 use std::{any::Any, any::TypeId, borrow::Borrow, cmp::Ordering, ops::Deref};
 
@@ -411,11 +410,7 @@ fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
     let py_int = hash_obj
         .downcast_ref::<PyInt>()
         .ok_or_else(|| vm.new_type_error("__hash__ method should return an integer"))?;
-    let big_int = py_int.as_bigint();
-    let hash: PyHash = big_int
-        .to_i64()
-        .unwrap_or_else(|| (big_int % BigInt::from(u64::MAX)).to_i64().unwrap());
-    Ok(hash)
+    Ok(hash_bigint(py_int.as_bigint()))
 }
 
 /// Marks a type as unhashable. Similar to PyObject_HashNotImplemented in CPython
