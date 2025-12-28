@@ -7,7 +7,7 @@ pub type InitHook = Box<dyn FnOnce(&mut VirtualMachine)>;
 /// # Basic Usage
 /// ```no_run
 /// use rustpython::InterpreterConfig;
-/// 
+///
 /// let interpreter = InterpreterConfig::new()
 ///     .init_stdlib()
 ///     .interpreter();
@@ -17,13 +17,13 @@ pub type InitHook = Box<dyn FnOnce(&mut VirtualMachine)>;
 /// ```no_run
 /// use rustpython_vm::Settings;
 /// use rustpython::InterpreterConfig;
-/// 
+///
 /// let mut settings = Settings::default();
 /// settings.debug = 1;
 /// // Add paths to allow importing Python libraries
 /// settings.path_list.push("Lib".to_owned());  // standard library directory
 /// settings.path_list.push("".to_owned());     // current working directory
-/// 
+///
 /// let interpreter = InterpreterConfig::new()
 ///     .settings(settings)
 ///     .interpreter();
@@ -33,12 +33,12 @@ pub type InitHook = Box<dyn FnOnce(&mut VirtualMachine)>;
 /// ```no_run
 /// use rustpython::InterpreterConfig;
 /// use rustpython_vm::{VirtualMachine, PyRef, builtins::PyModule};
-/// 
+///
 /// fn make_custom_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 ///     // Your module implementation
 /// #   todo!()
 /// }
-/// 
+///
 /// let interpreter = InterpreterConfig::new()
 ///     .init_stdlib()
 ///     .add_native_module(
@@ -60,7 +60,7 @@ impl InterpreterConfig {
     }
 
     /// Build the interpreter with the current configuration
-    /// 
+    ///
     /// # Panics
     /// May panic if initialization hooks encounter fatal errors
     pub fn interpreter(self) -> Interpreter {
@@ -73,7 +73,7 @@ impl InterpreterConfig {
     }
 
     /// Set custom settings for the interpreter
-    /// 
+    ///
     /// If called multiple times, only the last settings will be used
     pub fn settings(mut self, settings: Settings) -> Self {
         self.settings = Some(settings);
@@ -81,7 +81,7 @@ impl InterpreterConfig {
     }
 
     /// Add a custom initialization hook
-    /// 
+    ///
     /// Hooks are executed in the order they are added during interpreter creation
     pub fn init_hook(mut self, hook: InitHook) -> Self {
         self.init_hooks.push(hook);
@@ -89,11 +89,11 @@ impl InterpreterConfig {
     }
 
     /// Add a native module to the interpreter
-    /// 
+    ///
     /// # Arguments
     /// * `name` - The module name that will be used for imports
     /// * `make_module` - Function that creates the module when called
-    /// 
+    ///
     /// # Example
     /// ```no_run
     /// # use rustpython::InterpreterConfig;
@@ -114,7 +114,7 @@ impl InterpreterConfig {
     }
 
     /// Initialize the Python standard library
-    /// 
+    ///
     /// This adds all standard library modules to the interpreter.
     /// Requires the `stdlib` feature to be enabled at compile time.
     #[cfg(feature = "stdlib")]
@@ -123,17 +123,19 @@ impl InterpreterConfig {
     }
 
     /// Initialize the Python standard library (no-op without stdlib feature)
-    /// 
+    ///
     /// When the `stdlib` feature is not enabled, this method does nothing
     /// and prints a warning. Enable the `stdlib` feature to use the standard library.
     #[cfg(not(feature = "stdlib"))]
     pub fn init_stdlib(self) -> Self {
-        eprintln!("Warning: stdlib feature is not enabled. Standard library will not be available.");
+        eprintln!(
+            "Warning: stdlib feature is not enabled. Standard library will not be available."
+        );
         self
     }
 
     /// Convenience method to set the debug level
-    /// 
+    ///
     /// # Example
     /// ```no_run
     /// # use rustpython::InterpreterConfig;
@@ -147,7 +149,7 @@ impl InterpreterConfig {
     }
 
     /// Convenience method to add a single path to the module search paths
-    /// 
+    ///
     /// # Example
     /// ```no_run
     /// # use rustpython::InterpreterConfig;
@@ -157,12 +159,15 @@ impl InterpreterConfig {
     ///     .interpreter();
     /// ```
     pub fn add_path(mut self, path: impl Into<String>) -> Self {
-        self.settings.get_or_insert_with(Default::default).path_list.push(path.into());
+        self.settings
+            .get_or_insert_with(Default::default)
+            .path_list
+            .push(path.into());
         self
     }
 
     /// Add multiple paths to the module search paths at once
-    /// 
+    ///
     /// # Example
     /// ```no_run
     /// # use rustpython::InterpreterConfig;
@@ -170,7 +175,7 @@ impl InterpreterConfig {
     ///     .add_paths(vec!["Lib", ".", "custom_modules"])
     ///     .interpreter();
     /// ```
-    pub fn add_paths<I, S>(mut self, paths: I) -> Self 
+    pub fn add_paths<I, S>(mut self, paths: I) -> Self
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
@@ -182,7 +187,7 @@ impl InterpreterConfig {
 }
 
 /// Initialize the standard library modules
-/// 
+///
 /// This function sets up both native modules and handles frozen/dynamic stdlib loading
 #[cfg(feature = "stdlib")]
 pub fn init_stdlib(vm: &mut VirtualMachine) {
@@ -196,13 +201,13 @@ pub fn init_stdlib(vm: &mut VirtualMachine) {
 }
 
 /// Setup frozen standard library
-/// 
+///
 /// Used when the stdlib is compiled into the binary
 #[cfg(all(feature = "stdlib", feature = "freeze-stdlib"))]
 fn setup_frozen_stdlib(vm: &mut VirtualMachine) {
     vm.add_frozen(rustpython_pylib::FROZEN_STDLIB);
 
-    // FIXME: Remove this hack once sys._stdlib_dir is properly implemented 
+    // FIXME: Remove this hack once sys._stdlib_dir is properly implemented
     // or _frozen_importlib doesn't depend on it anymore.
     // The assert ensures _stdlib_dir doesn't already exist before we set it
     assert!(vm.sys_module.get_attr("_stdlib_dir", vm).is_err());
@@ -216,7 +221,7 @@ fn setup_frozen_stdlib(vm: &mut VirtualMachine) {
 }
 
 /// Setup dynamic standard library loading from filesystem
-/// 
+///
 /// Used when the stdlib is loaded from disk at runtime
 #[cfg(all(feature = "stdlib", not(feature = "freeze-stdlib")))]
 fn setup_dynamic_stdlib(vm: &mut VirtualMachine) {
@@ -233,7 +238,7 @@ fn setup_dynamic_stdlib(vm: &mut VirtualMachine) {
 }
 
 /// Collect standard library paths from build-time configuration
-/// 
+///
 /// Checks BUILDTIME_RUSTPYTHONPATH environment variable or uses default pylib path
 #[cfg(all(feature = "stdlib", not(feature = "freeze-stdlib")))]
 fn collect_stdlib_paths() -> Vec<String> {
@@ -281,9 +286,7 @@ mod tests {
 
     #[test]
     fn test_add_multiple_paths_sequential() {
-        let config = InterpreterConfig::new()
-            .add_path("path1")
-            .add_path("path2");
+        let config = InterpreterConfig::new().add_path("path1").add_path("path2");
         let settings = config.settings.unwrap();
         assert_eq!(settings.path_list.len(), 2);
     }
