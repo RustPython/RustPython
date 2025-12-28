@@ -1204,14 +1204,6 @@ class TestIOCTypes(unittest.TestCase):
 class PyIOTest(IOTest):
     pass
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; OSError: Negative file descriptor
-    def test_bad_opener_negative_1():
-        return super().test_bad_opener_negative_1()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON; OSError: Negative file descriptor
-    def test_bad_opener_other_negative():
-        return super().test_bad_opener_other_negative()
-
 
 @support.cpython_only
 class APIMismatchTest(unittest.TestCase):
@@ -1288,7 +1280,6 @@ class CommonBufferedTests:
         # a ValueError.
         self.assertRaises(ValueError, _with)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_error_through_destructor(self):
         # Test that the exception state is not modified by a destructor,
         # even if close() fails.
@@ -1811,6 +1802,10 @@ class CBufferedReaderTest(BufferedReaderTest, SizeofTest):
             support.gc_collect()
         self.assertIsNone(wr(), wr)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_error_through_destructor(self):
+        return super().test_error_through_destructor()
+
     def test_args_error(self):
         # Issue #17275
         with self.assertRaisesRegex(TypeError, "BufferedReader"):
@@ -1841,7 +1836,6 @@ class CBufferedReaderTest(BufferedReaderTest, SizeofTest):
     def test_seek_character_device_file(self):
         return super().test_seek_character_device_file()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: UnsupportedOperation not raised by truncate
     def test_truncate_on_read_only(self):
         return super().test_truncate_on_read_only()
 
@@ -2157,6 +2151,10 @@ class BufferedWriterTest(unittest.TestCase, CommonBufferedTests):
 
 class CBufferedWriterTest(BufferedWriterTest, SizeofTest):
     tp = io.BufferedWriter
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_error_through_destructor(self):
+        return super().test_error_through_destructor()
 
     def test_initialization(self):
         rawio = self.MockRawIO()
@@ -2679,6 +2677,10 @@ class BufferedRandomTest(BufferedReaderTest, BufferedWriterTest):
 
 class CBufferedRandomTest(BufferedRandomTest, SizeofTest):
     tp = io.BufferedRandom
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_error_through_destructor(self):
+        return super().test_error_through_destructor()
 
     @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; cyclic GC not supported, causes file locking')
     @unittest.expectedFailure # TODO: RUSTPYTHON
@@ -3205,7 +3207,6 @@ class TextIOWrapperTest(unittest.TestCase):
         support.gc_collect()
         self.assertEqual(record, [1, 2, 3])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_error_through_destructor(self):
         # Test that the exception state is not modified by a destructor,
         # even if close() fails.
@@ -4116,6 +4117,10 @@ class CTextIOWrapperTest(TextIOWrapperTest):
     shutdown_error = "LookupError: unknown encoding: ascii"
 
     @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_error_through_destructor(self):
+        return super().test_error_through_destructor()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_initialization(self):
         r = self.BytesIO(b"\xc3\xa9\n\n")
         b = self.BufferedReader(r, 1000)
@@ -4596,7 +4601,6 @@ class MiscIOTest(unittest.TestCase):
             support.gc_collect()
         self.assertIn(r, str(cm.warning.args[0]))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_warn_on_dealloc(self):
         self._check_warn_on_dealloc(os_helper.TESTFN, "wb", buffering=0)
         self._check_warn_on_dealloc(os_helper.TESTFN, "wb")
@@ -4621,7 +4625,6 @@ class MiscIOTest(unittest.TestCase):
         with warnings_helper.check_no_resource_warning(self):
             self.open(r, *args, closefd=False, **kwargs)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipUnless(hasattr(os, "pipe"), "requires os.pipe()")
     def test_warn_on_dealloc_fd(self):
         self._check_warn_on_dealloc_fd("rb", buffering=0)
@@ -4821,6 +4824,14 @@ class CMiscIOTest(MiscIOTest):
     io = io
     name_of_module = "io", "_io"
     extra_exported = "BlockingIOError",
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_warn_on_dealloc(self):
+        return super().test_warn_on_dealloc()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_warn_on_dealloc_fd(self):
+        return super().test_warn_on_dealloc_fd()
 
     def test_readinto_buffer_overflow(self):
         # Issue #18025

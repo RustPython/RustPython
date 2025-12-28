@@ -9,6 +9,15 @@ cfg_if::cfg_if! {
     }
 }
 
+// EAGAIN constant for BlockingIOError
+cfg_if::cfg_if! {
+    if #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))] {
+        const EAGAIN: i32 = libc::EAGAIN;
+    } else {
+        const EAGAIN: i32 = 11; // Standard POSIX value
+    }
+}
+
 use crate::{
     PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyModule},
@@ -159,6 +168,7 @@ mod _io {
         },
         common::wtf8::{Wtf8, Wtf8Buf},
         convert::ToPyObject,
+        exceptions::cstring_error,
         function::{
             ArgBytesLike, ArgIterable, ArgMemoryBuffer, ArgSize, Either, FuncArgs, IntoFuncArgs,
             OptionalArg, OptionalOption, PySetterValue,
@@ -169,6 +179,7 @@ mod _io {
         recursion::ReprGuard,
         types::{
             Callable, Constructor, DefaultConstructor, Destructor, Initializer, IterNext, Iterable,
+            Representable,
         },
         vm::VirtualMachine,
     };
@@ -200,6 +211,35 @@ mod _io {
         } else {
             Ok(())
         }
+    }
+
+    /// Check if an error is an OSError with errno == EINTR.
+    /// If so, call check_signals() and return Ok(None) to indicate retry.
+    /// Otherwise, return Ok(Some(val)) for success or Err for other errors.
+    /// This mirrors CPythons _PyIO_trap_eintr() pattern.
+    #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+    fn trap_eintr<T>(result: PyResult<T>, vm: &VirtualMachine) -> PyResult<Option<T>> {
+        match result {
+            Ok(val) => Ok(Some(val)),
+            Err(exc) => {
+                // Check if its an OSError with errno == EINTR
+                if exc.fast_isinstance(vm.ctx.exceptions.os_error)
+                    && let Ok(errno_attr) = exc.as_object().get_attr("errno", vm)
+                    && let Ok(errno_val) = i32::try_from_object(vm, errno_attr)
+                    && errno_val == libc::EINTR
+                {
+                    vm.check_signals()?;
+                    return Ok(None);
+                }
+                Err(exc)
+            }
+        }
+    }
+
+    /// WASM version: no EINTR handling needed
+    #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+    fn trap_eintr<T>(result: PyResult<T>, _vm: &VirtualMachine) -> PyResult<Option<T>> {
+        result.map(Some)
     }
 
     pub fn new_unsupported_operation(vm: &VirtualMachine, msg: String) -> PyBaseExceptionRef {
@@ -650,17 +690,26 @@ mod _io {
             if let Some(size) = size.to_usize() {
                 // FIXME: unnecessary zero-init
                 let b = PyByteArray::from(vec![0; size]).into_ref(&vm.ctx);
-                let n = <Option<usize>>::try_from_object(
+                let n = <Option<isize>>::try_from_object(
                     vm,
                     vm.call_method(&instance, "readinto", (b.clone(),))?,
                 )?;
-                Ok(n.map(|n| {
-                    let mut bytes = b.borrow_buf_mut();
-                    bytes.truncate(n);
-                    // FIXME: try to use Arc::unwrap on the bytearray to get at the inner buffer
-                    bytes.clone()
+                Ok(match n {
+                    None => vm.ctx.none(),
+                    Some(n) => {
+                        // Validate the return value is within bounds
+                        if n < 0 || (n as usize) > size {
+                            return Err(vm.new_value_error(format!(
+                                "readinto returned {n} outside buffer size {size}"
+                            )));
+                        }
+                        let n = n as usize;
+                        let mut bytes = b.borrow_buf_mut();
+                        bytes.truncate(n);
+                        // FIXME: try to use Arc::unwrap on the bytearray to get at the inner buffer
+                        bytes.clone().to_pyobject(vm)
+                    }
                 })
-                .to_pyobject(vm))
             } else {
                 vm.call_method(&instance, "readall", ())
             }
@@ -671,7 +720,14 @@ mod _io {
             let mut chunks = Vec::new();
             let mut total_len = 0;
             loop {
-                let data = vm.call_method(&instance, "read", (DEFAULT_BUFFER_SIZE,))?;
+                // Loop with EINTR handling (PEP 475)
+                let data = loop {
+                    let res = vm.call_method(&instance, "read", (DEFAULT_BUFFER_SIZE,));
+                    match trap_eintr(res, vm)? {
+                        Some(val) => break val,
+                        None => continue,
+                    }
+                };
                 let data = <Option<PyBytesRef>>::try_from_object(vm, data)?;
                 match data {
                     None => {
@@ -885,12 +941,20 @@ mod _io {
             while self.write_pos < self.write_end {
                 let n =
                     self.raw_write(None, self.write_pos as usize..self.write_end as usize, vm)?;
-                let n = n.ok_or_else(|| {
-                    vm.new_exception_msg(
-                        vm.ctx.exceptions.blocking_io_error.to_owned(),
-                        "write could not complete without blocking".to_owned(),
-                    )
-                })?;
+                let n = match n {
+                    Some(n) => n,
+                    None => {
+                        // BlockingIOError(errno, msg, characters_written=0)
+                        return Err(vm.invoke_exception(
+                            vm.ctx.exceptions.blocking_io_error.to_owned(),
+                            vec![
+                                vm.new_pyobj(EAGAIN),
+                                vm.new_pyobj("write could not complete without blocking"),
+                                vm.new_pyobj(0),
+                            ],
+                        )?);
+                    }
+                };
                 self.write_pos += n as Offset;
                 self.raw_pos = self.write_pos;
                 vm.check_signals()?;
@@ -1082,15 +1146,16 @@ mod _io {
                             let buffer_size = self.buffer.len() as _;
                             self.adjust_position(buffer_size);
                             self.write_end = buffer_size;
-                            // TODO: BlockingIOError(errno, msg, written)
-                            // written += self.buffer.len();
-                            return Err(vm
-                                .new_os_subtype_error(
-                                    vm.ctx.exceptions.blocking_io_error.to_owned(),
-                                    None,
-                                    "write could not complete without blocking".to_owned(),
-                                )
-                                .upcast());
+                            // BlockingIOError(errno, msg, characters_written)
+                            let chars_written = written + buffer_len;
+                            return Err(vm.invoke_exception(
+                                vm.ctx.exceptions.blocking_io_error.to_owned(),
+                                vec![
+                                    vm.new_pyobj(EAGAIN),
+                                    vm.new_pyobj("write could not complete without blocking"),
+                                    vm.new_pyobj(chars_written),
+                                ],
+                            )?);
                         } else {
                             break;
                         }
@@ -1156,7 +1221,7 @@ mod _io {
                     }
                 };
             }
-            while remaining > 0 {
+            while remaining > 0 && !self.buffer.is_empty() {
                 // MINUS_LAST_BLOCK() in CPython
                 let r = self.buffer.len() * (remaining / self.buffer.len());
                 if r == 0 {
@@ -1227,30 +1292,60 @@ mod _io {
                     )?
                     .into_ref(&vm.ctx);
 
-                    // TODO: loop if readinto() raises an interrupt
-                    let res =
-                        vm.call_method(self.raw.as_ref().unwrap(), "readinto", (mem_obj.clone(),));
+                    // Loop if readinto() raises EINTR (PEP 475)
+                    let res = loop {
+                        let res = vm.call_method(
+                            self.raw.as_ref().unwrap(),
+                            "readinto",
+                            (mem_obj.clone(),),
+                        );
+                        match trap_eintr(res, vm) {
+                            Ok(Some(val)) => break Ok(val),
+                            Ok(None) => continue, // EINTR, retry
+                            Err(e) => break Err(e),
+                        }
+                    };
 
                     mem_obj.release();
+                    // Always restore the buffer, even if an error occurred
                     *v = read_buf.take();
 
                     res?
                 }
                 Either::B(buf) => {
-                    let mem_obj = PyMemoryView::from_buffer_range(buf, buf_range, vm)?;
-                    // TODO: loop if readinto() raises an interrupt
-                    vm.call_method(self.raw.as_ref().unwrap(), "readinto", (mem_obj,))?
+                    let mem_obj =
+                        PyMemoryView::from_buffer_range(buf, buf_range, vm)?.into_ref(&vm.ctx);
+                    // Loop if readinto() raises EINTR (PEP 475)
+                    loop {
+                        let res = vm.call_method(
+                            self.raw.as_ref().unwrap(),
+                            "readinto",
+                            (mem_obj.clone(),),
+                        );
+                        match trap_eintr(res, vm)? {
+                            Some(val) => break val,
+                            None => continue,
+                        }
+                    }
                 }
             };
 
             if vm.is_none(&res) {
                 return Ok(None);
             }
-            let n = isize::try_from_object(vm, res)?;
+            // Try to convert to int; if it fails, treat as -1 and chain the TypeError
+            let (n, type_error) = match isize::try_from_object(vm, res.clone()) {
+                Ok(n) => (n, None),
+                Err(e) => (-1, Some(e)),
+            };
             if n < 0 || n as usize > len {
-                return Err(vm.new_os_error(format!(
+                let os_error = vm.new_os_error(format!(
                     "raw readinto() returned invalid length {n} (should have been between 0 and {len})"
-                )));
+                ));
+                if let Some(cause) = type_error {
+                    os_error.set___cause__(Some(cause));
+                }
+                return Err(os_error);
             }
             if n > 0 && self.abs_pos != -1 {
                 self.abs_pos += n as Offset
@@ -1293,7 +1388,14 @@ mod _io {
 
             let mut read_size = 0;
             loop {
-                let read_data = vm.call_method(self.raw.as_ref().unwrap(), "read", ())?;
+                // Loop with EINTR handling (PEP 475)
+                let read_data = loop {
+                    let res = vm.call_method(self.raw.as_ref().unwrap(), "read", ());
+                    match trap_eintr(res, vm)? {
+                        Some(val) => break val,
+                        None => continue,
+                    }
+                };
                 let read_data = <Option<PyBytesRef>>::try_from_object(vm, read_data)?;
 
                 match read_data {
@@ -1564,9 +1666,10 @@ mod _io {
             let pos = pos.flatten().to_pyobject(vm);
             let mut data = zelf.lock(vm)?;
             data.check_init(vm)?;
-            if data.writable() {
-                data.flush_rewind(vm)?;
+            if !data.writable() {
+                return Err(new_unsupported_operation(vm, "truncate".to_owned()));
             }
+            data.flush_rewind(vm)?;
             let res = vm.call_method(data.raw.as_ref().unwrap(), "truncate", (pos,))?;
             let _ = data.raw_tell(vm);
             Ok(res)
@@ -2400,7 +2503,13 @@ mod _io {
                 None if vm.state.config.settings.utf8_mode > 0 => {
                     identifier_utf8!(vm, utf_8).to_owned()
                 }
-                Some(enc) if enc.as_str() != "locale" => enc,
+                Some(enc) if enc.as_str() != "locale" => {
+                    // Check for embedded null character
+                    if enc.as_str().contains('\0') {
+                        return Err(cstring_error(vm));
+                    }
+                    enc
+                }
                 _ => {
                     // None without utf8_mode or "locale" encoding
                     vm.import("locale", 0)?
@@ -2413,6 +2522,11 @@ mod _io {
             let errors = args
                 .errors
                 .unwrap_or_else(|| identifier!(vm, strict).to_owned());
+
+            // Check for embedded null character in errors (use as_wtf8 to handle surrogates)
+            if errors.as_wtf8().as_bytes().contains(&0) {
+                return Err(cstring_error(vm));
+            }
 
             let has_read1 = vm.get_attribute_opt(buffer.clone(), "read1")?.is_some();
             let seekable = vm.call_method(&buffer, "seekable", ())?.try_to_bool(vm)?;
@@ -2519,7 +2633,14 @@ mod _io {
     }
 
     #[pyclass(
-        with(Constructor, Initializer, Destructor, Iterable, IterNext),
+        with(
+            Constructor,
+            Initializer,
+            Destructor,
+            Iterable,
+            IterNext,
+            Representable
+        ),
         flags(BASETYPE)
     )]
     impl TextIOWrapper {
@@ -3393,6 +3514,46 @@ mod _io {
         #[cold]
         fn del(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<()> {
             unreachable!("slot_del is implemented")
+        }
+    }
+
+    impl Representable for TextIOWrapper {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let type_name = zelf.class().slot_name();
+            let Some(data) = zelf.data.lock() else {
+                // Reentrant call
+                return Ok(format!("<{type_name}>"));
+            };
+            let Some(data) = data.as_ref() else {
+                return Err(vm.new_value_error("I/O operation on uninitialized object".to_owned()));
+            };
+
+            let mut result = format!("<{type_name}");
+
+            // Add name if present
+            if let Ok(Some(name)) = vm.get_attribute_opt(data.buffer.clone(), "name")
+                && let Ok(name_repr) = name.repr(vm)
+            {
+                result.push_str(" name=");
+                result.push_str(name_repr.as_str());
+            }
+
+            // Add mode if present
+            if let Ok(Some(mode)) = vm.get_attribute_opt(data.buffer.clone(), "mode")
+                && let Ok(mode_repr) = mode.repr(vm)
+            {
+                result.push_str(" mode=");
+                result.push_str(mode_repr.as_str());
+            }
+
+            // Add encoding
+            result.push_str(" encoding='");
+            result.push_str(data.encoding.as_str());
+            result.push('\'');
+
+            result.push('>');
+            Ok(result)
         }
     }
 
@@ -4465,7 +4626,7 @@ mod fileio {
     }
 
     #[pyattr]
-    #[pyclass(module = "io", name, base = _RawIOBase)]
+    #[pyclass(module = "_io", name, base = _RawIOBase)]
     #[derive(Debug)]
     pub(super) struct FileIO {
         _base: _RawIOBase,
@@ -4473,6 +4634,7 @@ mod fileio {
         closefd: AtomicCell<bool>,
         mode: AtomicCell<Mode>,
         seekable: AtomicCell<Option<bool>>,
+        blksize: AtomicCell<i64>,
     }
 
     #[derive(FromArgs)]
@@ -4495,6 +4657,7 @@ mod fileio {
                 closefd: AtomicCell::new(true),
                 mode: AtomicCell::new(Mode::empty()),
                 seekable: AtomicCell::new(None),
+                blksize: AtomicCell::new(0),
             }
         }
     }
@@ -4507,6 +4670,15 @@ mod fileio {
         fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             // TODO: let atomic_flag_works
             let name = args.name;
+            // Check if bool is used as file descriptor
+            if name.class().is(vm.ctx.types.bool_type) {
+                crate::stdlib::warnings::warn(
+                    vm.ctx.exceptions.runtime_warning,
+                    "bool is used as a file descriptor".to_owned(),
+                    1,
+                    vm,
+                )?;
+            }
             let arg_fd = if let Some(i) = name.downcast_ref::<crate::builtins::PyInt>() {
                 let fd = i.try_to_primitive(vm)?;
                 if fd < 0 {
@@ -4557,6 +4729,7 @@ mod fileio {
                     }
                 }
             };
+            let fd_is_own = arg_fd.is_none();
             zelf.fd.store(fd);
             let fd = unsafe { crt_fd::Borrowed::borrow_raw(fd) };
             let filename = filename.unwrap_or(OsPathOrFd::Fd(fd));
@@ -4576,12 +4749,25 @@ mod fileio {
                 match fd_fstat {
                     Ok(status) => {
                         if (status.st_mode & libc::S_IFMT) == libc::S_IFDIR {
+                            // If fd was passed by user, don't close it on error
+                            if !fd_is_own {
+                                zelf.fd.store(-1);
+                            }
                             let err = std::io::Error::from_raw_os_error(libc::EISDIR);
                             return Err(OSErrorBuilder::with_filename(&err, filename, vm));
+                        }
+                        // Store st_blksize for _blksize property
+                        if status.st_blksize > 1 {
+                            #[allow(clippy::useless_conversion)] // needed for 32-bit platforms
+                            zelf.blksize.store(i64::from(status.st_blksize));
                         }
                     }
                     Err(err) => {
                         if err.raw_os_error() == Some(libc::EBADF) {
+                            // If fd was passed by user, don't close it on error
+                            if !fd_is_own {
+                                zelf.fd.store(-1);
+                            }
                             return Err(OSErrorBuilder::with_filename(&err, filename, vm));
                         }
                     }
@@ -4590,7 +4776,13 @@ mod fileio {
 
             #[cfg(windows)]
             crate::stdlib::msvcrt::setmode_binary(fd);
-            zelf.as_object().set_attr("name", name, vm)?;
+            if let Err(e) = zelf.as_object().set_attr("name", name, vm) {
+                // If fd was passed by user, don't close it on error
+                if !fd_is_own {
+                    zelf.fd.store(-1);
+                }
+                return Err(e);
+            }
 
             if mode.contains(Mode::APPENDING) {
                 let _ = os::lseek(fd, 0, libc::SEEK_END, vm);
@@ -4603,17 +4795,18 @@ mod fileio {
     impl Representable for FileIO {
         #[inline]
         fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let type_name = zelf.class().slot_name();
             let fd = zelf.fd.load();
             if fd < 0 {
-                return Ok("<_io.FileIO [closed]>".to_owned());
+                return Ok(format!("<{type_name} [closed]>"));
             }
             let name_repr = repr_file_obj_name(zelf.as_object(), vm)?;
             let mode = zelf.mode();
             let closefd = if zelf.closefd.load() { "True" } else { "False" };
             let repr = if let Some(name_repr) = name_repr {
-                format!("<_io.FileIO name={name_repr} mode='{mode}' closefd={closefd}>")
+                format!("<{type_name} name={name_repr} mode='{mode}' closefd={closefd}>")
             } else {
-                format!("<_io.FileIO fd={fd} mode='{mode}' closefd={closefd}>")
+                format!("<{type_name} fd={fd} mode='{mode}' closefd={closefd}>")
             };
             Ok(repr)
         }
@@ -4648,6 +4841,11 @@ mod fileio {
             self.closefd.load()
         }
 
+        #[pygetset(name = "_blksize")]
+        fn blksize(&self) -> i64 {
+            self.blksize.load()
+        }
+
         #[pymethod]
         fn fileno(&self, vm: &VirtualMachine) -> PyResult<i32> {
             let fd = self.fd.load();
@@ -4664,13 +4862,19 @@ mod fileio {
         }
 
         #[pymethod]
-        fn readable(&self) -> bool {
-            self.mode.load().contains(Mode::READABLE)
+        fn readable(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            if self.fd.load() < 0 {
+                return Err(io_closed_error(vm));
+            }
+            Ok(self.mode.load().contains(Mode::READABLE))
         }
 
         #[pymethod]
-        fn writable(&self) -> bool {
-            self.mode.load().contains(Mode::WRITABLE)
+        fn writable(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            if self.fd.load() < 0 {
+                return Err(io_closed_error(vm));
+            }
+            Ok(self.mode.load().contains(Mode::WRITABLE))
         }
 
         #[pygetset]
@@ -4714,16 +4918,32 @@ mod fileio {
             let mut handle = zelf.get_fd(vm)?;
             let bytes = if let Some(read_byte) = read_byte.to_usize() {
                 let mut bytes = vec![0; read_byte];
-                let n = handle
-                    .read(&mut bytes)
-                    .map_err(|err| Self::io_error(zelf, err, vm))?;
+                // Loop on EINTR (PEP 475)
+                let n = loop {
+                    match handle.read(&mut bytes) {
+                        Ok(n) => break n,
+                        Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
+                            vm.check_signals()?;
+                            continue;
+                        }
+                        Err(e) => return Err(Self::io_error(zelf, e, vm)),
+                    }
+                };
                 bytes.truncate(n);
                 bytes
             } else {
                 let mut bytes = vec![];
-                handle
-                    .read_to_end(&mut bytes)
-                    .map_err(|err| Self::io_error(zelf, err, vm))?;
+                // Loop on EINTR (PEP 475)
+                loop {
+                    match handle.read_to_end(&mut bytes) {
+                        Ok(_) => break,
+                        Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
+                            vm.check_signals()?;
+                            continue;
+                        }
+                        Err(e) => return Err(Self::io_error(zelf, e, vm)),
+                    }
+                }
                 bytes
             };
 
@@ -4743,9 +4963,17 @@ mod fileio {
 
             let mut buf = obj.borrow_buf_mut();
             let mut f = handle.take(buf.len() as _);
-            let ret = f
-                .read(&mut buf)
-                .map_err(|err| Self::io_error(zelf, err, vm))?;
+            // Loop on EINTR (PEP 475)
+            let ret = loop {
+                match f.read(&mut buf) {
+                    Ok(n) => break n,
+                    Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
+                        vm.check_signals()?;
+                        continue;
+                    }
+                    Err(e) => return Err(Self::io_error(zelf, e, vm)),
+                }
+            };
 
             Ok(ret)
         }

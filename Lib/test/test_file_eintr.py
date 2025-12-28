@@ -186,15 +186,7 @@ class TestFileIOSignalInterrupt:
 class CTestFileIOSignalInterrupt(TestFileIOSignalInterrupt, unittest.TestCase):
     modname = '_io'
 
-    # TODO: RUSTPYTHON - _io module uses _pyio internally, signal handling differs
-    @unittest.expectedFailure
-    def test_readline(self):
-        super().test_readline()
-
-    @unittest.expectedFailure
-    def test_readlines(self):
-        super().test_readlines()
-
+    # TODO: RUSTPYTHON - _io.FileIO.readall uses read_to_end which differs from _pyio.FileIO.readall
     @unittest.expectedFailure
     def test_readall(self):
         super().test_readall()
@@ -220,19 +212,6 @@ class TestBufferedIOSignalInterrupt(TestFileIOSignalInterrupt):
 
 class CTestBufferedIOSignalInterrupt(TestBufferedIOSignalInterrupt, unittest.TestCase):
     modname = '_io'
-
-    # TODO: RUSTPYTHON - _io module uses _pyio internally, signal handling differs
-    @unittest.expectedFailure
-    def test_readline(self):
-        super().test_readline()
-
-    @unittest.expectedFailure
-    def test_readlines(self):
-        super().test_readlines()
-
-    @unittest.expectedFailure
-    def test_readall(self):
-        super().test_readall()
 
 class PyTestBufferedIOSignalInterrupt(TestBufferedIOSignalInterrupt, unittest.TestCase):
     modname = '_pyio'
@@ -272,19 +251,6 @@ class TestTextIOSignalInterrupt(TestFileIOSignalInterrupt):
 
 class CTestTextIOSignalInterrupt(TestTextIOSignalInterrupt, unittest.TestCase):
     modname = '_io'
-
-    # TODO: RUSTPYTHON - _io module uses _pyio internally, signal handling differs
-    @unittest.expectedFailure
-    def test_readline(self):
-        super().test_readline()
-
-    @unittest.expectedFailure
-    def test_readlines(self):
-        super().test_readlines()
-
-    @unittest.expectedFailure
-    def test_readall(self):
-        super().test_readall()
 
 class PyTestTextIOSignalInterrupt(TestTextIOSignalInterrupt, unittest.TestCase):
     modname = '_pyio'
