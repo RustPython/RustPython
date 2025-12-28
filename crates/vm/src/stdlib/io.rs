@@ -4657,7 +4657,7 @@ mod fileio {
                 closefd: AtomicCell::new(true),
                 mode: AtomicCell::new(Mode::empty()),
                 seekable: AtomicCell::new(None),
-                blksize: AtomicCell::new(0),
+                blksize: AtomicCell::new(8 * 1024), // DEFAULT_BUFFER_SIZE
             }
         }
     }

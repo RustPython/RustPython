@@ -894,9 +894,11 @@ pub(super) mod _os {
         #[pystruct_sequence(skip)]
         pub st_ctime_ns: i128,
         // Unix-specific attributes
+        #[cfg(not(windows))]
         #[pyarg(any, default)]
         #[pystruct_sequence(skip)]
         pub st_blksize: i64,
+        #[cfg(not(windows))]
         #[pyarg(any, default)]
         #[pystruct_sequence(skip)]
         pub st_blocks: i64,
@@ -952,11 +954,12 @@ pub(super) mod _os {
             #[cfg(not(windows))]
             let st_ino = stat.st_ino;
 
-            #[cfg(any(unix, target_os = "wasi"))]
+            #[cfg(not(windows))]
             #[allow(clippy::useless_conversion)] // needed for 32-bit platforms
-            let (st_blksize, st_blocks) = (i64::from(stat.st_blksize), i64::from(stat.st_blocks));
-            #[cfg(windows)]
-            let (st_blksize, st_blocks) = (0i64, 0i64);
+            let st_blksize = i64::from(stat.st_blksize);
+            #[cfg(not(windows))]
+            #[allow(clippy::useless_conversion)] // needed for 32-bit platforms
+            let st_blocks = i64::from(stat.st_blocks);
 
             Self {
                 st_mode: vm.ctx.new_pyref(stat.st_mode),
@@ -975,7 +978,9 @@ pub(super) mod _os {
                 st_atime_ns: to_ns(atime),
                 st_mtime_ns: to_ns(mtime),
                 st_ctime_ns: to_ns(ctime),
+                #[cfg(not(windows))]
                 st_blksize,
+                #[cfg(not(windows))]
                 st_blocks,
                 st_reparse_tag,
                 st_file_attributes,
