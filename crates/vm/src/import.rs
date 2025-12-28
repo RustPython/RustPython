@@ -69,11 +69,15 @@ pub fn make_frozen(vm: &VirtualMachine, name: &str) -> PyResult<PyRef<PyCode>> {
 }
 
 pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
-    let frozen = make_frozen(vm, module_name)?;
-    let module = import_code_obj(vm, module_name, frozen, false)?;
+    let frozen = vm.state.frozen.get(module_name).ok_or_else(|| {
+        vm.new_import_error(
+            format!("No such frozen object named {module_name}"),
+            vm.ctx.new_str(module_name),
+        )
+    })?;
+    let module = import_code_obj(vm, module_name, vm.ctx.new_code(frozen.code), false)?;
     debug_assert!(module.get_attr(identifier!(vm, __name__), vm).is_ok());
-    // TODO: give a correct origname here
-    module.set_attr("__origname__", vm.ctx.new_str(module_name.to_owned()), vm)?;
+    module.set_attr("__origname__", vm.ctx.new_str(frozen.origname), vm)?;
     Ok(module)
 }
 
