@@ -248,7 +248,8 @@ fn collect_stdlib_paths() -> Vec<String> {
     if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
         additional_paths.extend(
             crate::settings::split_paths(paths)
-                .map(|path| path.into_os_string().into_string().unwrap()),
+                .map(|path| path.into_os_string().into_string()
+                    .unwrap_or_else(|_| panic!("BUILDTIME_RUSTPYTHONPATH isn't valid unicode"))),
         )
     } else {
         #[cfg(feature = "rustpython-pylib")]
