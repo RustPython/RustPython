@@ -126,3 +126,20 @@ assert str(i.__class__.__name__) == "arrayiterator"
 a = array("B", [0])
 assert a.__contains__(0)
 assert not a.__contains__(1)
+
+
+class _ReenteringWriter:
+    def __init__(self, arr):
+        self.arr = arr
+        self.reentered = False
+
+    def write(self, chunk):
+        if not self.reentered:
+            self.reentered = True
+            self.arr.append(0)
+        return len(chunk)
+
+
+arr = array("b", range(128))
+arr.tofile(_ReenteringWriter(arr))
+assert len(arr) == 129
