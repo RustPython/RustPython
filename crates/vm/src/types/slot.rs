@@ -1484,8 +1484,6 @@ pub trait Hashable: PyPayload {
         Self::hash(zelf, vm)
     }
 
-    // __hash__ is now exposed via SlotFunc::Hash wrapper in extend_class()
-
     fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash>;
 }
 
@@ -1535,8 +1533,60 @@ pub trait Comparable: PyPayload {
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue>;
 
-    // Comparison methods are exposed as wrapper_descriptor via slot_richcompare
-    // No #[pymethod] - add_operators creates wrapper from SLOT_DEFS
+    #[inline]
+    #[pymethod]
+    fn __eq__(
+        zelf: &Py<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, &other, PyComparisonOp::Eq, vm)
+    }
+    #[inline]
+    #[pymethod]
+    fn __ne__(
+        zelf: &Py<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, &other, PyComparisonOp::Ne, vm)
+    }
+    #[inline]
+    #[pymethod]
+    fn __lt__(
+        zelf: &Py<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, &other, PyComparisonOp::Lt, vm)
+    }
+    #[inline]
+    #[pymethod]
+    fn __le__(
+        zelf: &Py<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, &other, PyComparisonOp::Le, vm)
+    }
+    #[inline]
+    #[pymethod]
+    fn __ge__(
+        zelf: &Py<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, &other, PyComparisonOp::Ge, vm)
+    }
+    #[inline]
+    #[pymethod]
+    fn __gt__(
+        zelf: &Py<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, &other, PyComparisonOp::Gt, vm)
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -1779,8 +1829,6 @@ pub trait Iterable: PyPayload {
         Self::iter(zelf, vm)
     }
 
-    // __iter__ is exposed via SlotFunc::Iter wrapper in extend_class()
-
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult;
 
     fn extend_slots(_slots: &mut PyTypeSlots) {}
@@ -1798,8 +1846,6 @@ pub trait IterNext: PyPayload + Iterable {
     }
 
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn>;
-
-    // __next__ is exposed via SlotFunc::IterNext wrapper in extend_class()
 }
 
 pub trait SelfIter: PyPayload {}
@@ -1813,8 +1859,6 @@ where
         let repr = zelf.repr(vm)?;
         unreachable!("slot must be overridden for {}", repr.as_str());
     }
-
-    // __iter__ is exposed via SlotFunc::Iter wrapper in extend_class()
 
     #[cold]
     fn iter(_zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
