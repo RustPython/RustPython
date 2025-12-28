@@ -455,6 +455,7 @@ fn generate_class_def(
     });
     // If repr(transparent) with a base, the type has the same memory layout as base,
     // so basicsize should be 0 (no additional space beyond the base type)
+    // Otherwise, basicsize = sizeof(payload). The header size is added in __basicsize__ getter.
     let basicsize = if is_repr_transparent && base.is_some() {
         quote!(0)
     } else {

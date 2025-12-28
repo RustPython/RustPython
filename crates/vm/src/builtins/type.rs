@@ -782,8 +782,8 @@ impl PyType {
     }
 
     #[pygetset]
-    const fn __basicsize__(&self) -> usize {
-        self.slots.basicsize
+    fn __basicsize__(&self) -> usize {
+        crate::object::SIZEOF_PYOBJECT_HEAD + self.slots.basicsize
     }
 
     #[pygetset]
