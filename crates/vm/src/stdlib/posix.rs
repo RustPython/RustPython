@@ -475,6 +475,13 @@ pub mod module {
         }
     }
 
+    #[pyfunction]
+    #[pyfunction(name = "unlink")]
+    fn remove(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult<()> {
+        let [] = dir_fd.0;
+        fs::remove_file(&path).map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
+    }
+
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn fchdir(fd: BorrowedFd<'_>, vm: &VirtualMachine) -> PyResult<()> {

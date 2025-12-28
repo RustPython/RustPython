@@ -78,6 +78,58 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
+    #[pyfunction(name = "unlink")]
+    pub(super) fn remove(
+        path: OsPath,
+        dir_fd: DirFd<'static, 0>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        // On Windows, use DeleteFileW directly.
+        // Rust's std::fs::remove_file may have different behavior for read-only files.
+        // See Py_DeleteFileW.
+        use windows_sys::Win32::Storage::FileSystem::{
+            DeleteFileW, FindClose, FindFirstFileW, RemoveDirectoryW, WIN32_FIND_DATAW,
+        };
+        use windows_sys::Win32::System::SystemServices::{
+            IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK,
+        };
+
+        let [] = dir_fd.0;
+        let wide_path = path.to_wide_cstring(vm)?;
+        let attrs = unsafe { FileSystem::GetFileAttributesW(wide_path.as_ptr()) };
+
+        let mut is_directory = false;
+        let mut is_link = false;
+
+        if attrs != FileSystem::INVALID_FILE_ATTRIBUTES {
+            is_directory = (attrs & FileSystem::FILE_ATTRIBUTE_DIRECTORY) != 0;
+
+            // Check if it's a symlink or junction point
+            if is_directory && (attrs & FileSystem::FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
+                let mut find_data: WIN32_FIND_DATAW = unsafe { std::mem::zeroed() };
+                let handle = unsafe { FindFirstFileW(wide_path.as_ptr(), &mut find_data) };
+                if handle != INVALID_HANDLE_VALUE {
+                    is_link = find_data.dwReserved0 == IO_REPARSE_TAG_SYMLINK
+                        || find_data.dwReserved0 == IO_REPARSE_TAG_MOUNT_POINT;
+                    unsafe { FindClose(handle) };
+                }
+            }
+        }
+
+        let result = if is_directory && is_link {
+            unsafe { RemoveDirectoryW(wide_path.as_ptr()) }
+        } else {
+            unsafe { DeleteFileW(wide_path.as_ptr()) }
+        };
+
+        if result == 0 {
+            let err = io::Error::last_os_error();
+            return Err(OSErrorBuilder::with_filename(&err, path, vm));
+        }
+        Ok(())
+    }
+
+    #[pyfunction]
     pub(super) fn _supports_virtual_terminal() -> PyResult<bool> {
         // TODO: implement this
         Ok(true)
