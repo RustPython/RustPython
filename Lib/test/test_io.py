@@ -1818,10 +1818,6 @@ class CBufferedReaderTest(BufferedReaderTest, SizeofTest):
             support.gc_collect()
         self.assertIsNone(wr(), wr)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_error_through_destructor(self):
-        return super().test_error_through_destructor()
-
     def test_args_error(self):
         # Issue #17275
         with self.assertRaisesRegex(TypeError, "BufferedReader"):
@@ -1844,12 +1840,8 @@ class CBufferedReaderTest(BufferedReaderTest, SizeofTest):
         self.assertIsInstance(cm.exception.__cause__, TypeError)
 
     @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_flush_error_on_close(self):
-        return super().test_flush_error_on_close()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_seek_character_device_file(self):
-        return super().test_seek_character_device_file()
+    def test_error_through_destructor(self):
+        return super().test_error_through_destructor()
 
     def test_truncate_on_read_only(self):
         return super().test_truncate_on_read_only()
@@ -2166,10 +2158,6 @@ class BufferedWriterTest(unittest.TestCase, CommonBufferedTests):
 class CBufferedWriterTest(BufferedWriterTest, SizeofTest):
     tp = io.BufferedWriter
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_error_through_destructor(self):
-        return super().test_error_through_destructor()
-
     def test_initialization(self):
         rawio = self.MockRawIO()
         bufio = self.tp(rawio)
@@ -2205,8 +2193,8 @@ class CBufferedWriterTest(BufferedWriterTest, SizeofTest):
             self.tp(self.BytesIO(), 1024, 1024, 1024)
 
     @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_flush_error_on_close(self):
-        return super().test_flush_error_on_close()
+    def test_error_through_destructor(self):
+        return super().test_error_through_destructor()
 
     @unittest.skip('TODO: RUSTPYTHON; fallible allocation')
     def test_constructor(self):
@@ -2692,10 +2680,6 @@ class BufferedRandomTest(BufferedReaderTest, BufferedWriterTest):
 class CBufferedRandomTest(BufferedRandomTest, SizeofTest):
     tp = io.BufferedRandom
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_error_through_destructor(self):
-        return super().test_error_through_destructor()
-
     @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; cyclic GC not supported, causes file locking')
     @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_garbage_collection(self):
@@ -2708,16 +2692,8 @@ class CBufferedRandomTest(BufferedRandomTest, SizeofTest):
             self.tp(self.BytesIO(), 1024, 1024, 1024)
 
     @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_flush_error_on_close(self):
-        return super().test_flush_error_on_close()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_seek_character_device_file(self):
-        return super().test_seek_character_device_file()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON; f.read1(1) returns b'a'
-    def test_read1_after_write(self):
-        return super().test_read1_after_write()
+    def test_error_through_destructor(self):
+        return super().test_error_through_destructor()
 
     @unittest.skip('TODO: RUSTPYTHON; fallible allocation')
     def test_constructor(self):
@@ -3395,7 +3371,24 @@ class TextIOWrapperTest(unittest.TestCase):
         self.assertEqual(f.tell(), p1)
         f.close()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_tell_after_readline_with_cr(self):
+        # Test for gh-141314: TextIOWrapper.tell() assertion failure
+        # when dealing with standalone carriage returns
+        data = b'line1\r'
+        with self.open(os_helper.TESTFN, "wb") as f:
+            f.write(data)
+
+        with self.open(os_helper.TESTFN, "r") as f:
+            # Read line that ends with \r
+            line = f.readline()
+            self.assertEqual(line, "line1\n")
+            # This should not cause an assertion failure
+            pos = f.tell()
+            # Verify we can seek back to this position
+            f.seek(pos)
+            remaining = f.read()
+            self.assertEqual(remaining, "")
+
     def test_seek_with_encoder_state(self):
         f = self.open(os_helper.TESTFN, "w", encoding="euc_jis_2004")
         f.write("\u00e6\u0300")
@@ -4131,10 +4124,6 @@ class CTextIOWrapperTest(TextIOWrapperTest):
     shutdown_error = "LookupError: unknown encoding: ascii"
 
     @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_error_through_destructor(self):
-        return super().test_error_through_destructor()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_initialization(self):
         r = self.BytesIO(b"\xc3\xa9\n\n")
         b = self.BufferedReader(r, 1000)
@@ -4292,6 +4281,10 @@ class CTextIOWrapperTest(TextIOWrapperTest):
         return super().test_reconfigure_write_through()
 
     @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_error_through_destructor(self):
+        return super().test_error_through_destructor()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_repr(self):
         return super().test_repr()
 
@@ -4306,6 +4299,11 @@ class CTextIOWrapperTest(TextIOWrapperTest):
     def test_pickling_subclass(self):
         return super().test_pickling_subclass()
 
+    # TODO: RUSTPYTHON; euc_jis_2004 encoding not supported
+    @unittest.expectedFailure
+    def test_seek_with_encoder_state(self):
+        return super().test_seek_with_encoder_state()
+
 
 class PyTextIOWrapperTest(TextIOWrapperTest):
     io = pyio
@@ -4318,6 +4316,11 @@ class PyTextIOWrapperTest(TextIOWrapperTest):
     @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_newlines(self):
         return super().test_newlines()
+
+    # TODO: RUSTPYTHON; euc_jis_2004 encoding not supported
+    @unittest.expectedFailure
+    def test_seek_with_encoder_state(self):
+        return super().test_seek_with_encoder_state()
 
 
 class IncrementalNewlineDecoderTest(unittest.TestCase):
@@ -4836,22 +4839,6 @@ class CMiscIOTest(MiscIOTest):
     name_of_module = "io", "_io"
     extra_exported = "BlockingIOError",
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; BufferedWriter seeks on non-seekable pipe
-    def test_nonblock_pipe_write_bigbuf(self):
-        return super().test_nonblock_pipe_write_bigbuf()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON; BufferedWriter seeks on non-seekable pipe
-    def test_nonblock_pipe_write_smallbuf(self):
-        return super().test_nonblock_pipe_write_smallbuf()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_warn_on_dealloc(self):
-        return super().test_warn_on_dealloc()
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_warn_on_dealloc_fd(self):
-        return super().test_warn_on_dealloc_fd()
-
     def test_readinto_buffer_overflow(self):
         # Issue #18025
         class BadReader(self.io.BufferedIOBase):
@@ -4915,6 +4902,16 @@ class CMiscIOTest(MiscIOTest):
     @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: 22 != 10 : _PythonRunResult(rc=22, out=b'', err=b'')
     def test_check_encoding_errors(self):
         return super().test_check_encoding_errors()
+
+    # TODO: RUSTPYTHON; ResourceWarning not triggered by _io.FileIO
+    @unittest.expectedFailure
+    def test_warn_on_dealloc(self):
+        return super().test_warn_on_dealloc()
+
+    # TODO: RUSTPYTHON; ResourceWarning not triggered by _io.FileIO
+    @unittest.expectedFailure
+    def test_warn_on_dealloc_fd(self):
+        return super().test_warn_on_dealloc_fd()
 
 
 class PyMiscIOTest(MiscIOTest):

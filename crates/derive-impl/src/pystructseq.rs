@@ -316,8 +316,44 @@ pub(crate) fn impl_pystruct_sequence_data(
 
     // Generate try_from_elements trait override only when try_from_object=true
     let try_from_elements_trait_override = if try_from_object {
-        let visible_field_idents: Vec<_> = visible_fields.iter().map(|f| &f.ident).collect();
-        let skipped_field_idents: Vec<_> = skipped_fields.iter().map(|f| &f.ident).collect();
+        let visible_field_inits: Vec<_> = visible_fields
+            .iter()
+            .map(|f| {
+                let ident = &f.ident;
+                let cfg_attrs = &f.cfg_attrs;
+                if cfg_attrs.is_empty() {
+                    quote! { #ident: iter.next().unwrap().clone().try_into_value(vm)?, }
+                } else {
+                    quote! {
+                        #(#cfg_attrs)*
+                        #ident: iter.next().unwrap().clone().try_into_value(vm)?,
+                    }
+                }
+            })
+            .collect();
+        let skipped_field_inits: Vec<_> = skipped_fields
+            .iter()
+            .map(|f| {
+                let ident = &f.ident;
+                let cfg_attrs = &f.cfg_attrs;
+                if cfg_attrs.is_empty() {
+                    quote! {
+                        #ident: match iter.next() {
+                            Some(v) => v.clone().try_into_value(vm)?,
+                            None => vm.ctx.none(),
+                        },
+                    }
+                } else {
+                    quote! {
+                        #(#cfg_attrs)*
+                        #ident: match iter.next() {
+                            Some(v) => v.clone().try_into_value(vm)?,
+                            None => vm.ctx.none(),
+                        },
+                    }
+                }
+            })
+            .collect();
         quote! {
             fn try_from_elements(
                 elements: Vec<::rustpython_vm::PyObjectRef>,
@@ -325,11 +361,8 @@ pub(crate) fn impl_pystruct_sequence_data(
             ) -> ::rustpython_vm::PyResult<Self> {
                 let mut iter = elements.into_iter();
                 Ok(Self {
-                    #(#visible_field_idents: iter.next().unwrap().clone().try_into_value(vm)?,)*
-                    #(#skipped_field_idents: match iter.next() {
-                        Some(v) => v.clone().try_into_value(vm)?,
-                        None => vm.ctx.none(),
-                    },)*
+                    #(#visible_field_inits)*
+                    #(#skipped_field_inits)*
                 })
             }
         }
