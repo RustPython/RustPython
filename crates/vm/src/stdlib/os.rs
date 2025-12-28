@@ -563,10 +563,10 @@ pub(super) mod _os {
         #[pymethod]
         fn is_dir(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
             // Use cached file_type first to avoid stat() calls that may fail
-            if let Ok(file_type) = &self.file_type {
-                if !follow_symlinks.0 || !file_type.is_symlink() {
-                    return Ok(file_type.is_dir());
-                }
+            if let Ok(file_type) = &self.file_type
+                && (!follow_symlinks.0 || !file_type.is_symlink())
+            {
+                return Ok(file_type.is_dir());
             }
             match super::fs_metadata(&self.pathval, follow_symlinks.0) {
                 Ok(meta) => Ok(meta.is_dir()),
@@ -583,10 +583,10 @@ pub(super) mod _os {
         #[pymethod]
         fn is_file(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
             // Use cached file_type first to avoid stat() calls that may fail
-            if let Ok(file_type) = &self.file_type {
-                if !follow_symlinks.0 || !file_type.is_symlink() {
-                    return Ok(file_type.is_file());
-                }
+            if let Ok(file_type) = &self.file_type
+                && (!follow_symlinks.0 || !file_type.is_symlink())
+            {
+                return Ok(file_type.is_file());
             }
             match super::fs_metadata(&self.pathval, follow_symlinks.0) {
                 Ok(meta) => Ok(meta.is_file()),
