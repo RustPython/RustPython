@@ -1349,6 +1349,7 @@ impl Constructor for PyType {
             let slots = PyTypeSlots {
                 flags,
                 member_count,
+                itemsize: base.slots.itemsize,
                 ..PyTypeSlots::heap_default()
             };
             let heaptype_ext = HeapTypeExt {
@@ -2009,6 +2010,11 @@ fn calculate_meta_class(
     Ok(winner)
 }
 
+/// Returns true if the two types have different instance layouts.
+fn shape_differs(t1: &Py<PyType>, t2: &Py<PyType>) -> bool {
+    t1.__basicsize__() != t2.__basicsize__() || t1.slots.itemsize != t2.slots.itemsize
+}
+
 fn solid_base<'a>(typ: &'a Py<PyType>, vm: &VirtualMachine) -> &'a Py<PyType> {
     let base = if let Some(base) = &typ.base {
         solid_base(base, vm)
@@ -2016,16 +2022,7 @@ fn solid_base<'a>(typ: &'a Py<PyType>, vm: &VirtualMachine) -> &'a Py<PyType> {
         vm.ctx.types.object_type
     };
 
-    // Check for extra instance variables (CPython's extra_ivars)
-    let t_size = typ.__basicsize__();
-    let b_size = base.__basicsize__();
-    let t_itemsize = typ.slots.itemsize;
-    let b_itemsize = base.slots.itemsize;
-
-    // Has extra ivars if: sizes differ AND (has items OR t_size > b_size)
-    let has_extra_ivars = t_size != b_size && (t_itemsize > 0 || b_itemsize > 0 || t_size > b_size);
-
-    if has_extra_ivars { typ } else { base }
+    if shape_differs(typ, base) { typ } else { base }
 }
 
 fn best_base<'a>(bases: &'a [PyTypeRef], vm: &VirtualMachine) -> PyResult<&'a Py<PyType>> {
