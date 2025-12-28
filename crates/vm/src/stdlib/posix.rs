@@ -1738,9 +1738,17 @@ pub mod module {
     #[pyfunction]
     fn waitpid(pid: libc::pid_t, opt: i32, vm: &VirtualMachine) -> PyResult<(libc::pid_t, i32)> {
         let mut status = 0;
-        let pid = unsafe { libc::waitpid(pid, &mut status, opt) };
-        let pid = nix::Error::result(pid).map_err(|err| err.into_pyexception(vm))?;
-        Ok((pid, status))
+        loop {
+            let res = unsafe { libc::waitpid(pid, &mut status, opt) };
+            if res == -1 {
+                if nix::Error::last_raw() == libc::EINTR {
+                    vm.check_signals()?;
+                    continue;
+                }
+                return Err(nix::Error::last().into_pyexception(vm));
+            }
+            return Ok((res, status));
+        }
     }
 
     #[pyfunction]
