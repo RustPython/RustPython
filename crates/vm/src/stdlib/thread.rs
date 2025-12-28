@@ -190,6 +190,7 @@ pub(crate) mod _thread {
     #[derive(PyPayload)]
     struct RLock {
         mu: RawRMutex,
+        count: std::sync::atomic::AtomicUsize,
     }
 
     impl fmt::Debug for RLock {
@@ -204,6 +205,7 @@ pub(crate) mod _thread {
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Self {
                 mu: RawRMutex::INIT,
+                count: std::sync::atomic::AtomicUsize::new(0),
             }
             .into_ref_with_type(vm, cls)
             .map(Into::into)
@@ -213,7 +215,12 @@ pub(crate) mod _thread {
         #[pymethod(name = "acquire_lock")]
         #[pymethod(name = "__enter__")]
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
-            acquire_lock_impl!(&self.mu, args, vm)
+            let result = acquire_lock_impl!(&self.mu, args, vm)?;
+            if result {
+                self.count
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            Ok(result)
         }
         #[pymethod]
         #[pymethod(name = "release_lock")]
@@ -221,6 +228,8 @@ pub(crate) mod _thread {
             if !self.mu.is_locked() {
                 return Err(vm.new_runtime_error("release unlocked lock"));
             }
+            self.count
+                .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
             unsafe { self.mu.unlock() };
             Ok(())
         }
@@ -232,6 +241,7 @@ pub(crate) mod _thread {
                     self.mu.unlock();
                 };
             }
+            self.count.store(0, std::sync::atomic::Ordering::Relaxed);
             let new_mut = RawRMutex::INIT;
 
             let old_mutex: AtomicCell<&RawRMutex> = AtomicCell::new(&self.mu);
@@ -243,6 +253,15 @@ pub(crate) mod _thread {
         #[pymethod]
         fn _is_owned(&self) -> bool {
             self.mu.is_owned_by_current_thread()
+        }
+
+        #[pymethod]
+        fn _recursion_count(&self) -> usize {
+            if self.mu.is_owned_by_current_thread() {
+                self.count.load(std::sync::atomic::Ordering::Relaxed)
+            } else {
+                0
+            }
         }
 
         #[pymethod]
