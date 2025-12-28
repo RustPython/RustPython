@@ -469,6 +469,7 @@ class TestSupport(unittest.TestCase, ExtraAssertions):
         extra = {
             'TextTestResult',
             'installHandler',
+            'IsolatedAsyncioTestCase',
         }
         not_exported = {'load_tests', "TestProgram", "BaseTestSuite"}
         support.check__all__(self,
@@ -613,8 +614,9 @@ class TestSupport(unittest.TestCase, ExtraAssertions):
         self.check_print_warning("a\nb",
                                  'Warning -- a\nWarning -- b\n')
 
-    # TODO: RUSTPYTHON - strftime extension not supported
-    @unittest.expectedFailure
+    # TODO: RUSTPYTHON - strftime extension not fully supported on non-Windows
+    @unittest.skipUnless(sys.platform == "win32" or support.is_emscripten,
+                         "strftime extension not fully supported on non-Windows")
     def test_has_strftime_extensions(self):
         if support.is_emscripten or sys.platform == "win32":
             self.assertFalse(support.has_strftime_extensions)
