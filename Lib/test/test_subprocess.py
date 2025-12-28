@@ -1554,8 +1554,6 @@ class ProcessTestCase(BaseTestCase):
         p.wait()
         p.communicate(b"x" * 2**20)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(signal, 'SIGUSR1'),
                          "Requires signal.SIGUSR1")
     @unittest.skipUnless(hasattr(os, 'kill'),

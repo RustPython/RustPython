@@ -871,6 +871,22 @@ class IOTest(unittest.TestCase):
         self.assertEqual(rawio.read(2), None)
         self.assertEqual(rawio.read(2), b"")
 
+    def test_RawIOBase_read_bounds_checking(self):
+        # Make sure a `.readinto` call which returns a value outside
+        # (0, len(buffer)) raises.
+        class Misbehaved(self.RawIOBase):
+            def __init__(self, readinto_return) -> None:
+                self._readinto_return = readinto_return
+            def readinto(self, b):
+                return self._readinto_return
+
+        with self.assertRaises(ValueError) as cm:
+            Misbehaved(2).read(1)
+        self.assertEqual(str(cm.exception), "readinto returned 2 outside buffer size 1")
+        for bad_size in (2147483647, sys.maxsize, -1, -1000):
+            with self.assertRaises(ValueError):
+                Misbehaved(bad_size).read()
+
     def test_types_have_dict(self):
         test = (
             self.IOBase(),
@@ -1819,7 +1835,6 @@ class CBufferedReaderTest(BufferedReaderTest, SizeofTest):
             bufio.readline()
         self.assertIsNone(cm.exception.__cause__)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: 'bytes' object cannot be interpreted as an integer")
     def test_bad_readinto_type(self):
         rawio = self.tp(self.BytesIO(b"12"))
         rawio.readinto = lambda buf: b''
@@ -1955,7 +1970,6 @@ class BufferedWriterTest(unittest.TestCase, CommonBufferedTests):
     def test_writes_and_truncates(self):
         self.check_writes(lambda bufio: bufio.truncate(bufio.tell()))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_write_non_blocking(self):
         raw = self.MockNonBlockWriterIO()
         bufio = self.tp(raw, 8)
@@ -4281,7 +4295,6 @@ class CTextIOWrapperTest(TextIOWrapperTest):
     def test_repr(self):
         return super().test_repr()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_uninitialized(self):
         return super().test_uninitialized()
 
@@ -4654,14 +4667,12 @@ class MiscIOTest(unittest.TestCase):
                         with self.assertRaisesRegex(TypeError, msg):
                             pickle.dumps(f, protocol)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipIf(
         support.is_emscripten, "fstat() of a pipe fd is not supported"
     )
     def test_nonblock_pipe_write_bigbuf(self):
         self._test_nonblock_pipe_write(16*1024)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipIf(
         support.is_emscripten, "fstat() of a pipe fd is not supported"
     )
@@ -4824,6 +4835,14 @@ class CMiscIOTest(MiscIOTest):
     io = io
     name_of_module = "io", "_io"
     extra_exported = "BlockingIOError",
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; BufferedWriter seeks on non-seekable pipe
+    def test_nonblock_pipe_write_bigbuf(self):
+        return super().test_nonblock_pipe_write_bigbuf()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; BufferedWriter seeks on non-seekable pipe
+    def test_nonblock_pipe_write_smallbuf(self):
+        return super().test_nonblock_pipe_write_smallbuf()
 
     @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_warn_on_dealloc(self):
