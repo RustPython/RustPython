@@ -103,19 +103,30 @@ impl Constructor for PyNotImplemented {
     }
 }
 
-#[pyclass(with(Constructor))]
+#[pyclass(with(Constructor, AsNumber))]
 impl PyNotImplemented {
-    // TODO: As per https://bugs.python.org/issue35712, using NotImplemented
-    // in boolean contexts will need to raise a DeprecationWarning in 3.9
-    // and, eventually, a TypeError.
     #[pymethod]
-    const fn __bool__(&self) -> bool {
-        true
+    fn __bool__(&self, vm: &VirtualMachine) -> PyResult<bool> {
+        Err(vm.new_type_error("NotImplemented should not be used in a boolean context".to_owned()))
     }
 
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyStrRef {
         vm.ctx.names.NotImplemented.to_owned()
+    }
+}
+
+impl AsNumber for PyNotImplemented {
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            boolean: Some(|_number, vm| {
+                Err(vm.new_type_error(
+                    "NotImplemented should not be used in a boolean context".to_owned(),
+                ))
+            }),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        };
+        &AS_NUMBER
     }
 }
 
