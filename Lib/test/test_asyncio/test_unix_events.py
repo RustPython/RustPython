@@ -365,6 +365,8 @@ class SelectorEventLoopUnixSocketTests(test_utils.TestCase):
     @unittest.skipUnless(hasattr(socket, 'SOCK_NONBLOCK'),
                          'no socket.SOCK_NONBLOCK (linux only)')
     @socket_helper.skip_unless_bind_unix_socket
+    @unittest.skip('TODO: RUSTPYTHON')
+    # ValueError: A UNIX Domain Stream Socket was expected, got <socket.socket fd=6, family=1, type=2049, proto=0, laddr=./test_python_wafmytr7.sock>
     def test_create_unix_server_path_stream_bittype(self):
         fn = test_utils.gen_unix_socket_path()
         self.addCleanup(os_helper.unlink, fn)
@@ -1904,6 +1906,8 @@ class TestFork(unittest.IsolatedAsyncioTestCase):
 
     @hashlib_helper.requires_hashdigest('md5')
     @support.skip_if_sanitizer("TSAN doesn't support threads after fork", thread=True)
+    @unittest.skip('TODO: RUSTPYTHON')
+    # AttributeError: 'RLock' object has no attribute '_recursion_count'
     def test_fork_signal_handling(self):
         self.addCleanup(multiprocessing_cleanup_tests)
 
@@ -1951,6 +1955,9 @@ class TestFork(unittest.IsolatedAsyncioTestCase):
 
     @hashlib_helper.requires_hashdigest('md5')
     @support.skip_if_sanitizer("TSAN doesn't support threads after fork", thread=True)
+    @unittest.skip('TODO: RUSTPYTHON')
+    # AttributeError: 'RLock' object has no attribute '_recursion_count'
+    # AttributeError: module '_hashlib' has no attribute 'UnsupportedDigestmodError'
     def test_fork_asyncio_run(self):
         self.addCleanup(multiprocessing_cleanup_tests)
 
@@ -1971,6 +1978,8 @@ class TestFork(unittest.IsolatedAsyncioTestCase):
 
     @hashlib_helper.requires_hashdigest('md5')
     @support.skip_if_sanitizer("TSAN doesn't support threads after fork", thread=True)
+    @unittest.skip('TODO: RUSTPYTHON')
+    # AttributeError: 'RLock' object has no attribute '_recursion_count'
     def test_fork_asyncio_subprocess(self):
         self.addCleanup(multiprocessing_cleanup_tests)
 

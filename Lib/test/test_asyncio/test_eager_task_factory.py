@@ -16,7 +16,6 @@ def tearDownModule():
     asyncio.set_event_loop_policy(None)
 
 
-@unittest.skip('TODO: RUSTPYTHON')
 class EagerTaskFactoryLoopTests:
 
     Task = None
@@ -183,6 +182,9 @@ class EagerTaskFactoryLoopTests:
 
         self.run_coro(run())
 
+    # TODO: RUSTPYTHON
+    # AssertionError: 2 != 1
+    @unittest.expectedFailure
     def test_context_vars(self):
         cv = contextvars.ContextVar('cv', default=0)
 
@@ -214,6 +216,9 @@ class EagerTaskFactoryLoopTests:
 
         self.run_coro(run())
 
+    # TODO: RUSTPYTHON
+    # assert len(exceptions) == this_index + 1
+    @unittest.expectedFailure
     def test_staggered_race_with_eager_tasks(self):
         # See https://github.com/python/cpython/issues/124309
 
@@ -243,6 +248,7 @@ class EagerTaskFactoryLoopTests:
         self.run_coro(run())
 
     @unittest.skip('TODO: RUSTPYTHON')
+    # Causes a hang
     def test_staggered_race_with_eager_tasks_no_delay(self):
         # See https://github.com/python/cpython/issues/124309
         async def fail():

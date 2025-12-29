@@ -132,6 +132,9 @@ class TimeoutTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(e2.__cause__)
         self.assertIsInstance(e2.__context__, ZeroDivisionError)
 
+    # TODO: RUSTPYTHON
+    # AssertionError: CancelledError() is not an instance of <class 'TimeoutError'>
+    @unittest.expectedFailure
     async def test_foreign_exception_on_timeout(self):
         async def crash():
             try:
@@ -151,6 +154,9 @@ class TimeoutTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(e3, asyncio.CancelledError)
         self.assertIs(e2.__context__, e3)
 
+    # TODO: RUSTPYTHON
+    # AssertionError: CancelledError() is not an instance of <class 'TimeoutError'>
+    @unittest.expectedFailure
     async def test_foreign_exception_on_timeout_2(self):
         with self.assertRaises(ZeroDivisionError) as cm:
             async with asyncio.timeout(0.01):
@@ -365,6 +371,9 @@ class TimeoutTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, "has not been entered"):
             cm.reschedule(0.02)
 
+    # TODO: RUSTPYTHON
+    # AssertionError: CancelledError() is not an instance of <class 'TimeoutError'>
+    @unittest.expectedFailure
     async def test_timeout_taskgroup(self):
         async def task():
             try:

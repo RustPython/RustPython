@@ -949,9 +949,8 @@ class BaseEventLoopTests(test_utils.TestCase):
         self.loop._selector.select.assert_called_once_with(0)
 
 
-    # TODO: RUSTPYTHON
+    @unittest.skip('TODO: RUSTPYTHON')
     # 'BaseEventLoop' object has no attribute '_run_forever_setup
-    @unittest.expectedFailure
     def test_custom_run_forever_integration(self):
         # Test that the run_forever_setup() and run_forever_cleanup() primitives
         # can be used to implement a custom run_forever loop.

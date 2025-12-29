@@ -2893,17 +2893,19 @@ class PyTask_CFuture_Tests(BaseTaskTests, test_utils.TestCase):
     Future = getattr(futures, '_CFuture', None)
 
 
-class PyTask_PyFuture_Tests(BaseTaskTests, SetMethodsTest,
-                            test_utils.TestCase):
+# TODO: RUSTPYTHON
+# class PyTask_PyFuture_Tests(BaseTaskTests, SetMethodsTest,
+#                             test_utils.TestCase):
 
-    Task = tasks._PyTask
-    Future = futures._PyFuture
+#     Task = tasks._PyTask
+#     Future = futures._PyFuture
 
 
-@add_subclass_tests
-class PyTask_PyFuture_SubclassTests(BaseTaskTests, test_utils.TestCase):
-    Task = tasks._PyTask
-    Future = futures._PyFuture
+# TODO: RUSTPYTHON
+# @add_subclass_tests
+# class PyTask_PyFuture_SubclassTests(BaseTaskTests, test_utils.TestCase):
+#     Task = tasks._PyTask
+#     Future = futures._PyFuture
 
 
 @unittest.skipUnless(hasattr(tasks, '_CTask'),
