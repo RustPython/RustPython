@@ -159,23 +159,22 @@ mod array {
                     Ok(())
                 }
 
-                // `expected_kind` is captured before acquiring the write lock to ensure the array
-                // type didn't unexpectedly change between conversion and mutation.
-                fn push_value(&mut self, expected_kind: ArrayType, value: ArrayElementValue) {
-                    assert_eq!(self.kind(), expected_kind);
-                    match (expected_kind, self, value) {
-                        $((ArrayType::$n, ArrayContentType::$n(v), ArrayElementValue::$n(val)) => {
-                            v.push(val);
+                fn truncate(&mut self, len: usize) {
+                    match self {
+                        $(ArrayContentType::$n(v) => v.truncate(len),)*
+                    }
+                }
+
+                fn set_or_push(&mut self, index: usize, value: ArrayElementValue) {
+                    match (self, value) {
+                        $((ArrayContentType::$n(v), ArrayElementValue::$n(val)) => {
+                            if index < v.len() {
+                                v[index] = val;
+                            } else {
+                                v.push(val);
+                            }
                         },)*
-                        (_, array, value) => {
-                            let actual = array.kind();
-                            panic!(
-                                "array element value type {:?} does not match array type {:?} (expected {:?})",
-                                value,
-                                actual,
-                                expected_kind
-                            );
-                        }
+                        _ => unreachable!(),
                     }
                 }
 
@@ -784,12 +783,21 @@ mod array {
             self.read().itemsize()
         }
 
+        /// Append a new item to the end of the array.
+        /// Matches `ins1()` in arraymodule.c.
         #[pymethod]
         fn append(zelf: &Py<Self>, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let kind = zelf.read().kind();
+            let (n, kind) = {
+                let r = zelf.read();
+                (r.len(), r.kind())
+            };
+            // First conversion (validation, result discarded)
+            kind.convert(x.clone(), vm)?;
+            // Truncate to n+1 if array grew during first conversion
+            zelf.try_resizable(vm)?.truncate(n + 1);
+            // Second conversion and store at position n
             let value = kind.convert(x, vm)?;
-            let mut w = zelf.try_resizable(vm)?;
-            w.push_value(kind, value);
+            zelf.try_resizable(vm)?.set_or_push(n, value);
             Ok(())
         }
 
