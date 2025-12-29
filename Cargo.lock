@@ -2449,6 +2449,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "pvm-host"
+version = "0.4.0"
+
+[[package]]
+name = "pvm-runtime"
+version = "0.4.0"
+dependencies = [
+ "pvm-host",
+ "rustpython",
+ "rustpython-vm",
+]
+
+[[package]]
 name = "pymath"
 version = "0.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

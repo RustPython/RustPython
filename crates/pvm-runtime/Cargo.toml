@@ -1,0 +1,17 @@
+[package]
+name = "pvm-runtime"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[features]
+default = ["stdlib"]
+stdlib = ["rustpython/stdlib"]
+
+[dependencies]
+pvm-host = { path = "../pvm-host" }
+rustpython = { path = "../.." }
+rustpython-vm = { workspace = true }

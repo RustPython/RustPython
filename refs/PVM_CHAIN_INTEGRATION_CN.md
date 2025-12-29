@@ -361,3 +361,21 @@ flowchart LR
         N -->|No| P[Rollback State Overlay]
     end
 ```
+
+## 11. 本次方案落地的实际改动（仓库内）
+
+以下是已按本方案落地的具体代码变更点（与 Alto 适配层解耦）：
+
+- 新增 `crates/pvm-host`：Host API 定义与错误类型
+  - `crates/pvm-host/Cargo.toml`
+  - `crates/pvm-host/src/lib.rs`（`HostApi`/`HostContext`/`HostError`）
+- 新增 `crates/pvm-runtime`：PVM 运行时封装与 `pvm_host` 原生模块
+  - `crates/pvm-runtime/Cargo.toml`（新增 `stdlib` feature 与默认开启）
+  - `crates/pvm-runtime/src/lib.rs`（`execute_tx` + VM 初始化 + 结果提取）
+  - `crates/pvm-runtime/src/module.rs`（`pvm_host` 模块：state/event/gas/context/randomness）
+  - `crates/pvm-runtime/src/host.rs`（Host 句柄安装/卸载与线程本地桥接）
+
+说明：
+- 当前 `execute_tx` 接口采用源代码字节串执行（`code: &[u8]`，UTF-8），输出通过 `__pvm_output__` 约定返回 bytes。
+- Host 句柄为每次执行安装的线程本地指针，生命周期由 `HostGuard` 控制，避免 PVM 与链对象硬耦合。
+- VM 初始化使用 `rustpython::InterpreterConfig`，避免直接侵入 `rustpython-vm` 内部构建路径。
