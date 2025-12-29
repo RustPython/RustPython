@@ -1124,8 +1124,6 @@ class SysModuleTest(unittest.TestCase):
         self.assertEqual(proc.stdout.rstrip().splitlines(), expected,
                          proc)
 
-    # TODO: RUSTPYTHON, AttributeError: module 'sys' has no attribute 'stdlib_module_names'
-    @unittest.expectedFailure
     def test_module_names(self):
         self.assertIsInstance(sys.stdlib_module_names, frozenset)
         for name in sys.stdlib_module_names:
