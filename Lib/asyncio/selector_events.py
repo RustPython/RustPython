@@ -265,22 +265,17 @@ class BaseSelectorEventLoop(base_events.BaseEventLoop):
             except (AttributeError, TypeError, ValueError):
                 # This code matches selectors._fileobj_to_fd function.
                 raise ValueError(f"Invalid file object: {fd!r}") from None
-        try:
-            transport = self._transports[fileno]
-        except KeyError:
-            pass
-        else:
-            if not transport.is_closing():
-                raise RuntimeError(
-                    f'File descriptor {fd!r} is used by transport '
-                    f'{transport!r}')
+        transport = self._transports.get(fileno)
+        if transport and not transport.is_closing():
+            raise RuntimeError(
+                f'File descriptor {fd!r} is used by transport '
+                f'{transport!r}')
 
     def _add_reader(self, fd, callback, *args):
         self._check_closed()
         handle = events.Handle(callback, args, self, None)
-        try:
-            key = self._selector.get_key(fd)
-        except KeyError:
+        key = self._selector.get_map().get(fd)
+        if key is None:
             self._selector.register(fd, selectors.EVENT_READ,
                                     (handle, None))
         else:
@@ -294,30 +289,27 @@ class BaseSelectorEventLoop(base_events.BaseEventLoop):
     def _remove_reader(self, fd):
         if self.is_closed():
             return False
-        try:
-            key = self._selector.get_key(fd)
-        except KeyError:
+        key = self._selector.get_map().get(fd)
+        if key is None:
             return False
+        mask, (reader, writer) = key.events, key.data
+        mask &= ~selectors.EVENT_READ
+        if not mask:
+            self._selector.unregister(fd)
         else:
-            mask, (reader, writer) = key.events, key.data
-            mask &= ~selectors.EVENT_READ
-            if not mask:
-                self._selector.unregister(fd)
-            else:
-                self._selector.modify(fd, mask, (None, writer))
+            self._selector.modify(fd, mask, (None, writer))
 
-            if reader is not None:
-                reader.cancel()
-                return True
-            else:
-                return False
+        if reader is not None:
+            reader.cancel()
+            return True
+        else:
+            return False
 
     def _add_writer(self, fd, callback, *args):
         self._check_closed()
         handle = events.Handle(callback, args, self, None)
-        try:
-            key = self._selector.get_key(fd)
-        except KeyError:
+        key = self._selector.get_map().get(fd)
+        if key is None:
             self._selector.register(fd, selectors.EVENT_WRITE,
                                     (None, handle))
         else:
@@ -332,24 +324,22 @@ class BaseSelectorEventLoop(base_events.BaseEventLoop):
         """Remove a writer callback."""
         if self.is_closed():
             return False
-        try:
-            key = self._selector.get_key(fd)
-        except KeyError:
+        key = self._selector.get_map().get(fd)
+        if key is None:
             return False
+        mask, (reader, writer) = key.events, key.data
+        # Remove both writer and connector.
+        mask &= ~selectors.EVENT_WRITE
+        if not mask:
+            self._selector.unregister(fd)
         else:
-            mask, (reader, writer) = key.events, key.data
-            # Remove both writer and connector.
-            mask &= ~selectors.EVENT_WRITE
-            if not mask:
-                self._selector.unregister(fd)
-            else:
-                self._selector.modify(fd, mask, (reader, None))
+            self._selector.modify(fd, mask, (reader, None))
 
-            if writer is not None:
-                writer.cancel()
-                return True
-            else:
-                return False
+        if writer is not None:
+            writer.cancel()
+            return True
+        else:
+            return False
 
     def add_reader(self, fd, callback, *args):
         """Add a reader callback."""
@@ -801,7 +791,7 @@ class _SelectorTransport(transports._FlowControlMixin,
         self._paused = False  # Set when pause_reading() called
 
         if self._server is not None:
-            self._server._attach()
+            self._server._attach(self)
         loop._transports[self._sock_fd] = self
 
     def __repr__(self):
@@ -878,6 +868,8 @@ class _SelectorTransport(transports._FlowControlMixin,
         if self._sock is not None:
             _warn(f"unclosed transport {self!r}", ResourceWarning, source=self)
             self._sock.close()
+            if self._server is not None:
+                self._server._detach(self)
 
     def _fatal_error(self, exc, message='Fatal error on transport'):
         # Should be called from exception handler only.
@@ -916,7 +908,7 @@ class _SelectorTransport(transports._FlowControlMixin,
             self._loop = None
             server = self._server
             if server is not None:
-                server._detach()
+                server._detach(self)
                 self._server = None
 
     def get_write_buffer_size(self):
@@ -1054,8 +1046,8 @@ class _SelectorSocketTransport(_SelectorTransport):
 
     def write(self, data):
         if not isinstance(data, (bytes, bytearray, memoryview)):
-            raise TypeError(f'data argument must be a bytes-like object, '
-                            f'not {type(data).__name__!r}')
+            raise TypeError(f'data argument must be a bytes, bytearray, or memoryview '
+                            f'object, not {type(data).__name__!r}')
         if self._eof:
             raise RuntimeError('Cannot call write() after write_eof()')
         if self._empty_waiter is not None:
@@ -1178,20 +1170,31 @@ class _SelectorSocketTransport(_SelectorTransport):
             raise RuntimeError('unable to writelines; sendfile is in progress')
         if not list_of_data:
             return
+
+        if self._conn_lost:
+            if self._conn_lost >= constants.LOG_THRESHOLD_FOR_CONNLOST_WRITES:
+                logger.warning('socket.send() raised exception.')
+            self._conn_lost += 1
+            return
+
         self._buffer.extend([memoryview(data) for data in list_of_data])
         self._write_ready()
         # If the entire buffer couldn't be written, register a write handler
         if self._buffer:
             self._loop._add_writer(self._sock_fd, self._write_ready)
+            self._maybe_pause_protocol()
 
     def can_write_eof(self):
         return True
 
     def _call_connection_lost(self, exc):
-        super()._call_connection_lost(exc)
-        if self._empty_waiter is not None:
-            self._empty_waiter.set_exception(
-                ConnectionError("Connection is closed by peer"))
+        try:
+            super()._call_connection_lost(exc)
+        finally:
+            self._write_ready = None
+            if self._empty_waiter is not None:
+                self._empty_waiter.set_exception(
+                    ConnectionError("Connection is closed by peer"))
 
     def _make_empty_waiter(self):
         if self._empty_waiter is not None:
@@ -1206,13 +1209,13 @@ class _SelectorSocketTransport(_SelectorTransport):
 
     def close(self):
         self._read_ready_cb = None
-        self._write_ready = None
         super().close()
 
 
 class _SelectorDatagramTransport(_SelectorTransport, transports.DatagramTransport):
 
     _buffer_factory = collections.deque
+    _header_size = 8
 
     def __init__(self, loop, sock, protocol, address=None,
                  waiter=None, extra=None):
@@ -1251,8 +1254,6 @@ class _SelectorDatagramTransport(_SelectorTransport, transports.DatagramTranspor
         if not isinstance(data, (bytes, bytearray, memoryview)):
             raise TypeError(f'data argument must be a bytes-like object, '
                             f'not {type(data).__name__!r}')
-        if not data:
-            return
 
         if self._address:
             if addr not in (None, self._address):
@@ -1288,13 +1289,13 @@ class _SelectorDatagramTransport(_SelectorTransport, transports.DatagramTranspor
 
         # Ensure that what we buffer is immutable.
         self._buffer.append((bytes(data), addr))
-        self._buffer_size += len(data)
+        self._buffer_size += len(data) + self._header_size
         self._maybe_pause_protocol()
 
     def _sendto_ready(self):
         while self._buffer:
             data, addr = self._buffer.popleft()
-            self._buffer_size -= len(data)
+            self._buffer_size -= len(data) + self._header_size
             try:
                 if self._extra['peername']:
                     self._sock.send(data)
@@ -1302,7 +1303,7 @@ class _SelectorDatagramTransport(_SelectorTransport, transports.DatagramTranspor
                     self._sock.sendto(data, addr)
             except (BlockingIOError, InterruptedError):
                 self._buffer.appendleft((data, addr))  # Try again later.
-                self._buffer_size += len(data)
+                self._buffer_size += len(data) + self._header_size
                 break
             except OSError as exc:
                 self._protocol.error_received(exc)
