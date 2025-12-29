@@ -785,7 +785,7 @@ impl<S> CFormatStrOrBytes<S> {
                         if !literal.is_empty() {
                             parts.push((
                                 part_index,
-                                CFormatPart::Literal(std::mem::take(&mut literal)),
+                                CFormatPart::Literal(core::mem::take(&mut literal)),
                             ));
                         }
                         let spec = CFormatSpecKeyed::parse(iter).map_err(|err| CFormatError {
@@ -816,7 +816,7 @@ impl<S> CFormatStrOrBytes<S> {
 
 impl<S> IntoIterator for CFormatStrOrBytes<S> {
     type Item = (usize, CFormatPart<S>);
-    type IntoIter = std::vec::IntoIter<Self::Item>;
+    type IntoIter = alloc::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.parts.into_iter()

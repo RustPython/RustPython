@@ -5,7 +5,7 @@ use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 use ascii::{AsciiChar, AsciiStr, AsciiString};
 use core::fmt;
 use core::sync::atomic::Ordering::Relaxed;
-use std::ops::{Bound, RangeBounds};
+use core::ops::{Bound, RangeBounds};
 
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(non_camel_case_types)]
@@ -22,7 +22,7 @@ pub enum StrKind {
     Wtf8,
 }
 
-impl std::ops::BitOr for StrKind {
+impl core::ops::BitOr for StrKind {
     type Output = Self;
 
     fn bitor(self, other: Self) -> Self {
@@ -262,7 +262,7 @@ impl StrData {
     pub fn as_str(&self) -> Option<&str> {
         self.kind
             .is_utf8()
-            .then(|| unsafe { std::str::from_utf8_unchecked(self.data.as_bytes()) })
+            .then(|| unsafe { core::str::from_utf8_unchecked(self.data.as_bytes()) })
     }
 
     pub fn as_ascii(&self) -> Option<&AsciiStr> {
@@ -282,7 +282,7 @@ impl StrData {
                 PyKindStr::Ascii(unsafe { AsciiStr::from_ascii_unchecked(self.data.as_bytes()) })
             }
             StrKind::Utf8 => {
-                PyKindStr::Utf8(unsafe { std::str::from_utf8_unchecked(self.data.as_bytes()) })
+                PyKindStr::Utf8(unsafe { core::str::from_utf8_unchecked(self.data.as_bytes()) })
             }
             StrKind::Wtf8 => PyKindStr::Wtf8(&self.data),
         }

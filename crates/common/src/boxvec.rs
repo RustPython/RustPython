@@ -555,7 +555,7 @@ impl<T> Extend<T> for BoxVec<T> {
             };
             let mut iter = iter.into_iter();
             loop {
-                if std::ptr::eq(ptr, end_ptr) {
+                if core::ptr::eq(ptr, end_ptr) {
                     break;
                 }
                 if let Some(elt) = iter.next() {

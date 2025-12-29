@@ -9,7 +9,7 @@ pub use windows::{StatStruct, fstat};
 
 #[cfg(not(windows))]
 pub fn fstat(fd: crate::crt_fd::Borrowed<'_>) -> std::io::Result<StatStruct> {
-    let mut stat = std::mem::MaybeUninit::uninit();
+    let mut stat = core::mem::MaybeUninit::uninit();
     unsafe {
         let ret = libc::fstat(fd.as_raw(), stat.as_mut_ptr());
         if ret == -1 {
@@ -441,7 +441,7 @@ pub mod windows {
 // Open a file using std::fs::File and convert to FILE*
 // Automatically handles path encoding and EINTR retries
 pub fn fopen(path: &std::path::Path, mode: &str) -> std::io::Result<*mut libc::FILE> {
-    use std::ffi::CString;
+    use alloc::ffi::CString;
     use std::fs::File;
 
     // Currently only supports read mode

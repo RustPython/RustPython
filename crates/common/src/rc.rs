@@ -1,5 +1,5 @@
 #[cfg(not(feature = "threading"))]
-use std::rc::Rc;
+use alloc::rc::Rc;
 #[cfg(feature = "threading")]
 use std::sync::Arc;
 

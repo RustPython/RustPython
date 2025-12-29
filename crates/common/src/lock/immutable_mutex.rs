@@ -22,7 +22,7 @@ impl<'a, R: RawMutex, T: ?Sized> MapImmutable<'a, R, T> for MutexGuard<'a, R, T>
     {
         let raw = unsafe { MutexGuard::mutex(&s).raw() };
         let data = f(&s) as *const U;
-        std::mem::forget(s);
+        core::mem::forget(s);
         ImmutableMappedMutexGuard {
             raw,
             data,
@@ -38,7 +38,7 @@ impl<'a, R: RawMutex, T: ?Sized> ImmutableMappedMutexGuard<'a, R, T> {
     {
         let raw = s.raw;
         let data = f(&s) as *const U;
-        std::mem::forget(s);
+        core::mem::forget(s);
         ImmutableMappedMutexGuard {
             raw,
             data,

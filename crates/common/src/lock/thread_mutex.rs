@@ -174,7 +174,7 @@ impl<'a, R: RawMutex, G: GetThreadId, T: ?Sized> ThreadMutexGuard<'a, R, G, T> {
     ) -> MappedThreadMutexGuard<'a, R, G, U> {
         let data = f(&mut s).into();
         let mu = &s.mu.raw;
-        std::mem::forget(s);
+        core::mem::forget(s);
         MappedThreadMutexGuard {
             mu,
             data,
@@ -188,7 +188,7 @@ impl<'a, R: RawMutex, G: GetThreadId, T: ?Sized> ThreadMutexGuard<'a, R, G, T> {
         if let Some(data) = f(&mut s) {
             let data = data.into();
             let mu = &s.mu.raw;
-            std::mem::forget(s);
+            core::mem::forget(s);
             Ok(MappedThreadMutexGuard {
                 mu,
                 data,
@@ -241,7 +241,7 @@ impl<'a, R: RawMutex, G: GetThreadId, T: ?Sized> MappedThreadMutexGuard<'a, R, G
     ) -> MappedThreadMutexGuard<'a, R, G, U> {
         let data = f(&mut s).into();
         let mu = s.mu;
-        std::mem::forget(s);
+        core::mem::forget(s);
         MappedThreadMutexGuard {
             mu,
             data,
@@ -255,7 +255,7 @@ impl<'a, R: RawMutex, G: GetThreadId, T: ?Sized> MappedThreadMutexGuard<'a, R, G
         if let Some(data) = f(&mut s) {
             let data = data.into();
             let mu = s.mu;
-            std::mem::forget(s);
+            core::mem::forget(s);
             Ok(MappedThreadMutexGuard {
                 mu,
                 data,

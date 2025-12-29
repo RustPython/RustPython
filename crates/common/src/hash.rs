@@ -1,7 +1,7 @@
 use malachite_bigint::BigInt;
 use num_traits::ToPrimitive;
 use siphasher::sip::SipHasher24;
-use std::hash::{BuildHasher, Hash, Hasher};
+use core::hash::{BuildHasher, Hash, Hasher};
 
 pub type PyHash = i64;
 pub type PyUHash = u64;
@@ -19,9 +19,9 @@ pub const INF: PyHash = 314_159;
 pub const NAN: PyHash = 0;
 pub const IMAG: PyHash = MULTIPLIER;
 pub const ALGO: &str = "siphash24";
-pub const HASH_BITS: usize = std::mem::size_of::<PyHash>() * 8;
+pub const HASH_BITS: usize = core::mem::size_of::<PyHash>() * 8;
 // SipHasher24 takes 2 u64s as a seed
-pub const SEED_BITS: usize = std::mem::size_of::<u64>() * 2 * 8;
+pub const SEED_BITS: usize = core::mem::size_of::<u64>() * 2 * 8;
 
 // pub const CUTOFF: usize = 7;
 
@@ -134,7 +134,7 @@ pub fn hash_bigint(value: &BigInt) -> PyHash {
         Some(i) => mod_int(i),
         None => (value % MODULUS).to_i64().unwrap_or_else(|| unsafe {
             // SAFETY: MODULUS < i64::MAX, so value % MODULUS is guaranteed to be in the range of i64
-            std::hint::unreachable_unchecked()
+            core::hint::unreachable_unchecked()
         }),
     };
     fix_sentinel(ret)
