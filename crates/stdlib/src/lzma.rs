@@ -38,7 +38,7 @@ mod _lzma {
     use rustpython_vm::function::ArgBytesLike;
     use rustpython_vm::types::Constructor;
     use rustpython_vm::{Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
-    use std::fmt;
+    use alloc::fmt;
     use xz2::stream::{Action, Check, Error, Filters, LzmaOptions, Status, Stream};
 
     #[cfg(windows)]

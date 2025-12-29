@@ -107,7 +107,7 @@ impl<'a> Chunker<'a> {
     pub fn advance(&mut self, consumed: usize) {
         self.data1 = &self.data1[consumed..];
         if self.data1.is_empty() {
-            self.data1 = std::mem::take(&mut self.data2);
+            self.data1 = core::mem::take(&mut self.data2);
         }
     }
 }
