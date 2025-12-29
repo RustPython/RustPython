@@ -321,11 +321,14 @@ fn exec_inner(
     }
 
     if args.child_umask >= 0 {
-        // TODO: umask(child_umask);
+        unsafe { libc::umask(args.child_umask as libc::mode_t) };
     }
 
     if args.restore_signals {
-        // TODO: restore signals SIGPIPE, SIGXFZ, SIGXFSZ to SIG_DFL
+        unsafe {
+            libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+            libc::signal(libc::SIGXFSZ, libc::SIG_DFL);
+        }
     }
 
     if args.call_setsid {
