@@ -42,7 +42,8 @@ use rustpython_compiler_core::{
     },
 };
 use rustpython_wtf8::Wtf8Buf;
-use std::{borrow::Cow, collections::HashSet};
+use alloc::borrow::Cow;
+use std::collections::HashSet;
 
 const MAXBLOCKS: usize = 20;
 

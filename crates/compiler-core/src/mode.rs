@@ -7,7 +7,7 @@ pub enum Mode {
     BlockExpr,
 }
 
-impl std::str::FromStr for Mode {
+impl core::str::FromStr for Mode {
     type Err = ModeParseError;
 
     // To support `builtins.compile()` `mode` argument

@@ -4488,7 +4488,7 @@ mod _ssl {
 
         let mut result = Vec::new();
 
-        let mut crl_context: *const CRL_CONTEXT = std::ptr::null();
+        let mut crl_context: *const CRL_CONTEXT = core::ptr::null();
         loop {
             crl_context = unsafe { CertEnumCRLsInStore(store, crl_context) };
             if crl_context.is_null() {

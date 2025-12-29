@@ -10,7 +10,8 @@ use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
-use std::{collections::BTreeSet, fmt, hash, marker::PhantomData, mem, num::NonZeroU8, ops::Deref};
+use alloc::{collections::BTreeSet, fmt};
+use core::{hash, marker::PhantomData, mem, num::NonZeroU8, ops::Deref};
 
 /// Oparg values for [`Instruction::ConvertValue`].
 ///
@@ -506,7 +507,7 @@ impl<T: OpArgType> Eq for Arg<T> {}
 
 impl<T: OpArgType> fmt::Debug for Arg<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Arg<{}>", std::any::type_name::<T>())
+        write!(f, "Arg<{}>", core::any::type_name::<T>())
     }
 }
 
@@ -880,7 +881,7 @@ impl From<Instruction> for u8 {
     #[inline]
     fn from(ins: Instruction) -> Self {
         // SAFETY: there's no padding bits
-        unsafe { std::mem::transmute::<Instruction, Self>(ins) }
+        unsafe { core::mem::transmute::<Instruction, Self>(ins) }
     }
 }
 
@@ -890,7 +891,7 @@ impl TryFrom<u8> for Instruction {
     #[inline]
     fn try_from(value: u8) -> Result<Self, MarshalError> {
         if value <= u8::from(LAST_INSTRUCTION) {
-            Ok(unsafe { std::mem::transmute::<u8, Self>(value) })
+            Ok(unsafe { core::mem::transmute::<u8, Self>(value) })
         } else {
             Err(MarshalError::InvalidBytecode)
         }
@@ -1027,7 +1028,7 @@ impl PartialEq for ConstantData {
             (Boolean { value: a }, Boolean { value: b }) => a == b,
             (Str { value: a }, Str { value: b }) => a == b,
             (Bytes { value: a }, Bytes { value: b }) => a == b,
-            (Code { code: a }, Code { code: b }) => std::ptr::eq(a.as_ref(), b.as_ref()),
+            (Code { code: a }, Code { code: b }) => core::ptr::eq(a.as_ref(), b.as_ref()),
             (Tuple { elements: a }, Tuple { elements: b }) => a == b,
             (None, None) => true,
             (Ellipsis, Ellipsis) => true,
@@ -1053,7 +1054,7 @@ impl hash::Hash for ConstantData {
             Boolean { value } => value.hash(state),
             Str { value } => value.hash(state),
             Bytes { value } => value.hash(state),
-            Code { code } => std::ptr::hash(code.as_ref(), state),
+            Code { code } => core::ptr::hash(code.as_ref(), state),
             Tuple { elements } => elements.hash(state),
             None => {}
             Ellipsis => {}

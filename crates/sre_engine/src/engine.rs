@@ -1332,7 +1332,7 @@ fn _count<S: StrDrive>(
     ctx: &mut MatchContext,
     max_count: usize,
 ) -> usize {
-    let max_count = std::cmp::min(max_count, ctx.remaining_chars(req));
+    let max_count = core::cmp::min(max_count, ctx.remaining_chars(req));
     let end = ctx.cursor.position + max_count;
     let opcode = SreOpcode::try_from(ctx.peek_code(req, 0)).unwrap();
 

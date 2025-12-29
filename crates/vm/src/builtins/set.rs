@@ -28,7 +28,8 @@ use rustpython_common::{
     hash,
 };
 use std::sync::LazyLock;
-use std::{fmt, ops::Deref};
+use alloc::fmt;
+use core::ops::Deref;
 
 pub type SetContentType = dict_inner::Dict<()>;
 

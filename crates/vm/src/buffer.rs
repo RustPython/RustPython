@@ -9,7 +9,9 @@ use half::f16;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_traits::{PrimInt, ToPrimitive};
-use std::{fmt, iter::Peekable, mem, os::raw};
+use alloc::fmt;
+use core::{iter::Peekable, mem};
+use std::os::raw;
 
 type PackFunc = fn(&VirtualMachine, PyObjectRef, &mut [u8]) -> PyResult<()>;
 type UnpackFunc = fn(&VirtualMachine, &[u8]) -> PyObjectRef;

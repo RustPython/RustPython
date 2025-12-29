@@ -5,8 +5,9 @@ use itertools::Itertools;
 use malachite_bigint::{BigInt, Sign};
 use num_traits::Signed;
 use rustpython_literal::{float, format::Case};
-use std::{
-    cmp, fmt,
+use alloc::fmt;
+use core::{
+    cmp,
     iter::{Enumerate, Peekable},
     str::FromStr,
 };

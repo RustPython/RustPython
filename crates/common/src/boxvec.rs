@@ -2,13 +2,13 @@
 //! An unresizable vector backed by a `Box<[T]>`
 
 #![allow(clippy::needless_lifetimes)]
-
-use std::{
+use alloc::{fmt, slice};
+use core::{
     borrow::{Borrow, BorrowMut},
-    cmp, fmt,
+    cmp, 
     mem::{self, MaybeUninit},
     ops::{Bound, Deref, DerefMut, RangeBounds},
-    ptr, slice,
+    ptr, 
 };
 
 pub struct BoxVec<T> {

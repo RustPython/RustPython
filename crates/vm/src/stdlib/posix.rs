@@ -38,9 +38,10 @@ pub mod module {
         fcntl,
         unistd::{self, Gid, Pid, Uid},
     };
+    use alloc::ffi::CString;
+    use core::ffi::CStr;
     use std::{
         env,
-        ffi::{CStr, CString},
         fs, io,
         os::fd::{AsFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd},
     };

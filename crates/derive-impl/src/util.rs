@@ -97,7 +97,7 @@ pub(crate) struct ContentItemInner<T> {
 }
 
 pub(crate) trait ContentItem {
-    type AttrName: std::str::FromStr + core::fmt::Display;
+    type AttrName: core::str::FromStr + core::fmt::Display;
 
     fn inner(&self) -> &ContentItemInner<Self::AttrName>;
     fn index(&self) -> usize {
@@ -529,7 +529,7 @@ impl ExceptionItemMeta {
     }
 }
 
-impl std::ops::Deref for ExceptionItemMeta {
+impl core::ops::Deref for ExceptionItemMeta {
     type Target = ClassItemMeta;
     fn deref(&self) -> &Self::Target {
         &self.0

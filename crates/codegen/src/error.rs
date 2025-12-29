@@ -1,5 +1,6 @@
 use rustpython_compiler_core::SourceLocation;
-use std::fmt::{self, Display};
+use alloc::fmt;
+use core::fmt::Display;
 use thiserror::Error;
 
 #[derive(Debug)]

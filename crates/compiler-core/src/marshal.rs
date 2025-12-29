@@ -2,7 +2,7 @@ use crate::{OneIndexed, SourceLocation, bytecode::*};
 use malachite_bigint::{BigInt, Sign};
 use num_complex::Complex64;
 use rustpython_wtf8::Wtf8;
-use std::convert::Infallible;
+use core::convert::Infallible;
 
 pub const FORMAT_VERSION: u32 = 4;
 
@@ -32,8 +32,8 @@ impl core::fmt::Display for MarshalError {
     }
 }
 
-impl From<std::str::Utf8Error> for MarshalError {
-    fn from(_: std::str::Utf8Error) -> Self {
+impl From<core::str::Utf8Error> for MarshalError {
+    fn from(_: core::str::Utf8Error) -> Self {
         Self::InvalidUtf8
     }
 }
@@ -119,7 +119,7 @@ pub trait Read {
     }
 
     fn read_str(&mut self, len: u32) -> Result<&str> {
-        Ok(std::str::from_utf8(self.read_slice(len)?)?)
+        Ok(core::str::from_utf8(self.read_slice(len)?)?)
     }
 
     fn read_wtf8(&mut self, len: u32) -> Result<&Wtf8> {
@@ -147,7 +147,7 @@ pub(crate) trait ReadBorrowed<'a>: Read {
     fn read_slice_borrow(&mut self, n: u32) -> Result<&'a [u8]>;
 
     fn read_str_borrow(&mut self, len: u32) -> Result<&'a str> {
-        Ok(std::str::from_utf8(self.read_slice_borrow(len)?)?)
+        Ok(core::str::from_utf8(self.read_slice_borrow(len)?)?)
     }
 }
 

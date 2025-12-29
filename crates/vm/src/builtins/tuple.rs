@@ -21,7 +21,8 @@ use crate::{
     utils::collection_repr,
     vm::VirtualMachine,
 };
-use std::{fmt, sync::LazyLock};
+use alloc::fmt;
+use std::sync::LazyLock;
 
 #[pyclass(module = false, name = "tuple", traverse)]
 pub struct PyTuple<R = PyObjectRef> {

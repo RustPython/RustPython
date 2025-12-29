@@ -14,7 +14,8 @@ use crate::{
 use malachite_bigint::BigInt;
 use num_traits::Zero;
 use rustpython_compiler_core::{OneIndexed, bytecode::CodeUnits, bytecode::PyCodeLocationInfoKind};
-use std::{borrow::Borrow, fmt, ops::Deref};
+use alloc::fmt;
+use core::{borrow::Borrow, ops::Deref};
 
 /// State for iterating through code address ranges
 struct PyCodeAddressRange<'a> {

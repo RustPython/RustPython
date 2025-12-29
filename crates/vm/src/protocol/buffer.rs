@@ -11,7 +11,8 @@ use crate::{
     sliceable::SequenceIndexOp,
 };
 use itertools::Itertools;
-use std::{borrow::Cow, fmt::Debug, ops::Range};
+use alloc::borrow::Cow;
+use core::{fmt::Debug, ops::Range};
 
 pub struct BufferMethods {
     pub obj_bytes: fn(&PyBuffer) -> BorrowedValue<'_, [u8]>,

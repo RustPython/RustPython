@@ -818,7 +818,7 @@ mod platform {
 
     fn u64_from_filetime(time: FILETIME) -> u64 {
         let large: [u32; 2] = [time.dwLowDateTime, time.dwHighDateTime];
-        unsafe { std::mem::transmute(large) }
+        unsafe { core::mem::transmute(large) }
     }
 
     fn win_perf_counter_frequency(vm: &VirtualMachine) -> PyResult<i64> {

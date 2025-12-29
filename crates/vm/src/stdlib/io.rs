@@ -187,9 +187,9 @@ mod _io {
     use crossbeam_utils::atomic::AtomicCell;
     use malachite_bigint::BigInt;
     use num_traits::ToPrimitive;
-    use std::{
-        borrow::Cow,
-        io::{self, Cursor, SeekFrom, prelude::*},
+    use std::io::{self, Cursor, SeekFrom, prelude::*};
+    use alloc::borrow::Cow;
+    use core::{
         ops::Range,
         sync::atomic::{AtomicBool, Ordering},
     };

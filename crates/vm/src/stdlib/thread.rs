@@ -16,7 +16,9 @@ pub(crate) mod _thread {
         RawMutex, RawThreadId,
         lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
     };
-    use std::{cell::RefCell, fmt, thread, time::Duration};
+    use std::thread;
+    use core::{cell::RefCell, time::Duration};
+    use alloc::fmt;
     use thread_local::ThreadLocal;
 
     // PYTHREAD_NAME: show current thread name
@@ -151,7 +153,7 @@ pub(crate) mod _thread {
 
             let new_mut = RawMutex::INIT;
             unsafe {
-                let old_mutex: &AtomicCell<RawMutex> = std::mem::transmute(&self.mu);
+                let old_mutex: &AtomicCell<RawMutex> = core::mem::transmute(&self.mu);
                 old_mutex.swap(new_mut);
             }
 
@@ -264,7 +266,7 @@ pub(crate) mod _thread {
     }
 
     fn thread_to_id(t: &thread::Thread) -> u64 {
-        use std::hash::{Hash, Hasher};
+        use core::hash::{Hash, Hasher};
         struct U64Hash {
             v: Option<u64>,
         }

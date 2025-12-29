@@ -71,8 +71,9 @@ mod array {
     use itertools::Itertools;
     use num_traits::ToPrimitive;
     use rustpython_common::wtf8::{CodePoint, Wtf8, Wtf8Buf};
-    use std::{cmp::Ordering, fmt, os::raw};
-
+    use alloc::fmt;
+    use core::cmp::Ordering;
+    use std::os::raw;
     macro_rules! def_array_enum {
         ($(($n:ident, $t:ty, $c:literal, $scode:literal)),*$(,)?) => {
             #[derive(Debug, Clone)]

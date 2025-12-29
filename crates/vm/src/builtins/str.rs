@@ -37,8 +37,9 @@ use rustpython_common::{
     str::DeduceStrKind,
     wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Chunk},
 };
-use std::{borrow::Cow, char, fmt, ops::Range};
-use std::{mem, sync::LazyLock};
+use alloc::{borrow::Cow, fmt};
+use core::{mem, char, ops::Range};
+use std::sync::LazyLock;
 use unic_ucd_bidi::BidiClass;
 use unic_ucd_category::GeneralCategory;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};

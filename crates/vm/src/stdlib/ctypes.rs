@@ -1208,12 +1208,12 @@ pub(crate) mod _ctypes {
                 FORMAT_MESSAGE_ALLOCATE_BUFFER
                     | FORMAT_MESSAGE_FROM_SYSTEM
                     | FORMAT_MESSAGE_IGNORE_INSERTS,
-                std::ptr::null(),
+                core::ptr::null(),
                 error_code,
                 0,
                 &mut buffer as *mut *mut u16 as *mut u16,
                 0,
-                std::ptr::null(),
+                core::ptr::null(),
             )
         };
 
@@ -1280,7 +1280,7 @@ pub(crate) mod _ctypes {
                 let vtable = *iunknown;
                 debug_assert!(!vtable.is_null(), "IUnknown vtable is null");
                 let addref_fn: extern "system" fn(*mut std::ffi::c_void) -> u32 =
-                    std::mem::transmute(*vtable.add(1)); // AddRef is index 1
+                    core::mem::transmute(*vtable.add(1)); // AddRef is index 1
                 addref_fn(src_ptr as *mut std::ffi::c_void);
             }
         }

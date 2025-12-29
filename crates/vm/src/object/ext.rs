@@ -12,9 +12,10 @@ use crate::{
     convert::{IntoPyException, ToPyObject, ToPyResult, TryFromObject},
     vm::Context,
 };
-use std::{
+use alloc::fmt;
+
+use core::{
     borrow::Borrow,
-    fmt,
     marker::PhantomData,
     ops::Deref,
     ptr::{NonNull, null_mut},

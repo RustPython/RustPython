@@ -1896,7 +1896,7 @@ mod _ssl {
                                                 )));
                                             return Err(openssl::error::ErrorStack::get());
                                         }
-                                        let len = std::cmp::min(pw.len(), buf.len());
+                                        let len = core::cmp::min(pw.len(), buf.len());
                                         buf[..len].copy_from_slice(&pw[..len]);
                                         Ok(len)
                                     }
@@ -2714,7 +2714,7 @@ mod _ssl {
                 // Use thread-local SSL pointer during handshake to avoid deadlock
                 let ssl_ptr = get_ssl_ptr_for_context_change(&self.connection);
                 unsafe {
-                    let mut out: *const libc::c_uchar = std::ptr::null();
+                    let mut out: *const libc::c_uchar = core::ptr::null();
                     let mut outlen: libc::c_uint = 0;
 
                     sys::SSL_get0_alpn_selected(ssl_ptr, &mut out, &mut outlen);

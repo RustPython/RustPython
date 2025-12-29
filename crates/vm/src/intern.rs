@@ -6,8 +6,9 @@ use crate::{
     common::lock::PyRwLock,
     convert::ToPyObject,
 };
-use std::{
-    borrow::{Borrow, ToOwned},
+use alloc::borrow::ToOwned;
+use core::{
+    borrow::Borrow,
     ops::Deref,
 };
 

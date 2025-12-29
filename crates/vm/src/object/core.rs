@@ -31,11 +31,13 @@ use crate::{
     object::traverse::{MaybeTraverse, Traverse, TraverseFn},
 };
 use itertools::Itertools;
-use std::{
+
+use alloc::fmt;
+
+use core::{
     any::TypeId,
     borrow::Borrow,
     cell::UnsafeCell,
-    fmt,
     marker::PhantomData,
     mem::ManuallyDrop,
     ops::Deref,

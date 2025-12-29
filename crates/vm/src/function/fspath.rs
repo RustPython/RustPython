@@ -5,7 +5,8 @@ use crate::{
     function::PyStr,
     protocol::PyBuffer,
 };
-use std::{borrow::Cow, ffi::OsStr, path::PathBuf};
+use alloc::borrow::Cow;
+use std::{ffi::OsStr, path::PathBuf};
 
 /// Helper to implement os.fspath()
 #[derive(Clone)]

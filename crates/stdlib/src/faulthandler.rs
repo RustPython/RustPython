@@ -1203,7 +1203,7 @@ mod decl {
 
         suppress_crash_report();
         unsafe {
-            RaiseException(args.code, args.flags, 0, std::ptr::null());
+            RaiseException(args.code, args.flags, 0, core::ptr::null());
         }
     }
 }

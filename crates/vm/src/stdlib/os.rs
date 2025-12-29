@@ -178,8 +178,9 @@ pub(super) mod _os {
         fs::OpenOptions,
         io,
         path::PathBuf,
-        time::{Duration, SystemTime},
+        time::SystemTime,
     };
+    use core::time::Duration;
 
     const OPEN_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     pub(crate) const MKDIR_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
@@ -1209,7 +1210,7 @@ pub(super) mod _os {
             use std::os::windows::io::AsRawHandle;
             use windows_sys::Win32::Storage::FileSystem;
             let handle = crt_fd::as_handle(fd).map_err(|e| e.into_pyexception(vm))?;
-            let mut distance_to_move: [i32; 2] = std::mem::transmute(position);
+            let mut distance_to_move: [i32; 2] = core::mem::transmute(position);
             let ret = FileSystem::SetFilePointer(
                 handle.as_raw_handle(),
                 distance_to_move[0],
@@ -1220,7 +1221,7 @@ pub(super) mod _os {
                 -1
             } else {
                 distance_to_move[0] = ret as _;
-                std::mem::transmute::<[i32; 2], i64>(distance_to_move)
+                core::mem::transmute::<[i32; 2], i64>(distance_to_move)
             }
         };
         if res < 0 {
@@ -1402,7 +1403,7 @@ pub(super) mod _os {
                 .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
 
             let ret = unsafe {
-                FileSystem::SetFileTime(f.as_raw_handle() as _, std::ptr::null(), &acc, &modif)
+                FileSystem::SetFileTime(f.as_raw_handle() as _, core::ptr::null(), &acc, &modif)
             };
 
             if ret == 0 {

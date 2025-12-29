@@ -20,7 +20,7 @@ use ruff_python_ast::{
 };
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_core::{PositionEncoding, SourceFile, SourceLocation};
-use std::{borrow::Cow, fmt};
+use alloc::{borrow::Cow, fmt};
 
 /// Captures all symbols in the current scope, and has a list of sub-scopes in this scope.
 #[derive(Clone)]
@@ -262,7 +262,7 @@ type SymbolMap = IndexMap<String, Symbol>;
 
 mod stack {
     use std::panic;
-    use std::ptr::NonNull;
+    use core::ptr::NonNull;
     pub struct StackStack<T> {
         v: Vec<NonNull<T>>,
     }
@@ -325,7 +325,7 @@ struct SymbolTableAnalyzer {
 
 impl SymbolTableAnalyzer {
     fn analyze_symbol_table(&mut self, symbol_table: &mut SymbolTable) -> SymbolTableResult {
-        let symbols = std::mem::take(&mut symbol_table.symbols);
+        let symbols = core::mem::take(&mut symbol_table.symbols);
         let sub_tables = &mut *symbol_table.sub_tables;
 
         let mut info = (symbols, symbol_table.typ);
@@ -689,7 +689,7 @@ impl SymbolTableBuilder {
     fn leave_scope(&mut self) {
         let mut table = self.tables.pop().unwrap();
         // Save the collected varnames to the symbol table
-        table.varnames = std::mem::take(&mut self.current_varnames);
+        table.varnames = core::mem::take(&mut self.current_varnames);
         self.tables.last_mut().unwrap().sub_tables.push(table);
     }
 

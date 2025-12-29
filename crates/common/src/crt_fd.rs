@@ -1,7 +1,9 @@
 //! A module implementing an io type backed by the C runtime's file descriptors, i.e. what's
 //! returned from libc::open, even on windows.
 
-use std::{cmp, ffi, fmt, io};
+use alloc::fmt;
+use core::cmp;
+use std::{ffi, io};
 
 #[cfg(not(windows))]
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd};

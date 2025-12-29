@@ -35,7 +35,7 @@ mod _overlapped {
 
     #[pyattr]
     const INVALID_HANDLE_VALUE: isize =
-        unsafe { std::mem::transmute(windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE) };
+        unsafe { core::mem::transmute(windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE) };
 
     #[pyattr]
     const NULL: isize = 0;
@@ -226,7 +226,7 @@ mod _overlapped {
             }
 
             #[cfg(target_pointer_width = "32")]
-            let size = std::cmp::min(size, std::isize::MAX as _);
+            let size = core::cmp::min(size, std::isize::MAX as _);
 
             let buf = vec![0u8; std::cmp::max(size, 1) as usize];
             let buf = vm.ctx.new_bytes(buf);
@@ -272,10 +272,10 @@ mod _overlapped {
             if event == INVALID_HANDLE_VALUE {
                 event = unsafe {
                     windows_sys::Win32::System::Threading::CreateEventA(
-                        std::ptr::null(),
+                        core::ptr::null(),
                         Foundation::TRUE,
                         Foundation::FALSE,
-                        std::ptr::null(),
+                        core::ptr::null(),
                     ) as isize
                 };
                 if event == NULL {
@@ -378,11 +378,11 @@ mod _overlapped {
                 let name = widestring::WideCString::from_str(&name).unwrap();
                 name.as_ptr()
             }
-            None => std::ptr::null(),
+            None => core::ptr::null(),
         };
         let event = unsafe {
             windows_sys::Win32::System::Threading::CreateEventW(
-                std::ptr::null(),
+                core::ptr::null(),
                 manual_reset as _,
                 initial_state as _,
                 name,

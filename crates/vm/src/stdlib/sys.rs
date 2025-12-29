@@ -27,8 +27,8 @@ mod sys {
     use std::{
         env::{self, VarError},
         io::Read,
-        sync::atomic::Ordering,
     };
+    use core::sync::atomic::Ordering;
 
     #[cfg(windows)]
     use windows_sys::Win32::{

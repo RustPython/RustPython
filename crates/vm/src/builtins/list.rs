@@ -20,7 +20,8 @@ use crate::{
     utils::collection_repr,
     vm::VirtualMachine,
 };
-use std::{fmt, ops::DerefMut};
+use alloc::fmt;
+use core::ops::DerefMut;
 
 #[pyclass(module = false, name = "list", unhashable = true, traverse)]
 #[derive(Default)]

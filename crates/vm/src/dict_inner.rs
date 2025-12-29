@@ -17,7 +17,8 @@ use crate::{
     object::{Traverse, TraverseFn},
 };
 use num_traits::ToPrimitive;
-use std::{fmt, mem::size_of, ops::ControlFlow};
+use alloc::fmt;
+use core::{mem::size_of, ops::ControlFlow};
 
 // HashIndex is intended to be same size with hash::PyHash
 // but it doesn't mean the values are compatible with actual PyHash value

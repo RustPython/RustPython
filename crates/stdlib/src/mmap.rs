@@ -1056,7 +1056,7 @@ mod mmap {
                 // 3. Replace the old mmap
 
                 let old_size = self.size.load();
-                let copy_size = std::cmp::min(old_size, newsize);
+                let copy_size = core::cmp::min(old_size, newsize);
 
                 // Create new anonymous mmap
                 let mut new_mmap_opts = MmapOptions::new();

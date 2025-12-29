@@ -17,11 +17,10 @@ use crate::{
     function::{ArgBytesLike, PyMethodDef},
 };
 use once_cell::unsync::OnceCell;
-use std::{
-    borrow::Cow,
-    collections::HashMap,
-    ops::{self, Range},
-};
+use alloc::borrow::Cow;
+use core::ops::{self, Range};
+use std::collections::HashMap;
+
 
 pub struct CodecsRegistry {
     inner: PyRwLock<RegistryInner>,

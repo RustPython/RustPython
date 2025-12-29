@@ -107,7 +107,7 @@ mod _winapi {
             WindowsSysResult(windows_sys::Win32::System::Pipes::CreatePipe(
                 read.as_mut_ptr(),
                 write.as_mut_ptr(),
-                std::ptr::null(),
+                core::ptr::null(),
                 size,
             ))
             .to_pyresult(vm)?;
@@ -278,8 +278,8 @@ mod _winapi {
             WindowsSysResult(windows_sys::Win32::System::Threading::CreateProcessW(
                 app_name,
                 command_line,
-                std::ptr::null(),
-                std::ptr::null(),
+                core::ptr::null(),
+                core::ptr::null(),
                 args.inherit_handles,
                 args.creation_flags
                     | windows_sys::Win32::System::Threading::EXTENDED_STARTUPINFO_PRESENT
@@ -454,7 +454,7 @@ mod _winapi {
                             handlelist.as_mut_ptr() as _,
                             (handlelist.len() * std::mem::size_of::<usize>()) as _,
                             std::ptr::null_mut(),
-                            std::ptr::null(),
+                            core::ptr::null(),
                         )
                     })
                     .into_pyresult(vm)?;
@@ -873,7 +873,7 @@ mod _winapi {
         }
 
         let buf = buffer.borrow_buf();
-        let len = std::cmp::min(buf.len(), u32::MAX as usize) as u32;
+        let len = core::cmp::min(buf.len(), u32::MAX as usize) as u32;
         let mut written: u32 = 0;
 
         let ret = unsafe {
@@ -947,7 +947,7 @@ mod _winapi {
         let mut batches: Vec<Vec<isize>> = Vec::new();
         let mut i = 0;
         while i < nhandles {
-            let end = std::cmp::min(i + batch_size, nhandles);
+            let end = core::cmp::min(i + batch_size, nhandles);
             batches.push(handles[i..end].to_vec());
             i = end;
         }
