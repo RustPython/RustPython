@@ -14,27 +14,28 @@ print(" PVM Breakpoint/Resume Demo")
 print(" Idea: VM saves state at checkpoints and exits.")
 print(" Run flow: 1) run -> stop #1, 2) resume -> stop #2, 3) resume -> finish")
 print("=" * 60)
-print("[1/3] build input state (ai agent runs)")
-print("  action: load run telemetry, set cost/latency thresholds, and precompute summary stats")
-runs = [
-    {"id": "job-001", "agent": "planner", "tokens": 640, "tool_calls": 2, "latency_ms": 820},
-    {"id": "job-002", "agent": "coder", "tokens": 1480, "tool_calls": 5, "latency_ms": 2400},
-    {"id": "job-003", "agent": "reviewer", "tokens": 520, "tool_calls": 1, "latency_ms": 610},
+print("[1/3] build input state (trading day snapshot)")
+print("  action: load orders, prices, and risk limits; precompute exposure summary")
+orders = [
+    {"id": "ord-001", "symbol": "AAPL", "side": "BUY", "qty": 120, "limit": 192.10},
+    {"id": "ord-002", "symbol": "MSFT", "side": "SELL", "qty": 80, "limit": 411.50},
+    {"id": "ord-003", "symbol": "NVDA", "side": "BUY", "qty": 60, "limit": 122.30},
 ]
-cost_per_1k_tokens = 0.03
-alert_latency_ms = 2000
-run_log = ["loaded runs", f"alert_latency_ms={alert_latency_ms}"]
+prices = {"AAPL": 192.25, "MSFT": 411.10, "NVDA": 122.60}
+max_order_notional = 25000.0
+slippage_limit = 0.35
+run_log = ["loaded orders", f"slippage_limit={slippage_limit}"]
 summary = {
-    "run_count": len(runs),
-    "total_tokens": sum(item["tokens"] for item in runs),
-    "total_latency_ms": sum(item["latency_ms"] for item in runs),
+    "order_count": len(orders),
+    "total_qty": sum(item["qty"] for item in orders),
+    "symbols": sorted({item["symbol"] for item in orders}),
 }
-for item in runs:
+for item in orders:
     print(
-        "  run {id} agent={agent} tokens={tokens} tool_calls={tool_calls} "
-        "latency_ms={latency_ms}".format(**item)
+        "  order {id} {side} {qty} {symbol} limit={limit}".format(**item)
     )
-print(f"  cost_per_1k_tokens={cost_per_1k_tokens} alert_latency_ms={alert_latency_ms}")
+print(f"  prices={prices}")
+print(f"  max_order_notional={max_order_notional} slippage_limit={slippage_limit}")
 print(f"  summary={summary}")
 
 # Breakpoint 1: must be a standalone statement.
@@ -49,18 +50,45 @@ import rustpython_checkpoint as rpc  # type: ignore
 
 # Phase 2: derive alerts and billing info from restored state.
 print("[2/3] resumed after checkpoint #1")
-print("  action: flag slow runs, compute per-run cost, aggregate totals, and append run log")
-alerts = [item["id"] for item in runs if item["latency_ms"] >= alert_latency_ms]
-costs = [
-    {"id": item["id"], "cost": round((item["tokens"] / 1000) * cost_per_1k_tokens, 4)}
-    for item in runs
-]
-total_cost = round(sum(item["cost"] for item in costs), 4)
-run_log.append(f"alerts={alerts}")
-run_log.append(f"total_cost={total_cost}")
-print(f"  alerts={alerts}")
-print(f"  costs={costs} total_cost={total_cost}")
-print(f"  log={run_log}")
+print("  action: simulate fills, compute slippage and notional, flag risk, append run log")
+fills = []
+risk_flags = []
+for item in orders:
+    mkt = prices[item["symbol"]]
+    slip = round(abs(mkt - item["limit"]), 2)
+    notional = round(mkt * item["qty"], 2)
+    fills.append(
+        {
+            "id": item["id"],
+            "symbol": item["symbol"],
+            "side": item["side"],
+            "qty": item["qty"],
+            "fill": mkt,
+            "slippage": slip,
+            "notional": notional,
+        }
+    )
+    if slip > slippage_limit or notional > max_order_notional:
+        risk_flags.append(item["id"])
+total_notional = round(sum(item["notional"] for item in fills), 2)
+run_log.append(f"risk_flags={risk_flags}")
+run_log.append(f"total_notional={total_notional}")
+print("  fills:")
+for item in fills:
+    print(
+        "    - {id} {symbol} {side} qty={qty} fill={fill} "
+        "slip={slippage} notional={notional}".format(**item)
+    )
+print("  risk_flags:")
+if risk_flags:
+    for item_id in risk_flags:
+        print(f"    - {item_id}")
+else:
+    print("    - none")
+print(f"  total_notional={total_notional}")
+print("  log:")
+for entry in run_log:
+    print(f"    - {entry}")
 
 # Breakpoint 2: save state again and exit; next run continues below.
 print(SEP)
@@ -75,17 +103,36 @@ import os
 # Phase 3: produce a final report and clean up the checkpoint file.
 print(SEP)
 print("[3/3] resumed after checkpoint #2")
-print("  action: finalize report and cleanup snapshot")
+print("  action: settle trades, build ledger, emit final report, and cleanup snapshot")
+ledger = [
+    {
+        "symbol": item["symbol"],
+        "net_qty": item["qty"] if item["side"] == "BUY" else -item["qty"],
+        "avg_price": item["fill"],
+    }
+    for item in fills
+]
 report = {
     "summary": summary,
-    "alerts": alerts,
-    "costs": costs,
-    "total_cost": total_cost,
+    "risk_flags": risk_flags,
+    "ledger": ledger,
+    "total_notional": total_notional,
     "status": "ready",
 }
 run_log.append("report_ready")
-print(f"  report={report}")
-print(f"  log={run_log}")
+print("  report:")
+print(f"    summary={report['summary']}")
+print(f"    risk_flags={report['risk_flags']}")
+print("    ledger:")
+for item in report["ledger"]:
+    print(
+        "      - {symbol} net_qty={net_qty} avg_price={avg_price}".format(**item)
+    )
+print(f"    total_notional={report['total_notional']}")
+print(f"    status={report['status']}")
+print("  log:")
+for entry in run_log:
+    print(f"    - {entry}")
 print(SEP)
 
 # Clean up the checkpoint file so the next run starts fresh.
