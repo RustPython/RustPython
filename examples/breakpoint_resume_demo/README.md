@@ -1,25 +1,25 @@
 # 断点续运行演示（VM 级）
 
-这个演示使用 RustPython 的 VM 级断点/恢复原型：运行到断点行时保存虚拟机状态并退出进程；再次运行时加载断点数据，直接从断点行之后继续执行。
+这个演示使用 PVM 的 VM 级断点/恢复原型：运行到断点行时保存虚拟机状态并退出进程；再次运行时加载断点数据，直接从断点行之后继续执行。
 
 ## 运行方式
 
 第一次运行（触发断点 1 并退出）：
 
 ```
-./target/release/rustpython examples/breakpoint_resume_demo/demo.py
+./target/release/pvm examples/breakpoint_resume_demo/demo.py
 ```
 
 第二次运行（从断点 1 恢复，继续到断点 2 并退出）：
 
 ```
-./target/release/rustpython --resume examples/breakpoint_resume_demo/demo.rpsnap examples/breakpoint_resume_demo/demo.py
+./target/release/pvm --resume examples/breakpoint_resume_demo/demo.rpsnap examples/breakpoint_resume_demo/demo.py
 ```
 
 第三次运行（从断点 2 恢复，执行完毕并清理断点文件）：
 
 ```
-./target/release/rustpython --resume examples/breakpoint_resume_demo/demo.rpsnap examples/breakpoint_resume_demo/demo.py
+./target/release/pvm --resume examples/breakpoint_resume_demo/demo.rpsnap examples/breakpoint_resume_demo/demo.py
 ```
 
 ## 测试程序
@@ -27,13 +27,13 @@
 可直接运行自动化测试脚本验证断点续跑是否正常：
 
 ```
-./target/release/rustpython examples/breakpoint_resume_demo/test_checkpoint.py
+./target/release/pvm examples/breakpoint_resume_demo/test_checkpoint.py
 ```
 
 如需指定 rustpython 可执行文件路径：
 
 ```
-./target/release/rustpython examples/breakpoint_resume_demo/test_checkpoint.py --bin /path/to/rustpython
+./target/release/pvm examples/breakpoint_resume_demo/test_checkpoint.py --bin /path/to/pvm
 ```
 
 ## 断点文件
@@ -44,9 +44,9 @@
 examples/breakpoint_resume_demo/demo.rpsnap
 ```
 
-这是一个由 `marshal` 序列化的二进制文件，请不要手动编辑。
+这是一个由 `marshal` 序列化的二进制文件，不能手动编辑。
 
-## 限制说明（原型能力边界）
+## 目前研发阶段的限制说明（原型能力边界）
 
 当前原型是“最小可用”的 VM 级断点续跑，主要限制如下：
 

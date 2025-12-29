@@ -11,7 +11,7 @@ def resolve_bin_path(root: Path, bin_override: str | None) -> Path:
     if bin_override:
         return Path(bin_override)
 
-    bin_path = root / "target" / "release" / "rustpython"
+    bin_path = root / "target" / "release" / "pvm"
     if os.name == "nt":
         bin_path = bin_path.with_suffix(".exe")
     return bin_path
