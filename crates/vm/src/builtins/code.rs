@@ -809,18 +809,10 @@ impl PyCode {
                         Some(line + end_line_delta)
                     };
 
-                    // Convert Option to PyObject (None or int)
-                    // If column == end_column, treat as if column info is not available
-                    // This happens because RustPython's linetable doesn't store separate
-                    // start/end column info
-                    let (final_column, final_end_column) = match (column, end_column) {
-                        (Some(c), Some(ec)) if c == ec => (None, None),
-                        _ => (column, end_column),
-                    };
                     let line_obj = final_line.to_pyobject(vm);
                     let end_line_obj = final_endline.to_pyobject(vm);
-                    let column_obj = final_column.to_pyobject(vm);
-                    let end_column_obj = final_end_column.to_pyobject(vm);
+                    let column_obj = column.to_pyobject(vm);
+                    let end_column_obj = end_column.to_pyobject(vm);
 
                     let tuple =
                         vm.ctx
