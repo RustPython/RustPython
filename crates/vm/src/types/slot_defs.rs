@@ -1420,6 +1420,12 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         doc: "Return self*value.",
     },
     SlotDef {
+        name: "__rmul__",
+        accessor: SlotAccessor::SqRepeat,
+        op: None,
+        doc: "Return value*self.",
+    },
+    SlotDef {
         name: "__iadd__",
         accessor: SlotAccessor::SqInplaceConcat,
         op: None,
