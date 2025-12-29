@@ -38,7 +38,7 @@ pub type InitHook = Box<dyn FnOnce(&mut VirtualMachine)>;
 ///     // Your module implementation
 /// #   todo!()
 /// }
-/// 
+///
 /// let interpreter = InterpreterConfig::new()
 ///     .init_stdlib()
 ///     .add_native_module(
