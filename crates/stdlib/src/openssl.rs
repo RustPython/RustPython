@@ -522,10 +522,10 @@ mod _ssl {
     // Thread-local storage for VirtualMachine pointer during handshake
     // SNI callback is only called during handshake which is synchronous
     thread_local! {
-        static HANDSHAKE_VM: std::cell::Cell<Option<*const VirtualMachine>> = const { std::cell::Cell::new(None) };
+        static HANDSHAKE_VM: core::cell::Cell<Option<*const VirtualMachine>> = const { core::cell::Cell::new(None) };
         // SSL pointer during handshake - needed because connection lock is held during handshake
         // and callbacks may need to access SSL without acquiring the lock
-        static HANDSHAKE_SSL_PTR: std::cell::Cell<Option<*mut sys::SSL>> = const { std::cell::Cell::new(None) };
+        static HANDSHAKE_SSL_PTR: core::cell::Cell<Option<*mut sys::SSL>> = const { core::cell::Cell::new(None) };
     }
 
     // RAII guard to set/clear thread-local handshake context

@@ -140,7 +140,7 @@ pub fn _decompress_chunks<D: Decompressor>(
         let chunk = data.chunk();
         let flush = calc_flush(chunk.len() == data.len());
         loop {
-            let additional = std::cmp::min(bufsize, max_length - buf.capacity());
+            let additional = core::cmp::min(bufsize, max_length - buf.capacity());
             if additional == 0 {
                 return Ok((buf, false));
             }

@@ -251,8 +251,8 @@ impl PyMethodDef {
     }
 }
 
-impl std::fmt::Debug for PyMethodDef {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for PyMethodDef {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PyMethodDef")
             .field("name", &self.name)
             .field(

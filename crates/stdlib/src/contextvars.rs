@@ -298,8 +298,8 @@ mod _contextvars {
         hash: UnsafeCell<PyHash>,
     }
 
-    impl std::fmt::Debug for ContextVar {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for ContextVar {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             f.debug_struct("ContextVar").finish()
         }
     }

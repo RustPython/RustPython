@@ -20,8 +20,8 @@ pub enum MarshalError {
     BadType,
 }
 
-impl std::fmt::Display for MarshalError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for MarshalError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Eof => f.write_str("unexpected end of data"),
             Self::InvalidBytecode => f.write_str("invalid bytecode"),
@@ -38,9 +38,9 @@ impl From<std::str::Utf8Error> for MarshalError {
     }
 }
 
-impl std::error::Error for MarshalError {}
+impl core::error::Error for MarshalError {}
 
-type Result<T, E = MarshalError> = std::result::Result<T, E>;
+type Result<T, E = MarshalError> = core::result::Result<T, E>;
 
 #[repr(u8)]
 enum Type {

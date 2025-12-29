@@ -4,7 +4,7 @@ pub(crate) use _posixshmem::make_module;
 #[cfg(all(unix, not(target_os = "redox"), not(target_os = "android")))]
 #[pymodule]
 mod _posixshmem {
-    use std::ffi::CString;
+    use alloc::ffi::CString;
 
     use crate::{
         common::os::errno_io_error,

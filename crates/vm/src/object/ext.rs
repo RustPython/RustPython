@@ -581,7 +581,7 @@ impl ToPyObject for &PyObject {
 // explicitly implementing `ToPyObject`.
 impl<T> ToPyObject for T
 where
-    T: PyPayload + std::fmt::Debug + Sized,
+    T: PyPayload + core::fmt::Debug + Sized,
 {
     #[inline(always)]
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {

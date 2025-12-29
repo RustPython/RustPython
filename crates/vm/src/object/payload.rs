@@ -56,7 +56,7 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     #[inline]
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef
     where
-        Self: std::fmt::Debug,
+        Self: core::fmt::Debug,
     {
         self.into_ref(&vm.ctx).into()
     }
@@ -64,7 +64,7 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     #[inline]
     fn _into_ref(self, cls: PyTypeRef, ctx: &Context) -> PyRef<Self>
     where
-        Self: std::fmt::Debug,
+        Self: core::fmt::Debug,
     {
         let dict = if cls.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
             Some(ctx.new_dict())
@@ -77,7 +77,7 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     #[inline]
     fn into_exact_ref(self, ctx: &Context) -> PyRefExact<Self>
     where
-        Self: std::fmt::Debug,
+        Self: core::fmt::Debug,
     {
         unsafe {
             // Self::into_ref() always returns exact typed PyRef
@@ -88,7 +88,7 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     #[inline]
     fn into_ref(self, ctx: &Context) -> PyRef<Self>
     where
-        Self: std::fmt::Debug,
+        Self: core::fmt::Debug,
     {
         let cls = Self::class(ctx);
         self._into_ref(cls.to_owned(), ctx)
@@ -97,7 +97,7 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     #[inline]
     fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult<PyRef<Self>>
     where
-        Self: std::fmt::Debug,
+        Self: core::fmt::Debug,
     {
         let exact_class = Self::class(&vm.ctx);
         if cls.fast_issubclass(exact_class) {
@@ -138,11 +138,11 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
 }
 
 pub trait PyObjectPayload:
-    PyPayload + std::any::Any + std::fmt::Debug + MaybeTraverse + PyThreadingConstraint + 'static
+    PyPayload + std::any::Any + core::fmt::Debug + MaybeTraverse + PyThreadingConstraint + 'static
 {
 }
 
-impl<T: PyPayload + std::fmt::Debug + 'static> PyObjectPayload for T {}
+impl<T: PyPayload + core::fmt::Debug + 'static> PyObjectPayload for T {}
 
 pub trait SlotOffset {
     fn offset() -> usize;

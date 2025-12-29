@@ -91,7 +91,7 @@ struct FrameState {
 #[cfg(feature = "threading")]
 type Lasti = atomic::AtomicU32;
 #[cfg(not(feature = "threading"))]
-type Lasti = std::cell::Cell<u32>;
+type Lasti = core::cell::Cell<u32>;
 
 #[pyclass(module = false, name = "frame")]
 pub struct Frame {

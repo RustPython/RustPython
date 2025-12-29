@@ -15,7 +15,7 @@ use crate::types::{AsBuffer, AsNumber, Constructor, Initializer, Representable};
 use crate::{AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
 use num_traits::ToPrimitive;
 use std::borrow::Cow;
-use std::fmt::Debug;
+use core::fmt::Debug;
 
 /// Valid type codes for ctypes simple types
 // spell-checker: disable-next-line
@@ -712,7 +712,7 @@ fn create_swapped_types(
 pub struct PyCSimple(pub PyCData);
 
 impl Debug for PyCSimple {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PyCSimple")
             .field("size", &self.0.buffer.read().len())
             .finish()

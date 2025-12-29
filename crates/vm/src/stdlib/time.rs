@@ -500,8 +500,8 @@ mod decl {
         pub tm_zone: PyObjectRef,
     }
 
-    impl std::fmt::Debug for StructTimeData {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for StructTimeData {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             write!(f, "struct_time()")
         }
     }

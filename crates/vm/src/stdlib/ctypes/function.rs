@@ -25,7 +25,7 @@ use num_traits::{Signed, ToPrimitive};
 use rustpython_common::lock::PyRwLock;
 use std::borrow::Cow;
 use std::ffi::c_void;
-use std::fmt::Debug;
+use core::fmt::Debug;
 
 // Internal function addresses for special ctypes functions
 pub(super) const INTERNAL_CAST_ADDR: usize = 1;
@@ -37,7 +37,7 @@ std::thread_local! {
     /// Thread-local storage for ctypes errno
     /// This is separate from the system errno - ctypes swaps them during FFI calls
     /// when use_errno=True is specified.
-    static CTYPES_LOCAL_ERRNO: std::cell::Cell<i32> = const { std::cell::Cell::new(0) };
+    static CTYPES_LOCAL_ERRNO: core::cell::Cell<i32> = const { core::cell::Cell::new(0) };
 }
 
 /// Get ctypes thread-local errno value
@@ -79,7 +79,7 @@ where
 #[cfg(windows)]
 std::thread_local! {
     /// Thread-local storage for ctypes last_error (Windows only)
-    static CTYPES_LOCAL_LAST_ERROR: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    static CTYPES_LOCAL_LAST_ERROR: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
 }
 
 #[cfg(windows)]
@@ -552,7 +552,7 @@ pub(super) struct PyCFuncPtr {
 }
 
 impl Debug for PyCFuncPtr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PyCFuncPtr")
             .field("func_ptr", &self.get_func_ptr())
             .finish()
@@ -2113,7 +2113,7 @@ pub(super) struct PyCThunk {
 }
 
 impl Debug for PyCThunk {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PyCThunk")
             .field("callable", &self.callable)
             .finish()

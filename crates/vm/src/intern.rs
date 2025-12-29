@@ -194,9 +194,9 @@ impl<T: PyPayload> PartialEq for PyInterned<T> {
 
 impl<T: PyPayload> Eq for PyInterned<T> {}
 
-impl<T: std::fmt::Debug + PyPayload> std::fmt::Debug for PyInterned<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(&**self, f)?;
+impl<T: core::fmt::Debug + PyPayload> core::fmt::Debug for PyInterned<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(&**self, f)?;
         write!(f, "@{:p}", self.as_ptr())
     }
 }

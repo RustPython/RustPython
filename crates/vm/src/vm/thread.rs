@@ -1,9 +1,9 @@
 use crate::{AsObject, PyObject, PyObjectRef, VirtualMachine};
 use itertools::Itertools;
-use std::{
+use std::thread_local;
+use core::{
     cell::{Cell, RefCell},
     ptr::NonNull,
-    thread_local,
 };
 
 thread_local! {

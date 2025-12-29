@@ -203,8 +203,8 @@ impl PyTypeSlots {
     }
 }
 
-impl std::fmt::Debug for PyTypeSlots {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for PyTypeSlots {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("PyTypeSlots")
     }
 }
@@ -1282,7 +1282,7 @@ impl PyType {
 /// - Special class type handling (e.g., `PyType` and its metaclasses)
 /// - Post-creation mutations that require `PyRef`
 #[pyclass]
-pub trait Constructor: PyPayload + std::fmt::Debug {
+pub trait Constructor: PyPayload + core::fmt::Debug {
     type Args: FromArgs;
 
     /// The type slot for `__new__`. Override this only when you need special
@@ -1300,7 +1300,7 @@ pub trait Constructor: PyPayload + std::fmt::Debug {
     fn py_new(cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self>;
 }
 
-pub trait DefaultConstructor: PyPayload + Default + std::fmt::Debug {
+pub trait DefaultConstructor: PyPayload + Default + core::fmt::Debug {
     fn construct_and_init(args: Self::Args, vm: &VirtualMachine) -> PyResult<PyRef<Self>>
     where
         Self: Initializer,
@@ -1786,7 +1786,7 @@ pub trait Iterable: PyPayload {
     fn extend_slots(_slots: &mut PyTypeSlots) {}
 }
 
-// `Iterator` fits better, but to avoid confusion with rust std::iter::Iterator
+// `Iterator` fits better, but to avoid confusion with rust core::iter::Iterator
 #[pyclass(with(Iterable))]
 pub trait IterNext: PyPayload + Iterable {
     #[pyslot]

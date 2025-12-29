@@ -7,7 +7,7 @@ use crate::string::{
 
 use super::{MAXREPEAT, SreAtCode, SreCatCode, SreInfo, SreOpcode, StrDrive, StringCursor};
 use optional::Optioned;
-use std::{convert::TryFrom, ptr::null};
+use core::{convert::TryFrom, ptr::null};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Request<'a, S> {
@@ -27,8 +27,8 @@ impl<'a, S: StrDrive> Request<'a, S> {
         pattern_codes: &'a [u32],
         match_all: bool,
     ) -> Self {
-        let end = std::cmp::min(end, string.count());
-        let start = std::cmp::min(start, end);
+        let end = core::cmp::min(end, string.count());
+        let start = core::cmp::min(start, end);
 
         Self {
             string,

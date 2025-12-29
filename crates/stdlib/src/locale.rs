@@ -47,8 +47,9 @@ mod _locale {
         convert::ToPyException,
         function::OptionalArg,
     };
-    use std::{
-        ffi::{CStr, CString},
+    use alloc::ffi::CString;
+    use core::{
+        ffi::CStr,
         ptr,
     };
 

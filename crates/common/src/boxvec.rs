@@ -693,7 +693,7 @@ impl<T> CapacityError<T> {
 
 const CAPERROR: &str = "insufficient capacity";
 
-impl<T> std::error::Error for CapacityError<T> {}
+impl<T> core::error::Error for CapacityError<T> {}
 
 impl<T> fmt::Display for CapacityError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

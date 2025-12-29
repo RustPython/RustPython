@@ -305,7 +305,7 @@ pub trait AnyStr {
 
     fn py_join(
         &self,
-        mut iter: impl std::iter::Iterator<Item = PyResult<impl AnyStrWrapper<Self> + TryFromObject>>,
+        mut iter: impl core::iter::Iterator<Item = PyResult<impl AnyStrWrapper<Self> + TryFromObject>>,
     ) -> PyResult<Self::Container> {
         let mut joined = if let Some(elem) = iter.next() {
             elem?.as_ref().unwrap().to_container()
@@ -328,7 +328,7 @@ pub trait AnyStr {
     ) -> PyResult<(Self::Container, bool, Self::Container)>
     where
         F: Fn() -> S,
-        S: std::iter::Iterator<Item = &'a Self>,
+        S: core::iter::Iterator<Item = &'a Self>,
     {
         if sub.is_empty() {
             return Err(vm.new_value_error("empty separator"));

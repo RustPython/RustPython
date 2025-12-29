@@ -14,7 +14,7 @@ use std::borrow::Cow;
 use std::ffi::{
     c_double, c_float, c_int, c_long, c_longlong, c_short, c_uint, c_ulong, c_ulonglong, c_ushort,
 };
-use std::fmt::Debug;
+use core::fmt::Debug;
 use std::mem;
 use widestring::WideChar;
 
@@ -105,8 +105,8 @@ pub struct StgInfo {
 unsafe impl Send for StgInfo {}
 unsafe impl Sync for StgInfo {}
 
-impl std::fmt::Debug for StgInfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for StgInfo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("StgInfo")
             .field("initialized", &self.initialized)
             .field("size", &self.size)

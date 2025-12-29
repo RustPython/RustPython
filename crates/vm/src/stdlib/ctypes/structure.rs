@@ -8,7 +8,7 @@ use crate::types::{AsBuffer, AsNumber, Constructor, Initializer, SetAttr};
 use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use num_traits::ToPrimitive;
 use std::borrow::Cow;
-use std::fmt::Debug;
+use core::fmt::Debug;
 
 /// Calculate Structure type size from _fields_ (sum of field sizes)
 pub(super) fn calculate_struct_size(cls: &Py<PyType>, vm: &VirtualMachine) -> PyResult<usize> {
@@ -501,7 +501,7 @@ impl SetAttr for PyCStructType {
 pub struct PyCStructure(pub PyCData);
 
 impl Debug for PyCStructure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PyCStructure")
             .field("size", &self.0.size())
             .finish()

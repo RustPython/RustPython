@@ -57,8 +57,8 @@ mod _overlapped {
     unsafe impl Sync for OverlappedInner {}
     unsafe impl Send for OverlappedInner {}
 
-    impl std::fmt::Debug for Overlapped {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for Overlapped {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             let zelf = self.inner.lock();
             f.debug_struct("Overlapped")
                 // .field("overlapped", &(self.overlapped as *const _ as usize))
@@ -98,8 +98,8 @@ mod _overlapped {
         address_length: libc::c_int,
     }
 
-    impl std::fmt::Debug for OverlappedReadFrom {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for OverlappedReadFrom {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             f.debug_struct("OverlappedReadFrom")
                 .field("result", &self.result)
                 .field("allocated_buffer", &self.allocated_buffer)
@@ -119,8 +119,8 @@ mod _overlapped {
         address_length: libc::c_int,
     }
 
-    impl std::fmt::Debug for OverlappedReadFromInto {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for OverlappedReadFromInto {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             f.debug_struct("OverlappedReadFromInto")
                 .field("result", &self.result)
                 .field("user_buffer", &self.user_buffer)

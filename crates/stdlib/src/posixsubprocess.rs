@@ -13,14 +13,19 @@ use nix::{
     unistd::{self, Pid},
 };
 use std::{
-    convert::Infallible as Never,
-    ffi::{CStr, CString},
     io::prelude::*,
-    marker::PhantomData,
-    ops::Deref,
     os::fd::{AsFd, AsRawFd, BorrowedFd, IntoRawFd, OwnedFd, RawFd},
 };
 use unistd::{Gid, Uid};
+
+use alloc::ffi::CString;
+
+use core::{
+    marker::PhantomData,
+    ops::Deref,
+    ffi::{CStr},
+    convert::Infallible as Never,
+};
 
 pub(crate) use _posixsubprocess::make_module;
 
@@ -87,7 +92,7 @@ impl<'a, T: AsRef<CStr>> FromIterator<&'a T> for CharPtrVec<'a> {
         let vec = iter
             .into_iter()
             .map(|x| x.as_ref().as_ptr())
-            .chain(std::iter::once(std::ptr::null()))
+            .chain(core::iter::once(core::ptr::null()))
             .collect();
         Self {
             vec,

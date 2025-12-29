@@ -93,7 +93,7 @@ pub enum CodegenErrorType {
     NotImplementedYet, // RustPython marker for unimplemented features
 }
 
-impl std::error::Error for CodegenErrorType {}
+impl core::error::Error for CodegenErrorType {}
 
 impl fmt::Display for CodegenErrorType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -54,11 +54,12 @@ mod _ssl {
     };
     use std::{
         collections::HashMap,
-        sync::{
-            Arc,
-            atomic::{AtomicUsize, Ordering},
-        },
-        time::{Duration, SystemTime},
+        time::SystemTime,
+    };
+    use alloc::sync::Arc;
+    use core::{
+        sync::atomic::{AtomicUsize, Ordering},
+        time::Duration
     };
 
     // Rustls imports
@@ -3124,7 +3125,7 @@ mod _ssl {
                         // When server_hostname=None, use an IP address to suppress SNI
                         // no hostname = no SNI extension
                         ServerName::IpAddress(
-                            std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)).into(),
+                            core::net::IpAddr::V4(core::net::Ipv4Addr::new(127, 0, 0, 1)).into(),
                         )
                     };
 
@@ -3385,7 +3386,7 @@ mod _ssl {
                 let mut written = 0;
 
                 while written < data.len() {
-                    let chunk_end = std::cmp::min(written + CHUNK_SIZE, data.len());
+                    let chunk_end = core::cmp::min(written + CHUNK_SIZE, data.len());
                     let chunk = &data[written..chunk_end];
 
                     // Write chunk to TLS layer
@@ -4177,7 +4178,7 @@ mod _ssl {
         fn id(&self, vm: &VirtualMachine) -> PyBytesRef {
             // Return session ID (hash of session data for uniqueness)
             use std::collections::hash_map::DefaultHasher;
-            use std::hash::{Hash, Hasher};
+            use core::hash::{Hash, Hasher};
 
             let mut hasher = DefaultHasher::new();
             self.session_data.hash(&mut hasher);
@@ -4588,7 +4589,7 @@ mod _ssl {
     impl Hashable for PySSLCertificate {
         fn hash(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyHash> {
             use std::collections::hash_map::DefaultHasher;
-            use std::hash::{Hash, Hasher};
+            use core::hash::{Hash, Hasher};
 
             let mut hasher = DefaultHasher::new();
             zelf.der_bytes.hash(&mut hasher);

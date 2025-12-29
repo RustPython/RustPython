@@ -28,7 +28,8 @@ use rustpython_vm::convert::IntoPyException;
 use rustpython_vm::function::ArgBytesLike;
 use rustpython_vm::{AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject};
 use std::io::Read;
-use std::sync::{Arc, Once};
+use std::sync::Once;
+use alloc::sync::Arc;
 
 // Import PySSLSocket from parent module
 use super::_ssl::PySSLSocket;

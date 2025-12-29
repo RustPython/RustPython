@@ -11,7 +11,7 @@ extern crate log;
 
 use lexopt::ValueExt;
 use rustpython_compiler as compiler;
-use std::error::Error;
+use core::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 

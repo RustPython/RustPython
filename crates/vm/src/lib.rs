@@ -24,6 +24,7 @@ extern crate bitflags;
 #[macro_use]
 extern crate log;
 // extern crate env_logger;
+extern crate alloc;
 
 #[macro_use]
 extern crate rustpython_derive;

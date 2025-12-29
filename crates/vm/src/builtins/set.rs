@@ -50,7 +50,7 @@ impl PySet {
 
     fn fold_op(
         &self,
-        others: impl std::iter::Iterator<Item = ArgIterable>,
+        others: impl core::iter::Iterator<Item = ArgIterable>,
         op: fn(&PySetInner, ArgIterable, &VirtualMachine) -> PyResult<PySetInner>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
@@ -111,7 +111,7 @@ impl PyFrozenSet {
 
     fn fold_op(
         &self,
-        others: impl std::iter::Iterator<Item = ArgIterable>,
+        others: impl core::iter::Iterator<Item = ArgIterable>,
         op: fn(&PySetInner, ArgIterable, &VirtualMachine) -> PyResult<PySetInner>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
@@ -191,7 +191,7 @@ impl PySetInner {
 
     fn fold_op<O>(
         &self,
-        others: impl std::iter::Iterator<Item = O>,
+        others: impl core::iter::Iterator<Item = O>,
         op: fn(&Self, O, &VirtualMachine) -> PyResult<Self>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
@@ -352,7 +352,7 @@ impl PySetInner {
 
     fn update(
         &self,
-        others: impl std::iter::Iterator<Item = ArgIterable>,
+        others: impl core::iter::Iterator<Item = ArgIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         for iterable in others {
@@ -395,7 +395,7 @@ impl PySetInner {
 
     fn intersection_update(
         &self,
-        others: impl std::iter::Iterator<Item = ArgIterable>,
+        others: impl core::iter::Iterator<Item = ArgIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let temp_inner = self.fold_op(others, Self::intersection, vm)?;
@@ -408,7 +408,7 @@ impl PySetInner {
 
     fn difference_update(
         &self,
-        others: impl std::iter::Iterator<Item = ArgIterable>,
+        others: impl core::iter::Iterator<Item = ArgIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         for iterable in others {
@@ -422,7 +422,7 @@ impl PySetInner {
 
     fn symmetric_difference_update(
         &self,
-        others: impl std::iter::Iterator<Item = ArgIterable>,
+        others: impl core::iter::Iterator<Item = ArgIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         for iterable in others {
@@ -1258,7 +1258,7 @@ impl AnySet {
     fn into_iterable_iter(
         self,
         vm: &VirtualMachine,
-    ) -> PyResult<impl std::iter::Iterator<Item = ArgIterable>> {
+    ) -> PyResult<impl core::iter::Iterator<Item = ArgIterable>> {
         Ok(std::iter::once(self.into_iterable(vm)?))
     }
 

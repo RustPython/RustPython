@@ -82,7 +82,7 @@ pub(super) struct Erased;
 pub(super) unsafe fn drop_dealloc_obj<T: PyPayload>(x: *mut PyObject) {
     drop(unsafe { Box::from_raw(x as *mut PyInner<T>) });
 }
-pub(super) unsafe fn debug_obj<T: PyPayload + std::fmt::Debug>(
+pub(super) unsafe fn debug_obj<T: PyPayload + core::fmt::Debug>(
     x: &PyObject,
     f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result {
@@ -442,7 +442,7 @@ impl InstanceDict {
     }
 }
 
-impl<T: PyPayload + std::fmt::Debug> PyInner<T> {
+impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
     fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> Box<Self> {
         let member_count = typ.slots.member_count;
         Box::new(Self {
@@ -978,7 +978,7 @@ where
     }
 }
 
-impl<T: PyPayload + std::fmt::Debug> fmt::Debug for Py<T> {
+impl<T: PyPayload + core::fmt::Debug> fmt::Debug for Py<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         (**self).fmt(f)
     }
@@ -1064,7 +1064,7 @@ impl<T: PyPayload> PyRef<T> {
     }
 }
 
-impl<T: PyPayload + std::fmt::Debug> PyRef<T> {
+impl<T: PyPayload + core::fmt::Debug> PyRef<T> {
     #[inline(always)]
     pub fn new_ref(payload: T, typ: crate::builtins::PyTypeRef, dict: Option<PyDictRef>) -> Self {
         let inner = Box::into_raw(PyInner::new(payload, typ, dict));
@@ -1074,9 +1074,9 @@ impl<T: PyPayload + std::fmt::Debug> PyRef<T> {
     }
 }
 
-impl<T: crate::class::PySubclass + std::fmt::Debug> PyRef<T>
+impl<T: crate::class::PySubclass + core::fmt::Debug> PyRef<T>
 where
-    T::Base: std::fmt::Debug,
+    T::Base: core::fmt::Debug,
 {
     /// Converts this reference to the base type (ownership transfer).
     /// # Safety

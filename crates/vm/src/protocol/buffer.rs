@@ -21,7 +21,7 @@ pub struct BufferMethods {
 }
 
 impl Debug for BufferMethods {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("BufferMethods")
             .field("obj_bytes", &(self.obj_bytes as usize))
             .field("obj_bytes_mut", &(self.obj_bytes_mut as usize))

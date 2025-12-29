@@ -24,8 +24,8 @@ impl ArgCallable {
     }
 }
 
-impl std::fmt::Debug for ArgCallable {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for ArgCallable {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("ArgCallable")
             .field("obj", &self.obj)
             .field("call", &format!("{:08x}", self.call as usize))

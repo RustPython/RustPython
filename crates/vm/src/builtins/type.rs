@@ -118,14 +118,14 @@ unsafe impl Traverse for PyAttributes {
     }
 }
 
-impl std::fmt::Display for PyType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(&self.name(), f)
+impl core::fmt::Display for PyType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Display::fmt(&self.name(), f)
     }
 }
 
-impl std::fmt::Debug for PyType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for PyType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "[PyType {}]", &self.name())
     }
 }

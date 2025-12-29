@@ -17,8 +17,9 @@ mod _csv {
     use parking_lot::Mutex;
     use rustpython_vm::match_class;
     use std::sync::LazyLock;
-    use std::{collections::HashMap, fmt};
-
+    use std::{collections::HashMap};
+    use alloc::fmt;
+    
     #[pyattr]
     const QUOTE_MINIMAL: i32 = QuoteStyle::Minimal as i32;
     #[pyattr]
@@ -1006,7 +1007,7 @@ mod _csv {
                         return Err(new_csv_error(vm, "filed too long to read".to_string()));
                     }
                     prev_end = end;
-                    let s = std::str::from_utf8(&buffer[range.clone()])
+                    let s = core::str::from_utf8(&buffer[range.clone()])
                         // not sure if this is possible - the input was all strings
                         .map_err(|_e| vm.new_unicode_decode_error("csv not utf8"))?;
                     // Rustpython TODO!
@@ -1116,7 +1117,7 @@ mod _csv {
             loop {
                 handle_res!(writer.terminator(&mut buffer[buffer_offset..]));
             }
-            let s = std::str::from_utf8(&buffer[..buffer_offset])
+            let s = core::str::from_utf8(&buffer[..buffer_offset])
                 .map_err(|_| vm.new_unicode_decode_error("csv not utf8"))?;
 
             self.write.call((s,), vm)

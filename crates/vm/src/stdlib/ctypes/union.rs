@@ -418,8 +418,8 @@ impl SetAttr for PyCUnionType {
 #[repr(transparent)]
 pub struct PyCUnion(pub PyCData);
 
-impl std::fmt::Debug for PyCUnion {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for PyCUnion {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PyCUnion")
             .field("size", &self.0.size())
             .finish()

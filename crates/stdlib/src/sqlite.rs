@@ -845,7 +845,7 @@ mod _sqlite {
     }
 
     impl Debug for Connection {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
             write!(f, "Sqlite3 Connection")
         }
     }
@@ -2584,7 +2584,7 @@ mod _sqlite {
     }
 
     impl Debug for Statement {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
             write!(
                 f,
                 "{} Statement",

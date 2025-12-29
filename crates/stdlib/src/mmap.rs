@@ -25,7 +25,7 @@ mod mmap {
     use memmap2::{Mmap, MmapMut, MmapOptions};
     use num_traits::Signed;
     use std::io::{self, Write};
-    use std::ops::{Deref, DerefMut};
+    use core::ops::{Deref, DerefMut};
 
     #[cfg(unix)]
     use nix::{sys::stat::fstat, unistd};
