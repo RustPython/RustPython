@@ -651,9 +651,10 @@ mod mmap {
 
     impl AsBuffer for PyMmap {
         fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+            let readonly = matches!(zelf.access, AccessMode::Read);
             let buf = PyBuffer::new(
                 zelf.to_owned().into(),
-                BufferDescriptor::simple(zelf.__len__(), true),
+                BufferDescriptor::simple(zelf.__len__(), readonly),
                 &BUFFER_METHODS,
             );
 

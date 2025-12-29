@@ -1085,6 +1085,18 @@ impl Constructor for PyCSimple {
     }
 }
 
+impl Initializer for PyCSimple {
+    type Args = (OptionalArg,);
+
+    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        // If an argument is provided, update the value
+        if let Some(value) = args.0.into_option() {
+            PyCSimple::set_value(zelf.into(), value, vm)?;
+        }
+        Ok(())
+    }
+}
+
 // Simple_repr
 impl Representable for PyCSimple {
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
@@ -1111,7 +1123,10 @@ impl Representable for PyCSimple {
     }
 }
 
-#[pyclass(flags(BASETYPE), with(Constructor, AsBuffer, AsNumber, Representable))]
+#[pyclass(
+    flags(BASETYPE),
+    with(Constructor, Initializer, AsBuffer, AsNumber, Representable)
+)]
 impl PyCSimple {
     #[pygetset]
     fn _b0_(&self) -> Option<PyObjectRef> {
@@ -1278,7 +1293,24 @@ impl PyCSimple {
 
         // Update buffer when value changes
         let buffer_bytes = value_to_bytes_endian(&type_code, &content, swapped, vm);
-        *zelf.0.buffer.write() = alloc::borrow::Cow::Owned(buffer_bytes);
+
+        // If the buffer is borrowed (from shared memory), write in-place
+        // Otherwise replace with new owned buffer
+        let mut buffer = zelf.0.buffer.write();
+        match &mut *buffer {
+            Cow::Borrowed(slice) => {
+                // SAFETY: For from_buffer, the slice points to writable shared memory.
+                // Python's from_buffer requires writable buffer, so this is safe.
+                let ptr = slice.as_ptr() as *mut u8;
+                let len = slice.len().min(buffer_bytes.len());
+                unsafe {
+                    std::ptr::copy_nonoverlapping(buffer_bytes.as_ptr(), ptr, len);
+                }
+            }
+            Cow::Owned(vec) => {
+                vec.copy_from_slice(&buffer_bytes);
+            }
+        }
 
         // For c_char_p (type "z"), c_wchar_p (type "Z"), and py_object (type "O"),
         // keep the reference in _objects

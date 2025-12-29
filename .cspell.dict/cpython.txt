@@ -36,8 +36,10 @@ kwonlyarg
 kwonlyargs
 lasti
 linearise
+lsprof
 maxdepth
 mult
+multibytecodec
 nkwargs
 noraise
 numer
@@ -49,6 +51,8 @@ posonlyarg
 posonlyargs
 prec
 preinitialized
+pydecimal
+pyrepl
 pythonw
 PYTHREAD_NAME
 releasebuffer

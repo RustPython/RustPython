@@ -199,7 +199,7 @@ quote = "1.0.38"
 radium = "1.1.1"
 rand = "0.9"
 rand_core = { version = "0.9", features = ["os_rng"] }
-rustix = { version = "1.0", features = ["event"] }
+rustix = { version = "1.1", features = ["event"] }
 rustyline = "17.0.1"
 serde = { version = "1.0.225", default-features = false }
 schannel = "0.1.28"

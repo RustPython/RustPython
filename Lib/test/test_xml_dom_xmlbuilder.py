@@ -50,8 +50,6 @@ class XMLBuilderTest(unittest.TestCase):
         builder = imp.createDOMBuilder(imp.MODE_SYNCHRONOUS, None)
         self.assertIsInstance(builder, xmlbuilder.DOMBuilder)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_parse_uri(self):
         body = (
             b"HTTP/1.1 200 OK\r\nContent-Type: text/xml; charset=utf-8\r\n\r\n"
@@ -74,8 +72,6 @@ class XMLBuilderTest(unittest.TestCase):
         self.assertIsInstance(document, minidom.Document)
         self.assertEqual(len(document.childNodes), 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_parse_with_systemId(self):
         response = io.BytesIO(SMALL_SAMPLE)
 
