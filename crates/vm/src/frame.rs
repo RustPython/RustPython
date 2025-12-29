@@ -390,7 +390,7 @@ impl ExecutingFrame<'_> {
                         let new_traceback = PyTraceback::new(
                             next,
                             frame.object.to_owned(),
-                            frame.lasti(),
+                            frame.lasti() * 2,
                             loc.line,
                         );
                         vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.line);

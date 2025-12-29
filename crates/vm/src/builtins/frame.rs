@@ -58,7 +58,8 @@ impl Frame {
 
     #[pygetset]
     fn f_lasti(&self) -> u32 {
-        self.lasti()
+        // Return byte offset (each instruction is 2 bytes) for compatibility
+        self.lasti() * 2
     }
 
     #[pygetset]
