@@ -134,8 +134,8 @@ impl PyBuffer {
     pub(crate) unsafe fn drop_without_release(&mut self) {
         // SAFETY: requirements forwarded from caller
         unsafe {
-            std::ptr::drop_in_place(&mut self.obj);
-            std::ptr::drop_in_place(&mut self.desc);
+            core::ptr::drop_in_place(&mut self.obj);
+            core::ptr::drop_in_place(&mut self.desc);
         }
     }
 }
@@ -414,7 +414,7 @@ pub struct VecBuffer {
 #[pyclass(flags(BASETYPE, DISALLOW_INSTANTIATION))]
 impl VecBuffer {
     pub fn take(&self) -> Vec<u8> {
-        std::mem::take(&mut self.data.lock())
+        core::mem::take(&mut self.data.lock())
     }
 }
 

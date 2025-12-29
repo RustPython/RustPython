@@ -81,7 +81,7 @@ impl Constructor for PyTraceback {
 
 impl PyTracebackRef {
     pub fn iter(&self) -> impl Iterator<Item = Self> {
-        std::iter::successors(Some(self.clone()), |tb| tb.next.lock().clone())
+        core::iter::successors(Some(self.clone()), |tb| tb.next.lock().clone())
     }
 }
 

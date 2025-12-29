@@ -5,7 +5,7 @@ use crate::{
 };
 use malachite_bigint::BigInt;
 use num_traits::{Signed, ToPrimitive};
-use std::ops::Range;
+use core::ops::Range;
 
 pub trait SliceableSequenceMutOp
 where

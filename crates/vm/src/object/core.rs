@@ -114,7 +114,7 @@ pub(super) struct PyInner<T> {
 
     pub(super) payload: T,
 }
-pub(crate) const SIZEOF_PYOBJECT_HEAD: usize = std::mem::size_of::<PyInner<()>>();
+pub(crate) const SIZEOF_PYOBJECT_HEAD: usize = core::mem::size_of::<PyInner<()>>();
 
 impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -376,7 +376,7 @@ impl PyWeak {
             let node_ptr = unsafe { NonNull::new_unchecked(py_inner as *mut Py<Self>) };
             // the list doesn't have ownership over its PyRef<PyWeak>! we're being dropped
             // right now so that should be obvious!!
-            std::mem::forget(unsafe { guard.list.remove(node_ptr) });
+            core::mem::forget(unsafe { guard.list.remove(node_ptr) });
             guard.ref_count -= 1;
             if Some(node_ptr) == guard.generic_weakref {
                 guard.generic_weakref = None;
@@ -438,7 +438,7 @@ impl InstanceDict {
 
     #[inline]
     pub fn replace(&self, d: PyDictRef) -> PyDictRef {
-        std::mem::replace(&mut self.d.write(), d)
+        core::mem::replace(&mut self.d.write(), d)
     }
 }
 
@@ -453,7 +453,7 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
             dict: dict.map(InstanceDict::new),
             weak_list: WeakRefList::new(),
             payload,
-            slots: std::iter::repeat_with(|| PyRwLock::new(None))
+            slots: core::iter::repeat_with(|| PyRwLock::new(None))
                 .take(member_count)
                 .collect_vec()
                 .into_boxed_slice(),
@@ -513,7 +513,7 @@ impl PyObjectRef {
     #[inline(always)]
     pub const fn into_raw(self) -> NonNull<PyObject> {
         let ptr = self.ptr;
-        std::mem::forget(self);
+        core::mem::forget(self);
         ptr
     }
 
@@ -946,12 +946,12 @@ impl<T: PyPayload> Borrow<PyObject> for Py<T> {
     }
 }
 
-impl<T> std::hash::Hash for Py<T>
+impl<T> core::hash::Hash for Py<T>
 where
-    T: std::hash::Hash + PyPayload,
+    T: core::hash::Hash + PyPayload,
 {
     #[inline]
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.deref().hash(state)
     }
 }
@@ -1059,7 +1059,7 @@ impl<T: PyPayload> PyRef<T> {
 
     pub const fn leak(pyref: Self) -> &'static Py<T> {
         let ptr = pyref.ptr;
-        std::mem::forget(pyref);
+        core::mem::forget(pyref);
         unsafe { ptr.as_ref() }
     }
 }
@@ -1086,7 +1086,7 @@ where
         let obj: PyObjectRef = self.into();
         match obj.downcast() {
             Ok(base_ref) => base_ref,
-            Err(_) => unsafe { std::hint::unreachable_unchecked() },
+            Err(_) => unsafe { core::hint::unreachable_unchecked() },
         }
     }
     #[inline]
@@ -1098,7 +1098,7 @@ where
         let obj: PyObjectRef = self.into();
         match obj.downcast::<U>() {
             Ok(upcast_ref) => upcast_ref,
-            Err(_) => unsafe { std::hint::unreachable_unchecked() },
+            Err(_) => unsafe { core::hint::unreachable_unchecked() },
         }
     }
 }
@@ -1176,12 +1176,12 @@ impl<T> Deref for PyRef<T> {
     }
 }
 
-impl<T> std::hash::Hash for PyRef<T>
+impl<T> core::hash::Hash for PyRef<T>
 where
-    T: std::hash::Hash + PyPayload,
+    T: core::hash::Hash + PyPayload,
 {
     #[inline]
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.deref().hash(state)
     }
 }
@@ -1230,10 +1230,10 @@ macro_rules! partially_init {
                 $($uninit_field: unreachable!(),)*
             }};
         }
-        let mut m = ::std::mem::MaybeUninit::<$ty>::uninit();
+        let mut m = ::core::mem::MaybeUninit::<$ty>::uninit();
         #[allow(unused_unsafe)]
         unsafe {
-            $(::std::ptr::write(&mut (*m.as_mut_ptr()).$init_field, $init_value);)*
+            $(::core::ptr::write(&mut (*m.as_mut_ptr()).$init_field, $init_value);)*
         }
         m
     }};
@@ -1241,7 +1241,7 @@ macro_rules! partially_init {
 
 pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
     use crate::{builtins::object, class::PyClassImpl};
-    use std::mem::MaybeUninit;
+    use core::mem::MaybeUninit;
 
     // `type` inherits from `object`
     // and both `type` and `object are instances of `type`.

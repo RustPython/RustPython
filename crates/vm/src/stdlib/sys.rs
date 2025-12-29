@@ -66,7 +66,7 @@ mod sys {
     #[pyattr(name = "maxsize")]
     pub(crate) const MAXSIZE: isize = isize::MAX;
     #[pyattr(name = "maxunicode")]
-    const MAXUNICODE: u32 = std::char::MAX as u32;
+    const MAXUNICODE: u32 = core::char::MAX as u32;
     #[pyattr(name = "platform")]
     pub(crate) const PLATFORM: &str = {
         cfg_if::cfg_if! {
@@ -446,7 +446,7 @@ mod sys {
         let sizeof = || -> PyResult<usize> {
             let res = vm.call_special_method(&args.obj, identifier!(vm, __sizeof__), ())?;
             let res = res.try_index(vm)?.try_to_primitive::<usize>(vm)?;
-            Ok(res + std::mem::size_of::<PyObject>())
+            Ok(res + core::mem::size_of::<PyObject>())
         };
         sizeof()
             .map(|x| vm.ctx.new_int(x).into())
@@ -1072,7 +1072,7 @@ mod sys {
         const INFO: Self = {
             use rustpython_common::hash::*;
             Self {
-                width: std::mem::size_of::<PyHash>() * 8,
+                width: core::mem::size_of::<PyHash>() * 8,
                 modulus: MODULUS,
                 inf: INF,
                 nan: NAN,
@@ -1102,7 +1102,7 @@ mod sys {
     impl IntInfoData {
         const INFO: Self = Self {
             bits_per_digit: 30, //?
-            sizeof_digit: std::mem::size_of::<u32>(),
+            sizeof_digit: core::mem::size_of::<u32>(),
             default_max_str_digits: 4300,
             str_digits_check_threshold: 640,
         };
@@ -1220,7 +1220,7 @@ pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: 
 pub struct PyStderr<'vm>(pub &'vm VirtualMachine);
 
 impl PyStderr<'_> {
-    pub fn write_fmt(&self, args: std::fmt::Arguments<'_>) {
+    pub fn write_fmt(&self, args: core::fmt::Arguments<'_>) {
         use crate::py_io::Write;
 
         let vm = self.0;

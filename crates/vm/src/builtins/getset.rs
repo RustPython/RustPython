@@ -158,7 +158,7 @@ impl Representable for PyGetSet {
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let class = unsafe { zelf.class.borrow_static() };
         // Special case for object type
-        if std::ptr::eq(class, vm.ctx.types.object_type) {
+        if core::ptr::eq(class, vm.ctx.types.object_type) {
             Ok(format!("<attribute '{}'>", zelf.name))
         } else {
             Ok(format!(

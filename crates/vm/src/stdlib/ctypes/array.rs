@@ -618,7 +618,7 @@ impl PyCArray {
                 let ptr_val = usize::from_ne_bytes(
                     ptr_bytes
                         .try_into()
-                        .unwrap_or([0; std::mem::size_of::<usize>()]),
+                        .unwrap_or([0; core::mem::size_of::<usize>()]),
                 );
                 if ptr_val == 0 {
                     return Ok(vm.ctx.none());
@@ -630,7 +630,7 @@ impl PyCArray {
                     while *ptr.add(len) != 0 {
                         len += 1;
                     }
-                    let bytes = std::slice::from_raw_parts(ptr, len);
+                    let bytes = core::slice::from_raw_parts(ptr, len);
                     Ok(vm.ctx.new_bytes(bytes.to_vec()).into())
                 }
             }
@@ -643,7 +643,7 @@ impl PyCArray {
                 let ptr_val = usize::from_ne_bytes(
                     ptr_bytes
                         .try_into()
-                        .unwrap_or([0; std::mem::size_of::<usize>()]),
+                        .unwrap_or([0; core::mem::size_of::<usize>()]),
                 );
                 if ptr_val == 0 {
                     return Ok(vm.ctx.none());
@@ -655,10 +655,10 @@ impl PyCArray {
                     let mut pos = 0usize;
                     loop {
                         let code = if WCHAR_SIZE == 2 {
-                            let bytes = std::slice::from_raw_parts(ptr.add(pos), 2);
+                            let bytes = core::slice::from_raw_parts(ptr.add(pos), 2);
                             u16::from_ne_bytes([bytes[0], bytes[1]]) as u32
                         } else {
-                            let bytes = std::slice::from_raw_parts(ptr.add(pos), 4);
+                            let bytes = core::slice::from_raw_parts(ptr.add(pos), 4);
                             u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
                         };
                         if code == 0 {
@@ -1101,7 +1101,7 @@ impl AsBuffer for PyCArray {
                 len: buffer_len,
                 readonly: false,
                 itemsize,
-                format: std::borrow::Cow::Owned(fmt),
+                format: alloc::borrow::Cow::Owned(fmt),
                 dim_desc,
             }
         } else {
@@ -1256,7 +1256,7 @@ fn add_wchar_array_getsets(array_type: &Py<PyType>, vm: &VirtualMachine) {
 // Linux/macOS: sizeof(wchar_t) == 4 (UTF-32)
 
 /// Size of wchar_t on this platform
-pub(super) const WCHAR_SIZE: usize = std::mem::size_of::<libc::wchar_t>();
+pub(super) const WCHAR_SIZE: usize = core::mem::size_of::<libc::wchar_t>();
 
 /// Read a single wchar_t from bytes (platform-endian)
 #[inline]

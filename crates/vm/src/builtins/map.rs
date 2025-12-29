@@ -42,7 +42,7 @@ impl PyMap {
     fn __length_hint__(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.iterators.iter().try_fold(0, |prev, cur| {
             let cur = cur.as_ref().to_owned().length_hint(0, vm)?;
-            let max = std::cmp::max(prev, cur);
+            let max = core::cmp::max(prev, cur);
             Ok(max)
         })
     }

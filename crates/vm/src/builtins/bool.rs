@@ -10,7 +10,7 @@ use crate::{
 };
 use malachite_bigint::Sign;
 use num_traits::Zero;
-use std::fmt::{Debug, Formatter};
+use core::fmt::{Debug, Formatter};
 
 impl ToPyObject for bool {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {

@@ -3,7 +3,7 @@ use crate::{AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, buil
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::PrimInt;
-use std::ops::Deref;
+use core::ops::Deref;
 
 /// A Python complex-like object.
 ///
@@ -62,7 +62,7 @@ pub struct ArgIntoFloat {
 impl ArgIntoFloat {
     pub fn vec_into_f64(v: Vec<Self>) -> Vec<f64> {
         // TODO: Vec::into_raw_parts once stabilized
-        let mut v = std::mem::ManuallyDrop::new(v);
+        let mut v = core::mem::ManuallyDrop::new(v);
         let (p, l, c) = (v.as_mut_ptr(), v.len(), v.capacity());
         // SAFETY: IntoPyFloat is repr(transparent) over f64
         unsafe { Vec::from_raw_parts(p.cast(), l, c) }

@@ -24,7 +24,7 @@ use crate::{
     vm::VirtualMachine,
 };
 use rustpython_common::lock::PyMutex;
-use std::fmt;
+use alloc::fmt;
 use std::sync::LazyLock;
 
 pub type DictContentType = dict_inner::Dict;
@@ -219,7 +219,7 @@ impl PyDict {
 
     #[pymethod]
     fn __sizeof__(&self) -> usize {
-        std::mem::size_of::<Self>() + self.entries.sizeof()
+        core::mem::size_of::<Self>() + self.entries.sizeof()
     }
 
     #[pymethod]

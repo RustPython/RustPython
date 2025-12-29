@@ -509,7 +509,7 @@ pub(super) mod _os {
                 22,
                 format!(
                     "Invalid argument: {}",
-                    std::str::from_utf8(key).unwrap_or("<bytes encoding failure>")
+                    core::str::from_utf8(key).unwrap_or("<bytes encoding failure>")
                 ),
             );
 
@@ -1042,12 +1042,12 @@ pub(super) mod _os {
         dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,
         follow_symlinks: FollowSymlinks,
     ) -> io::Result<Option<StatStruct>> {
-        let mut stat = std::mem::MaybeUninit::uninit();
+        let mut stat = core::mem::MaybeUninit::uninit();
         let ret = match file {
             OsPathOrFd::Path(path) => {
                 use rustpython_common::os::ffi::OsStrExt;
                 let path = path.as_ref().as_os_str().as_bytes();
-                let path = match std::ffi::CString::new(path) {
+                let path = match alloc::ffi::CString::new(path) {
                     Ok(x) => x,
                     Err(_) => return Ok(None),
                 };
@@ -1523,9 +1523,9 @@ pub(super) mod _os {
     #[pyfunction]
     fn copy_file_range(args: CopyFileRangeArgs<'_>, vm: &VirtualMachine) -> PyResult<usize> {
         #[allow(clippy::unnecessary_option_map_or_else)]
-        let p_offset_src = args.offset_src.as_ref().map_or_else(std::ptr::null, |x| x);
+        let p_offset_src = args.offset_src.as_ref().map_or_else(core::ptr::null, |x| x);
         #[allow(clippy::unnecessary_option_map_or_else)]
-        let p_offset_dst = args.offset_dst.as_ref().map_or_else(std::ptr::null, |x| x);
+        let p_offset_dst = args.offset_dst.as_ref().map_or_else(core::ptr::null, |x| x);
         let count: usize = args
             .count
             .try_into()
@@ -1557,7 +1557,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn strerror(e: i32) -> String {
-        unsafe { std::ffi::CStr::from_ptr(libc::strerror(e)) }
+        unsafe { core::ffi::CStr::from_ptr(libc::strerror(e)) }
             .to_string_lossy()
             .into_owned()
     }
@@ -1661,7 +1661,7 @@ pub(super) mod _os {
                     if encoding.is_null() || encoding.read() == '\0' as libc::c_char {
                         "UTF-8".to_owned()
                     } else {
-                        std::ffi::CStr::from_ptr(encoding).to_string_lossy().into_owned()
+                        core::ffi::CStr::from_ptr(encoding).to_string_lossy().into_owned()
                     }
                 };
 

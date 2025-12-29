@@ -218,7 +218,7 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
         //     basicsize += std::mem::size_of::<PyObjectRef>();
         // }
         if let Some(ref slot_names) = slot_names {
-            basicsize += std::mem::size_of::<PyObjectRef>() * slot_names.__len__();
+            basicsize += core::mem::size_of::<PyObjectRef>() * slot_names.__len__();
         }
         if obj.class().slots.basicsize > basicsize {
             return Err(

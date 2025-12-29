@@ -7,7 +7,7 @@ use crate::{
     vm::{MAX_MEMORY_SIZE, VirtualMachine},
 };
 use optional::Optioned;
-use std::ops::{Deref, Range};
+use core::ops::{Deref, Range};
 
 pub trait MutObjectSequenceOp {
     type Inner: ?Sized;
@@ -100,7 +100,7 @@ where
     fn mul(&self, vm: &VirtualMachine, n: isize) -> PyResult<Vec<T>> {
         let n = vm.check_repeat_or_overflow_error(self.as_ref().len(), n)?;
 
-        if n > 1 && std::mem::size_of_val(self.as_ref()) >= MAX_MEMORY_SIZE / n {
+        if n > 1 && core::mem::size_of_val(self.as_ref()) >= MAX_MEMORY_SIZE / n {
             return Err(vm.new_memory_error(""));
         }
 

@@ -258,7 +258,7 @@ impl core::fmt::Debug for PyMethodDef {
             .field(
                 "func",
                 &(unsafe {
-                    std::mem::transmute::<&dyn PyNativeFn, [usize; 2]>(self.func)[1] as *const u8
+                    core::mem::transmute::<&dyn PyNativeFn, [usize; 2]>(self.func)[1] as *const u8
                 }),
             )
             .field("flags", &self.flags)

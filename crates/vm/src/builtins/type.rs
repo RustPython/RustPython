@@ -368,7 +368,7 @@ impl PyType {
 
         // Inherit SEQUENCE and MAPPING flags from base class
         // For static types, we only have a single base
-        Self::inherit_patma_flags(&mut slots, std::slice::from_ref(&base));
+        Self::inherit_patma_flags(&mut slots, core::slice::from_ref(&base));
 
         if slots.basicsize == 0 {
             slots.basicsize = base.slots.basicsize;
@@ -549,7 +549,7 @@ impl PyType {
         // Gather all members here:
         let mut attributes = PyAttributes::default();
 
-        for bc in std::iter::once(self)
+        for bc in core::iter::once(self)
             .chain(self.mro.read().iter().map(|cls| -> &Self { cls }))
             .rev()
         {
@@ -667,21 +667,21 @@ impl Py<PyType> {
     where
         F: Fn(&Self) -> R,
     {
-        std::iter::once(self)
+        core::iter::once(self)
             .chain(self.mro.read().iter().map(|x| x.deref()))
             .map(f)
             .collect()
     }
 
     pub fn mro_collect(&self) -> Vec<PyRef<PyType>> {
-        std::iter::once(self)
+        core::iter::once(self)
             .chain(self.mro.read().iter().map(|x| x.deref()))
             .map(|x| x.to_owned())
             .collect()
     }
 
     pub fn iter_base_chain(&self) -> impl Iterator<Item = &Self> {
-        std::iter::successors(Some(self), |cls| cls.base.as_deref())
+        core::iter::successors(Some(self), |cls| cls.base.as_deref())
     }
 
     pub fn extend_methods(&'static self, method_defs: &'static [PyMethodDef], ctx: &Context) {
@@ -846,7 +846,7 @@ impl PyType {
         // then drop the old value after releasing the lock
         let _old_qualname = {
             let mut qualname_guard = heap_type.qualname.write();
-            std::mem::replace(&mut *qualname_guard, str_value)
+            core::mem::replace(&mut *qualname_guard, str_value)
         };
         // old_qualname is dropped here, outside the lock scope
 
@@ -1012,7 +1012,7 @@ impl PyType {
         // then drop the old value after releasing the lock (similar to CPython's Py_SETREF)
         let _old_name = {
             let mut name_guard = self.heaptype_ext.as_ref().unwrap().name.write();
-            std::mem::replace(&mut *name_guard, name)
+            core::mem::replace(&mut *name_guard, name)
         };
         // old_name is dropped here, outside the lock scope
 

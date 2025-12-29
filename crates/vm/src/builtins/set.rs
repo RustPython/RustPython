@@ -68,7 +68,7 @@ impl PySet {
         Ok(Self {
             inner: self
                 .inner
-                .fold_op(std::iter::once(other.into_iterable(vm)?), op, vm)?,
+                .fold_op(core::iter::once(other.into_iterable(vm)?), op, vm)?,
         })
     }
 }
@@ -130,7 +130,7 @@ impl PyFrozenSet {
         Ok(Self {
             inner: self
                 .inner
-                .fold_op(std::iter::once(other.into_iterable(vm)?), op, vm)?,
+                .fold_op(core::iter::once(other.into_iterable(vm)?), op, vm)?,
             ..Default::default()
         })
     }
@@ -539,7 +539,7 @@ impl PySet {
 
     #[pymethod]
     fn __sizeof__(&self) -> usize {
-        std::mem::size_of::<Self>() + self.inner.sizeof()
+        core::mem::size_of::<Self>() + self.inner.sizeof()
     }
 
     #[pymethod]
@@ -731,7 +731,7 @@ impl PySet {
     #[pymethod]
     fn __iand__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.inner
-            .intersection_update(std::iter::once(set.into_iterable(vm)?), vm)?;
+            .intersection_update(core::iter::once(set.into_iterable(vm)?), vm)?;
         Ok(zelf)
     }
 
@@ -978,7 +978,7 @@ impl PyFrozenSet {
 
     #[pymethod]
     fn __sizeof__(&self) -> usize {
-        std::mem::size_of::<Self>() + self.inner.sizeof()
+        core::mem::size_of::<Self>() + self.inner.sizeof()
     }
 
     #[pymethod]
@@ -1259,7 +1259,7 @@ impl AnySet {
         self,
         vm: &VirtualMachine,
     ) -> PyResult<impl core::iter::Iterator<Item = ArgIterable>> {
-        Ok(std::iter::once(self.into_iterable(vm)?))
+        Ok(core::iter::once(self.into_iterable(vm)?))
     }
 
     fn as_inner(&self) -> &PySetInner {

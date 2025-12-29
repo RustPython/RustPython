@@ -7,7 +7,7 @@ use crate::{
     protocol::{PyIter, PyIterIter, PyMapping},
     types::GenericMethod,
 };
-use std::{borrow::Borrow, marker::PhantomData, ops::Deref};
+use core::{borrow::Borrow, marker::PhantomData, ops::Deref};
 
 #[derive(Clone, Traverse)]
 pub struct ArgCallable {
@@ -203,7 +203,7 @@ impl<T> ArgSequence<T> {
     }
 }
 
-impl<T> std::ops::Deref for ArgSequence<T> {
+impl<T> core::ops::Deref for ArgSequence<T> {
     type Target = [T];
     #[inline(always)]
     fn deref(&self) -> &[T] {
@@ -213,14 +213,14 @@ impl<T> std::ops::Deref for ArgSequence<T> {
 
 impl<'a, T> IntoIterator for &'a ArgSequence<T> {
     type Item = &'a T;
-    type IntoIter = std::slice::Iter<'a, T>;
+    type IntoIter = core::slice::Iter<'a, T>;
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 impl<T> IntoIterator for ArgSequence<T> {
     type Item = T;
-    type IntoIter = std::vec::IntoIter<T>;
+    type IntoIter = alloc::vec::IntoIter<T>;
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }

@@ -7,7 +7,7 @@ use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods};
 use crate::types::{AsBuffer, AsNumber, Constructor, Initializer, SetAttr};
 use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use num_traits::ToPrimitive;
-use std::borrow::Cow;
+use alloc::borrow::Cow;
 use core::fmt::Debug;
 
 /// Calculate Structure type size from _fields_ (sum of field sizes)
@@ -206,7 +206,7 @@ impl PyCStructType {
             {
                 (
                     baseinfo.size,
-                    std::cmp::max(baseinfo.align, forced_alignment),
+                    core::cmp::max(baseinfo.align, forced_alignment),
                     baseinfo.flags.contains(StgInfoFlags::TYPEFLAG_HASPOINTER),
                     baseinfo.flags.contains(StgInfoFlags::TYPEFLAG_HASUNION),
                     baseinfo.flags.contains(StgInfoFlags::TYPEFLAG_HASBITFIELD),
@@ -252,7 +252,7 @@ impl PyCStructType {
 
             // Calculate effective alignment (PyCField_FromDesc)
             let effective_align = if pack > 0 {
-                std::cmp::min(pack, field_align)
+                core::cmp::min(pack, field_align)
             } else {
                 field_align
             };
@@ -347,7 +347,7 @@ impl PyCStructType {
         }
 
         // Calculate total_align = max(max_align, forced_alignment)
-        let total_align = std::cmp::max(max_align, forced_alignment);
+        let total_align = core::cmp::max(max_align, forced_alignment);
 
         // Calculate aligned_size (PyCStructUnionType_update_stginfo)
         let aligned_size = if total_align > 0 {

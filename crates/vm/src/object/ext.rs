@@ -108,7 +108,7 @@ impl<T: PyPayload> AsRef<Py<T>> for PyExact<T> {
     }
 }
 
-impl<T: PyPayload> std::borrow::ToOwned for PyExact<T> {
+impl<T: PyPayload> alloc::borrow::ToOwned for PyExact<T> {
     type Owned = PyRefExact<T>;
 
     fn to_owned(&self) -> Self::Owned {

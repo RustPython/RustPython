@@ -281,7 +281,7 @@ impl<T: Clone> Dict<T> {
                         continue;
                     };
                     if entry.index == index_index {
-                        let removed = std::mem::replace(&mut entry.value, value);
+                        let removed = core::mem::replace(&mut entry.value, value);
                         // defer dec RC
                         break Some(removed);
                     } else {
@@ -357,7 +357,7 @@ impl<T: Clone> Dict<T> {
             inner.used = 0;
             inner.filled = 0;
             // defer dec rc
-            std::mem::take(&mut inner.entries)
+            core::mem::take(&mut inner.entries)
         };
     }
 
@@ -633,7 +633,7 @@ impl<T: Clone> Dict<T> {
 
     // returns Err(()) if changed since lookup
     fn pop_inner(&self, lookup: LookupResult) -> PopInnerResult<T> {
-        self.pop_inner_if(lookup, |_| Ok::<_, std::convert::Infallible>(true))
+        self.pop_inner_if(lookup, |_| Ok::<_, core::convert::Infallible>(true))
             .unwrap_or_else(|x| match x {})
     }
 

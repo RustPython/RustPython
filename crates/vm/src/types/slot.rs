@@ -19,7 +19,7 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
-use std::{any::Any, any::TypeId, borrow::Borrow, cmp::Ordering, ops::Deref};
+use core::{any::Any, any::TypeId, borrow::Borrow, cmp::Ordering, ops::Deref};
 
 /// Type-erased storage for extension module data attached to heap types.
 pub struct TypeDataSlot {
@@ -71,7 +71,7 @@ impl<'a, T: Any + 'static> TypeDataRef<'a, T> {
     }
 }
 
-impl<T: Any + 'static> std::ops::Deref for TypeDataRef<'_, T> {
+impl<T: Any + 'static> core::ops::Deref for TypeDataRef<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -96,7 +96,7 @@ impl<'a, T: Any + 'static> TypeDataRefMut<'a, T> {
     }
 }
 
-impl<T: Any + 'static> std::ops::Deref for TypeDataRefMut<'_, T> {
+impl<T: Any + 'static> core::ops::Deref for TypeDataRefMut<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -104,7 +104,7 @@ impl<T: Any + 'static> std::ops::Deref for TypeDataRefMut<'_, T> {
     }
 }
 
-impl<T: Any + 'static> std::ops::DerefMut for TypeDataRefMut<'_, T> {
+impl<T: Any + 'static> core::ops::DerefMut for TypeDataRefMut<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.guard
     }

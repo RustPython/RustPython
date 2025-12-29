@@ -14,7 +14,7 @@ use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods};
 use crate::types::{AsBuffer, AsNumber, Constructor, Initializer, Representable};
 use crate::{AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
 use num_traits::ToPrimitive;
-use std::borrow::Cow;
+use alloc::borrow::Cow;
 use core::fmt::Debug;
 
 /// Valid type codes for ctypes simple types
@@ -27,22 +27,22 @@ pub(super) const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfuzZqQPXOv?g";
 fn ctypes_code_to_pep3118(code: char) -> char {
     match code {
         // c_int: map based on sizeof(int)
-        'i' if std::mem::size_of::<std::ffi::c_int>() == 2 => 'h',
-        'i' if std::mem::size_of::<std::ffi::c_int>() == 4 => 'i',
-        'i' if std::mem::size_of::<std::ffi::c_int>() == 8 => 'q',
-        'I' if std::mem::size_of::<std::ffi::c_int>() == 2 => 'H',
-        'I' if std::mem::size_of::<std::ffi::c_int>() == 4 => 'I',
-        'I' if std::mem::size_of::<std::ffi::c_int>() == 8 => 'Q',
+        'i' if core::mem::size_of::<core::ffi::c_int>() == 2 => 'h',
+        'i' if core::mem::size_of::<core::ffi::c_int>() == 4 => 'i',
+        'i' if core::mem::size_of::<core::ffi::c_int>() == 8 => 'q',
+        'I' if core::mem::size_of::<core::ffi::c_int>() == 2 => 'H',
+        'I' if core::mem::size_of::<core::ffi::c_int>() == 4 => 'I',
+        'I' if core::mem::size_of::<core::ffi::c_int>() == 8 => 'Q',
         // c_long: map based on sizeof(long)
-        'l' if std::mem::size_of::<std::ffi::c_long>() == 4 => 'l',
-        'l' if std::mem::size_of::<std::ffi::c_long>() == 8 => 'q',
-        'L' if std::mem::size_of::<std::ffi::c_long>() == 4 => 'L',
-        'L' if std::mem::size_of::<std::ffi::c_long>() == 8 => 'Q',
+        'l' if core::mem::size_of::<core::ffi::c_long>() == 4 => 'l',
+        'l' if core::mem::size_of::<core::ffi::c_long>() == 8 => 'q',
+        'L' if core::mem::size_of::<core::ffi::c_long>() == 4 => 'L',
+        'L' if core::mem::size_of::<core::ffi::c_long>() == 8 => 'Q',
         // c_bool: map based on sizeof(bool) - typically 1 byte on all platforms
-        '?' if std::mem::size_of::<bool>() == 1 => '?',
-        '?' if std::mem::size_of::<bool>() == 2 => 'H',
-        '?' if std::mem::size_of::<bool>() == 4 => 'L',
-        '?' if std::mem::size_of::<bool>() == 8 => 'Q',
+        '?' if core::mem::size_of::<bool>() == 1 => '?',
+        '?' if core::mem::size_of::<bool>() == 2 => 'H',
+        '?' if core::mem::size_of::<bool>() == 4 => 'L',
+        '?' if core::mem::size_of::<bool>() == 8 => 'Q',
         // Default: use the same code
         _ => code,
     }
@@ -268,7 +268,7 @@ impl PyCSimpleType {
         let create_simple_with_value = |type_str: &str, val: &PyObject| -> PyResult {
             let simple = new_simple_type(Either::B(&cls), vm)?;
             let buffer_bytes = value_to_bytes_endian(type_str, val, false, vm);
-            *simple.0.buffer.write() = std::borrow::Cow::Owned(buffer_bytes.clone());
+            *simple.0.buffer.write() = alloc::borrow::Cow::Owned(buffer_bytes.clone());
             let simple_obj: PyObjectRef = simple.into_ref_with_type(vm, cls.clone())?.into();
             // from_param returns CArgObject, not the simple type itself
             let tag = type_str.as_bytes().first().copied().unwrap_or(b'?');
@@ -418,9 +418,9 @@ impl PyCSimpleType {
                 if let Some(funcptr) = value.downcast_ref::<PyCFuncPtr>() {
                     let ptr_val = {
                         let buffer = funcptr._base.buffer.read();
-                        if buffer.len() >= std::mem::size_of::<usize>() {
+                        if buffer.len() >= core::mem::size_of::<usize>() {
                             usize::from_ne_bytes(
-                                buffer[..std::mem::size_of::<usize>()].try_into().unwrap(),
+                                buffer[..core::mem::size_of::<usize>()].try_into().unwrap(),
                             )
                         } else {
                             0
@@ -441,9 +441,9 @@ impl PyCSimpleType {
                     if matches!(value_type_code.as_deref(), Some("z") | Some("Z")) {
                         let ptr_val = {
                             let buffer = simple.0.buffer.read();
-                            if buffer.len() >= std::mem::size_of::<usize>() {
+                            if buffer.len() >= core::mem::size_of::<usize>() {
                                 usize::from_ne_bytes(
-                                    buffer[..std::mem::size_of::<usize>()].try_into().unwrap(),
+                                    buffer[..core::mem::size_of::<usize>()].try_into().unwrap(),
                                 )
                             } else {
                                 0
@@ -833,7 +833,7 @@ fn value_to_bytes_endian(
                 let v = int_val.as_bigint().to_i128().expect("int too large") as libc::c_long;
                 return to_bytes!(v);
             }
-            const SIZE: usize = std::mem::size_of::<libc::c_long>();
+            const SIZE: usize = core::mem::size_of::<libc::c_long>();
             vec![0; SIZE]
         }
         "L" => {
@@ -842,7 +842,7 @@ fn value_to_bytes_endian(
                 let v = int_val.as_bigint().to_i128().expect("int too large") as libc::c_ulong;
                 return to_bytes!(v);
             }
-            const SIZE: usize = std::mem::size_of::<libc::c_ulong>();
+            const SIZE: usize = core::mem::size_of::<libc::c_ulong>();
             vec![0; SIZE]
         }
         "q" => {
@@ -938,7 +938,7 @@ fn value_to_bytes_endian(
                     .expect("int too large for pointer");
                 return to_bytes!(v);
             }
-            vec![0; std::mem::size_of::<usize>()]
+            vec![0; core::mem::size_of::<usize>()]
         }
         "z" => {
             // c_char_p - pointer to char (stores pointer value from int)
@@ -950,7 +950,7 @@ fn value_to_bytes_endian(
                     .expect("int too large for pointer");
                 return to_bytes!(v);
             }
-            vec![0; std::mem::size_of::<usize>()]
+            vec![0; core::mem::size_of::<usize>()]
         }
         "Z" => {
             // c_wchar_p - pointer to wchar_t (stores pointer value from int)
@@ -962,7 +962,7 @@ fn value_to_bytes_endian(
                     .expect("int too large for pointer");
                 return to_bytes!(v);
             }
-            vec![0; std::mem::size_of::<usize>()]
+            vec![0; core::mem::size_of::<usize>()]
         }
         "O" => {
             // py_object - store object id as non-zero marker
@@ -1151,7 +1151,7 @@ impl PyCSimple {
             }
             // Read null-terminated string at the address
             unsafe {
-                let cstr = std::ffi::CStr::from_ptr(ptr as _);
+                let cstr = core::ffi::CStr::from_ptr(ptr as _);
                 return Ok(vm.ctx.new_bytes(cstr.to_bytes().to_vec()).into());
             }
         }
@@ -1168,7 +1168,7 @@ impl PyCSimple {
             unsafe {
                 let w_ptr = ptr as *const libc::wchar_t;
                 let len = libc::wcslen(w_ptr);
-                let wchars = std::slice::from_raw_parts(w_ptr, len);
+                let wchars = core::slice::from_raw_parts(w_ptr, len);
                 #[cfg(windows)]
                 {
                     use rustpython_common::wtf8::Wtf8Buf;
@@ -1206,13 +1206,13 @@ impl PyCSimple {
 
         // Read value from buffer, swap bytes if needed
         let buffer = zelf.0.buffer.read();
-        let buffer_data: std::borrow::Cow<'_, [u8]> = if swapped {
+        let buffer_data: alloc::borrow::Cow<'_, [u8]> = if swapped {
             // Reverse bytes for swapped endian types
             let mut swapped_bytes = buffer.to_vec();
             swapped_bytes.reverse();
-            std::borrow::Cow::Owned(swapped_bytes)
+            alloc::borrow::Cow::Owned(swapped_bytes)
         } else {
-            std::borrow::Cow::Borrowed(&*buffer)
+            alloc::borrow::Cow::Borrowed(&*buffer)
         };
 
         let cls_ref = cls.to_owned();
@@ -1254,7 +1254,7 @@ impl PyCSimple {
         if type_code == "z" {
             if let Some(bytes) = value.downcast_ref::<PyBytes>() {
                 let (converted, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
-                *zelf.0.buffer.write() = std::borrow::Cow::Owned(ptr.to_ne_bytes().to_vec());
+                *zelf.0.buffer.write() = alloc::borrow::Cow::Owned(ptr.to_ne_bytes().to_vec());
                 *zelf.0.objects.write() = Some(converted);
                 return Ok(());
             }
@@ -1262,7 +1262,7 @@ impl PyCSimple {
             && let Some(s) = value.downcast_ref::<PyStr>()
         {
             let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_str(), vm);
-            *zelf.0.buffer.write() = std::borrow::Cow::Owned(ptr.to_ne_bytes().to_vec());
+            *zelf.0.buffer.write() = alloc::borrow::Cow::Owned(ptr.to_ne_bytes().to_vec());
             *zelf.0.objects.write() = Some(holder);
             return Ok(());
         }
@@ -1278,7 +1278,7 @@ impl PyCSimple {
 
         // Update buffer when value changes
         let buffer_bytes = value_to_bytes_endian(&type_code, &content, swapped, vm);
-        *zelf.0.buffer.write() = std::borrow::Cow::Owned(buffer_bytes);
+        *zelf.0.buffer.write() = alloc::borrow::Cow::Owned(buffer_bytes);
 
         // For c_char_p (type "z"), c_wchar_p (type "Z"), and py_object (type "O"),
         // keep the reference in _objects
@@ -1336,65 +1336,65 @@ impl PyCSimple {
         let buffer = self.0.buffer.read();
         let bytes: &[u8] = &buffer;
 
-        if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u8().as_raw_ptr()) {
+        if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u8().as_raw_ptr()) {
             if !bytes.is_empty() {
                 return Some(FfiArgValue::U8(bytes[0]));
             }
-        } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i8().as_raw_ptr()) {
+        } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i8().as_raw_ptr()) {
             if !bytes.is_empty() {
                 return Some(FfiArgValue::I8(bytes[0] as i8));
             }
-        } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u16().as_raw_ptr()) {
+        } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u16().as_raw_ptr()) {
             if bytes.len() >= 2 {
                 return Some(FfiArgValue::U16(u16::from_ne_bytes([bytes[0], bytes[1]])));
             }
-        } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i16().as_raw_ptr()) {
+        } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i16().as_raw_ptr()) {
             if bytes.len() >= 2 {
                 return Some(FfiArgValue::I16(i16::from_ne_bytes([bytes[0], bytes[1]])));
             }
-        } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u32().as_raw_ptr()) {
+        } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u32().as_raw_ptr()) {
             if bytes.len() >= 4 {
                 return Some(FfiArgValue::U32(u32::from_ne_bytes([
                     bytes[0], bytes[1], bytes[2], bytes[3],
                 ])));
             }
-        } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i32().as_raw_ptr()) {
+        } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i32().as_raw_ptr()) {
             if bytes.len() >= 4 {
                 return Some(FfiArgValue::I32(i32::from_ne_bytes([
                     bytes[0], bytes[1], bytes[2], bytes[3],
                 ])));
             }
-        } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u64().as_raw_ptr()) {
+        } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u64().as_raw_ptr()) {
             if bytes.len() >= 8 {
                 return Some(FfiArgValue::U64(u64::from_ne_bytes([
                     bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
                 ])));
             }
-        } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i64().as_raw_ptr()) {
+        } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i64().as_raw_ptr()) {
             if bytes.len() >= 8 {
                 return Some(FfiArgValue::I64(i64::from_ne_bytes([
                     bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
                 ])));
             }
-        } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::f32().as_raw_ptr()) {
+        } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::f32().as_raw_ptr()) {
             if bytes.len() >= 4 {
                 return Some(FfiArgValue::F32(f32::from_ne_bytes([
                     bytes[0], bytes[1], bytes[2], bytes[3],
                 ])));
             }
-        } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::f64().as_raw_ptr()) {
+        } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::f64().as_raw_ptr()) {
             if bytes.len() >= 8 {
                 return Some(FfiArgValue::F64(f64::from_ne_bytes([
                     bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
                 ])));
             }
-        } else if std::ptr::eq(
+        } else if core::ptr::eq(
             ty.as_raw_ptr(),
             libffi::middle::Type::pointer().as_raw_ptr(),
-        ) && bytes.len() >= std::mem::size_of::<usize>()
+        ) && bytes.len() >= core::mem::size_of::<usize>()
         {
             let val =
-                usize::from_ne_bytes(bytes[..std::mem::size_of::<usize>()].try_into().unwrap());
+                usize::from_ne_bytes(bytes[..core::mem::size_of::<usize>()].try_into().unwrap());
             return Some(FfiArgValue::Pointer(val));
         }
         None
