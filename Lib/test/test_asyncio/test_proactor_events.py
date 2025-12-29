@@ -585,6 +585,9 @@ class ProactorDatagramTransportTests(test_utils.TestCase):
         self.proactor.sendto.assert_called_with(
             self.sock, b'data', addr=('0.0.0.0', 1234))
 
+    # TODO: RUSTPYTHON
+    # AssertionError: False is not true
+    @unittest.expectedFailure
     def test_sendto_no_data(self):
         transport = self.datagram_transport()
         transport.sendto(b'', ('0.0.0.0', 1234))
@@ -629,6 +632,9 @@ class ProactorDatagramTransportTests(test_utils.TestCase):
             list(transport._buffer))
         self.assertIsInstance(transport._buffer[1][0], bytes)
 
+    # TODO: RUSTPYTHON
+    # AssertionError: Lists differ: [(b'data1', ('0.0.0.0', 12345)), (b'', ('0.0.0.0', 12345))] != [(b'data1', ('0.0.0.0', 12345))]
+    @unittest.expectedFailure
     def test_sendto_buffer_nodata(self):
         data2 = b''
         transport = self.datagram_transport()

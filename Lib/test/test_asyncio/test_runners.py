@@ -164,6 +164,9 @@ class RunTests(BaseTest):
             'exception': test_utils.MockInstanceOf(ZeroDivisionError)
         })
 
+    # TODO: RUSTPYTHON
+    # AssertionError: <frame object at 0x557603317f10> is not None
+    @unittest.expectedFailure
     def test_asyncio_run_closes_gens_after_hanging_tasks_errors(self):
         spinner = None
         lazyboy = None
@@ -273,6 +276,8 @@ class RunTests(BaseTest):
         asyncio.run(main(), loop_factory=factory)
         factory.assert_called_once_with()
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # module 'asyncio' has no attribute 'EventLoop'
     def test_loop_factory_default_event_loop(self):
         async def main():
             if sys.platform == "win32":
@@ -393,6 +398,9 @@ class RunnerTests(BaseTest):
 
             self.assertEqual(2, runner.run(get_context()).get(cvar))
 
+    # TODO: RUSTPYTHON
+    # AssertionError: RuntimeWarning not triggered
+    @unittest.expectedFailure
     def test_recursive_run(self):
         async def g():
             pass

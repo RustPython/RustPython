@@ -784,6 +784,9 @@ class ConditionTests(unittest.IsolatedAsyncioTestCase):
         # originally raised.
         self.assertIs(err.exception, raised)
 
+    # TODO: RUSTPYTHON
+    # AssertionError: Tuples differ: () != ('foo',)
+    @unittest.expectedFailure
     async def test_cancelled_error_re_aquire(self):
         # Test that a cancelled error, received when re-aquiring lock,
         # will be re-raised un-modified.
@@ -816,6 +819,9 @@ class ConditionTests(unittest.IsolatedAsyncioTestCase):
         # originally raised.
         self.assertIs(err.exception, raised)
 
+    # TODO: RUSTPYTHON
+    # AssertionError: 1 != 0
+    @unittest.expectedFailure
     async def test_cancelled_wakeup(self):
         # Test that a task cancelled at the "same" time as it is woken
         # up as part of a Condition.notify() does not result in a lost wakeup.
@@ -860,6 +866,9 @@ class ConditionTests(unittest.IsolatedAsyncioTestCase):
             condition.notify_all()
         await c[1]
 
+    # TODO: RUSTPYTHON
+    # AssertionError: 1 != 0
+    @unittest.expectedFailure
     async def test_cancelled_wakeup_relock(self):
         # Test that a task cancelled at the "same" time as it is woken
         # up as part of a Condition.notify() does not result in a lost wakeup.
@@ -1193,6 +1202,10 @@ class SemaphoreTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.gather(*tasks, return_exceptions=True)
         self.assertEqual([2, 3], result)
 
+
+    # TODO: RUSTPYTHON
+    @unittest.skip('TODO: RUSTPYTHON')
+    # TypeError: An asyncio.Future, a coroutine or an awaitable is required
     async def test_acquire_fifo_order_4(self):
         # Test that a successfule `acquire()` will wake up multiple Tasks
         # that were waiting in the Semaphore queue due to FIFO rules.

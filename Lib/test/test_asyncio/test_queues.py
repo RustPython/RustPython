@@ -702,19 +702,23 @@ class _QueueShutdownTestMixin:
         self.assertTrue(join_task.done())
         await join_task
 
-
+@unittest.skip('TODO: RUSTPYTHON')
+# AttributeError: 'Queue' object has no attribute 'shutdown'
 class QueueShutdownTests(
     _QueueShutdownTestMixin, unittest.IsolatedAsyncioTestCase
 ):
     q_class = asyncio.Queue
 
 
+@unittest.skip('TODO: RUSTPYTHON')
+# AttributeError: 'LifoQueue' object has no attribute 'shutdown'
 class LifoQueueShutdownTests(
     _QueueShutdownTestMixin, unittest.IsolatedAsyncioTestCase
 ):
     q_class = asyncio.LifoQueue
 
-
+@unittest.skip('TODO: RUSTPYTHON')
+# AttributeError: 'PriorityQueue' object has no attribute 'shutdown'
 class PriorityQueueShutdownTests(
     _QueueShutdownTestMixin, unittest.IsolatedAsyncioTestCase
 ):

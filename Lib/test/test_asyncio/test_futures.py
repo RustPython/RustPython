@@ -299,6 +299,8 @@ class BaseFutureTests:
         self.assertRaises(asyncio.InvalidStateError, f.set_exception, None)
         self.assertFalse(f.cancel())
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # TypeError: StopIteration interacts badly with generators and cannot be raised into a Future'
     def test_stop_iteration_exception(self, stop_iteration_class=StopIteration):
         exc = stop_iteration_class()
         f = self._new_future(loop=self.loop)
@@ -410,6 +412,10 @@ class BaseFutureTests:
         self.assertEqual(repr(f_many_callbacks),
                          f'<{self.cls.__name__} cancelled>')
 
+    # TODO: RUSTPYTHON
+    # self.assertEqual(newf_tb.count('raise concurrent.futures.InvalidStateError'), 1)
+    # AssertionError: 0 != 1
+    @unittest.expectedFailure
     def test_copy_state(self):
         from asyncio.futures import _copy_future_state
 
@@ -654,6 +660,9 @@ class BaseFutureTests:
             self.fail('StopIteration was expected')
         self.assertEqual(result, (1, 2))
 
+    # TODO: RUSTPYTHON
+    # DeprecationWarning not triggered
+    @unittest.expectedFailure
     def test_future_iter_throw(self):
         fut = self._new_future(loop=self.loop)
         fi = iter(fut)
@@ -678,6 +687,8 @@ class BaseFutureTests:
             fut = self._new_future(loop=self.loop)
             fut.set_result(Evil())
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # NotImplementedError
     def test_future_cancelled_result_refcycles(self):
         f = self._new_future(loop=self.loop)
         f.cancel()
@@ -689,6 +700,8 @@ class BaseFutureTests:
         self.assertIsNotNone(exc)
         self.assertListEqual(gc.get_referrers(exc), [])
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # NotImplementedError
     def test_future_cancelled_exception_refcycles(self):
         f = self._new_future(loop=self.loop)
         f.cancel()

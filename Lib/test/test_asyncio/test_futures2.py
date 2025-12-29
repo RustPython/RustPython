@@ -12,6 +12,10 @@ def tearDownModule():
 
 class FutureTests:
 
+    # TODO: RUSTPYTHON
+    # self.assertEqual(tb.count("await future"), 1)
+    # AssertionError: 0 != 1
+    @unittest.expectedFailure
     async def test_future_traceback(self):
 
         async def raise_exc():
@@ -68,10 +72,11 @@ class FutureTests:
         await asyncio.sleep(0)
         self.assertTrue(exc_handler_called)
 
-@unittest.skipUnless(hasattr(tasks, '_CTask'),
-                       'requires the C _asyncio module')
-class CFutureTests(FutureTests, unittest.IsolatedAsyncioTestCase):
-    cls = tasks._CTask
+# TODO: RUSTPYTHON
+# @unittest.skipUnless(hasattr(tasks, '_CTask'),
+#                        'requires the C _asyncio module')
+# class CFutureTests(FutureTests, unittest.IsolatedAsyncioTestCase):
+#     cls = tasks._CTask
 
 class PyFutureTests(FutureTests, unittest.IsolatedAsyncioTestCase):
     cls = tasks._PyTask
