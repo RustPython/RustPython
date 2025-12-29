@@ -13,6 +13,7 @@ use crate::{
     types::{AsBuffer, AsNumber, AsSequence, Constructor, Initializer},
 };
 use num_traits::{Signed, ToPrimitive};
+use std::borrow::Cow;
 
 /// Get itemsize from a PEP 3118 format string
 /// Extracts the type code (last char after endianness prefix) and returns its size
@@ -430,6 +431,18 @@ impl Constructor for PyCArray {
     }
 }
 
+impl Initializer for PyCArray {
+    type Args = FuncArgs;
+
+    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        // Re-initialize array elements when __init__ is called
+        for (i, value) in args.args.iter().enumerate() {
+            PyCArray::setitem_by_index(&zelf, i as isize, value.clone(), vm)?;
+        }
+        Ok(())
+    }
+}
+
 impl AsSequence for PyCArray {
     fn as_sequence() -> &'static PySequenceMethods {
         use std::sync::LazyLock;
@@ -457,7 +470,7 @@ impl AsSequence for PyCArray {
 
 #[pyclass(
     flags(BASETYPE, IMMUTABLETYPE),
-    with(Constructor, AsSequence, AsBuffer)
+    with(Constructor, Initializer, AsSequence, AsBuffer)
 )]
 impl PyCArray {
     #[pyclassmethod]
@@ -868,16 +881,38 @@ impl PyCArray {
         };
 
         let mut buffer = buffer_lock.write();
-        Self::write_element_to_buffer(
-            buffer.to_mut(),
-            final_offset,
-            element_size,
-            type_code.as_deref(),
-            &value,
-            zelf,
-            index,
-            vm,
-        )
+
+        // For shared memory (Cow::Borrowed), we need to write directly to the memory
+        // For owned memory (Cow::Owned), we can write to the owned buffer
+        match &mut *buffer {
+            Cow::Borrowed(slice) => {
+                // SAFETY: For from_buffer, the slice points to writable shared memory.
+                // Python's from_buffer requires writable buffer, so this is safe.
+                let ptr = slice.as_ptr() as *mut u8;
+                let len = slice.len();
+                let owned_slice = unsafe { std::slice::from_raw_parts_mut(ptr, len) };
+                Self::write_element_to_buffer(
+                    owned_slice,
+                    final_offset,
+                    element_size,
+                    type_code.as_deref(),
+                    &value,
+                    zelf,
+                    index,
+                    vm,
+                )
+            }
+            Cow::Owned(vec) => Self::write_element_to_buffer(
+                vec,
+                final_offset,
+                element_size,
+                type_code.as_deref(),
+                &value,
+                zelf,
+                index,
+                vm,
+            ),
+        }
     }
 
     // Array_subscript
