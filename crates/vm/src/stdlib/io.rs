@@ -4489,6 +4489,16 @@ mod _io {
             bool::try_from_object(vm, atty)?
         };
 
+        // Warn if line buffering is requested in binary mode
+        if opts.buffering == 1 && matches!(mode.encode, EncodeMode::Bytes) {
+            crate::stdlib::warnings::warn(
+                vm.ctx.exceptions.runtime_warning,
+                "line buffering (buffering=1) isn't supported in binary mode, the default buffer size will be used".to_owned(),
+                1,
+                vm,
+            )?;
+        }
+
         let line_buffering = opts.buffering == 1 || isatty;
 
         let buffering = if opts.buffering < 0 || opts.buffering == 1 {
