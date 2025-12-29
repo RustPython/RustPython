@@ -273,6 +273,7 @@ impl PyCUnionType {
 
         // Store StgInfo with aligned size
         let mut stg_info = StgInfo::new(aligned_size, total_align);
+        stg_info.length = fields.len();
         stg_info.flags |= StgInfoFlags::DICTFLAG_FINAL | StgInfoFlags::TYPEFLAG_HASUNION;
         // PEP 3118 doesn't support union. Use 'B' for bytes.
         stg_info.format = Some("B".to_string());
@@ -431,9 +432,9 @@ impl Constructor for PyCUnion {
 
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // Check for abstract class and extract values in a block to drop the borrow
-        let (total_size, total_align) = {
+        let (total_size, total_align, length) = {
             let stg_info = cls.stg_info(vm)?;
-            (stg_info.size, stg_info.align)
+            (stg_info.size, stg_info.align, stg_info.length)
         };
 
         // Mark the class as finalized (instance creation finalizes the type)
@@ -442,7 +443,8 @@ impl Constructor for PyCUnion {
         }
 
         // Initialize buffer with zeros using computed size
-        let new_stg_info = StgInfo::new(total_size, total_align);
+        let mut new_stg_info = StgInfo::new(total_size, total_align);
+        new_stg_info.length = length;
         PyCUnion(PyCData::from_stg_info(&new_stg_info))
             .into_ref_with_type(vm, cls)
             .map(Into::into)
