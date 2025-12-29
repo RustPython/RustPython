@@ -75,7 +75,7 @@ mod array {
 
     macro_rules! def_array_enum {
         ($(($n:ident, $t:ty, $c:literal, $scode:literal)),*$(,)?) => {
-            #[derive(Copy, Clone, Debug)]
+            #[derive(Copy, Clone, Debug, Eq, PartialEq)]
             enum ArrayType {
                 $($n,)*
             }
@@ -159,12 +159,23 @@ mod array {
                     Ok(())
                 }
 
-                fn push_value(&mut self, kind: ArrayType, value: ArrayElementValue) {
-                    match (kind, self, value) {
+                // `expected_kind` is captured before acquiring the write lock to ensure the array
+                // type didn't unexpectedly change between conversion and mutation.
+                fn push_value(&mut self, expected_kind: ArrayType, value: ArrayElementValue) {
+                    assert_eq!(self.kind(), expected_kind);
+                    match (expected_kind, self, value) {
                         $((ArrayType::$n, ArrayContentType::$n(v), ArrayElementValue::$n(val)) => {
                             v.push(val);
                         },)*
-                        _ => unreachable!(),
+                        (_, array, value) => {
+                            let actual = array.kind();
+                            panic!(
+                                "array element value type {:?} does not match array type {:?} (expected {:?})",
+                                value,
+                                actual,
+                                expected_kind
+                            );
+                        }
                     }
                 }
 
@@ -775,10 +786,7 @@ mod array {
 
         #[pymethod]
         fn append(zelf: &Py<Self>, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let kind = {
-                let array = zelf.read();
-                array.kind()
-            };
+            let kind = zelf.read().kind();
             let value = kind.convert(x, vm)?;
             let mut w = zelf.try_resizable(vm)?;
             w.push_value(kind, value);

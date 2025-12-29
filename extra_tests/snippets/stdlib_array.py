@@ -145,6 +145,7 @@ arr.tofile(_ReenteringWriter(arr))
 assert len(arr) == 129
 
 
+# Regression: `fromfile` should not deadlock when __index__ re-enters append.
 class _ReenteringIndex:
     def __init__(self, arr):
         self.arr = arr
