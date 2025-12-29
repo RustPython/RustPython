@@ -404,7 +404,9 @@ mod winreg {
     #[pyfunction]
     fn DeleteValue(key: PyRef<PyHkey>, value: Option<String>, vm: &VirtualMachine) -> PyResult<()> {
         let wide_value = value.map(|v| v.to_wide_with_nul());
-        let value_ptr = wide_value.as_ref().map_or(core::ptr::null(), |v| v.as_ptr());
+        let value_ptr = wide_value
+            .as_ref()
+            .map_or(core::ptr::null(), |v| v.as_ptr());
         let res = unsafe { Registry::RegDeleteValueW(key.hkey.load(), value_ptr) };
         if res == 0 {
             Ok(())

@@ -29,10 +29,10 @@ use crate::{
         Representable, SLOT_DEFS, SetAttr, TypeDataRef, TypeDataRefMut, TypeDataSlot,
     },
 };
+use core::{any::Any, borrow::Borrow, ops::Deref, pin::Pin, ptr::NonNull};
 use indexmap::{IndexMap, map::Entry};
 use itertools::Itertools;
 use num_traits::ToPrimitive;
-use core::{any::Any, borrow::Borrow, ops::Deref, pin::Pin, ptr::NonNull};
 use std::collections::HashSet;
 
 #[pyclass(module = false, name = "type", traverse = "manual")]

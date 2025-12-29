@@ -1,16 +1,16 @@
 //! Implementation of Printf-Style string formatting
 //! as per the [Python Docs](https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting).
-use bitflags::bitflags;
-use itertools::Itertools;
-use malachite_bigint::{BigInt, Sign};
-use num_traits::Signed;
-use rustpython_literal::{float, format::Case};
 use alloc::fmt;
+use bitflags::bitflags;
 use core::{
     cmp,
     iter::{Enumerate, Peekable},
     str::FromStr,
 };
+use itertools::Itertools;
+use malachite_bigint::{BigInt, Sign};
+use num_traits::Signed;
+use rustpython_literal::{float, format::Case};
 
 use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 

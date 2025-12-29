@@ -4,8 +4,8 @@ use crate::format::CharLen;
 use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 use ascii::{AsciiChar, AsciiStr, AsciiString};
 use core::fmt;
-use core::sync::atomic::Ordering::Relaxed;
 use core::ops::{Bound, RangeBounds};
+use core::sync::atomic::Ordering::Relaxed;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(non_camel_case_types)]

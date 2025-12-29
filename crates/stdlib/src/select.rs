@@ -4,8 +4,8 @@ use crate::vm::{
     PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine, builtins::PyListRef,
     builtins::PyModule,
 };
-use std::io;
 use core::mem;
+use std::io;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     #[cfg(windows)]
@@ -159,7 +159,7 @@ impl FdSet {
     pub fn new() -> Self {
         // it's just ints, and all the code that's actually
         // interacting with it is in C, so it's safe to zero
-        let mut fdset = core ::mem::MaybeUninit::zeroed();
+        let mut fdset = core::mem::MaybeUninit::zeroed();
         unsafe { platform::FD_ZERO(fdset.as_mut_ptr()) };
         Self(fdset)
     }
@@ -337,15 +337,10 @@ mod decl {
             function::OptionalArg,
             stdlib::io::Fildes,
         };
+        use core::{convert::TryFrom, time::Duration};
         use libc::pollfd;
         use num_traits::{Signed, ToPrimitive};
-        use std::{
-            time::Instant,
-        };
-        use core::{
-            convert::TryFrom,
-            time::Duration
-        };
+        use std::time::Instant;
 
         #[derive(Default)]
         pub(super) struct TimeoutArg<const MILLIS: bool>(pub Option<Duration>);
@@ -558,8 +553,8 @@ mod decl {
             stdlib::io::Fildes,
             types::Constructor,
         };
-        use rustix::event::epoll::{self, EventData, EventFlags};
         use core::ops::Deref;
+        use rustix::event::epoll::{self, EventData, EventFlags};
         use std::os::fd::{AsRawFd, IntoRawFd, OwnedFd};
         use std::time::Instant;
 

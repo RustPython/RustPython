@@ -5,11 +5,11 @@ use crate::util::{
     ErrorVec, ItemMeta, ItemNursery, ModuleItemMeta, SimpleItemMeta, format_doc, iter_use_idents,
     pyclass_ident_and_attrs, text_signature,
 };
+use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
 use quote::{ToTokens, quote, quote_spanned};
 use rustpython_doc::DB;
-use std::{collections::HashSet};
-use core::str::FromStr;
+use std::collections::HashSet;
 use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
 use syn_ext::ext::*;
 use syn_ext::types::PunctuatedNestedMeta;

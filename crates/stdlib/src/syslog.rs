@@ -11,8 +11,8 @@ mod syslog {
         function::{OptionalArg, OptionalOption},
         utils::ToCString,
     };
-    use std::os::raw::c_char;
     use core::ffi::CStr;
+    use std::os::raw::c_char;
 
     #[pyattr]
     use libc::{

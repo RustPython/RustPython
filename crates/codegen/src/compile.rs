@@ -16,6 +16,7 @@ use crate::{
     symboltable::{self, CompilerScope, SymbolFlags, SymbolScope, SymbolTable},
     unparse::UnparseExpr,
 };
+use alloc::borrow::Cow;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex;
@@ -42,7 +43,6 @@ use rustpython_compiler_core::{
     },
 };
 use rustpython_wtf8::Wtf8Buf;
-use alloc::borrow::Cow;
 use std::collections::HashSet;
 
 const MAXBLOCKS: usize = 20;

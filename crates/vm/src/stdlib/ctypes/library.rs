@@ -1,9 +1,9 @@
 use crate::VirtualMachine;
+use alloc::fmt;
 use libloading::Library;
 use rustpython_common::lock::{PyMutex, PyRwLock};
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use alloc::fmt;
 
 #[cfg(unix)]
 use libloading::os::unix::Library as UnixLibrary;

@@ -23,12 +23,12 @@ mod sys {
         version,
         vm::{Settings, VirtualMachine},
     };
+    use core::sync::atomic::Ordering;
     use num_traits::ToPrimitive;
     use std::{
         env::{self, VarError},
         io::Read,
     };
-    use core::sync::atomic::Ordering;
 
     #[cfg(windows)]
     use windows_sys::Win32::{

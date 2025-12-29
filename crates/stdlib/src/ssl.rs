@@ -52,15 +52,12 @@ mod _ssl {
     use super::error::{
         PySSLEOFError, PySSLError, create_ssl_want_read_error, create_ssl_want_write_error,
     };
-    use std::{
-        collections::HashMap,
-        time::SystemTime,
-    };
     use alloc::sync::Arc;
     use core::{
         sync::atomic::{AtomicUsize, Ordering},
-        time::Duration
+        time::Duration,
     };
+    use std::{collections::HashMap, time::SystemTime};
 
     // Rustls imports
     use parking_lot::{Mutex as ParkingMutex, RwLock as ParkingRwLock};
@@ -4177,8 +4174,8 @@ mod _ssl {
         #[pygetset]
         fn id(&self, vm: &VirtualMachine) -> PyBytesRef {
             // Return session ID (hash of session data for uniqueness)
-            use std::collections::hash_map::DefaultHasher;
             use core::hash::{Hash, Hasher};
+            use std::collections::hash_map::DefaultHasher;
 
             let mut hasher = DefaultHasher::new();
             self.session_data.hash(&mut hasher);
@@ -4588,8 +4585,8 @@ mod _ssl {
     // Implement Hashable trait for PySSLCertificate
     impl Hashable for PySSLCertificate {
         fn hash(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyHash> {
-            use std::collections::hash_map::DefaultHasher;
             use core::hash::{Hash, Hasher};
+            use std::collections::hash_map::DefaultHasher;
 
             let mut hasher = DefaultHasher::new();
             zelf.der_bytes.hash(&mut hasher);

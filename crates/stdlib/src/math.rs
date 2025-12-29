@@ -10,11 +10,11 @@ mod math {
         function::{ArgIndex, ArgIntoFloat, ArgIterable, Either, OptionalArg, PosArgs},
         identifier,
     };
+    use core::cmp::Ordering;
     use itertools::Itertools;
     use malachite_bigint::BigInt;
     use num_traits::{One, Signed, ToPrimitive, Zero};
     use rustpython_common::{float_ops, int::true_div};
-    use core::cmp::Ordering;
 
     // Constants
     #[pyattr]

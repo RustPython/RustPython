@@ -5,10 +5,10 @@
 use alloc::{fmt, slice};
 use core::{
     borrow::{Borrow, BorrowMut},
-    cmp, 
+    cmp,
     mem::{self, MaybeUninit},
     ops::{Bound, Deref, DerefMut, RangeBounds},
-    ptr, 
+    ptr,
 };
 
 pub struct BoxVec<T> {

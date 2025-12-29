@@ -23,8 +23,8 @@ use crate::{
     },
     vm::VirtualMachine,
 };
-use rustpython_common::lock::PyMutex;
 use alloc::fmt;
+use rustpython_common::lock::PyMutex;
 use std::sync::LazyLock;
 
 pub type DictContentType = dict_inner::Dict;

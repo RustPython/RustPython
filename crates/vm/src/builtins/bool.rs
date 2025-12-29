@@ -8,9 +8,9 @@ use crate::{
     protocol::PyNumberMethods,
     types::{AsNumber, Constructor, Representable},
 };
+use core::fmt::{Debug, Formatter};
 use malachite_bigint::Sign;
 use num_traits::Zero;
-use core::fmt::{Debug, Formatter};
 
 impl ToPyObject for bool {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {

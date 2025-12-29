@@ -12,9 +12,9 @@ mod _json {
         protocol::PyIterReturn,
         types::{Callable, Constructor},
     };
+    use core::str::FromStr;
     use malachite_bigint::BigInt;
     use rustpython_common::wtf8::Wtf8Buf;
-    use core::str::FromStr;
 
     #[pyattr(name = "make_scanner")]
     #[pyclass(name = "Scanner", traverse)]

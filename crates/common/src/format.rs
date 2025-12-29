@@ -1,4 +1,6 @@
 // spell-checker:ignore ddfe
+use core::ops::Deref;
+use core::{cmp, str::FromStr};
 use itertools::{Itertools, PeekingNext};
 use malachite_base::num::basic::floats::PrimitiveFloat;
 use malachite_bigint::{BigInt, Sign};
@@ -7,8 +9,6 @@ use num_traits::FromPrimitive;
 use num_traits::{Signed, cast::ToPrimitive};
 use rustpython_literal::float;
 use rustpython_literal::format::Case;
-use core::ops::Deref;
-use core::{cmp, str::FromStr};
 
 use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 

@@ -33,16 +33,15 @@ pub mod module {
         types::{Constructor, Representable},
         utils::ToCString,
     };
+    use alloc::ffi::CString;
     use bitflags::bitflags;
+    use core::ffi::CStr;
     use nix::{
         fcntl,
         unistd::{self, Gid, Pid, Uid},
     };
-    use alloc::ffi::CString;
-    use core::ffi::CStr;
     use std::{
-        env,
-        fs, io,
+        env, fs, io,
         os::fd::{AsFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd},
     };
     use strum_macros::{EnumIter, EnumString};

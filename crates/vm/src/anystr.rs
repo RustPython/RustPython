@@ -85,11 +85,7 @@ fn saturate_to_isize(py_int: PyIntRef) -> isize {
 }
 
 // help get optional string indices
-pub fn adjust_indices(
-    start: Option<PyIntRef>,
-    end: Option<PyIntRef>,
-    len: usize,
-) -> Range<usize> {
+pub fn adjust_indices(start: Option<PyIntRef>, end: Option<PyIntRef>, len: usize) -> Range<usize> {
     let mut start = start.map_or(0, saturate_to_isize);
     let mut end = end.map_or(len as isize, saturate_to_isize);
     if end > len as isize {

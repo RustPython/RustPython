@@ -29,8 +29,8 @@ use crate::{
     },
 };
 use bstr::ByteSlice;
-use std::sync::LazyLock;
 use core::{mem::size_of, ops::Deref};
+use std::sync::LazyLock;
 
 #[pyclass(module = false, name = "bytes")]
 #[derive(Clone, Debug)]

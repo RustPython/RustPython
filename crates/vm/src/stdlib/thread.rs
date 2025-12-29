@@ -11,14 +11,14 @@ pub(crate) mod _thread {
         function::{ArgCallable, Either, FuncArgs, KwArgs, OptionalArg, PySetterValue},
         types::{Constructor, GetAttr, Representable, SetAttr},
     };
+    use alloc::fmt;
+    use core::{cell::RefCell, time::Duration};
     use crossbeam_utils::atomic::AtomicCell;
     use parking_lot::{
         RawMutex, RawThreadId,
         lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
     };
     use std::thread;
-    use core::{cell::RefCell, time::Duration};
-    use alloc::fmt;
     use thread_local::ThreadLocal;
 
     // PYTHREAD_NAME: show current thread name

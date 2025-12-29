@@ -7,10 +7,10 @@ mod symtable {
         builtins::{PyDictRef, PyStrRef},
         compiler,
     };
+    use alloc::fmt;
     use rustpython_codegen::symboltable::{
         CompilerScope, Symbol, SymbolFlags, SymbolScope, SymbolTable,
     };
-    use alloc::fmt;
 
     // Consts as defined at
     // https://github.com/python/cpython/blob/6cb20a219a860eaf687b2d968b41c480c7461909/Include/internal/pycore_symtable.h#L156

@@ -18,14 +18,14 @@ use crate::{
     types::PyTypeFlags,
     vm::{Context, PyMethod},
 };
+use alloc::fmt;
+use core::iter::zip;
+#[cfg(feature = "threading")]
+use core::sync::atomic;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use rustpython_common::{boxvec::BoxVec, lock::PyMutex, wtf8::Wtf8Buf};
 use rustpython_compiler_core::SourceLocation;
-#[cfg(feature = "threading")]
-use core::sync::atomic;
-use core::iter::zip;
-use alloc::fmt;
 
 #[derive(Clone, Debug)]
 struct Block {

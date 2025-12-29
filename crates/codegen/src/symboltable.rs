@@ -11,6 +11,7 @@ use crate::{
     IndexMap,
     error::{CodegenError, CodegenErrorType},
 };
+use alloc::{borrow::Cow, fmt};
 use bitflags::bitflags;
 use ruff_python_ast::{
     self as ast, Comprehension, Decorator, Expr, Identifier, ModExpression, ModModule, Parameter,
@@ -20,7 +21,6 @@ use ruff_python_ast::{
 };
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_core::{PositionEncoding, SourceFile, SourceLocation};
-use alloc::{borrow::Cow, fmt};
 
 /// Captures all symbols in the current scope, and has a list of sub-scopes in this scope.
 #[derive(Clone)]
@@ -261,8 +261,8 @@ fn drop_class_free(symbol_table: &mut SymbolTable) {
 type SymbolMap = IndexMap<String, Symbol>;
 
 mod stack {
-    use std::panic;
     use core::ptr::NonNull;
+    use std::panic;
     pub struct StackStack<T> {
         v: Vec<NonNull<T>>,
     }

@@ -7,15 +7,15 @@ use crate::types::{GetDescriptor, Representable};
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
-use crossbeam_utils::atomic::AtomicCell;
-use num_traits::{Signed, ToPrimitive};
-use rustpython_common::lock::PyRwLock;
 use alloc::borrow::Cow;
 use core::ffi::{
     c_double, c_float, c_int, c_long, c_longlong, c_short, c_uint, c_ulong, c_ulonglong, c_ushort,
 };
 use core::fmt::Debug;
 use core::mem;
+use crossbeam_utils::atomic::AtomicCell;
+use num_traits::{Signed, ToPrimitive};
+use rustpython_common::lock::PyRwLock;
 use widestring::WideChar;
 
 // StgInfo - Storage information for ctypes types

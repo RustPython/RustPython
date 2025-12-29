@@ -7,8 +7,8 @@ use crate::{
     exceptions::types::PyBaseException,
     sliceable::SliceableSequenceOp,
 };
-use rustpython_common::str::levenshtein::{MOVE_COST, levenshtein_distance};
 use core::iter::ExactSizeIterator;
+use rustpython_common::str::levenshtein::{MOVE_COST, levenshtein_distance};
 
 const MAX_CANDIDATE_ITEMS: usize = 750;
 

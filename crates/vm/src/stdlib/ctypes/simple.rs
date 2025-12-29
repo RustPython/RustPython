@@ -13,9 +13,9 @@ use crate::function::{Either, FuncArgs, OptionalArg};
 use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods};
 use crate::types::{AsBuffer, AsNumber, Constructor, Initializer, Representable};
 use crate::{AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
-use num_traits::ToPrimitive;
 use alloc::borrow::Cow;
 use core::fmt::Debug;
+use num_traits::ToPrimitive;
 
 /// Valid type codes for ctypes simple types
 // spell-checker: disable-next-line

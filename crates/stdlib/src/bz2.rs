@@ -15,10 +15,10 @@ mod _bz2 {
         object::PyResult,
         types::Constructor,
     };
+    use alloc::fmt;
     use bzip2::{Decompress, Status, write::BzEncoder};
     use rustpython_vm::convert::ToPyException;
     use std::io::Write;
-    use alloc::fmt;
 
     const BUFSIZ: usize = 8192;
 

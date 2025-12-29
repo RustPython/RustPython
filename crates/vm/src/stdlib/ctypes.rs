@@ -602,7 +602,11 @@ pub(crate) mod _ctypes {
                     let msg = if err.is_null() {
                         "dlopen() error".to_string()
                     } else {
-                        unsafe { core::ffi::CStr::from_ptr(err).to_string_lossy().into_owned() }
+                        unsafe {
+                            core::ffi::CStr::from_ptr(err)
+                                .to_string_lossy()
+                                .into_owned()
+                        }
                     };
                     return Err(vm.new_os_error(msg));
                 }
@@ -652,7 +656,11 @@ pub(crate) mod _ctypes {
         // Check for error via dlerror first
         let err = unsafe { libc::dlerror() };
         if !err.is_null() {
-            let msg = unsafe { core::ffi::CStr::from_ptr(err).to_string_lossy().into_owned() };
+            let msg = unsafe {
+                core::ffi::CStr::from_ptr(err)
+                    .to_string_lossy()
+                    .into_owned()
+            };
             return Err(vm.new_os_error(msg));
         }
 

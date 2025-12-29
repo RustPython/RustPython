@@ -171,16 +171,10 @@ pub(super) mod _os {
         utils::ToCString,
         vm::VirtualMachine,
     };
+    use core::time::Duration;
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
-    use std::{
-        env, fs,
-        fs::OpenOptions,
-        io,
-        path::PathBuf,
-        time::SystemTime,
-    };
-    use core::time::Duration;
+    use std::{env, fs, fs::OpenOptions, io, path::PathBuf, time::SystemTime};
 
     const OPEN_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     pub(crate) const MKDIR_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));

@@ -4,11 +4,11 @@ use crate::util::{
     ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, format_doc, pyclass_ident_and_attrs,
     pyexception_ident_and_attrs, text_signature,
 };
+use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
 use quote::{ToTokens, quote, quote_spanned};
 use rustpython_doc::DB;
 use std::collections::{HashMap, HashSet};
-use core::str::FromStr;
 use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
 use syn_ext::ext::*;
 use syn_ext::types::*;

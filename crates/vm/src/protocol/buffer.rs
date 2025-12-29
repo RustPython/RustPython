@@ -10,9 +10,9 @@ use crate::{
     object::PyObjectPayload,
     sliceable::SequenceIndexOp,
 };
-use itertools::Itertools;
 use alloc::borrow::Cow;
 use core::{fmt::Debug, ops::Range};
+use itertools::Itertools;
 
 pub struct BufferMethods {
     pub obj_bytes: fn(&PyBuffer) -> BorrowedValue<'_, [u8]>,

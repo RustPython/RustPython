@@ -13,6 +13,7 @@ mod ssl_data;
 
 use crate::socket::{SelectKind, timeout_error_msg};
 use crate::vm::VirtualMachine;
+use alloc::sync::Arc;
 use parking_lot::RwLock as ParkingRwLock;
 use rustls::RootCertStore;
 use rustls::client::ClientConfig;
@@ -29,7 +30,6 @@ use rustpython_vm::function::ArgBytesLike;
 use rustpython_vm::{AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject};
 use std::io::Read;
 use std::sync::Once;
-use alloc::sync::Arc;
 
 // Import PySSLSocket from parent module
 use super::_ssl::PySSLSocket;

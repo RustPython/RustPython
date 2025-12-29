@@ -1,6 +1,5 @@
 #![allow(clippy::needless_lifetimes)]
 
-use lock_api::{GetThreadId, GuardNoSend, RawMutex};
 use alloc::fmt;
 use core::{
     cell::UnsafeCell,
@@ -9,6 +8,7 @@ use core::{
     ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering},
 };
+use lock_api::{GetThreadId, GuardNoSend, RawMutex};
 
 // based off ReentrantMutex from lock_api
 

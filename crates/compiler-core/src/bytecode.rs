@@ -5,13 +5,13 @@ use crate::{
     marshal::MarshalError,
     {OneIndexed, SourceLocation},
 };
+use alloc::{collections::BTreeSet, fmt};
 use bitflags::bitflags;
+use core::{hash, marker::PhantomData, mem, num::NonZeroU8, ops::Deref};
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
-use alloc::{collections::BTreeSet, fmt};
-use core::{hash, marker::PhantomData, mem, num::NonZeroU8, ops::Deref};
 
 /// Oparg values for [`Instruction::ConvertValue`].
 ///

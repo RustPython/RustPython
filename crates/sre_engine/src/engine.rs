@@ -6,8 +6,8 @@ use crate::string::{
 };
 
 use super::{MAXREPEAT, SreAtCode, SreCatCode, SreInfo, SreOpcode, StrDrive, StringCursor};
-use optional::Optioned;
 use core::{convert::TryFrom, ptr::null};
+use optional::Optioned;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Request<'a, S> {

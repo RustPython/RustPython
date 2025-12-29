@@ -17,11 +17,11 @@ use crate::{
     protocol::{PyNumberMethods, handle_bytes_to_int_err},
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
+use alloc::fmt;
+use core::ops::{Neg, Not};
 use malachite_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
-use alloc::fmt;
-use core::ops::{Neg, Not};
 
 #[pyclass(module = false, name = "int")]
 #[derive(Debug)]

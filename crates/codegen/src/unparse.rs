@@ -1,3 +1,5 @@
+use alloc::fmt;
+use core::fmt::Display as _;
 use ruff_python_ast::{
     self as ruff, Arguments, BoolOp, Comprehension, ConversionFlag, Expr, Identifier, Operator,
     Parameter, ParameterWithDefault, Parameters,
@@ -5,8 +7,6 @@ use ruff_python_ast::{
 use ruff_text_size::Ranged;
 use rustpython_compiler_core::SourceFile;
 use rustpython_literal::escape::{AsciiEscape, UnicodeEscape};
-use alloc::fmt;
-use core::fmt::Display as _;
 
 mod precedence {
     macro_rules! precedence {

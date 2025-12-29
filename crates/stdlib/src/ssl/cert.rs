@@ -9,6 +9,7 @@
 //! - Building and verifying certificate chains
 //! - Loading certificates from files, directories, and bytes
 
+use alloc::sync::Arc;
 use chrono::{DateTime, Utc};
 use parking_lot::RwLock as ParkingRwLock;
 use rustls::{
@@ -19,7 +20,6 @@ use rustls::{
 };
 use rustpython_vm::{PyObjectRef, PyResult, VirtualMachine};
 use std::collections::HashSet;
-use alloc::sync::Arc;
 use x509_parser::prelude::*;
 
 use super::compat::{VERIFY_X509_PARTIAL_CHAIN, VERIFY_X509_STRICT};
@@ -51,9 +51,9 @@ const ALL_SIGNATURE_SCHEMES: &[SignatureScheme] = &[
 /// operations, reducing code duplication and ensuring uniform error messages
 /// across the codebase.
 mod cert_error {
-    use std::io;
     use alloc::sync::Arc;
-    use core::fmt::{Display, Debug};
+    use core::fmt::{Debug, Display};
+    use std::io;
 
     /// Create InvalidData error with formatted message
     pub fn invalid_data(msg: impl Into<String>) -> io::Error {

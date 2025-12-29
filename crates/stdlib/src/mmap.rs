@@ -21,11 +21,11 @@ mod mmap {
         sliceable::{SaturatedSlice, SequenceIndex, SequenceIndexOp},
         types::{AsBuffer, AsMapping, AsSequence, Constructor, Representable},
     };
+    use core::ops::{Deref, DerefMut};
     use crossbeam_utils::atomic::AtomicCell;
     use memmap2::{Mmap, MmapMut, MmapOptions};
     use num_traits::Signed;
     use std::io::{self, Write};
-    use core::ops::{Deref, DerefMut};
 
     #[cfg(unix)]
     use nix::{sys::stat::fstat, unistd};

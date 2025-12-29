@@ -183,16 +183,16 @@ mod _io {
         },
         vm::VirtualMachine,
     };
-    use bstr::ByteSlice;
-    use crossbeam_utils::atomic::AtomicCell;
-    use malachite_bigint::BigInt;
-    use num_traits::ToPrimitive;
-    use std::io::{self, Cursor, SeekFrom, prelude::*};
     use alloc::borrow::Cow;
+    use bstr::ByteSlice;
     use core::{
         ops::Range,
         sync::atomic::{AtomicBool, Ordering},
     };
+    use crossbeam_utils::atomic::AtomicCell;
+    use malachite_bigint::BigInt;
+    use num_traits::ToPrimitive;
+    use std::io::{self, Cursor, SeekFrom, prelude::*};
 
     #[allow(clippy::let_and_return)]
     fn validate_whence(whence: i32) -> bool {

@@ -31,13 +31,13 @@ mod _contextvars {
         protocol::{PyMappingMethods, PySequenceMethods},
         types::{AsMapping, AsSequence, Constructor, Hashable, Representable},
     };
-    use crossbeam_utils::atomic::AtomicCell;
-    use indexmap::IndexMap;
-    use std::sync::LazyLock;
     use core::{
         cell::{Cell, RefCell, UnsafeCell},
         sync::atomic::Ordering,
     };
+    use crossbeam_utils::atomic::AtomicCell;
+    use indexmap::IndexMap;
+    use std::sync::LazyLock;
 
     // TODO: Real hamt implementation
     type Hamt = IndexMap<PyRef<ContextVar>, PyObjectRef, ahash::RandomState>;

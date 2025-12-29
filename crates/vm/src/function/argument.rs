@@ -4,9 +4,9 @@ use crate::{
     convert::ToPyObject,
     object::{Traverse, TraverseFn},
 };
+use core::ops::RangeInclusive;
 use indexmap::IndexMap;
 use itertools::Itertools;
-use core::ops::RangeInclusive;
 
 pub trait IntoFuncArgs: Sized {
     fn into_args(self, vm: &VirtualMachine) -> FuncArgs;

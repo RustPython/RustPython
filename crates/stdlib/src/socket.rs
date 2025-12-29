@@ -22,6 +22,11 @@ mod _socket {
         types::{Constructor, DefaultConstructor, Initializer, Representable},
         utils::ToCString,
     };
+    use core::{
+        mem::MaybeUninit,
+        net::{Ipv4Addr, Ipv6Addr, SocketAddr},
+        time::Duration,
+    };
     use crossbeam_utils::atomic::AtomicCell;
     use num_traits::ToPrimitive;
     use socket2::Socket;
@@ -31,12 +36,6 @@ mod _socket {
         net::{self, Shutdown, ToSocketAddrs},
         time::Instant,
     };
-    use core::{
-        mem::MaybeUninit,
-        net::{Ipv4Addr, Ipv6Addr, SocketAddr},
-        time::Duration
-    };
-
 
     #[cfg(unix)]
     use libc as c;

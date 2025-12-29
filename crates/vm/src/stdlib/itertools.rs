@@ -25,8 +25,8 @@ mod decl {
     use malachite_bigint::BigInt;
     use num_traits::One;
 
-    use num_traits::{Signed, ToPrimitive};
     use alloc::fmt;
+    use num_traits::{Signed, ToPrimitive};
 
     fn pickle_deprecation(vm: &VirtualMachine) -> PyResult<()> {
         warnings::warn(

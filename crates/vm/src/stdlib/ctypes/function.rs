@@ -16,6 +16,9 @@ use crate::{
     types::{AsBuffer, Callable, Constructor, Initializer, Representable},
     vm::thread::with_current_vm,
 };
+use alloc::borrow::Cow;
+use core::ffi::c_void;
+use core::fmt::Debug;
 use libffi::{
     low,
     middle::{Arg, Cif, Closure, CodePtr, Type},
@@ -23,9 +26,6 @@ use libffi::{
 use libloading::Symbol;
 use num_traits::{Signed, ToPrimitive};
 use rustpython_common::lock::PyRwLock;
-use alloc::borrow::Cow;
-use core::ffi::c_void;
-use core::fmt::Debug;
 
 // Internal function addresses for special ctypes functions
 pub(super) const INTERNAL_CAST_ADDR: usize = 1;

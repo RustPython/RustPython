@@ -33,6 +33,11 @@ use crate::{
     signal, stdlib,
     warn::WarningsState,
 };
+use alloc::borrow::Cow;
+use core::{
+    cell::{Cell, Ref, RefCell},
+    sync::atomic::AtomicBool,
+};
 use crossbeam_utils::atomic::AtomicCell;
 #[cfg(unix)]
 use nix::{
@@ -42,11 +47,6 @@ use nix::{
 use std::{
     collections::{HashMap, HashSet},
     ffi::{OsStr, OsString},
-};
-use alloc::borrow::Cow;
-use core::{
-    cell::{Cell, Ref, RefCell},
-    sync::atomic::AtomicBool
 };
 
 pub use context::Context;

@@ -7,10 +7,7 @@ use crate::{
     convert::ToPyObject,
 };
 use alloc::borrow::ToOwned;
-use core::{
-    borrow::Borrow,
-    ops::Deref,
-};
+use core::{borrow::Borrow, ops::Deref};
 
 #[derive(Debug)]
 pub struct StringPool {

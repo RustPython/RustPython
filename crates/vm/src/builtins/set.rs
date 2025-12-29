@@ -23,13 +23,13 @@ use crate::{
     utils::collection_repr,
     vm::VirtualMachine,
 };
+use alloc::fmt;
+use core::ops::Deref;
 use rustpython_common::{
     atomic::{Ordering, PyAtomic, Radium},
     hash,
 };
 use std::sync::LazyLock;
-use alloc::fmt;
-use core::ops::Deref;
 
 pub type SetContentType = dict_inner::Dict<()>;
 

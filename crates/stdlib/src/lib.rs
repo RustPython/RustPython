@@ -4,7 +4,6 @@
 #![allow(clippy::module_inception)]
 #![cfg_attr(all(target_os = "wasi", target_env = "p2"), feature(wasip2))]
 
-
 #[macro_use]
 extern crate rustpython_derive;
 extern crate alloc;

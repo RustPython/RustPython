@@ -8,8 +8,8 @@ use crate::{
     class::StaticType,
     function::{FuncArgs, OptionalArg},
 };
-use num_traits::ToPrimitive;
 use alloc::borrow::Cow;
+use num_traits::ToPrimitive;
 
 #[pyclass(name = "PyCPointerType", base = PyType, module = "_ctypes")]
 #[derive(Debug)]

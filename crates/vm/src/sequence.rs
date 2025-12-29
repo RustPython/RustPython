@@ -6,8 +6,8 @@ use crate::{
     types::PyComparisonOp,
     vm::{MAX_MEMORY_SIZE, VirtualMachine},
 };
-use optional::Optioned;
 use core::ops::{Deref, Range};
+use optional::Optioned;
 
 pub trait MutObjectSequenceOp {
     type Inner: ?Sized;

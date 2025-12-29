@@ -590,8 +590,8 @@ mod platform {
         builtins::{PyNamespace, PyStrRef},
         convert::IntoPyException,
     };
-    use nix::{sys::time::TimeSpec, time::ClockId};
     use core::time::Duration;
+    use nix::{sys::time::TimeSpec, time::ClockId};
 
     #[cfg(target_os = "solaris")]
     #[pyattr]

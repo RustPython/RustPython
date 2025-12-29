@@ -17,9 +17,9 @@ use crate::{
     types::slot_defs::{SlotAccessor, find_slot_defs_by_name},
     vm::Context,
 };
+use core::{any::Any, any::TypeId, borrow::Borrow, cmp::Ordering, ops::Deref};
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
-use core::{any::Any, any::TypeId, borrow::Borrow, cmp::Ordering, ops::Deref};
 
 /// Type-erased storage for extension module data attached to heap types.
 pub struct TypeDataSlot {

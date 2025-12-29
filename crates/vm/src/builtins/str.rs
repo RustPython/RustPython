@@ -24,8 +24,10 @@ use crate::{
         PyComparisonOp, Representable, SelfIter,
     },
 };
+use alloc::{borrow::Cow, fmt};
 use ascii::{AsciiChar, AsciiStr, AsciiString};
 use bstr::ByteSlice;
+use core::{char, mem, ops::Range};
 use itertools::Itertools;
 use num_traits::ToPrimitive;
 use rustpython_common::{
@@ -37,8 +39,6 @@ use rustpython_common::{
     str::DeduceStrKind,
     wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Chunk},
 };
-use alloc::{borrow::Cow, fmt};
-use core::{mem, char, ops::Range};
 use std::sync::LazyLock;
 use unic_ucd_bidi::BidiClass;
 use unic_ucd_category::GeneralCategory;

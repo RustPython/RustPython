@@ -10,8 +10,8 @@ mod grp {
         exceptions,
         types::PyStructSequence,
     };
-    use nix::unistd;
     use core::ptr::NonNull;
+    use nix::unistd;
 
     #[pystruct_sequence_data]
     struct GroupData {

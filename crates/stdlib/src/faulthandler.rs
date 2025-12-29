@@ -7,13 +7,13 @@ mod decl {
         PyObjectRef, PyResult, VirtualMachine, builtins::PyFloat, frame::Frame,
         function::OptionalArg, py_io::Write,
     };
+    use alloc::sync::Arc;
+    use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+    use core::time::Duration;
     use parking_lot::{Condvar, Mutex};
     #[cfg(any(unix, windows))]
     use rustpython_common::os::{get_errno, set_errno};
-    use alloc::sync::Arc;
-    use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
     use std::thread;
-    use core::time::Duration;
 
     /// fault_handler_t
     #[cfg(unix)]
@@ -144,7 +144,8 @@ mod decl {
     static mut FRAME_SNAPSHOTS: [FrameSnapshot; MAX_SNAPSHOT_FRAMES] =
         [FrameSnapshot::EMPTY; MAX_SNAPSHOT_FRAMES];
     #[cfg(any(unix, windows))]
-    static SNAPSHOT_COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+    static SNAPSHOT_COUNT: core::sync::atomic::AtomicUsize =
+        core::sync::atomic::AtomicUsize::new(0);
 
     // Signal-safe output functions
 

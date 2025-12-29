@@ -20,12 +20,7 @@ use unistd::{Gid, Uid};
 
 use alloc::ffi::CString;
 
-use core::{
-    marker::PhantomData,
-    ops::Deref,
-    ffi::{CStr},
-    convert::Infallible as Never,
-};
+use core::{convert::Infallible as Never, ffi::CStr, marker::PhantomData, ops::Deref};
 
 pub(crate) use _posixsubprocess::make_module;
 

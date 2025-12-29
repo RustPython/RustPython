@@ -16,11 +16,10 @@ use crate::{
     convert::ToPyObject,
     function::{ArgBytesLike, PyMethodDef},
 };
-use once_cell::unsync::OnceCell;
 use alloc::borrow::Cow;
 use core::ops::{self, Range};
+use once_cell::unsync::OnceCell;
 use std::collections::HashMap;
-
 
 pub struct CodecsRegistry {
     inner: PyRwLock<RegistryInner>,
