@@ -4832,13 +4832,11 @@ class SendrecvmsgUnixStreamTestBase(SendrecvmsgConnectedBase,
 
 @requireAttrs(socket.socket, "sendmsg")
 @requireAttrs(socket, "AF_UNIX")
-@unittest.skip("TODO: RUSTPYTHON; accept() on Unix sockets returns EINVAL")
 class SendmsgUnixStreamTest(SendmsgStreamTests, SendrecvmsgUnixStreamTestBase):
     pass
 
 @requireAttrs(socket.socket, "recvmsg")
 @requireAttrs(socket, "AF_UNIX")
-@unittest.skip("TODO: RUSTPYTHON; intermittent accept() EINVAL on Unix sockets")
 class RecvmsgUnixStreamTest(RecvmsgTests, RecvmsgGenericStreamTests,
                             SendrecvmsgUnixStreamTestBase):
     pass
@@ -4851,7 +4849,6 @@ class RecvmsgIntoUnixStreamTest(RecvmsgIntoTests, RecvmsgGenericStreamTests,
 
 @requireAttrs(socket.socket, "sendmsg", "recvmsg")
 @requireAttrs(socket, "AF_UNIX", "SOL_SOCKET", "SCM_RIGHTS")
-@unittest.skip("TODO: RUSTPYTHON; intermittent accept() EINVAL on Unix sockets")
 class RecvmsgSCMRightsStreamTest(SCMRightsTest, SendrecvmsgUnixStreamTestBase):
     pass
 

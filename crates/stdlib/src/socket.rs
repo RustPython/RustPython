@@ -1570,7 +1570,9 @@ mod _socket {
             &self,
             vm: &VirtualMachine,
         ) -> Result<(RawSocket, PyObjectRef), IoOrPyException> {
-            let (sock, addr) = self.sock_op(vm, SelectKind::Read, || self.sock()?.accept())?;
+            // Use accept_raw() instead of accept() to avoid socket2's set_common_flags()
+            // which tries to set SO_NOSIGPIPE and fails with EINVAL on Unix domain sockets on macOS
+            let (sock, addr) = self.sock_op(vm, SelectKind::Read, || self.sock()?.accept_raw())?;
             let fd = into_sock_fileno(sock);
             Ok((fd, get_addr_tuple(&addr, vm)))
         }
