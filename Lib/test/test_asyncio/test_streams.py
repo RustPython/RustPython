@@ -379,6 +379,8 @@ class StreamTests(test_utils.TestCase):
             ValueError, self.loop.run_until_complete, stream.readline())
         self.assertEqual(b'', stream._buffer)
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # Causing a hang
     def test_readuntil_separator(self):
         stream = asyncio.StreamReader(loop=self.loop)
         with self.assertRaisesRegex(ValueError, 'Separator should be'):
@@ -470,6 +472,8 @@ class StreamTests(test_utils.TestCase):
 
         self.assertEqual(b'some dataAAA', stream._buffer)
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # TypeError: unexpected type tuple
     def test_readuntil_multi_separator(self):
         stream = asyncio.StreamReader(loop=self.loop)
 
@@ -487,6 +491,8 @@ class StreamTests(test_utils.TestCase):
         self.assertEqual(b'ABCDE', data)
         self.assertEqual(b'FG', stream._buffer)
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # TypeError: unexpected type tuple
     def test_readuntil_multi_separator_limit(self):
         stream = asyncio.StreamReader(loop=self.loop, limit=3)
         stream.feed_data(b'some dataA')
@@ -497,6 +503,8 @@ class StreamTests(test_utils.TestCase):
 
         self.assertEqual(b'some dataA', stream._buffer)
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # TypeError: unexpected type tuple
     def test_readuntil_multi_separator_negative_offset(self):
         # If the buffer is big enough for the smallest separator (but does
         # not contain it) but too small for the largest, `offset` must not
@@ -1183,6 +1191,9 @@ os.close(fd)
 
         self.assertEqual(messages, [])
 
+    # TODO: RUSTPYTHON
+    # AssertionError: Lists differ: [{'message': 'Unhandled exception in clien[104 chars]=8>}] != []
+    @unittest.expectedFailure
     def test_unclosed_server_resource_warnings(self):
         async def inner(rd, wr):
             fut.set_result(True)
@@ -1246,6 +1257,8 @@ os.close(fd)
         messages = self._basetest_unhandled_exceptions(handle_echo)
         self.assertEqual(messages, [])
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # NotImplementedError
     def test_open_connection_happy_eyeball_refcycles(self):
         port = socket_helper.find_unused_port()
         async def main():

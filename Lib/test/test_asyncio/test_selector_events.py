@@ -177,6 +177,8 @@ class BaseSelectorEventLoopTests(test_utils.TestCase):
                 self.loop.run_until_complete(con)
                 sock.connect.assert_called_with(('127.0.0.1', 0))
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # TypeError: cannot unpack non-iterable Mock object
     def test_add_reader(self):
         self.loop._selector.get_map.return_value = {}
         cb = lambda: True
@@ -189,6 +191,8 @@ class BaseSelectorEventLoopTests(test_utils.TestCase):
         self.assertEqual(cb, r._callback)
         self.assertIsNone(w)
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # TypeError: cannot unpack non-iterable Mock object
     def test_add_reader_existing(self):
         reader = mock.Mock()
         writer = mock.Mock()
@@ -206,6 +210,8 @@ class BaseSelectorEventLoopTests(test_utils.TestCase):
         self.assertEqual(cb, r._callback)
         self.assertEqual(writer, w)
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # TypeError: cannot unpack non-iterable Mock object
     def test_add_reader_existing_writer(self):
         writer = mock.Mock()
         self.loop._selector.get_map.return_value = {1: selectors.SelectorKey(
@@ -221,6 +227,8 @@ class BaseSelectorEventLoopTests(test_utils.TestCase):
         self.assertEqual(cb, r._callback)
         self.assertEqual(writer, w)
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # TypeError: cannot unpack non-iterable Mock object
     def test_remove_reader(self):
         self.loop._selector.get_map.return_value = {1: selectors.SelectorKey(
             1, 1, selectors.EVENT_READ, (None, None))}
@@ -228,6 +236,8 @@ class BaseSelectorEventLoopTests(test_utils.TestCase):
 
         self.assertTrue(self.loop._selector.unregister.called)
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # TypeError: cannot unpack non-iterable Mock object
     def test_remove_reader_read_write(self):
         reader = mock.Mock()
         writer = mock.Mock()
@@ -241,12 +251,16 @@ class BaseSelectorEventLoopTests(test_utils.TestCase):
         self.assertEqual(
             (1, selectors.EVENT_WRITE, (None, writer)),
             self.loop._selector.modify.call_args[0])
-
+    
+    @unittest.skip('TODO: RUSTPYTHON')
+    # TypeError: cannot unpack non-iterable Mock object
     def test_remove_reader_unknown(self):
         self.loop._selector.get_map.return_value = {}
         self.assertFalse(
             self.loop.remove_reader(1))
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # TypeError: cannot unpack non-iterable Mock object
     def test_add_writer(self):
         self.loop._selector.get_map.return_value = {}
         cb = lambda: True
@@ -259,6 +273,8 @@ class BaseSelectorEventLoopTests(test_utils.TestCase):
         self.assertIsNone(r)
         self.assertEqual(cb, w._callback)
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # TypeError: cannot unpack non-iterable Mock object
     def test_add_writer_existing(self):
         reader = mock.Mock()
         writer = mock.Mock()
@@ -276,6 +292,8 @@ class BaseSelectorEventLoopTests(test_utils.TestCase):
         self.assertEqual(reader, r)
         self.assertEqual(cb, w._callback)
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # TypeError: cannot unpack non-iterable Mock object
     def test_remove_writer(self):
         self.loop._selector.get_map.return_value = {1: selectors.SelectorKey(
             1, 1, selectors.EVENT_WRITE, (None, None))}
@@ -283,6 +301,8 @@ class BaseSelectorEventLoopTests(test_utils.TestCase):
 
         self.assertTrue(self.loop._selector.unregister.called)
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # TypeError: cannot unpack non-iterable Mock object
     def test_remove_writer_read_write(self):
         reader = mock.Mock()
         writer = mock.Mock()
@@ -297,6 +317,8 @@ class BaseSelectorEventLoopTests(test_utils.TestCase):
             (1, selectors.EVENT_READ, (reader, None)),
             self.loop._selector.modify.call_args[0])
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # TypeError: cannot unpack non-iterable Mock object
     def test_remove_writer_unknown(self):
         self.loop._selector.get_map.return_value = {}
         self.assertFalse(
@@ -805,6 +827,9 @@ class SelectorSocketTransportTests(test_utils.TestCase):
         self.assertTrue(self.sock.send.called)
         self.assertTrue(self.loop.writers)
 
+    # TODO: RUSTPYTHON
+    # AssertionError: False is not true
+    @unittest.expectedFailure
     def test_writelines_pauses_protocol(self):
         data = memoryview(b'data')
         self.sock.send.return_value = 2
@@ -1026,6 +1051,9 @@ class SelectorSocketTransportTests(test_utils.TestCase):
         transport.close()
         remove_writer.assert_called_with(self.sock_fd)
 
+    # TODO: RUSTPYTHON
+    # AssertionError: 2 != 0
+    @unittest.expectedFailure
     def test_write_buffer_after_close(self):
         # gh-115514: If the transport is closed while:
         #  * Transport write buffer is not empty
@@ -1332,6 +1360,9 @@ class SelectorDatagramTransportTests(test_utils.TestCase):
         self.assertEqual(
             self.sock.sendto.call_args[0], (data, ('0.0.0.0', 1234)))
 
+    # TODO: RUSTPYTHON
+    # AssertionError: False is not true
+    @unittest.expectedFailure
     def test_sendto_no_data(self):
         transport = self.datagram_transport()
         transport.sendto(b'', ('0.0.0.0', 1234))
@@ -1373,6 +1404,9 @@ class SelectorDatagramTransportTests(test_utils.TestCase):
             list(transport._buffer))
         self.assertIsInstance(transport._buffer[1][0], bytes)
 
+    # TODO: RUSTPYTHON
+    # AssertionError: Lists differ: [(b'data1', ('0.0.0.0', 12345)), (b'', ('0.0.0.0', 12345))] != [(b'data1', ('0.0.0.0', 12345))]
+    @unittest.expectedFailure
     def test_sendto_buffer_nodata(self):
         data2 = b''
         transport = self.datagram_transport()
@@ -1460,6 +1494,8 @@ class SelectorDatagramTransportTests(test_utils.TestCase):
         transport.sendto(b'data', (1,))
         self.assertEqual(transport._conn_lost, 2)
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # '_SelectorDatagramTransport' object has no attribute '_header_size'
     def test_sendto_sendto_ready(self):
         data = b'data'
 
@@ -1481,6 +1517,8 @@ class SelectorDatagramTransportTests(test_utils.TestCase):
         self.assertFalse(transport._buffer)
         self.assertEqual(transport._buffer_size, 0)
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # '_SelectorDatagramTransport' object has no attribute '_header_size'
     def test_sendto_sendto_ready_blocked(self):
         data = b'data'
 

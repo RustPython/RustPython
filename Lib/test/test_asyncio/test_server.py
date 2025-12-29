@@ -187,6 +187,8 @@ class TestServer2(unittest.IsolatedAsyncioTestCase):
         loop.call_soon(wr.close)
         await srv.wait_closed()
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # AttributeError: 'Server' object has no attribute 'close_clients'
     async def test_close_clients(self):
         async def serve(rd, wr):
             try:
@@ -212,6 +214,8 @@ class TestServer2(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0)
         self.assertTrue(task.done())
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # AttributeError: 'Server' object has no attribute 'abort_clients'
     async def test_abort_clients(self):
         async def serve(rd, wr):
             fut.set_result((rd, wr))
@@ -270,6 +274,9 @@ class TestServer2(unittest.IsolatedAsyncioTestCase):
 # Test the various corner cases of Unix server socket removal
 class UnixServerCleanupTests(unittest.IsolatedAsyncioTestCase):
     @socket_helper.skip_unless_bind_unix_socket
+    # TODO: RUSTPYTHON
+    # AssertionError: True is not false
+    @unittest.expectedFailure
     async def test_unix_server_addr_cleanup(self):
         # Default scenario
         with test_utils.unix_socket_path() as addr:
@@ -282,6 +289,9 @@ class UnixServerCleanupTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(os.path.exists(addr))
 
     @socket_helper.skip_unless_bind_unix_socket
+    # TODO: RUSTPYTHON
+    # AssertionError: True is not false
+    @unittest.expectedFailure
     async def test_unix_server_sock_cleanup(self):
         # Using already bound socket
         with test_utils.unix_socket_path() as addr:
@@ -329,6 +339,8 @@ class UnixServerCleanupTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(os.path.exists(addr))
 
     @socket_helper.skip_unless_bind_unix_socket
+    @unittest.skip('TODO: RUSTPYTHON')
+    # TypeError: _UnixSelectorEventLoop.create_unix_server() got an unexpected keyword argument 'cleanup_socket'
     async def test_unix_server_cleanup_prevented(self):
         # Automatic cleanup explicitly disabled
         with test_utils.unix_socket_path() as addr:

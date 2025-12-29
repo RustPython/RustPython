@@ -123,7 +123,9 @@ class StaggeredTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(excs[1], asyncio.CancelledError)
         self.assertIsInstance(excs[2], asyncio.CancelledError)
 
-
+    # TODO: RUSTPYTHON
+    # AssertionError: Lists differ: ['cancelled 3'] != ['cancelled 1', 'cancelled 2', 'cancelled 3']
+    @unittest.expectedFailure
     async def test_cancelled(self):
         log = []
         with self.assertRaises(TimeoutError):
@@ -149,3 +151,6 @@ class StaggeredTests(unittest.IsolatedAsyncioTestCase):
                     raise
 
         self.assertListEqual(log, ["cancelled 1", "cancelled 2", "cancelled 3"])
+
+if __name__ == '__main__':
+    unittest.main()

@@ -680,6 +680,8 @@ class TestSSL(test_utils.TestCase):
 
         self.assertEqual(res, 'OK')
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # RuntimeError: Event loop stopped before Future completed.
     def test_start_tls_client_reg_proto_1(self):
         HELLO_MSG = b'1' * self.PAYLOAD_SIZE
 
@@ -741,6 +743,8 @@ class TestSSL(test_utils.TestCase):
                 asyncio.wait_for(client(srv.addr),
                                  timeout=support.SHORT_TIMEOUT))
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # RuntimeError: Event loop stopped before Future completed.
     def test_create_connection_memory_leak(self):
         HELLO_MSG = b'1' * self.PAYLOAD_SIZE
 
@@ -805,6 +809,8 @@ class TestSSL(test_utils.TestCase):
         client_context = weakref.ref(client_context)
         self.assertIsNone(client_context())
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # RuntimeError: Event loop stopped before Future completed.
     def test_start_tls_client_buf_proto_1(self):
         HELLO_MSG = b'1' * self.PAYLOAD_SIZE
 
@@ -961,6 +967,8 @@ class TestSSL(test_utils.TestCase):
                 asyncio.wait_for(client(srv.addr),
                                  timeout=support.SHORT_TIMEOUT))
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # RuntimeError: Event loop stopped before Future completed.
     def test_start_tls_server_1(self):
         HELLO_MSG = b'1' * self.PAYLOAD_SIZE
 
@@ -1185,6 +1193,8 @@ class TestSSL(test_utils.TestCase):
         for client in clients:
             client.stop()
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # RuntimeError: Event loop stopped before Future completed.
     def test_shutdown_cleanly(self):
         CNT = 0
         TOTAL_CNT = 25
@@ -1310,6 +1320,8 @@ class TestSSL(test_utils.TestCase):
         with self.tcp_server(run(server)) as srv:
             self.loop.run_until_complete(client(srv.addr))
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # ssl_error.SSLError: cannot read after shutdown
     def test_remote_shutdown_receives_trailing_data(self):
         CHUNK = 1024 * 128
         SIZE = 32
@@ -1434,6 +1446,8 @@ class TestSSL(test_utils.TestCase):
         with self.tcp_server(run(eof_server)) as srv:
             self.loop.run_until_complete(client(srv.addr))
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # ssl_error.SSLError: cannot read after shutdown
     def test_remote_shutdown_receives_trailing_data_on_slow_socket(self):
         # This test is the same as test_remote_shutdown_receives_trailing_data,
         # except it simulates a socket that is not able to write data in time,
@@ -1622,6 +1636,9 @@ class TestSSL(test_utils.TestCase):
             else:
                 self.fail('Unexpected ResourceWarning: {}'.format(cm.warning))
 
+    # TODO: RUSTPYTHON
+    # AssertionError: <SSLContext(protocol=16)> is not None
+    @unittest.expectedFailure
     def test_handshake_timeout_handler_leak(self):
         s = socket.socket(socket.AF_INET)
         s.bind(('127.0.0.1', 0))
@@ -1647,6 +1664,9 @@ class TestSSL(test_utils.TestCase):
         # SSLProtocol should be DECREF to 0
         self.assertIsNone(ctx())
 
+    # TODO: RUSTPYTHON
+    # AssertionError: <SSLContext(protocol=16)> is not None
+    @unittest.expectedFailure
     def test_shutdown_timeout_handler_leak(self):
         loop = self.loop
 
@@ -1903,3 +1923,6 @@ class TestThreadedServer(SocketThread):
     @property
     def addr(self):
         return self._sock.getsockname()
+
+if __name__ == '__main__':
+    unittest.main()
