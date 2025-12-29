@@ -42,6 +42,11 @@ impl Frame {
     }
 
     #[pygetset]
+    fn f_builtins(&self) -> PyDictRef {
+        self.builtins.clone()
+    }
+
+    #[pygetset]
     fn f_locals(&self, vm: &VirtualMachine) -> PyResult {
         self.locals(vm).map(Into::into)
     }
