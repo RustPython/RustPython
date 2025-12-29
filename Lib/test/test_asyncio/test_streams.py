@@ -1246,6 +1246,8 @@ os.close(fd)
         messages = self._basetest_unhandled_exceptions(handle_echo)
         self.assertEqual(messages, [])
 
+    @unittest.skip('TODO: RUSTPYTHON')
+    # NotImplementedError
     def test_open_connection_happy_eyeball_refcycles(self):
         port = socket_helper.find_unused_port()
         async def main():

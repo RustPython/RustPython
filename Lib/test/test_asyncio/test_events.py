@@ -2873,6 +2873,9 @@ class GetEventLoopTestsMixin:
 
     if sys.platform != 'win32':
 
+        # TODO: RUSTPYTHON
+        # Weird: Does not skip on CPython
+        # skipped 'This platform lacks a functioning sem_open implementation, therefore, the required synchronization primitives needed will not function, see issue 3770.'
         def test_get_event_loop_new_process(self):
             # bpo-32126: The multiprocessing module used by
             # ProcessPoolExecutor is not functional when the
