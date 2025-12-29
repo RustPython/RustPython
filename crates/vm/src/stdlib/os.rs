@@ -1748,10 +1748,10 @@ pub(super) mod _os {
     #[cfg(all(unix, not(target_os = "redox")))]
     impl StatvfsResultData {
         fn from_statvfs(st: libc::statvfs) -> Self {
-            // Handle f_fsid which may be a struct on some platforms
-            // On most Unix systems, we just use 0 or try to get the value
+            // f_fsid is a struct on some platforms (e.g., Linux fsid_t) and a scalar on others.
+            // We extract raw bytes and interpret as a native-endian integer.
+            // Note: The value may differ across architectures due to endianness.
             let f_fsid = {
-                // Use pointer cast to get raw bytes from fsid struct
                 let ptr = std::ptr::addr_of!(st.f_fsid) as *const u8;
                 let size = std::mem::size_of_val(&st.f_fsid);
                 if size >= 8 {
@@ -1790,15 +1790,19 @@ pub(super) mod _os {
     #[pyfunction(name = "fstatvfs")]
     fn statvfs(path: OsPathOrFd<'_>, vm: &VirtualMachine) -> PyResult {
         let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
-        let ret = match path {
-            OsPathOrFd::Path(path) => {
-                let cpath = path.into_cstring(vm)?;
+        let ret = match &path {
+            OsPathOrFd::Path(p) => {
+                let cpath = p.clone().into_cstring(vm)?;
                 unsafe { libc::statvfs(cpath.as_ptr(), &mut st) }
             }
             OsPathOrFd::Fd(fd) => unsafe { libc::fstatvfs(fd.as_raw(), &mut st) },
         };
         if ret != 0 {
-            return Err(io::Error::last_os_error().into_pyexception(vm));
+            return Err(OSErrorBuilder::with_filename(
+                &io::Error::last_os_error(),
+                path,
+                vm,
+            ));
         }
         Ok(StatvfsResultData::from_statvfs(st).to_pyobject(vm))
     }

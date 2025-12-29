@@ -228,6 +228,10 @@ pub(crate) mod _thread {
             if !self.mu.is_locked() {
                 return Err(vm.new_runtime_error("release unlocked lock"));
             }
+            debug_assert!(
+                self.count.load(std::sync::atomic::Ordering::Relaxed) > 0,
+                "RLock count underflow"
+            );
             self.count
                 .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
             unsafe { self.mu.unlock() };
