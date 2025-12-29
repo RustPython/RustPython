@@ -143,3 +143,26 @@ class _ReenteringWriter:
 arr = array("b", range(128))
 arr.tofile(_ReenteringWriter(arr))
 assert len(arr) == 129
+
+
+class _ReenteringIndex:
+    def __init__(self, arr):
+        self.arr = arr
+
+    def __index__(self):
+        self.arr.append(0)
+        return 0
+
+
+class _ReenteringReader:
+    def __init__(self, arr):
+        self.arr = arr
+
+    def read(self, n):
+        self.arr.append(_ReenteringIndex(self.arr))
+        return b"\0" * n
+
+
+arr = array("b")
+arr.fromfile(_ReenteringReader(arr), 1)
+assert list(arr) == [0, 0, 0]

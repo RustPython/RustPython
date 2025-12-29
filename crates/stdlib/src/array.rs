@@ -75,6 +75,16 @@ mod array {
 
     macro_rules! def_array_enum {
         ($(($n:ident, $t:ty, $c:literal, $scode:literal)),*$(,)?) => {
+            #[derive(Copy, Clone, Debug)]
+            enum ArrayType {
+                $($n,)*
+            }
+
+            #[derive(Debug)]
+            enum ArrayElementValue {
+                $($n($t),)*
+            }
+
             #[derive(Debug, Clone)]
             pub enum ArrayContentType {
                 $($n(Vec<$t>),)*
@@ -127,6 +137,12 @@ mod array {
                     }
                 }
 
+                fn kind(&self) -> ArrayType {
+                    match self {
+                        $(ArrayContentType::$n(_) => ArrayType::$n,)*
+                    }
+                }
+
                 fn reserve(&mut self, len: usize) {
                     match self {
                         $(ArrayContentType::$n(v) => v.reserve(len),)*
@@ -141,6 +157,15 @@ mod array {
                         })*
                     }
                     Ok(())
+                }
+
+                fn push_value(&mut self, kind: ArrayType, value: ArrayElementValue) {
+                    match (kind, self, value) {
+                        $((ArrayType::$n, ArrayContentType::$n(v), ArrayElementValue::$n(val)) => {
+                            v.push(val);
+                        },)*
+                        _ => unreachable!(),
+                    }
                 }
 
                 fn pop(&mut self, i: isize, vm: &VirtualMachine) -> PyResult {
@@ -483,6 +508,15 @@ mod array {
                         })*
                     }
                 }
+
+            }
+
+            impl ArrayType {
+                fn convert(self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<ArrayElementValue> {
+                    match self {
+                        $(ArrayType::$n => <$t>::try_into_from_object(vm, obj).map(ArrayElementValue::$n),)*
+                    }
+                }
             }
         };
     }
@@ -741,7 +775,14 @@ mod array {
 
         #[pymethod]
         fn append(zelf: &Py<Self>, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            zelf.try_resizable(vm)?.push(x, vm)
+            let kind = {
+                let array = zelf.read();
+                array.kind()
+            };
+            let value = kind.convert(x, vm)?;
+            let mut w = zelf.try_resizable(vm)?;
+            w.push_value(kind, value);
+            Ok(())
         }
 
         #[pymethod]
