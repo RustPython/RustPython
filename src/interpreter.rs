@@ -34,7 +34,7 @@ pub type InitHook = Box<dyn FnOnce(&mut VirtualMachine)>;
 /// use rustpython::InterpreterConfig;
 /// use rustpython_vm::{VirtualMachine, PyRef, builtins::PyModule};
 ///
-/// fn make_custom_module(vm: &VirtualMachine) -> PyRef<PyModule> {
+/// fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 ///     // Your module implementation
 /// #   todo!()
 /// }
@@ -43,7 +43,7 @@ pub type InitHook = Box<dyn FnOnce(&mut VirtualMachine)>;
 ///     .init_stdlib()
 ///     .add_native_module(
 ///         "your_module_name".to_owned(),
-///         make_custom_module,
+///         make_module,  // ← use make_module
 ///     )
 ///     .interpreter();
 /// ```
@@ -98,9 +98,9 @@ impl InterpreterConfig {
     /// ```no_run
     /// # use rustpython::InterpreterConfig;
     /// # use rustpython_vm::{VirtualMachine, PyRef, builtins::PyModule};
-    /// # fn my_module(vm: &VirtualMachine) -> PyRef<PyModule> { todo!() }
+    /// # fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> { todo!() }
     /// let interpreter = InterpreterConfig::new()
-    ///     .add_native_module("mymodule".to_owned(), my_module)
+    ///     .add_native_module("mymodule".to_owned(), make_module)
     ///     .interpreter();
     /// ```
     pub fn add_native_module(
@@ -246,11 +246,11 @@ fn collect_stdlib_paths() -> Vec<String> {
 
     // BUILDTIME_RUSTPYTHONPATH should be set when distributing
     if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
-        additional_paths.extend(
-            crate::settings::split_paths(paths)
-                .map(|path| path.into_os_string().into_string()
-                    .unwrap_or_else(|_| panic!("BUILDTIME_RUSTPYTHONPATH isn't valid unicode"))),
-        )
+        additional_paths.extend(crate::settings::split_paths(paths).map(|path| {
+            path.into_os_string()
+                .into_string()
+                .unwrap_or_else(|_| panic!("BUILDTIME_RUSTPYTHONPATH isn't valid unicode"))
+        }))
     } else {
         #[cfg(feature = "rustpython-pylib")]
         additional_paths.push(rustpython_pylib::LIB_PATH.to_owned())
