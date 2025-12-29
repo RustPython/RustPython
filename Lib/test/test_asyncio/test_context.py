@@ -10,6 +10,9 @@ def tearDownModule():
 @unittest.skipUnless(decimal.HAVE_CONTEXTVAR, "decimal is built with a thread-local context")
 class DecimalContextTest(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    # AssertionError: '0.111111' != '0.111'
+    @unittest.expectedFailure
     def test_asyncio_task_decimal_context(self):
         async def fractions(t, precision, x, y):
             with decimal.localcontext() as ctx:

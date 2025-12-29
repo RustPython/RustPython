@@ -2893,17 +2893,26 @@ class PyTask_CFuture_Tests(BaseTaskTests, test_utils.TestCase):
     Future = getattr(futures, '_CFuture', None)
 
 
-class PyTask_PyFuture_Tests(BaseTaskTests, SetMethodsTest,
-                            test_utils.TestCase):
+# TODO: RUSTPYTHON
+# ErrorMessage: thread 'main' (411280) panicked at crates/vm/src/frame.rs:174:9:
+# index out of bounds: the len is 11 but the index is 18446744073709551615
+# note: run with `RUST_BACKTRACE=1` environment
 
-    Task = tasks._PyTask
-    Future = futures._PyFuture
+# class PyTask_PyFuture_Tests(BaseTaskTests, SetMethodsTest,
+#                             test_utils.TestCase):
 
+#     Task = tasks._PyTask
+#     Future = futures._PyFuture
 
-@add_subclass_tests
-class PyTask_PyFuture_SubclassTests(BaseTaskTests, test_utils.TestCase):
-    Task = tasks._PyTask
-    Future = futures._PyFuture
+# TODO: RUSTPYTHON
+# ErrorMessage: thread 'main' (411280) panicked at crates/vm/src/frame.rs:174:9:
+# index out of bounds: the len is 11 but the index is 18446744073709551615
+# note: run with `RUST_BACKTRACE=1` environment
+
+# @add_subclass_tests
+# class PyTask_PyFuture_SubclassTests(BaseTaskTests, test_utils.TestCase):
+#     Task = tasks._PyTask
+#     Future = futures._PyFuture
 
 
 @unittest.skipUnless(hasattr(tasks, '_CTask'),

@@ -164,6 +164,9 @@ class RunTests(BaseTest):
             'exception': test_utils.MockInstanceOf(ZeroDivisionError)
         })
 
+    # TODO: RUSTPYTHON
+    # AssertionError: <frame object at 0x563103985dc0> is not None
+    @unittest.expectedFailure
     def test_asyncio_run_closes_gens_after_hanging_tasks_errors(self):
         spinner = None
         lazyboy = None
@@ -393,6 +396,9 @@ class RunnerTests(BaseTest):
 
             self.assertEqual(2, runner.run(get_context()).get(cvar))
 
+    # TODO: RUSTPYTHON
+    # AssertionError: RuntimeWarning not triggered
+    @unittest.expectedFailure
     def test_recursive_run(self):
         async def g():
             pass

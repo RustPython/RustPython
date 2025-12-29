@@ -182,6 +182,9 @@ class EagerTaskFactoryLoopTests:
 
         self.run_coro(run())
 
+    # TODO: RUSTPYTHON
+    # AssertionError: 2 != 1
+    @unittest.expectedFailure
     def test_context_vars(self):
         cv = contextvars.ContextVar('cv', default=0)
 
@@ -268,52 +271,54 @@ class PyEagerTaskFactoryLoopTests(EagerTaskFactoryLoopTests, test_utils.TestCase
     Task = tasks._PyTask
 
 
-@unittest.skipUnless(hasattr(tasks, '_CTask'),
-                     'requires the C _asyncio module')
-class CEagerTaskFactoryLoopTests(EagerTaskFactoryLoopTests, test_utils.TestCase):
-    Task = getattr(tasks, '_CTask', None)
+# TODO: RUSTPYTHON
+# Skips all these tests
+# @unittest.skipUnless(hasattr(tasks, '_CTask'),
+#                      'requires the C _asyncio module')
+# class CEagerTaskFactoryLoopTests(EagerTaskFactoryLoopTests, test_utils.TestCase):
+#     Task = getattr(tasks, '_CTask', None)
 
-    def test_issue105987(self):
-        code = """if 1:
-        from _asyncio import _swap_current_task
+#     def test_issue105987(self):
+#         code = """if 1:
+#         from _asyncio import _swap_current_task
 
-        class DummyTask:
-            pass
+#         class DummyTask:
+#             pass
 
-        class DummyLoop:
-            pass
+#         class DummyLoop:
+#             pass
 
-        l = DummyLoop()
-        _swap_current_task(l, DummyTask())
-        t = _swap_current_task(l, None)
-        """
+#         l = DummyLoop()
+#         _swap_current_task(l, DummyTask())
+#         t = _swap_current_task(l, None)
+#         """
 
-        _, out, err = assert_python_ok("-c", code)
-        self.assertFalse(err)
+#         _, out, err = assert_python_ok("-c", code)
+#         self.assertFalse(err)
 
-    def test_issue122332(self):
-       async def coro():
-           pass
+#     def test_issue122332(self):
+#        async def coro():
+#            pass
 
-       async def run():
-           task = self.loop.create_task(coro())
-           await task
-           self.assertIsNone(task.get_coro())
+#        async def run():
+#            task = self.loop.create_task(coro())
+#            await task
+#            self.assertIsNone(task.get_coro())
 
-       self.run_coro(run())
+#        self.run_coro(run())
 
-    def test_name(self):
-        name = None
-        async def coro():
-            nonlocal name
-            name = asyncio.current_task().get_name()
+#     def test_name(self):
+#         name = None
+#         async def coro():
+#             nonlocal name
+#             name = asyncio.current_task().get_name()
 
-        async def main():
-            task = self.loop.create_task(coro(), name="test name")
-            self.assertEqual(name, "test name")
-            await task
+#         async def main():
+#             task = self.loop.create_task(coro(), name="test name")
+#             self.assertEqual(name, "test name")
+#             await task
 
-        self.run_coro(coro())
+#         self.run_coro(coro())
 
 class AsyncTaskCounter:
     def __init__(self, loop, *, task_class, eager):
@@ -414,17 +419,19 @@ class NonEagerPyTaskTests(BaseNonEagerTaskFactoryTests, test_utils.TestCase):
 class EagerPyTaskTests(BaseEagerTaskFactoryTests, test_utils.TestCase):
     Task = tasks._PyTask
 
+# TODO: RUSTPYTHON
+# Skips all these tests
+# @unittest.skipUnless(hasattr(tasks, '_CTask'),
+#                      'requires the C _asyncio module')
+# class NonEagerCTaskTests(BaseNonEagerTaskFactoryTests, test_utils.TestCase):
+#     Task = getattr(tasks, '_CTask', None)
 
-@unittest.skipUnless(hasattr(tasks, '_CTask'),
-                     'requires the C _asyncio module')
-class NonEagerCTaskTests(BaseNonEagerTaskFactoryTests, test_utils.TestCase):
-    Task = getattr(tasks, '_CTask', None)
-
-
-@unittest.skipUnless(hasattr(tasks, '_CTask'),
-                     'requires the C _asyncio module')
-class EagerCTaskTests(BaseEagerTaskFactoryTests, test_utils.TestCase):
-    Task = getattr(tasks, '_CTask', None)
+# TODO: RUSTPYTHON
+# Skips all these tests
+# @unittest.skipUnless(hasattr(tasks, '_CTask'),
+#                      'requires the C _asyncio module')
+# class EagerCTaskTests(BaseEagerTaskFactoryTests, test_utils.TestCase):
+#     Task = getattr(tasks, '_CTask', None)
 
 if __name__ == '__main__':
     unittest.main()

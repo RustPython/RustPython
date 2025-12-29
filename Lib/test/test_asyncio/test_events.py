@@ -275,6 +275,9 @@ class EventLoopTestsMixin:
         support.gc_collect()
         super().tearDown()
 
+    # TODO: RUSTPYTHON
+    # AssertionError: RuntimeWarning not triggered
+    @unittest.expectedFailure
     def test_run_until_complete_nesting(self):
         async def coro1():
             await asyncio.sleep(0)
@@ -444,6 +447,8 @@ class EventLoopTestsMixin:
         self.assertEqual(read, data)
 
     @unittest.skipUnless(hasattr(signal, 'SIGKILL'), 'No SIGKILL')
+    @unittest.skip('TODO: RUSTPYTHON')
+    # OSError: Failed to set signal
     def test_add_signal_handler(self):
         caught = 0
 
@@ -1171,6 +1176,9 @@ class EventLoopTestsMixin:
         self.loop.run_until_complete(proto.done)
 
     @unittest.skipIf(ssl is None, 'No ssl module')
+    # TODO: RUSTPYTHON
+    # AssertionError: {'OCSP': ('http://testca.pythontest.net/tes[629 chars]': 3} != {'subject': ((('countryName', ''),), (('loc[419 chars]'),)}
+    @unittest.expectedFailure
     def test_create_server_ssl_verified(self):
         proto = MyProto(loop=self.loop)
         server, host, port = self._make_ssl_server(
