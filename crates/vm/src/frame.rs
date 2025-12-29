@@ -224,6 +224,7 @@ impl Frame {
         Ok(locals.clone())
     }
 
+    #[allow(dead_code)]
     pub(crate) fn checkpoint_stack(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let state = self.state.lock();
         if !state.blocks.is_empty() {
@@ -2615,7 +2616,7 @@ fn maybe_checkpoint_request(
         return None;
     }
     let path = pending.path.clone();
-    if op != bytecode::Instruction::Pop {
+    if op != bytecode::Instruction::PopTop {
         *request = None;
         return None;
     }

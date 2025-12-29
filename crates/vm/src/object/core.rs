@@ -804,7 +804,9 @@ impl PyObject {
                 // we've been resurrected by __del__
                 Some(false) => Err(()),
                 None => {
-                    warn!("couldn't run __del__ method for object");
+                    if crate::vm::thread::has_vm() {
+                        warn!("couldn't run __del__ method for object");
+                    }
                     Ok(())
                 }
             }

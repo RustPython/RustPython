@@ -55,6 +55,10 @@ where
     })
 }
 
+pub(crate) fn has_vm() -> bool {
+    VM_STACK.with(|vms| !vms.borrow().is_empty())
+}
+
 #[must_use = "ThreadedVirtualMachine does nothing unless you move it to another thread and call .run()"]
 #[cfg(feature = "threading")]
 pub struct ThreadedVirtualMachine {

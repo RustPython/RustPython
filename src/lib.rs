@@ -237,7 +237,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
         RunMode::Script(script_path) => {
             // pymain_run_file
             debug!("Running script {}", &script_path);
-            if let Some(resume_path) = vm.state.settings.resume_path.as_deref() {
+            if let Some(resume_path) = vm.state.config.settings.resume_path.as_deref() {
                 vm.run_script_resume(scope.clone(), &script_path, resume_path)
             } else {
                 vm.run_script(scope.clone(), &script_path)

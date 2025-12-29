@@ -75,6 +75,7 @@ impl CheckpointSnapshot {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn save_checkpoint(vm: &VirtualMachine, path: &str) -> PyResult<()> {
     let frame = vm
         .current_frame()
@@ -182,6 +183,7 @@ fn write_snapshot(vm: &VirtualMachine, path: &str, snapshot: CheckpointSnapshot)
     Ok(())
 }
 
+#[allow(dead_code)]
 fn compute_resume_lasti(vm: &VirtualMachine, frame: &FrameRef) -> PyResult<u32> {
     let lasti = frame.lasti();
     let next = frame
@@ -189,7 +191,7 @@ fn compute_resume_lasti(vm: &VirtualMachine, frame: &FrameRef) -> PyResult<u32> 
         .instructions
         .get(lasti as usize)
         .ok_or_else(|| vm.new_runtime_error("checkpoint out of range".to_owned()))?;
-    if next.op != bytecode::Instruction::Pop {
+    if next.op != bytecode::Instruction::PopTop {
         return Err(vm.new_value_error(
             "checkpoint() must be used as a standalone statement".to_owned(),
         ));
@@ -199,6 +201,7 @@ fn compute_resume_lasti(vm: &VirtualMachine, frame: &FrameRef) -> PyResult<u32> 
         .ok_or_else(|| vm.new_runtime_error("checkpoint lasti overflow".to_owned()))
 }
 
+#[allow(dead_code)]
 fn ensure_supported_frame(vm: &VirtualMachine, frame: &FrameRef) -> PyResult<()> {
     if vm.frames.borrow().len() != 1 {
         return Err(vm.new_runtime_error(

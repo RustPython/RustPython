@@ -104,7 +104,7 @@ pub struct PyGlobalState {
     pub after_forkers_parent: PyMutex<Vec<PyObjectRef>>,
     pub int_max_str_digits: AtomicCell<usize>,
     pub switch_interval: AtomicCell<f64>,
-    pub checkpoint_request: PyMutex<Option<CheckpointRequest>>,
+    pub(crate) checkpoint_request: PyMutex<Option<CheckpointRequest>>,
 }
 
 pub(crate) struct CheckpointRequest {

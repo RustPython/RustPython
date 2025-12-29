@@ -1,6 +1,4 @@
 use rustpython_vm::{Interpreter, PyRef, Settings, VirtualMachine, builtins::PyModule};
-#[cfg(not(feature = "freeze-stdlib"))]
-use std::path::Path;
 
 pub type InitHook = Box<dyn FnOnce(&mut VirtualMachine)>;
 
