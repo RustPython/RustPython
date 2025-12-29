@@ -20,7 +20,6 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 
 #[pymodule]
 mod _sqlite {
-    use crossbeam_utils::atomic::AtomicCell;
     use libsqlite3_sys::{
         SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL,
         SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT, SQLITE_TRACE_STMT,
@@ -2549,19 +2548,19 @@ mod _sqlite {
     impl AsSequence for Blob {
         fn as_sequence() -> &'static PySequenceMethods {
             static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-                length: AtomicCell::new(None),
-                concat: AtomicCell::new(None),
-                repeat: AtomicCell::new(None),
-                item: AtomicCell::new(None),
-                ass_item: AtomicCell::new(None),
+                length: None,
+                concat: None,
+                repeat: None,
+                item: None,
+                ass_item: None,
                 contains: atomic_func!(|seq, _needle, vm| {
                     Err(vm.new_type_error(format!(
                         "argument of type '{}' is not iterable",
                         seq.obj.class().name(),
                     )))
                 }),
-                inplace_concat: AtomicCell::new(None),
-                inplace_repeat: AtomicCell::new(None),
+                inplace_concat: None,
+                inplace_repeat: None,
             };
             &AS_SEQUENCE
         }

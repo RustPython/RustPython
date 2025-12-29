@@ -264,7 +264,7 @@ mod _contextvars {
                         Err(vm.new_key_error(needle.to_owned().into()))
                     }
                 }),
-                ass_subscript: AtomicCell::new(None),
+                ass_subscript: None,
             };
             &AS_MAPPING
         }
