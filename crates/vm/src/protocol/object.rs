@@ -12,7 +12,7 @@ use crate::{
     dict_inner::DictKey,
     function::{Either, FuncArgs, PyArithmeticValue, PySetterValue},
     object::PyPayload,
-    protocol::{PyIter, PyMapping, PySequence},
+    protocol::PyIter,
     types::{Constructor, PyComparisonOp},
 };
 
@@ -136,10 +136,7 @@ impl PyObject {
     #[inline]
     pub(crate) fn get_attr_inner(&self, attr_name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         vm_trace!("object.__getattribute__: {:?} {:?}", self, attr_name);
-        let getattro = self
-            .class()
-            .mro_find_map(|cls| cls.slots.getattro.load())
-            .unwrap();
+        let getattro = self.class().slots.getattro.load().unwrap();
         getattro(self, attr_name, vm).inspect_err(|exc| {
             vm.set_attribute_error_context(exc, self.to_owned(), attr_name.to_owned());
         })
@@ -153,21 +150,20 @@ impl PyObject {
     ) -> PyResult<()> {
         let setattro = {
             let cls = self.class();
-            cls.mro_find_map(|cls| cls.slots.setattro.load())
-                .ok_or_else(|| {
-                    let has_getattr = cls.mro_find_map(|cls| cls.slots.getattro.load()).is_some();
-                    vm.new_type_error(format!(
-                        "'{}' object has {} attributes ({} {})",
-                        cls.name(),
-                        if has_getattr { "only read-only" } else { "no" },
-                        if attr_value.is_assign() {
-                            "assign to"
-                        } else {
-                            "del"
-                        },
-                        attr_name
-                    ))
-                })?
+            cls.slots.setattro.load().ok_or_else(|| {
+                let has_getattr = cls.slots.getattro.load().is_some();
+                vm.new_type_error(format!(
+                    "'{}' object has {} attributes ({} {})",
+                    cls.name(),
+                    if has_getattr { "only read-only" } else { "no" },
+                    if attr_value.is_assign() {
+                        "assign to"
+                    } else {
+                        "del"
+                    },
+                    attr_name
+                ))
+            })?
         };
         setattro(self, attr_name, attr_value, vm)
     }
@@ -197,7 +193,7 @@ impl PyObject {
             .interned_str(attr_name)
             .and_then(|attr_name| self.get_class_attr(attr_name))
         {
-            let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
+            let descr_set = attr.class().slots.descr_set.load();
             if let Some(descriptor) = descr_set {
                 return descriptor(&attr, self.to_owned(), value, vm);
             }
@@ -239,11 +235,9 @@ impl PyObject {
         let cls_attr = match cls_attr_name.and_then(|name| obj_cls.get_attr(name)) {
             Some(descr) => {
                 let descr_cls = descr.class();
-                let descr_get = descr_cls.mro_find_map(|cls| cls.slots.descr_get.load());
+                let descr_get = descr_cls.slots.descr_get.load();
                 if let Some(descr_get) = descr_get
-                    && descr_cls
-                        .mro_find_map(|cls| cls.slots.descr_set.load())
-                        .is_some()
+                    && descr_cls.slots.descr_set.load().is_some()
                 {
                     let cls = obj_cls.to_owned().into();
                     return descr_get(descr, Some(self.to_owned()), Some(cls), vm).map(Some);
@@ -293,10 +287,7 @@ impl PyObject {
     ) -> PyResult<Either<PyObjectRef, bool>> {
         let swapped = op.swapped();
         let call_cmp = |obj: &Self, other: &Self, op| {
-            let cmp = obj
-                .class()
-                .mro_find_map(|cls| cls.slots.richcompare.load())
-                .unwrap();
+            let cmp = obj.class().slots.richcompare.load().unwrap();
             let r = match cmp(obj, other, op, vm)? {
                 Either::A(obj) => PyArithmeticValue::from_object(vm, obj).map(Either::A),
                 Either::B(arithmetic) => arithmetic.map(Either::B),
@@ -353,18 +344,15 @@ impl PyObject {
 
     pub fn repr(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
         vm.with_recursion("while getting the repr of an object", || {
-            // TODO: RustPython does not implement type slots inheritance yet
-            self.class()
-                .mro_find_map(|cls| cls.slots.repr.load())
-                .map_or_else(
-                    || {
-                        Err(vm.new_runtime_error(format!(
+            self.class().slots.repr.load().map_or_else(
+                || {
+                    Err(vm.new_runtime_error(format!(
                     "BUG: object of type '{}' has no __repr__ method. This is a bug in RustPython.",
                     self.class().name()
                 )))
-                    },
-                    |repr| repr(self, vm),
-                )
+                },
+                |repr| repr(self, vm),
+            )
         })
     }
 
@@ -659,7 +647,7 @@ impl PyObject {
     }
 
     pub fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
-        if let Some(hash) = self.class().mro_find_map(|cls| cls.slots.hash.load()) {
+        if let Some(hash) = self.class().slots.hash.load() {
             return hash(self, vm);
         }
 
@@ -681,9 +669,9 @@ impl PyObject {
     }
 
     pub fn length_opt(&self, vm: &VirtualMachine) -> Option<PyResult<usize>> {
-        self.to_sequence()
+        self.sequence_unchecked()
             .length_opt(vm)
-            .or_else(|| self.to_mapping().length_opt(vm))
+            .or_else(|| self.mapping_unchecked().length_opt(vm))
     }
 
     pub fn length(&self, vm: &VirtualMachine) -> PyResult<usize> {
@@ -702,9 +690,9 @@ impl PyObject {
 
         let needle = needle.to_pyobject(vm);
 
-        if let Ok(mapping) = PyMapping::try_protocol(self, vm) {
+        if let Ok(mapping) = self.try_mapping(vm) {
             mapping.subscript(&needle, vm)
-        } else if let Ok(seq) = PySequence::try_protocol(self, vm) {
+        } else if let Ok(seq) = self.try_sequence(vm) {
             let i = needle.key_as_isize(vm)?;
             seq.get_item(i, vm)
         } else {
@@ -734,14 +722,14 @@ impl PyObject {
             return dict.set_item(needle, value, vm);
         }
 
-        let mapping = self.to_mapping();
-        if let Some(f) = mapping.methods.ass_subscript.load() {
+        let mapping = self.mapping_unchecked();
+        if let Some(f) = mapping.slots().ass_subscript.load() {
             let needle = needle.to_pyobject(vm);
             return f(mapping, &needle, Some(value), vm);
         }
 
-        let seq = self.to_sequence();
-        if let Some(f) = seq.methods.ass_item.load() {
+        let seq = self.sequence_unchecked();
+        if let Some(f) = seq.slots().ass_item.load() {
             let i = needle.key_as_isize(vm)?;
             return f(seq, i, Some(value), vm);
         }
@@ -757,13 +745,13 @@ impl PyObject {
             return dict.del_item(needle, vm);
         }
 
-        let mapping = self.to_mapping();
-        if let Some(f) = mapping.methods.ass_subscript.load() {
+        let mapping = self.mapping_unchecked();
+        if let Some(f) = mapping.slots().ass_subscript.load() {
             let needle = needle.to_pyobject(vm);
             return f(mapping, &needle, None, vm);
         }
-        let seq = self.to_sequence();
-        if let Some(f) = seq.methods.ass_item.load() {
+        let seq = self.sequence_unchecked();
+        if let Some(f) = seq.slots().ass_item.load() {
             let i = needle.key_as_isize(vm)?;
             return f(seq, i, None, vm);
         }
@@ -781,7 +769,7 @@ impl PyObject {
         let res = obj_cls.lookup_ref(attr, vm)?;
 
         // If it's a descriptor, call its __get__ method
-        let descr_get = res.class().mro_find_map(|cls| cls.slots.descr_get.load());
+        let descr_get = res.class().slots.descr_get.load();
         if let Some(descr_get) = descr_get {
             let obj_cls = obj_cls.to_owned().into();
             // CPython ignores exceptions in _PyObject_LookupSpecial and returns NULL

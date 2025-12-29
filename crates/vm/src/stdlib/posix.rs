@@ -405,15 +405,16 @@ pub mod module {
         )
         })?;
 
-        let metadata = fs::metadata(&path.path);
+        let metadata = match fs::metadata(&path.path) {
+            Ok(m) => m,
+            // If the file doesn't exist, return False for any access check
+            Err(_) => return Ok(false),
+        };
 
         // if it's only checking for F_OK
         if flags == AccessFlags::F_OK {
-            return Ok(metadata.is_ok());
+            return Ok(true); // File exists
         }
-
-        let metadata =
-            metadata.map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
 
         let user_id = metadata.uid();
         let group_id = metadata.gid();
@@ -472,6 +473,13 @@ pub mod module {
                 Ok(())
             }
         }
+    }
+
+    #[pyfunction]
+    #[pyfunction(name = "unlink")]
+    fn remove(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult<()> {
+        let [] = dir_fd.0;
+        fs::remove_file(&path).map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -1239,12 +1247,36 @@ pub mod module {
             .map_err(|err| err.into_pyexception(vm))
     }
 
+    #[pyfunction]
+    fn setpgrp(vm: &VirtualMachine) -> PyResult<()> {
+        // setpgrp() is equivalent to setpgid(0, 0)
+        unistd::setpgid(Pid::from_raw(0), Pid::from_raw(0)).map_err(|err| err.into_pyexception(vm))
+    }
+
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyfunction]
     fn setsid(vm: &VirtualMachine) -> PyResult<()> {
         unistd::setsid()
             .map(|_ok| ())
             .map_err(|err| err.into_pyexception(vm))
+    }
+
+    #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
+    #[pyfunction]
+    fn tcgetpgrp(fd: i32, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
+        use std::os::fd::BorrowedFd;
+        let fd = unsafe { BorrowedFd::borrow_raw(fd) };
+        unistd::tcgetpgrp(fd)
+            .map(|pid| pid.as_raw())
+            .map_err(|err| err.into_pyexception(vm))
+    }
+
+    #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
+    #[pyfunction]
+    fn tcsetpgrp(fd: i32, pgid: libc::pid_t, vm: &VirtualMachine) -> PyResult<()> {
+        use std::os::fd::BorrowedFd;
+        let fd = unsafe { BorrowedFd::borrow_raw(fd) };
+        unistd::tcsetpgrp(fd, Pid::from_raw(pgid)).map_err(|err| err.into_pyexception(vm))
     }
 
     fn try_from_id(vm: &VirtualMachine, obj: PyObjectRef, typ_name: &str) -> PyResult<u32> {
@@ -1713,9 +1745,17 @@ pub mod module {
     #[pyfunction]
     fn waitpid(pid: libc::pid_t, opt: i32, vm: &VirtualMachine) -> PyResult<(libc::pid_t, i32)> {
         let mut status = 0;
-        let pid = unsafe { libc::waitpid(pid, &mut status, opt) };
-        let pid = nix::Error::result(pid).map_err(|err| err.into_pyexception(vm))?;
-        Ok((pid, status))
+        loop {
+            let res = unsafe { libc::waitpid(pid, &mut status, opt) };
+            if res == -1 {
+                if nix::Error::last_raw() == libc::EINTR {
+                    vm.check_signals()?;
+                    continue;
+                }
+                return Err(nix::Error::last().into_pyexception(vm));
+            }
+            return Ok((res, status));
+        }
     }
 
     #[pyfunction]
@@ -1832,6 +1872,8 @@ pub mod module {
             SupportFunc::new("umask", Some(false), Some(false), Some(false)),
             SupportFunc::new("execv", None, None, None),
             SupportFunc::new("pathconf", Some(true), None, None),
+            SupportFunc::new("fpathconf", Some(true), None, None),
+            SupportFunc::new("fchdir", Some(true), None, None),
         ]
     }
 

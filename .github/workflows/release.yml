@@ -144,12 +144,18 @@ jobs:
     if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     needs: [build, build-wasm]
     steps:
+      - uses: actions/checkout@v6.0.1
+
       - name: Download Binary Artifacts
         uses: actions/download-artifact@v7.0.0
         with:
           path: bin
           pattern: rustpython-*
           merge-multiple: true
+
+      - name: Create Lib Archive
+        run: |
+          zip -r bin/rustpython-lib.zip Lib/
 
       - name: List Binaries
         run: |
@@ -174,6 +180,7 @@ jobs:
               --repo="$GITHUB_REPOSITORY" \
               --title="RustPython $RELEASE_TYPE_NAME $today-$tag #$run" \
               --target="$tag" \
+              --notes "⚠️ **Important**: To run RustPython, you must download both the binary for your platform AND the \`rustpython-lib.zip\` archive. Extract the Lib directory from the archive to the same location as the binary, or set the \`RUSTPYTHONPATH\` environment variable to point to the Lib directory." \
               --generate-notes \
               $PRERELEASE_ARG \
               bin/rustpython-release-*

@@ -1,6 +1,8 @@
 use crate::{Py, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyObject};
 
-pub(crate) use sys::{__module_def, DOC, MAXSIZE, MULTIARCH, UnraisableHookArgsData};
+pub(crate) use sys::{
+    __module_def, DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, multiarch,
+};
 
 #[pymodule]
 mod sys {
@@ -25,7 +27,6 @@ mod sys {
     use std::{
         env::{self, VarError},
         io::Read,
-        path,
         sync::atomic::Ordering,
     };
 
@@ -38,10 +39,14 @@ mod sys {
         System::LibraryLoader::{GetModuleFileNameW, GetModuleHandleW},
     };
 
-    // not the same as CPython (e.g. rust's x86_x64-unknown-linux-gnu is just x86_64-linux-gnu)
-    // but hopefully that's just an implementation detail? TODO: copy CPython's multiarch exactly,
-    // https://github.com/python/cpython/blob/3.8/configure.ac#L725
-    pub(crate) const MULTIARCH: &str = env!("RUSTPYTHON_TARGET_TRIPLE");
+    // Rust target triple (e.g., "x86_64-unknown-linux-gnu")
+    pub(crate) const RUST_MULTIARCH: &str = env!("RUSTPYTHON_TARGET_TRIPLE");
+
+    /// Convert Rust target triple to CPython-style multiarch
+    /// e.g., "x86_64-unknown-linux-gnu" -> "x86_64-linux-gnu"
+    pub(crate) fn multiarch() -> String {
+        RUST_MULTIARCH.replace("-unknown", "")
+    }
 
     #[pyattr(name = "_rustpython_debugbuild")]
     const RUSTPYTHON_DEBUGBUILD: bool = cfg!(debug_assertions);
@@ -96,25 +101,20 @@ mod sys {
     const DLLHANDLE: usize = 0;
 
     #[pyattr]
-    const fn default_prefix(_vm: &VirtualMachine) -> &'static str {
-        // TODO: the windows one doesn't really make sense
-        if cfg!(windows) { "C:" } else { "/usr/local" }
+    fn prefix(vm: &VirtualMachine) -> String {
+        vm.state.config.paths.prefix.clone()
     }
     #[pyattr]
-    fn prefix(vm: &VirtualMachine) -> &'static str {
-        option_env!("RUSTPYTHON_PREFIX").unwrap_or_else(|| default_prefix(vm))
+    fn base_prefix(vm: &VirtualMachine) -> String {
+        vm.state.config.paths.base_prefix.clone()
     }
     #[pyattr]
-    fn base_prefix(vm: &VirtualMachine) -> &'static str {
-        option_env!("RUSTPYTHON_BASEPREFIX").unwrap_or_else(|| prefix(vm))
+    fn exec_prefix(vm: &VirtualMachine) -> String {
+        vm.state.config.paths.exec_prefix.clone()
     }
     #[pyattr]
-    fn exec_prefix(vm: &VirtualMachine) -> &'static str {
-        option_env!("RUSTPYTHON_BASEPREFIX").unwrap_or_else(|| prefix(vm))
-    }
-    #[pyattr]
-    fn base_exec_prefix(vm: &VirtualMachine) -> &'static str {
-        option_env!("RUSTPYTHON_BASEPREFIX").unwrap_or_else(|| exec_prefix(vm))
+    fn base_exec_prefix(vm: &VirtualMachine) -> String {
+        vm.state.config.paths.base_exec_prefix.clone()
     }
     #[pyattr]
     fn platlibdir(_vm: &VirtualMachine) -> &'static str {
@@ -126,6 +126,7 @@ mod sys {
     #[pyattr]
     fn argv(vm: &VirtualMachine) -> Vec<PyObjectRef> {
         vm.state
+            .config
             .settings
             .argv
             .iter()
@@ -162,58 +163,18 @@ mod sys {
     }
 
     #[pyattr]
-    fn _base_executable(vm: &VirtualMachine) -> PyObjectRef {
-        let ctx = &vm.ctx;
-        if let Ok(var) = env::var("__PYVENV_LAUNCHER__") {
-            ctx.new_str(var).into()
-        } else {
-            executable(vm)
-        }
+    fn _base_executable(vm: &VirtualMachine) -> String {
+        vm.state.config.paths.base_executable.clone()
     }
 
     #[pyattr]
     fn dont_write_bytecode(vm: &VirtualMachine) -> bool {
-        !vm.state.settings.write_bytecode
+        !vm.state.config.settings.write_bytecode
     }
 
     #[pyattr]
-    fn executable(vm: &VirtualMachine) -> PyObjectRef {
-        let ctx = &vm.ctx;
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            if let Some(exec_path) = env::args_os().next()
-                && let Ok(path) = which::which(exec_path)
-            {
-                return ctx
-                    .new_str(
-                        path.into_os_string()
-                            .into_string()
-                            .unwrap_or_else(|p| p.to_string_lossy().into_owned()),
-                    )
-                    .into();
-            }
-        }
-        if let Some(exec_path) = env::args().next() {
-            let path = path::Path::new(&exec_path);
-            if !path.exists() {
-                return ctx.new_str(ascii!("")).into();
-            }
-            if path.is_absolute() {
-                return ctx.new_str(exec_path).into();
-            }
-            if let Ok(dir) = env::current_dir()
-                && let Ok(dir) = dir.into_os_string().into_string()
-            {
-                return ctx
-                    .new_str(format!(
-                        "{}/{}",
-                        dir,
-                        exec_path.strip_prefix("./").unwrap_or(&exec_path)
-                    ))
-                    .into();
-            }
-        }
-        ctx.none()
+    fn executable(vm: &VirtualMachine) -> String {
+        vm.state.config.paths.executable.clone()
     }
 
     #[pyattr]
@@ -234,7 +195,7 @@ mod sys {
         py_namespace!(vm, {
             "name" => ctx.new_str(NAME),
             "cache_tag" => ctx.new_str(cache_tag),
-            "_multiarch" => ctx.new_str(MULTIARCH.to_owned()),
+            "_multiarch" => ctx.new_str(multiarch()),
             "version" => version_info(vm),
             "hexversion" => ctx.new_int(version::VERSION_HEX),
         })
@@ -253,8 +214,9 @@ mod sys {
     #[pyattr]
     fn path(vm: &VirtualMachine) -> Vec<PyObjectRef> {
         vm.state
-            .settings
-            .path_list
+            .config
+            .paths
+            .module_search_paths
             .iter()
             .map(|path| vm.ctx.new_str(path.clone()).into())
             .collect()
@@ -291,7 +253,7 @@ mod sys {
     fn _xoptions(vm: &VirtualMachine) -> PyDictRef {
         let ctx = &vm.ctx;
         let xopts = ctx.new_dict();
-        for (key, value) in &vm.state.settings.xoptions {
+        for (key, value) in &vm.state.config.settings.xoptions {
             let value = value.as_ref().map_or_else(
                 || ctx.new_bool(true).into(),
                 |s| ctx.new_str(s.clone()).into(),
@@ -304,6 +266,7 @@ mod sys {
     #[pyattr]
     fn warnoptions(vm: &VirtualMachine) -> Vec<PyObjectRef> {
         vm.state
+            .config
             .settings
             .warnoptions
             .iter()
@@ -448,7 +411,7 @@ mod sys {
 
     #[pyattr]
     fn flags(vm: &VirtualMachine) -> PyTupleRef {
-        PyFlags::from_data(FlagsData::from_settings(&vm.state.settings), vm)
+        PyFlags::from_data(FlagsData::from_settings(&vm.state.config.settings), vm)
     }
 
     #[pyattr]
@@ -1292,6 +1255,6 @@ pub(crate) fn sysconfigdata_name() -> String {
         "_sysconfigdata_{}_{}_{}",
         sys::ABIFLAGS,
         sys::PLATFORM,
-        sys::MULTIARCH
+        sys::multiarch()
     )
 }

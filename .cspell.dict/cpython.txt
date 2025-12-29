@@ -1,6 +1,7 @@
 argtypes
 asdl
 asname
+attro
 augassign
 badcert
 badsyntax
@@ -17,6 +18,7 @@ cmpop
 denom
 DICTFLAG
 dictoffset
+distpoint
 elts
 excepthandler
 fileutils
@@ -42,11 +44,14 @@ numer
 orelse
 pathconfig
 patma
+platstdlib
 posonlyarg
 posonlyargs
 prec
 preinitialized
+pythonw
 PYTHREAD_NAME
+releasebuffer
 SA_ONSTACK
 SOABI
 stackdepth
@@ -63,6 +68,11 @@ unparse
 unparser
 VARKEYWORDS
 varkwarg
+venvlauncher
+venvlaunchert
+venvw
+venvwlauncher
+venvwlaunchert
 wbits
 weakreflist
 webpki

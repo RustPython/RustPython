@@ -1,6 +1,7 @@
+use super::base::CDATA_BUFFER_METHODS;
 use super::{PyCArray, PyCData, PyCSimple, PyCStructure, StgInfo, StgInfoFlags};
-use crate::protocol::PyNumberMethods;
-use crate::types::{AsNumber, Constructor, Initializer};
+use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods};
+use crate::types::{AsBuffer, AsNumber, Constructor, Initializer};
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyBytes, PyInt, PyList, PySlice, PyStr, PyType, PyTypeRef},
@@ -8,6 +9,7 @@ use crate::{
     function::{FuncArgs, OptionalArg},
 };
 use num_traits::ToPrimitive;
+use std::borrow::Cow;
 
 #[pyclass(name = "PyCPointerType", base = PyType, module = "_ctypes")]
 #[derive(Debug)]
@@ -42,11 +44,19 @@ impl Initializer for PyCPointerType {
         stg_info.length = 1;
         stg_info.flags |= StgInfoFlags::TYPEFLAG_ISPOINTER;
 
-        // Set format string: "&<element_format>"
-        if let Some(ref proto) = stg_info.proto {
-            let item_info = proto.stg_info_opt().expect("proto has StgInfo");
+        // Set format string: "&<element_format>" or "&(shape)<element_format>" for arrays
+        if let Some(ref proto) = stg_info.proto
+            && let Some(item_info) = proto.stg_info_opt()
+        {
             let current_format = item_info.format.as_deref().unwrap_or("B");
-            stg_info.format = Some(format!("&{}", current_format));
+            // Include shape for array types in the pointer format
+            let shape_str = if !item_info.shape.is_empty() {
+                let dims: Vec<String> = item_info.shape.iter().map(|d| d.to_string()).collect();
+                format!("({})", dims.join(","))
+            } else {
+                String::new()
+            };
+            stg_info.format = Some(format!("&{}{}", shape_str, current_format));
         }
 
         let _ = new_type.init_type_data(stg_info);
@@ -66,6 +76,15 @@ impl PyCPointerType {
 
         // 1. None is allowed for pointer types
         if vm.is_none(&value) {
+            return Ok(value);
+        }
+
+        // 1.5 CArgObject (from byref()) - check if underlying obj is instance of _type_
+        if let Some(carg) = value.downcast_ref::<super::_ctypes::CArgObject>()
+            && let Ok(type_attr) = cls.as_object().get_attr("_type_", vm)
+            && let Ok(type_ref) = type_attr.downcast::<PyType>()
+            && carg.obj.is_instance(type_ref.as_object(), vm)?
+        {
             return Ok(value);
         }
 
@@ -149,10 +168,17 @@ impl PyCPointerType {
         if let Some(mut stg_info) = zelf.get_type_data_mut::<StgInfo>() {
             stg_info.proto = Some(typ_type.clone());
 
-            // Update format string: "&<element_format>"
+            // Update format string: "&<element_format>" or "&(shape)<element_format>" for arrays
             let item_info = typ_type.stg_info_opt().expect("proto has StgInfo");
             let current_format = item_info.format.as_deref().unwrap_or("B");
-            stg_info.format = Some(format!("&{}", current_format));
+            // Include shape for array types in the pointer format
+            let shape_str = if !item_info.shape.is_empty() {
+                let dims: Vec<String> = item_info.shape.iter().map(|d| d.to_string()).collect();
+                format!("({})", dims.join(","))
+            } else {
+                String::new()
+            };
+            stg_info.format = Some(format!("&{}{}", shape_str, current_format));
         }
 
         // 4. Set _type_ attribute on the pointer type
@@ -233,7 +259,10 @@ impl Initializer for PyCPointer {
     }
 }
 
-#[pyclass(flags(BASETYPE, IMMUTABLETYPE), with(Constructor, Initializer))]
+#[pyclass(
+    flags(BASETYPE, IMMUTABLETYPE),
+    with(Constructor, Initializer, AsBuffer)
+)]
 impl PyCPointer {
     /// Get the pointer value stored in buffer as usize
     pub fn get_ptr_value(&self) -> usize {
@@ -605,20 +634,47 @@ impl PyCPointer {
         unsafe {
             let ptr = addr as *const u8;
             match type_code {
+                // Single-byte types don't need read_unaligned
                 Some("c") => Ok(vm.ctx.new_bytes(vec![*ptr]).into()),
-                Some("b") => Ok(vm.ctx.new_int(*(ptr as *const i8) as i32).into()),
+                Some("b") => Ok(vm.ctx.new_int(*ptr as i8 as i32).into()),
                 Some("B") => Ok(vm.ctx.new_int(*ptr as i32).into()),
-                Some("h") => Ok(vm.ctx.new_int(*(ptr as *const i16) as i32).into()),
-                Some("H") => Ok(vm.ctx.new_int(*(ptr as *const u16) as i32).into()),
-                Some("i") | Some("l") => Ok(vm.ctx.new_int(*(ptr as *const i32)).into()),
-                Some("I") | Some("L") => Ok(vm.ctx.new_int(*(ptr as *const u32)).into()),
-                Some("q") => Ok(vm.ctx.new_int(*(ptr as *const i64)).into()),
-                Some("Q") => Ok(vm.ctx.new_int(*(ptr as *const u64)).into()),
-                Some("f") => Ok(vm.ctx.new_float(*(ptr as *const f32) as f64).into()),
-                Some("d") | Some("g") => Ok(vm.ctx.new_float(*(ptr as *const f64)).into()),
-                Some("P") | Some("z") | Some("Z") => {
-                    Ok(vm.ctx.new_int(*(ptr as *const usize)).into())
-                }
+                // Multi-byte types need read_unaligned for safety on strict-alignment architectures
+                Some("h") => Ok(vm
+                    .ctx
+                    .new_int(std::ptr::read_unaligned(ptr as *const i16) as i32)
+                    .into()),
+                Some("H") => Ok(vm
+                    .ctx
+                    .new_int(std::ptr::read_unaligned(ptr as *const u16) as i32)
+                    .into()),
+                Some("i") | Some("l") => Ok(vm
+                    .ctx
+                    .new_int(std::ptr::read_unaligned(ptr as *const i32))
+                    .into()),
+                Some("I") | Some("L") => Ok(vm
+                    .ctx
+                    .new_int(std::ptr::read_unaligned(ptr as *const u32))
+                    .into()),
+                Some("q") => Ok(vm
+                    .ctx
+                    .new_int(std::ptr::read_unaligned(ptr as *const i64))
+                    .into()),
+                Some("Q") => Ok(vm
+                    .ctx
+                    .new_int(std::ptr::read_unaligned(ptr as *const u64))
+                    .into()),
+                Some("f") => Ok(vm
+                    .ctx
+                    .new_float(std::ptr::read_unaligned(ptr as *const f32) as f64)
+                    .into()),
+                Some("d") | Some("g") => Ok(vm
+                    .ctx
+                    .new_float(std::ptr::read_unaligned(ptr as *const f64))
+                    .into()),
+                Some("P") | Some("z") | Some("Z") => Ok(vm
+                    .ctx
+                    .new_int(std::ptr::read_unaligned(ptr as *const usize))
+                    .into()),
                 _ => {
                     // Default: read as bytes
                     let bytes = std::slice::from_raw_parts(ptr, size).to_vec();
@@ -652,27 +708,37 @@ impl PyCPointer {
                             "bytes/string or integer address expected".to_owned(),
                         ));
                     };
-                    *(ptr as *mut usize) = ptr_val;
+                    std::ptr::write_unaligned(ptr as *mut usize, ptr_val);
                     return Ok(());
                 }
                 _ => {}
             }
 
             // Try to get value as integer
+            // Use write_unaligned for safety on strict-alignment architectures
             if let Ok(int_val) = value.try_int(vm) {
                 let i = int_val.as_bigint();
                 match size {
                     1 => {
-                        *ptr = i.to_u8().unwrap_or(0);
+                        *ptr = i.to_u8().expect("int too large");
                     }
                     2 => {
-                        *(ptr as *mut i16) = i.to_i16().unwrap_or(0);
+                        std::ptr::write_unaligned(
+                            ptr as *mut i16,
+                            i.to_i16().expect("int too large"),
+                        );
                     }
                     4 => {
-                        *(ptr as *mut i32) = i.to_i32().unwrap_or(0);
+                        std::ptr::write_unaligned(
+                            ptr as *mut i32,
+                            i.to_i32().expect("int too large"),
+                        );
                     }
                     8 => {
-                        *(ptr as *mut i64) = i.to_i64().unwrap_or(0);
+                        std::ptr::write_unaligned(
+                            ptr as *mut i64,
+                            i.to_i64().expect("int too large"),
+                        );
                     }
                     _ => {
                         let bytes = i.to_signed_bytes_le();
@@ -688,10 +754,10 @@ impl PyCPointer {
                 let f = float_val.to_f64();
                 match size {
                     4 => {
-                        *(ptr as *mut f32) = f as f32;
+                        std::ptr::write_unaligned(ptr as *mut f32, f as f32);
                     }
                     8 => {
-                        *(ptr as *mut f64) = f;
+                        std::ptr::write_unaligned(ptr as *mut f64, f);
                     }
                     _ => {}
                 }
@@ -710,5 +776,30 @@ impl PyCPointer {
                 value.class().name()
             )))
         }
+    }
+}
+
+impl AsBuffer for PyCPointer {
+    fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        let stg_info = zelf
+            .class()
+            .stg_info_opt()
+            .expect("PyCPointer type must have StgInfo");
+        let format = stg_info
+            .format
+            .clone()
+            .map(Cow::Owned)
+            .unwrap_or(Cow::Borrowed("&B"));
+        let itemsize = stg_info.size;
+        // Pointer types are scalars with ndim=0, shape=()
+        let desc = BufferDescriptor {
+            len: itemsize,
+            readonly: false,
+            itemsize,
+            format,
+            dim_desc: vec![],
+        };
+        let buf = PyBuffer::new(zelf.to_owned().into(), desc, &CDATA_BUFFER_METHODS);
+        Ok(buf)
     }
 }

@@ -15,7 +15,6 @@ use crate::{
     builtins::PyIntRef,
     builtins::{PyDict, PyModule, PyStrRef, PyType},
     class::{PyClassImpl, StaticType},
-    compiler::core::bytecode::OpArgType,
     compiler::{CompileError, ParseError},
     convert::ToPyObject,
 };
@@ -160,6 +159,20 @@ fn text_range_to_source_range(source_file: &SourceFile, text_range: TextRange) -
     }
 }
 
+fn get_opt_int_field(
+    vm: &VirtualMachine,
+    obj: &PyObject,
+    field: &'static str,
+) -> PyResult<Option<PyRefExact<PyInt>>> {
+    match get_node_field_opt(vm, obj, field)? {
+        Some(val) => val
+            .downcast_exact(vm)
+            .map(Some)
+            .map_err(|_| vm.new_type_error(format!(r#"field "{field}" must have integer type"#))),
+        None => Ok(None),
+    }
+}
+
 fn range_from_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
@@ -168,17 +181,35 @@ fn range_from_object(
 ) -> PyResult<TextRange> {
     let start_row = get_int_field(vm, &object, "lineno", name)?;
     let start_column = get_int_field(vm, &object, "col_offset", name)?;
-    let end_row = get_int_field(vm, &object, "end_lineno", name)?;
-    let end_column = get_int_field(vm, &object, "end_col_offset", name)?;
+    // end_lineno and end_col_offset are optional, default to start values
+    let end_row =
+        get_opt_int_field(vm, &object, "end_lineno")?.unwrap_or_else(|| start_row.clone());
+    let end_column =
+        get_opt_int_field(vm, &object, "end_col_offset")?.unwrap_or_else(|| start_column.clone());
+
+    // lineno=0 or negative values as a special case (no location info).
+    // Use default values (line 1, col 0) when lineno <= 0.
+    let start_row_val: i32 = start_row.try_to_primitive(vm)?;
+    let end_row_val: i32 = end_row.try_to_primitive(vm)?;
+    let start_col_val: i32 = start_column.try_to_primitive(vm)?;
+    let end_col_val: i32 = end_column.try_to_primitive(vm)?;
 
     let location = PySourceRange {
         start: PySourceLocation {
-            row: Row(OneIndexed::new(start_row.try_to_primitive(vm)?).unwrap()),
-            column: Column(TextSize::new(start_column.try_to_primitive(vm)?)),
+            row: Row(if start_row_val > 0 {
+                OneIndexed::new(start_row_val as usize).unwrap_or(OneIndexed::MIN)
+            } else {
+                OneIndexed::MIN
+            }),
+            column: Column(TextSize::new(start_col_val.max(0) as u32)),
         },
         end: PySourceLocation {
-            row: Row(OneIndexed::new(end_row.try_to_primitive(vm)?).unwrap()),
-            column: Column(TextSize::new(end_column.try_to_primitive(vm)?)),
+            row: Row(if end_row_val > 0 {
+                OneIndexed::new(end_row_val as usize).unwrap_or(OneIndexed::MIN)
+            } else {
+                OneIndexed::MIN
+            }),
+            column: Column(TextSize::new(end_col_val.max(0) as u32)),
         },
     };
 

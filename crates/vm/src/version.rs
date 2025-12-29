@@ -15,12 +15,29 @@ pub const VERSION_HEX: usize =
     (MAJOR << 24) | (MINOR << 16) | (MICRO << 8) | (RELEASELEVEL_N << 4) | SERIAL;
 
 pub fn get_version() -> String {
+    // Windows: include MSC v. for compatibility with ctypes.util.find_library
+    // MSC v.1929 = VS 2019, version 14+ makes find_msvcrt() return None
+    #[cfg(windows)]
+    let msc_info = {
+        let arch = if cfg!(target_pointer_width = "64") {
+            "64 bit (AMD64)"
+        } else {
+            "32 bit (Intel)"
+        };
+        // Include both RustPython identifier and MSC v. for compatibility
+        format!(" MSC v.1929 {arch}",)
+    };
+
+    #[cfg(not(windows))]
+    let msc_info = String::new();
+
     format!(
-        "{:.80} ({:.80}) \n[RustPython {} with {:.80}]", // \n is PyPy convention
+        "{:.80} ({:.80}) \n[RustPython {} with {:.80}{}]", // \n is PyPy convention
         get_version_number(),
         get_build_info(),
         env!("CARGO_PKG_VERSION"),
         COMPILER,
+        msc_info,
     )
 }
 
@@ -109,3 +126,14 @@ pub fn get_git_datetime() -> String {
 
     format!("{date} {time}")
 }
+
+// Must be aligned to Lib/importlib/_bootstrap_external.py
+pub const PYC_MAGIC_NUMBER: u16 = 3531;
+
+// CPython format: magic_number | ('\r' << 16) | ('\n' << 24)
+// This protects against text-mode file reads
+pub const PYC_MAGIC_NUMBER_TOKEN: u32 =
+    (PYC_MAGIC_NUMBER as u32) | ((b'\r' as u32) << 16) | ((b'\n' as u32) << 24);
+
+/// Magic number as little-endian bytes for .pyc files
+pub const PYC_MAGIC_NUMBER_BYTES: [u8; 4] = PYC_MAGIC_NUMBER_TOKEN.to_le_bytes();

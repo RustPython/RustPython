@@ -42,7 +42,7 @@ pub struct PyCallable<'a> {
 
 impl<'a> PyCallable<'a> {
     pub fn new(obj: &'a PyObject) -> Option<Self> {
-        let call = obj.class().mro_find_map(|cls| cls.slots.call.load())?;
+        let call = obj.class().slots.call.load()?;
         Some(PyCallable { obj, call })
     }
 

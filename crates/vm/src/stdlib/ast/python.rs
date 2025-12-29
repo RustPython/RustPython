@@ -3,21 +3,57 @@ use super::{PY_CF_OPTIMIZED_AST, PY_CF_TYPE_COMMENTS, PY_COMPILE_FLAG_AST_ONLY};
 #[pymodule]
 pub(crate) mod _ast {
     use crate::{
-        AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyStrRef, PyTupleRef, PyType, PyTypeRef},
         function::FuncArgs,
-        types::Constructor,
+        types::{Constructor, Initializer},
     };
     #[pyattr]
     #[pyclass(module = "_ast", name = "AST")]
     #[derive(Debug, PyPayload)]
     pub(crate) struct NodeAst;
 
-    #[pyclass(with(Constructor), flags(BASETYPE, HAS_DICT))]
+    #[pyclass(with(Constructor, Initializer), flags(BASETYPE, HAS_DICT))]
     impl NodeAst {
-        #[pyslot]
-        #[pymethod]
-        fn __init__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        #[pyattr]
+        fn _fields(ctx: &Context) -> PyTupleRef {
+            ctx.empty_tuple.clone()
+        }
+    }
+
+    impl Constructor for NodeAst {
+        type Args = FuncArgs;
+
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            // AST nodes accept extra arguments (unlike object.__new__)
+            // This matches CPython's behavior where AST has its own tp_new
+            let dict = if cls
+                .slots
+                .flags
+                .contains(crate::types::PyTypeFlags::HAS_DICT)
+            {
+                Some(vm.ctx.new_dict())
+            } else {
+                None
+            };
+            let zelf = vm.ctx.new_base_object(cls, dict);
+
+            // Initialize the instance with the provided arguments
+            // FIXME: This is probably incorrect. Please check if init should be called outside of __new__
+            Self::slot_init(zelf.clone(), args, vm)?;
+
+            Ok(zelf)
+        }
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            unimplemented!("use slot_new")
+        }
+    }
+
+    impl Initializer for NodeAst {
+        type Args = FuncArgs;
+
+        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             let fields = zelf.get_attr("_fields", vm)?;
             let fields: Vec<PyStrRef> = fields.try_to_value(vm)?;
             let n_args = args.args.len();
@@ -47,37 +83,8 @@ pub(crate) mod _ast {
             Ok(())
         }
 
-        #[pyattr]
-        fn _fields(ctx: &Context) -> PyTupleRef {
-            ctx.empty_tuple.clone()
-        }
-    }
-
-    impl Constructor for NodeAst {
-        type Args = FuncArgs;
-
-        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            // AST nodes accept extra arguments (unlike object.__new__)
-            // This matches CPython's behavior where AST has its own tp_new
-            let dict = if cls
-                .slots
-                .flags
-                .contains(crate::types::PyTypeFlags::HAS_DICT)
-            {
-                Some(vm.ctx.new_dict())
-            } else {
-                None
-            };
-            let zelf = vm.ctx.new_base_object(cls, dict);
-
-            // Initialize the instance with the provided arguments
-            Self::__init__(zelf.clone(), args, vm)?;
-
-            Ok(zelf)
-        }
-
-        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-            unimplemented!("use slot_new")
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is defined")
         }
     }
 

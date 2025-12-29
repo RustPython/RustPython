@@ -207,28 +207,6 @@ mod _ssl {
     #[pyattr]
     const OP_ALL: i32 = 0x00000BFB; // Combined "safe" options (reduced for i32, excluding OP_LEGACY_SERVER_CONNECT for OpenSSL 3.0.0+ compatibility)
 
-    // Error types
-    #[pyattr]
-    const SSL_ERROR_NONE: i32 = 0;
-    #[pyattr]
-    const SSL_ERROR_SSL: i32 = 1;
-    #[pyattr]
-    const SSL_ERROR_WANT_READ: i32 = 2;
-    #[pyattr]
-    const SSL_ERROR_WANT_WRITE: i32 = 3;
-    #[pyattr]
-    const SSL_ERROR_WANT_X509_LOOKUP: i32 = 4;
-    #[pyattr]
-    const SSL_ERROR_SYSCALL: i32 = 5;
-    #[pyattr]
-    const SSL_ERROR_ZERO_RETURN: i32 = 6;
-    #[pyattr]
-    const SSL_ERROR_WANT_CONNECT: i32 = 7;
-    #[pyattr]
-    const SSL_ERROR_EOF: i32 = 8;
-    #[pyattr]
-    const SSL_ERROR_INVALID_ERROR_CODE: i32 = 10;
-
     // Alert types (matching _TLSAlertType enum)
     #[pyattr]
     const ALERT_DESCRIPTION_CLOSE_NOTIFY: i32 = 0;
@@ -861,6 +839,12 @@ mod _ssl {
         keyfile: OptionalArg<Option<PyObjectRef>>,
         #[pyarg(any, optional)]
         password: OptionalArg<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct GetCertArgs {
+        #[pyarg(any, optional)]
+        binary_form: OptionalArg<bool>,
     }
 
     #[pyclass(with(Constructor), flags(BASETYPE))]
@@ -1710,12 +1694,8 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn get_ca_certs(
-            &self,
-            binary_form: OptionalArg<bool>,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyListRef> {
-            let binary_form = binary_form.unwrap_or(false);
+        fn get_ca_certs(&self, args: GetCertArgs, vm: &VirtualMachine) -> PyResult<PyListRef> {
+            let binary_form = args.binary_form.unwrap_or(false);
             let ca_certs_der = self.ca_certs_der.read();
 
             let mut certs = Vec::new();
@@ -3466,10 +3446,10 @@ mod _ssl {
         #[pymethod]
         fn getpeercert(
             &self,
-            binary_form: OptionalArg<bool>,
+            args: GetCertArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyObjectRef>> {
-            let binary = binary_form.unwrap_or(false);
+            let binary = args.binary_form.unwrap_or(false);
 
             // Check if handshake is complete
             if !*self.handshake_done.lock() {

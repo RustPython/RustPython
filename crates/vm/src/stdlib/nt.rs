@@ -17,6 +17,7 @@ pub(crate) mod module {
         builtins::{PyBaseExceptionRef, PyDictRef, PyListRef, PyStrRef, PyTupleRef},
         common::{crt_fd, suppress_iph, windows::ToWideString},
         convert::ToPyException,
+        exceptions::OSErrorBuilder,
         function::{Either, OptionalArg},
         ospath::{OsPath, OsPathOrFd},
         stdlib::os::{_os, DirFd, SupportFunc, TargetIsDirectory},
@@ -74,6 +75,58 @@ pub(crate) mod module {
             && (mode & 2 == 0
                 || attr & FileSystem::FILE_ATTRIBUTE_READONLY == 0
                 || attr & FileSystem::FILE_ATTRIBUTE_DIRECTORY != 0))
+    }
+
+    #[pyfunction]
+    #[pyfunction(name = "unlink")]
+    pub(super) fn remove(
+        path: OsPath,
+        dir_fd: DirFd<'static, 0>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        // On Windows, use DeleteFileW directly.
+        // Rust's std::fs::remove_file may have different behavior for read-only files.
+        // See Py_DeleteFileW.
+        use windows_sys::Win32::Storage::FileSystem::{
+            DeleteFileW, FindClose, FindFirstFileW, RemoveDirectoryW, WIN32_FIND_DATAW,
+        };
+        use windows_sys::Win32::System::SystemServices::{
+            IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK,
+        };
+
+        let [] = dir_fd.0;
+        let wide_path = path.to_wide_cstring(vm)?;
+        let attrs = unsafe { FileSystem::GetFileAttributesW(wide_path.as_ptr()) };
+
+        let mut is_directory = false;
+        let mut is_link = false;
+
+        if attrs != FileSystem::INVALID_FILE_ATTRIBUTES {
+            is_directory = (attrs & FileSystem::FILE_ATTRIBUTE_DIRECTORY) != 0;
+
+            // Check if it's a symlink or junction point
+            if is_directory && (attrs & FileSystem::FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
+                let mut find_data: WIN32_FIND_DATAW = unsafe { std::mem::zeroed() };
+                let handle = unsafe { FindFirstFileW(wide_path.as_ptr(), &mut find_data) };
+                if handle != INVALID_HANDLE_VALUE {
+                    is_link = find_data.dwReserved0 == IO_REPARSE_TAG_SYMLINK
+                        || find_data.dwReserved0 == IO_REPARSE_TAG_MOUNT_POINT;
+                    unsafe { FindClose(handle) };
+                }
+            }
+        }
+
+        let result = if is_directory && is_link {
+            unsafe { RemoveDirectoryW(wide_path.as_ptr()) }
+        } else {
+            unsafe { DeleteFileW(wide_path.as_ptr()) }
+        };
+
+        if result == 0 {
+            let err = io::Error::last_os_error();
+            return Err(OSErrorBuilder::with_filename(&err, path, vm));
+        }
+        Ok(())
     }
 
     #[pyfunction]
@@ -138,9 +191,9 @@ pub(crate) mod module {
     }
 
     #[derive(FromArgs)]
-    struct ChmodArgs {
+    struct ChmodArgs<'a> {
         #[pyarg(any)]
-        path: OsPath,
+        path: OsPathOrFd<'a>,
         #[pyarg(any)]
         mode: u32,
         #[pyarg(flatten)]
@@ -149,16 +202,84 @@ pub(crate) mod module {
         follow_symlinks: OptionalArg<bool>,
     }
 
+    const S_IWRITE: u32 = 128;
+
+    fn fchmod_impl(fd: i32, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_BASIC_INFO, FileBasicInfo, GetFileInformationByHandleEx,
+            SetFileInformationByHandle,
+        };
+
+        // Get Windows HANDLE from fd
+        let borrowed = unsafe { crt_fd::Borrowed::borrow_raw(fd) };
+        let handle = crt_fd::as_handle(borrowed).map_err(|e| e.to_pyexception(vm))?;
+        let hfile = handle.as_raw_handle() as Foundation::HANDLE;
+
+        // Get current file info
+        let mut info: FILE_BASIC_INFO = unsafe { std::mem::zeroed() };
+        let ret = unsafe {
+            GetFileInformationByHandleEx(
+                hfile,
+                FileBasicInfo,
+                &mut info as *mut _ as *mut _,
+                std::mem::size_of::<FILE_BASIC_INFO>() as u32,
+            )
+        };
+        if ret == 0 {
+            return Err(vm.new_last_os_error());
+        }
+
+        // Modify readonly attribute based on S_IWRITE bit
+        if mode & S_IWRITE != 0 {
+            info.FileAttributes &= !FileSystem::FILE_ATTRIBUTE_READONLY;
+        } else {
+            info.FileAttributes |= FileSystem::FILE_ATTRIBUTE_READONLY;
+        }
+
+        // Set the new attributes
+        let ret = unsafe {
+            SetFileInformationByHandle(
+                hfile,
+                FileBasicInfo,
+                &info as *const _ as *const _,
+                std::mem::size_of::<FILE_BASIC_INFO>() as u32,
+            )
+        };
+        if ret == 0 {
+            return Err(vm.new_last_os_error());
+        }
+
+        Ok(())
+    }
+
     #[pyfunction]
-    fn chmod(args: ChmodArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn fchmod(fd: i32, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
+        fchmod_impl(fd, mode, vm)
+    }
+
+    #[pyfunction]
+    fn chmod(args: ChmodArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
         let ChmodArgs {
             path,
             mode,
             dir_fd,
             follow_symlinks,
         } = args;
-        const S_IWRITE: u32 = 128;
         let [] = dir_fd.0;
+
+        // If path is a file descriptor, use fchmod
+        if let OsPathOrFd::Fd(fd) = path {
+            if follow_symlinks.into_option().is_some() {
+                return Err(vm.new_value_error(
+                    "chmod: follow_symlinks is not supported with fd argument".to_owned(),
+                ));
+            }
+            return fchmod_impl(fd.as_raw(), mode, vm);
+        }
+
+        let OsPathOrFd::Path(path) = path else {
+            unreachable!()
+        };
 
         // On Windows, os.chmod behavior differs based on whether follow_symlinks is explicitly provided:
         // - Not provided (default): use SetFileAttributesW on the path directly (doesn't follow symlinks)
@@ -193,10 +314,12 @@ pub(crate) mod module {
         };
 
         // Use symlink_metadata to avoid following dangling symlinks
-        let meta = fs::symlink_metadata(&actual_path).map_err(|err| err.to_pyexception(vm))?;
+        let meta = fs::symlink_metadata(&actual_path)
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
         let mut permissions = meta.permissions();
         permissions.set_readonly(mode & S_IWRITE == 0);
-        fs::set_permissions(&*actual_path, permissions).map_err(|err| err.to_pyexception(vm))
+        fs::set_permissions(&*actual_path, permissions)
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     /// Get the real file name (with correct case) without accessing the file.
@@ -564,6 +687,97 @@ pub(crate) mod module {
             .is_some_and(|p| _test_file_exists(&p, false))
     }
 
+    /// Check if a path is on a Windows Dev Drive.
+    #[pyfunction]
+    fn _path_isdevdrive(path: OsPath, vm: &VirtualMachine) -> PyResult<bool> {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
+            FILE_SHARE_WRITE, GetDriveTypeW, GetVolumePathNameW, OPEN_EXISTING,
+        };
+        use windows_sys::Win32::System::IO::DeviceIoControl;
+        use windows_sys::Win32::System::Ioctl::FSCTL_QUERY_PERSISTENT_VOLUME_STATE;
+        use windows_sys::Win32::System::WindowsProgramming::DRIVE_FIXED;
+
+        // PERSISTENT_VOLUME_STATE_DEV_VOLUME flag - not yet in windows-sys
+        const PERSISTENT_VOLUME_STATE_DEV_VOLUME: u32 = 0x00002000;
+
+        // FILE_FS_PERSISTENT_VOLUME_INFORMATION structure
+        #[repr(C)]
+        struct FileFsPersistentVolumeInformation {
+            volume_flags: u32,
+            flag_mask: u32,
+            version: u32,
+            reserved: u32,
+        }
+
+        let wide_path = path.to_wide_cstring(vm)?;
+        let mut volume = [0u16; Foundation::MAX_PATH as usize];
+
+        // Get volume path
+        let ret = unsafe {
+            GetVolumePathNameW(wide_path.as_ptr(), volume.as_mut_ptr(), volume.len() as _)
+        };
+        if ret == 0 {
+            return Err(vm.new_last_os_error());
+        }
+
+        // Check if it's a fixed drive
+        if unsafe { GetDriveTypeW(volume.as_ptr()) } != DRIVE_FIXED {
+            return Ok(false);
+        }
+
+        // Open the volume
+        let handle = unsafe {
+            CreateFileW(
+                volume.as_ptr(),
+                FILE_READ_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS,
+                std::ptr::null_mut(),
+            )
+        };
+        if handle == INVALID_HANDLE_VALUE {
+            return Err(vm.new_last_os_error());
+        }
+
+        // Query persistent volume state
+        let mut volume_state = FileFsPersistentVolumeInformation {
+            volume_flags: 0,
+            flag_mask: PERSISTENT_VOLUME_STATE_DEV_VOLUME,
+            version: 1,
+            reserved: 0,
+        };
+
+        let ret = unsafe {
+            DeviceIoControl(
+                handle,
+                FSCTL_QUERY_PERSISTENT_VOLUME_STATE,
+                &volume_state as *const _ as *const std::ffi::c_void,
+                std::mem::size_of::<FileFsPersistentVolumeInformation>() as u32,
+                &mut volume_state as *mut _ as *mut std::ffi::c_void,
+                std::mem::size_of::<FileFsPersistentVolumeInformation>() as u32,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+
+        unsafe { CloseHandle(handle) };
+
+        if ret == 0 {
+            let err = io::Error::last_os_error();
+            // ERROR_INVALID_PARAMETER means not supported on this platform
+            if err.raw_os_error() == Some(Foundation::ERROR_INVALID_PARAMETER as i32) {
+                return Ok(false);
+            }
+            return Err(err.to_pyexception(vm));
+        }
+
+        Ok((volume_state.volume_flags & PERSISTENT_VOLUME_STATE_DEV_VOLUME) != 0)
+    }
+
     // cwait is available on MSVC only
     #[cfg(target_env = "msvc")]
     unsafe extern "C" {
@@ -925,7 +1139,7 @@ pub(crate) mod module {
             .as_ref()
             .canonicalize()
             .map_err(|e| e.to_pyexception(vm))?;
-        Ok(path.mode.process_path(real, vm))
+        Ok(path.mode().process_path(real, vm))
     }
 
     #[pyfunction]
@@ -958,7 +1172,7 @@ pub(crate) mod module {
             }
         }
         let buffer = widestring::WideCString::from_vec_truncate(buffer);
-        Ok(path.mode.process_path(buffer.to_os_string(), vm))
+        Ok(path.mode().process_path(buffer.to_os_string(), vm))
     }
 
     #[pyfunction]
@@ -973,7 +1187,7 @@ pub(crate) mod module {
             return Err(vm.new_last_os_error());
         }
         let buffer = widestring::WideCString::from_vec_truncate(buffer);
-        Ok(path.mode.process_path(buffer.to_os_string(), vm))
+        Ok(path.mode().process_path(buffer.to_os_string(), vm))
     }
 
     /// Implements _Py_skiproot logic for Windows paths
@@ -1053,7 +1267,7 @@ pub(crate) mod module {
         use crate::builtins::{PyBytes, PyStr};
         use rustpython_common::wtf8::Wtf8Buf;
 
-        // Handle path-like objects via os.fspath, but without null check (nonstrict=True)
+        // Handle path-like objects via os.fspath, but without null check (non_strict=True)
         let path = if let Some(fspath) = vm.get_method(path.clone(), identifier!(vm, __fspath__)) {
             fspath?.call((), vm)?
         } else {
@@ -1585,7 +1799,7 @@ pub(crate) mod module {
         use windows_sys::Win32::System::IO::DeviceIoControl;
         use windows_sys::Win32::System::Ioctl::FSCTL_GET_REPARSE_POINT;
 
-        let mode = path.mode;
+        let mode = path.mode();
         let wide_path = path.as_ref().to_wide_with_nul();
 
         // Open the file/directory with reparse point flag
@@ -1602,7 +1816,11 @@ pub(crate) mod module {
         };
 
         if handle == INVALID_HANDLE_VALUE {
-            return Err(io::Error::last_os_error().to_pyexception(vm));
+            return Err(OSErrorBuilder::with_filename(
+                &io::Error::last_os_error(),
+                path.clone(),
+                vm,
+            ));
         }
 
         // Buffer for reparse data - MAXIMUM_REPARSE_DATA_BUFFER_SIZE is 16384
@@ -1626,7 +1844,11 @@ pub(crate) mod module {
         unsafe { CloseHandle(handle) };
 
         if result == 0 {
-            return Err(io::Error::last_os_error().to_pyexception(vm));
+            return Err(OSErrorBuilder::with_filename(
+                &io::Error::last_os_error(),
+                path.clone(),
+                vm,
+            ));
         }
 
         // Parse the reparse data buffer

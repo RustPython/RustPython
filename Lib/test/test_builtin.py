@@ -153,8 +153,6 @@ class BuiltinTest(unittest.TestCase):
         it = pickle.loads(d)
         self.assertEqual(list(it), seq[1:])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_import(self):
         __import__('sys')
         __import__('time')
@@ -2401,8 +2399,6 @@ class TestType(unittest.TestCase):
         with self.assertRaises(TypeError):
             type('a', (), dict={})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_type_name(self):
         for name in 'A', '\xc4', '\U0001f40d', 'B.A', '42', '':
             with self.subTest(name=name):
@@ -2452,8 +2448,6 @@ class TestType(unittest.TestCase):
             A.__qualname__ = b'B'
         self.assertEqual(A.__qualname__, 'D.E')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_type_doc(self):
         for doc in 'x', '\xc4', '\U0001f40d', 'x\x00y', b'x', 42, None:
             A = type('A', (), {'__doc__': doc})
@@ -2487,8 +2481,6 @@ class TestType(unittest.TestCase):
         with self.assertRaises(TypeError):
             type('A', (int, str), {})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bad_slots(self):
         with self.assertRaises(TypeError):
             type('A', (), {'__slots__': b'x'})

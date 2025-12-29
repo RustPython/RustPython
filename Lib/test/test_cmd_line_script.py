@@ -225,8 +225,6 @@ class CmdLineTest(unittest.TestCase):
     def test_repl_stderr_flush_separate_stderr(self):
         self.check_repl_stderr_flush(True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basic_script(self):
         with os_helper.temp_dir() as script_dir:
             script_name = _make_test_script(script_dir, 'script')
@@ -249,8 +247,6 @@ class CmdLineTest(unittest.TestCase):
                                script_dir, None,
                                importlib.machinery.SourceFileLoader)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_script_compiled(self):
         with os_helper.temp_dir() as script_dir:
             script_name = _make_test_script(script_dir, 'script')
@@ -413,8 +409,6 @@ class CmdLineTest(unittest.TestCase):
                                    script_name, script_name, script_dir, 'test_pkg',
                                    importlib.machinery.SourceFileLoader)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_issue8202_dash_c_file_ignored(self):
         # Make sure a "-c" file in the current directory
         # does not alter the value of sys.path[0]
@@ -715,8 +709,6 @@ class CmdLineTest(unittest.TestCase):
                     ]
                 )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_consistent_sys_path_for_direct_execution(self):
         # This test case ensures that the following all give the same
         # sys.path configuration:

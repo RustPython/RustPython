@@ -164,7 +164,7 @@ pub(super) mod _os {
         convert::{IntoPyException, ToPyObject},
         exceptions::OSErrorBuilder,
         function::{ArgBytesLike, FsPath, FuncArgs, OptionalArg},
-        ospath::{OsPath, OsPathOrFd, OutputMode},
+        ospath::{OsPath, OsPathOrFd, OutputMode, PathConverter},
         protocol::PyIterReturn,
         recursion::ReprGuard,
         types::{IterNext, Iterable, PyStructSequence, Representable, SelfIter},
@@ -274,51 +274,26 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn read(fd: crt_fd::Borrowed<'_>, n: usize, vm: &VirtualMachine) -> io::Result<PyBytesRef> {
+    fn read(fd: crt_fd::Borrowed<'_>, n: usize, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
         let mut buffer = vec![0u8; n];
-        let n = crt_fd::read(fd, &mut buffer)?;
-        buffer.truncate(n);
-
-        Ok(vm.ctx.new_bytes(buffer))
+        loop {
+            match crt_fd::read(fd, &mut buffer) {
+                Ok(n) => {
+                    buffer.truncate(n);
+                    return Ok(vm.ctx.new_bytes(buffer));
+                }
+                Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
+                    vm.check_signals()?;
+                    continue;
+                }
+                Err(e) => return Err(e.into_pyexception(vm)),
+            }
+        }
     }
 
     #[pyfunction]
     fn write(fd: crt_fd::Borrowed<'_>, data: ArgBytesLike) -> io::Result<usize> {
         data.with_ref(|b| crt_fd::write(fd, b))
-    }
-
-    #[pyfunction]
-    #[pyfunction(name = "unlink")]
-    fn remove(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult<()> {
-        let [] = dir_fd.0;
-        #[cfg(windows)]
-        let is_dir_link = {
-            // On Windows, we need to check if it's a directory symlink/junction
-            // using GetFileAttributesW, which doesn't follow symlinks.
-            // This is similar to CPython's Py_DeleteFileW.
-            use windows_sys::Win32::Storage::FileSystem::{
-                FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, GetFileAttributesW,
-                INVALID_FILE_ATTRIBUTES,
-            };
-            let wide_path: Vec<u16> = path.path.as_os_str().to_wide_with_nul();
-            let attrs = unsafe { GetFileAttributesW(wide_path.as_ptr()) };
-            if attrs != INVALID_FILE_ATTRIBUTES {
-                let is_dir = (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0;
-                let is_reparse = (attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
-                is_dir && is_reparse
-            } else {
-                false
-            }
-        };
-        #[cfg(not(windows))]
-        let is_dir_link = false;
-
-        let res = if is_dir_link {
-            fs::remove_dir(&path)
-        } else {
-            fs::remove_file(&path)
-        };
-        res.map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     #[cfg(not(windows))]
@@ -366,10 +341,12 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn listdir(
-        path: OptionalArg<OsPathOrFd<'_>>,
+        path: OptionalArg<Option<OsPathOrFd<'_>>>,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<PyObjectRef>> {
-        let path = path.unwrap_or_else(|| OsPathOrFd::Path(OsPath::new_str(".")));
+        let path = path
+            .flatten()
+            .unwrap_or_else(|| OsPathOrFd::Path(OsPath::new_str(".")));
         let list = match path {
             OsPathOrFd::Path(path) => {
                 let dir_iter = match fs::read_dir(&path) {
@@ -378,9 +355,10 @@ pub(super) mod _os {
                         return Err(OSErrorBuilder::with_filename(&err, path, vm));
                     }
                 };
+                let mode = path.mode();
                 dir_iter
                     .map(|entry| match entry {
-                        Ok(entry_path) => Ok(path.mode.process_path(entry_path.file_name(), vm)),
+                        Ok(entry_path) => Ok(mode.process_path(entry_path.file_name(), vm)),
                         Err(err) => Err(OSErrorBuilder::with_filename(&err, path.clone(), vm)),
                     })
                     .collect::<PyResult<_>>()?
@@ -545,7 +523,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn readlink(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult {
-        let mode = path.mode;
+        let mode = path.mode();
         let [] = dir_fd.0;
         let path =
             fs::read_link(&path).map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))?;
@@ -584,15 +562,16 @@ pub(super) mod _os {
 
         #[pymethod]
         fn is_dir(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
+            // Use cached file_type first to avoid stat() calls that may fail
+            if let Ok(file_type) = &self.file_type
+                && (!follow_symlinks.0 || !file_type.is_symlink())
+            {
+                return Ok(file_type.is_dir());
+            }
             match super::fs_metadata(&self.pathval, follow_symlinks.0) {
                 Ok(meta) => Ok(meta.is_dir()),
                 Err(e) => {
                     if e.kind() == io::ErrorKind::NotFound {
-                        // On Windows, use cached file_type when file is removed
-                        #[cfg(windows)]
-                        if let Ok(file_type) = &self.file_type {
-                            return Ok(file_type.is_dir());
-                        }
                         Ok(false)
                     } else {
                         Err(e.into_pyexception(vm))
@@ -603,15 +582,16 @@ pub(super) mod _os {
 
         #[pymethod]
         fn is_file(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
+            // Use cached file_type first to avoid stat() calls that may fail
+            if let Ok(file_type) = &self.file_type
+                && (!follow_symlinks.0 || !file_type.is_symlink())
+            {
+                return Ok(file_type.is_file());
+            }
             match super::fs_metadata(&self.pathval, follow_symlinks.0) {
                 Ok(meta) => Ok(meta.is_file()),
                 Err(e) => {
                     if e.kind() == io::ErrorKind::NotFound {
-                        // On Windows, use cached file_type when file is removed
-                        #[cfg(windows)]
-                        if let Ok(file_type) = &self.file_type {
-                            return Ok(file_type.is_file());
-                        }
                         Ok(false)
                     } else {
                         Err(e.into_pyexception(vm))
@@ -640,7 +620,7 @@ pub(super) mod _os {
                 stat(
                     OsPath {
                         path: self.pathval.as_os_str().to_owned(),
-                        mode: OutputMode::String,
+                        origin: None,
                     }
                     .into(),
                     dir_fd,
@@ -671,11 +651,7 @@ pub(super) mod _os {
                 Some(ino) => Ok(ino),
                 None => {
                     let stat = stat_inner(
-                        OsPath {
-                            path: self.pathval.as_os_str().to_owned(),
-                            mode: OutputMode::String,
-                        }
-                        .into(),
+                        OsPath::new_str(self.pathval.as_os_str()).into(),
                         DirFd::default(),
                         FollowSymlinks(false),
                     )
@@ -729,6 +705,11 @@ pub(super) mod _os {
             vm: &VirtualMachine,
         ) -> PyGenericAlias {
             PyGenericAlias::from_args(cls, args, vm)
+        }
+
+        #[pymethod]
+        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("cannot pickle 'DirEntry' object".to_owned()))
         }
     }
 
@@ -784,6 +765,11 @@ pub(super) mod _os {
         #[pymethod]
         fn __exit__(zelf: PyRef<Self>, _args: FuncArgs) {
             zelf.close()
+        }
+
+        #[pymethod]
+        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("cannot pickle 'ScandirIterator' object".to_owned()))
         }
     }
     impl SelfIter for ScandirIterator {}
@@ -861,7 +847,7 @@ pub(super) mod _os {
             .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
         Ok(ScandirIterator {
             entries: PyRwLock::new(Some(entries)),
-            mode: path.mode,
+            mode: path.mode(),
         }
         .into_ref(&vm.ctx)
         .into())
@@ -907,6 +893,15 @@ pub(super) mod _os {
         #[pyarg(any, default)]
         #[pystruct_sequence(skip)]
         pub st_ctime_ns: i128,
+        // Unix-specific attributes
+        #[cfg(not(windows))]
+        #[pyarg(any, default)]
+        #[pystruct_sequence(skip)]
+        pub st_blksize: i64,
+        #[cfg(not(windows))]
+        #[pyarg(any, default)]
+        #[pystruct_sequence(skip)]
+        pub st_blocks: i64,
         #[pyarg(any, default)]
         #[pystruct_sequence(skip)]
         pub st_reparse_tag: u32,
@@ -959,6 +954,13 @@ pub(super) mod _os {
             #[cfg(not(windows))]
             let st_ino = stat.st_ino;
 
+            #[cfg(not(windows))]
+            #[allow(clippy::useless_conversion)] // needed for 32-bit platforms
+            let st_blksize = i64::from(stat.st_blksize);
+            #[cfg(not(windows))]
+            #[allow(clippy::useless_conversion)] // needed for 32-bit platforms
+            let st_blocks = i64::from(stat.st_blocks);
+
             Self {
                 st_mode: vm.ctx.new_pyref(stat.st_mode),
                 st_ino: vm.ctx.new_pyref(st_ino),
@@ -976,6 +978,10 @@ pub(super) mod _os {
                 st_atime_ns: to_ns(atime),
                 st_mtime_ns: to_ns(mtime),
                 st_ctime_ns: to_ns(ctime),
+                #[cfg(not(windows))]
+                st_blksize,
+                #[cfg(not(windows))]
+                st_blocks,
                 st_reparse_tag,
                 st_file_attributes,
             }
@@ -1124,7 +1130,16 @@ pub(super) mod _os {
 
     #[pyfunction]
     #[pyfunction(name = "replace")]
-    fn rename(src: OsPath, dst: OsPath, vm: &VirtualMachine) -> PyResult<()> {
+    fn rename(src: PyObjectRef, dst: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let src = PathConverter::new()
+            .function("rename")
+            .argument("src")
+            .try_path(src, vm)?;
+        let dst = PathConverter::new()
+            .function("rename")
+            .argument("dst")
+            .try_path(dst, vm)?;
+
         fs::rename(&src.path, &dst.path).map_err(|err| {
             let builder = err.to_os_error_builder(vm);
             let builder = builder.filename(src.filename(vm));
@@ -1708,6 +1723,8 @@ pub(super) mod _os {
             SupportFunc::new("fstat", Some(true), Some(STAT_DIR_FD), Some(true)),
             SupportFunc::new("symlink", Some(false), Some(SYMLINK_DIR_FD), Some(false)),
             SupportFunc::new("truncate", Some(true), Some(false), Some(false)),
+            SupportFunc::new("ftruncate", Some(true), Some(false), Some(false)),
+            SupportFunc::new("fsync", Some(true), Some(false), Some(false)),
             SupportFunc::new(
                 "utime",
                 Some(false),

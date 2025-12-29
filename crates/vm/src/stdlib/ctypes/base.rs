@@ -300,15 +300,27 @@ pub(super) fn get_field_format(
     big_endian: bool,
     vm: &VirtualMachine,
 ) -> String {
+    let endian_prefix = if big_endian { ">" } else { "<" };
+
     // 1. Check StgInfo for format
     if let Some(type_obj) = field_type.downcast_ref::<PyType>()
         && let Some(stg_info) = type_obj.stg_info_opt()
         && let Some(fmt) = &stg_info.format
     {
-        // Handle endian prefix for simple types
-        if fmt.len() == 1 {
-            let endian_prefix = if big_endian { ">" } else { "<" };
-            return format!("{}{}", endian_prefix, fmt);
+        // For structures (T{...}), arrays ((n)...), and pointers (&...), return as-is
+        // These complex types have their own endianness markers inside
+        if fmt.starts_with('T')
+            || fmt.starts_with('(')
+            || fmt.starts_with('&')
+            || fmt.starts_with("X{")
+        {
+            return fmt.clone();
+        }
+
+        // For simple types, replace existing endian prefix with the correct one
+        let base_fmt = fmt.trim_start_matches(['<', '>', '@', '=', '!']);
+        if !base_fmt.is_empty() {
+            return format!("{}{}", endian_prefix, base_fmt);
         }
         return fmt.clone();
     }
@@ -318,8 +330,7 @@ pub(super) fn get_field_format(
         && let Some(type_str) = type_attr.downcast_ref::<PyStr>()
     {
         let s = type_str.as_str();
-        if s.len() == 1 {
-            let endian_prefix = if big_endian { ">" } else { "<" };
+        if !s.is_empty() {
             return format!("{}{}", endian_prefix, s);
         }
         return s.to_string();
@@ -1168,29 +1179,30 @@ impl PyCData {
                 .ok_or_else(|| vm.new_value_error("Invalid library handle"))?
         };
 
-        // Get symbol address using platform-specific API
-        let symbol_name = std::ffi::CString::new(name.as_str())
-            .map_err(|_| vm.new_value_error("Invalid symbol name"))?;
+        // Look up the library in the cache and use lib.get() for symbol lookup
+        let library_cache = super::library::libcache().read();
+        let library = library_cache
+            .get_lib(handle)
+            .ok_or_else(|| vm.new_value_error("Library not found"))?;
+        let inner_lib = library.lib.lock();
 
-        #[cfg(windows)]
-        let ptr: *const u8 = unsafe {
-            match windows_sys::Win32::System::LibraryLoader::GetProcAddress(
-                handle as windows_sys::Win32::Foundation::HMODULE,
-                symbol_name.as_ptr() as *const u8,
-            ) {
-                Some(p) => p as *const u8,
-                None => std::ptr::null(),
+        let symbol_name_with_nul = format!("{}\0", name.as_str());
+        let ptr: *const u8 = if let Some(lib) = &*inner_lib {
+            unsafe {
+                lib.get::<*const u8>(symbol_name_with_nul.as_bytes())
+                    .map(|sym| *sym)
+                    .map_err(|_| {
+                        vm.new_value_error(format!("symbol '{}' not found", name.as_str()))
+                    })?
             }
+        } else {
+            return Err(vm.new_value_error("Library closed"));
         };
 
-        #[cfg(not(windows))]
-        let ptr: *const u8 =
-            unsafe { libc::dlsym(handle as *mut libc::c_void, symbol_name.as_ptr()) as *const u8 };
-
+        // dlsym can return NULL for symbols that resolve to NULL (e.g., GNU IFUNC)
+        // Treat NULL addresses as errors
         if ptr.is_null() {
-            return Err(
-                vm.new_value_error(format!("symbol '{}' not found in library", name.as_str()))
-            );
+            return Err(vm.new_value_error(format!("symbol '{}' not found", name.as_str())));
         }
 
         // PyCData_AtAddress
@@ -1593,7 +1605,7 @@ impl PyCField {
     /// PyCField_set
     #[pyslot]
     fn descr_set(
-        zelf: &crate::PyObject,
+        zelf: &PyObject,
         obj: PyObjectRef,
         value: PySetterValue<PyObjectRef>,
         vm: &VirtualMachine,
@@ -1804,12 +1816,12 @@ pub enum FfiArgValue {
     F64(f64),
     Pointer(usize),
     /// Pointer with owned data. The PyObjectRef keeps the pointed data alive.
-    OwnedPointer(usize, #[allow(dead_code)] crate::PyObjectRef),
+    OwnedPointer(usize, #[allow(dead_code)] PyObjectRef),
 }
 
 impl FfiArgValue {
     /// Create an Arg reference to this owned value
-    pub fn as_arg(&self) -> libffi::middle::Arg {
+    pub fn as_arg(&self) -> libffi::middle::Arg<'_> {
         match self {
             FfiArgValue::U8(v) => libffi::middle::Arg::new(v),
             FfiArgValue::I8(v) => libffi::middle::Arg::new(v),
@@ -2143,6 +2155,16 @@ pub(super) fn read_ptr_from_buffer(buffer: &[u8]) -> usize {
     } else {
         0
     }
+}
+
+/// Check if a type is a "simple instance" (direct subclass of a simple type)
+/// Returns TRUE for c_int, c_void_p, etc. (simple types with _type_ attribute)
+/// Returns FALSE for Structure, Array, POINTER(T), etc.
+pub(super) fn is_simple_instance(typ: &Py<PyType>) -> bool {
+    // _ctypes_simple_instance
+    // Check if the type's metaclass is PyCSimpleType
+    let metaclass = typ.class();
+    metaclass.fast_issubclass(super::simple::PyCSimpleType::static_type())
 }
 
 /// Set or initialize StgInfo on a type

@@ -1,13 +1,60 @@
 //! Utilities to define a new Python class
 
 use crate::{
-    builtins::{PyBaseObject, PyType, PyTypeRef},
+    PyPayload,
+    builtins::{PyBaseObject, PyType, PyTypeRef, descriptor::PyWrapper},
     function::PyMethodDef,
     object::Py,
-    types::{PyTypeFlags, PyTypeSlots, hash_not_implemented},
+    types::{PyTypeFlags, PyTypeSlots, SLOT_DEFS, hash_not_implemented},
     vm::Context,
 };
 use rustpython_common::static_cell;
+
+/// Add slot wrapper descriptors to a type's dict
+///
+/// Iterates SLOT_DEFS and creates a PyWrapper for each slot that:
+/// 1. Has a function set in the type's slots
+/// 2. Doesn't already have an attribute in the type's dict
+pub fn add_operators(class: &'static Py<PyType>, ctx: &Context) {
+    for def in SLOT_DEFS.iter() {
+        // Skip __new__ - it has special handling
+        if def.name == "__new__" {
+            continue;
+        }
+
+        // Special handling for __hash__ = None
+        if def.name == "__hash__"
+            && class
+                .slots
+                .hash
+                .load()
+                .is_some_and(|h| h as usize == hash_not_implemented as usize)
+        {
+            class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
+            continue;
+        }
+
+        // Get the slot function wrapped in SlotFunc
+        let Some(slot_func) = def.accessor.get_slot_func_with_op(&class.slots, def.op) else {
+            continue;
+        };
+
+        // Check if attribute already exists in dict
+        let attr_name = ctx.intern_str(def.name);
+        if class.attributes.read().contains_key(attr_name) {
+            continue;
+        }
+
+        // Create and add the wrapper
+        let wrapper = PyWrapper {
+            typ: class,
+            name: attr_name,
+            wrapped: slot_func,
+            doc: Some(def.doc),
+        };
+        class.set_attr(attr_name, wrapper.into_ref(ctx).into());
+    }
+}
 
 pub trait StaticType {
     // Ideally, saving PyType is better than PyTypeRef
@@ -66,6 +113,7 @@ pub trait PyClassDef {
     const TP_NAME: &'static str;
     const DOC: Option<&'static str> = None;
     const BASICSIZE: usize;
+    const ITEMSIZE: usize = 0;
     const UNHASHABLE: bool = false;
 
     // due to restriction of rust trait system, object.__base__ is None
@@ -135,8 +183,12 @@ pub trait PyClassImpl: PyClassDef {
             }
         }
 
-        if class.slots.hash.load().map_or(0, |h| h as usize) == hash_not_implemented as usize {
-            class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
+        // Add slot wrappers using SLOT_DEFS array
+        add_operators(class, ctx);
+
+        // Inherit slots from base types after slots are fully initialized
+        for base in class.bases.read().iter() {
+            class.inherit_slots(base);
         }
 
         class.extend_methods(class.slots.methods, ctx);
@@ -168,6 +220,7 @@ pub trait PyClassImpl: PyClassDef {
             flags: Self::TP_FLAGS,
             name: Self::TP_NAME,
             basicsize: Self::BASICSIZE,
+            itemsize: Self::ITEMSIZE,
             doc: Self::DOC,
             methods: Self::METHOD_DEFS,
             ..Default::default()

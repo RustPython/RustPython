@@ -43,13 +43,14 @@ pub(super) mod types {
     use super::*;
     use crate::PyPayload;
     use crate::builtins::PyGenericAlias;
+    use crate::types::{Constructor, Initializer};
 
     #[pyexception(name, base = PyBaseException, ctx = "base_exception_group")]
     #[derive(Debug)]
     #[repr(transparent)]
     pub struct PyBaseExceptionGroup(PyBaseException);
 
-    #[pyexception]
+    #[pyexception(with(Constructor, Initializer))]
     impl PyBaseExceptionGroup {
         #[pyclassmethod]
         fn __class_getitem__(
@@ -58,117 +59,6 @@ pub(super) mod types {
             vm: &VirtualMachine,
         ) -> PyGenericAlias {
             PyGenericAlias::from_args(cls, args, vm)
-        }
-
-        #[pyslot]
-        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            // Validate exactly 2 positional arguments
-            if args.args.len() != 2 {
-                return Err(vm.new_type_error(format!(
-                    "BaseExceptionGroup.__new__() takes exactly 2 positional arguments ({} given)",
-                    args.args.len()
-                )));
-            }
-
-            // Validate message is str
-            let message = args.args[0].clone();
-            if !message.fast_isinstance(vm.ctx.types.str_type) {
-                return Err(vm.new_type_error(format!(
-                    "argument 1 must be str, not {}",
-                    message.class().name()
-                )));
-            }
-
-            // Validate exceptions is a sequence (not set or None)
-            let exceptions_arg = &args.args[1];
-
-            // Check for set/frozenset (not a sequence - unordered)
-            if exceptions_arg.fast_isinstance(vm.ctx.types.set_type)
-                || exceptions_arg.fast_isinstance(vm.ctx.types.frozenset_type)
-            {
-                return Err(vm.new_type_error("second argument (exceptions) must be a sequence"));
-            }
-
-            // Check for None
-            if exceptions_arg.is(&vm.ctx.none) {
-                return Err(vm.new_type_error("second argument (exceptions) must be a sequence"));
-            }
-
-            let exceptions: Vec<PyObjectRef> = exceptions_arg.try_to_value(vm).map_err(|_| {
-                vm.new_type_error("second argument (exceptions) must be a sequence")
-            })?;
-
-            // Validate non-empty
-            if exceptions.is_empty() {
-                return Err(vm.new_value_error(
-                    "second argument (exceptions) must be a non-empty sequence".to_owned(),
-                ));
-            }
-
-            // Validate all items are BaseException instances
-            let mut has_non_exception = false;
-            for (i, exc) in exceptions.iter().enumerate() {
-                if !exc.fast_isinstance(vm.ctx.exceptions.base_exception_type) {
-                    return Err(vm.new_value_error(format!(
-                        "Item {} of second argument (exceptions) is not an exception",
-                        i
-                    )));
-                }
-                // Check if any exception is not an Exception subclass
-                // With dynamic ExceptionGroup (inherits from both BaseExceptionGroup and Exception),
-                // ExceptionGroup instances are automatically instances of Exception
-                if !exc.fast_isinstance(vm.ctx.exceptions.exception_type) {
-                    has_non_exception = true;
-                }
-            }
-
-            // Get the dynamic ExceptionGroup type
-            let exception_group_type = crate::exception_group::exception_group();
-
-            // Determine the actual class to use
-            let actual_cls = if cls.is(exception_group_type) {
-                // ExceptionGroup cannot contain BaseExceptions that are not Exception
-                if has_non_exception {
-                    return Err(
-                        vm.new_type_error("Cannot nest BaseExceptions in an ExceptionGroup")
-                    );
-                }
-                cls
-            } else if cls.is(vm.ctx.exceptions.base_exception_group) {
-                // Auto-convert to ExceptionGroup if all are Exception subclasses
-                if !has_non_exception {
-                    exception_group_type.to_owned()
-                } else {
-                    cls
-                }
-            } else {
-                // User-defined subclass
-                if has_non_exception && cls.fast_issubclass(vm.ctx.exceptions.exception_type) {
-                    return Err(vm.new_type_error(format!(
-                        "Cannot nest BaseExceptions in '{}'",
-                        cls.name()
-                    )));
-                }
-                cls
-            };
-
-            // Create the exception with (message, exceptions_tuple) as args
-            let exceptions_tuple = vm.ctx.new_tuple(exceptions);
-            let init_args = vec![message, exceptions_tuple.into()];
-            PyBaseException::new(init_args, vm)
-                .into_ref_with_type(vm, actual_cls)
-                .map(Into::into)
-        }
-
-        #[pyslot]
-        #[pymethod(name = "__init__")]
-        fn slot_init(_zelf: PyObjectRef, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<()> {
-            // CPython's BaseExceptionGroup.__init__ just calls BaseException.__init__
-            // which stores args as-is. Since __new__ already set up the correct args
-            // (message, exceptions_tuple), we don't need to do anything here.
-            // This also allows subclasses to pass extra arguments to __new__ without
-            // __init__ complaining about argument count.
-            Ok(())
         }
 
         #[pymethod]
@@ -292,7 +182,7 @@ pub(super) mod types {
         }
 
         #[pymethod]
-        fn __str__(zelf: PyRef<PyBaseException>, vm: &VirtualMachine) -> PyResult<String> {
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
             let message = zelf
                 .get_arg(0)
                 .map(|m| m.str(vm))
@@ -306,10 +196,10 @@ pub(super) mod types {
                 .unwrap_or(0);
 
             let suffix = if num_excs == 1 { "" } else { "s" };
-            Ok(format!(
+            Ok(vm.ctx.new_str(format!(
                 "{} ({} sub-exception{})",
                 message, num_excs, suffix
-            ))
+            )))
         }
 
         #[pymethod]
@@ -348,6 +238,128 @@ pub(super) mod types {
             Ok(vm
                 .ctx
                 .new_str(format!("{}({}, {})", class_name, message, exceptions_str)))
+        }
+    }
+
+    impl Constructor for PyBaseExceptionGroup {
+        type Args = crate::function::PosArgs;
+
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let args: Self::Args = args.bind(vm)?;
+            let args = args.into_vec();
+            // Validate exactly 2 positional arguments
+            if args.len() != 2 {
+                return Err(vm.new_type_error(format!(
+                    "BaseExceptionGroup.__new__() takes exactly 2 positional arguments ({} given)",
+                    args.len()
+                )));
+            }
+
+            // Validate message is str
+            let message = args[0].clone();
+            if !message.fast_isinstance(vm.ctx.types.str_type) {
+                return Err(vm.new_type_error(format!(
+                    "argument 1 must be str, not {}",
+                    message.class().name()
+                )));
+            }
+
+            // Validate exceptions is a sequence (not set or None)
+            let exceptions_arg = &args[1];
+
+            // Check for set/frozenset (not a sequence - unordered)
+            if exceptions_arg.fast_isinstance(vm.ctx.types.set_type)
+                || exceptions_arg.fast_isinstance(vm.ctx.types.frozenset_type)
+            {
+                return Err(vm.new_type_error("second argument (exceptions) must be a sequence"));
+            }
+
+            // Check for None
+            if exceptions_arg.is(&vm.ctx.none) {
+                return Err(vm.new_type_error("second argument (exceptions) must be a sequence"));
+            }
+
+            let exceptions: Vec<PyObjectRef> = exceptions_arg.try_to_value(vm).map_err(|_| {
+                vm.new_type_error("second argument (exceptions) must be a sequence")
+            })?;
+
+            // Validate non-empty
+            if exceptions.is_empty() {
+                return Err(vm.new_value_error(
+                    "second argument (exceptions) must be a non-empty sequence".to_owned(),
+                ));
+            }
+
+            // Validate all items are BaseException instances
+            let mut has_non_exception = false;
+            for (i, exc) in exceptions.iter().enumerate() {
+                if !exc.fast_isinstance(vm.ctx.exceptions.base_exception_type) {
+                    return Err(vm.new_value_error(format!(
+                        "Item {} of second argument (exceptions) is not an exception",
+                        i
+                    )));
+                }
+                // Check if any exception is not an Exception subclass
+                // With dynamic ExceptionGroup (inherits from both BaseExceptionGroup and Exception),
+                // ExceptionGroup instances are automatically instances of Exception
+                if !exc.fast_isinstance(vm.ctx.exceptions.exception_type) {
+                    has_non_exception = true;
+                }
+            }
+
+            // Get the dynamic ExceptionGroup type
+            let exception_group_type = crate::exception_group::exception_group();
+
+            // Determine the actual class to use
+            let actual_cls = if cls.is(exception_group_type) {
+                // ExceptionGroup cannot contain BaseExceptions that are not Exception
+                if has_non_exception {
+                    return Err(
+                        vm.new_type_error("Cannot nest BaseExceptions in an ExceptionGroup")
+                    );
+                }
+                cls
+            } else if cls.is(vm.ctx.exceptions.base_exception_group) {
+                // Auto-convert to ExceptionGroup if all are Exception subclasses
+                if !has_non_exception {
+                    exception_group_type.to_owned()
+                } else {
+                    cls
+                }
+            } else {
+                // User-defined subclass
+                if has_non_exception && cls.fast_issubclass(vm.ctx.exceptions.exception_type) {
+                    return Err(vm.new_type_error(format!(
+                        "Cannot nest BaseExceptions in '{}'",
+                        cls.name()
+                    )));
+                }
+                cls
+            };
+
+            // Create the exception with (message, exceptions_tuple) as args
+            let exceptions_tuple = vm.ctx.new_tuple(exceptions);
+            let init_args = vec![message, exceptions_tuple.into()];
+            PyBaseException::new(init_args, vm)
+                .into_ref_with_type(vm, actual_cls)
+                .map(Into::into)
+        }
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            unimplemented!("use slot_new")
+        }
+    }
+
+    impl Initializer for PyBaseExceptionGroup {
+        type Args = FuncArgs;
+
+        fn slot_init(_zelf: PyObjectRef, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<()> {
+            // No-op: __new__ already set up the correct args (message, exceptions_tuple)
+            Ok(())
+        }
+
+        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            unreachable!("slot_init is overridden")
         }
     }
 

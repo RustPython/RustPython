@@ -20,28 +20,24 @@ class SetAttributeTest(unittest.TestCase):
     def setUp(self):
         self.parser = expat.ParserCreate(namespace_separator='!')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_buffer_text(self):
         self.assertIs(self.parser.buffer_text, False)
         for x in 0, 1, 2, 0:
             self.parser.buffer_text = x
             self.assertIs(self.parser.buffer_text, bool(x))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_namespace_prefixes(self):
         self.assertIs(self.parser.namespace_prefixes, False)
         for x in 0, 1, 2, 0:
             self.parser.namespace_prefixes = x
             self.assertIs(self.parser.namespace_prefixes, bool(x))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_ordered_attributes(self):
         self.assertIs(self.parser.ordered_attributes, False)
         for x in 0, 1, 2, 0:
             self.parser.ordered_attributes = x
             self.assertIs(self.parser.ordered_attributes, bool(x))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_specified_attributes(self):
         self.assertIs(self.parser.specified_attributes, False)
         for x in 0, 1, 2, 0:
@@ -244,7 +240,6 @@ class ParseTest(unittest.TestCase):
         # Issue #6697.
         self.assertRaises(AttributeError, getattr, parser, '\uD800')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_parse_str(self):
         out = self.Outputter()
         parser = expat.ParserCreate(namespace_separator='!')
@@ -255,7 +250,6 @@ class ParseTest(unittest.TestCase):
         operations = out.out
         self._verify_parse_output(operations)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_parse_file(self):
         # Try parsing a file
         out = self.Outputter()

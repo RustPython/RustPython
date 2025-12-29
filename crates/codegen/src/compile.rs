@@ -24,12 +24,13 @@ use ruff_python_ast::{
     Alias, Arguments, BoolOp, CmpOp, Comprehension, ConversionFlag, DebugText, Decorator, DictItem,
     ExceptHandler, ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprContext,
     ExprFString, ExprList, ExprName, ExprSlice, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp,
-    FString, FStringFlags, FStringPart, Identifier, Int, InterpolatedElement,
-    InterpolatedStringElement, InterpolatedStringElements, Keyword, MatchCase, ModExpression,
-    ModModule, Operator, Parameters, Pattern, PatternMatchAs, PatternMatchClass,
-    PatternMatchMapping, PatternMatchOr, PatternMatchSequence, PatternMatchSingleton,
-    PatternMatchStar, PatternMatchValue, Singleton, Stmt, StmtExpr, TypeParam, TypeParamParamSpec,
-    TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams, UnaryOp, WithItem,
+    FString, FStringFlags, FStringPart, Identifier, Int, InterpolatedStringElement,
+    InterpolatedStringElements, Keyword, MatchCase, ModExpression, ModModule, Operator, Parameters,
+    Pattern, PatternMatchAs, PatternMatchClass, PatternMatchMapping, PatternMatchOr,
+    PatternMatchSequence, PatternMatchSingleton, PatternMatchStar, PatternMatchValue, Singleton,
+    Stmt, StmtExpr, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple,
+    TypeParams, UnaryOp, WithItem,
+    visitor::{Visitor, walk_expr},
 };
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_core::{
@@ -1062,7 +1063,7 @@ impl Compiler {
                         }
                     );
 
-                    emit!(self, Instruction::Pop);
+                    emit!(self, Instruction::PopTop);
                 } else {
                     self.compile_statement(statement)?;
                 }
@@ -1078,7 +1079,7 @@ impl Compiler {
                     }
                 );
 
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
             } else {
                 self.compile_statement(last)?;
                 self.emit_load_const(ConstantData::None);
@@ -1103,7 +1104,7 @@ impl Compiler {
         if let Some(last_statement) = body.last() {
             match last_statement {
                 Stmt::Expr(_) => {
-                    self.current_block().instructions.pop(); // pop Instruction::Pop
+                    self.current_block().instructions.pop(); // pop Instruction::PopTop
                 }
                 Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
                     let pop_instructions = self.current_block().instructions.pop();
@@ -1400,14 +1401,14 @@ impl Compiler {
                     }
 
                     // Pop module from stack:
-                    emit!(self, Instruction::Pop);
+                    emit!(self, Instruction::PopTop);
                 }
             }
             Stmt::Expr(StmtExpr { value, .. }) => {
                 self.compile_expression(value)?;
 
                 // Pop result of stack, since we not use it:
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
             }
             Stmt::Global(_) | Stmt::Nonlocal(_) => {
                 // Handled during symbol table construction.
@@ -1509,7 +1510,7 @@ impl Compiler {
                 ..
             }) => {
                 if *is_star {
-                    self.compile_try_star_statement(body, handlers, orelse, finalbody)?
+                    self.compile_try_star_except(body, handlers, orelse, finalbody)?
                 } else {
                     self.compile_try_statement(body, handlers, orelse, finalbody)?
                 }
@@ -1579,13 +1580,18 @@ impl Compiler {
             }
             Stmt::Break(_) => {
                 // Find the innermost loop in fblock stack
+                // Error if we encounter ExceptionGroupHandler before finding a loop
                 let found_loop = {
                     let code = self.current_code_info();
-                    let mut result = None;
+                    let mut result = Ok(None);
                     for i in (0..code.fblock.len()).rev() {
                         match code.fblock[i].fb_type {
                             FBlockType::WhileLoop | FBlockType::ForLoop => {
-                                result = Some(code.fblock[i].fb_exit);
+                                result = Ok(Some(code.fblock[i].fb_exit));
+                                break;
+                            }
+                            FBlockType::ExceptionGroupHandler => {
+                                result = Err(());
                                 break;
                             }
                             _ => continue,
@@ -1595,25 +1601,36 @@ impl Compiler {
                 };
 
                 match found_loop {
-                    Some(exit_block) => {
+                    Ok(Some(exit_block)) => {
                         emit!(self, Instruction::Break { target: exit_block });
                     }
-                    None => {
+                    Ok(None) => {
                         return Err(
                             self.error_ranged(CodegenErrorType::InvalidBreak, statement.range())
                         );
+                    }
+                    Err(()) => {
+                        return Err(self.error_ranged(
+                            CodegenErrorType::BreakContinueReturnInExceptStar,
+                            statement.range(),
+                        ));
                     }
                 }
             }
             Stmt::Continue(_) => {
                 // Find the innermost loop in fblock stack
+                // Error if we encounter ExceptionGroupHandler before finding a loop
                 let found_loop = {
                     let code = self.current_code_info();
-                    let mut result = None;
+                    let mut result = Ok(None);
                     for i in (0..code.fblock.len()).rev() {
                         match code.fblock[i].fb_type {
                             FBlockType::WhileLoop | FBlockType::ForLoop => {
-                                result = Some(code.fblock[i].fb_block);
+                                result = Ok(Some(code.fblock[i].fb_block));
+                                break;
+                            }
+                            FBlockType::ExceptionGroupHandler => {
+                                result = Err(());
                                 break;
                             }
                             _ => continue,
@@ -1623,13 +1640,19 @@ impl Compiler {
                 };
 
                 match found_loop {
-                    Some(loop_block) => {
+                    Ok(Some(loop_block)) => {
                         emit!(self, Instruction::Continue { target: loop_block });
                     }
-                    None => {
+                    Ok(None) => {
                         return Err(
                             self.error_ranged(CodegenErrorType::InvalidContinue, statement.range())
                         );
+                    }
+                    Err(()) => {
+                        return Err(self.error_ranged(
+                            CodegenErrorType::BreakContinueReturnInExceptStar,
+                            statement.range(),
+                        ));
                     }
                 }
             }
@@ -1638,6 +1661,18 @@ impl Compiler {
                     return Err(
                         self.error_ranged(CodegenErrorType::InvalidReturn, statement.range())
                     );
+                }
+                // Check if we're inside an except* block in the current function
+                {
+                    let code = self.current_code_info();
+                    for block in code.fblock.iter().rev() {
+                        if matches!(block.fb_type, FBlockType::ExceptionGroupHandler) {
+                            return Err(self.error_ranged(
+                                CodegenErrorType::BreakContinueReturnInExceptStar,
+                                statement.range(),
+                            ));
+                        }
+                    }
                 }
                 match value {
                     Some(v) => {
@@ -2050,12 +2085,12 @@ impl Compiler {
                     self.store_name(alias.as_str())?
                 } else {
                     // Drop exception from top of stack:
-                    emit!(self, Instruction::Pop);
+                    emit!(self, Instruction::PopTop);
                 }
             } else {
                 // Catch all!
                 // Drop exception from top of stack:
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
             }
 
             // Handler code:
@@ -2118,14 +2153,276 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_try_star_statement(
+    fn compile_try_star_except(
         &mut self,
-        _body: &[Stmt],
-        _handlers: &[ExceptHandler],
-        _orelse: &[Stmt],
-        _finalbody: &[Stmt],
+        body: &[Stmt],
+        handlers: &[ExceptHandler],
+        orelse: &[Stmt],
+        finalbody: &[Stmt],
     ) -> CompileResult<()> {
-        Err(self.error(CodegenErrorType::NotImplementedYet))
+        // Simplified except* implementation using PrepReraiseStar intrinsic
+        // Stack layout during handler processing: [orig, list, rest]
+        let handler_block = self.new_block();
+        let finally_block = self.new_block();
+        let else_block = self.new_block();
+        let end_block = self.new_block();
+        let reraise_star_block = self.new_block();
+        let reraise_block = self.new_block();
+
+        if !finalbody.is_empty() {
+            emit!(
+                self,
+                Instruction::SetupFinally {
+                    handler: finally_block,
+                }
+            );
+        }
+
+        emit!(
+            self,
+            Instruction::SetupExcept {
+                handler: handler_block,
+            }
+        );
+        self.compile_statements(body)?;
+        emit!(self, Instruction::PopBlock);
+        emit!(self, Instruction::Jump { target: else_block });
+
+        // Exception handler entry
+        self.switch_to_block(handler_block);
+        // Stack: [exc]
+
+        // Create list for tracking exception results and copy orig
+        emit!(self, Instruction::BuildList { size: 0 });
+        // Stack: [exc, []]
+        // CopyItem is 1-indexed: CopyItem(1)=TOS, CopyItem(2)=second from top
+        // With stack [exc, []], CopyItem(2) copies exc
+        emit!(self, Instruction::CopyItem { index: 2 });
+        // Stack: [exc, [], exc_copy]
+
+        // Now stack is: [orig, list, rest]
+
+        let n = handlers.len();
+        for (i, handler) in handlers.iter().enumerate() {
+            let ExceptHandler::ExceptHandler(ExceptHandlerExceptHandler {
+                type_, name, body, ..
+            }) = handler;
+
+            let no_match_block = self.new_block();
+            let next_block = self.new_block();
+
+            // Compile exception type
+            if let Some(exc_type) = type_ {
+                // Check for unparenthesized tuple
+                if let Expr::Tuple(ExprTuple { elts, range, .. }) = exc_type.as_ref()
+                    && let Some(first) = elts.first()
+                    && range.start().to_u32() == first.range().start().to_u32()
+                {
+                    return Err(self.error(CodegenErrorType::SyntaxError(
+                        "multiple exception types must be parenthesized".to_owned(),
+                    )));
+                }
+                self.compile_expression(exc_type)?;
+            } else {
+                return Err(self.error(CodegenErrorType::SyntaxError(
+                    "except* must specify an exception type".to_owned(),
+                )));
+            }
+            // Stack: [orig, list, rest, type]
+
+            emit!(self, Instruction::CheckEgMatch);
+            // Stack: [orig, list, new_rest, match]
+
+            // Check if match is not None (use identity check, not truthiness)
+            // CopyItem is 1-indexed: CopyItem(1) = TOS, CopyItem(2) = second from top
+            emit!(self, Instruction::CopyItem { index: 1 });
+            self.emit_load_const(ConstantData::None);
+            emit!(self, Instruction::IsOp(bytecode::Invert::No)); // is None?
+            emit!(
+                self,
+                Instruction::PopJumpIfTrue {
+                    target: no_match_block
+                }
+            );
+
+            // Handler matched
+            // Stack: [orig, list, new_rest, match]
+            let handler_except_block = self.new_block();
+            let handler_done_block = self.new_block();
+
+            // Set matched exception as current exception for bare 'raise'
+            emit!(self, Instruction::SetExcInfo);
+
+            // Store match to name if provided
+            if let Some(alias) = name {
+                // CopyItem(1) copies TOS (match)
+                emit!(self, Instruction::CopyItem { index: 1 });
+                self.store_name(alias.as_str())?;
+            }
+            // Stack: [orig, list, new_rest, match]
+
+            // Setup exception handler to catch 'raise' in handler body
+            emit!(
+                self,
+                Instruction::SetupExcept {
+                    handler: handler_except_block,
+                }
+            );
+
+            // Push fblock to disallow break/continue/return in except* handler
+            self.push_fblock(
+                FBlockType::ExceptionGroupHandler,
+                handler_done_block,
+                end_block,
+            )?;
+
+            // Execute handler body
+            self.compile_statements(body)?;
+
+            // Handler body completed normally (didn't raise)
+            self.pop_fblock(FBlockType::ExceptionGroupHandler);
+            emit!(self, Instruction::PopBlock);
+
+            // Cleanup name binding
+            if let Some(alias) = name {
+                self.emit_load_const(ConstantData::None);
+                self.store_name(alias.as_str())?;
+                self.compile_name(alias.as_str(), NameUsage::Delete)?;
+            }
+
+            // Stack: [orig, list, new_rest, match]
+            // Pop match (handler consumed it)
+            emit!(self, Instruction::PopTop);
+            // Stack: [orig, list, new_rest]
+
+            // Append None to list (exception was consumed, not reraised)
+            self.emit_load_const(ConstantData::None);
+            // Stack: [orig, list, new_rest, None]
+            emit!(self, Instruction::ListAppend { i: 1 });
+            // Stack: [orig, list, new_rest]
+
+            emit!(
+                self,
+                Instruction::Jump {
+                    target: handler_done_block
+                }
+            );
+
+            // Handler raised an exception (bare 'raise' or other)
+            self.switch_to_block(handler_except_block);
+            // Stack: [orig, list, new_rest, match, raised_exc]
+
+            // Cleanup name binding
+            if let Some(alias) = name {
+                self.emit_load_const(ConstantData::None);
+                self.store_name(alias.as_str())?;
+                self.compile_name(alias.as_str(), NameUsage::Delete)?;
+            }
+
+            // Append raised_exc to list (the actual exception that was raised)
+            // Stack: [orig, list, new_rest, match, raised_exc]
+            // ListAppend(2): pop raised_exc, then append to list at stack[4-2-1]=stack[1]
+            emit!(self, Instruction::ListAppend { i: 2 });
+            // Stack: [orig, list, new_rest, match]
+
+            // Pop match (no longer needed)
+            emit!(self, Instruction::PopTop);
+            // Stack: [orig, list, new_rest]
+
+            self.switch_to_block(handler_done_block);
+            // Stack: [orig, list, new_rest]
+
+            emit!(self, Instruction::Jump { target: next_block });
+
+            // No match - pop match (None), keep rest unchanged
+            self.switch_to_block(no_match_block);
+            emit!(self, Instruction::PopTop); // pop match (None)
+            // Stack: [orig, list, new_rest]
+
+            self.switch_to_block(next_block);
+            // Stack: [orig, list, rest] (rest may have been updated)
+
+            // After last handler, append remaining rest to list
+            if i == n - 1 {
+                // Stack: [orig, list, rest]
+                // ListAppend(i) pops TOS, then accesses stack[len - i - 1]
+                // After pop, stack is [orig, list], len=2
+                // We want list at index 1, so 2 - i - 1 = 1, i = 0
+                emit!(self, Instruction::ListAppend { i: 0 });
+                // Stack: [orig, list]
+                emit!(
+                    self,
+                    Instruction::Jump {
+                        target: reraise_star_block
+                    }
+                );
+            }
+        }
+
+        // Reraise star block
+        self.switch_to_block(reraise_star_block);
+        // Stack: [orig, list]
+        emit!(
+            self,
+            Instruction::CallIntrinsic2 {
+                func: bytecode::IntrinsicFunction2::PrepReraiseStar
+            }
+        );
+        // Stack: [result] (exception to reraise or None)
+
+        // Check if result is not None (use identity check, not truthiness)
+        emit!(self, Instruction::CopyItem { index: 1 });
+        self.emit_load_const(ConstantData::None);
+        emit!(self, Instruction::IsOp(bytecode::Invert::Yes)); // is not None?
+        emit!(
+            self,
+            Instruction::PopJumpIfTrue {
+                target: reraise_block
+            }
+        );
+
+        // Nothing to reraise
+        emit!(self, Instruction::PopTop);
+        emit!(self, Instruction::PopException);
+
+        if !finalbody.is_empty() {
+            emit!(self, Instruction::PopBlock);
+            emit!(self, Instruction::EnterFinally);
+        }
+
+        emit!(self, Instruction::Jump { target: end_block });
+
+        // Reraise the result
+        self.switch_to_block(reraise_block);
+        // Don't call PopException before Raise - it truncates the stack and removes the result.
+        // When Raise is executed, the exception propagates through unwind_blocks which
+        // will properly handle the ExceptHandler block.
+        emit!(
+            self,
+            Instruction::Raise {
+                kind: bytecode::RaiseKind::Raise
+            }
+        );
+
+        // try-else path
+        self.switch_to_block(else_block);
+        self.compile_statements(orelse)?;
+
+        if !finalbody.is_empty() {
+            emit!(self, Instruction::PopBlock);
+            emit!(self, Instruction::EnterFinally);
+        }
+
+        emit!(self, Instruction::Jump { target: end_block });
+
+        self.switch_to_block(end_block);
+        if !finalbody.is_empty() {
+            self.switch_to_block(finally_block);
+            self.compile_statements(finalbody)?;
+            emit!(self, Instruction::EndFinally);
+        }
+
+        Ok(())
     }
 
     fn is_forbidden_arg_name(name: &str) -> bool {
@@ -2949,7 +3246,7 @@ impl Compiler {
                     self.compile_store(var)?;
                 }
                 None => {
-                    emit!(self, Instruction::Pop);
+                    emit!(self, Instruction::PopTop);
                 }
             }
             final_block
@@ -3142,7 +3439,7 @@ impl Compiler {
         for &label in pc.fail_pop.iter().skip(1).rev() {
             self.switch_to_block(label);
             // Emit the POP instruction.
-            emit!(self, Instruction::Pop);
+            emit!(self, Instruction::PopTop);
         }
         // Finally, use the first label.
         self.switch_to_block(pc.fail_pop[0]);
@@ -3186,7 +3483,7 @@ impl Compiler {
         match n {
             // If no name is provided, simply pop the top of the stack.
             None => {
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
                 Ok(())
             }
             Some(name) => {
@@ -3312,7 +3609,7 @@ impl Compiler {
         }
         // Pop the subject off the stack.
         pc.on_top -= 1;
-        emit!(self, Instruction::Pop);
+        emit!(self, Instruction::PopTop);
         Ok(())
     }
 
@@ -3496,7 +3793,7 @@ impl Compiler {
             pc.on_top -= 1;
 
             if is_true_wildcard {
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
                 continue; // Don't compile wildcard patterns
             }
 
@@ -3547,7 +3844,7 @@ impl Compiler {
         if size == 0 && star_target.is_none() {
             // If the pattern is just "{}", we're done! Pop the subject
             pc.on_top -= 1;
-            emit!(self, Instruction::Pop);
+            emit!(self, Instruction::PopTop);
             return Ok(());
         }
 
@@ -3702,8 +3999,8 @@ impl Compiler {
             // Non-rest pattern: just clean up the stack
 
             // Pop them as we're not using them
-            emit!(self, Instruction::Pop); // Pop keys_tuple
-            emit!(self, Instruction::Pop); // Pop subject
+            emit!(self, Instruction::PopTop); // Pop keys_tuple
+            emit!(self, Instruction::PopTop); // Pop subject
         }
 
         Ok(())
@@ -3791,7 +4088,7 @@ impl Compiler {
         // In Rust, old_pc is a local clone, so we need not worry about that.
 
         // No alternative matched: pop the subject and fail.
-        emit!(self, Instruction::Pop);
+        emit!(self, Instruction::PopTop);
         self.jump_to_fail_pop(pc, JumpOp::Jump)?;
 
         // Use the label "end".
@@ -3813,7 +4110,7 @@ impl Compiler {
 
         // Old context and control will be dropped automatically.
         // Finally, pop the copy of the subject.
-        emit!(self, Instruction::Pop);
+        emit!(self, Instruction::PopTop);
         Ok(())
     }
 
@@ -3887,7 +4184,7 @@ impl Compiler {
         pc.on_top -= 1;
         if only_wildcard {
             // Patterns like: [] / [_] / [_, _] / [*_] / [_, *_] / [_, _, *_] / etc.
-            emit!(self, Instruction::Pop);
+            emit!(self, Instruction::PopTop);
         } else if star_wildcard {
             self.pattern_helper_sequence_subscr(patterns, star.unwrap(), pc)?;
         } else {
@@ -4011,7 +4308,7 @@ impl Compiler {
             }
 
             if i != case_count - 1 {
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
             }
 
             self.compile_statements(&m.body)?;
@@ -4022,14 +4319,16 @@ impl Compiler {
         if has_default {
             let m = &cases[num_cases - 1];
             if num_cases == 1 {
-                emit!(self, Instruction::Pop);
+                emit!(self, Instruction::PopTop);
             } else {
                 emit!(self, Instruction::Nop);
             }
             if let Some(ref guard) = m.guard {
                 // Compile guard and jump to end if false
                 self.compile_expression(guard)?;
-                emit!(self, Instruction::JumpIfFalseOrPop { target: end });
+                emit!(self, Instruction::CopyItem { index: 1_u32 });
+                emit!(self, Instruction::PopJumpIfFalse { target: end });
+                emit!(self, Instruction::PopTop);
             }
             self.compile_statements(&m.body)?;
         }
@@ -4043,92 +4342,97 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_chained_comparison(
+    /// [CPython `compiler_addcompare`](https://github.com/python/cpython/blob/627894459a84be3488a1789919679c997056a03c/Python/compile.c#L2880-L2924)
+    fn compile_addcompare(&mut self, op: &CmpOp) {
+        use bytecode::ComparisonOperator::*;
+        match op {
+            CmpOp::Eq => emit!(self, Instruction::CompareOperation { op: Equal }),
+            CmpOp::NotEq => emit!(self, Instruction::CompareOperation { op: NotEqual }),
+            CmpOp::Lt => emit!(self, Instruction::CompareOperation { op: Less }),
+            CmpOp::LtE => emit!(self, Instruction::CompareOperation { op: LessOrEqual }),
+            CmpOp::Gt => emit!(self, Instruction::CompareOperation { op: Greater }),
+            CmpOp::GtE => {
+                emit!(self, Instruction::CompareOperation { op: GreaterOrEqual })
+            }
+            CmpOp::In => emit!(self, Instruction::ContainsOp(Invert::No)),
+            CmpOp::NotIn => emit!(self, Instruction::ContainsOp(Invert::Yes)),
+            CmpOp::Is => emit!(self, Instruction::IsOp(Invert::No)),
+            CmpOp::IsNot => emit!(self, Instruction::IsOp(Invert::Yes)),
+        }
+    }
+
+    /// Compile a chained comparison.
+    ///
+    /// ```py
+    /// a == b == c == d
+    /// ```
+    ///
+    /// Will compile into (pseudo code):
+    ///
+    /// ```py
+    /// result = a == b
+    /// if result:
+    ///   result = b == c
+    ///   if result:
+    ///     result = c == d
+    /// ```
+    ///
+    /// # See Also
+    /// - [CPython `compiler_compare`](https://github.com/python/cpython/blob/627894459a84be3488a1789919679c997056a03c/Python/compile.c#L4678-L4717)
+    fn compile_compare(
         &mut self,
         left: &Expr,
         ops: &[CmpOp],
-        exprs: &[Expr],
+        comparators: &[Expr],
     ) -> CompileResult<()> {
-        assert!(!ops.is_empty());
-        assert_eq!(exprs.len(), ops.len());
         let (last_op, mid_ops) = ops.split_last().unwrap();
-        let (last_val, mid_exprs) = exprs.split_last().unwrap();
-
-        use bytecode::ComparisonOperator::*;
-        let compile_cmpop = |c: &mut Self, op: &CmpOp| match op {
-            CmpOp::Eq => emit!(c, Instruction::CompareOperation { op: Equal }),
-            CmpOp::NotEq => emit!(c, Instruction::CompareOperation { op: NotEqual }),
-            CmpOp::Lt => emit!(c, Instruction::CompareOperation { op: Less }),
-            CmpOp::LtE => emit!(c, Instruction::CompareOperation { op: LessOrEqual }),
-            CmpOp::Gt => emit!(c, Instruction::CompareOperation { op: Greater }),
-            CmpOp::GtE => {
-                emit!(c, Instruction::CompareOperation { op: GreaterOrEqual })
-            }
-            CmpOp::In => emit!(c, Instruction::ContainsOp(Invert::No)),
-            CmpOp::NotIn => emit!(c, Instruction::ContainsOp(Invert::Yes)),
-            CmpOp::Is => emit!(c, Instruction::IsOp(Invert::No)),
-            CmpOp::IsNot => emit!(c, Instruction::IsOp(Invert::Yes)),
-        };
-
-        // a == b == c == d
-        // compile into (pseudo code):
-        // result = a == b
-        // if result:
-        //   result = b == c
-        //   if result:
-        //     result = c == d
+        let (last_comparator, mid_comparators) = comparators.split_last().unwrap();
 
         // initialize lhs outside of loop
         self.compile_expression(left)?;
 
-        let end_blocks = if mid_exprs.is_empty() {
-            None
-        } else {
-            let break_block = self.new_block();
-            let after_block = self.new_block();
-            Some((break_block, after_block))
-        };
+        if mid_comparators.is_empty() {
+            self.compile_expression(last_comparator)?;
+            self.compile_addcompare(last_op);
+
+            return Ok(());
+        }
+
+        let cleanup = self.new_block();
 
         // for all comparisons except the last (as the last one doesn't need a conditional jump)
-        for (op, val) in mid_ops.iter().zip(mid_exprs) {
-            self.compile_expression(val)?;
+        for (op, comparator) in mid_ops.iter().zip(mid_comparators) {
+            self.compile_expression(comparator)?;
+
             // store rhs for the next comparison in chain
             emit!(self, Instruction::Swap { index: 2 });
-            emit!(self, Instruction::CopyItem { index: 2_u32 });
+            emit!(self, Instruction::CopyItem { index: 2 });
 
-            compile_cmpop(self, op);
+            self.compile_addcompare(op);
 
             // if comparison result is false, we break with this value; if true, try the next one.
-            if let Some((break_block, _)) = end_blocks {
-                emit!(
-                    self,
-                    Instruction::JumpIfFalseOrPop {
-                        target: break_block,
-                    }
-                );
-            }
+            /*
+            emit!(self, Instruction::CopyItem { index: 1 });
+            // emit!(self, Instruction::ToBool); // TODO: Uncomment this
+            emit!(self, Instruction::PopJumpIfFalse { target: cleanup });
+            emit!(self, Instruction::PopTop);
+            */
+
+            emit!(self, Instruction::JumpIfFalseOrPop { target: cleanup });
         }
 
-        // handle the last comparison
-        self.compile_expression(last_val)?;
-        compile_cmpop(self, last_op);
+        self.compile_expression(last_comparator)?;
+        self.compile_addcompare(last_op);
 
-        if let Some((break_block, after_block)) = end_blocks {
-            emit!(
-                self,
-                Instruction::Jump {
-                    target: after_block,
-                }
-            );
+        let end = self.new_block();
+        emit!(self, Instruction::Jump { target: end });
 
-            // early exit left us with stack: `rhs, comparison_result`. We need to clean up rhs.
-            self.switch_to_block(break_block);
-            emit!(self, Instruction::Swap { index: 2 });
-            emit!(self, Instruction::Pop);
+        // early exit left us with stack: `rhs, comparison_result`. We need to clean up rhs.
+        self.switch_to_block(cleanup);
+        emit!(self, Instruction::Swap { index: 2 });
+        emit!(self, Instruction::PopTop);
 
-            self.switch_to_block(after_block);
-        }
-
+        self.switch_to_block(end);
         Ok(())
     }
 
@@ -4191,7 +4495,7 @@ impl Compiler {
             emit!(self, Instruction::StoreSubscript);
         } else {
             // Drop annotation if not assigned to simple identifier.
-            emit!(self, Instruction::Pop);
+            emit!(self, Instruction::PopTop);
         }
 
         Ok(())
@@ -4456,14 +4760,16 @@ impl Compiler {
         let after_block = self.new_block();
 
         let (last_value, values) = values.split_last().unwrap();
+
         for value in values {
             self.compile_expression(value)?;
 
+            emit!(self, Instruction::CopyItem { index: 1_u32 });
             match op {
                 BoolOp::And => {
                     emit!(
                         self,
-                        Instruction::JumpIfFalseOrPop {
+                        Instruction::PopJumpIfFalse {
                             target: after_block,
                         }
                     );
@@ -4471,12 +4777,14 @@ impl Compiler {
                 BoolOp::Or => {
                     emit!(
                         self,
-                        Instruction::JumpIfTrueOrPop {
+                        Instruction::PopJumpIfTrue {
                             target: after_block,
                         }
                     );
                 }
             }
+
+            emit!(self, Instruction::PopTop);
         }
 
         // If all values did not qualify, take the value of the last value:
@@ -4553,7 +4861,7 @@ impl Compiler {
                 comparators,
                 ..
             }) => {
-                self.compile_chained_comparison(left, ops, comparators)?;
+                self.compile_compare(left, ops, comparators)?;
             }
             // Expr::Constant(ExprConstant { value, .. }) => {
             //     self.emit_load_const(compile_constant(value));
@@ -4822,7 +5130,7 @@ impl Compiler {
                                 arg: bytecode::ResumeType::AfterYield as u32
                             }
                         );
-                        emit!(compiler, Instruction::Pop);
+                        emit!(compiler, Instruction::PopTop);
 
                         Ok(())
                     },
@@ -5435,134 +5743,35 @@ impl Compiler {
 
     /// Whether the expression contains an await expression and
     /// thus requires the function to be async.
-    /// Async with and async for are statements, so I won't check for them here
+    ///
+    /// Both:
+    /// ```py
+    /// async with: ...
+    /// async for: ...
+    /// ```
+    /// are statements, so we won't check for them here
     fn contains_await(expression: &Expr) -> bool {
-        use ruff_python_ast::*;
-
-        match &expression {
-            Expr::Call(ExprCall {
-                func, arguments, ..
-            }) => {
-                Self::contains_await(func)
-                    || arguments.args.iter().any(Self::contains_await)
-                    || arguments
-                        .keywords
-                        .iter()
-                        .any(|kw| Self::contains_await(&kw.value))
-            }
-            Expr::BoolOp(ExprBoolOp { values, .. }) => values.iter().any(Self::contains_await),
-            Expr::BinOp(ExprBinOp { left, right, .. }) => {
-                Self::contains_await(left) || Self::contains_await(right)
-            }
-            Expr::Subscript(ExprSubscript { value, slice, .. }) => {
-                Self::contains_await(value) || Self::contains_await(slice)
-            }
-            Expr::UnaryOp(ExprUnaryOp { operand, .. }) => Self::contains_await(operand),
-            Expr::Attribute(ExprAttribute { value, .. }) => Self::contains_await(value),
-            Expr::Compare(ExprCompare {
-                left, comparators, ..
-            }) => Self::contains_await(left) || comparators.iter().any(Self::contains_await),
-            Expr::List(ExprList { elts, .. }) => elts.iter().any(Self::contains_await),
-            Expr::Tuple(ExprTuple { elts, .. }) => elts.iter().any(Self::contains_await),
-            Expr::Set(ExprSet { elts, .. }) => elts.iter().any(Self::contains_await),
-            Expr::Dict(ExprDict { items, .. }) => items
-                .iter()
-                .flat_map(|item| &item.key)
-                .any(Self::contains_await),
-            Expr::Slice(ExprSlice {
-                lower, upper, step, ..
-            }) => {
-                lower.as_deref().is_some_and(Self::contains_await)
-                    || upper.as_deref().is_some_and(Self::contains_await)
-                    || step.as_deref().is_some_and(Self::contains_await)
-            }
-            Expr::Yield(ExprYield { value, .. }) => {
-                value.as_deref().is_some_and(Self::contains_await)
-            }
-            Expr::Await(ExprAwait { .. }) => true,
-            Expr::YieldFrom(ExprYieldFrom { value, .. }) => Self::contains_await(value),
-            Expr::Name(ExprName { .. }) => false,
-            Expr::Lambda(ExprLambda { body, .. }) => Self::contains_await(body),
-            Expr::ListComp(ExprListComp {
-                elt, generators, ..
-            }) => {
-                Self::contains_await(elt)
-                    || generators.iter().any(|jen| Self::contains_await(&jen.iter))
-            }
-            Expr::SetComp(ExprSetComp {
-                elt, generators, ..
-            }) => {
-                Self::contains_await(elt)
-                    || generators.iter().any(|jen| Self::contains_await(&jen.iter))
-            }
-            Expr::DictComp(ExprDictComp {
-                key,
-                value,
-                generators,
-                ..
-            }) => {
-                Self::contains_await(key)
-                    || Self::contains_await(value)
-                    || generators.iter().any(|jen| Self::contains_await(&jen.iter))
-            }
-            Expr::Generator(ExprGenerator {
-                elt, generators, ..
-            }) => {
-                Self::contains_await(elt)
-                    || generators.iter().any(|jen| Self::contains_await(&jen.iter))
-            }
-            Expr::Starred(expr) => Self::contains_await(&expr.value),
-            Expr::If(ExprIf {
-                test, body, orelse, ..
-            }) => {
-                Self::contains_await(test)
-                    || Self::contains_await(body)
-                    || Self::contains_await(orelse)
-            }
-
-            Expr::Named(ExprNamed {
-                target,
-                value,
-                node_index: _,
-                range: _,
-            }) => Self::contains_await(target) || Self::contains_await(value),
-            Expr::FString(fstring) => {
-                Self::interpolated_string_contains_await(fstring.value.elements())
-            }
-            Expr::TString(tstring) => {
-                Self::interpolated_string_contains_await(tstring.value.elements())
-            }
-            Expr::StringLiteral(_)
-            | Expr::BytesLiteral(_)
-            | Expr::NumberLiteral(_)
-            | Expr::BooleanLiteral(_)
-            | Expr::NoneLiteral(_)
-            | Expr::EllipsisLiteral(_)
-            | Expr::IpyEscapeCommand(_) => false,
-        }
-    }
-
-    fn interpolated_string_contains_await<'a>(
-        mut elements: impl Iterator<Item = &'a InterpolatedStringElement>,
-    ) -> bool {
-        fn interpolated_element_contains_await<F: Copy + Fn(&Expr) -> bool>(
-            expr_element: &InterpolatedElement,
-            contains_await: F,
-        ) -> bool {
-            contains_await(&expr_element.expression)
-                || expr_element
-                    .format_spec
-                    .iter()
-                    .flat_map(|spec| spec.elements.interpolations())
-                    .any(|element| interpolated_element_contains_await(element, contains_await))
+        #[derive(Default)]
+        struct AwaitVisitor {
+            found: bool,
         }
 
-        elements.any(|element| match element {
-            InterpolatedStringElement::Interpolation(expr_element) => {
-                interpolated_element_contains_await(expr_element, Self::contains_await)
+        impl Visitor<'_> for AwaitVisitor {
+            fn visit_expr(&mut self, expr: &Expr) {
+                if self.found {
+                    return;
+                }
+
+                match expr {
+                    Expr::Await(_) => self.found = true,
+                    _ => walk_expr(self, expr),
+                }
             }
-            InterpolatedStringElement::Literal(_) => false,
-        })
+        }
+
+        let mut visitor = AwaitVisitor::default();
+        visitor.visit_expr(expression);
+        visitor.found
     }
 
     fn compile_expr_fstring(&mut self, fstring: &ExprFString) -> CompileResult<()> {

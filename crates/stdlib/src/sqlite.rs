@@ -20,7 +20,6 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 
 #[pymodule]
 mod _sqlite {
-    use crossbeam_utils::atomic::AtomicCell;
     use libsqlite3_sys::{
         SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL,
         SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT, SQLITE_TRACE_STMT,
@@ -30,7 +29,7 @@ mod _sqlite {
         sqlite3_bind_null, sqlite3_bind_parameter_count, sqlite3_bind_parameter_name,
         sqlite3_bind_text, sqlite3_blob, sqlite3_blob_bytes, sqlite3_blob_close, sqlite3_blob_open,
         sqlite3_blob_read, sqlite3_blob_write, sqlite3_busy_timeout, sqlite3_changes,
-        sqlite3_close_v2, sqlite3_column_blob, sqlite3_column_bytes, sqlite3_column_count,
+        sqlite3_close, sqlite3_column_blob, sqlite3_column_bytes, sqlite3_column_count,
         sqlite3_column_decltype, sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name,
         sqlite3_column_text, sqlite3_column_type, sqlite3_complete, sqlite3_context,
         sqlite3_context_db_handle, sqlite3_create_collation_v2, sqlite3_create_function_v2,
@@ -488,7 +487,7 @@ mod _sqlite {
                 let text2 = vm.ctx.new_str(text2);
 
                 let val = callable.call((text1, text2), vm)?;
-                let Some(val) = val.to_number().index(vm) else {
+                let Some(val) = val.number().index(vm) else {
                     return Ok(0);
                 };
 
@@ -1349,14 +1348,14 @@ mod _sqlite {
         fn set_trace_callback(&self, callable: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let db = self.db_lock(vm)?;
             let Some(data) = CallbackData::new(callable, vm) else {
-                unsafe { sqlite3_trace_v2(db.db, SQLITE_TRACE_STMT as u32, None, null_mut()) };
+                unsafe { sqlite3_trace_v2(db.db, SQLITE_TRACE_STMT, None, null_mut()) };
                 return Ok(());
             };
 
             let ret = unsafe {
                 sqlite3_trace_v2(
                     db.db,
-                    SQLITE_TRACE_STMT as u32,
+                    SQLITE_TRACE_STMT,
                     Some(CallbackData::trace_callback),
                     Box::into_raw(Box::new(data)).cast(),
                 )
@@ -1540,7 +1539,7 @@ mod _sqlite {
         size: Option<c_int>,
     }
 
-    #[pyclass(with(Constructor, IterNext, Iterable), flags(BASETYPE))]
+    #[pyclass(with(Constructor, Initializer, IterNext, Iterable), flags(BASETYPE))]
     impl Cursor {
         fn new(
             connection: PyRef<Connection>,
@@ -1569,24 +1568,6 @@ mod _sqlite {
                 row_factory: PyAtomicRef::from(None),
                 inner: PyMutex::from(None),
             }
-        }
-
-        #[pymethod]
-        fn __init__(&self, _connection: PyRef<Connection>, _vm: &VirtualMachine) -> PyResult<()> {
-            let mut guard = self.inner.lock();
-            if guard.is_some() {
-                // Already initialized (e.g., from a call to super().__init__)
-                return Ok(());
-            }
-            *guard = Some(CursorInner {
-                description: None,
-                row_cast_map: vec![],
-                lastrowid: -1,
-                rowcount: -1,
-                statement: None,
-                closed: false,
-            });
-            Ok(())
         }
 
         fn check_cursor_state(inner: Option<&CursorInner>, vm: &VirtualMachine) -> PyResult<()> {
@@ -1946,6 +1927,27 @@ mod _sqlite {
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
             Ok(Self::new_uninitialized(connection, vm))
+        }
+    }
+
+    impl Initializer for Cursor {
+        type Args = PyRef<Connection>;
+
+        fn init(zelf: PyRef<Self>, _connection: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+            let mut guard = zelf.inner.lock();
+            if guard.is_some() {
+                // Already initialized (e.g., from a call to super().__init__)
+                return Ok(());
+            }
+            *guard = Some(CursorInner {
+                description: None,
+                row_cast_map: vec![],
+                lastrowid: -1,
+                rowcount: -1,
+                statement: None,
+                closed: false,
+            });
+            Ok(())
         }
     }
 
@@ -2546,19 +2548,19 @@ mod _sqlite {
     impl AsSequence for Blob {
         fn as_sequence() -> &'static PySequenceMethods {
             static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-                length: AtomicCell::new(None),
-                concat: AtomicCell::new(None),
-                repeat: AtomicCell::new(None),
-                item: AtomicCell::new(None),
-                ass_item: AtomicCell::new(None),
+                length: None,
+                concat: None,
+                repeat: None,
+                item: None,
+                ass_item: None,
                 contains: atomic_func!(|seq, _needle, vm| {
                     Err(vm.new_type_error(format!(
                         "argument of type '{}' is not iterable",
                         seq.obj.class().name(),
                     )))
                 }),
-                inplace_concat: AtomicCell::new(None),
-                inplace_repeat: AtomicCell::new(None),
+                inplace_concat: None,
+                inplace_repeat: None,
             };
             &AS_SEQUENCE
         }
@@ -2658,7 +2660,7 @@ mod _sqlite {
 
     impl Drop for Sqlite {
         fn drop(&mut self) {
-            unsafe { sqlite3_close_v2(self.raw.db) };
+            unsafe { sqlite3_close(self.raw.db) };
         }
     }
 
@@ -2977,7 +2979,7 @@ mod _sqlite {
         fn bind_parameters(self, parameters: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
             if let Some(dict) = parameters.downcast_ref::<PyDict>() {
                 self.bind_parameters_name(dict, vm)
-            } else if let Ok(seq) = PySequence::try_protocol(parameters, vm) {
+            } else if let Ok(seq) = parameters.try_sequence(vm) {
                 self.bind_parameters_sequence(seq, vm)
             } else {
                 Err(new_programming_error(

@@ -1,8 +1,8 @@
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
-        PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyList, PySet,
-        PySlice, PyStr, PyStrInterned, PyStrRef, PyTraceback, PyType,
+        PyBaseException, PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator,
+        PyList, PySet, PySlice, PyStr, PyStrInterned, PyStrRef, PyTraceback, PyType,
         asyncgenerator::PyAsyncGenWrappedValue,
         function::{PyCell, PyCellRef, PyFunction},
         tuple::{PyTuple, PyTupleRef},
@@ -403,10 +403,6 @@ impl ExecutingFrame<'_> {
         let mut arg_state = bytecode::OpArgState::default();
         loop {
             let idx = self.lasti() as usize;
-            // eprintln!(
-            //     "location: {:?} {}",
-            //     self.code.locations[idx], self.code.source_path
-            // );
             self.update_lasti(|i| *i += 1);
             let bytecode::CodeUnit { op, arg } = instructions[idx];
             let arg = arg_state.extend(arg);
@@ -738,6 +734,15 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::CallMethodPositional { nargs } => {
                 let args = self.collect_positional_args(nargs.get(arg));
                 self.execute_method_call(args, vm)
+            }
+            bytecode::Instruction::CheckEgMatch => {
+                let match_type = self.pop_value();
+                let exc_value = self.pop_value();
+                let (rest, matched) =
+                    crate::exceptions::exception_group_match(&exc_value, &match_type, vm)?;
+                self.push_value(rest);
+                self.push_value(matched);
+                Ok(None)
             }
             bytecode::Instruction::CompareOperation { op } => self.execute_compare(vm, op.get(arg)),
             bytecode::Instruction::ContainsOp(invert) => {
@@ -1385,11 +1390,6 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::Nop => Ok(None),
-            bytecode::Instruction::Pop => {
-                // Pop value from stack and ignore.
-                self.pop_value();
-                Ok(None)
-            }
             bytecode::Instruction::PopBlock => {
                 self.pop_block();
                 Ok(None)
@@ -1408,6 +1408,11 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::PopJumpIfTrue { target } => {
                 self.pop_jump_if(vm, target.get(arg), true)
+            }
+            bytecode::Instruction::PopTop => {
+                // Pop value from stack and ignore.
+                self.pop_value();
+                Ok(None)
             }
             bytecode::Instruction::Raise { kind } => self.execute_raise(vm, kind.get(arg)),
             bytecode::Instruction::Resume { arg: resume_arg } => {
@@ -1443,6 +1448,15 @@ impl ExecutingFrame<'_> {
                     obj.downcast_unchecked_ref()
                 };
                 set.add(item, vm)?;
+                Ok(None)
+            }
+            bytecode::Instruction::SetExcInfo => {
+                // Set the current exception to TOS (for except* handlers)
+                // This updates sys.exc_info() so bare 'raise' will reraise the matched exception
+                let exc = self.top_value();
+                if let Some(exc) = exc.downcast_ref::<PyBaseException>() {
+                    vm.set_exception(Some(exc.to_owned()));
+                }
                 Ok(None)
             }
             bytecode::Instruction::SetFunctionAttribute { attr } => {
@@ -1948,7 +1962,7 @@ impl ExecutingFrame<'_> {
 
         // TODO: It was PyMethod before #4873. Check if it's correct.
         let func = if is_method {
-            if let Some(descr_get) = func.class().mro_find_map(|cls| cls.slots.descr_get.load()) {
+            if let Some(descr_get) = func.class().slots.descr_get.load() {
                 let cls = target.class().to_owned().into();
                 descr_get(func, Some(target), Some(cls), vm)?
             } else {
@@ -2541,6 +2555,12 @@ impl ExecutingFrame<'_> {
                         .into_ref(&vm.ctx)
                         .into();
                 Ok(type_var)
+            }
+            bytecode::IntrinsicFunction2::PrepReraiseStar => {
+                // arg1 = orig (original exception)
+                // arg2 = excs (list of exceptions raised/reraised in except* blocks)
+                // Returns: exception to reraise, or None if nothing to reraise
+                crate::exceptions::prep_reraise_star(arg1, arg2, vm)
             }
         }
     }

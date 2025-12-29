@@ -95,6 +95,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     pointer::PyCPointerType::make_class(ctx);
     structure::PyCStructType::make_class(ctx);
     union::PyCUnionType::make_class(ctx);
+    function::PyCFuncPtrType::make_class(ctx);
     extend_module!(vm, &module, {
         "_CData" => PyCData::make_class(ctx),
         "_SimpleCData" => PyCSimple::make_class(ctx),
@@ -385,12 +386,8 @@ pub(crate) mod _ctypes {
     #[pyattr]
     const RTLD_GLOBAL: i32 = 0;
 
-    #[cfg(target_os = "windows")]
     #[pyattr]
-    const SIZEOF_TIME_T: usize = 8;
-    #[cfg(not(target_os = "windows"))]
-    #[pyattr]
-    const SIZEOF_TIME_T: usize = 4;
+    const SIZEOF_TIME_T: usize = std::mem::size_of::<libc::time_t>();
 
     #[pyattr]
     const CTYPES_MAX_ARGCOUNT: usize = 1024;
@@ -578,30 +575,42 @@ pub(crate) mod _ctypes {
     #[pyfunction(name = "dlopen")]
     fn load_library_unix(
         name: Option<crate::function::FsPath>,
-        _load_flags: OptionalArg<i32>,
+        load_flags: OptionalArg<i32>,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        // TODO: audit functions first
-        // TODO: load_flags
+        // Default mode: RTLD_NOW | RTLD_LOCAL, always force RTLD_NOW
+        let mode = load_flags.unwrap_or(libc::RTLD_NOW | libc::RTLD_LOCAL) | libc::RTLD_NOW;
+
         match name {
             Some(name) => {
                 let cache = library::libcache();
                 let mut cache_write = cache.write();
                 let os_str = name.as_os_str(vm)?;
-                let (id, _) = cache_write.get_or_insert_lib(&*os_str, vm).map_err(|e| {
-                    // Include filename in error message for better diagnostics
-                    let name_str = os_str.to_string_lossy();
-                    vm.new_os_error(format!("{}: {}", name_str, e))
-                })?;
+                let (id, _) = cache_write
+                    .get_or_insert_lib_with_mode(&*os_str, mode, vm)
+                    .map_err(|e| {
+                        let name_str = os_str.to_string_lossy();
+                        vm.new_os_error(format!("{}: {}", name_str, e))
+                    })?;
                 Ok(id)
             }
             None => {
-                // If None, call libc::dlopen(null, mode) to get the current process handle
-                let handle = unsafe { libc::dlopen(std::ptr::null(), libc::RTLD_NOW) };
+                // dlopen(NULL, mode) to get the current process handle (for pythonapi)
+                let handle = unsafe { libc::dlopen(std::ptr::null(), mode) };
                 if handle.is_null() {
-                    return Err(vm.new_os_error("dlopen() error"));
+                    let err = unsafe { libc::dlerror() };
+                    let msg = if err.is_null() {
+                        "dlopen() error".to_string()
+                    } else {
+                        unsafe { std::ffi::CStr::from_ptr(err).to_string_lossy().into_owned() }
+                    };
+                    return Err(vm.new_os_error(msg));
                 }
-                Ok(handle as usize)
+                // Add to library cache so symbol lookup works
+                let cache = library::libcache();
+                let mut cache_write = cache.write();
+                let id = cache_write.insert_raw_handle(handle);
+                Ok(id)
             }
         }
     }
@@ -612,6 +621,48 @@ pub(crate) mod _ctypes {
         let mut cache_write = cache.write();
         cache_write.drop_lib(handle);
         Ok(())
+    }
+
+    #[cfg(not(windows))]
+    #[pyfunction]
+    fn dlclose(handle: usize, _vm: &VirtualMachine) -> PyResult<()> {
+        // Remove from cache, which triggers SharedLibrary drop.
+        // libloading::Library calls dlclose automatically on Drop.
+        let cache = library::libcache();
+        let mut cache_write = cache.write();
+        cache_write.drop_lib(handle);
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
+    #[pyfunction]
+    fn dlsym(
+        handle: usize,
+        name: crate::builtins::PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        let symbol_name = std::ffi::CString::new(name.as_str())
+            .map_err(|_| vm.new_value_error("symbol name contains null byte"))?;
+
+        // Clear previous error
+        unsafe { libc::dlerror() };
+
+        let ptr = unsafe { libc::dlsym(handle as *mut libc::c_void, symbol_name.as_ptr()) };
+
+        // Check for error via dlerror first
+        let err = unsafe { libc::dlerror() };
+        if !err.is_null() {
+            let msg = unsafe { std::ffi::CStr::from_ptr(err).to_string_lossy().into_owned() };
+            return Err(vm.new_os_error(msg));
+        }
+
+        // Treat NULL symbol address as error
+        // This handles cases like GNU IFUNCs that resolve to NULL
+        if ptr.is_null() {
+            return Err(vm.new_os_error(format!("symbol '{}' not found", name.as_str())));
+        }
+
+        Ok(ptr as usize)
     }
 
     #[pyfunction(name = "POINTER")]
@@ -905,25 +956,24 @@ pub(crate) mod _ctypes {
 
     #[pyfunction]
     fn get_errno() -> i32 {
-        errno::errno().0
+        super::function::get_errno_value()
     }
 
     #[pyfunction]
-    fn set_errno(value: i32) {
-        errno::set_errno(errno::Errno(value));
+    fn set_errno(value: i32) -> i32 {
+        super::function::set_errno_value(value)
     }
 
     #[cfg(windows)]
     #[pyfunction]
     fn get_last_error() -> PyResult<u32> {
-        Ok(unsafe { windows_sys::Win32::Foundation::GetLastError() })
+        Ok(super::function::get_last_error_value())
     }
 
     #[cfg(windows)]
     #[pyfunction]
-    fn set_last_error(value: u32) -> PyResult<()> {
-        unsafe { windows_sys::Win32::Foundation::SetLastError(value) };
-        Ok(())
+    fn set_last_error(value: u32) -> u32 {
+        super::function::set_last_error_value(value)
     }
 
     #[pyattr]
@@ -1052,7 +1102,7 @@ pub(crate) mod _ctypes {
             return Err(vm.new_value_error("NULL function pointer"));
         }
 
-        let mut ffi_args: Vec<Arg> = Vec::with_capacity(args.len());
+        let mut ffi_args: Vec<Arg<'_>> = Vec::with_capacity(args.len());
         let mut arg_values: Vec<isize> = Vec::with_capacity(args.len());
         let mut arg_types: Vec<Type> = Vec::with_capacity(args.len());
 
@@ -1084,9 +1134,9 @@ pub(crate) mod _ctypes {
             ffi_args.push(Arg::new(val));
         }
 
-        let cif = Cif::new(arg_types, Type::isize());
+        let cif = Cif::new(arg_types, Type::c_int());
         let code_ptr = CodePtr::from_ptr(func_addr as *const _);
-        let result: isize = unsafe { cif.call(code_ptr, &ffi_args) };
+        let result: libc::c_int = unsafe { cif.call(code_ptr, &ffi_args) };
         Ok(vm.ctx.new_int(result).into())
     }
 

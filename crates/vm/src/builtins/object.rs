@@ -2,11 +2,11 @@ use super::{PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::types::PyTypeFlags;
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     convert::ToPyResult,
     function::{Either, FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
-    types::{Constructor, PyComparisonOp},
+    types::{Constructor, Initializer, PyComparisonOp},
 };
 use itertools::Itertools;
 
@@ -112,6 +112,49 @@ impl Constructor for PyBaseObject {
 
     fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
         unimplemented!("use slot_new")
+    }
+}
+
+impl Initializer for PyBaseObject {
+    type Args = FuncArgs;
+
+    // object_init: excess_args validation
+    fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        if args.is_empty() {
+            return Ok(());
+        }
+
+        let typ = zelf.class();
+        let object_type = &vm.ctx.types.object_type;
+
+        let typ_init = typ.slots.init.load().map(|f| f as usize);
+        let object_init = object_type.slots.init.load().map(|f| f as usize);
+
+        // if (type->tp_init != object_init) → first error
+        if typ_init != object_init {
+            return Err(vm.new_type_error(
+                "object.__init__() takes exactly one argument (the instance to initialize)"
+                    .to_owned(),
+            ));
+        }
+
+        let typ_new = typ.slots.new.load().map(|f| f as usize);
+        let object_new = object_type.slots.new.load().map(|f| f as usize);
+
+        // if (type->tp_new == object_new) → second error
+        if typ_new == object_new {
+            return Err(vm.new_type_error(format!(
+                "{}.__init__() takes exactly one argument (the instance to initialize)",
+                typ.name()
+            )));
+        }
+
+        // Both conditions false → OK (e.g., tuple, dict with custom __new__)
+        Ok(())
+    }
+
+    fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        unreachable!("slot_init is defined")
     }
 }
 
@@ -235,7 +278,7 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
 //     getstate.call((), vm)
 // }
 
-#[pyclass(with(Constructor), flags(BASETYPE))]
+#[pyclass(with(Constructor, Initializer), flags(BASETYPE))]
 impl PyBaseObject {
     #[pymethod(raw)]
     fn __getstate__(vm: &VirtualMachine, args: FuncArgs) -> PyResult {
@@ -269,10 +312,7 @@ impl PyBaseObject {
                 }
             }
             PyComparisonOp::Ne => {
-                let cmp = zelf
-                    .class()
-                    .mro_find_map(|cls| cls.slots.richcompare.load())
-                    .unwrap();
+                let cmp = zelf.class().slots.richcompare.load().unwrap();
                 let value = match cmp(zelf, other, PyComparisonOp::Eq, vm)? {
                     Either::A(obj) => PyArithmeticValue::from_object(vm, obj)
                         .map(|obj| obj.try_to_bool(vm))
@@ -374,8 +414,8 @@ impl PyBaseObject {
     }
 
     /// Return str(self).
-    #[pymethod]
-    fn __str__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    #[pyslot]
+    fn slot_str(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         // FIXME: try tp_repr first and fallback to object.__repr__
         zelf.repr(vm)
     }
@@ -444,31 +484,58 @@ impl PyBaseObject {
         obj.str(vm)
     }
 
-    #[pyslot]
-    #[pymethod]
-    fn __init__(_zelf: PyObjectRef, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<()> {
-        Ok(())
-    }
-
     #[pygetset]
     fn __class__(obj: PyObjectRef) -> PyTypeRef {
         obj.class().to_owned()
     }
 
-    #[pygetset(name = "__class__", setter)]
-    fn set_class(instance: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pygetset(setter)]
+    fn set___class__(
+        instance: PyObjectRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         match value.downcast::<PyType>() {
             Ok(cls) => {
-                let both_module = instance.class().fast_issubclass(vm.ctx.types.module_type)
+                let current_cls = instance.class();
+                let both_module = current_cls.fast_issubclass(vm.ctx.types.module_type)
                     && cls.fast_issubclass(vm.ctx.types.module_type);
-                let both_mutable = !instance
-                    .class()
+                let both_mutable = !current_cls
                     .slots
                     .flags
                     .has_feature(PyTypeFlags::IMMUTABLETYPE)
                     && !cls.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE);
                 // FIXME(#1979) cls instances might have a payload
                 if both_mutable || both_module {
+                    let has_dict =
+                        |typ: &Py<PyType>| typ.slots.flags.has_feature(PyTypeFlags::HAS_DICT);
+                    // Compare slots tuples
+                    let slots_equal = match (
+                        current_cls
+                            .heaptype_ext
+                            .as_ref()
+                            .and_then(|e| e.slots.as_ref()),
+                        cls.heaptype_ext.as_ref().and_then(|e| e.slots.as_ref()),
+                    ) {
+                        (Some(a), Some(b)) => {
+                            a.len() == b.len()
+                                && a.iter()
+                                    .zip(b.iter())
+                                    .all(|(x, y)| x.as_str() == y.as_str())
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    };
+                    if current_cls.slots.basicsize != cls.slots.basicsize
+                        || !slots_equal
+                        || has_dict(current_cls) != has_dict(&cls)
+                    {
+                        return Err(vm.new_type_error(format!(
+                            "__class__ assignment: '{}' object layout differs from '{}'",
+                            cls.name(),
+                            current_cls.name()
+                        )));
+                    }
                     instance.set_class(cls, vm);
                     Ok(())
                 } else {
@@ -545,6 +612,13 @@ pub fn object_set_dict(obj: PyObjectRef, dict: PyDictRef, vm: &VirtualMachine) -
 }
 
 pub fn init(ctx: &Context) {
+    // Manually set init slot - derive macro doesn't generate extend_slots
+    // for trait impl that overrides #[pyslot] method
+    ctx.types
+        .object_type
+        .slots
+        .init
+        .store(Some(<PyBaseObject as Initializer>::slot_init));
     PyBaseObject::extend_class(ctx, ctx.types.object_type);
 }
 

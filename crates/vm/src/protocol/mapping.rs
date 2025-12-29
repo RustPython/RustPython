@@ -3,7 +3,6 @@ use crate::{
     builtins::{
         PyDict, PyStrInterned,
         dict::{PyDictItems, PyDictKeys, PyDictValues},
-        type_::PointerSlot,
     },
     convert::ToPyResult,
     object::{Traverse, TraverseFn},
@@ -13,15 +12,9 @@ use crossbeam_utils::atomic::AtomicCell;
 // Mapping protocol
 // https://docs.python.org/3/c-api/mapping.html
 
-impl PyObject {
-    pub fn to_mapping(&self) -> PyMapping<'_> {
-        PyMapping::from(self)
-    }
-}
-
 #[allow(clippy::type_complexity)]
 #[derive(Default)]
-pub struct PyMappingMethods {
+pub struct PyMappingSlots {
     pub length: AtomicCell<Option<fn(PyMapping<'_>, &VirtualMachine) -> PyResult<usize>>>,
     pub subscript: AtomicCell<Option<fn(PyMapping<'_>, &PyObject, &VirtualMachine) -> PyResult>>,
     pub ass_subscript: AtomicCell<
@@ -29,38 +22,72 @@ pub struct PyMappingMethods {
     >,
 }
 
+impl std::fmt::Debug for PyMappingSlots {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PyMappingSlots")
+    }
+}
+
+impl PyMappingSlots {
+    pub fn has_subscript(&self) -> bool {
+        self.subscript.load().is_some()
+    }
+
+    /// Copy from static PyMappingMethods
+    pub fn copy_from(&self, methods: &PyMappingMethods) {
+        if let Some(f) = methods.length {
+            self.length.store(Some(f));
+        }
+        if let Some(f) = methods.subscript {
+            self.subscript.store(Some(f));
+        }
+        if let Some(f) = methods.ass_subscript {
+            self.ass_subscript.store(Some(f));
+        }
+    }
+}
+
+#[allow(clippy::type_complexity)]
+#[derive(Default)]
+pub struct PyMappingMethods {
+    pub length: Option<fn(PyMapping<'_>, &VirtualMachine) -> PyResult<usize>>,
+    pub subscript: Option<fn(PyMapping<'_>, &PyObject, &VirtualMachine) -> PyResult>,
+    pub ass_subscript:
+        Option<fn(PyMapping<'_>, &PyObject, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
+}
+
 impl std::fmt::Debug for PyMappingMethods {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "mapping methods")
+        f.write_str("PyMappingMethods")
     }
 }
 
 impl PyMappingMethods {
-    fn check(&self) -> bool {
-        self.subscript.load().is_some()
-    }
-
-    #[allow(clippy::declare_interior_mutable_const)]
     pub const NOT_IMPLEMENTED: Self = Self {
-        length: AtomicCell::new(None),
-        subscript: AtomicCell::new(None),
-        ass_subscript: AtomicCell::new(None),
+        length: None,
+        subscript: None,
+        ass_subscript: None,
     };
 }
 
-impl<'a> From<&'a PyObject> for PyMapping<'a> {
-    fn from(obj: &'a PyObject) -> Self {
-        static GLOBAL_NOT_IMPLEMENTED: PyMappingMethods = PyMappingMethods::NOT_IMPLEMENTED;
-        let methods = Self::find_methods(obj)
-            .map_or(&GLOBAL_NOT_IMPLEMENTED, |x| unsafe { x.borrow_static() });
-        Self { obj, methods }
+impl PyObject {
+    pub fn mapping_unchecked(&self) -> PyMapping<'_> {
+        PyMapping { obj: self }
+    }
+
+    pub fn try_mapping(&self, vm: &VirtualMachine) -> PyResult<PyMapping<'_>> {
+        let mapping = self.mapping_unchecked();
+        if mapping.check() {
+            Ok(mapping)
+        } else {
+            Err(vm.new_type_error(format!("{} is not a mapping object", self.class())))
+        }
     }
 }
 
 #[derive(Copy, Clone)]
 pub struct PyMapping<'a> {
     pub obj: &'a PyObject,
-    pub methods: &'static PyMappingMethods,
 }
 
 unsafe impl Traverse for PyMapping<'_> {
@@ -76,34 +103,19 @@ impl AsRef<PyObject> for PyMapping<'_> {
     }
 }
 
-impl<'a> PyMapping<'a> {
-    pub fn try_protocol(obj: &'a PyObject, vm: &VirtualMachine) -> PyResult<Self> {
-        if let Some(methods) = Self::find_methods(obj)
-            && methods.as_ref().check()
-        {
-            return Ok(Self {
-                obj,
-                methods: unsafe { methods.borrow_static() },
-            });
-        }
-
-        Err(vm.new_type_error(format!("{} is not a mapping object", obj.class())))
-    }
-}
-
 impl PyMapping<'_> {
-    // PyMapping::Check
     #[inline]
-    pub fn check(obj: &PyObject) -> bool {
-        Self::find_methods(obj).is_some_and(|x| x.as_ref().check())
+    pub fn slots(&self) -> &PyMappingSlots {
+        &self.obj.class().slots.as_mapping
     }
 
-    pub fn find_methods(obj: &PyObject) -> Option<PointerSlot<PyMappingMethods>> {
-        obj.class().mro_find_map(|cls| cls.slots.as_mapping.load())
+    #[inline]
+    pub fn check(&self) -> bool {
+        self.slots().has_subscript()
     }
 
     pub fn length_opt(self, vm: &VirtualMachine) -> Option<PyResult<usize>> {
-        self.methods.length.load().map(|f| f(self, vm))
+        self.slots().length.load().map(|f| f(self, vm))
     }
 
     pub fn length(self, vm: &VirtualMachine) -> PyResult<usize> {
@@ -130,7 +142,7 @@ impl PyMapping<'_> {
 
     fn _subscript(self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
         let f =
-            self.methods.subscript.load().ok_or_else(|| {
+            self.slots().subscript.load().ok_or_else(|| {
                 vm.new_type_error(format!("{} is not a mapping", self.obj.class()))
             })?;
         f(self, needle, vm)
@@ -142,7 +154,7 @@ impl PyMapping<'_> {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let f = self.methods.ass_subscript.load().ok_or_else(|| {
+        let f = self.slots().ass_subscript.load().ok_or_else(|| {
             vm.new_type_error(format!(
                 "'{}' object does not support item assignment",
                 self.obj.class()

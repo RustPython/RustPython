@@ -1399,7 +1399,6 @@ class ClassPropertiesAndMethods(unittest.TestCase, ExtraAssertions):
                 __qualname__ = object()
                 __slots__ = ["__qualname__"]
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_slots_descriptor(self):
         # Issue2115: slot descriptors did not correctly check
         # the type of the given object
@@ -4941,7 +4940,6 @@ class ClassPropertiesAndMethods(unittest.TestCase, ExtraAssertions):
         for o in gc.get_objects():
             self.assertIsNot(type(o), X)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_object_new_and_init_with_parameters(self):
         # See issue #1683368
         class OverrideNeither:
@@ -4962,7 +4960,6 @@ class ClassPropertiesAndMethods(unittest.TestCase, ExtraAssertions):
             self.assertRaises(TypeError, case, 1, 2, 3)
             self.assertRaises(TypeError, case, 1, 2, foo=3)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_subclassing_does_not_duplicate_dict_descriptors(self):
         class Base:
             pass

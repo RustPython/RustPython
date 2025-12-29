@@ -143,8 +143,7 @@ impl PyBuffer {
 impl<'a> TryFromBorrowedObject<'a> for PyBuffer {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         let cls = obj.class();
-        let as_buffer = cls.mro_find_map(|cls| cls.slots.as_buffer);
-        if let Some(f) = as_buffer {
+        if let Some(f) = cls.slots.as_buffer {
             return f(obj, vm);
         }
         Err(vm.new_type_error(format!(
@@ -201,16 +200,23 @@ impl BufferDescriptor {
 
     #[cfg(debug_assertions)]
     pub fn validate(self) -> Self {
-        assert!(self.itemsize != 0);
         // ndim=0 is valid for scalar types (e.g., ctypes Structure)
         if self.ndim() == 0 {
+            // Empty structures (len=0) can have itemsize=0
+            if self.len > 0 {
+                assert!(self.itemsize != 0);
+            }
             assert!(self.itemsize == self.len);
         } else {
             let mut shape_product = 1;
+            let has_zero_dim = self.dim_desc.iter().any(|(s, _, _)| *s == 0);
             for (shape, stride, suboffset) in self.dim_desc.iter().cloned() {
                 shape_product *= shape;
                 assert!(suboffset >= 0);
-                assert!(stride != 0);
+                // For empty arrays (any dimension is 0), strides can be 0
+                if !has_zero_dim {
+                    assert!(stride != 0);
+                }
             }
             assert!(shape_product * self.itemsize == self.len);
         }

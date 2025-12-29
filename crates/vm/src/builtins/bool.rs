@@ -43,7 +43,7 @@ impl PyObjectRef {
             return Ok(false);
         }
         let rs_bool = if let Some(nb_bool) = self.class().slots.as_number.boolean.load() {
-            nb_bool(self.as_object().to_number(), vm)?
+            nb_bool(self.as_object().number(), vm)?
         } else {
             // TODO: Fully implement AsNumber and remove this block
             match vm.get_method(self.clone(), identifier!(vm, __bool__)) {
@@ -126,10 +126,10 @@ impl PyBool {
             .and_then(|format_spec| format_spec.format_bool(new_bool))
             .map_err(|err| err.into_pyexception(vm))
     }
+}
 
-    #[pymethod(name = "__ror__")]
-    #[pymethod]
-    fn __or__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+impl PyBool {
+    pub(crate) fn __or__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if lhs.fast_isinstance(vm.ctx.types.bool_type)
             && rhs.fast_isinstance(vm.ctx.types.bool_type)
         {
@@ -143,9 +143,7 @@ impl PyBool {
         }
     }
 
-    #[pymethod(name = "__rand__")]
-    #[pymethod]
-    fn __and__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn __and__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if lhs.fast_isinstance(vm.ctx.types.bool_type)
             && rhs.fast_isinstance(vm.ctx.types.bool_type)
         {
@@ -159,9 +157,7 @@ impl PyBool {
         }
     }
 
-    #[pymethod(name = "__rxor__")]
-    #[pymethod]
-    fn __xor__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn __xor__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if lhs.fast_isinstance(vm.ctx.types.bool_type)
             && rhs.fast_isinstance(vm.ctx.types.bool_type)
         {

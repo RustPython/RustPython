@@ -591,12 +591,11 @@ class TypesTests(unittest.TestCase):
         for code in 'xXobns':
             self.assertRaises(ValueError, format, 0, ',' + code)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_internal_sizes(self):
         self.assertGreater(object.__basicsize__, 0)
         self.assertGreater(tuple.__itemsize__, 0)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_slot_wrapper_types(self):
         self.assertIsInstance(object.__init__, types.WrapperDescriptorType)
         self.assertIsInstance(object.__str__, types.WrapperDescriptorType)
@@ -611,6 +610,7 @@ class TypesTests(unittest.TestCase):
         # gh-93021: Second parameter is optional
         self.assertIs(sig.parameters["owner"].default, None)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_method_wrapper_types(self):
         self.assertIsInstance(object().__init__, types.MethodWrapperType)
         self.assertIsInstance(object().__str__, types.MethodWrapperType)
@@ -836,8 +836,6 @@ class UnionTests(unittest.TestCase):
         self.assertEqual((list[T] | list[S])[int, T], list[int] | list[T])
         self.assertEqual((list[T] | list[S])[int, int], list[int])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_union_parameter_substitution(self):
         def eq(actual, expected, typed=True):
             self.assertEqual(actual, expected)

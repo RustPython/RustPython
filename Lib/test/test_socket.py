@@ -1,9 +1,9 @@
 import unittest
+from unittest import mock
 from test import support
-from test.support import os_helper
-from test.support import socket_helper
-from test.support import threading_helper
-
+from test.support import (
+    is_apple, os_helper, refleak_helper, socket_helper, threading_helper
+)
 import _thread as thread
 import array
 import contextlib
@@ -28,6 +28,7 @@ import tempfile
 import threading
 import time
 import traceback
+import warnings
 from weakref import proxy
 try:
     import multiprocessing
@@ -37,6 +38,10 @@ try:
     import fcntl
 except ImportError:
     fcntl = None
+try:
+    import _testcapi
+except ImportError:
+    _testcapi = None
 
 support.requires_working_socket(module=True)
 
@@ -44,6 +49,7 @@ HOST = socket_helper.HOST
 # test unicode string and carriage return
 MSG = 'Michael Gilfix was here\u1234\r\n'.encode('utf-8')
 
+VMADDR_CID_LOCAL = 1
 VSOCKPORT = 1234
 AIX = platform.system() == "AIX"
 WSL = "microsoft-standard-WSL" in platform.release()
@@ -52,6 +58,35 @@ try:
     import _socket
 except ImportError:
     _socket = None
+
+def skipForRefleakHuntinIf(condition, issueref):
+    if not condition:
+        def decorator(f):
+            f.client_skip = lambda f: f
+            return f
+
+    else:
+        def decorator(f):
+            @contextlib.wraps(f)
+            def wrapper(*args, **kwds):
+                if refleak_helper.hunting_for_refleaks():
+                    raise unittest.SkipTest(f"ignore while hunting for refleaks, see {issueref}")
+
+                return f(*args, **kwds)
+
+            def client_skip(f):
+                @contextlib.wraps(f)
+                def wrapper(*args, **kwds):
+                    if refleak_helper.hunting_for_refleaks():
+                        return
+
+                    return f(*args, **kwds)
+
+                return wrapper
+            wrapper.client_skip = client_skip
+            return wrapper
+
+    return decorator
 
 def get_cid():
     if fcntl is None:
@@ -128,8 +163,8 @@ def _have_socket_qipcrtr():
 
 def _have_socket_vsock():
     """Check whether AF_VSOCK sockets are supported on this host."""
-    ret = get_cid() is not None
-    return ret
+    cid = get_cid()
+    return (cid is not None)
 
 
 def _have_socket_bluetooth():
@@ -138,6 +173,17 @@ def _have_socket_bluetooth():
         # RFCOMM is supported by all platforms with bluetooth support. Windows
         # does not support omitting the protocol.
         s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
+    except (AttributeError, OSError):
+        return False
+    else:
+        s.close()
+    return True
+
+
+def _have_socket_bluetooth_l2cap():
+    """Check whether BTPROTO_L2CAP sockets are supported on this host."""
+    try:
+        s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
     except (AttributeError, OSError):
         return False
     else:
@@ -166,6 +212,24 @@ def socket_setdefaulttimeout(timeout):
         socket.setdefaulttimeout(old_timeout)
 
 
+@contextlib.contextmanager
+def downgrade_malformed_data_warning():
+    # This warning happens on macos and win, but does not always happen on linux.
+    if sys.platform not in {"win32", "darwin"}:
+        yield
+        return
+
+    with warnings.catch_warnings():
+        # TODO: gh-110012, we should investigate why this warning is happening
+        # and fix it properly.
+        warnings.filterwarnings(
+            action="always",
+            message="received malformed or improperly-truncated ancillary data",
+            category=RuntimeWarning,
+        )
+        yield
+
+
 HAVE_SOCKET_CAN = _have_socket_can()
 
 HAVE_SOCKET_CAN_ISOTP = _have_socket_can_isotp()
@@ -180,9 +244,14 @@ HAVE_SOCKET_QIPCRTR = _have_socket_qipcrtr()
 
 HAVE_SOCKET_VSOCK = _have_socket_vsock()
 
-HAVE_SOCKET_UDPLITE = hasattr(socket, "IPPROTO_UDPLITE")
+# Older Android versions block UDPLITE with SELinux.
+HAVE_SOCKET_UDPLITE = (
+    hasattr(socket, "IPPROTO_UDPLITE")
+    and not (support.is_android and platform.android_ver().api_level < 29))
 
 HAVE_SOCKET_BLUETOOTH = _have_socket_bluetooth()
+
+HAVE_SOCKET_BLUETOOTH_L2CAP = _have_socket_bluetooth_l2cap()
 
 HAVE_SOCKET_HYPERV = _have_socket_hyperv()
 
@@ -485,8 +554,8 @@ class ThreadedRDSSocketTest(SocketRDSTest, ThreadableTest):
 @unittest.skipIf(WSL, 'VSOCK does not work on Microsoft WSL')
 @unittest.skipUnless(HAVE_SOCKET_VSOCK,
           'VSOCK sockets required for this test.')
-@unittest.skipUnless(get_cid() != 2,
-          "This test can only be run on a virtual guest.")
+@unittest.skipUnless(get_cid() != 2,  # VMADDR_CID_HOST
+                     "This test can only be run on a virtual guest.")
 class ThreadedVSOCKSocketStreamTest(unittest.TestCase, ThreadableTest):
 
     def __init__(self, methodName='runTest'):
@@ -508,10 +577,16 @@ class ThreadedVSOCKSocketStreamTest(unittest.TestCase, ThreadableTest):
         self.cli = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
         self.addCleanup(self.cli.close)
         cid = get_cid()
+        if cid in (socket.VMADDR_CID_HOST, socket.VMADDR_CID_ANY):
+            # gh-119461: Use the local communication address (loopback)
+            cid = VMADDR_CID_LOCAL
         self.cli.connect((cid, VSOCKPORT))
 
     def testStream(self):
-        msg = self.conn.recv(1024)
+        try:
+            msg = self.conn.recv(1024)
+        except PermissionError as exc:
+            self.skipTest(repr(exc))
         self.assertEqual(msg, MSG)
 
     def _testStream(self):
@@ -556,19 +631,27 @@ class SocketPairTest(unittest.TestCase, ThreadableTest):
     def __init__(self, methodName='runTest'):
         unittest.TestCase.__init__(self, methodName=methodName)
         ThreadableTest.__init__(self)
+        self.cli = None
+        self.serv = None
+
+    def socketpair(self):
+        # To be overridden by some child classes.
+        return socket.socketpair()
 
     def setUp(self):
-        self.serv, self.cli = socket.socketpair()
+        self.serv, self.cli = self.socketpair()
 
     def tearDown(self):
-        self.serv.close()
+        if self.serv:
+            self.serv.close()
         self.serv = None
 
     def clientSetUp(self):
         pass
 
     def clientTearDown(self):
-        self.cli.close()
+        if self.cli:
+            self.cli.close()
         self.cli = None
         ThreadableTest.clientTearDown(self)
 
@@ -821,9 +904,9 @@ def requireSocket(*args):
 
 class GeneralModuleTests(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(_socket is not None, 'need _socket module')
+    # TODO: RUSTPYTHON; gc.is_tracked not implemented
+    @unittest.expectedFailure
     def test_socket_type(self):
         self.assertTrue(gc.is_tracked(_socket.socket))
         with self.assertRaisesRegex(TypeError, "immutable"):
@@ -886,7 +969,7 @@ class GeneralModuleTests(unittest.TestCase):
         with self.assertRaises(OSError, msg=msg % 'socket.gaierror'):
             raise socket.gaierror
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON; error message format differs
     @unittest.expectedFailure
     def testSendtoErrors(self):
         # Testing that sendto doesn't mask failures. See #10169.
@@ -973,8 +1056,6 @@ class GeneralModuleTests(unittest.TestCase):
             if not hasattr(socket.socket, name):
                 self.fail(f"socket method {name} is missing")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(sys.platform == 'darwin', 'macOS specific test')
     @unittest.skipUnless(socket_helper.IPV6_ENABLED, 'IPv6 required for this test')
     def test3542SocketOptions(self):
@@ -1090,7 +1171,10 @@ class GeneralModuleTests(unittest.TestCase):
     @unittest.skipUnless(hasattr(socket, 'if_indextoname'),
                          'socket.if_indextoname() not available.')
     def testInvalidInterfaceIndexToName(self):
-        self.assertRaises(OSError, socket.if_indextoname, 0)
+        with self.assertRaises(OSError) as cm:
+            socket.if_indextoname(0)
+        self.assertIsNotNone(cm.exception.errno)
+
         self.assertRaises(OverflowError, socket.if_indextoname, -1)
         self.assertRaises(OverflowError, socket.if_indextoname, 2**1000)
         self.assertRaises(TypeError, socket.if_indextoname, '_DEADBEEF')
@@ -1109,8 +1193,11 @@ class GeneralModuleTests(unittest.TestCase):
     @unittest.skipUnless(hasattr(socket, 'if_nametoindex'),
                          'socket.if_nametoindex() not available.')
     def testInvalidInterfaceNameToIndex(self):
+        with self.assertRaises(OSError) as cm:
+            socket.if_nametoindex("_DEADBEEF")
+        self.assertIsNotNone(cm.exception.errno)
+
         self.assertRaises(TypeError, socket.if_nametoindex, 0)
-        self.assertRaises(OSError, socket.if_nametoindex, '_DEADBEEF')
 
     @unittest.skipUnless(hasattr(sys, 'getrefcount'),
                          'test needs sys.getrefcount()')
@@ -1147,6 +1234,7 @@ class GeneralModuleTests(unittest.TestCase):
             self.assertRaises(OverflowError, func, 1<<34)
 
     @support.cpython_only
+    @unittest.skipIf(_testcapi is None, "requires _testcapi")
     def testNtoHErrors(self):
         import _testcapi
         s_good_values = [0, 1, 2, 0xffff]
@@ -1175,8 +1263,11 @@ class GeneralModuleTests(unittest.TestCase):
         # Find one service that exists, then check all the related interfaces.
         # I've ordered this by protocols that have both a tcp and udp
         # protocol, at least for modern Linuxes.
-        if (sys.platform.startswith(('freebsd', 'netbsd', 'gnukfreebsd'))
-            or sys.platform in ('linux', 'darwin')):
+        if (
+            sys.platform.startswith(
+                ('linux', 'android', 'freebsd', 'netbsd', 'gnukfreebsd'))
+            or is_apple
+        ):
             # avoid the 'echo' service on this platform, as there is an
             # assumption breaking non-standard port/protocol entry
             services = ('daytime', 'qotd', 'domain')
@@ -1191,9 +1282,8 @@ class GeneralModuleTests(unittest.TestCase):
         else:
             raise OSError
         # Try same call with optional protocol omitted
-        # Issue #26936: Android getservbyname() was broken before API 23.
-        if (not hasattr(sys, 'getandroidapilevel') or
-                sys.getandroidapilevel() >= 23):
+        # Issue gh-71123: this fails on Android before API level 23.
+        if not (support.is_android and platform.android_ver().api_level < 23):
             port2 = socket.getservbyname(service)
             eq(port, port2)
         # Try udp, but don't barf if it doesn't exist
@@ -1204,8 +1294,9 @@ class GeneralModuleTests(unittest.TestCase):
         else:
             eq(udpport, port)
         # Now make sure the lookup by port returns the same service name
-        # Issue #26936: Android getservbyport() is broken.
-        if not support.is_android:
+        # Issue #26936: when the protocol is omitted, this fails on Android
+        # before API level 28.
+        if not (support.is_android and platform.android_ver().api_level < 28):
             eq(socket.getservbyport(port2), service)
         eq(socket.getservbyport(port, 'tcp'), service)
         if udpport is not None:
@@ -1503,8 +1594,6 @@ class GeneralModuleTests(unittest.TestCase):
                 break
 
     @unittest.skipUnless(os.name == "nt", "Windows specific")
-    # TODO: RUSTPYTHON, windows ioctls
-    @unittest.expectedFailure
     def test_sock_ioctl(self):
         self.assertTrue(hasattr(socket.socket, 'ioctl'))
         self.assertTrue(hasattr(socket, 'SIO_RCVALL'))
@@ -1519,8 +1608,6 @@ class GeneralModuleTests(unittest.TestCase):
     @unittest.skipUnless(os.name == "nt", "Windows specific")
     @unittest.skipUnless(hasattr(socket, 'SIO_LOOPBACK_FAST_PATH'),
                          'Loopback fast path support required for this test')
-    # TODO: RUSTPYTHON, AttributeError: 'socket' object has no attribute 'ioctl'
-    @unittest.expectedFailure
     def test_sio_loopback_fast_path(self):
         s = socket.socket()
         self.addCleanup(s.close)
@@ -1554,9 +1641,8 @@ class GeneralModuleTests(unittest.TestCase):
             socket.getaddrinfo('::1', 80)
         # port can be a string service name such as "http", a numeric
         # port number or None
-        # Issue #26936: Android getaddrinfo() was broken before API level 23.
-        if (not hasattr(sys, 'getandroidapilevel') or
-                sys.getandroidapilevel() >= 23):
+        # Issue #26936: this fails on Android before API level 23.
+        if not (support.is_android and platform.android_ver().api_level < 23):
             socket.getaddrinfo(HOST, "http")
         socket.getaddrinfo(HOST, 80)
         socket.getaddrinfo(HOST, None)
@@ -1602,8 +1688,7 @@ class GeneralModuleTests(unittest.TestCase):
                                flags=socket.AI_PASSIVE)
         self.assertEqual(a, b)
         # Issue #6697.
-        # XXX RUSTPYTHON TODO: surrogates in str
-        # self.assertRaises(UnicodeEncodeError, socket.getaddrinfo, 'localhost', '\uD800')
+        self.assertRaises(UnicodeEncodeError, socket.getaddrinfo, 'localhost', '\uD800')
 
         # Issue 17269: test workaround for OS X platform bug segfault
         if hasattr(socket, 'AI_NUMERICSERV'):
@@ -1615,8 +1700,7 @@ class GeneralModuleTests(unittest.TestCase):
             except socket.gaierror:
                 pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skipIf(_testcapi is None, "requires _testcapi")
     def test_getaddrinfo_int_port_overflow(self):
         # gh-74895: Test that getaddrinfo does not raise OverflowError on port.
         #
@@ -1634,7 +1718,7 @@ class GeneralModuleTests(unittest.TestCase):
         try:
             socket.getaddrinfo(None, ULONG_MAX + 1, type=socket.SOCK_STREAM)
         except OverflowError:
-            # Platforms differ as to what values consitute a getaddrinfo() error
+            # Platforms differ as to what values constitute a getaddrinfo() error
             # return. Some fail for LONG_MAX+1, others ULONG_MAX+1, and Windows
             # silently accepts such huge "port" aka "service" numeric values.
             self.fail("Either no error or socket.gaierror expected.")
@@ -1669,7 +1753,6 @@ class GeneralModuleTests(unittest.TestCase):
         # only IP addresses are allowed
         self.assertRaises(OSError, socket.getnameinfo, ('mail.python.org',0), 0)
 
-    @unittest.skip("TODO: RUSTPYTHON: flaky on CI?")
     @unittest.skipUnless(support.is_resource_enabled('network'),
                          'network is not enabled')
     def test_idna(self):
@@ -1724,8 +1807,6 @@ class GeneralModuleTests(unittest.TestCase):
     def test_sendall_interrupted_with_timeout(self):
         self.check_sendall_interrupted(True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dealloc_warn(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         r = repr(sock)
@@ -1813,6 +1894,7 @@ class GeneralModuleTests(unittest.TestCase):
             srv.listen()
 
     @support.cpython_only
+    @unittest.skipIf(_testcapi is None, "requires _testcapi")
     def test_listen_backlog_overflow(self):
         # Issue 15989
         import _testcapi
@@ -1905,7 +1987,6 @@ class GeneralModuleTests(unittest.TestCase):
             self.assertEqual(str(s.family), str(s.family.value))
             self.assertEqual(str(s.type), str(s.type.value))
 
-    @unittest.expectedFailureIf(sys.platform.startswith("linux"), "TODO: RUSTPYTHON, AssertionError: 526337 != <SocketKind.SOCK_STREAM: 1>")
     def test_socket_consistent_sock_type(self):
         SOCK_NONBLOCK = getattr(socket, 'SOCK_NONBLOCK', 0)
         SOCK_CLOEXEC = getattr(socket, 'SOCK_CLOEXEC', 0)
@@ -2052,8 +2133,6 @@ class GeneralModuleTests(unittest.TestCase):
                     fileno=afile.fileno())
             self.assertEqual(cm.exception.errno, errno.ENOTSOCK)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_addressfamily_enum(self):
         import _socket, enum
         CheckedAddressFamily = enum._old_convert_(
@@ -2063,8 +2142,6 @@ class GeneralModuleTests(unittest.TestCase):
                 )
         enum._test_simple_enum(CheckedAddressFamily, socket.AddressFamily)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_socketkind_enum(self):
         import _socket, enum
         CheckedSocketKind = enum._old_convert_(
@@ -2074,8 +2151,6 @@ class GeneralModuleTests(unittest.TestCase):
                 )
         enum._test_simple_enum(CheckedSocketKind, socket.SocketKind)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_msgflag_enum(self):
         import _socket, enum
         CheckedMsgFlag = enum._old_convert_(
@@ -2085,8 +2160,6 @@ class GeneralModuleTests(unittest.TestCase):
                 )
         enum._test_simple_enum(CheckedMsgFlag, socket.MsgFlag)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_addressinfo_enum(self):
         import _socket, enum
         CheckedAddressInfo = enum._old_convert_(
@@ -2106,8 +2179,6 @@ class BasicCANTest(unittest.TestCase):
 
     @unittest.skipUnless(hasattr(socket, "CAN_BCM"),
                          'socket.CAN_BCM required for this test.')
-    # TODO: RUSTPYTHON, AttributeError: module 'socket' has no attribute 'CAN_BCM_TX_SETUP'
-    @unittest.expectedFailure
     def testBCMConstants(self):
         socket.CAN_BCM
 
@@ -2148,16 +2219,12 @@ class BasicCANTest(unittest.TestCase):
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_BCM) as s:
             pass
 
-    # TODO: RUSTPYTHON, OSError: bind(): bad family
-    @unittest.expectedFailure
     def testBindAny(self):
         with socket.socket(socket.PF_CAN, socket.SOCK_RAW, socket.CAN_RAW) as s:
             address = ('', )
             s.bind(address)
             self.assertEqual(s.getsockname(), address)
 
-    # TODO: RUSTPYTHON, AssertionError: "interface name too long" does not match "bind(): bad family"
-    @unittest.expectedFailure
     def testTooLongInterfaceName(self):
         # most systems limit IFNAMSIZ to 16, take 1024 to be sure
         with socket.socket(socket.PF_CAN, socket.SOCK_RAW, socket.CAN_RAW) as s:
@@ -2300,16 +2367,12 @@ class ISOTPTest(unittest.TestCase):
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_ISOTP) as s:
             pass
 
-    # TODO: RUSTPYTHON, OSError: bind(): bad family
-    @unittest.expectedFailure
     def testTooLongInterfaceName(self):
         # most systems limit IFNAMSIZ to 16, take 1024 to be sure
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_ISOTP) as s:
             with self.assertRaisesRegex(OSError, 'interface name too long'):
                 s.bind(('x' * 1024, 1, 2))
 
-    # TODO: RUSTPYTHON, OSError: bind(): bad family
-    @unittest.expectedFailure
     def testBind(self):
         try:
             with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_ISOTP) as s:
@@ -2331,7 +2394,7 @@ class J1939Test(unittest.TestCase):
         super().__init__(*args, **kwargs)
         self.interface = "vcan0"
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON - J1939 constants not fully implemented
     @unittest.expectedFailure
     @unittest.skipUnless(hasattr(socket, "CAN_J1939"),
                          'socket.CAN_J1939 required for this test.')
@@ -2374,7 +2437,7 @@ class J1939Test(unittest.TestCase):
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_J1939) as s:
             pass
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON - AF_CAN J1939 address format not fully implemented
     @unittest.expectedFailure
     def testBind(self):
         try:
@@ -2587,6 +2650,143 @@ class BasicBluetoothTest(unittest.TestCase):
         with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_SCO) as s:
             pass
 
+    @unittest.skipUnless(HAVE_SOCKET_BLUETOOTH_L2CAP, 'Bluetooth L2CAP sockets required for this test')
+    def testBindBrEdrL2capSocket(self):
+        with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP) as f:
+            # First user PSM in BR/EDR L2CAP
+            psm = 0x1001
+            f.bind((socket.BDADDR_ANY, psm))
+            addr = f.getsockname()
+            self.assertEqual(addr, (socket.BDADDR_ANY, psm))
+
+    @unittest.skipUnless(HAVE_SOCKET_BLUETOOTH_L2CAP, 'Bluetooth L2CAP sockets required for this test')
+    def testBadL2capAddr(self):
+        with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP) as f:
+            with self.assertRaises(OSError):
+                f.bind((socket.BDADDR_ANY, 0, 0))
+            with self.assertRaises(OSError):
+                f.bind((socket.BDADDR_ANY,))
+            with self.assertRaises(OSError):
+                f.bind(socket.BDADDR_ANY)
+            with self.assertRaises(OSError):
+                f.bind((socket.BDADDR_ANY.encode(), 0x1001))
+            with self.assertRaises(OSError):
+                f.bind(('\ud812', 0x1001))
+
+    def testBindRfcommSocket(self):
+        with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM) as s:
+            channel = 0
+            try:
+                s.bind((socket.BDADDR_ANY, channel))
+            except OSError as err:
+                if sys.platform == 'win32' and err.winerror == 10050:
+                    self.skipTest(str(err))
+                raise
+            addr = s.getsockname()
+            self.assertEqual(addr, (mock.ANY, channel))
+            self.assertRegex(addr[0], r'(?i)[0-9a-f]{2}(?::[0-9a-f]{2}){4}')
+            if sys.platform != 'win32':
+                self.assertEqual(addr, (socket.BDADDR_ANY, channel))
+        with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM) as s:
+            s.bind(addr)
+            addr2 = s.getsockname()
+            self.assertEqual(addr2, addr)
+
+    def testBadRfcommAddr(self):
+        with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM) as s:
+            channel = 0
+            with self.assertRaises(OSError):
+                s.bind((socket.BDADDR_ANY.encode(), channel))
+            with self.assertRaises(OSError):
+                s.bind((socket.BDADDR_ANY,))
+            with self.assertRaises(OSError):
+                s.bind((socket.BDADDR_ANY, channel, 0))
+            with self.assertRaises(OSError):
+                s.bind((socket.BDADDR_ANY + '\0', channel))
+            with self.assertRaises(OSError):
+                s.bind('\ud812')
+            with self.assertRaises(OSError):
+                s.bind(('invalid', channel))
+
+    @unittest.skipUnless(hasattr(socket, 'BTPROTO_HCI'), 'Bluetooth HCI sockets required for this test')
+    def testBindHciSocket(self):
+        with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI) as s:
+            if sys.platform.startswith(('netbsd', 'dragonfly', 'freebsd')):
+                s.bind(socket.BDADDR_ANY)
+                addr = s.getsockname()
+                self.assertEqual(addr, socket.BDADDR_ANY)
+            else:
+                dev = 0
+                try:
+                    s.bind((dev,))
+                except OSError as err:
+                    if err.errno in (errno.EINVAL, errno.ENODEV):
+                        self.skipTest(str(err))
+                    raise
+                addr = s.getsockname()
+                self.assertEqual(addr, dev)
+
+    @unittest.skipUnless(hasattr(socket, 'BTPROTO_HCI'), 'Bluetooth HCI sockets required for this test')
+    def testBadHciAddr(self):
+        with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI) as s:
+            if sys.platform.startswith(('netbsd', 'dragonfly', 'freebsd')):
+                with self.assertRaises(OSError):
+                    s.bind(socket.BDADDR_ANY.encode())
+                with self.assertRaises(OSError):
+                    s.bind((socket.BDADDR_ANY,))
+                with self.assertRaises(OSError):
+                    s.bind(socket.BDADDR_ANY + '\0')
+                with self.assertRaises((ValueError, OSError)):
+                    s.bind(socket.BDADDR_ANY + ' '*100)
+                with self.assertRaises(OSError):
+                    s.bind('\ud812')
+                with self.assertRaises(OSError):
+                    s.bind('invalid')
+                with self.assertRaises(OSError):
+                    s.bind(b'invalid')
+            else:
+                dev = 0
+                with self.assertRaises(OSError):
+                    s.bind(())
+                with self.assertRaises(OSError):
+                    s.bind((dev, 0))
+                with self.assertRaises(OSError):
+                    s.bind(dev)
+                with self.assertRaises(OSError):
+                    s.bind(socket.BDADDR_ANY)
+                with self.assertRaises(OSError):
+                    s.bind(socket.BDADDR_ANY.encode())
+
+    @unittest.skipUnless(hasattr(socket, 'BTPROTO_SCO'), 'Bluetooth SCO sockets required for this test')
+    def testBindScoSocket(self):
+        with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_SCO) as s:
+            s.bind(socket.BDADDR_ANY)
+            addr = s.getsockname()
+            self.assertEqual(addr, socket.BDADDR_ANY)
+
+        with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_SCO) as s:
+            s.bind(socket.BDADDR_ANY.encode())
+            addr = s.getsockname()
+            self.assertEqual(addr, socket.BDADDR_ANY)
+
+    @unittest.skipUnless(hasattr(socket, 'BTPROTO_SCO'), 'Bluetooth SCO sockets required for this test')
+    def testBadScoAddr(self):
+        with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_SCO) as s:
+            with self.assertRaises(OSError):
+                s.bind((socket.BDADDR_ANY,))
+            with self.assertRaises(OSError):
+                s.bind((socket.BDADDR_ANY.encode(),))
+            with self.assertRaises(ValueError):
+                s.bind(socket.BDADDR_ANY + '\0')
+            with self.assertRaises(ValueError):
+                s.bind(socket.BDADDR_ANY.encode() + b'\0')
+            with self.assertRaises(UnicodeEncodeError):
+                s.bind('\ud812')
+            with self.assertRaises(OSError):
+                s.bind('invalid')
+            with self.assertRaises(OSError):
+                s.bind(b'invalid')
+
 
 @unittest.skipUnless(HAVE_SOCKET_HYPERV,
                      'Hyper-V sockets required for this test.')
@@ -2717,22 +2917,29 @@ class BasicTCPTest(SocketConnectedTest):
     def _testDup(self):
         self.serv_conn.send(MSG)
 
-    def testShutdown(self):
-        # Testing shutdown()
+    def check_shutdown(self):
+        # Test shutdown() helper
         msg = self.cli_conn.recv(1024)
         self.assertEqual(msg, MSG)
-        # wait for _testShutdown to finish: on OS X, when the server
+        # wait for _testShutdown[_overflow] to finish: on OS X, when the server
         # closes the connection the client also becomes disconnected,
         # and the client's shutdown call will fail. (Issue #4397.)
         self.done.wait()
+
+    def testShutdown(self):
+        self.check_shutdown()
 
     def _testShutdown(self):
         self.serv_conn.send(MSG)
         self.serv_conn.shutdown(2)
 
-    testShutdown_overflow = support.cpython_only(testShutdown)
+    @support.cpython_only
+    @unittest.skipIf(_testcapi is None, "requires _testcapi")
+    def testShutdown_overflow(self):
+        self.check_shutdown()
 
     @support.cpython_only
+    @unittest.skipIf(_testcapi is None, "requires _testcapi")
     def _testShutdown_overflow(self):
         import _testcapi
         self.serv_conn.send(MSG)
@@ -3203,7 +3410,7 @@ class SendmsgStreamTests(SendmsgTests):
     # Linux supports MSG_DONTWAIT when sending, but in general, it
     # only works when receiving.  Could add other platforms if they
     # support it too.
-    @skipWithClientIf(sys.platform not in {"linux"},
+    @skipWithClientIf(sys.platform not in {"linux", "android"},
                       "MSG_DONTWAIT not known to work on this platform when "
                       "sending")
     def testSendmsgDontWait(self):
@@ -3720,7 +3927,7 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
     def _testFDPassCMSG_LEN(self):
         self.createAndSendFDs(1)
 
-    @unittest.skipIf(sys.platform == "darwin", "skipping, see issue #12958")
+    @unittest.skipIf(is_apple, "skipping, see issue #12958")
     @unittest.skipIf(AIX, "skipping, see issue #22397")
     @requireAttrs(socket, "CMSG_SPACE")
     def testFDPassSeparate(self):
@@ -3731,7 +3938,7 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
                              maxcmsgs=2)
 
     @testFDPassSeparate.client_skip
-    @unittest.skipIf(sys.platform == "darwin", "skipping, see issue #12958")
+    @unittest.skipIf(is_apple, "skipping, see issue #12958")
     @unittest.skipIf(AIX, "skipping, see issue #22397")
     def _testFDPassSeparate(self):
         fd0, fd1 = self.newFDs(2)
@@ -3744,7 +3951,7 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
                                           array.array("i", [fd1]))]),
             len(MSG))
 
-    @unittest.skipIf(sys.platform == "darwin", "skipping, see issue #12958")
+    @unittest.skipIf(is_apple, "skipping, see issue #12958")
     @unittest.skipIf(AIX, "skipping, see issue #22397")
     @requireAttrs(socket, "CMSG_SPACE")
     def testFDPassSeparateMinSpace(self):
@@ -3758,7 +3965,7 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
                              maxcmsgs=2, ignoreflags=socket.MSG_CTRUNC)
 
     @testFDPassSeparateMinSpace.client_skip
-    @unittest.skipIf(sys.platform == "darwin", "skipping, see issue #12958")
+    @unittest.skipIf(is_apple, "skipping, see issue #12958")
     @unittest.skipIf(AIX, "skipping, see issue #22397")
     def _testFDPassSeparateMinSpace(self):
         fd0, fd1 = self.newFDs(2)
@@ -3782,7 +3989,7 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
             nbytes = self.sendmsgToServer([msg])
         self.assertEqual(nbytes, len(msg))
 
-    @unittest.skipIf(sys.platform == "darwin", "see issue #24725")
+    @unittest.skipIf(is_apple, "skipping, see issue #12958")
     def testFDPassEmpty(self):
         # Try to pass an empty FD array.  Can receive either no array
         # or an empty array.
@@ -3856,6 +4063,7 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
         self.checkFlags(flags, eor=True, checkset=socket.MSG_CTRUNC,
                         ignore=ignoreflags)
 
+    @skipForRefleakHuntinIf(sys.platform == "darwin", "#80931")
     def testCmsgTruncNoBufSize(self):
         # Check that no ancillary data is received when no buffer size
         # is specified.
@@ -3865,26 +4073,32 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
                                   # received.
                                   ignoreflags=socket.MSG_CTRUNC)
 
+    @testCmsgTruncNoBufSize.client_skip
     def _testCmsgTruncNoBufSize(self):
         self.createAndSendFDs(1)
 
+    @skipForRefleakHuntinIf(sys.platform == "darwin", "#80931")
     def testCmsgTrunc0(self):
         # Check that no ancillary data is received when buffer size is 0.
         self.checkTruncatedHeader(self.doRecvmsg(self.serv_sock, len(MSG), 0),
                                   ignoreflags=socket.MSG_CTRUNC)
 
+    @testCmsgTrunc0.client_skip
     def _testCmsgTrunc0(self):
         self.createAndSendFDs(1)
 
     # Check that no ancillary data is returned for various non-zero
     # (but still too small) buffer sizes.
 
+    @skipForRefleakHuntinIf(sys.platform == "darwin", "#80931")
     def testCmsgTrunc1(self):
         self.checkTruncatedHeader(self.doRecvmsg(self.serv_sock, len(MSG), 1))
 
+    @testCmsgTrunc1.client_skip
     def _testCmsgTrunc1(self):
         self.createAndSendFDs(1)
 
+    @skipForRefleakHuntinIf(sys.platform == "darwin", "#80931")
     def testCmsgTrunc2Int(self):
         # The cmsghdr structure has at least three members, two of
         # which are ints, so we still shouldn't see any ancillary
@@ -3892,13 +4106,16 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
         self.checkTruncatedHeader(self.doRecvmsg(self.serv_sock, len(MSG),
                                                  SIZEOF_INT * 2))
 
+    @testCmsgTrunc2Int.client_skip
     def _testCmsgTrunc2Int(self):
         self.createAndSendFDs(1)
 
+    @skipForRefleakHuntinIf(sys.platform == "darwin", "#80931")
     def testCmsgTruncLen0Minus1(self):
         self.checkTruncatedHeader(self.doRecvmsg(self.serv_sock, len(MSG),
                                                  socket.CMSG_LEN(0) - 1))
 
+    @testCmsgTruncLen0Minus1.client_skip
     def _testCmsgTruncLen0Minus1(self):
         self.createAndSendFDs(1)
 
@@ -3910,8 +4127,9 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
         # mindata and maxdata bytes when received with buffer size
         # ancbuf, and that any complete file descriptor numbers are
         # valid.
-        msg, ancdata, flags, addr = self.doRecvmsg(self.serv_sock,
-                                                   len(MSG), ancbuf)
+        with downgrade_malformed_data_warning():  # TODO: gh-110012
+            msg, ancdata, flags, addr = self.doRecvmsg(self.serv_sock,
+                                                       len(MSG), ancbuf)
         self.assertEqual(msg, MSG)
         self.checkRecvmsgAddress(addr, self.cli_addr)
         self.checkFlags(flags, eor=True, checkset=socket.MSG_CTRUNC)
@@ -3929,29 +4147,38 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
                 len(cmsg_data) - (len(cmsg_data) % fds.itemsize)])
         self.checkFDs(fds)
 
+    @skipForRefleakHuntinIf(sys.platform == "darwin", "#80931")
     def testCmsgTruncLen0(self):
         self.checkTruncatedArray(ancbuf=socket.CMSG_LEN(0), maxdata=0)
 
+    @testCmsgTruncLen0.client_skip
     def _testCmsgTruncLen0(self):
         self.createAndSendFDs(1)
 
+    @skipForRefleakHuntinIf(sys.platform == "darwin", "#80931")
     def testCmsgTruncLen0Plus1(self):
         self.checkTruncatedArray(ancbuf=socket.CMSG_LEN(0) + 1, maxdata=1)
 
+    @testCmsgTruncLen0Plus1.client_skip
     def _testCmsgTruncLen0Plus1(self):
         self.createAndSendFDs(2)
 
+    @skipForRefleakHuntinIf(sys.platform == "darwin", "#80931")
     def testCmsgTruncLen1(self):
         self.checkTruncatedArray(ancbuf=socket.CMSG_LEN(SIZEOF_INT),
                                  maxdata=SIZEOF_INT)
 
+    @testCmsgTruncLen1.client_skip
     def _testCmsgTruncLen1(self):
         self.createAndSendFDs(2)
 
+
+    @skipForRefleakHuntinIf(sys.platform == "darwin", "#80931")
     def testCmsgTruncLen2Minus1(self):
         self.checkTruncatedArray(ancbuf=socket.CMSG_LEN(2 * SIZEOF_INT) - 1,
                                  maxdata=(2 * SIZEOF_INT) - 1)
 
+    @testCmsgTruncLen2Minus1.client_skip
     def _testCmsgTruncLen2Minus1(self):
         self.createAndSendFDs(2)
 
@@ -4253,8 +4480,9 @@ class RFC3542AncillaryTest(SendrecvmsgServerTimeoutBase):
         self.serv_sock.setsockopt(socket.IPPROTO_IPV6,
                                   socket.IPV6_RECVHOPLIMIT, 1)
         self.misc_event.set()
-        msg, ancdata, flags, addr = self.doRecvmsg(
-            self.serv_sock, len(MSG), socket.CMSG_LEN(SIZEOF_INT) - 1)
+        with downgrade_malformed_data_warning():  # TODO: gh-110012
+            msg, ancdata, flags, addr = self.doRecvmsg(
+                self.serv_sock, len(MSG), socket.CMSG_LEN(SIZEOF_INT) - 1)
 
         self.assertEqual(msg, MSG)
         self.checkRecvmsgAddress(addr, self.cli_addr)
@@ -4357,9 +4585,10 @@ class RFC3542AncillaryTest(SendrecvmsgServerTimeoutBase):
         self.serv_sock.setsockopt(socket.IPPROTO_IPV6,
                                   socket.IPV6_RECVTCLASS, 1)
         self.misc_event.set()
-        msg, ancdata, flags, addr = self.doRecvmsg(
-            self.serv_sock, len(MSG),
-            socket.CMSG_SPACE(SIZEOF_INT) + socket.CMSG_LEN(SIZEOF_INT) - 1)
+        with downgrade_malformed_data_warning():  # TODO: gh-110012
+            msg, ancdata, flags, addr = self.doRecvmsg(
+                self.serv_sock, len(MSG),
+                socket.CMSG_SPACE(SIZEOF_INT) + socket.CMSG_LEN(SIZEOF_INT) - 1)
 
         self.assertEqual(msg, MSG)
         self.checkRecvmsgAddress(addr, self.cli_addr)
@@ -4601,14 +4830,15 @@ class SendrecvmsgUnixStreamTestBase(SendrecvmsgConnectedBase,
                                     ConnectedStreamTestMixin, UnixStreamBase):
     pass
 
-@unittest.skipIf(sys.platform == "darwin", "flaky on macOS")
 @requireAttrs(socket.socket, "sendmsg")
 @requireAttrs(socket, "AF_UNIX")
+@unittest.skip("TODO: RUSTPYTHON; accept() on Unix sockets returns EINVAL")
 class SendmsgUnixStreamTest(SendmsgStreamTests, SendrecvmsgUnixStreamTestBase):
     pass
 
 @requireAttrs(socket.socket, "recvmsg")
 @requireAttrs(socket, "AF_UNIX")
+@unittest.skip("TODO: RUSTPYTHON; intermittent accept() EINVAL on Unix sockets")
 class RecvmsgUnixStreamTest(RecvmsgTests, RecvmsgGenericStreamTests,
                             SendrecvmsgUnixStreamTestBase):
     pass
@@ -4621,6 +4851,7 @@ class RecvmsgIntoUnixStreamTest(RecvmsgIntoTests, RecvmsgGenericStreamTests,
 
 @requireAttrs(socket.socket, "sendmsg", "recvmsg")
 @requireAttrs(socket, "AF_UNIX", "SOL_SOCKET", "SCM_RIGHTS")
+@unittest.skip("TODO: RUSTPYTHON; intermittent accept() EINVAL on Unix sockets")
 class RecvmsgSCMRightsStreamTest(SCMRightsTest, SendrecvmsgUnixStreamTestBase):
     pass
 
@@ -4824,6 +5055,112 @@ class BasicSocketPairTest(SocketPairTest):
         self.assertEqual(msg, MSG)
 
 
+class PurePythonSocketPairTest(SocketPairTest):
+    # Explicitly use socketpair AF_INET or AF_INET6 to ensure that is the
+    # code path we're using regardless platform is the pure python one where
+    # `_socket.socketpair` does not exist.  (AF_INET does not work with
+    # _socket.socketpair on many platforms).
+    def socketpair(self):
+        # called by super().setUp().
+        try:
+            return socket.socketpair(socket.AF_INET6)
+        except OSError:
+            return socket.socketpair(socket.AF_INET)
+
+    # Local imports in this class make for easy security fix backporting.
+
+    def setUp(self):
+        if hasattr(_socket, "socketpair"):
+            self._orig_sp = socket.socketpair
+            # This forces the version using the non-OS provided socketpair
+            # emulation via an AF_INET socket in Lib/socket.py.
+            socket.socketpair = socket._fallback_socketpair
+        else:
+            # This platform already uses the non-OS provided version.
+            self._orig_sp = None
+        super().setUp()
+
+    def tearDown(self):
+        super().tearDown()
+        if self._orig_sp is not None:
+            # Restore the default socket.socketpair definition.
+            socket.socketpair = self._orig_sp
+
+    def test_recv(self):
+        msg = self.serv.recv(1024)
+        self.assertEqual(msg, MSG)
+
+    def _test_recv(self):
+        self.cli.send(MSG)
+
+    def test_send(self):
+        self.serv.send(MSG)
+
+    def _test_send(self):
+        msg = self.cli.recv(1024)
+        self.assertEqual(msg, MSG)
+
+    def test_ipv4(self):
+        cli, srv = socket.socketpair(socket.AF_INET)
+        cli.close()
+        srv.close()
+
+    def _test_ipv4(self):
+        pass
+
+    @unittest.skipIf(not hasattr(_socket, 'IPPROTO_IPV6') or
+                     not hasattr(_socket, 'IPV6_V6ONLY'),
+                     "IPV6_V6ONLY option not supported")
+    @unittest.skipUnless(socket_helper.IPV6_ENABLED, 'IPv6 required for this test')
+    def test_ipv6(self):
+        cli, srv = socket.socketpair(socket.AF_INET6)
+        cli.close()
+        srv.close()
+
+    def _test_ipv6(self):
+        pass
+
+    def test_injected_authentication_failure(self):
+        orig_getsockname = socket.socket.getsockname
+        inject_sock = None
+
+        def inject_getsocketname(self):
+            nonlocal inject_sock
+            sockname = orig_getsockname(self)
+            # Connect to the listening socket ahead of the
+            # client socket.
+            if inject_sock is None:
+                inject_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                inject_sock.setblocking(False)
+                try:
+                    inject_sock.connect(sockname[:2])
+                except (BlockingIOError, InterruptedError):
+                    pass
+                inject_sock.setblocking(True)
+            return sockname
+
+        sock1 = sock2 = None
+        try:
+            socket.socket.getsockname = inject_getsocketname
+            with self.assertRaises(OSError):
+                sock1, sock2 = socket.socketpair()
+        finally:
+            socket.socket.getsockname = orig_getsockname
+            if inject_sock:
+                inject_sock.close()
+            if sock1:  # This cleanup isn't needed on a successful test.
+                sock1.close()
+            if sock2:
+                sock2.close()
+
+    def _test_injected_authentication_failure(self):
+        # No-op.  Exists for base class threading infrastructure to call.
+        # We could refactor this test into its own lesser class along with the
+        # setUp and tearDown code to construct an ideal; it is simpler to keep
+        # it here and live with extra overhead one this _one_ failure test.
+        pass
+
+
 class NonBlockingTCPTests(ThreadedTCPSocketTest):
 
     def __init__(self, methodName='runTest'):
@@ -4871,6 +5208,7 @@ class NonBlockingTCPTests(ThreadedTCPSocketTest):
         pass
 
     @support.cpython_only
+    @unittest.skipIf(_testcapi is None, "requires _testcapi")
     def testSetBlocking_overflow(self):
         # Issue 15989
         import _testcapi
@@ -4888,8 +5226,6 @@ class NonBlockingTCPTests(ThreadedTCPSocketTest):
     @unittest.skipUnless(hasattr(socket, 'SOCK_NONBLOCK'),
                          'test needs socket.SOCK_NONBLOCK')
     @support.requires_linux_version(2, 6, 28)
-    # TODO: RUSTPYTHON, AssertionError: None != 0
-    @unittest.expectedFailure
     def testInitNonBlocking(self):
         # create a socket with SOCK_NONBLOCK
         self.serv.close()
@@ -4983,6 +5319,39 @@ class NonBlockingTCPTests(ThreadedTCPSocketTest):
         self.event.wait()
 
         # send data: recv() will no longer block
+        self.cli.sendall(MSG)
+
+    def testLargeTimeout(self):
+        # gh-126876: Check that a timeout larger than INT_MAX is replaced with
+        # INT_MAX in the poll() code path. The following assertion must not
+        # fail: assert(INT_MIN <= ms && ms <= INT_MAX).
+        if _testcapi is not None:
+            large_timeout = _testcapi.INT_MAX + 1
+        else:
+            large_timeout = 2147483648
+
+        # test recv() with large timeout
+        conn, addr = self.serv.accept()
+        self.addCleanup(conn.close)
+        try:
+            conn.settimeout(large_timeout)
+        except OverflowError:
+            # On Windows, settimeout() fails with OverflowError, whereas
+            # we want to test recv(). Just give up silently.
+            return
+        msg = conn.recv(len(MSG))
+
+    def _testLargeTimeout(self):
+        # test sendall() with large timeout
+        if _testcapi is not None:
+            large_timeout = _testcapi.INT_MAX + 1
+        else:
+            large_timeout = 2147483648
+        self.cli.connect((HOST, self.port))
+        try:
+            self.cli.settimeout(large_timeout)
+        except OverflowError:
+            return
         self.cli.sendall(MSG)
 
 
@@ -5187,6 +5556,8 @@ class UnbufferedFileObjectClassTestCase(FileObjectClassTestCase):
         self.write_file.write(self.write_msg)
         self.write_file.flush()
 
+    @unittest.skipUnless(hasattr(sys, 'getrefcount'),
+                         'test needs sys.getrefcount()')
     def testMakefileCloseSocketDestroy(self):
         refcount_before = sys.getrefcount(self.cli_conn)
         self.read_file.close()
@@ -5625,7 +5996,7 @@ class TestExceptions(unittest.TestCase):
             sock.setblocking(False)
 
 
-@unittest.skipUnless(sys.platform == 'linux', 'Linux specific test')
+@unittest.skipUnless(sys.platform in ('linux', 'android'), 'Linux specific test')
 class TestLinuxAbstractNamespace(unittest.TestCase):
 
     UNIX_PATH_MAX = 108
@@ -5750,7 +6121,8 @@ class TestUnixDomain(unittest.TestCase):
         self.addCleanup(os_helper.unlink, path)
         self.assertEqual(self.sock.getsockname(), path)
 
-    @unittest.skipIf(sys.platform == 'linux', 'Linux specific test')
+    @unittest.skipIf(sys.platform in ('linux', 'android'),
+                     'Linux behavior is tested by TestLinuxAbstractNamespace')
     def testEmptyAddress(self):
         # Test that binding empty address fails.
         self.assertRaises(OSError, self.sock.bind, "")
@@ -5976,8 +6348,6 @@ class InheritanceTest(unittest.TestCase):
     @unittest.skipUnless(hasattr(socket, "SOCK_CLOEXEC"),
                          "SOCK_CLOEXEC not defined")
     @support.requires_linux_version(2, 6, 28)
-    # TODO: RUSTPYTHON, AssertionError: 524289 != <SocketKind.SOCK_STREAM: 1>
-    @unittest.expectedFailure
     def test_SOCK_CLOEXEC(self):
         with socket.socket(socket.AF_INET,
                            socket.SOCK_STREAM | socket.SOCK_CLOEXEC) as s:
@@ -6070,8 +6440,6 @@ class NonblockConstantTest(unittest.TestCase):
             self.assertTrue(s.getblocking())
 
     @support.requires_linux_version(2, 6, 28)
-    # TODO: RUSTPYTHON, AssertionError: 2049 != <SocketKind.SOCK_STREAM: 1>
-    @unittest.expectedFailure
     def test_SOCK_NONBLOCK(self):
         # a lot of it seems silly and redundant, but I wanted to test that
         # changing back and forth worked ok
@@ -6107,7 +6475,6 @@ class NonblockConstantTest(unittest.TestCase):
 
 @unittest.skipUnless(os.name == "nt", "Windows specific")
 @unittest.skipUnless(multiprocessing, "need multiprocessing")
-@unittest.skip("TODO: RUSTPYTHON, socket sharing")
 class TestSocketSharing(SocketTCPTest):
     # This must be classmethod and not staticmethod or multiprocessing
     # won't be able to bootstrap it.
@@ -6125,6 +6492,8 @@ class TestSocketSharing(SocketTCPTest):
         s2.close()
         s.close()
 
+    # TODO: RUSTPYTHON; multiprocessing.SemLock not implemented
+    @unittest.expectedFailure
     def testShare(self):
         # Transfer the listening server socket to another process
         # and service it from there.
@@ -6348,7 +6717,6 @@ class SendfileUsingSendTest(ThreadedTCPSocketTest):
             self.assertEqual(sent, count)
             self.assertEqual(file.tell(), count)
 
-    @unittest.skipIf(sys.platform == "darwin", "TODO: RUSTPYTHON, killed (for OOM?)")
     def testCount(self):
         count = 5000007
         conn = self.accept_conn()
@@ -6424,7 +6792,6 @@ class SendfileUsingSendTest(ThreadedTCPSocketTest):
             sent = meth(file)
             self.assertEqual(sent, self.FILESIZE)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def testWithTimeout(self):
         conn = self.accept_conn()
         data = self.recv_data(conn)
@@ -6478,6 +6845,7 @@ class SendfileUsingSendTest(ThreadedTCPSocketTest):
 
 @unittest.skipUnless(hasattr(os, "sendfile"),
                      'os.sendfile() required for this test.')
+@unittest.skip("TODO: RUSTPYTHON; os.sendfile count parameter not handled correctly")
 class SendfileUsingSendfileTest(SendfileUsingSendTest):
     """
     Test the sendfile() implementation of socket.sendfile().
@@ -6502,9 +6870,9 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
 
     # bpo-31705: On kernel older than 4.5, sendto() failed with ENOKEY,
     # at least on ppc64le architecture
-    @support.requires_linux_version(4, 5)
-    # TODO: RUSTPYTHON, OSError: bind(): bad family
+    # TODO: RUSTPYTHON - AF_ALG not fully implemented
     @unittest.expectedFailure
+    @support.requires_linux_version(4, 5)
     def test_sha256(self):
         expected = bytes.fromhex("ba7816bf8f01cfea414140de5dae2223b00361a396"
                                  "177a9cb410ff61f20015ad")
@@ -6522,7 +6890,7 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
                 op.send(b'')
                 self.assertEqual(op.recv(512), expected)
 
-    # TODO: RUSTPYTHON, OSError: bind(): bad family
+    # TODO: RUSTPYTHON - AF_ALG not fully implemented
     @unittest.expectedFailure
     def test_hmac_sha1(self):
         # gh-109396: In FIPS mode, Linux 6.5 requires a key
@@ -6539,9 +6907,9 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
 
     # Although it should work with 3.19 and newer the test blocks on
     # Ubuntu 15.10 with Kernel 4.2.0-19.
-    @support.requires_linux_version(4, 3)
-    # TODO: RUSTPYTHON, OSError: bind(): bad family
+    # TODO: RUSTPYTHON - AF_ALG not fully implemented
     @unittest.expectedFailure
+    @support.requires_linux_version(4, 3)
     def test_aes_cbc(self):
         key = bytes.fromhex('06a9214036b8a15b512e03d534120006')
         iv = bytes.fromhex('3dafba429d9eb430b422da802c9fac41')
@@ -6582,10 +6950,16 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
             self.assertEqual(len(dec), msglen * multiplier)
             self.assertEqual(dec, msg * multiplier)
 
-    @support.requires_linux_version(4, 9)  # see issue29324
-    # TODO: RUSTPYTHON, OSError: bind(): bad family
+    # TODO: RUSTPYTHON - AF_ALG not fully implemented
     @unittest.expectedFailure
+    @support.requires_linux_version(4, 9)  # see gh-73510
     def test_aead_aes_gcm(self):
+        kernel_version = support._get_kernel_version("Linux")
+        if kernel_version is not None:
+            if kernel_version >= (6, 16) and kernel_version < (6, 18):
+                # See https://github.com/python/cpython/issues/139310.
+                self.skipTest("upstream Linux kernel issue")
+
         key = bytes.fromhex('c939cc13397c1d37de6ae0e1cb7c423c')
         iv = bytes.fromhex('b3d8cc017cbb89b39e0f67e2')
         plain = bytes.fromhex('c3b3c41f113a31b73d9a5cd432103069')
@@ -6647,9 +7021,9 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
                 res = op.recv(len(msg) - taglen)
                 self.assertEqual(plain, res[assoclen:])
 
-    @support.requires_linux_version(4, 3)  # see test_aes_cbc
-    # TODO: RUSTPYTHON, OSError: bind(): bad family
+    # TODO: RUSTPYTHON - AF_ALG not fully implemented
     @unittest.expectedFailure
+    @support.requires_linux_version(4, 3)  # see test_aes_cbc
     def test_drbg_pr_sha256(self):
         # deterministic random bit generator, prediction resistance, sha256
         with self.create_alg('rng', 'drbg_pr_sha256') as algo:
@@ -6660,8 +7034,6 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
                 rn = op.recv(32)
                 self.assertEqual(len(rn), 32)
 
-    # TODO: RUSTPYTHON, AttributeError: 'socket' object has no attribute 'sendmsg_afalg'
-    @unittest.expectedFailure
     def test_sendmsg_afalg_args(self):
         sock = socket.socket(socket.AF_ALG, socket.SOCK_SEQPACKET, 0)
         with sock:
@@ -6680,8 +7052,6 @@ class LinuxKernelCryptoAPI(unittest.TestCase):
             with self.assertRaises(TypeError):
                 sock.sendmsg_afalg(op=socket.ALG_OP_ENCRYPT, assoclen=-1)
 
-    # TODO: RUSTPYTHON, OSError: bind(): bad family
-    @unittest.expectedFailure
     def test_length_restriction(self):
         # bpo-35050, off-by-one error in length check
         sock = socket.socket(socket.AF_ALG, socket.SOCK_SEQPACKET, 0)

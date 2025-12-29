@@ -23,10 +23,10 @@ use crate::{
     convert::ToPyResult,
     function::{FuncArgs, KwArgs, OptionalArg, PyMethodDef, PySetterValue},
     object::{Traverse, TraverseFn},
-    protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
+    protocol::{PyIterReturn, PyNumberMethods},
     types::{
-        AsNumber, Callable, Constructor, GetAttr, PyTypeFlags, PyTypeSlots, Representable, SetAttr,
-        TypeDataRef, TypeDataRefMut, TypeDataSlot,
+        AsNumber, Callable, Constructor, GetAttr, Initializer, PyTypeFlags, PyTypeSlots,
+        Representable, SLOT_DEFS, SetAttr, TypeDataRef, TypeDataRefMut, TypeDataSlot,
     },
 };
 use indexmap::{IndexMap, map::Entry};
@@ -64,8 +64,6 @@ pub struct HeapTypeExt {
     pub name: PyRwLock<PyStrRef>,
     pub qualname: PyRwLock<PyStrRef>,
     pub slots: Option<PyRef<PyTuple<PyStrRef>>>,
-    pub sequence_methods: PySequenceMethods,
-    pub mapping_methods: PyMappingMethods,
     pub type_data: PyRwLock<Option<TypeDataSlot>>,
 }
 
@@ -97,17 +95,6 @@ impl<T> From<&'static T> for PointerSlot<T> {
 impl<T> AsRef<T> for PointerSlot<T> {
     fn as_ref(&self) -> &T {
         unsafe { self.0.as_ref() }
-    }
-}
-
-impl<T> PointerSlot<T> {
-    pub unsafe fn from_heaptype<F>(typ: &PyType, f: F) -> Option<Self>
-    where
-        F: FnOnce(&HeapTypeExt) -> &T,
-    {
-        typ.heaptype_ext
-            .as_ref()
-            .map(|ext| Self(NonNull::from(f(ext))))
     }
 }
 
@@ -206,8 +193,6 @@ impl PyType {
             name: PyRwLock::new(name.clone()),
             qualname: PyRwLock::new(name),
             slots: None,
-            sequence_methods: PySequenceMethods::default(),
-            mapping_methods: PyMappingMethods::default(),
             type_data: PyRwLock::new(None),
         };
         let base = bases[0].clone();
@@ -331,6 +316,8 @@ impl PyType {
             slots.basicsize = base.slots.basicsize;
         }
 
+        Self::inherit_readonly_slots(&mut slots, &base);
+
         if let Some(qualname) = attrs.get(identifier!(ctx, __qualname__))
             && !qualname.fast_isinstance(ctx.types.str_type)
         {
@@ -387,6 +374,8 @@ impl PyType {
             slots.basicsize = base.slots.basicsize;
         }
 
+        Self::inherit_readonly_slots(&mut slots, &base);
+
         let bases = PyRwLock::new(vec![base.clone()]);
         let mro = base.mro_map_collect(|x| x.to_owned());
 
@@ -404,6 +393,9 @@ impl PyType {
             None,
         );
 
+        // Note: inherit_slots is called in PyClassImpl::init_class after
+        // slots are fully initialized by make_slots()
+
         Self::set_new(&new_type.slots, &new_type.base);
 
         let weakref_type = super::PyWeak::static_type();
@@ -420,6 +412,14 @@ impl PyType {
     }
 
     pub(crate) fn init_slots(&self, ctx: &Context) {
+        // Inherit slots from MRO
+        // Note: self.mro does NOT include self, so we iterate all elements
+        let mro: Vec<_> = self.mro.read().iter().cloned().collect();
+        for base in mro.iter() {
+            self.inherit_slots(base);
+        }
+
+        // Wire dunder methods to slots
         #[allow(clippy::mutable_key_type)]
         let mut slot_name_set = std::collections::HashSet::new();
 
@@ -451,6 +451,23 @@ impl PyType {
                     .map(|base| base.slots.new.load())
                     .unwrap_or(None),
             )
+        }
+    }
+
+    /// Inherit readonly slots from base type at creation time.
+    /// These slots are not AtomicCell and must be set before the type is used.
+    fn inherit_readonly_slots(slots: &mut PyTypeSlots, base: &Self) {
+        if slots.as_buffer.is_none() {
+            slots.as_buffer = base.slots.as_buffer;
+        }
+    }
+
+    /// Inherit slots from base type. inherit_slots
+    pub(crate) fn inherit_slots(&self, base: &Self) {
+        // Use SLOT_DEFS to iterate all slots
+        // Note: as_buffer is handled in inherit_readonly_slots (not AtomicCell)
+        for def in SLOT_DEFS {
+            def.accessor.copyslot_if_none(self, base);
         }
     }
 
@@ -663,19 +680,6 @@ impl Py<PyType> {
             .collect()
     }
 
-    pub(crate) fn mro_find_map<F, R>(&self, f: F) -> Option<R>
-    where
-        F: Fn(&Self) -> Option<R>,
-    {
-        // the hot path will be primitive types which usually hit the result from itself.
-        // try std::intrinsics::likely once it is stabilized
-        if let Some(r) = f(self) {
-            Some(r)
-        } else {
-            self.mro.read().iter().find_map(|cls| f(cls))
-        }
-    }
-
     pub fn iter_base_chain(&self) -> impl Iterator<Item = &Self> {
         std::iter::successors(Some(self), |cls| cls.base.as_deref())
     }
@@ -689,7 +693,16 @@ impl Py<PyType> {
 }
 
 #[pyclass(
-    with(Py, Constructor, GetAttr, SetAttr, Callable, AsNumber, Representable),
+    with(
+        Py,
+        Constructor,
+        Initializer,
+        GetAttr,
+        SetAttr,
+        Callable,
+        AsNumber,
+        Representable
+    ),
     flags(BASETYPE)
 )]
 impl PyType {
@@ -769,8 +782,13 @@ impl PyType {
     }
 
     #[pygetset]
-    const fn __basicsize__(&self) -> usize {
-        self.slots.basicsize
+    fn __basicsize__(&self) -> usize {
+        crate::object::SIZEOF_PYOBJECT_HEAD + self.slots.basicsize
+    }
+
+    #[pygetset]
+    fn __itemsize__(&self) -> usize {
+        self.slots.itemsize
     }
 
     #[pygetset]
@@ -907,10 +925,12 @@ impl PyType {
     }
 
     #[pygetset(setter)]
-    fn set___module__(&self, value: PyObjectRef, vm: &VirtualMachine) {
+    fn set___module__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.check_set_special_type_attr(identifier!(vm, __module__), vm)?;
         self.attributes
             .write()
             .insert(identifier!(vm, __module__), value);
+        Ok(())
     }
 
     #[pyclassmethod]
@@ -960,7 +980,6 @@ impl PyType {
 
     fn check_set_special_type_attr(
         &self,
-        _value: &PyObject,
         name: &PyStrInterned,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -976,7 +995,7 @@ impl PyType {
 
     #[pygetset(setter)]
     fn set___name__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.check_set_special_type_attr(&value, identifier!(vm, __name__), vm)?;
+        self.check_set_special_type_attr(identifier!(vm, __name__), vm)?;
         let name = value.downcast::<PyStr>().map_err(|value| {
             vm.new_type_error(format!(
                 "can only assign string to {}.__name__, not '{}'",
@@ -987,6 +1006,7 @@ impl PyType {
         if name.as_bytes().contains(&0) {
             return Err(vm.new_value_error("type name must not contain null characters"));
         }
+        name.ensure_valid_utf8(vm)?;
 
         // Use std::mem::replace to swap the new value in and get the old value out,
         // then drop the old value after releasing the lock (similar to CPython's Py_SETREF)
@@ -1029,7 +1049,7 @@ impl PyType {
         match value {
             PySetterValue::Assign(ref val) => {
                 let key = identifier!(vm, __type_params__);
-                self.check_set_special_type_attr(val.as_ref(), key, vm)?;
+                self.check_set_special_type_attr(key, vm)?;
                 let mut attrs = self.attributes.write();
                 attrs.insert(key, val.clone().into());
             }
@@ -1078,6 +1098,7 @@ impl Constructor for PyType {
         if name.as_bytes().contains(&0) {
             return Err(vm.new_value_error("type name must not contain null characters"));
         }
+        name.ensure_valid_utf8(vm)?;
 
         let (metatype, base, bases, base_is_type) = if bases.is_empty() {
             let base = vm.ctx.types.object_type.to_owned();
@@ -1130,6 +1151,13 @@ impl Constructor for PyType {
             });
         let mut attributes = dict.to_attributes(vm);
 
+        // Check __doc__ for surrogates - raises UnicodeEncodeError during type creation
+        if let Some(doc) = attributes.get(identifier!(vm, __doc__))
+            && let Some(doc_str) = doc.downcast_ref::<PyStr>()
+        {
+            doc_str.ensure_valid_utf8(vm)?;
+        }
+
         if let Some(f) = attributes.get_mut(identifier!(vm, __init_subclass__))
             && f.class().is(vm.ctx.types.function_type)
         {
@@ -1162,44 +1190,143 @@ impl Constructor for PyType {
             attributes.insert(identifier!(vm, __hash__), vm.ctx.none.clone().into());
         }
 
-        let (heaptype_slots, add_dict): (Option<PyRef<PyTuple<PyStrRef>>>, bool) =
-            if let Some(x) = attributes.get(identifier!(vm, __slots__)) {
-                let slots = if x.class().is(vm.ctx.types.str_type) {
-                    let x = unsafe { x.downcast_unchecked_ref::<PyStr>() };
-                    PyTuple::new_ref_typed(vec![x.to_owned()], &vm.ctx)
-                } else {
-                    let iter = x.get_iter(vm)?;
-                    let elements = {
-                        let mut elements = Vec::new();
-                        while let PyIterReturn::Return(element) = iter.next(vm)? {
-                            elements.push(element);
-                        }
-                        elements
-                    };
-                    let tuple = elements.into_pytuple(vm);
-                    tuple.try_into_typed(vm)?
-                };
+        let (heaptype_slots, add_dict): (Option<PyRef<PyTuple<PyStrRef>>>, bool) = if let Some(x) =
+            attributes.get(identifier!(vm, __slots__))
+        {
+            // Check if __slots__ is bytes - not allowed
+            if x.class().is(vm.ctx.types.bytes_type) {
+                return Err(
+                    vm.new_type_error("__slots__ items must be strings, not 'bytes'".to_owned())
+                );
+            }
 
-                // Check if __dict__ is in slots
-                let dict_name = "__dict__";
-                let has_dict = slots.iter().any(|s| s.as_str() == dict_name);
-
-                // Filter out __dict__ from slots
-                let filtered_slots = if has_dict {
-                    let filtered: Vec<PyStrRef> = slots
-                        .iter()
-                        .filter(|s| s.as_str() != dict_name)
-                        .cloned()
-                        .collect();
-                    PyTuple::new_ref_typed(filtered, &vm.ctx)
-                } else {
-                    slots
-                };
-
-                (Some(filtered_slots), has_dict)
+            let slots = if x.class().is(vm.ctx.types.str_type) {
+                let x = unsafe { x.downcast_unchecked_ref::<PyStr>() };
+                PyTuple::new_ref_typed(vec![x.to_owned()], &vm.ctx)
             } else {
-                (None, false)
+                let iter = x.get_iter(vm)?;
+                let elements = {
+                    let mut elements = Vec::new();
+                    while let PyIterReturn::Return(element) = iter.next(vm)? {
+                        // Check if any slot item is bytes
+                        if element.class().is(vm.ctx.types.bytes_type) {
+                            return Err(vm.new_type_error(
+                                "__slots__ items must be strings, not 'bytes'".to_owned(),
+                            ));
+                        }
+                        elements.push(element);
+                    }
+                    elements
+                };
+                let tuple = elements.into_pytuple(vm);
+                tuple.try_into_typed(vm)?
             };
+
+            // Check if base has itemsize > 0 - can't add arbitrary slots to variable-size types
+            // Types like int, bytes, tuple have itemsize > 0 and don't allow custom slots
+            // But types like weakref.ref have itemsize = 0 and DO allow slots
+            let has_custom_slots = slots
+                .iter()
+                .any(|s| s.as_str() != "__dict__" && s.as_str() != "__weakref__");
+            if has_custom_slots && base.slots.itemsize > 0 {
+                return Err(vm.new_type_error(format!(
+                    "nonempty __slots__ not supported for subtype of '{}'",
+                    base.name()
+                )));
+            }
+
+            // Validate slot names and track duplicates
+            let mut seen_dict = false;
+            let mut seen_weakref = false;
+            for slot in slots.iter() {
+                // Use isidentifier for validation (handles Unicode properly)
+                if !slot.isidentifier() {
+                    return Err(vm.new_type_error("__slots__ must be identifiers".to_owned()));
+                }
+
+                let slot_name = slot.as_str();
+
+                // Check for duplicate __dict__
+                if slot_name == "__dict__" {
+                    if seen_dict {
+                        return Err(vm.new_type_error(
+                            "__dict__ slot disallowed: we already got one".to_owned(),
+                        ));
+                    }
+                    seen_dict = true;
+                }
+
+                // Check for duplicate __weakref__
+                if slot_name == "__weakref__" {
+                    if seen_weakref {
+                        return Err(vm.new_type_error(
+                            "__weakref__ slot disallowed: we already got one".to_owned(),
+                        ));
+                    }
+                    seen_weakref = true;
+                }
+
+                // Check if slot name conflicts with class attributes
+                if attributes.contains_key(vm.ctx.intern_str(slot_name)) {
+                    return Err(vm.new_value_error(format!(
+                        "'{}' in __slots__ conflicts with a class variable",
+                        slot_name
+                    )));
+                }
+            }
+
+            // Check if base class already has __dict__ - can't redefine it
+            if seen_dict && base.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
+                return Err(
+                    vm.new_type_error("__dict__ slot disallowed: we already got one".to_owned())
+                );
+            }
+
+            // Check if base class already has __weakref__ - can't redefine it
+            // A base has weakref support if:
+            // 1. It's a heap type without explicit __slots__ (automatic weakref), OR
+            // 2. It's a heap type with __weakref__ in its __slots__
+            if seen_weakref {
+                let base_has_weakref = if let Some(ref ext) = base.heaptype_ext {
+                    match &ext.slots {
+                        // Heap type without __slots__ - has automatic weakref
+                        None => true,
+                        // Heap type with __slots__ - check if __weakref__ is in slots
+                        Some(base_slots) => base_slots.iter().any(|s| s.as_str() == "__weakref__"),
+                    }
+                } else {
+                    // Builtin type - check if it has __weakref__ descriptor
+                    let weakref_name = vm.ctx.intern_str("__weakref__");
+                    base.attributes.read().contains_key(weakref_name)
+                };
+
+                if base_has_weakref {
+                    return Err(vm.new_type_error(
+                        "__weakref__ slot disallowed: we already got one".to_owned(),
+                    ));
+                }
+            }
+
+            // Check if __dict__ is in slots
+            let dict_name = "__dict__";
+            let has_dict = slots.iter().any(|s| s.as_str() == dict_name);
+
+            // Filter out __dict__ from slots
+            let filtered_slots = if has_dict {
+                let filtered: Vec<PyStrRef> = slots
+                    .iter()
+                    .filter(|s| s.as_str() != dict_name)
+                    .cloned()
+                    .collect();
+                PyTuple::new_ref_typed(filtered, &vm.ctx)
+            } else {
+                slots
+            };
+
+            (Some(filtered_slots), has_dict)
+        } else {
+            (None, false)
+        };
 
         // FIXME: this is a temporary fix. multi bases with multiple slots will break object
         let base_member_count = bases
@@ -1211,10 +1338,16 @@ impl Constructor for PyType {
         let member_count: usize = base_member_count + heaptype_member_count;
 
         let mut flags = PyTypeFlags::heap_type_flags();
+
+        // Check if we may add dict
+        // We can only add a dict if the primary base class doesn't already have one
+        // In CPython, this checks tp_dictoffset == 0
+        let may_add_dict = !base.slots.flags.has_feature(PyTypeFlags::HAS_DICT);
+
         // Add HAS_DICT and MANAGED_DICT if:
-        // 1. __slots__ is not defined, OR
+        // 1. __slots__ is not defined AND base doesn't have dict, OR
         // 2. __dict__ is in __slots__
-        if heaptype_slots.is_none() || add_dict {
+        if (heaptype_slots.is_none() && may_add_dict) || add_dict {
             flags |= PyTypeFlags::HAS_DICT | PyTypeFlags::MANAGED_DICT;
         }
 
@@ -1222,14 +1355,13 @@ impl Constructor for PyType {
             let slots = PyTypeSlots {
                 flags,
                 member_count,
+                itemsize: base.slots.itemsize,
                 ..PyTypeSlots::heap_default()
             };
             let heaptype_ext = HeapTypeExt {
                 name: PyRwLock::new(name),
                 qualname: PyRwLock::new(qualname),
                 slots: heaptype_slots.clone(),
-                sequence_methods: PySequenceMethods::default(),
-                mapping_methods: PyMappingMethods::default(),
                 type_data: PyRwLock::new(None),
             };
             (slots, heaptype_ext)
@@ -1296,9 +1428,15 @@ impl Constructor for PyType {
         // Only add if:
         // 1. base is not type (type subclasses inherit __dict__ from type)
         // 2. the class has HAS_DICT flag (i.e., __slots__ was not defined or __dict__ is in __slots__)
+        // 3. no base class in MRO already provides __dict__ descriptor
         if !base_is_type && typ.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
             let __dict__ = identifier!(vm, __dict__);
-            if !typ.attributes.read().contains_key(&__dict__) {
+            let has_inherited_dict = typ
+                .mro
+                .read()
+                .iter()
+                .any(|base| base.attributes.read().contains_key(&__dict__));
+            if !typ.attributes.read().contains_key(&__dict__) && !has_inherited_dict {
                 unsafe {
                     let descriptor =
                         vm.ctx
@@ -1390,6 +1528,26 @@ fn get_doc_from_internal_doc<'a>(name: &str, internal_doc: &'a str) -> &'a str {
     internal_doc
 }
 
+impl Initializer for PyType {
+    type Args = FuncArgs;
+
+    // type_init
+    fn slot_init(_zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        // type.__init__() takes 1 or 3 arguments
+        if args.args.len() == 1 && !args.kwargs.is_empty() {
+            return Err(vm.new_type_error("type.__init__() takes no keyword arguments".to_owned()));
+        }
+        if args.args.len() != 1 && args.args.len() != 3 {
+            return Err(vm.new_type_error("type.__init__() takes 1 or 3 arguments".to_owned()));
+        }
+        Ok(())
+    }
+
+    fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        unreachable!("slot_init is defined")
+    }
+}
+
 impl GetAttr for PyType {
     fn getattro(zelf: &Py<Self>, name_str: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         #[cold]
@@ -1414,11 +1572,9 @@ impl GetAttr for PyType {
 
         if let Some(ref attr) = mcl_attr {
             let attr_class = attr.class();
-            let has_descr_set = attr_class
-                .mro_find_map(|cls| cls.slots.descr_set.load())
-                .is_some();
+            let has_descr_set = attr_class.slots.descr_set.load().is_some();
             if has_descr_set {
-                let descr_get = attr_class.mro_find_map(|cls| cls.slots.descr_get.load());
+                let descr_get = attr_class.slots.descr_get.load();
                 if let Some(descr_get) = descr_get {
                     let mcl = mcl.to_owned().into();
                     return descr_get(attr.clone(), Some(zelf.to_owned().into()), Some(mcl), vm);
@@ -1429,7 +1585,7 @@ impl GetAttr for PyType {
         let zelf_attr = zelf.get_attr(name);
 
         if let Some(attr) = zelf_attr {
-            let descr_get = attr.class().mro_find_map(|cls| cls.slots.descr_get.load());
+            let descr_get = attr.class().slots.descr_get.load();
             if let Some(descr_get) = descr_get {
                 descr_get(attr, None, Some(zelf.to_owned().into()), vm)
             } else {
@@ -1467,9 +1623,7 @@ impl Py<PyType> {
         // CPython returns None if __doc__ is not in the type's own dict
         if let Some(doc_attr) = self.get_direct_attr(vm.ctx.intern_str("__doc__")) {
             // If it's a descriptor, call its __get__ method
-            let descr_get = doc_attr
-                .class()
-                .mro_find_map(|cls| cls.slots.descr_get.load());
+            let descr_get = doc_attr.class().slots.descr_get.load();
             if let Some(descr_get) = descr_get {
                 descr_get(doc_attr, None, Some(self.to_owned().into()), vm)
             } else {
@@ -1491,7 +1645,7 @@ impl Py<PyType> {
         })?;
 
         // Check if we can set this special type attribute
-        self.check_set_special_type_attr(&value, identifier!(vm, __doc__), vm)?;
+        self.check_set_special_type_attr(identifier!(vm, __doc__), vm)?;
 
         // Set the __doc__ in the type's dict
         self.attributes
@@ -1545,7 +1699,7 @@ impl SetAttr for PyType {
         // TODO: pass PyRefExact instead of &str
         let attr_name = vm.ctx.intern_str(attr_name.as_str());
         if let Some(attr) = zelf.get_class_attr(attr_name) {
-            let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
+            let descr_set = attr.class().slots.descr_set.load();
             if let Some(descriptor) = descr_set {
                 return descriptor(&attr, zelf.to_owned().into(), value, vm);
             }
@@ -1702,7 +1856,9 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
             // Call the descriptor's tp_descr_set
             let descr_set = descr
                 .class()
-                .mro_find_map(|cls| cls.slots.descr_set.load())
+                .slots
+                .descr_set
+                .load()
                 .ok_or_else(|| raise_dict_descriptor_error(&obj, vm))?;
             descr_set(&descr, obj, PySetterValue::Assign(value), vm)
         } else {
@@ -1764,13 +1920,14 @@ pub(crate) fn call_slot_new(
     }
 
     let slot_new = typ
-        .deref()
-        .mro_find_map(|cls| cls.slots.new.load())
+        .slots
+        .new
+        .load()
         .expect("Should be able to find a new slot somewhere in the mro");
     slot_new(subtype, args, vm)
 }
 
-pub(super) fn or_(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn or_(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
     if !union_::is_unionable(zelf.clone(), vm) || !union_::is_unionable(other.clone(), vm) {
         return vm.ctx.not_implemented();
     }
@@ -1859,6 +2016,11 @@ fn calculate_meta_class(
     Ok(winner)
 }
 
+/// Returns true if the two types have different instance layouts.
+fn shape_differs(t1: &Py<PyType>, t2: &Py<PyType>) -> bool {
+    t1.__basicsize__() != t2.__basicsize__() || t1.slots.itemsize != t2.slots.itemsize
+}
+
 fn solid_base<'a>(typ: &'a Py<PyType>, vm: &VirtualMachine) -> &'a Py<PyType> {
     let base = if let Some(base) = &typ.base {
         solid_base(base, vm)
@@ -1866,12 +2028,7 @@ fn solid_base<'a>(typ: &'a Py<PyType>, vm: &VirtualMachine) -> &'a Py<PyType> {
         vm.ctx.types.object_type
     };
 
-    // TODO: requires itemsize comparison too
-    if typ.__basicsize__() != base.__basicsize__() {
-        typ
-    } else {
-        base
-    }
+    if shape_differs(typ, base) { typ } else { base }
 }
 
 fn best_base<'a>(bases: &'a [PyTypeRef], vm: &VirtualMachine) -> PyResult<&'a Py<PyType>> {

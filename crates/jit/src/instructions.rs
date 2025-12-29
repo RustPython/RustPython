@@ -547,10 +547,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 }
             }
             Instruction::Nop => Ok(()),
-            Instruction::Pop => {
-                self.stack.pop();
-                Ok(())
-            }
             Instruction::PopBlock => {
                 // TODO: block support
                 Ok(())
@@ -579,6 +575,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     .brif(val, then_block, &[], else_block, &[]);
                 self.builder.switch_to_block(else_block);
 
+                Ok(())
+            }
+            Instruction::PopTop => {
+                self.stack.pop();
                 Ok(())
             }
             Instruction::Resume { arg: _resume_arg } => {

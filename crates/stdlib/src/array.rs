@@ -938,8 +938,10 @@ mod array {
             /* XXX Make the block size settable */
             const BLOCKSIZE: usize = 64 * 1024;
 
-            let bytes = self.read();
-            let bytes = bytes.get_bytes();
+            let bytes = {
+                let bytes = self.read();
+                bytes.get_bytes().to_vec()
+            };
 
             for b in bytes.chunks(BLOCKSIZE) {
                 let b = PyBytes::from(b.to_vec()).into_ref(&vm.ctx);

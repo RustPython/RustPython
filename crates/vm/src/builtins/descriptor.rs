@@ -3,8 +3,17 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyTypeRef, builtin_func::PyNativeMethod, type_},
     class::PyClassImpl,
+    common::hash::PyHash,
+    convert::{ToPyObject, ToPyResult},
     function::{FuncArgs, PyMethodDef, PyMethodFlags, PySetterValue},
-    types::{Callable, GetDescriptor, Representable},
+    protocol::{PyNumberBinaryFunc, PyNumberTernaryFunc, PyNumberUnaryFunc},
+    types::{
+        Callable, Comparable, DelFunc, DescrGetFunc, DescrSetFunc, GenericMethod, GetDescriptor,
+        GetattroFunc, HashFunc, Hashable, InitFunc, IterFunc, IterNextFunc, MapAssSubscriptFunc,
+        MapLenFunc, MapSubscriptFunc, PyComparisonOp, Representable, RichCompareFunc,
+        SeqAssItemFunc, SeqConcatFunc, SeqContainsFunc, SeqItemFunc, SeqLenFunc, SeqRepeatFunc,
+        SetattroFunc, StringifyFunc,
+    },
 };
 use rustpython_common::lock::PyRwLock;
 
@@ -219,7 +228,7 @@ impl std::fmt::Debug for PyMemberDef {
     }
 }
 
-// PyMemberDescrObject in CPython
+// = PyMemberDescrObject
 #[pyclass(name = "member_descriptor", module = false)]
 #[derive(Debug)]
 pub struct PyMemberDescriptor {
@@ -382,4 +391,462 @@ impl GetDescriptor for PyMemberDescriptor {
 pub fn init(ctx: &Context) {
     PyMemberDescriptor::extend_class(ctx, ctx.types.member_descriptor_type);
     PyMethodDescriptor::extend_class(ctx, ctx.types.method_descriptor_type);
+    PyWrapper::extend_class(ctx, ctx.types.wrapper_descriptor_type);
+    PyMethodWrapper::extend_class(ctx, ctx.types.method_wrapper_type);
+}
+
+// PyWrapper - wrapper_descriptor
+
+/// Each variant knows how to call the wrapped function with proper types
+#[derive(Clone, Copy)]
+pub enum SlotFunc {
+    // Basic slots
+    Init(InitFunc),
+    Hash(HashFunc),
+    Str(StringifyFunc),
+    Repr(StringifyFunc),
+    Iter(IterFunc),
+    IterNext(IterNextFunc),
+    Call(GenericMethod),
+    Del(DelFunc),
+
+    // Attribute access slots
+    GetAttro(GetattroFunc),
+    SetAttro(SetattroFunc), // __setattr__
+    DelAttro(SetattroFunc), // __delattr__ (same func type, different PySetterValue)
+
+    // Rich comparison slots (with comparison op)
+    RichCompare(RichCompareFunc, PyComparisonOp),
+
+    // Descriptor slots
+    DescrGet(DescrGetFunc),
+    DescrSet(DescrSetFunc), // __set__
+    DescrDel(DescrSetFunc), // __delete__ (same func type, different PySetterValue)
+
+    // Sequence sub-slots (sq_*)
+    SeqLength(SeqLenFunc),
+    SeqConcat(SeqConcatFunc),
+    SeqRepeat(SeqRepeatFunc),
+    SeqItem(SeqItemFunc),
+    SeqAssItem(SeqAssItemFunc),
+    SeqContains(SeqContainsFunc),
+
+    // Mapping sub-slots (mp_*)
+    MapLength(MapLenFunc),
+    MapSubscript(MapSubscriptFunc),
+    MapAssSubscript(MapAssSubscriptFunc),
+
+    // Number sub-slots (nb_*) - grouped by signature
+    NumBoolean(PyNumberUnaryFunc<bool>),  // __bool__
+    NumUnary(PyNumberUnaryFunc),          // __int__, __float__, __index__
+    NumBinary(PyNumberBinaryFunc),        // __add__, __sub__, __mul__, etc.
+    NumBinaryRight(PyNumberBinaryFunc),   // __radd__, __rsub__, etc. (swapped args)
+    NumTernary(PyNumberTernaryFunc),      // __pow__
+    NumTernaryRight(PyNumberTernaryFunc), // __rpow__ (swapped first two args)
+}
+
+impl std::fmt::Debug for SlotFunc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SlotFunc::Init(_) => write!(f, "SlotFunc::Init(...)"),
+            SlotFunc::Hash(_) => write!(f, "SlotFunc::Hash(...)"),
+            SlotFunc::Str(_) => write!(f, "SlotFunc::Str(...)"),
+            SlotFunc::Repr(_) => write!(f, "SlotFunc::Repr(...)"),
+            SlotFunc::Iter(_) => write!(f, "SlotFunc::Iter(...)"),
+            SlotFunc::IterNext(_) => write!(f, "SlotFunc::IterNext(...)"),
+            SlotFunc::Call(_) => write!(f, "SlotFunc::Call(...)"),
+            SlotFunc::Del(_) => write!(f, "SlotFunc::Del(...)"),
+            SlotFunc::GetAttro(_) => write!(f, "SlotFunc::GetAttro(...)"),
+            SlotFunc::SetAttro(_) => write!(f, "SlotFunc::SetAttro(...)"),
+            SlotFunc::DelAttro(_) => write!(f, "SlotFunc::DelAttro(...)"),
+            SlotFunc::RichCompare(_, op) => write!(f, "SlotFunc::RichCompare(..., {:?})", op),
+            SlotFunc::DescrGet(_) => write!(f, "SlotFunc::DescrGet(...)"),
+            SlotFunc::DescrSet(_) => write!(f, "SlotFunc::DescrSet(...)"),
+            SlotFunc::DescrDel(_) => write!(f, "SlotFunc::DescrDel(...)"),
+            // Sequence sub-slots
+            SlotFunc::SeqLength(_) => write!(f, "SlotFunc::SeqLength(...)"),
+            SlotFunc::SeqConcat(_) => write!(f, "SlotFunc::SeqConcat(...)"),
+            SlotFunc::SeqRepeat(_) => write!(f, "SlotFunc::SeqRepeat(...)"),
+            SlotFunc::SeqItem(_) => write!(f, "SlotFunc::SeqItem(...)"),
+            SlotFunc::SeqAssItem(_) => write!(f, "SlotFunc::SeqAssItem(...)"),
+            SlotFunc::SeqContains(_) => write!(f, "SlotFunc::SeqContains(...)"),
+            // Mapping sub-slots
+            SlotFunc::MapLength(_) => write!(f, "SlotFunc::MapLength(...)"),
+            SlotFunc::MapSubscript(_) => write!(f, "SlotFunc::MapSubscript(...)"),
+            SlotFunc::MapAssSubscript(_) => write!(f, "SlotFunc::MapAssSubscript(...)"),
+            // Number sub-slots
+            SlotFunc::NumBoolean(_) => write!(f, "SlotFunc::NumBoolean(...)"),
+            SlotFunc::NumUnary(_) => write!(f, "SlotFunc::NumUnary(...)"),
+            SlotFunc::NumBinary(_) => write!(f, "SlotFunc::NumBinary(...)"),
+            SlotFunc::NumBinaryRight(_) => write!(f, "SlotFunc::NumBinaryRight(...)"),
+            SlotFunc::NumTernary(_) => write!(f, "SlotFunc::NumTernary(...)"),
+            SlotFunc::NumTernaryRight(_) => write!(f, "SlotFunc::NumTernaryRight(...)"),
+        }
+    }
+}
+
+impl SlotFunc {
+    /// Call the wrapped slot function with proper type handling
+    pub fn call(&self, obj: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        match self {
+            SlotFunc::Init(func) => {
+                func(obj, args, vm)?;
+                Ok(vm.ctx.none())
+            }
+            SlotFunc::Hash(func) => {
+                if !args.args.is_empty() || !args.kwargs.is_empty() {
+                    return Err(
+                        vm.new_type_error("__hash__() takes no arguments (1 given)".to_owned())
+                    );
+                }
+                let hash = func(&obj, vm)?;
+                Ok(vm.ctx.new_int(hash).into())
+            }
+            SlotFunc::Repr(func) | SlotFunc::Str(func) => {
+                if !args.args.is_empty() || !args.kwargs.is_empty() {
+                    let name = match self {
+                        SlotFunc::Repr(_) => "__repr__",
+                        SlotFunc::Str(_) => "__str__",
+                        _ => unreachable!(),
+                    };
+                    return Err(vm.new_type_error(format!("{name}() takes no arguments (1 given)")));
+                }
+                let s = func(&obj, vm)?;
+                Ok(s.into())
+            }
+            SlotFunc::Iter(func) => {
+                if !args.args.is_empty() || !args.kwargs.is_empty() {
+                    return Err(
+                        vm.new_type_error("__iter__() takes no arguments (1 given)".to_owned())
+                    );
+                }
+                func(obj, vm)
+            }
+            SlotFunc::IterNext(func) => {
+                if !args.args.is_empty() || !args.kwargs.is_empty() {
+                    return Err(
+                        vm.new_type_error("__next__() takes no arguments (1 given)".to_owned())
+                    );
+                }
+                func(&obj, vm).to_pyresult(vm)
+            }
+            SlotFunc::Call(func) => func(&obj, args, vm),
+            SlotFunc::Del(func) => {
+                if !args.args.is_empty() || !args.kwargs.is_empty() {
+                    return Err(
+                        vm.new_type_error("__del__() takes no arguments (1 given)".to_owned())
+                    );
+                }
+                func(&obj, vm)?;
+                Ok(vm.ctx.none())
+            }
+            SlotFunc::GetAttro(func) => {
+                let (name,): (PyRef<PyStr>,) = args.bind(vm)?;
+                func(&obj, &name, vm)
+            }
+            SlotFunc::SetAttro(func) => {
+                let (name, value): (PyRef<PyStr>, PyObjectRef) = args.bind(vm)?;
+                func(&obj, &name, PySetterValue::Assign(value), vm)?;
+                Ok(vm.ctx.none())
+            }
+            SlotFunc::DelAttro(func) => {
+                let (name,): (PyRef<PyStr>,) = args.bind(vm)?;
+                func(&obj, &name, PySetterValue::Delete, vm)?;
+                Ok(vm.ctx.none())
+            }
+            SlotFunc::RichCompare(func, op) => {
+                let (other,): (PyObjectRef,) = args.bind(vm)?;
+                func(&obj, &other, *op, vm).map(|r| match r {
+                    crate::function::Either::A(obj) => obj,
+                    crate::function::Either::B(cmp_val) => cmp_val.to_pyobject(vm),
+                })
+            }
+            SlotFunc::DescrGet(func) => {
+                let (instance, owner): (PyObjectRef, crate::function::OptionalArg<PyObjectRef>) =
+                    args.bind(vm)?;
+                let owner = owner.into_option();
+                let instance_opt = if vm.is_none(&instance) {
+                    None
+                } else {
+                    Some(instance)
+                };
+                func(obj, instance_opt, owner, vm)
+            }
+            SlotFunc::DescrSet(func) => {
+                let (instance, value): (PyObjectRef, PyObjectRef) = args.bind(vm)?;
+                func(&obj, instance, PySetterValue::Assign(value), vm)?;
+                Ok(vm.ctx.none())
+            }
+            SlotFunc::DescrDel(func) => {
+                let (instance,): (PyObjectRef,) = args.bind(vm)?;
+                func(&obj, instance, PySetterValue::Delete, vm)?;
+                Ok(vm.ctx.none())
+            }
+            // Sequence sub-slots
+            SlotFunc::SeqLength(func) => {
+                args.bind::<()>(vm)?;
+                let len = func(obj.sequence_unchecked(), vm)?;
+                Ok(vm.ctx.new_int(len).into())
+            }
+            SlotFunc::SeqConcat(func) => {
+                let (other,): (PyObjectRef,) = args.bind(vm)?;
+                func(obj.sequence_unchecked(), &other, vm)
+            }
+            SlotFunc::SeqRepeat(func) => {
+                let (n,): (isize,) = args.bind(vm)?;
+                func(obj.sequence_unchecked(), n, vm)
+            }
+            SlotFunc::SeqItem(func) => {
+                let (index,): (isize,) = args.bind(vm)?;
+                func(obj.sequence_unchecked(), index, vm)
+            }
+            SlotFunc::SeqAssItem(func) => {
+                let (index, value): (isize, crate::function::OptionalArg<PyObjectRef>) =
+                    args.bind(vm)?;
+                func(obj.sequence_unchecked(), index, value.into_option(), vm)?;
+                Ok(vm.ctx.none())
+            }
+            SlotFunc::SeqContains(func) => {
+                let (item,): (PyObjectRef,) = args.bind(vm)?;
+                let result = func(obj.sequence_unchecked(), &item, vm)?;
+                Ok(vm.ctx.new_bool(result).into())
+            }
+            // Mapping sub-slots
+            SlotFunc::MapLength(func) => {
+                args.bind::<()>(vm)?;
+                let len = func(obj.mapping_unchecked(), vm)?;
+                Ok(vm.ctx.new_int(len).into())
+            }
+            SlotFunc::MapSubscript(func) => {
+                let (key,): (PyObjectRef,) = args.bind(vm)?;
+                func(obj.mapping_unchecked(), &key, vm)
+            }
+            SlotFunc::MapAssSubscript(func) => {
+                let (key, value): (PyObjectRef, crate::function::OptionalArg<PyObjectRef>) =
+                    args.bind(vm)?;
+                func(obj.mapping_unchecked(), &key, value.into_option(), vm)?;
+                Ok(vm.ctx.none())
+            }
+            // Number sub-slots
+            SlotFunc::NumBoolean(func) => {
+                args.bind::<()>(vm)?;
+                let result = func(obj.number(), vm)?;
+                Ok(vm.ctx.new_bool(result).into())
+            }
+            SlotFunc::NumUnary(func) => {
+                args.bind::<()>(vm)?;
+                func(obj.number(), vm)
+            }
+            SlotFunc::NumBinary(func) => {
+                let (other,): (PyObjectRef,) = args.bind(vm)?;
+                func(&obj, &other, vm)
+            }
+            SlotFunc::NumBinaryRight(func) => {
+                let (other,): (PyObjectRef,) = args.bind(vm)?;
+                func(&other, &obj, vm) // Swapped: other op obj
+            }
+            SlotFunc::NumTernary(func) => {
+                let (y, z): (PyObjectRef, crate::function::OptionalArg<PyObjectRef>) =
+                    args.bind(vm)?;
+                let z = z.unwrap_or_else(|| vm.ctx.none());
+                func(&obj, &y, &z, vm)
+            }
+            SlotFunc::NumTernaryRight(func) => {
+                let (y, z): (PyObjectRef, crate::function::OptionalArg<PyObjectRef>) =
+                    args.bind(vm)?;
+                let z = z.unwrap_or_else(|| vm.ctx.none());
+                func(&y, &obj, &z, vm) // Swapped: y ** obj % z
+            }
+        }
+    }
+}
+
+/// wrapper_descriptor: wraps a slot function as a Python method
+// = PyWrapperDescrObject
+#[pyclass(name = "wrapper_descriptor", module = false)]
+#[derive(Debug)]
+pub struct PyWrapper {
+    pub typ: &'static Py<PyType>,
+    pub name: &'static PyStrInterned,
+    pub wrapped: SlotFunc,
+    pub doc: Option<&'static str>,
+}
+
+impl PyPayload for PyWrapper {
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.wrapper_descriptor_type
+    }
+}
+
+impl GetDescriptor for PyWrapper {
+    fn descr_get(
+        zelf: PyObjectRef,
+        obj: Option<PyObjectRef>,
+        _cls: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        match obj {
+            None => Ok(zelf),
+            Some(obj) => {
+                let zelf = zelf.downcast::<Self>().unwrap();
+                Ok(PyMethodWrapper { wrapper: zelf, obj }.into_pyobject(vm))
+            }
+        }
+    }
+}
+
+impl Callable for PyWrapper {
+    type Args = FuncArgs;
+
+    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // list.__init__(l, [1,2,3]) form - first arg is self
+        let (obj, rest): (PyObjectRef, FuncArgs) = args.bind(vm)?;
+
+        if !obj.fast_isinstance(zelf.typ) {
+            return Err(vm.new_type_error(format!(
+                "descriptor '{}' requires a '{}' object but received a '{}'",
+                zelf.name.as_str(),
+                zelf.typ.name(),
+                obj.class().name()
+            )));
+        }
+
+        zelf.wrapped.call(obj, rest, vm)
+    }
+}
+
+#[pyclass(
+    with(GetDescriptor, Callable, Representable),
+    flags(DISALLOW_INSTANTIATION)
+)]
+impl PyWrapper {
+    #[pygetset]
+    fn __name__(&self) -> &'static PyStrInterned {
+        self.name
+    }
+
+    #[pygetset]
+    fn __qualname__(&self) -> String {
+        format!("{}.{}", self.typ.name(), self.name)
+    }
+
+    #[pygetset]
+    fn __objclass__(&self) -> PyTypeRef {
+        self.typ.to_owned()
+    }
+
+    #[pygetset]
+    fn __doc__(&self) -> Option<&'static str> {
+        self.doc
+    }
+}
+
+impl Representable for PyWrapper {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        Ok(format!(
+            "<slot wrapper '{}' of '{}' objects>",
+            zelf.name.as_str(),
+            zelf.typ.name()
+        ))
+    }
+}
+
+// PyMethodWrapper - method-wrapper
+
+/// method-wrapper: a slot wrapper bound to an instance
+/// Returned when accessing l.__init__ on an instance
+#[pyclass(name = "method-wrapper", module = false, traverse)]
+#[derive(Debug)]
+pub struct PyMethodWrapper {
+    pub wrapper: PyRef<PyWrapper>,
+    #[pytraverse(skip)]
+    pub obj: PyObjectRef,
+}
+
+impl PyPayload for PyMethodWrapper {
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.method_wrapper_type
+    }
+}
+
+impl Callable for PyMethodWrapper {
+    type Args = FuncArgs;
+
+    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        zelf.wrapper.wrapped.call(zelf.obj.clone(), args, vm)
+    }
+}
+
+#[pyclass(
+    with(Callable, Representable, Hashable, Comparable),
+    flags(DISALLOW_INSTANTIATION)
+)]
+impl PyMethodWrapper {
+    #[pygetset]
+    fn __self__(&self) -> PyObjectRef {
+        self.obj.clone()
+    }
+
+    #[pygetset]
+    fn __name__(&self) -> &'static PyStrInterned {
+        self.wrapper.name
+    }
+
+    #[pygetset]
+    fn __objclass__(&self) -> PyTypeRef {
+        self.wrapper.typ.to_owned()
+    }
+
+    #[pymethod]
+    fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let builtins_getattr = vm.builtins.get_attr("getattr", vm)?;
+        Ok(vm
+            .ctx
+            .new_tuple(vec![
+                builtins_getattr,
+                vm.ctx
+                    .new_tuple(vec![
+                        zelf.obj.clone(),
+                        vm.ctx.new_str(zelf.wrapper.name.as_str()).into(),
+                    ])
+                    .into(),
+            ])
+            .into())
+    }
+}
+
+impl Representable for PyMethodWrapper {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        Ok(format!(
+            "<method-wrapper '{}' of {} object at {:#x}>",
+            zelf.wrapper.name.as_str(),
+            zelf.obj.class().name(),
+            zelf.obj.get_id()
+        ))
+    }
+}
+
+impl Hashable for PyMethodWrapper {
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+        let obj_hash = zelf.obj.hash(vm)?;
+        let wrapper_hash = zelf.wrapper.as_object().get_id() as PyHash;
+        Ok(obj_hash ^ wrapper_hash)
+    }
+}
+
+impl Comparable for PyMethodWrapper {
+    fn cmp(
+        zelf: &Py<Self>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<crate::function::PyComparisonValue> {
+        op.eq_only(|| {
+            let other = class_or_notimplemented!(Self, other);
+            let eq = zelf.wrapper.is(&other.wrapper) && vm.bool_eq(&zelf.obj, &other.obj)?;
+            Ok(eq.into())
+        })
+    }
 }

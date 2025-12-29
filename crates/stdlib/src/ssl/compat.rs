@@ -391,6 +391,8 @@ pub(super) enum SslError {
     ZeroReturn,
     /// Unexpected EOF without close_notify (protocol violation)
     Eof,
+    /// Non-TLS data received before handshake completed
+    PreauthData,
     /// Certificate verification error
     CertVerification(rustls::CertificateError),
     /// I/O error
@@ -562,6 +564,15 @@ impl SslError {
                 .upcast(),
             SslError::ZeroReturn => create_ssl_zero_return_error(vm).upcast(),
             SslError::Eof => create_ssl_eof_error(vm).upcast(),
+            SslError::PreauthData => {
+                // Non-TLS data received before handshake
+                Self::create_ssl_error_with_reason(
+                    vm,
+                    None,
+                    "before TLS handshake with data",
+                    "before TLS handshake with data",
+                )
+            }
             SslError::CertVerification(cert_err) => {
                 // Use the proper cert verification error creator
                 create_ssl_cert_verification_error(vm, &cert_err).expect("unlikely to happen")
@@ -1245,6 +1256,12 @@ pub(super) fn ssl_do_handshake(
                 }
             }
 
+            // InvalidMessage during handshake means non-TLS data was received
+            // before the handshake completed (e.g., HTTP request to TLS server)
+            if matches!(e, rustls::Error::InvalidMessage(_)) {
+                return Err(SslError::PreauthData);
+            }
+
             // Certificate verification errors are already handled by from_rustls
 
             return Err(SslError::from_rustls(e));
@@ -1397,8 +1414,21 @@ pub(super) fn ssl_read(
             return Ok(n);
         }
 
-        // No plaintext available and cannot read more TLS records
+        // No plaintext available and rustls doesn't want to read more TLS records
         if !needs_more_tls {
+            // Check if connection needs to write data first (e.g., TLS key update, renegotiation)
+            // This mirrors the handshake logic which checks both wants_read() and wants_write()
+            if conn.wants_write() && !is_bio {
+                // Flush pending TLS data before continuing
+                let tls_data = ssl_write_tls_records(conn)?;
+                if !tls_data.is_empty() {
+                    socket.sock_send(tls_data, vm).map_err(SslError::Py)?;
+                }
+                // After flushing, rustls may want to read again - continue loop
+                continue;
+            }
+
+            // BIO mode: check for EOF
             if is_bio && let Some(bio_obj) = socket.incoming_bio() {
                 let is_eof = bio_obj
                     .get_attr("eof", vm)
@@ -1408,6 +1438,50 @@ pub(super) fn ssl_read(
                     return Err(SslError::Eof);
                 }
             }
+
+            // For non-blocking sockets, return WantRead so caller can poll and retry.
+            // For blocking sockets (or sockets with timeout), wait for more data.
+            if !is_bio {
+                let timeout = socket.get_socket_timeout(vm).map_err(SslError::Py)?;
+                if let Some(t) = timeout
+                    && t.is_zero()
+                {
+                    // Non-blocking socket: return immediately
+                    return Err(SslError::WantRead);
+                }
+                // Blocking socket or socket with timeout: try to read more data from socket.
+                // Even though rustls says it doesn't want to read, more TLS records may arrive.
+                // This handles the case where rustls processed all buffered TLS records but
+                // more data is coming over the network.
+                let data = match socket.sock_recv(2048, vm) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        if is_connection_closed_error(&e, vm) {
+                            return Err(SslError::Eof);
+                        }
+                        return Err(SslError::Py(e));
+                    }
+                };
+
+                let bytes_read = data
+                    .clone()
+                    .try_into_value::<rustpython_vm::builtins::PyBytes>(vm)
+                    .map(|b| b.as_bytes().len())
+                    .unwrap_or(0);
+
+                if bytes_read == 0 {
+                    // No more data available - connection might be closed
+                    return Err(SslError::Eof);
+                }
+
+                // Feed data to rustls and process
+                ssl_read_tls_records(conn, data, false, vm)?;
+                conn.process_new_packets().map_err(SslError::from_rustls)?;
+
+                // Continue loop to try reading plaintext
+                continue;
+            }
+
             return Err(SslError::WantRead);
         }
 
@@ -1419,20 +1493,9 @@ pub(super) fn ssl_read(
                 // Continue loop to try reading plaintext
             }
             Err(SslError::Io(ref io_err)) if io_err.to_string().contains("message buffer full") => {
-                // Buffer is full - we need to consume plaintext before reading more
-                // Try to read plaintext now
-                match try_read_plaintext(conn, buf)? {
-                    Some(n) if n > 0 => {
-                        // Have plaintext - return it
-                        // Python will call read() again if it needs more data
-                        return Ok(n);
-                    }
-                    _ => {
-                        // No plaintext available yet - this is unusual
-                        // Return WantRead to let Python retry
-                        return Err(SslError::WantRead);
-                    }
-                }
+                // This case should be rare now that ssl_read_tls_records handles buffer full
+                // Just continue loop to try again
+                continue;
             }
             Err(e) => {
                 // Other errors - check for buffered plaintext before propagating
@@ -1511,7 +1574,7 @@ fn ssl_read_tls_records(
     }
 
     // Feed all received data to read_tls - loop to consume all data
-    // read_tls may not consume all data in one call
+    // read_tls may not consume all data in one call, and buffer may become full
     let mut offset = 0;
     while offset < bytes_data.len() {
         let remaining = &bytes_data[offset..];
@@ -1520,12 +1583,33 @@ fn ssl_read_tls_records(
         match conn.read_tls(&mut cursor) {
             Ok(read_bytes) => {
                 if read_bytes == 0 {
-                    // No more data can be consumed
-                    break;
+                    // Buffer is full - process existing packets to make room
+                    conn.process_new_packets().map_err(SslError::from_rustls)?;
+
+                    // Try again - if we still can't consume, break
+                    let mut retry_cursor = std::io::Cursor::new(remaining);
+                    match conn.read_tls(&mut retry_cursor) {
+                        Ok(0) => {
+                            // Still can't consume - break to avoid infinite loop
+                            break;
+                        }
+                        Ok(n) => {
+                            offset += n;
+                        }
+                        Err(e) => {
+                            return Err(SslError::Io(e));
+                        }
+                    }
+                } else {
+                    offset += read_bytes;
                 }
-                offset += read_bytes;
             }
             Err(e) => {
+                // Check if it's a buffer full error (unlikely but handle it)
+                if e.to_string().contains("buffer full") {
+                    conn.process_new_packets().map_err(SslError::from_rustls)?;
+                    continue;
+                }
                 // Real error - propagate it
                 return Err(SslError::Io(e));
             }
@@ -1586,8 +1670,10 @@ fn ssl_ensure_data_available(
                     .sock_wait_for_io_impl(SelectKind::Read, vm)
                     .map_err(SslError::Py)?;
                 if timed_out {
-                    // Socket not ready within timeout
-                    return Err(SslError::WantRead);
+                    // Socket not ready within timeout - raise socket.timeout
+                    return Err(SslError::Timeout(
+                        "The read operation timed out".to_string(),
+                    ));
                 }
             }
             // else: non-blocking socket (timeout=0) or blocking socket (timeout=None) - skip select

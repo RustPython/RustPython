@@ -19,6 +19,11 @@ pub(crate) mod _signal {
         convert::{IntoPyException, TryFromBorrowedObject},
     };
     use crate::{PyObjectRef, PyResult, VirtualMachine, signal};
+    #[cfg(unix)]
+    use crate::{
+        builtins::PyTypeRef,
+        function::{ArgIntoFloat, OptionalArg},
+    };
     use std::sync::atomic::{self, Ordering};
 
     #[cfg(any(unix, windows))]
@@ -69,6 +74,11 @@ pub(crate) mod _signal {
     #[pyattr]
     pub use libc::{SIG_DFL, SIG_IGN};
 
+    // pthread_sigmask 'how' constants
+    #[cfg(unix)]
+    #[pyattr]
+    use libc::{SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
+
     #[cfg(not(unix))]
     #[pyattr]
     pub const SIG_DFL: sighandler_t = 0;
@@ -82,6 +92,18 @@ pub(crate) mod _signal {
     #[cfg(all(unix, not(target_os = "redox")))]
     unsafe extern "C" {
         fn siginterrupt(sig: i32, flag: i32) -> i32;
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    mod ffi {
+        unsafe extern "C" {
+            pub fn getitimer(which: libc::c_int, curr_value: *mut libc::itimerval) -> libc::c_int;
+            pub fn setitimer(
+                which: libc::c_int,
+                new_value: *const libc::itimerval,
+                old_value: *mut libc::itimerval,
+            ) -> libc::c_int;
+        }
     }
 
     #[pyattr]
@@ -109,12 +131,37 @@ pub(crate) mod _signal {
     #[pyattr]
     use libc::{SIGPWR, SIGSTKFLT};
 
+    // Interval timer constants
+    #[cfg(all(unix, not(target_os = "android")))]
+    #[pyattr]
+    use libc::{ITIMER_PROF, ITIMER_REAL, ITIMER_VIRTUAL};
+
+    #[cfg(target_os = "android")]
+    #[pyattr]
+    const ITIMER_REAL: libc::c_int = 0;
+    #[cfg(target_os = "android")]
+    #[pyattr]
+    const ITIMER_VIRTUAL: libc::c_int = 1;
+    #[cfg(target_os = "android")]
+    #[pyattr]
+    const ITIMER_PROF: libc::c_int = 2;
+
+    #[cfg(unix)]
+    #[pyattr(name = "ItimerError", once)]
+    fn itimer_error(vm: &VirtualMachine) -> PyTypeRef {
+        vm.ctx.new_exception_type(
+            "signal",
+            "ItimerError",
+            Some(vec![vm.ctx.exceptions.os_error.to_owned()]),
+        )
+    }
+
     #[cfg(any(unix, windows))]
     pub(super) fn init_signal_handlers(
         module: &Py<crate::builtins::PyModule>,
         vm: &VirtualMachine,
     ) {
-        if vm.state.settings.install_signal_handlers {
+        if vm.state.config.settings.install_signal_handlers {
             let sig_dfl = vm.new_pyobj(SIG_DFL as u8);
             let sig_ign = vm.new_pyobj(SIG_IGN as u8);
 
@@ -209,6 +256,80 @@ pub(crate) mod _signal {
             sig_alarm::set(time)
         };
         prev_time.unwrap_or(0)
+    }
+
+    #[cfg(unix)]
+    #[pyfunction]
+    fn pause(vm: &VirtualMachine) -> PyResult<()> {
+        unsafe { libc::pause() };
+        signal::check_signals(vm)?;
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn timeval_to_double(tv: &libc::timeval) -> f64 {
+        tv.tv_sec as f64 + (tv.tv_usec as f64 / 1_000_000.0)
+    }
+
+    #[cfg(unix)]
+    fn double_to_timeval(val: f64) -> libc::timeval {
+        libc::timeval {
+            tv_sec: val.trunc() as _,
+            tv_usec: ((val.fract()) * 1_000_000.0) as _,
+        }
+    }
+
+    #[cfg(unix)]
+    fn itimerval_to_tuple(it: &libc::itimerval) -> (f64, f64) {
+        (
+            timeval_to_double(&it.it_value),
+            timeval_to_double(&it.it_interval),
+        )
+    }
+
+    #[cfg(unix)]
+    #[pyfunction]
+    fn setitimer(
+        which: i32,
+        seconds: ArgIntoFloat,
+        interval: OptionalArg<ArgIntoFloat>,
+        vm: &VirtualMachine,
+    ) -> PyResult<(f64, f64)> {
+        let seconds: f64 = seconds.into();
+        let interval: f64 = interval.map(|v| v.into()).unwrap_or(0.0);
+        let new = libc::itimerval {
+            it_value: double_to_timeval(seconds),
+            it_interval: double_to_timeval(interval),
+        };
+        let mut old = std::mem::MaybeUninit::<libc::itimerval>::uninit();
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        let ret = unsafe { ffi::setitimer(which, &new, old.as_mut_ptr()) };
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        let ret = unsafe { libc::setitimer(which, &new, old.as_mut_ptr()) };
+        if ret != 0 {
+            let err = std::io::Error::last_os_error();
+            let itimer_error = itimer_error(vm);
+            return Err(vm.new_exception_msg(itimer_error, err.to_string()));
+        }
+        let old = unsafe { old.assume_init() };
+        Ok(itimerval_to_tuple(&old))
+    }
+
+    #[cfg(unix)]
+    #[pyfunction]
+    fn getitimer(which: i32, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
+        let mut old = std::mem::MaybeUninit::<libc::itimerval>::uninit();
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        let ret = unsafe { ffi::getitimer(which, old.as_mut_ptr()) };
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        let ret = unsafe { libc::getitimer(which, old.as_mut_ptr()) };
+        if ret != 0 {
+            let err = std::io::Error::last_os_error();
+            let itimer_error = itimer_error(vm);
+            return Err(vm.new_exception_msg(itimer_error, err.to_string()));
+        }
+        let old = unsafe { old.assume_init() };
+        Ok(itimerval_to_tuple(&old))
     }
 
     #[pyfunction]
@@ -400,14 +521,17 @@ pub(crate) mod _signal {
         let set = PySet::default().into_ref(&vm.ctx);
         #[cfg(unix)]
         {
-            // On Unix, most signals 1..NSIG are valid
+            // Use sigfillset to get all valid signals
+            let mut mask: libc::sigset_t = unsafe { std::mem::zeroed() };
+            // SAFETY: mask is a valid pointer
+            if unsafe { libc::sigfillset(&mut mask) } != 0 {
+                return Err(vm.new_os_error("sigfillset failed".to_owned()));
+            }
+            // Convert the filled mask to a Python set
             for signum in 1..signal::NSIG {
-                // Skip signals that cannot be caught
-                #[cfg(not(target_os = "wasi"))]
-                if signum == libc::SIGKILL as usize || signum == libc::SIGSTOP as usize {
-                    continue;
+                if unsafe { libc::sigismember(&mask, signum as i32) } == 1 {
+                    set.add(vm.ctx.new_int(signum as i32).into(), vm)?;
                 }
-                set.add(vm.ctx.new_int(signum as i32).into(), vm)?;
             }
         }
         #[cfg(windows)]
@@ -430,6 +554,75 @@ pub(crate) mod _signal {
             let _ = &set;
         }
         Ok(set.into())
+    }
+
+    #[cfg(unix)]
+    fn sigset_to_pyset(mask: &libc::sigset_t, vm: &VirtualMachine) -> PyResult {
+        use crate::PyPayload;
+        use crate::builtins::PySet;
+        let set = PySet::default().into_ref(&vm.ctx);
+        for signum in 1..signal::NSIG {
+            // SAFETY: mask is a valid sigset_t
+            if unsafe { libc::sigismember(mask, signum as i32) } == 1 {
+                set.add(vm.ctx.new_int(signum as i32).into(), vm)?;
+            }
+        }
+        Ok(set.into())
+    }
+
+    #[cfg(unix)]
+    #[pyfunction]
+    fn pthread_sigmask(
+        how: i32,
+        mask: crate::function::ArgIterable,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        use crate::convert::IntoPyException;
+
+        // Initialize sigset
+        let mut sigset: libc::sigset_t = unsafe { std::mem::zeroed() };
+        // SAFETY: sigset is a valid pointer
+        if unsafe { libc::sigemptyset(&mut sigset) } != 0 {
+            return Err(std::io::Error::last_os_error().into_pyexception(vm));
+        }
+
+        // Add signals to the set
+        for sig in mask.iter(vm)? {
+            let sig = sig?;
+            // Convert to i32, handling overflow by returning ValueError
+            let signum: i32 = sig.try_to_value(vm).map_err(|_| {
+                vm.new_value_error(format!(
+                    "signal number out of range [1, {}]",
+                    signal::NSIG - 1
+                ))
+            })?;
+            // Validate signal number is in range [1, NSIG)
+            if signum < 1 || signum >= signal::NSIG as i32 {
+                return Err(vm.new_value_error(format!(
+                    "signal number {} out of range [1, {}]",
+                    signum,
+                    signal::NSIG - 1
+                )));
+            }
+            // SAFETY: sigset is a valid pointer and signum is validated
+            if unsafe { libc::sigaddset(&mut sigset, signum) } != 0 {
+                return Err(std::io::Error::last_os_error().into_pyexception(vm));
+            }
+        }
+
+        // Call pthread_sigmask
+        let mut old_mask: libc::sigset_t = unsafe { std::mem::zeroed() };
+        // SAFETY: all pointers are valid
+        let err = unsafe { libc::pthread_sigmask(how, &sigset, &mut old_mask) };
+        if err != 0 {
+            return Err(std::io::Error::from_raw_os_error(err).into_pyexception(vm));
+        }
+
+        // Check for pending signals
+        signal::check_signals(vm)?;
+
+        // Convert old mask to Python set
+        sigset_to_pyset(&old_mask, vm)
     }
 
     #[cfg(any(unix, windows))]

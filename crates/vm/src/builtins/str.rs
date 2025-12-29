@@ -441,7 +441,7 @@ impl PyStr {
         self.data.as_str()
     }
 
-    fn ensure_valid_utf8(&self, vm: &VirtualMachine) -> PyResult<()> {
+    pub(crate) fn ensure_valid_utf8(&self, vm: &VirtualMachine) -> PyResult<()> {
         if self.is_utf8() {
             Ok(())
         } else {
@@ -529,7 +529,6 @@ impl Py<PyStr> {
 #[pyclass(
     flags(BASETYPE, _MATCH_SELF),
     with(
-        PyRef,
         AsMapping,
         AsNumber,
         AsSequence,
@@ -669,8 +668,19 @@ impl PyStr {
 
     // casefold is much more aggressive than lower
     #[pymethod]
-    fn casefold(&self) -> String {
-        caseless::default_case_fold_str(self.as_str())
+    fn casefold(&self) -> Self {
+        match self.as_str_kind() {
+            PyKindStr::Ascii(s) => caseless::default_case_fold_str(s.as_str()).into(),
+            PyKindStr::Utf8(s) => caseless::default_case_fold_str(s).into(),
+            PyKindStr::Wtf8(w) => w
+                .chunks()
+                .map(|c| match c {
+                    Wtf8Chunk::Utf8(s) => Wtf8Buf::from_string(caseless::default_case_fold_str(s)),
+                    Wtf8Chunk::Surrogate(c) => Wtf8Buf::from(c),
+                })
+                .collect::<Wtf8Buf>()
+                .into(),
+        }
     }
 
     #[pymethod]
@@ -1326,7 +1336,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn isidentifier(&self) -> bool {
+    pub fn isidentifier(&self) -> bool {
         let Some(s) = self.to_str() else { return false };
         let mut chars = s.chars();
         let is_identifier_start = chars.next().is_some_and(|c| c == '_' || is_xid_start(c));
@@ -1448,15 +1458,16 @@ impl PyStr {
     fn __getnewargs__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
         (zelf.as_str(),).to_pyobject(vm)
     }
-}
 
-#[pyclass]
-impl PyRef<PyStr> {
     #[pymethod]
-    fn __str__(self, vm: &VirtualMachine) -> PyRefExact<PyStr> {
-        self.into_exact_or(&vm.ctx, |zelf| {
-            PyStr::from(zelf.data.clone()).into_exact_ref(&vm.ctx)
-        })
+    fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        if zelf.class().is(vm.ctx.types.str_type) {
+            // Already exact str, just return a reference
+            Ok(zelf.to_owned())
+        } else {
+            // Subclass, create a new exact str
+            Ok(PyStr::from(zelf.data.clone()).into_ref(&vm.ctx))
+        }
     }
 }
 

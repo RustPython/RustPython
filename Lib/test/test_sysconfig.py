@@ -447,7 +447,6 @@ class TestSysConfig(unittest.TestCase):
             _main()
         self.assertTrue(len(output.getvalue().split('\n')) > 0)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipIf(sys.platform == "win32", "Does not apply to Windows")
     def test_ldshared_value(self):
         ldflags = sysconfig.get_config_var('LDFLAGS')
@@ -599,7 +598,6 @@ class TestSysConfig(unittest.TestCase):
         self.assertTrue(suffix.endswith(f"-{expected_triplet}.so"),
                         f"{machine=}, {suffix=}")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipUnless(sys.platform == 'darwin', 'OS X-specific test')
     def test_osx_ext_suffix(self):
         suffix = sysconfig.get_config_var('EXT_SUFFIX')

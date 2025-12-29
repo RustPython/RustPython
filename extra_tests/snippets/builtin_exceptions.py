@@ -85,6 +85,13 @@ assert exc.lineno is None
 assert exc.offset is None
 assert exc.text is None
 
+err = SyntaxError("bad bad", ("bad.py", 1, 2, "abcdefg"))
+err.msg = "changed"
+assert err.msg == "changed"
+assert str(err) == "changed (bad.py, line 1)"
+del err.msg
+assert err.msg is None
+
 # Regression to:
 # https://github.com/RustPython/RustPython/issues/2779
 
@@ -359,3 +366,15 @@ for exc in filter(
     vars(builtins).values(),
 ):
     assert isinstance(exc.__doc__, str)
+
+
+# except* handling should normalize non-group exceptions
+try:
+    raise ValueError("x")
+except* ValueError as err:
+    assert isinstance(err, ExceptionGroup)
+    assert len(err.exceptions) == 1
+    assert isinstance(err.exceptions[0], ValueError)
+    assert err.exceptions[0].args == ("x",)
+else:
+    assert False, "except* handler did not run"

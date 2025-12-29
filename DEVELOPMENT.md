@@ -130,7 +130,8 @@ repository's structure:
   - `stdlib`: Standard library parts implemented in rust.
 - `src`: using the other subcrates to bring rustpython to life.
 - `wasm`: Binary crate and resources for WebAssembly build
-- `extra_tests`: extra integration test snippets as a supplement to `Lib/test`
+- `extra_tests`: extra integration test snippets as a supplement to `Lib/test`.
+  Add new RustPython-only regression tests here; do not place new tests under `Lib/test`.
 
 ## Understanding Internals
 

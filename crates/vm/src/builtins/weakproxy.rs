@@ -79,8 +79,8 @@ impl PyWeakProxy {
     }
 
     #[pymethod]
-    fn __str__(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        self.try_upgrade(vm)?.str(vm)
+    fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        zelf.try_upgrade(vm)?.str(vm)
     }
 
     fn len(&self, vm: &VirtualMachine) -> PyResult<usize> {
@@ -104,7 +104,9 @@ impl PyWeakProxy {
     }
     #[pymethod]
     fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.try_upgrade(vm)?.to_sequence().contains(&needle, vm)
+        self.try_upgrade(vm)?
+            .sequence_unchecked()
+            .contains(&needle, vm)
     }
 
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {

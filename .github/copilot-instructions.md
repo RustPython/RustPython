@@ -73,6 +73,14 @@ The `Lib/` directory contains Python standard library files copied from the CPyt
   - `unittest.skip("TODO: RustPython <reason>")`
   - `unittest.expectedFailure` with `# TODO: RUSTPYTHON <reason>` comment
 
+### Clean Build
+
+When you modify bytecode instructions, a full clean is required:
+
+```bash
+rm -r target/debug/build/rustpython-* && find . | grep -E "\.pyc$" | xargs rm -r
+```
+
 ### Testing
 
 ```bash

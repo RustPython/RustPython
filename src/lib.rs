@@ -169,16 +169,9 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
 
     let scope = setup_main_module(vm)?;
 
-    if !vm.state.settings.safe_path {
-        // TODO: The prepending path depends on running mode
-        // See https://docs.python.org/3/using/cmdline.html#cmdoption-P
-        vm.run_code_string(
-            vm.new_scope_with_builtins(),
-            "import sys; sys.path.insert(0, '')",
-            "<embedded>".to_owned(),
-        )?;
-    }
-
+    // Import site first, before setting sys.path[0]
+    // This matches CPython's behavior where site.removeduppaths() runs
+    // before sys.path[0] is set, preventing '' from being converted to cwd
     let site_result = vm.import("site", 0);
     if site_result.is_err() {
         warn!(
@@ -187,9 +180,25 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
         );
     }
 
+    // _PyPathConfig_ComputeSysPath0 - set sys.path[0] after site import
+    if !vm.state.config.settings.safe_path {
+        let path0: Option<String> = match &run_mode {
+            RunMode::Command(_) => Some(String::new()),
+            RunMode::Module(_) => env::current_dir()
+                .ok()
+                .and_then(|p| p.to_str().map(|s| s.to_owned())),
+            RunMode::Script(_) | RunMode::InstallPip(_) => None, // handled by run_script
+            RunMode::Repl => Some(String::new()),
+        };
+
+        if let Some(path) = path0 {
+            vm.insert_sys_path(vm.new_pyobj(path))?;
+        }
+    }
+
     // Enable faulthandler if -X faulthandler, PYTHONFAULTHANDLER or -X dev is set
     // _PyFaulthandler_Init()
-    if vm.state.settings.faulthandler {
+    if vm.state.config.settings.faulthandler {
         let _ = vm.run_code_string(
             vm.new_scope_with_builtins(),
             "import faulthandler; faulthandler.enable()",
@@ -198,13 +207,8 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     }
 
     let is_repl = matches!(run_mode, RunMode::Repl);
-    if vm.state.settings.resume_path.is_some() && !matches!(run_mode, RunMode::Script(_)) {
-        return Err(vm.new_runtime_error(
-            "--resume can only be used with script execution".to_owned(),
-        ));
-    }
-    if !vm.state.settings.quiet
-        && (vm.state.settings.verbose > 0 || (is_repl && std::io::stdin().is_terminal()))
+    if !vm.state.config.settings.quiet
+        && (vm.state.config.settings.verbose > 0 || (is_repl && std::io::stdin().is_terminal()))
     {
         eprintln!(
             "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
@@ -241,7 +245,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
         }
         RunMode::Repl => Ok(()),
     };
-    if is_repl || vm.state.settings.inspect {
+    if is_repl || vm.state.config.settings.inspect {
         shell::run_shell(vm, scope)?;
     } else {
         res?;
@@ -250,7 +254,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     #[cfg(feature = "flame-it")]
     {
         main_guard.end();
-        if let Err(e) = write_profile(&vm.state.as_ref().settings) {
+        if let Err(e) = write_profile(&vm.state.as_ref().config.settings) {
             error!("Error writing profile information: {}", e);
         }
     }

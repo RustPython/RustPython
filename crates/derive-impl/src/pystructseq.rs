@@ -22,6 +22,8 @@ enum FieldKind {
 struct ParsedField {
     ident: Ident,
     kind: FieldKind,
+    /// Optional cfg attributes for conditional compilation
+    cfg_attrs: Vec<syn::Attribute>,
 }
 
 /// Parsed field info from struct
@@ -31,27 +33,24 @@ struct FieldInfo {
 }
 
 impl FieldInfo {
-    fn named_fields(&self) -> Vec<Ident> {
+    fn named_fields(&self) -> Vec<&ParsedField> {
         self.fields
             .iter()
             .filter(|f| f.kind == FieldKind::Named)
-            .map(|f| f.ident.clone())
             .collect()
     }
 
-    fn visible_fields(&self) -> Vec<Ident> {
+    fn visible_fields(&self) -> Vec<&ParsedField> {
         self.fields
             .iter()
             .filter(|f| f.kind != FieldKind::Skipped)
-            .map(|f| f.ident.clone())
             .collect()
     }
 
-    fn skipped_fields(&self) -> Vec<Ident> {
+    fn skipped_fields(&self) -> Vec<&ParsedField> {
         self.fields
             .iter()
             .filter(|f| f.kind == FieldKind::Skipped)
-            .map(|f| f.ident.clone())
             .collect()
     }
 
@@ -82,8 +81,15 @@ fn parse_fields(input: &mut DeriveInput) -> Result<FieldInfo> {
         let mut skip = false;
         let mut unnamed = false;
         let mut attrs_to_remove = Vec::new();
+        let mut cfg_attrs = Vec::new();
 
         for (i, attr) in field.attrs.iter().enumerate() {
+            // Collect cfg attributes for conditional compilation
+            if attr.path().is_ident("cfg") {
+                cfg_attrs.push(attr.clone());
+                continue;
+            }
+
             if !attr.path().is_ident("pystruct_sequence") {
                 continue;
             }
@@ -135,7 +141,11 @@ fn parse_fields(input: &mut DeriveInput) -> Result<FieldInfo> {
             FieldKind::Named
         };
 
-        parsed_fields.push(ParsedField { ident, kind });
+        parsed_fields.push(ParsedField {
+            ident,
+            kind,
+            cfg_attrs,
+        });
     }
 
     Ok(FieldInfo {
@@ -194,14 +204,87 @@ pub(crate) fn impl_pystruct_sequence_data(
     let skipped_fields = field_info.skipped_fields();
     let n_unnamed_fields = field_info.n_unnamed_fields();
 
-    // Generate field index constants for visible fields
+    // Generate field index constants for visible fields (with cfg guards)
     let field_indices: Vec<_> = visible_fields
         .iter()
         .enumerate()
         .map(|(i, field)| {
-            let const_name = format_ident!("{}_INDEX", field.to_string().to_uppercase());
+            let const_name = format_ident!("{}_INDEX", field.ident.to_string().to_uppercase());
+            let cfg_attrs = &field.cfg_attrs;
             quote! {
+                #(#cfg_attrs)*
                 pub const #const_name: usize = #i;
+            }
+        })
+        .collect();
+
+    // Generate field name entries with cfg guards for named fields
+    let named_field_names: Vec<_> = named_fields
+        .iter()
+        .map(|f| {
+            let ident = &f.ident;
+            let cfg_attrs = &f.cfg_attrs;
+            if cfg_attrs.is_empty() {
+                quote! { stringify!(#ident), }
+            } else {
+                quote! {
+                    #(#cfg_attrs)*
+                    { stringify!(#ident) },
+                }
+            }
+        })
+        .collect();
+
+    // Generate field name entries with cfg guards for skipped fields
+    let skipped_field_names: Vec<_> = skipped_fields
+        .iter()
+        .map(|f| {
+            let ident = &f.ident;
+            let cfg_attrs = &f.cfg_attrs;
+            if cfg_attrs.is_empty() {
+                quote! { stringify!(#ident), }
+            } else {
+                quote! {
+                    #(#cfg_attrs)*
+                    { stringify!(#ident) },
+                }
+            }
+        })
+        .collect();
+
+    // Generate into_tuple items with cfg guards
+    let visible_tuple_items: Vec<_> = visible_fields
+        .iter()
+        .map(|f| {
+            let ident = &f.ident;
+            let cfg_attrs = &f.cfg_attrs;
+            if cfg_attrs.is_empty() {
+                quote! {
+                    ::rustpython_vm::convert::ToPyObject::to_pyobject(self.#ident, vm),
+                }
+            } else {
+                quote! {
+                    #(#cfg_attrs)*
+                    { ::rustpython_vm::convert::ToPyObject::to_pyobject(self.#ident, vm) },
+                }
+            }
+        })
+        .collect();
+
+    let skipped_tuple_items: Vec<_> = skipped_fields
+        .iter()
+        .map(|f| {
+            let ident = &f.ident;
+            let cfg_attrs = &f.cfg_attrs;
+            if cfg_attrs.is_empty() {
+                quote! {
+                    ::rustpython_vm::convert::ToPyObject::to_pyobject(self.#ident, vm),
+                }
+            } else {
+                quote! {
+                    #(#cfg_attrs)*
+                    { ::rustpython_vm::convert::ToPyObject::to_pyobject(self.#ident, vm) },
+                }
             }
         })
         .collect();
@@ -233,6 +316,44 @@ pub(crate) fn impl_pystruct_sequence_data(
 
     // Generate try_from_elements trait override only when try_from_object=true
     let try_from_elements_trait_override = if try_from_object {
+        let visible_field_inits: Vec<_> = visible_fields
+            .iter()
+            .map(|f| {
+                let ident = &f.ident;
+                let cfg_attrs = &f.cfg_attrs;
+                if cfg_attrs.is_empty() {
+                    quote! { #ident: iter.next().unwrap().clone().try_into_value(vm)?, }
+                } else {
+                    quote! {
+                        #(#cfg_attrs)*
+                        #ident: iter.next().unwrap().clone().try_into_value(vm)?,
+                    }
+                }
+            })
+            .collect();
+        let skipped_field_inits: Vec<_> = skipped_fields
+            .iter()
+            .map(|f| {
+                let ident = &f.ident;
+                let cfg_attrs = &f.cfg_attrs;
+                if cfg_attrs.is_empty() {
+                    quote! {
+                        #ident: match iter.next() {
+                            Some(v) => v.clone().try_into_value(vm)?,
+                            None => vm.ctx.none(),
+                        },
+                    }
+                } else {
+                    quote! {
+                        #(#cfg_attrs)*
+                        #ident: match iter.next() {
+                            Some(v) => v.clone().try_into_value(vm)?,
+                            None => vm.ctx.none(),
+                        },
+                    }
+                }
+            })
+            .collect();
         quote! {
             fn try_from_elements(
                 elements: Vec<::rustpython_vm::PyObjectRef>,
@@ -240,11 +361,8 @@ pub(crate) fn impl_pystruct_sequence_data(
             ) -> ::rustpython_vm::PyResult<Self> {
                 let mut iter = elements.into_iter();
                 Ok(Self {
-                    #(#visible_fields: iter.next().unwrap().clone().try_into_value(vm)?,)*
-                    #(#skipped_fields: match iter.next() {
-                        Some(v) => v.clone().try_into_value(vm)?,
-                        None => vm.ctx.none(),
-                    },)*
+                    #(#visible_field_inits)*
+                    #(#skipped_field_inits)*
                 })
             }
         }
@@ -259,20 +377,14 @@ pub(crate) fn impl_pystruct_sequence_data(
 
         // PyStructSequenceData trait impl
         impl ::rustpython_vm::types::PyStructSequenceData for #data_ident {
-            const REQUIRED_FIELD_NAMES: &'static [&'static str] = &[#(stringify!(#named_fields),)*];
-            const OPTIONAL_FIELD_NAMES: &'static [&'static str] = &[#(stringify!(#skipped_fields),)*];
+            const REQUIRED_FIELD_NAMES: &'static [&'static str] = &[#(#named_field_names)*];
+            const OPTIONAL_FIELD_NAMES: &'static [&'static str] = &[#(#skipped_field_names)*];
             const UNNAMED_FIELDS_LEN: usize = #n_unnamed_fields;
 
             fn into_tuple(self, vm: &::rustpython_vm::VirtualMachine) -> ::rustpython_vm::builtins::PyTuple {
                 let items = vec![
-                    #(::rustpython_vm::convert::ToPyObject::to_pyobject(
-                        self.#visible_fields,
-                        vm,
-                    ),)*
-                    #(::rustpython_vm::convert::ToPyObject::to_pyobject(
-                        self.#skipped_fields,
-                        vm,
-                    ),)*
+                    #(#visible_tuple_items)*
+                    #(#skipped_tuple_items)*
                 ];
                 ::rustpython_vm::builtins::PyTuple::new_unchecked(items.into_boxed_slice())
             }

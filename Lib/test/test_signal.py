@@ -24,8 +24,6 @@ except ImportError:
 
 class GenericTests(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_enums(self):
         for name in dir(signal):
             sig = getattr(signal, name)
@@ -129,8 +127,6 @@ class PosixTests(unittest.TestCase):
         self.assertIn("Terminated", signal.strsignal(signal.SIGTERM))
         self.assertIn("Hangup", signal.strsignal(signal.SIGHUP))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # Issue 3864, unknown if this affects earlier versions of freebsd also
     def test_interprocess_signal(self):
         dirname = os.path.dirname(__file__)
@@ -763,8 +759,6 @@ class SiginterruptTest(unittest.TestCase):
                                     % (exitcode, stdout))
                 return (exitcode == 3)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_without_siginterrupt(self):
         # If a signal handler is installed and siginterrupt is not called
         # at all, when that signal arrives, it interrupts a syscall that's in
@@ -772,8 +766,6 @@ class SiginterruptTest(unittest.TestCase):
         interrupted = self.readpipe_interrupted(None)
         self.assertTrue(interrupted)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_siginterrupt_on(self):
         # If a signal handler is installed and siginterrupt is called with
         # a true value for the second argument, when that signal arrives, it
@@ -826,8 +818,6 @@ class ItimerTest(unittest.TestCase):
         self.hndl_called = True
         signal.setitimer(signal.ITIMER_PROF, 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_itimer_exc(self):
         # XXX I'm assuming -1 is an invalid itimer, but maybe some platform
         # defines it ?
@@ -837,16 +827,12 @@ class ItimerTest(unittest.TestCase):
             self.assertRaises(signal.ItimerError,
                               signal.setitimer, signal.ITIMER_REAL, -1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_itimer_real(self):
         self.itimer = signal.ITIMER_REAL
         signal.setitimer(self.itimer, 1.0)
         signal.pause()
         self.assertEqual(self.hndl_called, True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # Issue 3864, unknown if this affects earlier versions of freebsd also
     @unittest.skipIf(sys.platform in ('netbsd5',),
         'itimer not reliable (does not mix well with threading) on some BSDs.')
@@ -867,8 +853,6 @@ class ItimerTest(unittest.TestCase):
         # and the handler should have been called
         self.assertEqual(self.hndl_called, True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_itimer_prof(self):
         self.itimer = signal.ITIMER_PROF
         signal.signal(signal.SIGPROF, self.sig_prof)
@@ -886,8 +870,6 @@ class ItimerTest(unittest.TestCase):
         # and the handler should have been called
         self.assertEqual(self.hndl_called, True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setitimer_tiny(self):
         # bpo-30807: C setitimer() takes a microsecond-resolution interval.
         # Check that float -> timeval conversion doesn't round

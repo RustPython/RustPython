@@ -1,15 +1,31 @@
 use super::StgInfo;
 use super::base::{CDATA_BUFFER_METHODS, PyCData};
+use super::type_info;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     atomic_func,
-    builtins::{PyBytes, PyInt, PyList, PySlice, PyStr, PyType, PyTypeRef},
+    builtins::{
+        PyBytes, PyInt, PyList, PySlice, PyStr, PyType, PyTypeRef, genericalias::PyGenericAlias,
+    },
     class::StaticType,
     function::{ArgBytesLike, FuncArgs, PySetterValue},
     protocol::{BufferDescriptor, PyBuffer, PyNumberMethods, PySequenceMethods},
     types::{AsBuffer, AsNumber, AsSequence, Constructor, Initializer},
 };
 use num_traits::{Signed, ToPrimitive};
+
+/// Get itemsize from a PEP 3118 format string
+/// Extracts the type code (last char after endianness prefix) and returns its size
+fn get_size_from_format(fmt: &str) -> usize {
+    // Format is like "<f", ">q", etc. - strip endianness prefix and get type code
+    let code = fmt
+        .trim_start_matches(['<', '>', '@', '=', '!', '&'])
+        .chars()
+        .next()
+        .map(|c| c.to_string());
+    code.map(|c| type_info(&c).map(|t| t.size).unwrap_or(1))
+        .unwrap_or(1)
+}
 
 /// Creates array type for (element_type, length)
 /// Uses _array_type_cache to ensure identical calls return the same type object
@@ -444,6 +460,11 @@ impl AsSequence for PyCArray {
     with(Constructor, AsSequence, AsBuffer)
 )]
 impl PyCArray {
+    #[pyclassmethod]
+    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+        PyGenericAlias::from_args(cls, args, vm)
+    }
+
     fn int_to_bytes(i: &malachite_bigint::BigInt, size: usize) -> Vec<u8> {
         // Try unsigned first (handles values like 0xFFFFFFFF that overflow signed)
         // then fall back to signed (handles negative values)
@@ -1037,14 +1058,6 @@ impl PyCArray {
     }
 }
 
-impl PyCArray {
-    #[allow(unused)]
-    pub fn to_arg(&self, _vm: &VirtualMachine) -> PyResult<libffi::middle::Arg> {
-        let buffer = self.0.buffer.read();
-        Ok(libffi::middle::Arg::new(&*buffer))
-    }
-}
-
 impl AsBuffer for PyCArray {
     fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let buffer_len = zelf.0.buffer.read().len();
@@ -1056,19 +1069,30 @@ impl AsBuffer for PyCArray {
             .expect("PyCArray type must have StgInfo");
         let format = stg_info.format.clone();
         let shape = stg_info.shape.clone();
-        let element_size = stg_info.element_size;
 
         let desc = if let Some(fmt) = format
             && !shape.is_empty()
         {
+            // itemsize is the size of the base element type (item_info->size)
+            // For empty arrays, we still need the element size, not 0
+            let total_elements: usize = shape.iter().product();
+            let has_zero_dim = shape.contains(&0);
+            let itemsize = if total_elements > 0 && buffer_len > 0 {
+                buffer_len / total_elements
+            } else {
+                // For empty arrays, get itemsize from format type code
+                get_size_from_format(&fmt)
+            };
+
             // Build dim_desc from shape (C-contiguous: row-major order)
             // stride[i] = product(shape[i+1:]) * itemsize
+            // For empty arrays (any dimension is 0), all strides are 0
             let mut dim_desc = Vec::with_capacity(shape.len());
-            let mut stride = element_size as isize;
+            let mut stride = itemsize as isize;
 
-            // Calculate strides from innermost to outermost dimension
             for &dim_size in shape.iter().rev() {
-                dim_desc.push((dim_size, stride, 0));
+                let current_stride = if has_zero_dim { 0 } else { stride };
+                dim_desc.push((dim_size, current_stride, 0));
                 stride *= dim_size as isize;
             }
             dim_desc.reverse();
@@ -1076,7 +1100,7 @@ impl AsBuffer for PyCArray {
             BufferDescriptor {
                 len: buffer_len,
                 readonly: false,
-                itemsize: element_size,
+                itemsize,
                 format: std::borrow::Cow::Owned(fmt),
                 dim_desc,
             }

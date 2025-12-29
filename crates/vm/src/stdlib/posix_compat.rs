@@ -14,14 +14,22 @@ pub(crate) mod module {
     use crate::{
         PyObjectRef, PyResult, VirtualMachine,
         builtins::PyStrRef,
+        convert::IntoPyException,
         ospath::OsPath,
         stdlib::os::{_os, DirFd, SupportFunc, TargetIsDirectory},
     };
-    use std::env;
+    use std::{env, fs};
 
     #[pyfunction]
     pub(super) fn access(_path: PyStrRef, _mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
         os_unimpl("os.access", vm)
+    }
+
+    #[pyfunction]
+    #[pyfunction(name = "unlink")]
+    fn remove(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult<()> {
+        let [] = dir_fd.0;
+        fs::remove_file(&path).map_err(|err| err.into_pyexception(vm))
     }
 
     #[derive(FromArgs)]

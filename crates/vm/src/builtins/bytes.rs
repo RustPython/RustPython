@@ -187,6 +187,7 @@ impl PyRef<PyBytes> {
 }
 
 #[pyclass(
+    itemsize = 1,
     flags(BASETYPE, _MATCH_SELF),
     with(
         Py,

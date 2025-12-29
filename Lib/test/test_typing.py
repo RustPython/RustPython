@@ -10496,7 +10496,6 @@ class DataclassTransformTests(BaseTestCase):
 
 
 class NoDefaultTests(BaseTestCase):
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             s = pickle.dumps(NoDefault, proto)

@@ -64,6 +64,10 @@ mod _socket {
             WSAEWOULDBLOCK,
         };
         pub use windows_sys::Win32::Networking::WinSock::{
+            INVALID_SOCKET, SOCKET_ERROR, WSA_FLAG_OVERLAPPED, WSADuplicateSocketW,
+            WSAGetLastError, WSAIoctl, WSAPROTOCOL_INFOW, WSASocketW,
+        };
+        pub use windows_sys::Win32::Networking::WinSock::{
             SO_REUSEADDR as SO_EXCLUSIVEADDRUSE, getprotobyname, getservbyname, getservbyport,
             getsockopt, setsockopt,
         };
@@ -82,6 +86,7 @@ mod _socket {
         pub const AI_PASSIVE: i32 = windows_sys::Win32::Networking::WinSock::AI_PASSIVE as _;
         pub const AI_NUMERICHOST: i32 =
             windows_sys::Win32::Networking::WinSock::AI_NUMERICHOST as _;
+        pub const FROM_PROTOCOL_INFO: i32 = -1;
     }
     // constants
     #[pyattr(name = "has_ipv6")]
@@ -138,6 +143,82 @@ mod _socket {
         SOL_CAN_RAW,
     };
 
+    // CAN BCM opcodes
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_TX_SETUP: i32 = 1;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_TX_DELETE: i32 = 2;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_TX_READ: i32 = 3;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_TX_SEND: i32 = 4;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_SETUP: i32 = 5;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_DELETE: i32 = 6;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_READ: i32 = 7;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_TX_STATUS: i32 = 8;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_TX_EXPIRED: i32 = 9;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_STATUS: i32 = 10;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_TIMEOUT: i32 = 11;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_CHANGED: i32 = 12;
+
+    // CAN BCM flags (linux/can/bcm.h)
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_SETTIMER: i32 = 0x0001;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_STARTTIMER: i32 = 0x0002;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_TX_COUNTEVT: i32 = 0x0004;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_TX_ANNOUNCE: i32 = 0x0008;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_TX_CP_CAN_ID: i32 = 0x0010;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_FILTER_ID: i32 = 0x0020;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_CHECK_DLC: i32 = 0x0040;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_NO_AUTOTIMER: i32 = 0x0080;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_ANNOUNCE_RESUME: i32 = 0x0100;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_TX_RESET_MULTI_IDX: i32 = 0x0200;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_RX_RTR_FRAME: i32 = 0x0400;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const CAN_BCM_CAN_FD_FRAME: i32 = 0x0800;
+
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     #[pyattr]
     use c::SOL_RDS;
@@ -149,6 +230,48 @@ mod _socket {
     #[cfg(target_vendor = "apple")]
     #[pyattr]
     use c::{AF_SYSTEM, PF_SYSTEM, SYSPROTO_CONTROL, TCP_KEEPALIVE};
+
+    // RFC3542 IPv6 socket options for macOS (netinet6/in6.h)
+    // Not available in libc, define manually
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_RECVHOPLIMIT: i32 = 37;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_RECVRTHDR: i32 = 38;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_RECVHOPOPTS: i32 = 39;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_RECVDSTOPTS: i32 = 40;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_USE_MIN_MTU: i32 = 42;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_RECVPATHMTU: i32 = 43;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_PATHMTU: i32 = 44;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_NEXTHOP: i32 = 48;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_HOPOPTS: i32 = 49;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_DSTOPTS: i32 = 50;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_RTHDR: i32 = 51;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_RTHDRDSTOPTS: i32 = 57;
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    const IPV6_RTHDR_TYPE_0: i32 = 0;
 
     #[cfg(windows)]
     #[pyattr]
@@ -415,6 +538,7 @@ mod _socket {
         target_os = "dragonfly",
         target_os = "freebsd",
         target_os = "linux",
+        target_vendor = "apple",
         windows
     ))]
     #[pyattr]
@@ -783,6 +907,21 @@ mod _socket {
             .map(|sock| sock as RawSocket)
     }
 
+    #[cfg(target_os = "linux")]
+    #[derive(FromArgs)]
+    struct SendmsgAfalgArgs {
+        #[pyarg(any, default)]
+        msg: Vec<ArgBytesLike>,
+        #[pyarg(named)]
+        op: u32,
+        #[pyarg(named, default)]
+        iv: Option<ArgBytesLike>,
+        #[pyarg(named, default)]
+        assoclen: OptionalArg<isize>,
+        #[pyarg(named, default)]
+        flags: i32,
+    }
+
     #[pyattr(name = "socket")]
     #[pyattr(name = "SocketType")]
     #[pyclass(name = "socket")]
@@ -849,10 +988,64 @@ mod _socket {
             sock: Socket,
         ) -> io::Result<()> {
             self.family.store(family);
-            self.kind.store(socket_kind);
+            // Mask out SOCK_NONBLOCK and SOCK_CLOEXEC flags from stored type
+            // to ensure consistent cross-platform behavior
+            #[cfg(any(
+                target_os = "android",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "fuchsia",
+                target_os = "illumos",
+                target_os = "linux",
+                target_os = "netbsd",
+                target_os = "openbsd",
+                target_os = "redox"
+            ))]
+            let masked_kind = socket_kind & !(c::SOCK_NONBLOCK | c::SOCK_CLOEXEC);
+            #[cfg(not(any(
+                target_os = "android",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "fuchsia",
+                target_os = "illumos",
+                target_os = "linux",
+                target_os = "netbsd",
+                target_os = "openbsd",
+                target_os = "redox"
+            )))]
+            let masked_kind = socket_kind;
+            self.kind.store(masked_kind);
             self.proto.store(proto);
             let mut s = self.sock.write();
             let sock = s.insert(sock);
+            // If SOCK_NONBLOCK is set, use timeout 0 (non-blocking)
+            #[cfg(any(
+                target_os = "android",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "fuchsia",
+                target_os = "illumos",
+                target_os = "linux",
+                target_os = "netbsd",
+                target_os = "openbsd",
+                target_os = "redox"
+            ))]
+            let timeout = if socket_kind & c::SOCK_NONBLOCK != 0 {
+                0.0
+            } else {
+                DEFAULT_TIMEOUT.load()
+            };
+            #[cfg(not(any(
+                target_os = "android",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "fuchsia",
+                target_os = "illumos",
+                target_os = "linux",
+                target_os = "netbsd",
+                target_os = "openbsd",
+                target_os = "redox"
+            )))]
             let timeout = DEFAULT_TIMEOUT.load();
             self.timeout.store(timeout);
             if timeout >= 0.0 {
@@ -996,6 +1189,129 @@ mod _socket {
                     }
                     Ok(addr6.into())
                 }
+                #[cfg(target_os = "linux")]
+                c::AF_CAN => {
+                    let tuple: PyTupleRef = addr.downcast().map_err(|obj| {
+                        vm.new_type_error(format!(
+                            "{}(): AF_CAN address must be tuple, not {}",
+                            caller,
+                            obj.class().name()
+                        ))
+                    })?;
+                    if tuple.is_empty() || tuple.len() > 2 {
+                        return Err(vm
+                            .new_type_error(
+                                "AF_CAN address must be a tuple (interface,) or (interface, addr)",
+                            )
+                            .into());
+                    }
+                    let interface: PyStrRef = tuple[0].clone().downcast().map_err(|obj| {
+                        vm.new_type_error(format!(
+                            "{}(): AF_CAN interface must be str, not {}",
+                            caller,
+                            obj.class().name()
+                        ))
+                    })?;
+                    let ifname = interface.as_str();
+
+                    // Get interface index
+                    let ifindex = if ifname.is_empty() {
+                        0 // Bind to all CAN interfaces
+                    } else {
+                        // Check interface name length (IFNAMSIZ is typically 16)
+                        if ifname.len() >= 16 {
+                            return Err(vm
+                                .new_os_error("interface name too long".to_owned())
+                                .into());
+                        }
+                        let cstr = std::ffi::CString::new(ifname)
+                            .map_err(|_| vm.new_os_error("invalid interface name".to_owned()))?;
+                        let idx = unsafe { libc::if_nametoindex(cstr.as_ptr()) };
+                        if idx == 0 {
+                            return Err(io::Error::last_os_error().into());
+                        }
+                        idx as i32
+                    };
+
+                    // Create sockaddr_can
+                    let mut storage: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
+                    let can_addr =
+                        &mut storage as *mut libc::sockaddr_storage as *mut libc::sockaddr_can;
+                    unsafe {
+                        (*can_addr).can_family = libc::AF_CAN as libc::sa_family_t;
+                        (*can_addr).can_ifindex = ifindex;
+                    }
+                    let storage: socket2::SockAddrStorage = unsafe { std::mem::transmute(storage) };
+                    Ok(unsafe {
+                        socket2::SockAddr::new(
+                            storage,
+                            std::mem::size_of::<libc::sockaddr_can>() as libc::socklen_t,
+                        )
+                    })
+                }
+                #[cfg(target_os = "linux")]
+                c::AF_ALG => {
+                    let tuple: PyTupleRef = addr.downcast().map_err(|obj| {
+                        vm.new_type_error(format!(
+                            "{}(): AF_ALG address must be tuple, not {}",
+                            caller,
+                            obj.class().name()
+                        ))
+                    })?;
+                    if tuple.len() != 2 {
+                        return Err(vm
+                            .new_type_error("AF_ALG address must be a tuple (type, name)")
+                            .into());
+                    }
+                    let alg_type: PyStrRef = tuple[0].clone().downcast().map_err(|obj| {
+                        vm.new_type_error(format!(
+                            "{}(): AF_ALG type must be str, not {}",
+                            caller,
+                            obj.class().name()
+                        ))
+                    })?;
+                    let alg_name: PyStrRef = tuple[1].clone().downcast().map_err(|obj| {
+                        vm.new_type_error(format!(
+                            "{}(): AF_ALG name must be str, not {}",
+                            caller,
+                            obj.class().name()
+                        ))
+                    })?;
+
+                    let type_str = alg_type.as_str();
+                    let name_str = alg_name.as_str();
+
+                    // salg_type is 14 bytes, salg_name is 64 bytes
+                    if type_str.len() >= 14 {
+                        return Err(vm.new_value_error("type too long".to_owned()).into());
+                    }
+                    if name_str.len() >= 64 {
+                        return Err(vm.new_value_error("name too long".to_owned()).into());
+                    }
+
+                    // Create sockaddr_alg
+                    let mut storage: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
+                    let alg_addr =
+                        &mut storage as *mut libc::sockaddr_storage as *mut libc::sockaddr_alg;
+                    unsafe {
+                        (*alg_addr).salg_family = libc::AF_ALG as libc::sa_family_t;
+                        // Copy type string
+                        for (i, b) in type_str.bytes().enumerate() {
+                            (*alg_addr).salg_type[i] = b;
+                        }
+                        // Copy name string
+                        for (i, b) in name_str.bytes().enumerate() {
+                            (*alg_addr).salg_name[i] = b;
+                        }
+                    }
+                    let storage: socket2::SockAddrStorage = unsafe { std::mem::transmute(storage) };
+                    Ok(unsafe {
+                        socket2::SockAddr::new(
+                            storage,
+                            std::mem::size_of::<libc::sockaddr_alg>() as libc::socklen_t,
+                        )
+                    })
+                }
                 _ => Err(vm.new_os_error(format!("{caller}(): bad family")).into()),
             }
         }
@@ -1083,11 +1399,90 @@ mod _socket {
             let mut family = family.unwrap_or(-1);
             let mut socket_kind = socket_kind.unwrap_or(-1);
             let mut proto = proto.unwrap_or(-1);
+
+            let sock;
+
+            // On Windows, fileno can be bytes from socket.share() for fromshare()
+            #[cfg(windows)]
+            if let Some(fileno_obj) = fileno.flatten() {
+                use crate::vm::builtins::PyBytes;
+                if let Ok(bytes) = fileno_obj.clone().downcast::<PyBytes>() {
+                    let bytes_data = bytes.as_bytes();
+                    let expected_size = std::mem::size_of::<c::WSAPROTOCOL_INFOW>();
+
+                    if bytes_data.len() != expected_size {
+                        return Err(vm
+                            .new_value_error(format!(
+                                "socket descriptor string has wrong size, should be {} bytes",
+                                expected_size
+                            ))
+                            .into());
+                    }
+
+                    let mut info: c::WSAPROTOCOL_INFOW = unsafe { std::mem::zeroed() };
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            bytes_data.as_ptr(),
+                            &mut info as *mut c::WSAPROTOCOL_INFOW as *mut u8,
+                            expected_size,
+                        );
+                    }
+
+                    let fd = unsafe {
+                        c::WSASocketW(
+                            c::FROM_PROTOCOL_INFO,
+                            c::FROM_PROTOCOL_INFO,
+                            c::FROM_PROTOCOL_INFO,
+                            &info,
+                            0,
+                            c::WSA_FLAG_OVERLAPPED,
+                        )
+                    };
+
+                    if fd == c::INVALID_SOCKET {
+                        return Err(Self::wsa_error().into());
+                    }
+
+                    crate::vm::stdlib::nt::raw_set_handle_inheritable(fd as _, false)?;
+
+                    family = info.iAddressFamily;
+                    socket_kind = info.iSocketType;
+                    proto = info.iProtocol;
+
+                    sock = unsafe { sock_from_raw_unchecked(fd as RawSocket) };
+                    return Ok(zelf.init_inner(family, socket_kind, proto, sock)?);
+                }
+
+                // Not bytes, treat as regular fileno
+                let fileno = get_raw_sock(fileno_obj, vm)?;
+                sock = sock_from_raw(fileno, vm)?;
+                match sock.local_addr() {
+                    Ok(addr) if family == -1 => family = addr.family() as i32,
+                    Err(e)
+                        if family == -1
+                            || matches!(
+                                e.raw_os_error(),
+                                Some(errcode!(ENOTSOCK)) | Some(errcode!(EBADF))
+                            ) =>
+                    {
+                        std::mem::forget(sock);
+                        return Err(e.into());
+                    }
+                    _ => {}
+                }
+                if socket_kind == -1 {
+                    socket_kind = sock.r#type().map_err(|e| e.into_pyexception(vm))?.into();
+                }
+                proto = 0;
+                return Ok(zelf.init_inner(family, socket_kind, proto, sock)?);
+            }
+
+            #[cfg(not(windows))]
             let fileno = fileno
                 .flatten()
                 .map(|obj| get_raw_sock(obj, vm))
                 .transpose()?;
-            let sock;
+            #[cfg(not(windows))]
             if let Some(fileno) = fileno {
                 sock = sock_from_raw(fileno, vm)?;
                 match sock.local_addr() {
@@ -1121,7 +1516,11 @@ mod _socket {
                         proto = 0;
                     }
                 }
-            } else {
+                return Ok(zelf.init_inner(family, socket_kind, proto, sock)?);
+            }
+
+            // No fileno provided, create new socket
+            {
                 if family == -1 {
                     family = c::AF_INET as _
                 }
@@ -1403,6 +1802,248 @@ mod _socket {
             .map_err(|e| e.into_pyexception(vm))
         }
 
+        /// sendmsg_afalg([msg], *, op[, iv[, assoclen[, flags]]]) -> int
+        ///
+        /// Set operation mode and target IV for an AF_ALG socket.
+        #[cfg(target_os = "linux")]
+        #[pymethod]
+        fn sendmsg_afalg(&self, args: SendmsgAfalgArgs, vm: &VirtualMachine) -> PyResult<usize> {
+            let msg = args.msg;
+            let op = args.op;
+            let iv = args.iv;
+            let flags = args.flags;
+
+            // Validate assoclen - must be non-negative if provided
+            let assoclen: Option<u32> = match args.assoclen {
+                OptionalArg::Present(val) if val < 0 => {
+                    return Err(vm.new_type_error("assoclen must be non-negative".to_owned()));
+                }
+                OptionalArg::Present(val) => Some(val as u32),
+                OptionalArg::Missing => None,
+            };
+
+            // Build control messages for AF_ALG
+            let mut control_buf = Vec::new();
+
+            // Add ALG_SET_OP control message
+            {
+                let op_bytes = op.to_ne_bytes();
+                let space = unsafe { libc::CMSG_SPACE(std::mem::size_of::<u32>() as u32) } as usize;
+                let old_len = control_buf.len();
+                control_buf.resize(old_len + space, 0u8);
+
+                let cmsg = control_buf[old_len..].as_mut_ptr() as *mut libc::cmsghdr;
+                unsafe {
+                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<u32>() as u32) as _;
+                    (*cmsg).cmsg_level = libc::SOL_ALG;
+                    (*cmsg).cmsg_type = libc::ALG_SET_OP;
+                    let data = libc::CMSG_DATA(cmsg);
+                    std::ptr::copy_nonoverlapping(op_bytes.as_ptr(), data, op_bytes.len());
+                }
+            }
+
+            // Add ALG_SET_IV control message if iv is provided
+            if let Some(iv_data) = iv {
+                let iv_bytes = iv_data.borrow_buf();
+                // struct af_alg_iv { __u32 ivlen; __u8 iv[]; }
+                let iv_struct_size = 4 + iv_bytes.len();
+                let space = unsafe { libc::CMSG_SPACE(iv_struct_size as u32) } as usize;
+                let old_len = control_buf.len();
+                control_buf.resize(old_len + space, 0u8);
+
+                let cmsg = control_buf[old_len..].as_mut_ptr() as *mut libc::cmsghdr;
+                unsafe {
+                    (*cmsg).cmsg_len = libc::CMSG_LEN(iv_struct_size as u32) as _;
+                    (*cmsg).cmsg_level = libc::SOL_ALG;
+                    (*cmsg).cmsg_type = libc::ALG_SET_IV;
+                    let data = libc::CMSG_DATA(cmsg);
+                    // Write ivlen
+                    let ivlen = (iv_bytes.len() as u32).to_ne_bytes();
+                    std::ptr::copy_nonoverlapping(ivlen.as_ptr(), data, 4);
+                    // Write iv
+                    std::ptr::copy_nonoverlapping(iv_bytes.as_ptr(), data.add(4), iv_bytes.len());
+                }
+            }
+
+            // Add ALG_SET_AEAD_ASSOCLEN control message if assoclen is provided
+            if let Some(assoclen_val) = assoclen {
+                let assoclen_bytes = assoclen_val.to_ne_bytes();
+                let space = unsafe { libc::CMSG_SPACE(std::mem::size_of::<u32>() as u32) } as usize;
+                let old_len = control_buf.len();
+                control_buf.resize(old_len + space, 0u8);
+
+                let cmsg = control_buf[old_len..].as_mut_ptr() as *mut libc::cmsghdr;
+                unsafe {
+                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<u32>() as u32) as _;
+                    (*cmsg).cmsg_level = libc::SOL_ALG;
+                    (*cmsg).cmsg_type = libc::ALG_SET_AEAD_ASSOCLEN;
+                    let data = libc::CMSG_DATA(cmsg);
+                    std::ptr::copy_nonoverlapping(
+                        assoclen_bytes.as_ptr(),
+                        data,
+                        assoclen_bytes.len(),
+                    );
+                }
+            }
+
+            // Build buffers
+            let buffers = msg.iter().map(|buf| buf.borrow_buf()).collect::<Vec<_>>();
+            let iovecs: Vec<libc::iovec> = buffers
+                .iter()
+                .map(|buf| libc::iovec {
+                    iov_base: buf.as_ptr() as *mut _,
+                    iov_len: buf.len(),
+                })
+                .collect();
+
+            // Set up msghdr
+            let mut msghdr: libc::msghdr = unsafe { std::mem::zeroed() };
+            msghdr.msg_iov = iovecs.as_ptr() as *mut _;
+            msghdr.msg_iovlen = iovecs.len() as _;
+            if !control_buf.is_empty() {
+                msghdr.msg_control = control_buf.as_mut_ptr() as *mut _;
+                msghdr.msg_controllen = control_buf.len() as _;
+            }
+
+            self.sock_op(vm, SelectKind::Write, || {
+                let sock = self.sock()?;
+                let fd = sock_fileno(&sock);
+                let ret = unsafe { libc::sendmsg(fd as libc::c_int, &msghdr, flags) };
+                if ret < 0 {
+                    Err(io::Error::last_os_error())
+                } else {
+                    Ok(ret as usize)
+                }
+            })
+            .map_err(|e| e.into_pyexception(vm))
+        }
+
+        /// recvmsg(bufsize[, ancbufsize[, flags]]) -> (data, ancdata, msg_flags, address)
+        ///
+        /// Receive normal data and ancillary data from the socket.
+        #[cfg(all(unix, not(target_os = "redox")))]
+        #[pymethod]
+        fn recvmsg(
+            &self,
+            bufsize: isize,
+            ancbufsize: OptionalArg<isize>,
+            flags: OptionalArg<i32>,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyTupleRef> {
+            use std::mem::MaybeUninit;
+
+            if bufsize < 0 {
+                return Err(vm.new_value_error("negative buffer size in recvmsg".to_owned()));
+            }
+            let bufsize = bufsize as usize;
+
+            let ancbufsize = ancbufsize.unwrap_or(0);
+            if ancbufsize < 0 {
+                return Err(
+                    vm.new_value_error("negative ancillary buffer size in recvmsg".to_owned())
+                );
+            }
+            let ancbufsize = ancbufsize as usize;
+            let flags = flags.unwrap_or(0);
+
+            // Allocate buffers
+            let mut data_buf: Vec<MaybeUninit<u8>> = vec![MaybeUninit::uninit(); bufsize];
+            let mut anc_buf: Vec<MaybeUninit<u8>> = vec![MaybeUninit::uninit(); ancbufsize];
+            let mut addr_storage: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
+
+            // Set up iovec
+            let mut iov = [libc::iovec {
+                iov_base: data_buf.as_mut_ptr().cast(),
+                iov_len: bufsize,
+            }];
+
+            // Set up msghdr
+            let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
+            msg.msg_name = (&mut addr_storage as *mut libc::sockaddr_storage).cast();
+            msg.msg_namelen = std::mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
+            msg.msg_iov = iov.as_mut_ptr();
+            msg.msg_iovlen = 1;
+            if ancbufsize > 0 {
+                msg.msg_control = anc_buf.as_mut_ptr().cast();
+                msg.msg_controllen = ancbufsize as _;
+            }
+
+            let n = self
+                .sock_op(vm, SelectKind::Read, || {
+                    let sock = self.sock()?;
+                    let fd = sock_fileno(&sock);
+                    let ret = unsafe { libc::recvmsg(fd as libc::c_int, &mut msg, flags) };
+                    if ret < 0 {
+                        Err(io::Error::last_os_error())
+                    } else {
+                        Ok(ret as usize)
+                    }
+                })
+                .map_err(|e| e.into_pyexception(vm))?;
+
+            // Build data bytes
+            let data = unsafe {
+                data_buf.set_len(n);
+                std::mem::transmute::<Vec<MaybeUninit<u8>>, Vec<u8>>(data_buf)
+            };
+
+            // Build ancdata list
+            let ancdata = Self::parse_ancillary_data(&msg, vm)?;
+
+            // Build address tuple
+            let address = if msg.msg_namelen > 0 {
+                let storage: socket2::SockAddrStorage =
+                    unsafe { std::mem::transmute(addr_storage) };
+                let addr = unsafe { socket2::SockAddr::new(storage, msg.msg_namelen) };
+                get_addr_tuple(&addr, vm)
+            } else {
+                vm.ctx.none()
+            };
+
+            Ok(vm.ctx.new_tuple(vec![
+                vm.ctx.new_bytes(data).into(),
+                ancdata,
+                vm.ctx.new_int(msg.msg_flags).into(),
+                address,
+            ]))
+        }
+
+        /// Parse ancillary data from a received message header
+        #[cfg(all(unix, not(target_os = "redox")))]
+        fn parse_ancillary_data(msg: &libc::msghdr, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            let mut result = Vec::new();
+
+            // Calculate buffer end for truncation handling
+            let ctrl_buf = msg.msg_control as *const u8;
+            let ctrl_end = unsafe { ctrl_buf.add(msg.msg_controllen as _) };
+
+            let mut cmsg: *mut libc::cmsghdr = unsafe { libc::CMSG_FIRSTHDR(msg) };
+            while !cmsg.is_null() {
+                let cmsg_ref = unsafe { &*cmsg };
+                let data_ptr = unsafe { libc::CMSG_DATA(cmsg) };
+
+                // Calculate data length, respecting buffer truncation
+                let data_len_from_cmsg =
+                    cmsg_ref.cmsg_len as usize - (data_ptr as usize - cmsg as usize);
+                let available = ctrl_end as usize - data_ptr as usize;
+                let data_len = data_len_from_cmsg.min(available);
+
+                let data = unsafe { std::slice::from_raw_parts(data_ptr, data_len) };
+
+                let tuple = vm.ctx.new_tuple(vec![
+                    vm.ctx.new_int(cmsg_ref.cmsg_level).into(),
+                    vm.ctx.new_int(cmsg_ref.cmsg_type).into(),
+                    vm.ctx.new_bytes(data.to_vec()).into(),
+                ]);
+
+                result.push(tuple.into());
+
+                cmsg = unsafe { libc::CMSG_NXTHDR(msg, cmsg) };
+            }
+
+            Ok(vm.ctx.new_list(result).into())
+        }
+
         // based on nix's implementation
         #[cfg(all(unix, not(target_os = "redox")))]
         fn pack_cmsgs_to_send(
@@ -1447,7 +2088,7 @@ mod _socket {
                 unsafe {
                     (*pmhdr).cmsg_level = *lvl;
                     (*pmhdr).cmsg_type = *typ;
-                    (*pmhdr).cmsg_len = data.len() as _;
+                    (*pmhdr).cmsg_len = libc::CMSG_LEN(data.len() as _) as _;
                     ptr::copy_nonoverlapping(data.as_ptr(), libc::CMSG_DATA(pmhdr), data.len());
                 }
 
@@ -1465,6 +2106,38 @@ mod _socket {
                 close_inner(sock as RawSocket)?;
             }
             Ok(())
+        }
+
+        #[pymethod]
+        fn __del__(&self, vm: &VirtualMachine) {
+            // Emit ResourceWarning if socket is still open
+            if self.sock.read().is_some() {
+                let laddr = if let Ok(sock) = self.sock()
+                    && let Ok(addr) = sock.local_addr()
+                    && let Ok(repr) = get_addr_tuple(&addr, vm).repr(vm)
+                {
+                    format!(", laddr={}", repr.as_str())
+                } else {
+                    String::new()
+                };
+
+                let msg = format!(
+                    "unclosed <socket.socket fd={}, family={}, type={}, proto={}{}>",
+                    self.fileno(),
+                    self.family.load(),
+                    self.kind.load(),
+                    self.proto.load(),
+                    laddr
+                );
+                let _ = crate::vm::warn::warn(
+                    vm.ctx.new_str(msg),
+                    Some(vm.ctx.exceptions.resource_warning.to_owned()),
+                    1,
+                    None,
+                    vm,
+                );
+            }
+            let _ = self.close();
         }
 
         #[pymethod]
@@ -1629,6 +2302,136 @@ mod _socket {
             Ok(self.sock()?.shutdown(how)?)
         }
 
+        #[cfg(windows)]
+        fn wsa_error() -> io::Error {
+            io::Error::from_raw_os_error(unsafe { c::WSAGetLastError() })
+        }
+
+        #[cfg(windows)]
+        #[pymethod]
+        fn ioctl(
+            &self,
+            cmd: PyObjectRef,
+            option: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> Result<u32, IoOrPyException> {
+            use crate::vm::builtins::PyInt;
+            use crate::vm::convert::TryFromObject;
+
+            let sock = self.sock()?;
+            let fd = sock_fileno(&sock);
+            let mut recv: u32 = 0;
+
+            // Convert cmd to u32, returning ValueError for invalid/negative values
+            let cmd_int = cmd
+                .downcast::<PyInt>()
+                .map_err(|_| vm.new_type_error("an integer is required"))?;
+            let cmd_val = cmd_int.as_bigint();
+            let cmd: u32 = cmd_val
+                .to_u32()
+                .ok_or_else(|| vm.new_value_error(format!("invalid ioctl command {}", cmd_val)))?;
+
+            match cmd {
+                c::SIO_RCVALL | c::SIO_LOOPBACK_FAST_PATH => {
+                    // Option must be an integer, not None
+                    if vm.is_none(&option) {
+                        return Err(vm
+                            .new_type_error("an integer is required (got type NoneType)")
+                            .into());
+                    }
+                    let option_val: u32 = TryFromObject::try_from_object(vm, option)?;
+                    let ret = unsafe {
+                        c::WSAIoctl(
+                            fd as _,
+                            cmd,
+                            &option_val as *const u32 as *const _,
+                            std::mem::size_of::<u32>() as u32,
+                            std::ptr::null_mut(),
+                            0,
+                            &mut recv,
+                            std::ptr::null_mut(),
+                            None,
+                        )
+                    };
+                    if ret == c::SOCKET_ERROR {
+                        return Err(Self::wsa_error().into());
+                    }
+                    Ok(recv)
+                }
+                c::SIO_KEEPALIVE_VALS => {
+                    let tuple: PyTupleRef = option
+                        .downcast()
+                        .map_err(|_| vm.new_type_error("SIO_KEEPALIVE_VALS requires a tuple"))?;
+                    if tuple.len() != 3 {
+                        return Err(vm
+                            .new_type_error(
+                                "SIO_KEEPALIVE_VALS requires (onoff, keepalivetime, keepaliveinterval)",
+                            )
+                            .into());
+                    }
+
+                    #[repr(C)]
+                    struct TcpKeepalive {
+                        onoff: u32,
+                        keepalivetime: u32,
+                        keepaliveinterval: u32,
+                    }
+
+                    let ka = TcpKeepalive {
+                        onoff: TryFromObject::try_from_object(vm, tuple[0].clone())?,
+                        keepalivetime: TryFromObject::try_from_object(vm, tuple[1].clone())?,
+                        keepaliveinterval: TryFromObject::try_from_object(vm, tuple[2].clone())?,
+                    };
+
+                    let ret = unsafe {
+                        c::WSAIoctl(
+                            fd as _,
+                            cmd,
+                            &ka as *const TcpKeepalive as *const _,
+                            std::mem::size_of::<TcpKeepalive>() as u32,
+                            std::ptr::null_mut(),
+                            0,
+                            &mut recv,
+                            std::ptr::null_mut(),
+                            None,
+                        )
+                    };
+                    if ret == c::SOCKET_ERROR {
+                        return Err(Self::wsa_error().into());
+                    }
+                    Ok(recv)
+                }
+                _ => Err(vm
+                    .new_value_error(format!("invalid ioctl command {}", cmd))
+                    .into()),
+            }
+        }
+
+        #[cfg(windows)]
+        #[pymethod]
+        fn share(&self, process_id: u32, _vm: &VirtualMachine) -> Result<Vec<u8>, IoOrPyException> {
+            let sock = self.sock()?;
+            let fd = sock_fileno(&sock);
+
+            let mut info: MaybeUninit<c::WSAPROTOCOL_INFOW> = MaybeUninit::uninit();
+
+            let ret = unsafe { c::WSADuplicateSocketW(fd as _, process_id, info.as_mut_ptr()) };
+
+            if ret == c::SOCKET_ERROR {
+                return Err(Self::wsa_error().into());
+            }
+
+            let info = unsafe { info.assume_init() };
+            let bytes = unsafe {
+                std::slice::from_raw_parts(
+                    &info as *const c::WSAPROTOCOL_INFOW as *const u8,
+                    std::mem::size_of::<c::WSAPROTOCOL_INFOW>(),
+                )
+            };
+
+            Ok(bytes.to_vec())
+        }
+
         #[pygetset(name = "type")]
         fn kind(&self) -> i32 {
             self.kind.load()
@@ -1728,6 +2531,50 @@ mod _socket {
             let nul_pos = memchr::memchr(b'\0', path).unwrap_or(path.len());
             let path = ffi::OsStr::from_bytes(&path[..nul_pos]);
             return vm.fsdecode(path).into();
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let family = addr.family();
+            if family == libc::AF_CAN as libc::sa_family_t {
+                // AF_CAN address: (interface_name,) or (interface_name, can_id)
+                let can_addr = unsafe { &*(addr.as_ptr() as *const libc::sockaddr_can) };
+                let ifindex = can_addr.can_ifindex;
+                let ifname = if ifindex == 0 {
+                    String::new()
+                } else {
+                    let mut buf = [0u8; libc::IF_NAMESIZE];
+                    let ret = unsafe {
+                        libc::if_indextoname(
+                            ifindex as libc::c_uint,
+                            buf.as_mut_ptr() as *mut libc::c_char,
+                        )
+                    };
+                    if ret.is_null() {
+                        String::new()
+                    } else {
+                        let nul_pos = memchr::memchr(b'\0', &buf).unwrap_or(buf.len());
+                        String::from_utf8_lossy(&buf[..nul_pos]).into_owned()
+                    }
+                };
+                return vm.ctx.new_tuple(vec![vm.ctx.new_str(ifname).into()]).into();
+            }
+            if family == libc::AF_ALG as libc::sa_family_t {
+                // AF_ALG address: (type, name)
+                let alg_addr = unsafe { &*(addr.as_ptr() as *const libc::sockaddr_alg) };
+                let type_bytes = &alg_addr.salg_type;
+                let name_bytes = &alg_addr.salg_name;
+                let type_nul = memchr::memchr(b'\0', type_bytes).unwrap_or(type_bytes.len());
+                let name_nul = memchr::memchr(b'\0', name_bytes).unwrap_or(name_bytes.len());
+                let type_str = String::from_utf8_lossy(&type_bytes[..type_nul]).into_owned();
+                let name_str = String::from_utf8_lossy(&name_bytes[..name_nul]).into_owned();
+                return vm
+                    .ctx
+                    .new_tuple(vec![
+                        vm.ctx.new_str(type_str).into(),
+                        vm.ctx.new_str(name_str).into(),
+                    ])
+                    .into();
+            }
         }
         // TODO: support more address families
         (String::new(), 0).to_pyobject(vm)
@@ -1951,13 +2798,31 @@ mod _socket {
             flags: opts.flags,
         };
 
-        let host = opts.host.as_ref().map(|s| s.as_str());
-        let port = opts.port.as_ref().map(|p| -> std::borrow::Cow<'_, str> {
-            match p {
-                Either::A(s) => s.as_str().into(),
-                Either::B(i) => i.to_string().into(),
+        // Encode host using IDNA encoding
+        let host_encoded: Option<String> = match opts.host.as_ref() {
+            Some(s) => {
+                let encoded =
+                    vm.state
+                        .codec_registry
+                        .encode_text(s.to_owned(), "idna", None, vm)?;
+                let host_str = std::str::from_utf8(encoded.as_bytes())
+                    .map_err(|_| vm.new_runtime_error("idna output is not utf8".to_owned()))?;
+                Some(host_str.to_owned())
             }
-        });
+            None => None,
+        };
+        let host = host_encoded.as_deref();
+
+        // Encode port using UTF-8
+        let port: Option<std::borrow::Cow<'_, str>> = match opts.port.as_ref() {
+            Some(Either::A(s)) => {
+                Some(std::borrow::Cow::Borrowed(s.to_str().ok_or_else(|| {
+                    vm.new_unicode_encode_error("surrogates not allowed".to_owned())
+                })?))
+            }
+            Some(Either::B(i)) => Some(std::borrow::Cow::Owned(i.to_string())),
+            None => None,
+        };
         let port = port.as_ref().map(|p| p.as_ref());
 
         let addrs = dns_lookup::getaddrinfo(host, port, Some(hints))
