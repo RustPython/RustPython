@@ -19,7 +19,7 @@ libffi = { workspace = true }
 
 cranelift = "0.126"
 cranelift-jit = "0.126"
-cranelift-module = "0.126"
+cranelift-module = "0.127"
 
 [dev-dependencies]
 rustpython-derive = { workspace = true }
