@@ -109,6 +109,9 @@ class SslProtoHandshakeTests(test_utils.TestCase):
         test_utils.run_briefly(self.loop)
         self.assertIsInstance(waiter.exception(), ConnectionAbortedError)
 
+    # TODO: RUSTPYTHON
+    # AssertionError: ConnectionResetError not raised
+    @unittest.expectedFailure
     def test_connection_lost_when_busy(self):
         # gh-118950: SSLProtocol.connection_lost not being called when OSError
         # is thrown on asyncio.write.
@@ -282,6 +285,9 @@ class BaseStartTLS(func_tests.FunctionalTestCaseMixin):
             with self.assertRaisesRegex(RuntimeError, 'empty buffer'):
                 protocols._feed_data_to_buffered_proto(proto, b'12345')
 
+    # TODO: RUSTPYTHON
+    # AssertionError: <SSLContext(protocol=16)> is not None
+    @unittest.expectedFailure
     def test_start_tls_client_reg_proto_1(self):
         HELLO_MSG = b'1' * self.PAYLOAD_SIZE
 
@@ -348,6 +354,9 @@ class BaseStartTLS(func_tests.FunctionalTestCaseMixin):
         support.gc_collect()
         self.assertIsNone(client_context())
 
+    # TODO: RUSTPYTHON
+    # AssertionError: <SSLContext(protocol=16)> is not None
+    @unittest.expectedFailure
     def test_create_connection_memory_leak(self):
         HELLO_MSG = b'1' * self.PAYLOAD_SIZE
 
@@ -666,6 +675,9 @@ class BaseStartTLS(func_tests.FunctionalTestCaseMixin):
 
         self.loop.run_until_complete(main())
 
+    # TODO: RUSTPYTHON
+    # AssertionError: <SSLContext(protocol=16)> is not None
+    @unittest.expectedFailure
     def test_handshake_timeout(self):
         # bpo-29970: Check that a connection is aborted if handshake is not
         # completed in timeout period, instead of remaining open indefinitely
