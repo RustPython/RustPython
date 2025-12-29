@@ -135,8 +135,7 @@ from datetime import datetime
 from decimal import Decimal
 import http.client
 import urllib.parse
-# XXX RUSTPYTHON TODO: pyexpat
-# from xml.parsers import expat
+from xml.parsers import expat
 import errno
 from io import BytesIO
 try:

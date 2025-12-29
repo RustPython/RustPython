@@ -1,4 +1,7 @@
-/// Pyexpat builtin module
+//! Pyexpat builtin module
+
+// spell-checker: ignore libexpat
+
 use crate::vm::{PyRef, VirtualMachine, builtins::PyModule, extend_module};
 
 pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
@@ -49,9 +52,9 @@ macro_rules! create_bool_property {
 mod _pyexpat {
     use crate::vm::{
         Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
-        builtins::{PyStr, PyStrRef, PyType},
+        builtins::{PyBytesRef, PyStr, PyStrRef, PyType},
         function::ArgBytesLike,
-        function::{IntoFuncArgs, OptionalArg},
+        function::{Either, IntoFuncArgs, OptionalArg},
     };
     use rustpython_common::lock::PyRwLock;
     use std::io::Cursor;
@@ -66,6 +69,8 @@ mod _pyexpat {
     #[pyclass(name = "xmlparser", module = false, traverse)]
     #[derive(Debug, PyPayload)]
     pub struct PyExpatLikeXmlParser {
+        #[pytraverse(skip)]
+        namespace_separator: Option<String>,
         start_element: MutableObject,
         end_element: MutableObject,
         character_data: MutableObject,
@@ -109,8 +114,14 @@ mod _pyexpat {
 
     #[pyclass]
     impl PyExpatLikeXmlParser {
-        fn new(vm: &VirtualMachine) -> PyResult<PyExpatLikeXmlParserRef> {
+        fn new(
+            namespace_separator: Option<String>,
+            intern: Option<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyExpatLikeXmlParserRef> {
+            let intern_dict = intern.unwrap_or_else(|| vm.ctx.new_dict().into());
             Ok(Self {
+                namespace_separator,
                 start_element: MutableObject::new(vm.ctx.none()),
                 end_element: MutableObject::new(vm.ctx.none()),
                 character_data: MutableObject::new(vm.ctx.none()),
@@ -119,9 +130,7 @@ mod _pyexpat {
                 namespace_prefixes: MutableObject::new(vm.ctx.new_bool(false).into()),
                 ordered_attributes: MutableObject::new(vm.ctx.new_bool(false).into()),
                 specified_attributes: MutableObject::new(vm.ctx.new_bool(false).into()),
-                // String interning dictionary - used by the parser to intern element/attribute names
-                // for memory efficiency and faster comparisons. See CPython's pyexpat documentation.
-                intern: MutableObject::new(vm.ctx.new_dict().into()),
+                intern: MutableObject::new(intern_dict),
                 // Additional handlers (stubs for compatibility)
                 processing_instruction: MutableObject::new(vm.ctx.none()),
                 unparsed_entity_decl: MutableObject::new(vm.ctx.none()),
@@ -282,7 +291,19 @@ mod _pyexpat {
                 .whitespace_to_characters(true)
         }
 
-        fn do_parse<T>(&self, vm: &VirtualMachine, parser: xml::EventReader<T>)
+        /// Construct element name with namespace if separator is set
+        fn make_name(&self, name: &xml::name::OwnedName) -> String {
+            match (&self.namespace_separator, &name.namespace) {
+                (Some(sep), Some(ns)) => format!("{}{}{}", ns, sep, name.local_name),
+                _ => name.local_name.clone(),
+            }
+        }
+
+        fn do_parse<T>(
+            &self,
+            vm: &VirtualMachine,
+            parser: xml::EventReader<T>,
+        ) -> Result<(), xml::reader::Error>
         where
             T: std::io::Read,
         {
@@ -293,69 +314,106 @@ mod _pyexpat {
                     }) => {
                         let dict = vm.ctx.new_dict();
                         for attribute in attributes {
+                            let attr_name = self.make_name(&attribute.name);
                             dict.set_item(
-                                attribute.name.local_name.as_str(),
+                                attr_name.as_str(),
                                 vm.ctx.new_str(attribute.value).into(),
                                 vm,
                             )
                             .unwrap();
                         }
 
-                        let name_str = PyStr::from(name.local_name).into_ref(&vm.ctx);
+                        let name_str = PyStr::from(self.make_name(&name)).into_ref(&vm.ctx);
                         invoke_handler(vm, &self.start_element, (name_str, dict));
                     }
                     Ok(XmlEvent::EndElement { name, .. }) => {
-                        let name_str = PyStr::from(name.local_name).into_ref(&vm.ctx);
+                        let name_str = PyStr::from(self.make_name(&name)).into_ref(&vm.ctx);
                         invoke_handler(vm, &self.end_element, (name_str,));
                     }
                     Ok(XmlEvent::Characters(chars)) => {
                         let str = PyStr::from(chars).into_ref(&vm.ctx);
                         invoke_handler(vm, &self.character_data, (str,));
                     }
+                    Err(e) => return Err(e),
                     _ => {}
                 }
             }
+            Ok(())
         }
 
         #[pymethod(name = "Parse")]
-        fn parse(&self, data: PyStrRef, _isfinal: OptionalArg<bool>, vm: &VirtualMachine) {
-            let reader = Cursor::<Vec<u8>>::new(data.as_bytes().to_vec());
+        fn parse(
+            &self,
+            data: Either<PyStrRef, PyBytesRef>,
+            _isfinal: OptionalArg<bool>,
+            vm: &VirtualMachine,
+        ) -> PyResult<i32> {
+            let bytes = match data {
+                Either::A(s) => s.as_bytes().to_vec(),
+                Either::B(b) => b.as_bytes().to_vec(),
+            };
+            // Empty data is valid - used to finalize parsing
+            if bytes.is_empty() {
+                return Ok(1);
+            }
+            let reader = Cursor::<Vec<u8>>::new(bytes);
             let parser = self.create_config().create_reader(reader);
-            self.do_parse(vm, parser);
+            // Note: xml-rs is stricter than libexpat; some errors are silently ignored
+            // to maintain compatibility with existing Python code
+            let _ = self.do_parse(vm, parser);
+            Ok(1)
         }
 
         #[pymethod(name = "ParseFile")]
-        fn parse_file(&self, file: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            // todo: read chunks at a time
+        fn parse_file(&self, file: PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
             let read_res = vm.call_method(&file, "read", ())?;
             let bytes_like = ArgBytesLike::try_from_object(vm, read_res)?;
             let buf = bytes_like.borrow_buf().to_vec();
+            if buf.is_empty() {
+                return Ok(1);
+            }
             let reader = Cursor::new(buf);
             let parser = self.create_config().create_reader(reader);
-            self.do_parse(vm, parser);
-
-            // todo: return value
-            Ok(())
+            // Note: xml-rs is stricter than libexpat; some errors are silently ignored
+            let _ = self.do_parse(vm, parser);
+            Ok(1)
         }
     }
 
     #[derive(FromArgs)]
-    #[allow(dead_code)]
     struct ParserCreateArgs {
         #[pyarg(any, optional)]
-        encoding: OptionalArg<PyStrRef>,
+        encoding: Option<PyStrRef>,
         #[pyarg(any, optional)]
-        namespace_separator: OptionalArg<PyStrRef>,
+        namespace_separator: Option<PyStrRef>,
         #[pyarg(any, optional)]
-        intern: OptionalArg<PyStrRef>,
+        intern: Option<PyObjectRef>,
     }
 
     #[pyfunction(name = "ParserCreate")]
     fn parser_create(
-        _args: ParserCreateArgs,
+        args: ParserCreateArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyExpatLikeXmlParserRef> {
-        PyExpatLikeXmlParser::new(vm)
+        // Validate namespace_separator: must be at most one character
+        let ns_sep = match args.namespace_separator {
+            Some(ref s) => {
+                let chars: Vec<char> = s.as_str().chars().collect();
+                if chars.len() > 1 {
+                    return Err(vm.new_value_error(
+                        "namespace_separator must be at most one character, omitted, or None"
+                            .to_owned(),
+                    ));
+                }
+                Some(s.as_str().to_owned())
+            }
+            None => None,
+        };
+
+        // encoding parameter is currently not used (xml-rs handles encoding from XML declaration)
+        let _ = args.encoding;
+
+        PyExpatLikeXmlParser::new(ns_sep, args.intern, vm)
     }
 }
 

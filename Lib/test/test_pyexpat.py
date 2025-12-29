@@ -227,7 +227,6 @@ class ParseTest(unittest.TestCase):
         for operation, expected_operation in zip(operations, expected_operations):
             self.assertEqual(operation, expected_operation)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_parse_bytes(self):
         out = self.Outputter()
         parser = expat.ParserCreate(namespace_separator='!')
@@ -276,7 +275,6 @@ class ParseTest(unittest.TestCase):
                           expat.errors.XML_ERROR_FINISHED)
 
 class NamespaceSeparatorTest(unittest.TestCase):
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_legal(self):
         # Tests that make sure we get errors when the namespace_separator value
         # is illegal, and that we don't for good values:
@@ -409,14 +407,12 @@ class BufferTextTest(unittest.TestCase):
         self.assertEqual(self.stuff, ["1<2> \n 3"],
                          "buffered text not properly collapsed")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test3(self):
         self.setHandlers(["StartElementHandler"])
         self.parser.Parse(b"<a>1<b/>2<c/>3</a>", True)
         self.assertEqual(self.stuff, ["<a>", "1", "<b>", "2", "<c>", "3"],
                          "buffered text not properly split")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test4(self):
         self.setHandlers(["StartElementHandler", "EndElementHandler"])
         self.parser.CharacterDataHandler = None
@@ -424,14 +420,12 @@ class BufferTextTest(unittest.TestCase):
         self.assertEqual(self.stuff,
                          ["<a>", "<b>", "</b>", "<c>", "</c>", "</a>"])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test5(self):
         self.setHandlers(["StartElementHandler", "EndElementHandler"])
         self.parser.Parse(b"<a>1<b></b>2<c/>3</a>", True)
         self.assertEqual(self.stuff,
             ["<a>", "1", "<b>", "</b>", "2", "<c>", "</c>", "3", "</a>"])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test6(self):
         self.setHandlers(["CommentHandler", "EndElementHandler",
                     "StartElementHandler"])
@@ -529,7 +523,6 @@ class PositionTest(unittest.TestCase):
                 'Expected position %s, got position %s' %(pos, expected))
         self.upto += 1
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test(self):
         self.parser = expat.ParserCreate()
         self.parser.StartElementHandler = self.StartElementHandler
