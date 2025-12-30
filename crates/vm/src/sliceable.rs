@@ -3,9 +3,9 @@ use crate::{
     PyObject, PyResult, VirtualMachine,
     builtins::{int::PyInt, slice::PySlice},
 };
+use core::ops::Range;
 use malachite_bigint::BigInt;
 use num_traits::{Signed, ToPrimitive};
-use std::ops::Range;
 
 pub trait SliceableSequenceMutOp
 where

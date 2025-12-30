@@ -15,7 +15,7 @@ impl Pattern {
     fn state_range<'a, S: StrDrive>(
         &self,
         string: S,
-        range: std::ops::Range<usize>,
+        range: core::ops::Range<usize>,
     ) -> (Request<'a, S>, State) {
         let req = Request::new(string, range.start, range.end, self.code, false);
         let state = State::default();

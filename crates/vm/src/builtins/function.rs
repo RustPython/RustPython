@@ -149,7 +149,7 @@ impl PyFunction {
             None
         };
 
-        let arg_pos = |range: std::ops::Range<_>, name: &str| {
+        let arg_pos = |range: core::ops::Range<_>, name: &str| {
             code.varnames
                 .iter()
                 .enumerate()
@@ -255,7 +255,7 @@ impl PyFunction {
             }
 
             if let Some(defaults) = defaults {
-                let n = std::cmp::min(nargs, n_expected_args);
+                let n = core::cmp::min(nargs, n_expected_args);
                 let i = n.saturating_sub(n_required);
 
                 // We have sufficient defaults, so iterate over the corresponding names and use

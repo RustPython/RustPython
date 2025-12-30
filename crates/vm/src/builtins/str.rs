@@ -24,8 +24,10 @@ use crate::{
         PyComparisonOp, Representable, SelfIter,
     },
 };
+use alloc::{borrow::Cow, fmt};
 use ascii::{AsciiChar, AsciiStr, AsciiString};
 use bstr::ByteSlice;
+use core::{char, mem, ops::Range};
 use itertools::Itertools;
 use num_traits::ToPrimitive;
 use rustpython_common::{
@@ -37,8 +39,7 @@ use rustpython_common::{
     str::DeduceStrKind,
     wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Chunk},
 };
-use std::{borrow::Cow, char, fmt, ops::Range};
-use std::{mem, sync::LazyLock};
+use std::sync::LazyLock;
 use unic_ucd_bidi::BidiClass;
 use unic_ucd_category::GeneralCategory;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
@@ -191,8 +192,8 @@ impl From<StrData> for PyStr {
     }
 }
 
-impl<'a> From<std::borrow::Cow<'a, str>> for PyStr {
-    fn from(s: std::borrow::Cow<'a, str>) -> Self {
+impl<'a> From<alloc::borrow::Cow<'a, str>> for PyStr {
+    fn from(s: alloc::borrow::Cow<'a, str>) -> Self {
         s.into_owned().into()
     }
 }
@@ -632,7 +633,7 @@ impl PyStr {
 
     #[pymethod]
     fn __sizeof__(&self) -> usize {
-        std::mem::size_of::<Self>() + self.byte_len() * std::mem::size_of::<u8>()
+        core::mem::size_of::<Self>() + self.byte_len() * core::mem::size_of::<u8>()
     }
 
     #[pymethod(name = "__rmul__")]
@@ -1045,7 +1046,7 @@ impl PyStr {
 
     #[pymethod]
     fn replace(&self, args: ReplaceArgs) -> Wtf8Buf {
-        use std::cmp::Ordering;
+        use core::cmp::Ordering;
 
         let s = self.as_wtf8();
         let ReplaceArgs { old, new, count } = args;
@@ -1361,7 +1362,7 @@ impl PyStr {
                         let ch = bigint
                             .as_bigint()
                             .to_u32()
-                            .and_then(std::char::from_u32)
+                            .and_then(core::char::from_u32)
                             .ok_or_else(|| {
                                 vm.new_value_error("character mapping must be in range(0x110000)")
                             })?;
@@ -1494,7 +1495,7 @@ impl PyRef<PyStr> {
 }
 
 struct CharLenStr<'a>(&'a str, usize);
-impl std::ops::Deref for CharLenStr<'_> {
+impl core::ops::Deref for CharLenStr<'_> {
     type Target = str;
 
     fn deref(&self) -> &Self::Target {
@@ -1705,7 +1706,7 @@ pub struct FindArgs {
 }
 
 impl FindArgs {
-    fn get_value(self, len: usize) -> (PyStrRef, std::ops::Range<usize>) {
+    fn get_value(self, len: usize) -> (PyStrRef, core::ops::Range<usize>) {
         let range = adjust_indices(self.start, self.end, len);
         (self.sub, range)
     }
@@ -1945,8 +1946,8 @@ impl PyPayload for PyUtf8Str {
         ctx.types.str_type
     }
 
-    fn payload_type_id() -> std::any::TypeId {
-        std::any::TypeId::of::<PyStr>()
+    fn payload_type_id() -> core::any::TypeId {
+        core::any::TypeId::of::<PyStr>()
     }
 
     fn validate_downcastable_from(obj: &PyObject) -> bool {
@@ -2005,8 +2006,8 @@ impl From<char> for PyUtf8Str {
     }
 }
 
-impl<'a> From<std::borrow::Cow<'a, str>> for PyUtf8Str {
-    fn from(s: std::borrow::Cow<'a, str>) -> Self {
+impl<'a> From<alloc::borrow::Cow<'a, str>> for PyUtf8Str {
+    fn from(s: alloc::borrow::Cow<'a, str>) -> Self {
         s.into_owned().into()
     }
 }
@@ -2128,11 +2129,11 @@ impl AnyStr for str {
         Self::chars(self)
     }
 
-    fn get_bytes(&self, range: std::ops::Range<usize>) -> &Self {
+    fn get_bytes(&self, range: core::ops::Range<usize>) -> &Self {
         &self[range]
     }
 
-    fn get_chars(&self, range: std::ops::Range<usize>) -> &Self {
+    fn get_chars(&self, range: core::ops::Range<usize>) -> &Self {
         rustpython_common::str::get_chars(self, range)
     }
 
@@ -2239,11 +2240,11 @@ impl AnyStr for Wtf8 {
         self.code_points()
     }
 
-    fn get_bytes(&self, range: std::ops::Range<usize>) -> &Self {
+    fn get_bytes(&self, range: core::ops::Range<usize>) -> &Self {
         &self[range]
     }
 
-    fn get_chars(&self, range: std::ops::Range<usize>) -> &Self {
+    fn get_chars(&self, range: core::ops::Range<usize>) -> &Self {
         rustpython_common::str::get_codepoints(self, range)
     }
 
@@ -2361,11 +2362,11 @@ impl AnyStr for AsciiStr {
         self.chars()
     }
 
-    fn get_bytes(&self, range: std::ops::Range<usize>) -> &Self {
+    fn get_bytes(&self, range: core::ops::Range<usize>) -> &Self {
         &self[range]
     }
 
-    fn get_chars(&self, range: std::ops::Range<usize>) -> &Self {
+    fn get_chars(&self, range: core::ops::Range<usize>) -> &Self {
         &self[range]
     }
 
@@ -2436,8 +2437,8 @@ impl PyStrInterned {
     }
 }
 
-impl std::fmt::Display for PyStrInterned {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for PyStrInterned {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.data.fmt(f)
     }
 }

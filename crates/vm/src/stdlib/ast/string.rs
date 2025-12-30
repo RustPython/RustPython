@@ -12,7 +12,7 @@ fn ruff_fstring_value_into_iter(
     });
     (0..fstring_value.as_slice().len()).map(move |i| {
         let tmp = fstring_value.iter_mut().nth(i).unwrap();
-        std::mem::replace(tmp, default.clone())
+        core::mem::replace(tmp, default.clone())
     })
 }
 
@@ -28,7 +28,7 @@ fn ruff_fstring_element_into_iter(
     (0..fstring_element.into_iter().len()).map(move |i| {
         let fstring_element = &mut fstring_element;
         let tmp = fstring_element.into_iter().nth(i).unwrap();
-        std::mem::replace(tmp, default.clone())
+        core::mem::replace(tmp, default.clone())
     })
 }
 

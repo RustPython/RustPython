@@ -97,7 +97,7 @@ pub(crate) struct ContentItemInner<T> {
 }
 
 pub(crate) trait ContentItem {
-    type AttrName: std::str::FromStr + std::fmt::Display;
+    type AttrName: core::str::FromStr + core::fmt::Display;
 
     fn inner(&self) -> &ContentItemInner<Self::AttrName>;
     fn index(&self) -> usize {
@@ -125,7 +125,7 @@ impl ItemMetaInner {
         allowed_names: &[&'static str],
     ) -> Result<Self>
     where
-        I: std::iter::Iterator<Item = NestedMeta>,
+        I: core::iter::Iterator<Item = NestedMeta>,
     {
         let (meta_map, lits) = nested.into_unique_map_and_lits(|path| {
             if let Some(ident) = path.get_ident() {
@@ -243,7 +243,7 @@ impl ItemMetaInner {
     pub fn _optional_list(
         &self,
         key: &str,
-    ) -> Result<Option<impl std::iter::Iterator<Item = &'_ NestedMeta>>> {
+    ) -> Result<Option<impl core::iter::Iterator<Item = &'_ NestedMeta>>> {
         let value = if let Some((_, meta)) = self.meta_map.get(key) {
             let Meta::List(MetaList {
                 path: _, nested, ..
@@ -269,7 +269,7 @@ pub(crate) trait ItemMeta: Sized {
 
     fn from_nested<I>(item_ident: Ident, meta_ident: Ident, nested: I) -> Result<Self>
     where
-        I: std::iter::Iterator<Item = NestedMeta>,
+        I: core::iter::Iterator<Item = NestedMeta>,
     {
         Ok(Self::from_inner(ItemMetaInner::from_nested(
             item_ident,
@@ -529,7 +529,7 @@ impl ExceptionItemMeta {
     }
 }
 
-impl std::ops::Deref for ExceptionItemMeta {
+impl core::ops::Deref for ExceptionItemMeta {
     type Target = ClassItemMeta;
     fn deref(&self) -> &Self::Target {
         &self.0

@@ -169,7 +169,7 @@ pub trait PyClassImpl: PyClassDef {
         // Exception: object itself should have __new__ in its dict
         if let Some(slot_new) = class.slots.new.load() {
             let object_new = ctx.types.object_type.slots.new.load();
-            let is_object_itself = std::ptr::eq(class, ctx.types.object_type);
+            let is_object_itself = core::ptr::eq(class, ctx.types.object_type);
             let is_inherited_from_object = !is_object_itself
                 && object_new.is_some_and(|obj_new| slot_new as usize == obj_new as usize);
 
@@ -203,7 +203,7 @@ pub trait PyClassImpl: PyClassDef {
             Self::extend_class(ctx, unsafe {
                 // typ will be saved in static_cell
                 let r: &Py<PyType> = &typ;
-                let r: &'static Py<PyType> = std::mem::transmute(r);
+                let r: &'static Py<PyType> = core::mem::transmute(r);
                 r
             });
             typ

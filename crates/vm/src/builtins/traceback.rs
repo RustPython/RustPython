@@ -1,7 +1,7 @@
 use super::PyType;
 use crate::{
-    Context, Py, PyPayload, PyRef, PyResult, VirtualMachine, class::PyClassImpl, frame::FrameRef,
-    types::Constructor,
+    AsObject, Context, Py, PyPayload, PyRef, PyResult, VirtualMachine, class::PyClassImpl,
+    frame::FrameRef, types::Constructor,
 };
 use rustpython_common::lock::PyMutex;
 use rustpython_compiler_core::OneIndexed;
@@ -63,8 +63,26 @@ impl PyTraceback {
     }
 
     #[pygetset(setter)]
-    fn set_tb_next(&self, value: Option<PyRef<Self>>) {
-        *self.next.lock() = value;
+    fn set_tb_next(
+        zelf: &Py<Self>,
+        value: Option<PyRef<Self>>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if let Some(ref new_next) = value {
+            let mut cursor = new_next.clone();
+            loop {
+                if cursor.is(zelf) {
+                    return Err(vm.new_value_error("traceback loop detected".to_owned()));
+                }
+                let next = cursor.next.lock().clone();
+                match next {
+                    Some(n) => cursor = n,
+                    None => break,
+                }
+            }
+        }
+        *zelf.next.lock() = value;
+        Ok(())
     }
 }
 
@@ -81,7 +99,7 @@ impl Constructor for PyTraceback {
 
 impl PyTracebackRef {
     pub fn iter(&self) -> impl Iterator<Item = Self> {
-        std::iter::successors(Some(self.clone()), |tb| tb.next.lock().clone())
+        core::iter::successors(Some(self.clone()), |tb| tb.next.lock().clone())
     }
 }
 

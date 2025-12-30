@@ -5,10 +5,11 @@ use crate::util::{
     ErrorVec, ItemMeta, ItemNursery, ModuleItemMeta, SimpleItemMeta, format_doc, iter_use_idents,
     pyclass_ident_and_attrs, text_signature,
 };
+use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
 use quote::{ToTokens, quote, quote_spanned};
 use rustpython_doc::DB;
-use std::{collections::HashSet, str::FromStr};
+use std::collections::HashSet;
 use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
 use syn_ext::ext::*;
 use syn_ext::types::PunctuatedNestedMeta;
@@ -22,8 +23,8 @@ enum AttrName {
     StructSequence,
 }
 
-impl std::fmt::Display for AttrName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for AttrName {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let s = match self {
             Self::Function => "pyfunction",
             Self::Attr => "pyattr",
@@ -38,7 +39,7 @@ impl std::fmt::Display for AttrName {
 impl FromStr for AttrName {
     type Err = String;
 
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+    fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
         Ok(match s {
             "pyfunction" => Self::Function,
             "pyattr" => Self::Attr,

@@ -26,11 +26,11 @@ use crate::{
         PyComparisonOp, Representable, SelfIter,
     },
 };
+use core::{cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use rustpython_common::lock::PyMutex;
 use std::sync::LazyLock;
-use std::{cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
 
 #[derive(FromArgs)]
 pub struct PyMemoryViewNewArgs {

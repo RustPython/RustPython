@@ -1,4 +1,4 @@
-use std::ptr::NonNull;
+use core::ptr::NonNull;
 
 use rustpython_common::lock::{PyMutex, PyRwLock};
 

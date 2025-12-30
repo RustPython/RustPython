@@ -37,7 +37,7 @@ use crate::{
     },
 };
 use bstr::ByteSlice;
-use std::mem::size_of;
+use core::mem::size_of;
 
 #[pyclass(module = false, name = "bytearray", unhashable = true)]
 #[derive(Debug, Default)]
@@ -687,7 +687,7 @@ impl Initializer for PyByteArray {
     fn init(zelf: PyRef<Self>, options: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // First unpack bytearray and *then* get a lock to set it.
         let mut inner = options.get_bytearray_inner(vm)?;
-        std::mem::swap(&mut *zelf.inner_mut(), &mut inner);
+        core::mem::swap(&mut *zelf.inner_mut(), &mut inner);
         Ok(())
     }
 }

@@ -37,7 +37,7 @@ fn field_to_traverse_code(field: &Field) -> Result<TokenStream> {
         .attrs
         .iter()
         .filter_map(pytraverse_arg)
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+        .collect::<core::result::Result<Vec<_>, _>>()?;
     let do_trace = if pytraverse_attrs.len() > 1 {
         bail_span!(
             field,

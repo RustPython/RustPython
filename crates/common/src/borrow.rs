@@ -2,10 +2,8 @@ use crate::lock::{
     MapImmutable, PyImmutableMappedMutexGuard, PyMappedMutexGuard, PyMappedRwLockReadGuard,
     PyMappedRwLockWriteGuard, PyMutexGuard, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
-use std::{
-    fmt,
-    ops::{Deref, DerefMut},
-};
+use alloc::fmt;
+use core::ops::{Deref, DerefMut};
 
 macro_rules! impl_from {
     ($lt:lifetime, $gen:ident, $t:ty, $($var:ident($from:ty),)*) => {

@@ -616,7 +616,7 @@ class StateTestCase(BaseTestCase):
                 with TracerRun(self) as tracer:
                     tracer.runcall(tfunc_main)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip('TODO: RUSTPYTHON')
     # AssertionError: All paired tuples have not been processed, the last one was number 1 [('next',), ('quit',)]
     def test_stepinstr(self):
         self.expect_set = [
@@ -1249,7 +1249,7 @@ class IssuesTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip('TODO: RUSTPYTHON')
     # AssertionError: All paired tuples have not been processed, the last one was number 1 [('next',)]
     def test_next_to_botframe(self):
         # gh-125422

@@ -11,7 +11,7 @@ mod cmath {
 
     // Constants
     #[pyattr]
-    use std::f64::consts::{E as e, PI as pi, TAU as tau};
+    use core::f64::consts::{E as e, PI as pi, TAU as tau};
     #[pyattr(name = "inf")]
     const INF: f64 = f64::INFINITY;
     #[pyattr(name = "nan")]
@@ -93,7 +93,7 @@ mod cmath {
         z.log(
             base.into_option()
                 .map(|base| base.re)
-                .unwrap_or(std::f64::consts::E),
+                .unwrap_or(core::f64::consts::E),
         )
     }
 

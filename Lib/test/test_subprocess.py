@@ -1473,8 +1473,6 @@ class ProcessTestCase(BaseTestCase):
         line = "line\n"
         self._test_bufsize_equal_one(line, line, universal_newlines=True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bufsize_equal_one_binary_mode(self):
         # line is not flushed in binary mode with bufsize=1.
         # we should get empty response
@@ -2116,8 +2114,6 @@ class POSIXProcessTestCase(BaseTestCase):
 
         self.assertIn(repr(error_data), str(e.exception))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(not os.path.exists('/proc/self/status'),
                      "need /proc/self/status")
     def test_restore_signals(self):
@@ -2336,8 +2332,6 @@ class POSIXProcessTestCase(BaseTestCase):
                                   cwd=os.curdir, env=os.environ,
                                   extra_groups=[2**64])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(mswindows or not hasattr(os, 'umask'),
                      'POSIX umask() is not available.')
     def test_umask(self):

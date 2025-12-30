@@ -13,14 +13,14 @@ use nix::{
     unistd::{self, Pid},
 };
 use std::{
-    convert::Infallible as Never,
-    ffi::{CStr, CString},
     io::prelude::*,
-    marker::PhantomData,
-    ops::Deref,
     os::fd::{AsFd, AsRawFd, BorrowedFd, IntoRawFd, OwnedFd, RawFd},
 };
 use unistd::{Gid, Uid};
+
+use alloc::ffi::CString;
+
+use core::{convert::Infallible as Never, ffi::CStr, marker::PhantomData, ops::Deref};
 
 pub(crate) use _posixsubprocess::make_module;
 
@@ -33,6 +33,18 @@ mod _posixsubprocess {
 
     #[pyfunction]
     fn fork_exec(args: ForkExecArgs<'_>, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
+        // Check for interpreter shutdown when preexec_fn is used
+        if args.preexec_fn.is_some()
+            && vm
+                .state
+                .finalizing
+                .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(vm.new_python_finalization_error(
+                "preexec_fn not supported at interpreter shutdown".to_owned(),
+            ));
+        }
+
         let extra_groups = args
             .groups_list
             .as_ref()
@@ -87,7 +99,7 @@ impl<'a, T: AsRef<CStr>> FromIterator<&'a T> for CharPtrVec<'a> {
         let vec = iter
             .into_iter()
             .map(|x| x.as_ref().as_ptr())
-            .chain(std::iter::once(std::ptr::null()))
+            .chain(core::iter::once(core::ptr::null()))
             .collect();
         Self {
             vec,
@@ -321,11 +333,14 @@ fn exec_inner(
     }
 
     if args.child_umask >= 0 {
-        // TODO: umask(child_umask);
+        unsafe { libc::umask(args.child_umask as libc::mode_t) };
     }
 
     if args.restore_signals {
-        // TODO: restore signals SIGPIPE, SIGXFZ, SIGXFSZ to SIG_DFL
+        unsafe {
+            libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+            libc::signal(libc::SIGXFSZ, libc::SIG_DFL);
+        }
     }
 
     if args.call_setsid {

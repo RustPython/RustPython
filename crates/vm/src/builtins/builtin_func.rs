@@ -7,7 +7,7 @@ use crate::{
     function::{FuncArgs, PyComparisonValue, PyMethodDef, PyMethodFlags, PyNativeFn},
     types::{Callable, Comparable, PyComparisonOp, Representable},
 };
-use std::fmt;
+use alloc::fmt;
 
 // PyCFunctionObject in CPython
 #[pyclass(name = "builtin_function_or_method", module = false)]
@@ -212,7 +212,7 @@ impl Comparable for PyNativeMethod {
                     (None, None) => true,
                     _ => false,
                 };
-                let eq = eq && std::ptr::eq(zelf.func.value, other.func.value);
+                let eq = eq && core::ptr::eq(zelf.func.value, other.func.value);
                 Ok(eq.into())
             } else {
                 Ok(PyComparisonValue::NotImplemented)

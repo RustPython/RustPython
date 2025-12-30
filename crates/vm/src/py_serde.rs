@@ -130,7 +130,7 @@ impl<'de> DeserializeSeed<'de> for PyObjectDeserializer<'de> {
 impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     type Value = PyObjectRef;
 
-    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         formatter.write_str("a type that can deserialize in Python")
     }
 

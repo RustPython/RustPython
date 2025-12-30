@@ -425,8 +425,6 @@ class CodeTest(unittest.TestCase):
             ]
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_endline_and_columntable_none_when_no_debug_ranges(self):
         # Make sure that if `-X no_debug_ranges` is used, there is
         # minimal debug info
@@ -442,8 +440,6 @@ class CodeTest(unittest.TestCase):
             """)
         assert_python_ok('-X', 'no_debug_ranges', '-c', code)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_endline_and_columntable_none_when_no_debug_ranges_env(self):
         # Same as above but using the environment variable opt out.
         code = textwrap.dedent("""

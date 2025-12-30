@@ -14,11 +14,11 @@ use crate::{
         Representable, SelfIter,
     },
 };
+use core::cmp::max;
 use crossbeam_utils::atomic::AtomicCell;
 use malachite_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
-use std::cmp::max;
 use std::sync::LazyLock;
 
 // Search flag passed to iter_search

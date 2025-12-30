@@ -258,7 +258,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
 }
 
 #[cfg(feature = "flame-it")]
-fn write_profile(settings: &Settings) -> Result<(), Box<dyn std::error::Error>> {
+fn write_profile(settings: &Settings) -> Result<(), Box<dyn core::error::Error>> {
     use std::{fs, io};
 
     enum ProfileFormat {

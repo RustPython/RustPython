@@ -57,7 +57,8 @@ pub struct Settings {
     // int tracemalloc;
     // int perf_profiling;
     // int import_time;
-    // int code_debug_ranges;
+    /// -X no_debug_ranges: disable column info in bytecode
+    pub code_debug_ranges: bool,
     // int show_ref_count;
     // int dump_refs;
     // wchar_t *dump_refs_file;
@@ -192,6 +193,7 @@ impl Default for Settings {
             argv: vec![],
             hash_seed: None,
             faulthandler: false,
+            code_debug_ranges: true,
             buffered_stdio: true,
             check_hash_pycs_mode: CheckHashPycsMode::Default,
             allow_external_library: cfg!(feature = "importlib"),

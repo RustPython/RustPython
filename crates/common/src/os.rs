@@ -1,7 +1,8 @@
 // spell-checker:disable
 // TODO: we can move more os-specific bindings/interfaces from stdlib::{os, posix, nt} to here
 
-use std::{io, process::ExitCode, str::Utf8Error};
+use core::str::Utf8Error;
+use std::{io, process::ExitCode};
 
 /// Convert exit code to std::process::ExitCode
 ///
@@ -88,7 +89,7 @@ pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
 
 #[cfg(not(unix))]
 pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
-    Ok(std::str::from_utf8(b)?.as_ref())
+    Ok(core::str::from_utf8(b)?.as_ref())
 }
 
 #[cfg(unix)]

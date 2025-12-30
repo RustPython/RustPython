@@ -16,6 +16,9 @@ use crate::{
     types::{AsBuffer, Callable, Constructor, Initializer, Representable},
     vm::thread::with_current_vm,
 };
+use alloc::borrow::Cow;
+use core::ffi::c_void;
+use core::fmt::Debug;
 use libffi::{
     low,
     middle::{Arg, Cif, Closure, CodePtr, Type},
@@ -23,9 +26,6 @@ use libffi::{
 use libloading::Symbol;
 use num_traits::{Signed, ToPrimitive};
 use rustpython_common::lock::PyRwLock;
-use std::borrow::Cow;
-use std::ffi::c_void;
-use std::fmt::Debug;
 
 // Internal function addresses for special ctypes functions
 pub(super) const INTERNAL_CAST_ADDR: usize = 1;
@@ -37,7 +37,7 @@ std::thread_local! {
     /// Thread-local storage for ctypes errno
     /// This is separate from the system errno - ctypes swaps them during FFI calls
     /// when use_errno=True is specified.
-    static CTYPES_LOCAL_ERRNO: std::cell::Cell<i32> = const { std::cell::Cell::new(0) };
+    static CTYPES_LOCAL_ERRNO: core::cell::Cell<i32> = const { core::cell::Cell::new(0) };
 }
 
 /// Get ctypes thread-local errno value
@@ -79,7 +79,7 @@ where
 #[cfg(windows)]
 std::thread_local! {
     /// Thread-local storage for ctypes last_error (Windows only)
-    static CTYPES_LOCAL_LAST_ERROR: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    static CTYPES_LOCAL_LAST_ERROR: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
 }
 
 #[cfg(windows)]
@@ -135,14 +135,14 @@ fn ffi_type_from_tag(tag: u8) -> Type {
         b'i' => Type::i32(),
         b'I' => Type::u32(),
         b'l' => {
-            if std::mem::size_of::<libc::c_long>() == 8 {
+            if core::mem::size_of::<libc::c_long>() == 8 {
                 Type::i64()
             } else {
                 Type::i32()
             }
         }
         b'L' => {
-            if std::mem::size_of::<libc::c_ulong>() == 8 {
+            if core::mem::size_of::<libc::c_ulong>() == 8 {
                 Type::u64()
             } else {
                 Type::u32()
@@ -154,7 +154,7 @@ fn ffi_type_from_tag(tag: u8) -> Type {
         b'd' | b'g' => Type::f64(),
         b'?' => Type::u8(),
         b'u' => {
-            if std::mem::size_of::<super::WideChar>() == 2 {
+            if core::mem::size_of::<super::WideChar>() == 2 {
                 Type::u16()
             } else {
                 Type::u32()
@@ -207,7 +207,7 @@ fn convert_to_pointer(value: &PyObject, vm: &VirtualMachine) -> PyResult<FfiArgV
     // 5. PyCSimple (c_void_p, c_char_p, etc.) -> value from buffer
     if let Some(simple) = value.downcast_ref::<PyCSimple>() {
         let buffer = simple.0.buffer.read();
-        if buffer.len() >= std::mem::size_of::<usize>() {
+        if buffer.len() >= core::mem::size_of::<usize>() {
             let addr = super::base::read_ptr_from_buffer(&buffer);
             return Ok(FfiArgValue::Pointer(addr));
         }
@@ -283,7 +283,7 @@ fn conv_param(value: &PyObject, vm: &VirtualMachine) -> PyResult<Argument> {
         let wide: Vec<u16> = s
             .as_str()
             .encode_utf16()
-            .chain(std::iter::once(0))
+            .chain(core::iter::once(0))
             .collect();
         let wide_bytes: Vec<u8> = wide.iter().flat_map(|&x| x.to_ne_bytes()).collect();
         let keep = vm.ctx.new_bytes(wide_bytes);
@@ -499,7 +499,7 @@ impl Initializer for PyCFuncPtrType {
 
         new_type.check_not_initialized(vm)?;
 
-        let ptr_size = std::mem::size_of::<usize>();
+        let ptr_size = core::mem::size_of::<usize>();
         let mut stg_info = StgInfo::new(ptr_size, ptr_size);
         stg_info.format = Some("X{}".to_string());
         stg_info.length = 1;
@@ -552,7 +552,7 @@ pub(super) struct PyCFuncPtr {
 }
 
 impl Debug for PyCFuncPtr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PyCFuncPtr")
             .field("func_ptr", &self.get_func_ptr())
             .finish()
@@ -567,9 +567,9 @@ fn extract_ptr_from_arg(arg: &PyObject, vm: &VirtualMachine) -> PyResult<usize> 
     }
     if let Some(simple) = arg.downcast_ref::<PyCSimple>() {
         let buffer = simple.0.buffer.read();
-        if buffer.len() >= std::mem::size_of::<usize>() {
+        if buffer.len() >= core::mem::size_of::<usize>() {
             return Ok(usize::from_ne_bytes(
-                buffer[..std::mem::size_of::<usize>()].try_into().unwrap(),
+                buffer[..core::mem::size_of::<usize>()].try_into().unwrap(),
             ));
         }
     }
@@ -612,7 +612,7 @@ fn string_at_impl(ptr: usize, size: isize, vm: &VirtualMachine) -> PyResult {
         }
         size_usize
     };
-    let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
+    let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
     Ok(vm.ctx.new_bytes(bytes.to_vec()).into())
 }
 
@@ -627,12 +627,12 @@ fn wstring_at_impl(ptr: usize, size: isize, vm: &VirtualMachine) -> PyResult {
     } else {
         // Overflow check for huge size values
         let size_usize = size as usize;
-        if size_usize > isize::MAX as usize / std::mem::size_of::<libc::wchar_t>() {
+        if size_usize > isize::MAX as usize / core::mem::size_of::<libc::wchar_t>() {
             return Err(vm.new_overflow_error("string too long"));
         }
         size_usize
     };
-    let wchars = unsafe { std::slice::from_raw_parts(w_ptr, len) };
+    let wchars = unsafe { core::slice::from_raw_parts(w_ptr, len) };
 
     // Windows: wchar_t = u16 (UTF-16) -> use Wtf8Buf::from_wide
     // macOS/Linux: wchar_t = i32 (UTF-32) -> convert via char::from_u32
@@ -815,7 +815,7 @@ impl Constructor for PyCFuncPtr {
         // 3. Tuple argument: (name, dll) form
         // 4. Callable: callback creation
 
-        let ptr_size = std::mem::size_of::<usize>();
+        let ptr_size = core::mem::size_of::<usize>();
 
         if args.args.is_empty() {
             return PyCFuncPtr {
@@ -1513,11 +1513,11 @@ fn convert_raw_result(
         RawResult::Void => return None,
         RawResult::Pointer(ptr) => {
             let bytes = ptr.to_ne_bytes();
-            (bytes.to_vec(), std::mem::size_of::<usize>())
+            (bytes.to_vec(), core::mem::size_of::<usize>())
         }
         RawResult::Value(val) => {
             let bytes = val.to_ne_bytes();
-            (bytes.to_vec(), std::mem::size_of::<i64>())
+            (bytes.to_vec(), core::mem::size_of::<i64>())
         }
     };
 
@@ -1702,7 +1702,7 @@ impl Callable for PyCFuncPtr {
             None => {
                 debug_assert!(false, "NULL function pointer");
                 // In release mode, this will crash
-                CodePtr(std::ptr::null_mut())
+                CodePtr(core::ptr::null_mut())
             }
         };
 
@@ -1758,7 +1758,7 @@ impl AsBuffer for PyCFuncPtr {
                 stg_info.size,
             )
         } else {
-            (Cow::Borrowed("X{}"), std::mem::size_of::<usize>())
+            (Cow::Borrowed("X{}"), core::mem::size_of::<usize>())
         };
         let desc = BufferDescriptor {
             len: itemsize,
@@ -1902,7 +1902,7 @@ fn ffi_to_python(ty: &Py<PyType>, ptr: *const c_void, vm: &VirtualMachine) -> Py
                 if cstr_ptr.is_null() {
                     vm.ctx.none()
                 } else {
-                    let cstr = std::ffi::CStr::from_ptr(cstr_ptr);
+                    let cstr = core::ffi::CStr::from_ptr(cstr_ptr);
                     vm.ctx.new_bytes(cstr.to_bytes().to_vec()).into()
                 }
             }
@@ -1916,7 +1916,7 @@ fn ffi_to_python(ty: &Py<PyType>, ptr: *const c_void, vm: &VirtualMachine) -> Py
                     while *wstr_ptr.add(len) != 0 {
                         len += 1;
                     }
-                    let slice = std::slice::from_raw_parts(wstr_ptr, len);
+                    let slice = core::slice::from_raw_parts(wstr_ptr, len);
                     // Windows: wchar_t = u16 (UTF-16) -> use Wtf8Buf::from_wide
                     // Unix: wchar_t = i32 (UTF-32) -> convert via char::from_u32
                     #[cfg(windows)]
@@ -2113,7 +2113,7 @@ pub(super) struct PyCThunk {
 }
 
 impl Debug for PyCThunk {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PyCThunk")
             .field("callable", &self.callable)
             .finish()

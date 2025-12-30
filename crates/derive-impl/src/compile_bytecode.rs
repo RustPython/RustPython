@@ -58,11 +58,11 @@ pub trait Compiler {
         source: &str,
         mode: Mode,
         module_name: String,
-    ) -> Result<CodeObject, Box<dyn std::error::Error>>;
+    ) -> Result<CodeObject, Box<dyn core::error::Error>>;
 }
 
 impl CompilationSource {
-    fn compile_string<D: std::fmt::Display, F: FnOnce() -> D>(
+    fn compile_string<D: core::fmt::Display, F: FnOnce() -> D>(
         &self,
         source: &str,
         mode: Mode,
