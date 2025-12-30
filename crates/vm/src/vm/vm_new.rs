@@ -600,5 +600,6 @@ impl VirtualMachine {
     define_exception_fn!(fn new_zero_division_error, zero_division_error, ZeroDivisionError);
     define_exception_fn!(fn new_overflow_error, overflow_error, OverflowError);
     define_exception_fn!(fn new_runtime_error, runtime_error, RuntimeError);
+    define_exception_fn!(fn new_python_finalization_error, python_finalization_error, PythonFinalizationError);
     define_exception_fn!(fn new_memory_error, memory_error, MemoryError);
 }
