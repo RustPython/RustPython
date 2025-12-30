@@ -405,8 +405,9 @@ impl SlotAccessor {
 
     /// Inherit slot value from MRO
     pub fn inherit_from_mro(&self, typ: &crate::builtins::PyType) {
-        // Note: typ.mro does NOT include typ itself
-        let mro = typ.mro.read();
+        // mro[0] is self, so skip it
+        let mro_guard = typ.mro.read();
+        let mro = &mro_guard[1..];
 
         macro_rules! inherit_main {
             ($slot:ident) => {{

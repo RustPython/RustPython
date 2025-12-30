@@ -1310,12 +1310,16 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             ptr::write(&mut (*type_type_ptr).typ, PyAtomicRef::from(type_type));
 
             let object_type = PyTypeRef::from_raw(object_type_ptr.cast());
+            // object's mro is [object]
+            (*object_type_ptr).payload.mro = PyRwLock::new(vec![object_type.clone()]);
 
-            (*type_type_ptr).payload.mro = PyRwLock::new(vec![object_type.clone()]);
             (*type_type_ptr).payload.bases = PyRwLock::new(vec![object_type.clone()]);
             (*type_type_ptr).payload.base = Some(object_type.clone());
 
             let type_type = PyTypeRef::from_raw(type_type_ptr.cast());
+            // type's mro is [type, object]
+            (*type_type_ptr).payload.mro =
+                PyRwLock::new(vec![type_type.clone(), object_type.clone()]);
 
             (type_type, object_type)
         }
@@ -1331,6 +1335,8 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         heaptype_ext: None,
     };
     let weakref_type = PyRef::new_ref(weakref_type, type_type.clone(), None);
+    // weakref's mro is [weakref, object]
+    weakref_type.mro.write().insert(0, weakref_type.clone());
 
     object_type.subclasses.write().push(
         type_type
