@@ -8,7 +8,7 @@ mod opcode {
         bytecode::Instruction,
         match_class,
     };
-    use std::ops::Deref;
+    use core::ops::Deref;
 
     struct Opcode(Instruction);
 

@@ -23,8 +23,8 @@ use crate::{
     },
     vm::VirtualMachine,
 };
+use alloc::fmt;
 use rustpython_common::lock::PyMutex;
-use std::fmt;
 use std::sync::LazyLock;
 
 pub type DictContentType = dict_inner::Dict;
@@ -219,7 +219,7 @@ impl PyDict {
 
     #[pymethod]
     fn __sizeof__(&self) -> usize {
-        std::mem::size_of::<Self>() + self.entries.sizeof()
+        core::mem::size_of::<Self>() + self.entries.sizeof()
     }
 
     #[pymethod]
@@ -759,7 +759,7 @@ impl ExactSizeIterator for DictIter<'_> {
 
 #[pyclass]
 trait DictView: PyPayload + PyClassDef + Iterable + Representable {
-    type ReverseIter: PyPayload + std::fmt::Debug;
+    type ReverseIter: PyPayload + core::fmt::Debug;
 
     fn dict(&self) -> &Py<PyDict>;
     fn item(vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef) -> PyObjectRef;

@@ -403,7 +403,7 @@ fn merge_keyword_parameter_defaults(
     kw_only_args: KeywordParameters,
     defaults: ParameterDefaults,
 ) -> Vec<ruff::ParameterWithDefault> {
-    std::iter::zip(kw_only_args.keywords, defaults.defaults)
+    core::iter::zip(kw_only_args.keywords, defaults.defaults)
         .map(|(parameter, default)| ruff::ParameterWithDefault {
             node_index: Default::default(),
             parameter,

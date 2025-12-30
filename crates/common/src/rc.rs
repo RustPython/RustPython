@@ -1,7 +1,7 @@
 #[cfg(not(feature = "threading"))]
-use std::rc::Rc;
+use alloc::rc::Rc;
 #[cfg(feature = "threading")]
-use std::sync::Arc;
+use alloc::sync::Arc;
 
 // type aliases instead of new-types because you can't do `fn method(self: PyRc<Self>)` with a
 // newtype; requires the arbitrary_self_types unstable feature

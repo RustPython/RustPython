@@ -12,9 +12,10 @@ use crate::{
     convert::{IntoPyException, ToPyObject, ToPyResult, TryFromObject},
     vm::Context,
 };
-use std::{
+use alloc::fmt;
+
+use core::{
     borrow::Borrow,
-    fmt,
     marker::PhantomData,
     ops::Deref,
     ptr::{NonNull, null_mut},
@@ -108,7 +109,7 @@ impl<T: PyPayload> AsRef<Py<T>> for PyExact<T> {
     }
 }
 
-impl<T: PyPayload> std::borrow::ToOwned for PyExact<T> {
+impl<T: PyPayload> alloc::borrow::ToOwned for PyExact<T> {
     type Owned = PyRefExact<T>;
 
     fn to_owned(&self) -> Self::Owned {
@@ -581,7 +582,7 @@ impl ToPyObject for &PyObject {
 // explicitly implementing `ToPyObject`.
 impl<T> ToPyObject for T
 where
-    T: PyPayload + std::fmt::Debug + Sized,
+    T: PyPayload + core::fmt::Debug + Sized,
 {
     #[inline(always)]
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {

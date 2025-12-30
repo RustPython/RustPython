@@ -22,9 +22,9 @@ mod _collections {
         },
         utils::collection_repr,
     };
+    use alloc::collections::VecDeque;
+    use core::cmp::max;
     use crossbeam_utils::atomic::AtomicCell;
-    use std::cmp::max;
-    use std::collections::VecDeque;
 
     #[pyattr]
     #[pyclass(module = "collections", name = "deque", unhashable = true)]
@@ -157,7 +157,7 @@ mod _collections {
             let mut created = VecDeque::from(elements);
             let mut borrowed = self.borrow_deque_mut();
             created.append(&mut borrowed);
-            std::mem::swap(&mut created, &mut borrowed);
+            core::mem::swap(&mut created, &mut borrowed);
             Ok(())
         }
 
@@ -426,7 +426,7 @@ mod _collections {
             inner.get(index).map(|r| r.as_ref())
         }
 
-        fn do_lock(&self) -> impl std::ops::Deref<Target = Self::Inner> {
+        fn do_lock(&self) -> impl core::ops::Deref<Target = Self::Inner> {
             self.borrow_deque()
         }
     }
@@ -484,7 +484,7 @@ mod _collections {
                     // `maxlen` is better to be defined as UnsafeCell in common practice,
                     // but then more type works without any safety benefits
                     let unsafe_maxlen =
-                        &zelf.maxlen as *const _ as *const std::cell::UnsafeCell<Option<usize>>;
+                        &zelf.maxlen as *const _ as *const core::cell::UnsafeCell<Option<usize>>;
                     *(*unsafe_maxlen).get() = maxlen;
                 }
                 if let Some(elements) = elements {

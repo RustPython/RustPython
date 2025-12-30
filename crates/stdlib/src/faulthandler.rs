@@ -7,13 +7,13 @@ mod decl {
         PyObjectRef, PyResult, VirtualMachine, builtins::PyFloat, frame::Frame,
         function::OptionalArg, py_io::Write,
     };
+    use alloc::sync::Arc;
+    use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+    use core::time::Duration;
     use parking_lot::{Condvar, Mutex};
     #[cfg(any(unix, windows))]
     use rustpython_common::os::{get_errno, set_errno};
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
     use std::thread;
-    use std::time::Duration;
 
     /// fault_handler_t
     #[cfg(unix)]
@@ -40,7 +40,7 @@ mod decl {
                 enabled: false,
                 name,
                 // SAFETY: sigaction is a C struct that can be zero-initialized
-                previous: unsafe { std::mem::zeroed() },
+                previous: unsafe { core::mem::zeroed() },
             }
         }
     }
@@ -144,7 +144,8 @@ mod decl {
     static mut FRAME_SNAPSHOTS: [FrameSnapshot; MAX_SNAPSHOT_FRAMES] =
         [FrameSnapshot::EMPTY; MAX_SNAPSHOT_FRAMES];
     #[cfg(any(unix, windows))]
-    static SNAPSHOT_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    static SNAPSHOT_COUNT: core::sync::atomic::AtomicUsize =
+        core::sync::atomic::AtomicUsize::new(0);
 
     // Signal-safe output functions
 
@@ -240,7 +241,7 @@ mod decl {
         }
         let thread_id = current_thread_id();
         // Use appropriate width based on platform pointer size
-        dump_hexadecimal(fd, thread_id, std::mem::size_of::<usize>() * 2);
+        dump_hexadecimal(fd, thread_id, core::mem::size_of::<usize>() * 2);
         puts(fd, " (most recent call first):\n");
     }
 
@@ -429,7 +430,7 @@ mod decl {
         }
         handler.enabled = false;
         unsafe {
-            libc::sigaction(handler.signum, &handler.previous, std::ptr::null_mut());
+            libc::sigaction(handler.signum, &handler.previous, core::ptr::null_mut());
         }
     }
 
@@ -549,7 +550,7 @@ mod decl {
                     continue;
                 }
 
-                let mut action: libc::sigaction = std::mem::zeroed();
+                let mut action: libc::sigaction = core::mem::zeroed();
                 action.sa_sigaction = faulthandler_fatal_error as libc::sighandler_t;
                 // SA_NODEFER flag
                 action.sa_flags = libc::SA_NODEFER;
@@ -1051,8 +1052,8 @@ mod decl {
         #[cfg(not(target_arch = "wasm32"))]
         unsafe {
             suppress_crash_report();
-            let ptr: *const i32 = std::ptr::null();
-            std::ptr::read_volatile(ptr);
+            let ptr: *const i32 = core::ptr::null();
+            core::ptr::read_volatile(ptr);
         }
     }
 
@@ -1132,7 +1133,7 @@ mod decl {
                 panic!("Fatal Python error: in new thread");
             });
             // Wait a bit for the thread to panic
-            std::thread::sleep(std::time::Duration::from_secs(1));
+            std::thread::sleep(core::time::Duration::from_secs(1));
         }
     }
 
@@ -1203,7 +1204,7 @@ mod decl {
 
         suppress_crash_report();
         unsafe {
-            RaiseException(args.code, args.flags, 0, std::ptr::null());
+            RaiseException(args.code, args.flags, 0, core::ptr::null());
         }
     }
 }

@@ -9,7 +9,8 @@ mod resource {
         convert::{ToPyException, ToPyObject},
         types::PyStructSequence,
     };
-    use std::{io, mem};
+    use core::mem;
+    use std::io;
 
     cfg_if::cfg_if! {
         if #[cfg(target_os = "android")] {

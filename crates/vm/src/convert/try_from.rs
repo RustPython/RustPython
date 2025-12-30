@@ -122,7 +122,7 @@ impl<'a, T: PyPayload> TryFromBorrowedObject<'a> for &'a Py<T> {
     }
 }
 
-impl TryFromObject for std::time::Duration {
+impl TryFromObject for core::time::Duration {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         if let Some(float) = obj.downcast_ref::<PyFloat>() {
             let f = float.to_f64();

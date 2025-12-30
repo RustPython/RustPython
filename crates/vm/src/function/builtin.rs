@@ -3,7 +3,7 @@ use crate::{
     Py, PyPayload, PyRef, PyResult, VirtualMachine, convert::ToPyResult,
     object::PyThreadingConstraint,
 };
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 /// A built-in Python function.
 // PyCFunction in CPython
@@ -54,14 +54,14 @@ const fn zst_ref_out_of_thin_air<T: 'static>(x: T) -> &'static T {
     // if T is zero-sized, there's no issue forgetting it - even if it does have a Drop impl, it
     // would never get called anyway if we consider this semantically a Box::leak(Box::new(x))-type
     // operation. if T isn't zero-sized, we don't have to worry about it because we'll fail to compile.
-    std::mem::forget(x);
+    core::mem::forget(x);
     const {
-        if std::mem::size_of::<T>() != 0 {
+        if core::mem::size_of::<T>() != 0 {
             panic!("can't use a non-zero-sized type here")
         }
         // SAFETY: we just confirmed that T is zero-sized, so we can
         //         pull a value of it out of thin air.
-        unsafe { std::ptr::NonNull::<T>::dangling().as_ref() }
+        unsafe { core::ptr::NonNull::<T>::dangling().as_ref() }
     }
 }
 
@@ -218,7 +218,7 @@ into_py_native_fn_tuple!(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::mem::size_of_val;
+    use core::mem::size_of_val;
 
     #[test]
     fn test_into_native_fn_noalloc() {

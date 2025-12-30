@@ -7,7 +7,7 @@ use crate::function::PySetterValue;
 use crate::protocol::{BufferDescriptor, PyBuffer};
 use crate::types::{AsBuffer, Constructor, Initializer, SetAttr};
 use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
-use std::borrow::Cow;
+use alloc::borrow::Cow;
 
 /// Calculate Union type size from _fields_ (max field size)
 pub(super) fn calculate_union_size(cls: &Py<PyType>, vm: &VirtualMachine) -> PyResult<usize> {
@@ -175,7 +175,7 @@ impl PyCUnionType {
             {
                 (
                     baseinfo.size,
-                    std::cmp::max(baseinfo.align, forced_alignment),
+                    core::cmp::max(baseinfo.align, forced_alignment),
                     baseinfo.flags.contains(StgInfoFlags::TYPEFLAG_HASPOINTER),
                     baseinfo.flags.contains(StgInfoFlags::TYPEFLAG_HASBITFIELD),
                     baseinfo.ffi_field_types.clone(),
@@ -215,7 +215,7 @@ impl PyCUnionType {
 
             // Calculate effective alignment
             let effective_align = if pack > 0 {
-                std::cmp::min(pack, field_align)
+                core::cmp::min(pack, field_align)
             } else {
                 field_align
             };
@@ -264,7 +264,7 @@ impl PyCUnionType {
         }
 
         // Calculate total_align and aligned_size
-        let total_align = std::cmp::max(max_align, forced_alignment);
+        let total_align = core::cmp::max(max_align, forced_alignment);
         let aligned_size = if total_align > 0 {
             max_size.div_ceil(total_align) * total_align
         } else {
@@ -418,8 +418,8 @@ impl SetAttr for PyCUnionType {
 #[repr(transparent)]
 pub struct PyCUnion(pub PyCData);
 
-impl std::fmt::Debug for PyCUnion {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for PyCUnion {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PyCUnion")
             .field("size", &self.0.size())
             .finish()

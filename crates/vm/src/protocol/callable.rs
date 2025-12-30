@@ -61,8 +61,8 @@ enum TraceEvent {
     Return,
 }
 
-impl std::fmt::Display for TraceEvent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for TraceEvent {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         use TraceEvent::*;
         match self {
             Call => write!(f, "call"),

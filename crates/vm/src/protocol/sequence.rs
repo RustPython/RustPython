@@ -29,8 +29,8 @@ pub struct PySequenceSlots {
     pub inplace_repeat: AtomicCell<Option<fn(PySequence<'_>, isize, &VirtualMachine) -> PyResult>>,
 }
 
-impl std::fmt::Debug for PySequenceSlots {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for PySequenceSlots {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("PySequenceSlots")
     }
 }
@@ -83,8 +83,8 @@ pub struct PySequenceMethods {
     pub inplace_repeat: Option<fn(PySequence<'_>, isize, &VirtualMachine) -> PyResult>,
 }
 
-impl std::fmt::Debug for PySequenceMethods {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for PySequenceMethods {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("PySequenceMethods")
     }
 }

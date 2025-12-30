@@ -39,7 +39,7 @@ mod zlib {
     #[pyattr(name = "ZLIB_RUNTIME_VERSION")]
     #[pyattr]
     const ZLIB_VERSION: &str = unsafe {
-        match std::ffi::CStr::from_ptr(libz_sys::zlibVersion()).to_str() {
+        match core::ffi::CStr::from_ptr(libz_sys::zlibVersion()).to_str() {
             Ok(s) => s,
             Err(_) => unreachable!(),
         }
@@ -322,7 +322,7 @@ mod zlib {
             };
 
             let inner = &mut *self.inner.lock();
-            let data = std::mem::replace(&mut inner.unconsumed_tail, vm.ctx.empty_bytes.clone());
+            let data = core::mem::replace(&mut inner.unconsumed_tail, vm.ctx.empty_bytes.clone());
 
             let (ret, _) = Self::decompress_inner(inner, &data, length, None, true, vm)?;
 

@@ -22,7 +22,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> Result<u32, Box<dyn std::error::Error>> {
+fn run() -> Result<u32, Box<dyn core::error::Error>> {
     // 1. Get own executable path
     let exe_path = env::current_exe()?;
     let exe_name = exe_path
@@ -72,7 +72,7 @@ fn run() -> Result<u32, Box<dyn std::error::Error>> {
 }
 
 /// Parse the `home=` value from pyvenv.cfg
-fn read_home(cfg_path: &Path) -> Result<String, Box<dyn std::error::Error>> {
+fn read_home(cfg_path: &Path) -> Result<String, Box<dyn core::error::Error>> {
     let content = fs::read_to_string(cfg_path)?;
 
     for line in content.lines() {
@@ -95,7 +95,7 @@ fn read_home(cfg_path: &Path) -> Result<String, Box<dyn std::error::Error>> {
 }
 
 /// Launch the Python process and wait for it to complete
-fn launch_process(exe: &Path, args: &[String]) -> Result<u32, Box<dyn std::error::Error>> {
+fn launch_process(exe: &Path, args: &[String]) -> Result<u32, Box<dyn core::error::Error>> {
     use std::process::Command;
 
     let status = Command::new(exe).args(args).status()?;

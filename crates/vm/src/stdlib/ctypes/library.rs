@@ -1,9 +1,9 @@
 use crate::VirtualMachine;
+use alloc::fmt;
 use libloading::Library;
 use rustpython_common::lock::{PyMutex, PyRwLock};
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::fmt;
 
 #[cfg(unix)]
 use libloading::os::unix::Library as UnixLibrary;
@@ -54,7 +54,7 @@ impl SharedLibrary {
             // On Windows: HMODULE (*mut c_void)
             // On Unix: *mut c_void from dlopen
             // We use transmute_copy to read the handle without consuming the Library
-            unsafe { std::mem::transmute_copy::<Library, usize>(l) }
+            unsafe { core::mem::transmute_copy::<Library, usize>(l) }
         } else {
             0
         }

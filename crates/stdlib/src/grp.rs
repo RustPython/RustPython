@@ -10,8 +10,8 @@ mod grp {
         exceptions,
         types::PyStructSequence,
     };
+    use core::ptr::NonNull;
     use nix::unistd;
-    use std::ptr::NonNull;
 
     #[pystruct_sequence_data]
     struct GroupData {
@@ -30,7 +30,7 @@ mod grp {
 
     impl GroupData {
         fn from_unistd_group(group: unistd::Group, vm: &VirtualMachine) -> Self {
-            let cstr_lossy = |s: std::ffi::CString| {
+            let cstr_lossy = |s: alloc::ffi::CString| {
                 s.into_string()
                     .unwrap_or_else(|e| e.into_cstring().to_string_lossy().into_owned())
             };

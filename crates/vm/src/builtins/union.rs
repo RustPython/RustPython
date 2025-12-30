@@ -11,7 +11,7 @@ use crate::{
     stdlib::typing::TypeAliasType,
     types::{AsMapping, AsNumber, Comparable, GetAttr, Hashable, PyComparisonOp, Representable},
 };
-use std::fmt;
+use alloc::fmt;
 use std::sync::LazyLock;
 
 const CLS_ATTRS: &[&str] = &["__module__"];

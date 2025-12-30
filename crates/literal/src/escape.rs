@@ -55,9 +55,9 @@ pub unsafe trait Escape {
     /// # Safety
     ///
     /// This string must only contain printable characters.
-    unsafe fn write_source(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result;
-    fn write_body_slow(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result;
-    fn write_body(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
+    unsafe fn write_source(&self, formatter: &mut impl std::fmt::Write) -> core::fmt::Result;
+    fn write_body_slow(&self, formatter: &mut impl std::fmt::Write) -> core::fmt::Result;
+    fn write_body(&self, formatter: &mut impl std::fmt::Write) -> core::fmt::Result {
         if self.changed() {
             self.write_body_slow(formatter)
         } else {
@@ -117,7 +117,7 @@ impl<'a> UnicodeEscape<'a> {
 pub struct StrRepr<'r, 'a>(&'r UnicodeEscape<'a>);
 
 impl StrRepr<'_, '_> {
-    pub fn write(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
+    pub fn write(&self, formatter: &mut impl std::fmt::Write) -> core::fmt::Result {
         let quote = self.0.layout().quote.to_char();
         formatter.write_char(quote)?;
         self.0.write_body(formatter)?;
@@ -131,8 +131,8 @@ impl StrRepr<'_, '_> {
     }
 }
 
-impl std::fmt::Display for StrRepr<'_, '_> {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for StrRepr<'_, '_> {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.write(formatter)
     }
 }
@@ -217,7 +217,7 @@ impl UnicodeEscape<'_> {
         ch: CodePoint,
         quote: Quote,
         formatter: &mut impl std::fmt::Write,
-    ) -> std::fmt::Result {
+    ) -> core::fmt::Result {
         let Some(ch) = ch.to_char() else {
             return write!(formatter, "\\u{:04x}", ch.to_u32());
         };
@@ -260,7 +260,7 @@ unsafe impl Escape for UnicodeEscape<'_> {
         &self.layout
     }
 
-    unsafe fn write_source(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
+    unsafe fn write_source(&self, formatter: &mut impl std::fmt::Write) -> core::fmt::Result {
         formatter.write_str(unsafe {
             // SAFETY: this function must be called only when source is printable characters (i.e. no surrogates)
             std::str::from_utf8_unchecked(self.source.as_bytes())
@@ -268,7 +268,7 @@ unsafe impl Escape for UnicodeEscape<'_> {
     }
 
     #[cold]
-    fn write_body_slow(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
+    fn write_body_slow(&self, formatter: &mut impl std::fmt::Write) -> core::fmt::Result {
         for ch in self.source.code_points() {
             Self::write_char(ch, self.layout().quote, formatter)?;
         }
@@ -378,7 +378,7 @@ impl AsciiEscape<'_> {
         }
     }
 
-    fn write_char(ch: u8, quote: Quote, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
+    fn write_char(ch: u8, quote: Quote, formatter: &mut impl std::fmt::Write) -> core::fmt::Result {
         match ch {
             b'\t' => formatter.write_str("\\t"),
             b'\n' => formatter.write_str("\\n"),
@@ -404,7 +404,7 @@ unsafe impl Escape for AsciiEscape<'_> {
         &self.layout
     }
 
-    unsafe fn write_source(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
+    unsafe fn write_source(&self, formatter: &mut impl std::fmt::Write) -> core::fmt::Result {
         formatter.write_str(unsafe {
             // SAFETY: this function must be called only when source is printable ascii characters
             std::str::from_utf8_unchecked(self.source)
@@ -412,7 +412,7 @@ unsafe impl Escape for AsciiEscape<'_> {
     }
 
     #[cold]
-    fn write_body_slow(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
+    fn write_body_slow(&self, formatter: &mut impl std::fmt::Write) -> core::fmt::Result {
         for ch in self.source {
             Self::write_char(*ch, self.layout().quote, formatter)?;
         }
@@ -423,7 +423,7 @@ unsafe impl Escape for AsciiEscape<'_> {
 pub struct BytesRepr<'r, 'a>(&'r AsciiEscape<'a>);
 
 impl BytesRepr<'_, '_> {
-    pub fn write(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
+    pub fn write(&self, formatter: &mut impl std::fmt::Write) -> core::fmt::Result {
         let quote = self.0.layout().quote.to_char();
         formatter.write_char('b')?;
         formatter.write_char(quote)?;
@@ -438,8 +438,8 @@ impl BytesRepr<'_, '_> {
     }
 }
 
-impl std::fmt::Display for BytesRepr<'_, '_> {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for BytesRepr<'_, '_> {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.write(formatter)
     }
 }

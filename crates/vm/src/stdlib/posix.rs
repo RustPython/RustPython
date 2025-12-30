@@ -33,15 +33,15 @@ pub mod module {
         types::{Constructor, Representable},
         utils::ToCString,
     };
+    use alloc::ffi::CString;
     use bitflags::bitflags;
+    use core::ffi::CStr;
     use nix::{
         fcntl,
         unistd::{self, Gid, Pid, Uid},
     };
     use std::{
-        env,
-        ffi::{CStr, CString},
-        fs, io,
+        env, fs, io,
         os::fd::{AsFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd},
     };
     use strum_macros::{EnumIter, EnumString};
@@ -360,9 +360,9 @@ pub mod module {
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     fn getgroups_impl() -> nix::Result<Vec<Gid>> {
+        use core::ptr;
         use libc::{c_int, gid_t};
         use nix::errno::Errno;
-        use std::ptr;
         let ret = unsafe { libc::getgroups(0, ptr::null_mut()) };
         let mut groups = Vec::<Gid>::with_capacity(Errno::result(ret)? as usize);
         let ret = unsafe {
@@ -917,7 +917,7 @@ pub mod module {
     #[pyfunction]
     fn sched_getparam(pid: libc::pid_t, vm: &VirtualMachine) -> PyResult<SchedParam> {
         let param = unsafe {
-            let mut param = std::mem::MaybeUninit::uninit();
+            let mut param = core::mem::MaybeUninit::uninit();
             if -1 == libc::sched_getparam(pid, param.as_mut_ptr()) {
                 return Err(vm.new_last_errno_error());
             }
@@ -1280,7 +1280,7 @@ pub mod module {
     }
 
     fn try_from_id(vm: &VirtualMachine, obj: PyObjectRef, typ_name: &str) -> PyResult<u32> {
-        use std::cmp::Ordering;
+        use core::cmp::Ordering;
         let i = obj
             .try_to_ref::<PyInt>(vm)
             .map_err(|_| {
@@ -1515,7 +1515,7 @@ pub mod module {
         #[pyarg(positional)]
         args: crate::function::ArgIterable<OsPath>,
         #[pyarg(positional)]
-        env: crate::function::ArgMapping,
+        env: Option<crate::function::ArgMapping>,
         #[pyarg(named, default)]
         file_actions: Option<crate::function::ArgIterable<PyTupleRef>>,
         #[pyarg(named, default)]
@@ -1678,7 +1678,22 @@ pub mod module {
                         .map_err(|_| vm.new_value_error("path should not have nul bytes"))
                 })
                 .collect::<Result<_, _>>()?;
-            let env = envp_from_dict(self.env, vm)?;
+            let env = if let Some(env_dict) = self.env {
+                envp_from_dict(env_dict, vm)?
+            } else {
+                // env=None means use the current environment
+                use rustpython_common::os::ffi::OsStringExt;
+                env::vars_os()
+                    .map(|(k, v)| {
+                        let mut entry = k.into_vec();
+                        entry.push(b'=');
+                        entry.extend(v.into_vec());
+                        CString::new(entry).map_err(|_| {
+                            vm.new_value_error("environment string contains null byte")
+                        })
+                    })
+                    .collect::<PyResult<Vec<_>>>()?
+            };
 
             let ret = if spawnp {
                 nix::spawn::posix_spawnp(&path, &file_actions, &attrp, &args, &env)
@@ -1810,7 +1825,7 @@ pub mod module {
     #[cfg(target_os = "macos")]
     #[pyfunction]
     fn _fcopyfile(in_fd: i32, out_fd: i32, flags: i32, vm: &VirtualMachine) -> PyResult<()> {
-        let ret = unsafe { fcopyfile(in_fd, out_fd, std::ptr::null_mut(), flags as u32) };
+        let ret = unsafe { fcopyfile(in_fd, out_fd, core::ptr::null_mut(), flags as u32) };
         if ret < 0 {
             Err(vm.new_last_errno_error())
         } else {
@@ -1838,9 +1853,9 @@ pub mod module {
 
     #[pyfunction]
     fn dup2(args: Dup2Args<'_>, vm: &VirtualMachine) -> PyResult<OwnedFd> {
-        let mut fd2 = std::mem::ManuallyDrop::new(args.fd2);
+        let mut fd2 = core::mem::ManuallyDrop::new(args.fd2);
         nix::unistd::dup2(args.fd, &mut fd2).map_err(|e| e.into_pyexception(vm))?;
-        let fd2 = std::mem::ManuallyDrop::into_inner(fd2);
+        let fd2 = core::mem::ManuallyDrop::into_inner(fd2);
         if !args.inheritable {
             super::set_inheritable(fd2.as_fd(), false).map_err(|e| e.into_pyexception(vm))?
         }

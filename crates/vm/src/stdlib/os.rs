@@ -171,15 +171,10 @@ pub(super) mod _os {
         utils::ToCString,
         vm::VirtualMachine,
     };
+    use core::time::Duration;
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
-    use std::{
-        env, fs,
-        fs::OpenOptions,
-        io,
-        path::PathBuf,
-        time::{Duration, SystemTime},
-    };
+    use std::{env, fs, fs::OpenOptions, io, path::PathBuf, time::SystemTime};
 
     const OPEN_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     pub(crate) const MKDIR_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
@@ -518,7 +513,7 @@ pub(super) mod _os {
                 22,
                 format!(
                     "Invalid argument: {}",
-                    std::str::from_utf8(key).unwrap_or("<bytes encoding failure>")
+                    core::str::from_utf8(key).unwrap_or("<bytes encoding failure>")
                 ),
             );
 
@@ -1051,12 +1046,12 @@ pub(super) mod _os {
         dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,
         follow_symlinks: FollowSymlinks,
     ) -> io::Result<Option<StatStruct>> {
-        let mut stat = std::mem::MaybeUninit::uninit();
+        let mut stat = core::mem::MaybeUninit::uninit();
         let ret = match file {
             OsPathOrFd::Path(path) => {
                 use rustpython_common::os::ffi::OsStrExt;
                 let path = path.as_ref().as_os_str().as_bytes();
-                let path = match std::ffi::CString::new(path) {
+                let path = match alloc::ffi::CString::new(path) {
                     Ok(x) => x,
                     Err(_) => return Ok(None),
                 };
@@ -1218,7 +1213,7 @@ pub(super) mod _os {
             use std::os::windows::io::AsRawHandle;
             use windows_sys::Win32::Storage::FileSystem;
             let handle = crt_fd::as_handle(fd).map_err(|e| e.into_pyexception(vm))?;
-            let mut distance_to_move: [i32; 2] = std::mem::transmute(position);
+            let mut distance_to_move: [i32; 2] = core::mem::transmute(position);
             let ret = FileSystem::SetFilePointer(
                 handle.as_raw_handle(),
                 distance_to_move[0],
@@ -1229,7 +1224,7 @@ pub(super) mod _os {
                 -1
             } else {
                 distance_to_move[0] = ret as _;
-                std::mem::transmute::<[i32; 2], i64>(distance_to_move)
+                core::mem::transmute::<[i32; 2], i64>(distance_to_move)
             }
         };
         if res < 0 {
@@ -1411,7 +1406,7 @@ pub(super) mod _os {
                 .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
 
             let ret = unsafe {
-                FileSystem::SetFileTime(f.as_raw_handle() as _, std::ptr::null(), &acc, &modif)
+                FileSystem::SetFileTime(f.as_raw_handle() as _, core::ptr::null(), &acc, &modif)
             };
 
             if ret == 0 {
@@ -1532,9 +1527,9 @@ pub(super) mod _os {
     #[pyfunction]
     fn copy_file_range(args: CopyFileRangeArgs<'_>, vm: &VirtualMachine) -> PyResult<usize> {
         #[allow(clippy::unnecessary_option_map_or_else)]
-        let p_offset_src = args.offset_src.as_ref().map_or_else(std::ptr::null, |x| x);
+        let p_offset_src = args.offset_src.as_ref().map_or_else(core::ptr::null, |x| x);
         #[allow(clippy::unnecessary_option_map_or_else)]
-        let p_offset_dst = args.offset_dst.as_ref().map_or_else(std::ptr::null, |x| x);
+        let p_offset_dst = args.offset_dst.as_ref().map_or_else(core::ptr::null, |x| x);
         let count: usize = args
             .count
             .try_into()
@@ -1566,7 +1561,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn strerror(e: i32) -> String {
-        unsafe { std::ffi::CStr::from_ptr(libc::strerror(e)) }
+        unsafe { core::ffi::CStr::from_ptr(libc::strerror(e)) }
             .to_string_lossy()
             .into_owned()
     }
@@ -1670,7 +1665,7 @@ pub(super) mod _os {
                     if encoding.is_null() || encoding.read() == '\0' as libc::c_char {
                         "UTF-8".to_owned()
                     } else {
-                        std::ffi::CStr::from_ptr(encoding).to_string_lossy().into_owned()
+                        core::ffi::CStr::from_ptr(encoding).to_string_lossy().into_owned()
                     }
                 };
 
@@ -1752,16 +1747,16 @@ pub(super) mod _os {
             // We extract raw bytes and interpret as a native-endian integer.
             // Note: The value may differ across architectures due to endianness.
             let f_fsid = {
-                let ptr = std::ptr::addr_of!(st.f_fsid) as *const u8;
-                let size = std::mem::size_of_val(&st.f_fsid);
+                let ptr = core::ptr::addr_of!(st.f_fsid) as *const u8;
+                let size = core::mem::size_of_val(&st.f_fsid);
                 if size >= 8 {
-                    let bytes = unsafe { std::slice::from_raw_parts(ptr, 8) };
+                    let bytes = unsafe { core::slice::from_raw_parts(ptr, 8) };
                     u64::from_ne_bytes([
                         bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6],
                         bytes[7],
                     ]) as libc::c_ulong
                 } else if size >= 4 {
-                    let bytes = unsafe { std::slice::from_raw_parts(ptr, 4) };
+                    let bytes = unsafe { core::slice::from_raw_parts(ptr, 4) };
                     u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as libc::c_ulong
                 } else {
                     0
@@ -1789,7 +1784,7 @@ pub(super) mod _os {
     #[pyfunction]
     #[pyfunction(name = "fstatvfs")]
     fn statvfs(path: OsPathOrFd<'_>, vm: &VirtualMachine) -> PyResult {
-        let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+        let mut st: libc::statvfs = unsafe { core::mem::zeroed() };
         let ret = match &path {
             OsPathOrFd::Path(p) => {
                 let cpath = p.clone().into_cstring(vm)?;

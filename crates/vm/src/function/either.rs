@@ -1,7 +1,7 @@
 use crate::{
     AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, convert::ToPyObject,
 };
-use std::borrow::Borrow;
+use core::borrow::Borrow;
 
 pub enum Either<A, B> {
     A(A),

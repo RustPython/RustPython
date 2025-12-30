@@ -18,7 +18,7 @@ enum ParameterKind {
 impl TryFrom<&Ident> for ParameterKind {
     type Error = ();
 
-    fn try_from(ident: &Ident) -> std::result::Result<Self, Self::Error> {
+    fn try_from(ident: &Ident) -> core::result::Result<Self, Self::Error> {
         Ok(match ident.to_string().as_str() {
             "positional" => Self::PositionalOnly,
             "any" => Self::PositionalOrKeyword,
@@ -105,12 +105,12 @@ impl ArgAttribute {
 impl TryFrom<&Field> for ArgAttribute {
     type Error = syn::Error;
 
-    fn try_from(field: &Field) -> std::result::Result<Self, Self::Error> {
+    fn try_from(field: &Field) -> core::result::Result<Self, Self::Error> {
         let mut pyarg_attrs = field
             .attrs
             .iter()
             .filter_map(Self::from_attribute)
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+            .collect::<core::result::Result<Vec<_>, _>>()?;
 
         if pyarg_attrs.len() >= 2 {
             bail_span!(field, "Multiple pyarg attributes on field")
@@ -234,7 +234,7 @@ pub fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
             fn from_args(
                 vm: &::rustpython_vm::VirtualMachine,
                 args: &mut ::rustpython_vm::function::FuncArgs
-            ) -> ::std::result::Result<Self, ::rustpython_vm::function::ArgumentError> {
+            ) -> ::core::result::Result<Self, ::rustpython_vm::function::ArgumentError> {
                 Ok(Self { #fields })
             }
         }

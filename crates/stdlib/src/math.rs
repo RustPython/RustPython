@@ -10,15 +10,15 @@ mod math {
         function::{ArgIndex, ArgIntoFloat, ArgIterable, Either, OptionalArg, PosArgs},
         identifier,
     };
+    use core::cmp::Ordering;
     use itertools::Itertools;
     use malachite_bigint::BigInt;
     use num_traits::{One, Signed, ToPrimitive, Zero};
     use rustpython_common::{float_ops, int::true_div};
-    use std::cmp::Ordering;
 
     // Constants
     #[pyattr]
-    use std::f64::consts::{E as e, PI as pi, TAU as tau};
+    use core::f64::consts::{E as e, PI as pi, TAU as tau};
 
     use super::pymath_error_to_exception;
     #[pyattr(name = "inf")]
@@ -136,7 +136,7 @@ mod math {
 
     #[pyfunction]
     fn log(x: PyObjectRef, base: OptionalArg<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
-        let base = base.map(|b| *b).unwrap_or(std::f64::consts::E);
+        let base = base.map(|b| *b).unwrap_or(core::f64::consts::E);
         if base.is_sign_negative() {
             return Err(vm.new_value_error("math domain error"));
         }
@@ -359,9 +359,9 @@ mod math {
                 .iter()
                 .copied()
                 .map(|x| (x / scale).powi(2))
-                .chain(std::iter::once(-norm * norm))
+                .chain(core::iter::once(-norm * norm))
                 // Pairwise summation of floats gives less rounding error than a naive sum.
-                .tree_reduce(std::ops::Add::add)
+                .tree_reduce(core::ops::Add::add)
                 .expect("expected at least 1 element");
             norm = norm + correction / (2.0 * norm);
         }
@@ -424,12 +424,12 @@ mod math {
 
     #[pyfunction]
     fn degrees(x: ArgIntoFloat) -> f64 {
-        *x * (180.0 / std::f64::consts::PI)
+        *x * (180.0 / core::f64::consts::PI)
     }
 
     #[pyfunction]
     fn radians(x: ArgIntoFloat) -> f64 {
-        *x * (std::f64::consts::PI / 180.0)
+        *x * (core::f64::consts::PI / 180.0)
     }
 
     // Hyperbolic functions:
@@ -684,7 +684,7 @@ mod math {
             for j in 0..partials.len() {
                 let mut y: f64 = partials[j];
                 if x.abs() < y.abs() {
-                    std::mem::swap(&mut x, &mut y);
+                    core::mem::swap(&mut x, &mut y);
                 }
                 // Rounded `x+y` is stored in `hi` with round-off stored in
                 // `lo`. Together `hi+lo` are exactly equal to `x+y`.

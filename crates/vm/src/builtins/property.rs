@@ -10,7 +10,7 @@ use crate::{
     function::{FuncArgs, PySetterValue},
     types::{Constructor, GetDescriptor, Initializer},
 };
-use std::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering};
 
 #[pyclass(module = false, name = "property", traverse)]
 #[derive(Debug)]
@@ -21,7 +21,7 @@ pub struct PyProperty {
     doc: PyRwLock<Option<PyObjectRef>>,
     name: PyRwLock<Option<PyObjectRef>>,
     #[pytraverse(skip)]
-    getter_doc: std::sync::atomic::AtomicBool,
+    getter_doc: core::sync::atomic::AtomicBool,
 }
 
 impl PyPayload for PyProperty {
