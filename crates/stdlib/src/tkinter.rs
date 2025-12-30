@@ -138,11 +138,7 @@ mod _tkinter {
     impl Constructor for TkApp {
         type Args = TkAppConstructorArgs;
 
-        fn py_new(
-            _cls: &Py<PyType>,
-            args: Self::Args,
-            vm: &VirtualMachine,
-        ) -> PyResult<Self> {
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             create(args, vm)
         }
     }
