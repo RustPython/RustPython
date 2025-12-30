@@ -157,6 +157,14 @@ jobs:
           cargo build --no-default-features --features ssl-openssl
         if: runner.os == 'Linux'
 
+      # - name: Install tk-dev for tkinter build
+      #   run: sudo apt-get update && sudo apt-get install -y tk-dev
+      #   if: runner.os == 'Linux'
+
+      # - name: Test tkinter build
+      #   run: cargo build --features tkinter
+      #   if: runner.os == 'Linux'
+
       - name: Test example projects
         run:
           cargo run --manifest-path example_projects/barebone/Cargo.toml
