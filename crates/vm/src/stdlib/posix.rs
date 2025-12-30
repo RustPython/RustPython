@@ -1515,7 +1515,7 @@ pub mod module {
         #[pyarg(positional)]
         args: crate::function::ArgIterable<OsPath>,
         #[pyarg(positional)]
-        env: crate::function::ArgMapping,
+        env: Option<crate::function::ArgMapping>,
         #[pyarg(named, default)]
         file_actions: Option<crate::function::ArgIterable<PyTupleRef>>,
         #[pyarg(named, default)]
@@ -1678,7 +1678,22 @@ pub mod module {
                         .map_err(|_| vm.new_value_error("path should not have nul bytes"))
                 })
                 .collect::<Result<_, _>>()?;
-            let env = envp_from_dict(self.env, vm)?;
+            let env = if let Some(env_dict) = self.env {
+                envp_from_dict(env_dict, vm)?
+            } else {
+                // env=None means use the current environment
+                use rustpython_common::os::ffi::OsStringExt;
+                env::vars_os()
+                    .map(|(k, v)| {
+                        let mut entry = k.into_vec();
+                        entry.push(b'=');
+                        entry.extend(v.into_vec());
+                        CString::new(entry).map_err(|_| {
+                            vm.new_value_error("environment string contains null byte")
+                        })
+                    })
+                    .collect::<PyResult<Vec<_>>>()?
+            };
 
             let ret = if spawnp {
                 nix::spawn::posix_spawnp(&path, &file_actions, &attrp, &args, &env)
