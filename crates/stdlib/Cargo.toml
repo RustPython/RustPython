@@ -21,7 +21,7 @@ ssl-rustls = ["ssl", "rustls", "rustls-native-certs", "rustls-pemfile", "rustls-
 ssl-rustls-fips = ["ssl-rustls", "aws-lc-rs/fips"]
 ssl-openssl = ["ssl", "openssl", "openssl-sys", "foreign-types-shared", "openssl-probe"]
 ssl-vendor = ["ssl-openssl", "openssl/vendored"]
-tkinter = ["dep:tk-sys", "dep:tcl-sys"]
+tkinter = ["dep:tk-sys", "dep:tcl-sys", "dep:widestring"]
 
 [dependencies]
 # rustpython crates
@@ -90,6 +90,7 @@ bzip2 = "0.6"
 # tkinter
 tk-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0", optional = true }
 tcl-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0", optional = true }
+widestring = { workspace = true, optional = true }
 chrono.workspace = true
 
 # uuid

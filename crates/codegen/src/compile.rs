@@ -115,11 +115,22 @@ enum DoneWithFuture {
     Yes,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct CompileOpts {
     /// How optimized the bytecode output should be; any optimize > 0 does
     /// not emit assert statements
     pub optimize: u8,
+    /// Include column info in bytecode (-X no_debug_ranges disables)
+    pub debug_ranges: bool,
+}
+
+impl Default for CompileOpts {
+    fn default() -> Self {
+        Self {
+            optimize: 0,
+            debug_ranges: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -859,7 +870,7 @@ impl Compiler {
         let pop = self.code_stack.pop();
         let stack_top = compiler_unwrap_option(self, pop);
         // No parent scope stack to maintain
-        unwrap_internal(self, stack_top.finalize_code(self.opts.optimize))
+        unwrap_internal(self, stack_top.finalize_code(&self.opts))
     }
 
     /// Push a new fblock
@@ -1486,7 +1497,9 @@ impl Compiler {
                 ..
             }) => self.compile_for(target, iter, body, orelse, *is_async)?,
             Stmt::Match(StmtMatch { subject, cases, .. }) => self.compile_match(subject, cases)?,
-            Stmt::Raise(StmtRaise { exc, cause, .. }) => {
+            Stmt::Raise(StmtRaise {
+                exc, cause, range, ..
+            }) => {
                 let kind = match exc {
                     Some(value) => {
                         self.compile_expression(value)?;
@@ -1500,6 +1513,7 @@ impl Compiler {
                     }
                     None => bytecode::RaiseKind::Reraise,
                 };
+                self.set_source_range(*range);
                 emit!(self, Instruction::Raise { kind });
             }
             Stmt::Try(StmtTry {
@@ -5639,17 +5653,15 @@ impl Compiler {
     // Low level helper functions:
     fn _emit(&mut self, instr: Instruction, arg: OpArg, target: BlockIdx) {
         let range = self.current_source_range;
-        let location = self
-            .source_file
-            .to_source_code()
-            .source_location(range.start(), PositionEncoding::Utf8);
-        // TODO: insert source filename
+        let source = self.source_file.to_source_code();
+        let location = source.source_location(range.start(), PositionEncoding::Utf8);
+        let end_location = source.source_location(range.end(), PositionEncoding::Utf8);
         self.current_block().instructions.push(ir::InstructionInfo {
             instr,
             arg,
             target,
             location,
-            // range,
+            end_location,
         });
     }
 

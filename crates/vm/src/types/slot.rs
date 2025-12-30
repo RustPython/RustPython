@@ -760,8 +760,9 @@ impl PyType {
                         let in_self = cmp_names.iter().any(|n| attrs.contains_key(*n));
                         drop(attrs);
 
+                        // mro[0] is self, so skip it since we already checked self above
                         in_self
-                            || self.mro.read().iter().any(|cls| {
+                            || self.mro.read()[1..].iter().any(|cls| {
                                 let attrs = cls.attributes.read();
                                 cmp_names.iter().any(|n| {
                                     if let Some(attr) = attrs.get(*n) {
@@ -1273,8 +1274,8 @@ impl PyType {
             return None;
         }
 
-        // Look up in MRO
-        for cls in self.mro.read().iter() {
+        // Look up in MRO (mro[0] is self, so skip it)
+        for cls in self.mro.read()[1..].iter() {
             if let Some(attr) = cls.attributes.read().get(name).cloned() {
                 if let Some(func) = try_extract(&attr) {
                     return Some(func);
