@@ -228,6 +228,10 @@ class Tracer(Bdb):
         self.process_event('exception', frame)
         self.next_set_method()
 
+    def user_opcode(self, frame):
+        self.process_event('opcode', frame)
+        self.next_set_method()
+
     def do_clear(self, arg):
         # The temporary breakpoints are deleted in user_line().
         bp_list = [self.currentbp]
@@ -366,7 +370,7 @@ class Tracer(Bdb):
         set_method = getattr(self, 'set_' + set_type)
 
         # The following set methods give back control to the tracer.
-        if set_type in ('step', 'continue', 'quit'):
+        if set_type in ('step', 'stepinstr', 'continue', 'quit'):
             set_method()
             return
         elif set_type in ('next', 'return'):
@@ -586,7 +590,7 @@ class BaseTestCase(unittest.TestCase):
 class StateTestCase(BaseTestCase):
     """Test the step, next, return, until and quit 'set_' methods."""
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_step(self):
         self.expect_set = [
             ('line', 2, 'tfunc_main'),  ('step', ),
@@ -597,7 +601,7 @@ class StateTestCase(BaseTestCase):
         with TracerRun(self) as tracer:
             tracer.runcall(tfunc_main)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_step_next_on_last_statement(self):
         for set_type in ('step', 'next'):
             with self.subTest(set_type=set_type):
@@ -612,7 +616,18 @@ class StateTestCase(BaseTestCase):
                 with TracerRun(self) as tracer:
                     tracer.runcall(tfunc_main)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON')
+    # AssertionError: All paired tuples have not been processed, the last one was number 1 [('next',), ('quit',)]
+    def test_stepinstr(self):
+        self.expect_set = [
+            ('line',   2, 'tfunc_main'),  ('stepinstr', ),
+            ('opcode', 2, 'tfunc_main'),  ('next', ),
+            ('line',   3, 'tfunc_main'),  ('quit', ),
+        ]
+        with TracerRun(self) as tracer:
+            tracer.runcall(tfunc_main)
+
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_next(self):
         self.expect_set = [
             ('line', 2, 'tfunc_main'),   ('step', ),
@@ -624,7 +639,7 @@ class StateTestCase(BaseTestCase):
         with TracerRun(self) as tracer:
             tracer.runcall(tfunc_main)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_next_over_import(self):
         code = """
             def main():
@@ -639,7 +654,7 @@ class StateTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_next_on_plain_statement(self):
         # Check that set_next() is equivalent to set_step() on a plain
         # statement.
@@ -652,7 +667,7 @@ class StateTestCase(BaseTestCase):
         with TracerRun(self) as tracer:
             tracer.runcall(tfunc_main)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_next_in_caller_frame(self):
         # Check that set_next() in the caller frame causes the tracer
         # to stop next in the caller frame.
@@ -666,7 +681,7 @@ class StateTestCase(BaseTestCase):
         with TracerRun(self) as tracer:
             tracer.runcall(tfunc_main)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_return(self):
         self.expect_set = [
             ('line', 2, 'tfunc_main'),    ('step', ),
@@ -679,7 +694,7 @@ class StateTestCase(BaseTestCase):
         with TracerRun(self) as tracer:
             tracer.runcall(tfunc_main)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_return_in_caller_frame(self):
         self.expect_set = [
             ('line', 2, 'tfunc_main'),   ('step', ),
@@ -691,7 +706,7 @@ class StateTestCase(BaseTestCase):
         with TracerRun(self) as tracer:
             tracer.runcall(tfunc_main)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_until(self):
         self.expect_set = [
             ('line', 2, 'tfunc_main'),  ('step', ),
@@ -703,7 +718,7 @@ class StateTestCase(BaseTestCase):
         with TracerRun(self) as tracer:
             tracer.runcall(tfunc_main)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_until_with_too_large_count(self):
         self.expect_set = [
             ('line', 2, 'tfunc_main'),               break_in_func('tfunc_first'),
@@ -714,7 +729,7 @@ class StateTestCase(BaseTestCase):
         with TracerRun(self) as tracer:
             tracer.runcall(tfunc_main)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_until_in_caller_frame(self):
         self.expect_set = [
             ('line', 2, 'tfunc_main'),  ('step', ),
@@ -726,7 +741,8 @@ class StateTestCase(BaseTestCase):
         with TracerRun(self) as tracer:
             tracer.runcall(tfunc_main)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
+    @patch_list(sys.meta_path)
     def test_skip(self):
         # Check that tracing is skipped over the import statement in
         # 'tfunc_import()'.
@@ -759,7 +775,7 @@ class StateTestCase(BaseTestCase):
         bdb = Bdb(skip=['anything*'])
         self.assertIs(bdb.is_skipped_module(None), False)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_down(self):
         # Check that set_down() raises BdbError at the newest frame.
         self.expect_set = [
@@ -768,7 +784,7 @@ class StateTestCase(BaseTestCase):
         with TracerRun(self) as tracer:
             self.assertRaises(BdbError, tracer.runcall, tfunc_main)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_up(self):
         self.expect_set = [
             ('line', 2, 'tfunc_main'),  ('step', ),
@@ -782,7 +798,7 @@ class StateTestCase(BaseTestCase):
 class BreakpointTestCase(BaseTestCase):
     """Test the breakpoint set method."""
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_bp_on_non_existent_module(self):
         self.expect_set = [
             ('line', 2, 'tfunc_import'), ('break', ('/non/existent/module.py', 1))
@@ -790,7 +806,7 @@ class BreakpointTestCase(BaseTestCase):
         with TracerRun(self) as tracer:
             self.assertRaises(BdbError, tracer.runcall, tfunc_import)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_bp_after_last_statement(self):
         code = """
             def main():
@@ -804,7 +820,7 @@ class BreakpointTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 self.assertRaises(BdbError, tracer.runcall, tfunc_import)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_temporary_bp(self):
         code = """
             def func():
@@ -828,7 +844,7 @@ class BreakpointTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_disabled_temporary_bp(self):
         code = """
             def func():
@@ -857,7 +873,7 @@ class BreakpointTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_bp_condition(self):
         code = """
             def func(a):
@@ -878,7 +894,7 @@ class BreakpointTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_bp_exception_on_condition_evaluation(self):
         code = """
             def func(a):
@@ -898,7 +914,7 @@ class BreakpointTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_bp_ignore_count(self):
         code = """
             def func():
@@ -920,7 +936,7 @@ class BreakpointTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_ignore_count_on_disabled_bp(self):
         code = """
             def func():
@@ -948,7 +964,7 @@ class BreakpointTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_clear_two_bp_on_same_line(self):
         code = """
             def func():
@@ -974,7 +990,7 @@ class BreakpointTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_clear_at_no_bp(self):
         self.expect_set = [
             ('line', 2, 'tfunc_import'), ('clear', (__file__, 1))
@@ -1028,7 +1044,7 @@ class BreakpointTestCase(BaseTestCase):
 class RunTestCase(BaseTestCase):
     """Test run, runeval and set_trace."""
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_run_step(self):
         # Check that the bdb 'run' method stops at the first line event.
         code = """
@@ -1041,7 +1057,7 @@ class RunTestCase(BaseTestCase):
         with TracerRun(self) as tracer:
             tracer.run(compile(textwrap.dedent(code), '<string>', 'exec'))
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_runeval_step(self):
         # Test bdb 'runeval'.
         code = """
@@ -1064,7 +1080,7 @@ class RunTestCase(BaseTestCase):
 class IssuesTestCase(BaseTestCase):
     """Test fixed bdb issues."""
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_step_at_return_with_no_trace_in_caller(self):
         # Issue #13183.
         # Check that the tracer does step into the caller frame when the
@@ -1095,7 +1111,7 @@ class IssuesTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_next_until_return_in_generator(self):
         # Issue #16596.
         # Check that set_next(), set_until() and set_return() do not treat the
@@ -1137,7 +1153,7 @@ class IssuesTestCase(BaseTestCase):
                     with TracerRun(self) as tracer:
                         tracer.runcall(tfunc_import)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_next_command_in_generator_for_loop(self):
         # Issue #16596.
         code = """
@@ -1169,7 +1185,7 @@ class IssuesTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_next_command_in_generator_with_subiterator(self):
         # Issue #16596.
         code = """
@@ -1201,7 +1217,7 @@ class IssuesTestCase(BaseTestCase):
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
 
-    @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @unittest.skip('TODO: RUSTPYTHON; Error in atexit._run_exitfuncs')
     def test_return_command_in_generator_with_subiterator(self):
         # Issue #16596.
         code = """
@@ -1232,6 +1248,21 @@ class IssuesTestCase(BaseTestCase):
             ]
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
+
+    @unittest.skip('TODO: RUSTPYTHON')
+    # AssertionError: All paired tuples have not been processed, the last one was number 1 [('next',)]
+    def test_next_to_botframe(self):
+        # gh-125422
+        # Check that next command won't go to the bottom frame.
+        code = """
+            lno = 2
+        """
+        self.expect_set = [
+            ('line', 2, '<module>'),   ('step', ),
+            ('return', 2, '<module>'), ('next', ),
+        ]
+        with TracerRun(self) as tracer:
+            tracer.run(compile(textwrap.dedent(code), '<string>', 'exec'))
 
 
 class TestRegressions(unittest.TestCase):
