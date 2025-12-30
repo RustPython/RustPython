@@ -493,6 +493,7 @@ pub struct ExceptionZoo {
     pub runtime_error: &'static Py<PyType>,
     pub not_implemented_error: &'static Py<PyType>,
     pub recursion_error: &'static Py<PyType>,
+    pub python_finalization_error: &'static Py<PyType>,
     pub syntax_error: &'static Py<PyType>,
     pub incomplete_input_error: &'static Py<PyType>,
     pub indentation_error: &'static Py<PyType>,
@@ -804,6 +805,7 @@ impl ExceptionZoo {
         let runtime_error = PyRuntimeError::init_builtin_type();
         let not_implemented_error = PyNotImplementedError::init_builtin_type();
         let recursion_error = PyRecursionError::init_builtin_type();
+        let python_finalization_error = PyPythonFinalizationError::init_builtin_type();
 
         let syntax_error = PySyntaxError::init_builtin_type();
         let incomplete_input_error = PyIncompleteInputError::init_builtin_type();
@@ -879,6 +881,7 @@ impl ExceptionZoo {
             runtime_error,
             not_implemented_error,
             recursion_error,
+            python_finalization_error,
             syntax_error,
             incomplete_input_error,
             indentation_error,
@@ -992,6 +995,11 @@ impl ExceptionZoo {
         extend_exception!(PyRuntimeError, ctx, excs.runtime_error);
         extend_exception!(PyNotImplementedError, ctx, excs.not_implemented_error);
         extend_exception!(PyRecursionError, ctx, excs.recursion_error);
+        extend_exception!(
+            PyPythonFinalizationError,
+            ctx,
+            excs.python_finalization_error
+        );
 
         extend_exception!(PySyntaxError, ctx, excs.syntax_error, {
             "msg" => ctx.new_static_getset(
@@ -2110,6 +2118,11 @@ pub(super) mod types {
     #[derive(Debug)]
     #[repr(transparent)]
     pub struct PyRecursionError(PyRuntimeError);
+
+    #[pyexception(name, base = PyRuntimeError, ctx = "python_finalization_error", impl)]
+    #[derive(Debug)]
+    #[repr(transparent)]
+    pub struct PyPythonFinalizationError(PyRuntimeError);
 
     #[pyexception(name, base = PyException, ctx = "syntax_error")]
     #[derive(Debug)]
