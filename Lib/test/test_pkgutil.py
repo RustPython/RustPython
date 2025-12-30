@@ -231,8 +231,7 @@ class PkgutilTests(unittest.TestCase):
         with self.assertRaises((TypeError, ValueError)):
             list(pkgutil.walk_packages(bytes_input))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_name_resolution(self):
         import logging
         import logging.handlers
@@ -324,8 +323,6 @@ class PkgutilTests(unittest.TestCase):
                 with self.assertRaises(exc):
                     pkgutil.resolve_name(s)
 
-    @unittest.skip('TODO: RUSTPYTHON')
-    # ModuleNotFoundError: No module named 'package3'
     def test_name_resolution_import_rebinding(self):
         # The same data is also used for testing import in test_import and
         # mock.patch in test_unittest.
@@ -343,8 +340,6 @@ class PkgutilTests(unittest.TestCase):
             self.assertEqual(pkgutil.resolve_name('package3.submodule:attr'), 'submodule')
             self.assertEqual(pkgutil.resolve_name('package3:submodule.attr'), 'rebound')
 
-    @unittest.skip('TODO: RUSTPYTHON')
-    # ModuleNotFoundError: No module named 'package4'
     def test_name_resolution_import_rebinding2(self):
         path = os.path.join(os.path.dirname(__file__), 'test_import', 'data')
         with uncache('package4', 'package4.submodule'), DirsOnSysPath(path):
