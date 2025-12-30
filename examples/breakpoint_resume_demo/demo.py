@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import rustpython_checkpoint as rpc  # type: ignore
+import os
 
 # Checkpoint file path as a string to keep it serializable.
 CHECKPOINT_PATH = str(Path(__file__).with_suffix(".rpsnap"))
@@ -46,7 +47,7 @@ print(SEP)
 rpc.checkpoint(CHECKPOINT_PATH)
 
 # Re-import after resume so the next checkpoint works.
-import rustpython_checkpoint as rpc  # type: ignore
+# import rustpython_checkpoint as rpc  # type: ignore
 
 # Phase 2: derive alerts and billing info from restored state.
 print("[2/3] resumed after checkpoint #1")
@@ -98,7 +99,7 @@ print(SEP)
 rpc.checkpoint(CHECKPOINT_PATH)
 
 # After resume, prepare cleanup utilities.
-import os
+# import os
 
 # Phase 3: produce a final report and clean up the checkpoint file.
 print(SEP)

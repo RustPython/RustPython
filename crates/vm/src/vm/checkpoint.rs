@@ -71,7 +71,7 @@ pub(crate) fn save_checkpoint_from_exec(
     path: &str,
 ) -> PyResult<()> {
     let data = save_checkpoint_bytes_from_exec(vm, source_path, lasti, code, globals)?;
-    fs::write(path, data).map_err(|err| vm.new_os_error(format!("checkpoint write failed: {err}")))?;
+    fs::write(path, &data).map_err(|err| vm.new_os_error(format!("checkpoint write failed: {err}")))?;
     Ok(())
 }
 

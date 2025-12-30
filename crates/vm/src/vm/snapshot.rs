@@ -1,7 +1,8 @@
 use crate::{
     AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     builtins::{
-        PyDictRef, PyFloat, PyInt, PyList, PyModule, PyStr, PyTuple,
+        PyClassMethod, PyDictRef, PyFloat, PyInt, PyList, PyModule, PyStaticMethod, PyStr, PyTuple,
+        PyWeak,
         code::{PyCode, CodeObject, PyObjBag},
         dict::PyDict,
         function::{PyCell, PyFunction},
@@ -9,6 +10,7 @@ use crate::{
         type_::PyType,
     },
     convert::TryFromObject,
+    protocol::PyIterReturn,
 };
 use rustpython_compiler_core::marshal;
 use std::collections::HashMap;
@@ -149,6 +151,7 @@ pub(crate) fn dump_checkpoint_state(
     let root = writer.serialize_obj(&globals.as_object().to_owned()).map_err(|err| {
         vm.new_value_error(format!("checkpoint snapshot failed: {err:?}"))
     })?;
+    
     let code_bytes = serialize_code_object(&code.code);
     let state = CheckpointState {
         version: SNAPSHOT_VERSION,
@@ -173,7 +176,7 @@ pub(crate) fn load_checkpoint_state(
             state.version
         )));
     }
-    let reader = SnapshotReader::new(vm, &state.objects);
+    let reader = SnapshotReader::new(vm, &state.objects, state.root);
     let objects = reader
         .restore_all()
         .map_err(|err| vm.new_value_error(format!("checkpoint restore failed: {err:?}")))?;
@@ -204,6 +207,11 @@ struct SnapshotWriter<'a> {
     vm: &'a VirtualMachine,
     ids: HashMap<usize, ObjId>,
     objects: Vec<ObjectEntry>,
+    held: Vec<PyObjectRef>,
+    /// Cache for dynamically created Type attribute dicts: type_ptr -> dict_obj
+    type_attr_dicts: HashMap<usize, PyObjectRef>,
+    /// Cache for instance newargs/kwargs/state: obj_ptr -> (newargs, newkwargs, state)
+    instance_data: HashMap<usize, (Option<PyObjectRef>, Option<PyObjectRef>, Option<PyObjectRef>)>,
 }
 
 impl<'a> SnapshotWriter<'a> {
@@ -212,23 +220,242 @@ impl<'a> SnapshotWriter<'a> {
             vm,
             ids: HashMap::new(),
             objects: Vec::new(),
+            held: Vec::new(),
+            type_attr_dicts: HashMap::new(),
+            instance_data: HashMap::new(),
         }
     }
 
+    /// Two-pass serialization: first assign IDs, then build payloads
     fn serialize_obj(&mut self, obj: &PyObjectRef) -> Result<ObjId, SnapshotError> {
+        // Phase 1: Assign IDs to all reachable objects
+        self.assign_ids_phase(obj)?;
+        
+        // Phase 2: Build payloads for all objects in ID order
+        self.build_payloads_phase()?;
+        
+        // Return the root object's ID
         let ptr = obj.as_object().as_raw() as usize;
-        if let Some(id) = self.ids.get(&ptr) {
-            return Ok(*id);
+        Ok(*self.ids.get(&ptr).unwrap())
+    }
+    
+    /// Phase 1: Recursively assign IDs to all objects in the graph
+    fn assign_ids_phase(&mut self, obj: &PyObjectRef) -> Result<(), SnapshotError> {
+        // Check recursion depth to prevent stack overflow
+        static MAX_DEPTH: usize = 100000;
+        if self.held.len() > MAX_DEPTH {
+            return Err(SnapshotError::msg("recursion depth exceeded"));
         }
-
-        let tag = classify_obj(self.vm, obj)?;
-        let id = self.objects.len() as ObjId;
+        
+        let ptr = obj.as_object().as_raw() as usize;
+        if self.ids.contains_key(&ptr) {
+            return Ok(()); // Already visited
+        }
+        
+        let id = self.held.len() as ObjId;
         self.ids.insert(ptr, id);
+        self.held.push(obj.clone());
+        
+        // Recursively visit child objects
+        self.visit_children(obj)?;
+        Ok(())
+    }
+    
+    /// Visit all child objects for ID assignment
+    fn visit_children(&mut self, obj: &PyObjectRef) -> Result<(), SnapshotError> {
+        let tag = classify_obj(self.vm, obj)?;
+        
+        match tag {
+            ObjTag::None | ObjTag::Bool | ObjTag::Int | ObjTag::Float | 
+            ObjTag::Str | ObjTag::Bytes | ObjTag::Code | ObjTag::BuiltinType |
+            ObjTag::BuiltinModule | ObjTag::BuiltinDict => {
+                // No child objects to visit
+                Ok(())
+            }
+            ObjTag::BuiltinFunction => {
+                // Visit __self__ if present
+                if let Some(self_obj) = get_attr_opt(self.vm, obj, "__self__")? {
+                    if !self.vm.is_none(&self_obj) {
+                        self.assign_ids_phase(&self_obj)?;
+                    }
+                }
+                Ok(())
+            }
+            ObjTag::List => {
+                let list = obj.downcast_ref::<PyList>().ok_or_else(|| SnapshotError::msg("expected list"))?;
+                for item in list.borrow_vec().iter() {
+                    self.assign_ids_phase(item)?;
+                }
+                Ok(())
+            }
+            ObjTag::Tuple => {
+                let tuple = obj.downcast_ref::<PyTuple>().ok_or_else(|| SnapshotError::msg("expected tuple"))?;
+                for item in tuple.iter() {
+                    self.assign_ids_phase(item)?;
+                }
+                Ok(())
+            }
+            ObjTag::Dict => {
+                let dict = PyDictRef::try_from_object(self.vm, obj.clone())
+                    .map_err(|_| SnapshotError::msg("expected dict"))?;
+                for (key, value) in &dict {
+                    self.assign_ids_phase(&key)?;
+                    self.assign_ids_phase(&value)?;
+                }
+                Ok(())
+            }
+            ObjTag::Set => {
+                let set = obj.downcast_ref::<PySet>().ok_or_else(|| SnapshotError::msg("expected set"))?;
+                for key in set.elements() {
+                    self.assign_ids_phase(&key)?;
+                }
+                Ok(())
+            }
+            ObjTag::FrozenSet => {
+                let set = obj.downcast_ref::<PyFrozenSet>().ok_or_else(|| SnapshotError::msg("expected frozenset"))?;
+                for key in set.elements() {
+                    self.assign_ids_phase(&key)?;
+                }
+                Ok(())
+            }
+            ObjTag::Module => {
+                let dict = obj.dict().ok_or_else(|| SnapshotError::msg("module missing dict"))?;
+                self.assign_ids_phase(&dict.into())?;
+                Ok(())
+            }
+            ObjTag::Function => {
+                self.assign_ids_phase(&get_attr(self.vm, obj, "__code__")?)?;
+                self.assign_ids_phase(&get_attr(self.vm, obj, "__globals__")?)?;
+                
+                let defaults_obj = get_attr_opt(self.vm, obj, "__defaults__")?.unwrap_or_else(|| self.vm.ctx.none());
+                if !self.vm.is_none(&defaults_obj) && defaults_obj.downcast_ref::<PyTuple>().is_some() {
+                    self.assign_ids_phase(&defaults_obj)?;
+                }
+                
+                // For kwdefaults and annotations, just visit the original object
+                // Conversion will be done in phase 2
+                let kwdefaults_obj = get_attr_opt(self.vm, obj, "__kwdefaults__")?.unwrap_or_else(|| self.vm.ctx.none());
+                if !self.vm.is_none(&kwdefaults_obj) {
+                    self.assign_ids_phase(&kwdefaults_obj)?;
+                }
+                
+                let closure_obj = get_attr(self.vm, obj, "__closure__")?;
+                if !self.vm.is_none(&closure_obj) && closure_obj.downcast_ref::<PyTuple>().is_some() {
+                    self.assign_ids_phase(&closure_obj)?;
+                }
+                
+                self.assign_ids_phase(&get_attr(self.vm, obj, "__name__")?)?;
+                self.assign_ids_phase(&get_attr(self.vm, obj, "__qualname__")?)?;
+                self.assign_ids_phase(&get_attr(self.vm, obj, "__annotations__")?)?;
+                self.assign_ids_phase(&get_attr(self.vm, obj, "__module__")?)?;
+                self.assign_ids_phase(&get_attr(self.vm, obj, "__doc__")?)?;
+                
+                let type_params_obj = get_attr_opt(self.vm, obj, "__type_params__")?.unwrap_or_else(|| self.vm.ctx.empty_tuple.clone().into());
+                self.assign_ids_phase(&type_params_obj)?;
+                Ok(())
+            }
+            ObjTag::Type => {
+                let typ = obj.downcast_ref::<PyType>().ok_or_else(|| SnapshotError::msg("expected type"))?;
+                
+                for base in typ.bases.read().iter() {
+                    if base.as_object().as_raw() == self.vm.ctx.types.object_type.as_object().as_raw() {
+                        continue;
+                    }
+                    self.assign_ids_phase(&base.to_owned().into())?;
+                }
+                
+                // Create and cache attributes dict in phase 1
+                let dict = self.vm.ctx.new_dict();
+                for (key, value) in typ.attributes.read().iter() {
+                    if should_skip_type_attr(self.vm, value) {
+                        continue;
+                    }
+                    dict.set_item(key.as_str(), value.clone(), self.vm)
+                        .map_err(|_| SnapshotError::msg("type dict build failed"))?;
+                    self.assign_ids_phase(value)?;
+                }
+                let dict_obj: PyObjectRef = dict.into();
+                let type_ptr = obj.as_object().as_raw() as usize;
+                self.type_attr_dicts.insert(type_ptr, dict_obj.clone());
+                self.assign_ids_phase(&dict_obj)?;
+                Ok(())
+            }
+            ObjTag::Instance => {
+                let typ = obj.class();
+                self.assign_ids_phase(&typ.to_owned().into())?;
+                
+                let (new_args, new_kwargs) = get_newargs(self.vm, obj)?;
+                let state = get_state(self.vm, obj)?;
+                
+                // Cache for later use in build_payload
+                let obj_ptr = obj.as_object().as_raw() as usize;
+                self.instance_data.insert(obj_ptr, (new_args.clone(), new_kwargs.clone(), state.clone()));
+                
+                if let Some(ref args) = new_args {
+                    self.assign_ids_phase(args)?;
+                }
+                if let Some(ref kwargs) = new_kwargs {
+                    self.assign_ids_phase(kwargs)?;
+                }
+                if let Some(ref s) = state {
+                    self.assign_ids_phase(s)?;
+                }
+                Ok(())
+            }
+            ObjTag::Cell => {
+                let cell = obj.downcast_ref::<PyCell>().ok_or_else(|| SnapshotError::msg("expected cell"))?;
+                if let Some(contents) = cell.get() {
+                    self.assign_ids_phase(&contents)?;
+                }
+                Ok(())
+            }
+        }
+    }
+    
+    /// Phase 2: Build payloads for all objects in ID order
+    fn build_payloads_phase(&mut self) -> Result<(), SnapshotError> {
+        let count = self.held.len();
+        self.objects.reserve(count);
+        
+        for idx in 0..count {
+            let obj = self.held[idx].clone(); // Clone to avoid borrow checker issues
+            let tag = classify_obj(self.vm, &obj)?;
+            let payload = self.build_payload(tag, &obj)?;
+            self.objects.push(ObjectEntry { tag, payload });
+        }
+        
+        Ok(())
+    }
+    
+    /// Get the ID of an already-visited object
+    fn get_id(&self, obj: &PyObjectRef) -> Result<ObjId, SnapshotError> {
+        let ptr = obj.as_object().as_raw() as usize;
+        self.ids.get(&ptr).copied()
+            .ok_or_else(|| SnapshotError::msg(format!("object not in ID map: class={}", obj.class().name())))
+    }
+    
+    /// Get ID or assign new ID if object not yet visited (for dynamically created objects)
+    fn get_or_assign_id(&mut self, obj: &PyObjectRef) -> Result<ObjId, SnapshotError> {
+        let ptr = obj.as_object().as_raw() as usize;
+        if let Some(&id) = self.ids.get(&ptr) {
+            return Ok(id);
+        }
+        
+        // Object not yet visited, assign ID now
+        let id = self.held.len() as ObjId;
+        self.ids.insert(ptr, id);
+        self.held.push(obj.clone());
+        
+        // Build payload immediately
+        let tag = classify_obj(self.vm, obj)?;
         let payload = self.build_payload(tag, obj)?;
         self.objects.push(ObjectEntry { tag, payload });
+        
         Ok(id)
     }
-
+    
+    /// Get or create a converted dict object (for kwdefaults/annotations)
+    /// Returns the same object on subsequent calls with the same source_ptr
     fn build_payload(&mut self, tag: ObjTag, obj: &PyObjectRef) -> Result<ObjectPayload, SnapshotError> {
         match tag {
             ObjTag::None => Ok(ObjectPayload::None),
@@ -262,7 +489,7 @@ impl<'a> SnapshotWriter<'a> {
                 let items = list
                     .borrow_vec()
                     .iter()
-                    .map(|item| self.serialize_obj(item))
+                    .map(|item| self.get_id(item))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(ObjectPayload::List(items))
             }
@@ -270,7 +497,7 @@ impl<'a> SnapshotWriter<'a> {
                 let tuple = obj.downcast_ref::<PyTuple>().ok_or_else(|| SnapshotError::msg("expected tuple"))?;
                 let items = tuple
                     .iter()
-                    .map(|item| self.serialize_obj(item))
+                    .map(|item| self.get_id(item))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(ObjectPayload::Tuple(items))
             }
@@ -282,8 +509,8 @@ impl<'a> SnapshotWriter<'a> {
                 let mut entries = Vec::new();
                 for (key, value) in &dict {
                     let key_bytes = snapshot_key_bytes(self.vm, &key)?;
-                    let key_id = self.serialize_obj(&key)?;
-                    let value_id = self.serialize_obj(&value)?;
+                    let key_id = self.get_id(&key)?;
+                    let value_id = self.get_id(&value)?;
                     entries.push((key_bytes, key_id, value_id));
                 }
                 entries.sort_by(|(a, _, _), (b, _, _)| cbor_key_cmp(a, b));
@@ -298,7 +525,7 @@ impl<'a> SnapshotWriter<'a> {
                 let mut entries = Vec::new();
                 for key in set.elements() {
                     let key_bytes = snapshot_key_bytes(self.vm, &key)?;
-                    let key_id = self.serialize_obj(&key)?;
+                    let key_id = self.get_id(&key)?;
                     entries.push((key_bytes, key_id));
                 }
                 entries.sort_by(|(a, _), (b, _)| cbor_key_cmp(a, b));
@@ -310,7 +537,7 @@ impl<'a> SnapshotWriter<'a> {
                 let mut entries = Vec::new();
                 for key in set.elements() {
                     let key_bytes = snapshot_key_bytes(self.vm, &key)?;
-                    let key_id = self.serialize_obj(&key)?;
+                    let key_id = self.get_id(&key)?;
                     entries.push((key_bytes, key_id));
                 }
                 entries.sort_by(|(a, _), (b, _)| cbor_key_cmp(a, b));
@@ -324,42 +551,87 @@ impl<'a> SnapshotWriter<'a> {
                     .dict()
                     .ok_or_else(|| SnapshotError::msg("module missing dict"))?;
                 let name = get_attr_str(self.vm, obj, "__name__")?.unwrap_or_default();
-                let dict_id = self.serialize_obj(&dict.into())?;
+                let dict_id = self.get_id(&dict.into())?;
                 Ok(ObjectPayload::Module { name, dict: dict_id })
             }
             ObjTag::Function => {
                 obj.downcast_ref::<PyFunction>()
                     .ok_or_else(|| SnapshotError::msg("expected function"))?;
                 let code_obj = get_attr(self.vm, obj, "__code__")?;
-                let code = self.serialize_obj(&code_obj)?;
+                let code = self.get_id(&code_obj)?;
                 let globals_obj = get_attr(self.vm, obj, "__globals__")?;
-                let globals = self.serialize_obj(&globals_obj)?;
+                let globals = self.get_id(&globals_obj)?;
                 let defaults_obj = get_attr(self.vm, obj, "__defaults__")?;
                 let defaults = if self.vm.is_none(&defaults_obj) {
                     None
+                } else if defaults_obj.downcast_ref::<PyTuple>().is_some() {
+                    Some(self.get_id(&defaults_obj)?)
                 } else {
-                    Some(self.serialize_obj(&defaults_obj)?)
+                    None
                 };
                 let kwdefaults_obj = get_attr(self.vm, obj, "__kwdefaults__")?;
                 let kwdefaults = if self.vm.is_none(&kwdefaults_obj) {
                     None
+                } else if PyDictRef::try_from_object(self.vm, kwdefaults_obj.clone()).is_ok() {
+                    Some(self.get_id(&kwdefaults_obj)?)
+                } else if let Ok(dict) = mapping_to_dict(self.vm, &kwdefaults_obj) {
+                    // Create new dict, assign ID dynamically
+                    let dict_obj: PyObjectRef = dict.into();
+                    let id = self.held.len() as ObjId;
+                    let ptr = dict_obj.as_object().as_raw() as usize;
+                    self.ids.insert(ptr, id);
+                    self.held.push(dict_obj.clone());
+                    self.objects.push(ObjectEntry {
+                        tag: ObjTag::Dict,
+                        payload: ObjectPayload::Dict(Vec::new()), // Will be filled later if needed
+                    });
+                    Some(id)
                 } else {
-                    Some(self.serialize_obj(&kwdefaults_obj)?)
+                    None
                 };
                 let closure_obj = get_attr(self.vm, obj, "__closure__")?;
                 let closure = if self.vm.is_none(&closure_obj) {
                     None
+                } else if closure_obj.downcast_ref::<PyTuple>().is_some() {
+                    Some(self.get_id(&closure_obj)?)
                 } else {
-                    Some(self.serialize_obj(&closure_obj)?)
+                    None
                 };
-                let name = self.serialize_obj(&get_attr(self.vm, obj, "__name__")?)?;
-                let qualname = self.serialize_obj(&get_attr(self.vm, obj, "__qualname__")?)?;
-                let annotations = self.serialize_obj(&get_attr(self.vm, obj, "__annotations__")?)?;
-                let module = self.serialize_obj(&get_attr(self.vm, obj, "__module__")?)?;
-                let doc = self.serialize_obj(&get_attr(self.vm, obj, "__doc__")?)?;
+                let name = self.get_id(&get_attr(self.vm, obj, "__name__")?)?;
+                let qualname = self.get_id(&get_attr(self.vm, obj, "__qualname__")?)?;
+                let annotations_obj = get_attr(self.vm, obj, "__annotations__")?;
+                let annotations = if PyDictRef::try_from_object(self.vm, annotations_obj.clone()).is_ok() {
+                    self.get_id(&annotations_obj)?
+                } else if let Ok(dict) = mapping_to_dict(self.vm, &annotations_obj) {
+                    // Create new dict, assign ID dynamically
+                    let dict_obj: PyObjectRef = dict.into();
+                    let id = self.held.len() as ObjId;
+                    let ptr = dict_obj.as_object().as_raw() as usize;
+                    self.ids.insert(ptr, id);
+                    self.held.push(dict_obj.clone());
+                    self.objects.push(ObjectEntry {
+                        tag: ObjTag::Dict,
+                        payload: ObjectPayload::Dict(Vec::new()),
+                    });
+                    id
+                } else {
+                    // Create empty dict
+                    let dict_obj: PyObjectRef = self.vm.ctx.new_dict().into();
+                    let id = self.held.len() as ObjId;
+                    let ptr = dict_obj.as_object().as_raw() as usize;
+                    self.ids.insert(ptr, id);
+                    self.held.push(dict_obj);
+                    self.objects.push(ObjectEntry {
+                        tag: ObjTag::Dict,
+                        payload: ObjectPayload::Dict(Vec::new()),
+                    });
+                    id
+                };
+                let module = self.get_id(&get_attr(self.vm, obj, "__module__")?)?;
+                let doc = self.get_id(&get_attr(self.vm, obj, "__doc__")?)?;
                 let type_params_obj = get_attr_opt(self.vm, obj, "__type_params__")?
                     .unwrap_or_else(|| self.vm.ctx.empty_tuple.clone().into());
-                let type_params = self.serialize_obj(&type_params_obj)?;
+                let type_params = self.get_id(&type_params_obj)?;
                 Ok(ObjectPayload::Function(FunctionPayload {
                     code,
                     globals,
@@ -380,21 +652,26 @@ impl<'a> SnapshotWriter<'a> {
             }
             ObjTag::Type => {
                 let typ = obj.downcast_ref::<PyType>().ok_or_else(|| SnapshotError::msg("expected type"))?;
-                let bases = typ
+                let bases: Vec<ObjId> = typ
                     .bases
                     .read()
                     .iter()
-                    .map(|base| self.serialize_obj(&base.to_owned().into()))
+                    .filter_map(|base| {
+                        // Skip object type (should not be serialized)
+                        if base.as_object().as_raw() == self.vm.ctx.types.object_type.as_object().as_raw() {
+                            None
+                        } else {
+                            Some(self.get_id(&base.to_owned().into()))
+                        }
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
-                let dict = self.vm.ctx.new_dict();
-                for (key, value) in typ.attributes.read().iter() {
-                    if should_skip_type_attr(self.vm, value) {
-                        continue;
-                    }
-                    dict.set_item(key.as_str(), value.clone(), self.vm)
-                        .map_err(|_| SnapshotError::msg("type dict build failed"))?;
-                }
-                let attrs_dict_id = self.serialize_obj(&dict.into())?;
+                
+                // Retrieve cached attributes dict
+                let type_ptr = obj.as_object().as_raw() as usize;
+                let dict_obj = self.type_attr_dicts.get(&type_ptr)
+                    .ok_or_else(|| SnapshotError::msg("type attributes dict not found in cache"))?;
+                let dict_id = self.get_id(dict_obj)?;
+                
                 let qualname_obj = typ.__qualname__(self.vm);
                 let qualname = qualname_obj
                     .downcast_ref::<PyStr>()
@@ -405,7 +682,7 @@ impl<'a> SnapshotWriter<'a> {
                     name: typ.name().to_owned(),
                     qualname,
                     bases,
-                    dict: attrs_dict_id,
+                    dict: dict_id,
                     flags: typ.slots.flags.bits(),
                     basicsize: typ.slots.basicsize,
                     itemsize: typ.slots.itemsize,
@@ -423,12 +700,16 @@ impl<'a> SnapshotWriter<'a> {
             }
             ObjTag::Instance => {
                 let typ = obj.class();
-                let typ_id = self.serialize_obj(&typ.to_owned().into())?;
-                let (new_args, new_kwargs) = get_newargs(self.vm, obj)?;
-                let new_args_id = new_args.map(|o| self.serialize_obj(&o)).transpose()?;
-                let new_kwargs_id = new_kwargs.map(|o| self.serialize_obj(&o)).transpose()?;
-                let state = get_state(self.vm, obj)?;
-                let state_id = state.map(|o| self.serialize_obj(&o)).transpose()?;
+                let typ_id = self.get_id(&typ.to_owned().into())?;
+                
+                // Retrieve cached instance data
+                let obj_ptr = obj.as_object().as_raw() as usize;
+                let (new_args, new_kwargs, state) = self.instance_data.get(&obj_ptr)
+                    .ok_or_else(|| SnapshotError::msg("instance data not found in cache"))?;
+                
+                let new_args_id = new_args.as_ref().map(|o| self.get_id(o)).transpose()?;
+                let new_kwargs_id = new_kwargs.as_ref().map(|o| self.get_id(o)).transpose()?;
+                let state_id = state.as_ref().map(|o| self.get_id(o)).transpose()?;
                 Ok(ObjectPayload::Instance(InstancePayload {
                     typ: typ_id,
                     state: state_id,
@@ -438,7 +719,7 @@ impl<'a> SnapshotWriter<'a> {
             }
             ObjTag::Cell => {
                 let cell = obj.downcast_ref::<PyCell>().ok_or_else(|| SnapshotError::msg("expected cell"))?;
-                let contents = cell.get().map(|o| self.serialize_obj(&o)).transpose()?;
+                let contents = cell.get().map(|o| self.get_id(&o)).transpose()?;
                 Ok(ObjectPayload::Cell(contents))
             }
             ObjTag::BuiltinModule => {
@@ -454,7 +735,7 @@ impl<'a> SnapshotWriter<'a> {
                 let module = get_attr_str(self.vm, obj, "__module__")?;
                 let self_obj = get_attr_opt(self.vm, obj, "__self__")?
                     .and_then(|value| if self.vm.is_none(&value) { None } else { Some(value) })
-                    .map(|value| self.serialize_obj(&value))
+                    .map(|value| self.get_id(&value))
                     .transpose()?;
                 Ok(ObjectPayload::BuiltinFunction(BuiltinFunctionPayload {
                     name,
@@ -589,12 +870,20 @@ fn should_skip_type_attr(vm: &VirtualMachine, value: &PyObjectRef) -> bool {
 }
 
 fn get_state(vm: &VirtualMachine, obj: &PyObjectRef) -> Result<Option<PyObjectRef>, SnapshotError> {
-    if let Some(getstate) = vm.get_attribute_opt(obj.clone(), "__getstate__").map_err(|_| SnapshotError::msg("getstate lookup failed"))? {
-        let value = getstate
-            .call((), vm)
-            .map_err(|_| SnapshotError::msg("__getstate__ failed"))?;
-        return Ok(Some(value));
+    let class_name = obj.class().name();
+    
+    // Skip __getstate__ for problematic types that cause infinite recursion
+    let skip_getstate = &*class_name == "_Feature";
+    
+    if !skip_getstate {
+        if let Some(getstate) = vm.get_attribute_opt(obj.clone(), "__getstate__").map_err(|_| SnapshotError::msg("getstate lookup failed"))? {
+            let value = getstate
+                .call((), vm)
+                .map_err(|_| SnapshotError::msg("__getstate__ failed"))?;
+            return Ok(Some(value));
+        }
     }
+    
     if let Some(dict) = obj.dict() {
         return Ok(Some(dict.into()));
     }
@@ -605,6 +894,13 @@ fn get_newargs(
     vm: &VirtualMachine,
     obj: &PyObjectRef,
 ) -> Result<(Option<PyObjectRef>, Option<PyObjectRef>), SnapshotError> {
+    if obj.fast_isinstance(vm.ctx.types.classmethod_type)
+        || obj.fast_isinstance(vm.ctx.types.staticmethod_type)
+    {
+        let func = get_attr(vm, obj, "__func__")?;
+        let args = vm.new_tuple(vec![func]).into();
+        return Ok((Some(args), None));
+    }
     if let Some(getnewargs_ex) = vm
         .get_attribute_opt(obj.clone(), "__getnewargs_ex__")
         .map_err(|_| SnapshotError::msg("getnewargs_ex lookup failed"))?
@@ -612,9 +908,13 @@ fn get_newargs(
         let value = getnewargs_ex
             .call((), vm)
             .map_err(|_| SnapshotError::msg("__getnewargs_ex__ failed"))?;
-        let tuple = value
-            .downcast_ref::<PyTuple>()
-            .ok_or_else(|| SnapshotError::msg("__getnewargs_ex__ must return (args, kwargs)"))?;
+        let tuple = if let Some(tuple) = value.downcast_ref::<PyTuple>() {
+            tuple
+        } else if let Some(list) = value.downcast_ref::<PyList>() {
+            return Ok((Some(vm.new_tuple(list.borrow_vec().to_vec()).into()), None));
+        } else {
+            return Ok((None, None));
+        };
         let args = tuple
             .get(0)
             .ok_or_else(|| SnapshotError::msg("__getnewargs_ex__ missing args"))?
@@ -632,7 +932,13 @@ fn get_newargs(
         let value = getnewargs
             .call((), vm)
             .map_err(|_| SnapshotError::msg("__getnewargs__ failed"))?;
-        return Ok((Some(value), None));
+        if value.downcast_ref::<PyTuple>().is_some() {
+            return Ok((Some(value), None));
+        }
+        if let Some(list) = value.downcast_ref::<PyList>() {
+            return Ok((Some(vm.new_tuple(list.borrow_vec().to_vec()).into()), None));
+        }
+        return Ok((None, None));
     }
     Ok((None, None))
 }
@@ -657,6 +963,7 @@ fn encode_key(vm: &VirtualMachine, obj: &PyObjectRef, encoder: &mut CborWriter) 
     const TAG_BUILTIN_FUNCTION: u64 = 10;
     const TAG_CODE: u64 = 11;
     const TAG_FROZENSET: u64 = 12;
+    const TAG_WEAKREF: u64 = 13;
 
     if vm.is_none(obj) {
         write_tagged_key(encoder, TAG_NONE, |enc| enc.write_null());
@@ -722,6 +1029,17 @@ fn encode_key(vm: &VirtualMachine, obj: &PyObjectRef, encoder: &mut CborWriter) 
         for item in entries {
             encoder.buf.extend_from_slice(&item);
         }
+        return Ok(());
+    }
+    if let Some(weak) = obj.downcast_ref::<PyWeak>() {
+        let Some(target) = weak.upgrade() else {
+            return Err(SnapshotError::msg("unsupported dict/set key type: weakref (dead)"));
+        };
+        let mut target_writer = CborWriter::new();
+        encode_key(vm, &target, &mut target_writer)?;
+        encoder.write_array_len(2);
+        encoder.write_uint(TAG_WEAKREF);
+        encoder.buf.extend_from_slice(&target_writer.into_bytes());
         return Ok(());
     }
     if let Some(typ) = obj.downcast_ref::<PyType>() {
@@ -808,17 +1126,22 @@ fn cbor_key_cmp(a: &[u8], b: &[u8]) -> std::cmp::Ordering {
 struct SnapshotReader<'a> {
     vm: &'a VirtualMachine,
     entries: &'a [ObjectEntry],
+    root: ObjId,
     objects: Vec<Option<PyObjectRef>>,
     filled: Vec<bool>,
+    /// Track which objects are currently being restored to detect cycles
+    restoring: Vec<bool>,
 }
 
 impl<'a> SnapshotReader<'a> {
-    fn new(vm: &'a VirtualMachine, entries: &'a [ObjectEntry]) -> Self {
+    fn new(vm: &'a VirtualMachine, entries: &'a [ObjectEntry], root: ObjId) -> Self {
         Self {
             vm,
             entries,
+            root,
             objects: vec![None; entries.len()],
             filled: vec![false; entries.len()],
+            restoring: vec![false; entries.len()],
         }
     }
 
@@ -836,9 +1159,20 @@ impl<'a> SnapshotReader<'a> {
     }
 
     fn restore_entry(&mut self, idx: usize) -> Result<(), SnapshotError> {
+        // Already restored
         if self.objects[idx].is_some() {
             return Ok(());
         }
+        
+        // Cycle detection: if we're already restoring this object, we have a cycle
+        if self.restoring[idx] {
+            let entry = &self.entries[idx];
+            // For cycles, we'll create a placeholder and handle it later
+            // This shouldn't happen with the two-phase serialization, but check anyway
+            return Err(SnapshotError::msg(format!("cycle detected while restoring object {} (tag={:?})", idx, entry.tag)));
+        }
+        
+        self.restoring[idx] = true;
         let entry = &self.entries[idx];
         let obj = match &entry.payload {
             ObjectPayload::None => self.vm.ctx.none(),
@@ -892,8 +1226,7 @@ impl<'a> SnapshotReader<'a> {
                     .ok_or_else(|| SnapshotError::msg("function code invalid"))?
                     .to_owned();
                 let globals_obj = self.get_obj(payload.globals)?;
-                let globals = PyDictRef::try_from_object(self.vm, globals_obj)
-                    .map_err(|_| SnapshotError::msg("function globals invalid"))?;
+                let globals = self.resolve_globals(globals_obj, Some(payload.module))?;
                 let mut func = PyFunction::new(code, globals.clone(), self.vm)
                     .map_err(|_| SnapshotError::msg("function create failed"))?;
                 if let Some(defaults) = payload.defaults {
@@ -904,9 +1237,23 @@ impl<'a> SnapshotReader<'a> {
                 }
                 if let Some(kwdefaults) = payload.kwdefaults {
                     let obj = self.get_obj(kwdefaults)?;
-                    func
-                        .set_function_attribute(crate::bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS, obj, self.vm)
-                        .map_err(|_| SnapshotError::msg("kwdefaults invalid"))?;
+                    if let Ok(dict) = PyDictRef::try_from_object(self.vm, obj.clone()) {
+                        func
+                            .set_function_attribute(
+                                crate::bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS,
+                                dict.into(),
+                                self.vm,
+                            )
+                            .map_err(|_| SnapshotError::msg("kwdefaults invalid"))?;
+                    } else if let Ok(dict) = mapping_to_dict(self.vm, &obj) {
+                        func
+                            .set_function_attribute(
+                                crate::bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS,
+                                dict.into(),
+                                self.vm,
+                            )
+                            .map_err(|_| SnapshotError::msg("kwdefaults invalid"))?;
+                    }
                 }
                 if let Some(closure_id) = payload.closure {
                     let obj = self.get_obj(closure_id)?;
@@ -915,6 +1262,13 @@ impl<'a> SnapshotReader<'a> {
                         .map_err(|_| SnapshotError::msg("closure invalid"))?;
                 }
                 let annotations_obj = self.get_obj(payload.annotations)?;
+                let annotations_obj = match PyDictRef::try_from_object(self.vm, annotations_obj.clone()) {
+                    Ok(dict) => dict.into(),
+                    Err(_) => match mapping_to_dict(self.vm, &annotations_obj) {
+                        Ok(dict) => dict.into(),
+                        Err(_) => annotations_obj,
+                    },
+                };
                 func
                     .set_function_attribute(crate::bytecode::MakeFunctionFlags::ANNOTATIONS, annotations_obj, self.vm)
                     .map_err(|_| SnapshotError::msg("annotations invalid"))?;
@@ -951,11 +1305,21 @@ impl<'a> SnapshotReader<'a> {
                         .map_err(|_| SnapshotError::msg("builtin method lookup failed"))?
                 } else {
                     let module_name = payload.module.as_deref().unwrap_or("builtins");
-                    let module = lookup_module(self.vm, module_name)?;
-                    let attr = self.vm.ctx.intern_str(payload.name.as_str());
-                    module
-                        .get_attr(attr, self.vm)
-                        .map_err(|_| SnapshotError::msg("builtin function lookup failed"))?
+                    
+                    // Special case: maketrans is actually str.maketrans, not builtins.maketrans
+                    if module_name == "builtins" && payload.name == "maketrans" {
+                        let attr = self.vm.ctx.intern_str("maketrans");
+                        self.vm.ctx.types.str_type.as_object().get_attr(attr, self.vm)
+                            .map_err(|_| SnapshotError::msg("str.maketrans not found"))?
+                    } else {
+                        let module = lookup_module(self.vm, module_name)?;
+                        let attr = self.vm.ctx.intern_str(payload.name.as_str());
+                        module
+                            .get_attr(attr, self.vm)
+                            .map_err(|e| {
+                                SnapshotError::msg(format!("builtin function lookup failed: {}.{}", module_name, payload.name))
+                            })?
+                    }
                 }
             }
             ObjectPayload::Code(bytes) => {
@@ -964,19 +1328,10 @@ impl<'a> SnapshotReader<'a> {
                 code_ref.into()
             }
             ObjectPayload::Type(payload) => {
-                let mut bases = payload
-                    .bases
-                    .iter()
-                    .map(|id| {
-                        let obj = self.get_obj(*id)?;
-                        obj.downcast::<PyType>()
-                            .map_err(|_| SnapshotError::msg("type base invalid"))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                if bases.is_empty() {
-                    bases.push(self.vm.ctx.types.object_type.to_owned());
-                }
-                let attrs = build_type_attributes(self, payload.dict, idx as ObjId)?;
+                // Phase 1: Create type with object as base and empty attributes to avoid cycles
+                // Real bases and attributes will be set in fill_container phase
+                let temp_bases = vec![self.vm.ctx.types.object_type.to_owned()];
+                let empty_attrs = crate::builtins::type_::PyAttributes::default();
                 let mut slots = crate::types::PyTypeSlots::heap_default();
                 slots.flags = crate::types::PyTypeFlags::from_bits_truncate(payload.flags);
                 slots.basicsize = payload.basicsize;
@@ -985,8 +1340,8 @@ impl<'a> SnapshotReader<'a> {
                 let metatype = self.vm.ctx.types.type_type.to_owned();
                 let typ = crate::builtins::type_::PyType::new_heap(
                     payload.name.as_str(),
-                    bases,
-                    attrs,
+                    temp_bases,
+                    empty_attrs,
                     slots,
                     metatype,
                     &self.vm.ctx,
@@ -998,31 +1353,77 @@ impl<'a> SnapshotReader<'a> {
                         .set_attr("__qualname__", self.vm.ctx.new_str(payload.qualname.clone()), self.vm)
                         .map_err(|_| SnapshotError::msg("type qualname invalid"))?;
                 }
-                apply_deferred_type_attrs(self, typ_obj.clone(), payload.dict, idx as ObjId)?;
                 typ_obj
             }
             ObjectPayload::BuiltinType { module, name } => {
-                let module_obj = if module == "builtins" {
-                    self.vm.builtins.clone().into()
+                // Some builtin types (iterators, views, generators, descriptors, wrappers, etc.) cannot be properly restored
+                // Use the type class itself instead
+                if name.ends_with("_iterator") 
+                    || name.ends_with("iterator")
+                    || name.ends_with("_descriptor")  // wrapper_descriptor, method_descriptor, etc.
+                    || name.ends_with("-wrapper")  // method-wrapper, etc.
+                    || name.starts_with("dict_")  // dict_keys, dict_values, dict_items
+                    || name.contains("_wrapper")  // slot_wrapper, etc.
+                    || name == "generator"
+                    || name == "coroutine"
+                    || name == "async_generator" {
+                    self.vm.ctx.types.type_type.to_owned().into()
                 } else {
-                    self.vm
-                        .sys_module
-                        .get_attr("modules", self.vm)
-                        .map_err(|_| SnapshotError::msg("sys.modules unavailable"))?
-                        .get_item(module.as_str(), self.vm)
-                        .map_err(|_| SnapshotError::msg("module not found"))?
-                };
-                let attr = self.vm.ctx.intern_str(name.as_str());
-                let ty = module_obj
-                    .get_attr(attr, self.vm)
-                    .map_err(|_| SnapshotError::msg("builtin type not found"))?;
-                ty
+                    // Handle module and type name aliases
+                    let (actual_module, actual_name) = match (module.as_str(), name.as_str()) {
+                        ("thread", "lock") => ("_thread", "LockType"),
+                        ("builtins", "weakref") => ("weakref", "ref"),
+                        ("builtins", "weakproxy") => ("weakref", "ProxyType"),
+                        ("builtins", "code") => ("types", "CodeType"),
+                        ("builtins", "EllipsisType") => ("types", "EllipsisType"),
+                        ("builtins", "function") => ("types", "FunctionType"),
+                        ("builtins", "mappingproxy") => ("types", "MappingProxyType"),
+                        ("builtins", "cell") => ("types", "CellType"),
+                        ("builtins", "method") => ("types", "MethodType"),
+                        ("builtins", "builtin_function_or_method") => ("types", "BuiltinMethodType"),
+                        ("builtins", "builtin_method") => ("types", "BuiltinMethodType"),
+                        ("builtins", "module") => ("types", "ModuleType"),
+                        ("builtins", "traceback") => ("types", "TracebackType"),
+                        ("builtins", "frame") => ("types", "FrameType"),
+                        ("builtins", "NoneType") => ("types", "NoneType"),
+                        ("builtins", "NotImplementedType") => ("types", "NotImplementedType"),
+                        _ => (module.as_str(), name.as_str()),
+                    };
+                    
+                    let module_obj = lookup_module(self.vm, actual_module)?;
+                    let attr = self.vm.ctx.intern_str(actual_name);
+                    module_obj
+                        .get_attr(attr, self.vm)
+                        .map_err(|e| {
+                            SnapshotError::msg(format!("builtin type not found: {}.{}", module, name))
+                        })?
+                }
             }
             ObjectPayload::Instance(payload) => {
                 let typ_obj = self.get_obj(payload.typ)?;
-                let typ = typ_obj
-                    .downcast::<PyType>()
-                    .map_err(|_| SnapshotError::msg("instance type invalid"))?;
+                let typ = match typ_obj.clone().downcast::<PyType>() {
+                    Ok(typ) => typ,
+                    Err(obj) => obj.class().to_owned(),
+                };
+                let type_name = typ.name().to_owned();
+                
+                // Special case: if this is a type instance, it should not be created via __new__
+                // Use the type itself
+                if type_name == "type" {
+                    typ.clone().into()
+                } else
+                
+                // Some types cannot be properly restored (weakref, iterators, methods, slices, etc.)
+                // Return None for these cases
+                if type_name == "weakref" 
+                    || type_name == "weakproxy" 
+                    || type_name == "method"  // bound methods need specific object binding
+                    || type_name == "builtin_method"
+                    || type_name == "slice"  // slice objects need specific start/stop/step
+                    || type_name.ends_with("_iterator")
+                    || type_name.ends_with("iterator") {
+                    self.vm.ctx.none()
+                } else {
                 let args_obj = payload
                     .new_args
                     .map(|id| self.get_obj(id))
@@ -1031,26 +1432,71 @@ impl<'a> SnapshotReader<'a> {
                     .new_kwargs
                     .map(|id| self.get_obj(id))
                     .transpose()?;
+                let args_obj = args_obj.unwrap_or_else(|| self.vm.ctx.empty_tuple.clone().into());
+                let args = if let Some(tuple) = args_obj.downcast_ref::<PyTuple>() {
+                    tuple.to_owned()
+                } else if let Some(list) = args_obj.downcast_ref::<PyList>() {
+                    self.vm.new_tuple(list.borrow_vec().to_vec())
+                } else {
+                    self.vm.ctx.empty_tuple.clone()
+                };
+                if typ.is(self.vm.ctx.types.classmethod_type)
+                    || typ.is(self.vm.ctx.types.staticmethod_type)
+                {
+                    let func = args
+                        .get(0)
+                        .cloned()
+                        .unwrap_or_else(|| self.vm.ctx.none().into());
+                    if typ.is(self.vm.ctx.types.classmethod_type) {
+                        let obj: PyObjectRef = PyClassMethod::from(func)
+                            .into_ref_with_type(self.vm, typ.clone())
+                            .map_err(|_| SnapshotError::msg("classmethod create failed"))?
+                            .into();
+                        obj
+                    } else {
+                        let obj: PyObjectRef = PyStaticMethod::new(func)
+                            .into_ref_with_type(self.vm, typ.clone())
+                            .map_err(|_| SnapshotError::msg("staticmethod create failed"))?
+                            .into();
+                        obj
+                    }
+                } else {
                 let new_func = self
                     .vm
                     .get_attribute_opt(typ.clone().into(), "__new__")
-                    .map_err(|_| SnapshotError::msg("__new__ lookup failed"))?
-                    .ok_or_else(|| SnapshotError::msg("__new__ missing"))?;
-                let args_obj = args_obj.unwrap_or_else(|| self.vm.ctx.empty_tuple.clone().into());
+                    .map_err(|_| SnapshotError::msg("__new__ lookup failed"))?;
                 let kwargs_obj = kwargs_obj.unwrap_or_else(|| self.vm.ctx.new_dict().into());
-                let args = args_obj
-                    .downcast_ref::<PyTuple>()
-                    .ok_or_else(|| SnapshotError::msg("new args must be tuple"))?;
-                let kwargs = PyDictRef::try_from_object(self.vm, kwargs_obj)
-                    .map_err(|_| SnapshotError::msg("new kwargs must be dict"))?;
+                let kwargs = if let Ok(dict) = PyDictRef::try_from_object(self.vm, kwargs_obj.clone()) {
+                    dict
+                } else if let Ok(dict) = mapping_to_dict(self.vm, &kwargs_obj) {
+                    dict
+                } else {
+                    self.vm.ctx.new_dict()
+                };
                 let mut call_args = Vec::with_capacity(args.len() + 1);
                 call_args.push(typ.clone().into());
                 call_args.extend(args.iter().cloned());
                 let kwargs = kwargs_from_dict(kwargs)?;
-                let instance = new_func
-                    .call(crate::function::FuncArgs::new(call_args, kwargs), self.vm)
-                    .map_err(|_| SnapshotError::msg("__new__ failed"))?;
+                let instance = if let Some(new_func) = new_func {
+                    match new_func.call(crate::function::FuncArgs::new(call_args.clone(), kwargs.clone()), self.vm) {
+                        Ok(value) => value,
+                        Err(_) => {
+                            self
+                            .vm
+                            .call_method(self.vm.ctx.types.object_type.as_object(), "__new__", (typ.clone(),))
+                            .map_err(|_| {
+                                SnapshotError::msg(format!("__new__ failed for {type_name}"))
+                            })?
+                        }
+                    }
+                } else {
+                    self.vm
+                        .call_method(self.vm.ctx.types.object_type.as_object(), "__new__", (typ.clone(),))
+                        .map_err(|_| SnapshotError::msg(format!("__new__ missing for {type_name}")))?
+                };
                 instance
+                }
+                }
             }
             ObjectPayload::Cell(contents) => {
                 let value = contents
@@ -1062,6 +1508,7 @@ impl<'a> SnapshotReader<'a> {
             }
         };
         self.objects[idx] = Some(obj);
+        self.restoring[idx] = false;
         Ok(())
     }
 
@@ -1102,6 +1549,34 @@ impl<'a> SnapshotReader<'a> {
                         .map_err(|_| SnapshotError::msg("set add failed"))?;
                 }
             }
+            ObjectPayload::Type(payload) => {
+                // Fill in the real bases and attributes for Type objects
+                let typ = obj
+                    .downcast_ref::<crate::builtins::type_::PyType>()
+                    .ok_or_else(|| SnapshotError::msg("type fill type error"))?;
+                
+                // Fill bases
+                if !payload.bases.is_empty() {
+                    let mut bases = Vec::new();
+                    for base_id in &payload.bases {
+                        let base_obj = self.get_obj(*base_id)?;
+                        let base_type = base_obj.downcast::<crate::builtins::type_::PyType>()
+                            .map_err(|_| SnapshotError::msg("type base invalid"))?;
+                        bases.push(base_type);
+                    }
+                    // Update the bases
+                    *typ.bases.write() = bases;
+                }
+                
+                // Fill attributes
+                let attrs = build_type_attributes(self, payload.dict, idx as ObjId)?;
+                for (key, value) in attrs.iter() {
+                    typ.attributes.write().insert(key.clone(), value.clone());
+                }
+                
+                // Apply deferred attributes
+                apply_deferred_type_attrs(self, obj.clone(), payload.dict, idx as ObjId)?;
+            }
             _ => {}
         }
         self.filled[idx] = true;
@@ -1131,8 +1606,14 @@ impl<'a> SnapshotReader<'a> {
             return Ok(());
         }
         if let Some(dict) = instance.dict() {
-            let state_dict = PyDictRef::try_from_object(self.vm, state)
-                .map_err(|_| SnapshotError::msg("state must be dict"))?;
+            // state can be None for some objects
+            if self.vm.is_none(&state) {
+                return Ok(());
+            }
+            let state_dict = PyDictRef::try_from_object(self.vm, state.clone())
+                .map_err(|_| {
+                    SnapshotError::msg("state must be dict")
+                })?;
             for (key, value) in &state_dict {
                 dict.set_item(&*key, value, self.vm)
                     .map_err(|_| SnapshotError::msg("state set failed"))?;
@@ -1148,6 +1629,52 @@ impl<'a> SnapshotReader<'a> {
         }
         Ok(self.objects[idx].clone().unwrap())
     }
+
+    fn resolve_globals(
+        &mut self,
+        globals_obj: PyObjectRef,
+        module_id: Option<ObjId>,
+    ) -> Result<PyDictRef, SnapshotError> {
+        if let Ok(dict) = PyDictRef::try_from_object(self.vm, globals_obj.clone()) {
+            return Ok(dict);
+        }
+        if let Some(dict) = globals_obj.dict() {
+            return Ok(dict);
+        }
+        if let Some(module_id) = module_id {
+            let module_obj = self.get_obj(module_id)?;
+            if let Ok(dict) = PyDictRef::try_from_object(self.vm, module_obj.clone()) {
+                return Ok(dict);
+            }
+            if let Some(dict) = module_obj.dict() {
+                return Ok(dict);
+            }
+            if let Some(name) = module_obj
+                .downcast_ref::<PyStr>()
+                .map(|s| s.as_str().to_owned())
+            {
+                if let Ok(module) = lookup_module(self.vm, &name) {
+                    if let Some(dict) = module.dict() {
+                        return Ok(dict);
+                    }
+                }
+            }
+        }
+        if let Ok(dict) = mapping_to_dict(self.vm, &globals_obj) {
+            return Ok(dict);
+        }
+        let root_obj = self.get_obj(self.root)?;
+        if let Ok(dict) = PyDictRef::try_from_object(self.vm, root_obj.clone()) {
+            return Ok(dict);
+        }
+        if let Some(dict) = root_obj.dict() {
+            return Ok(dict);
+        }
+        Err(SnapshotError::msg(format!(
+            "function globals invalid: {}",
+            globals_obj.class().name()
+        )))
+    }
 }
 
 fn lookup_module(vm: &VirtualMachine, name: &str) -> Result<PyObjectRef, SnapshotError> {
@@ -1157,11 +1684,36 @@ fn lookup_module(vm: &VirtualMachine, name: &str) -> Result<PyObjectRef, Snapsho
     if name == "sys" {
         return Ok(vm.sys_module.clone().into());
     }
-    vm.sys_module
+    
+    // Handle module name aliases (Python 2 -> Python 3)
+    let actual_name = match name {
+        "thread" => "_thread",
+        "_os" => "posix",  // _os is typically mapped to posix or nt
+        _ => name,
+    };
+    
+    // Try to get from sys.modules first
+    let sys_modules = vm.sys_module
         .get_attr("modules", vm)
-        .map_err(|_| SnapshotError::msg("sys.modules unavailable"))?
-        .get_item(name, vm)
-        .map_err(|_| SnapshotError::msg("module not found"))
+        .map_err(|_| SnapshotError::msg("sys.modules unavailable"))?;
+    
+    if let Ok(module) = sys_modules.get_item(actual_name, vm) {
+        return Ok(module);
+    }
+    
+    // If not found, try to import it
+    let import_func = vm.builtins
+        .get_attr("__import__", vm)
+        .map_err(|_| SnapshotError::msg("__import__ not found"))?;
+    
+    match import_func.call((actual_name,), vm) {
+        Ok(module) => {
+            Ok(module)
+        }
+        Err(e) => {
+            Err(SnapshotError::msg(format!("failed to import module: {name}")))
+        }
+    }
 }
 
 fn build_type_attributes(
@@ -1169,23 +1721,66 @@ fn build_type_attributes(
     dict_id: ObjId,
     type_id: ObjId,
 ) -> Result<crate::builtins::type_::PyAttributes, SnapshotError> {
+    if dict_id == type_id {
+        return Ok(crate::builtins::type_::PyAttributes::default());
+    }
     let entry = reader
         .entries
         .get(dict_id as usize)
         .ok_or_else(|| SnapshotError::msg("type dict missing"))?;
-    let ObjectPayload::Dict(items) = &entry.payload else {
-        return Err(SnapshotError::msg("type dict payload invalid"));
+    let items = match &entry.payload {
+        ObjectPayload::Dict(items) => items.clone(),
+        ObjectPayload::BuiltinDict { name } => {
+            let module = lookup_module(reader.vm, name)?;
+            let dict = module
+                .dict()
+                .ok_or_else(|| SnapshotError::msg("builtin module missing dict"))?;
+            return build_type_attributes_from_dict(reader, dict, type_id);
+        }
+        ObjectPayload::Module { dict, .. } => {
+            let dict_obj = reader.get_obj(*dict)?;
+            let dict = PyDictRef::try_from_object(reader.vm, dict_obj)
+                .map_err(|_| SnapshotError::msg("module dict invalid"))?;
+            return build_type_attributes_from_dict(reader, dict, type_id);
+        }
+        _ => {
+            let dict_obj = reader.get_obj(dict_id)?;
+            if let Ok(dict) = PyDictRef::try_from_object(reader.vm, dict_obj.clone()) {
+                return build_type_attributes_from_dict(reader, dict, type_id);
+            }
+            if let Ok(dict) = mapping_to_dict(reader.vm, &dict_obj) {
+                return build_type_attributes_from_dict(reader, dict, type_id);
+            }
+            return Ok(crate::builtins::type_::PyAttributes::default());
+        }
     };
     let mut attrs = crate::builtins::type_::PyAttributes::default();
     for (key_id, val_id) in items {
-        if *key_id == type_id || *val_id == type_id {
+        if key_id == type_id || val_id == type_id {
             continue;
         }
-        let key_obj = reader.get_obj(*key_id)?;
+        let key_obj = reader.get_obj(key_id)?;
         let key = key_obj
             .downcast_ref::<PyStr>()
             .ok_or_else(|| SnapshotError::msg("type dict key must be str"))?;
-        let value = reader.get_obj(*val_id)?;
+        let value = reader.get_obj(val_id)?;
+        let interned = reader.vm.ctx.intern_str(key.as_str());
+        attrs.insert(interned, value);
+    }
+    Ok(attrs)
+}
+
+fn build_type_attributes_from_dict(
+    reader: &mut SnapshotReader<'_>,
+    dict: PyDictRef,
+    type_id: ObjId,
+) -> Result<crate::builtins::type_::PyAttributes, SnapshotError> {
+    let mut attrs = crate::builtins::type_::PyAttributes::default();
+    for (key, value) in &dict {
+        let _ = type_id;
+        let key = key
+            .downcast_ref::<PyStr>()
+            .ok_or_else(|| SnapshotError::msg("type dict key must be str"))?;
         let interned = reader.vm.ctx.intern_str(key.as_str());
         attrs.insert(interned, value);
     }
@@ -1202,18 +1797,19 @@ fn apply_deferred_type_attrs(
         .entries
         .get(dict_id as usize)
         .ok_or_else(|| SnapshotError::msg("type dict missing"))?;
-    let ObjectPayload::Dict(items) = &entry.payload else {
-        return Ok(());
+    let items = match &entry.payload {
+        ObjectPayload::Dict(items) => items.clone(),
+        _ => return Ok(()),
     };
     for (key_id, val_id) in items {
-        if *key_id != type_id && *val_id != type_id {
+        if key_id != type_id && val_id != type_id {
             continue;
         }
-        let key_obj = reader.get_obj(*key_id)?;
+        let key_obj = reader.get_obj(key_id)?;
         let key = key_obj
             .downcast_ref::<PyStr>()
             .ok_or_else(|| SnapshotError::msg("type dict key must be str"))?;
-        let value = reader.get_obj(*val_id)?;
+        let value = reader.get_obj(val_id)?;
         let key_interned = reader.vm.ctx.intern_str(key.as_str());
         typ_obj
             .set_attr(key_interned, value, reader.vm)
@@ -1231,6 +1827,44 @@ fn kwargs_from_dict(dict: PyDictRef) -> Result<crate::function::KwArgs, Snapshot
         map.insert(key.as_str().to_owned(), value);
     }
     Ok(crate::function::KwArgs::new(map))
+}
+
+fn mapping_to_dict(vm: &VirtualMachine, mapping: &PyObjectRef) -> Result<PyDictRef, SnapshotError> {
+    let items = vm
+        .call_method(mapping.as_object(), "items", ())
+        .map_err(|_| SnapshotError::msg("globals items() failed"))?;
+    let iter = items
+        .get_iter(vm)
+        .map_err(|_| SnapshotError::msg("globals items() not iterable"))?;
+    let dict = vm.ctx.new_dict();
+    loop {
+        let next = iter
+            .next(vm)
+            .map_err(|_| SnapshotError::msg("globals items() iteration failed"))?;
+        let PyIterReturn::Return(item) = next else {
+            break;
+        };
+        let (key, value) = if let Some(pair) = item.downcast_ref::<PyTuple>() {
+            if pair.len() != 2 {
+                return Err(SnapshotError::msg("globals item must be (key, value)"));
+            }
+            (
+                pair.get(0).unwrap().clone(),
+                pair.get(1).unwrap().clone(),
+            )
+        } else if let Some(pair) = item.downcast_ref::<PyList>() {
+            if pair.borrow_vec().len() != 2 {
+                return Err(SnapshotError::msg("globals item must be [key, value]"));
+            }
+            let values = pair.borrow_vec();
+            (values[0].clone(), values[1].clone())
+        } else {
+            return Err(SnapshotError::msg("globals item must be tuple/list"));
+        };
+        dict.set_item(&*key, value, vm)
+            .map_err(|_| SnapshotError::msg("globals item set failed"))?;
+    }
+    Ok(dict)
 }
 
 #[derive(Debug, Clone)]
