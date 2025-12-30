@@ -508,6 +508,7 @@ impl VirtualMachine {
     pub fn compile_opts(&self) -> crate::compiler::CompileOpts {
         crate::compiler::CompileOpts {
             optimize: self.state.config.settings.optimize,
+            debug_ranges: self.state.config.settings.code_debug_ranges,
         }
     }
 

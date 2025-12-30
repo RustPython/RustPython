@@ -172,7 +172,7 @@ impl Frame {
     }
 
     pub fn current_location(&self) -> SourceLocation {
-        self.code.locations[self.lasti() as usize - 1]
+        self.code.locations[self.lasti() as usize - 1].0
     }
 
     pub fn lasti(&self) -> u32 {
@@ -385,12 +385,12 @@ impl ExecutingFrame<'_> {
                         // 2. Add new entry with current execution position (filename, lineno, code_object) to traceback.
                         // 3. Unwind block stack till appropriate handler is found.
 
-                        let loc = frame.code.locations[idx];
+                        let (loc, _end_loc) = frame.code.locations[idx];
                         let next = exception.__traceback__();
                         let new_traceback = PyTraceback::new(
                             next,
                             frame.object.to_owned(),
-                            frame.lasti(),
+                            frame.lasti() * 2,
                             loc.line,
                         );
                         vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.line);

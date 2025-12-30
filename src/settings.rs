@@ -270,6 +270,7 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
             "faulthandler" => settings.faulthandler = true,
             "warn_default_encoding" => settings.warn_default_encoding = true,
             "no_sig_int" => settings.install_signal_handlers = false,
+            "no_debug_ranges" => settings.code_debug_ranges = false,
             "int_max_str_digits" => {
                 settings.int_max_str_digits = match value.unwrap().parse() {
                     Ok(digits) if digits == 0 || digits >= 640 => digits,
@@ -293,6 +294,9 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     settings.warn_default_encoding =
         settings.warn_default_encoding || env_bool("PYTHONWARNDEFAULTENCODING");
     settings.faulthandler = settings.faulthandler || env_bool("PYTHONFAULTHANDLER");
+    if env_bool("PYTHONNODEBUGRANGES") {
+        settings.code_debug_ranges = false;
+    }
 
     if settings.dev_mode {
         settings.warnoptions.push("default".to_owned());

@@ -190,12 +190,17 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
     let len = rdr.read_u32()?;
     let locations = (0..len)
         .map(|_| {
-            Ok(SourceLocation {
+            let start = SourceLocation {
                 line: OneIndexed::new(rdr.read_u32()? as _).ok_or(MarshalError::InvalidLocation)?,
                 character_offset: OneIndexed::from_zero_indexed(rdr.read_u32()? as _),
-            })
+            };
+            let end = SourceLocation {
+                line: OneIndexed::new(rdr.read_u32()? as _).ok_or(MarshalError::InvalidLocation)?,
+                character_offset: OneIndexed::from_zero_indexed(rdr.read_u32()? as _),
+            };
+            Ok((start, end))
         })
-        .collect::<Result<Box<[SourceLocation]>>>()?;
+        .collect::<Result<Box<[(SourceLocation, SourceLocation)]>>>()?;
 
     let flags = CodeFlags::from_bits_truncate(rdr.read_u16()?);
 
@@ -648,9 +653,11 @@ pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) 
     buf.write_slice(instructions_bytes);
 
     write_len(buf, code.locations.len());
-    for loc in &*code.locations {
-        buf.write_u32(loc.line.get() as _);
-        buf.write_u32(loc.character_offset.to_zero_indexed() as _);
+    for (start, end) in &*code.locations {
+        buf.write_u32(start.line.get() as _);
+        buf.write_u32(start.character_offset.to_zero_indexed() as _);
+        buf.write_u32(end.line.get() as _);
+        buf.write_u32(end.character_offset.to_zero_indexed() as _);
     }
 
     buf.write_u16(code.flags.bits());
