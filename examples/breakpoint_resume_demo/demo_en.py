@@ -32,6 +32,12 @@ rpc.checkpoint(CHECKPOINT_PATH)
 # Re-import after resume so the next checkpoint works.
 import rustpython_checkpoint as rpc  # type: ignore
 
+# Recreate helpers after resume (functions are not checkpoint-serializable).
+def section(title: str) -> None:
+    print("\n" + "=" * 60)
+    print(title)
+    print("=" * 60)
+
 section("Resume #1: state restored")
 print("[run] phase=after_checkpoint_1")
 priced = [f"{item}:$99" for item in items]
@@ -44,6 +50,12 @@ print(f"[run] total={total} notes={notes}")
 rpc.checkpoint(CHECKPOINT_PATH)
 
 import os
+
+# Recreate helpers after resume (functions are not checkpoint-serializable).
+def section(title: str) -> None:
+    print("\n" + "=" * 60)
+    print(title)
+    print("=" * 60)
 
 section("Resume #2: finishing up")
 print("[run] phase=after_checkpoint_2")
