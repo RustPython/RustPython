@@ -302,8 +302,8 @@ impl VirtualMachine {
         }
 
         if let Some(slot_c) = class_c.slots.as_number.left_ternary_op(op_slot)
-            && slot_a.is_some_and(|slot_a| !std::ptr::fn_addr_eq(slot_a, slot_c))
-            && slot_b.is_some_and(|slot_b| !std::ptr::fn_addr_eq(slot_b, slot_c))
+            && slot_a.is_some_and(|slot_a| !core::ptr::fn_addr_eq(slot_a, slot_c))
+            && slot_b.is_some_and(|slot_b| !core::ptr::fn_addr_eq(slot_b, slot_c))
         {
             let ret = slot_c(a, b, c, self)?;
             if !ret.is(&self.ctx.not_implemented) {

@@ -33,8 +33,8 @@ unsafe impl Traverse for PyBaseException {
     }
 }
 
-impl std::fmt::Debug for PyBaseException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for PyBaseException {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         // TODO: implement more detailed, non-recursive Debug formatter
         f.write_str("PyBaseException")
     }
@@ -1173,7 +1173,7 @@ pub fn cstring_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
     vm.new_value_error("embedded null character")
 }
 
-impl ToPyException for std::ffi::NulError {
+impl ToPyException for alloc::ffi::NulError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         cstring_error(vm)
     }
@@ -1604,8 +1604,8 @@ pub(super) mod types {
         }
     }
 
-    impl std::fmt::Debug for PyOSError {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for PyOSError {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             f.debug_struct("PyOSError").finish_non_exhaustive()
         }
     }

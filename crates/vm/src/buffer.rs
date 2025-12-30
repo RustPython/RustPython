@@ -5,11 +5,13 @@ use crate::{
     convert::ToPyObject,
     function::{ArgBytesLike, ArgIntoBool, ArgIntoFloat},
 };
+use alloc::fmt;
+use core::{iter::Peekable, mem};
 use half::f16;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_traits::{PrimInt, ToPrimitive};
-use std::{fmt, iter::Peekable, mem, os::raw};
+use std::os::raw;
 
 type PackFunc = fn(&VirtualMachine, PyObjectRef, &mut [u8]) -> PyResult<()>;
 type UnpackFunc = fn(&VirtualMachine, &[u8]) -> PyObjectRef;
@@ -545,7 +547,7 @@ macro_rules! make_pack_prim_int {
             }
             #[inline]
             fn unpack_int<E: ByteOrder>(data: &[u8]) -> Self {
-                let mut x = [0; std::mem::size_of::<$T>()];
+                let mut x = [0; core::mem::size_of::<$T>()];
                 x.copy_from_slice(data);
                 E::convert(<$T>::from_ne_bytes(x))
             }
@@ -681,7 +683,7 @@ fn pack_pascal(vm: &VirtualMachine, arg: PyObjectRef, buf: &mut [u8]) -> PyResul
     }
     let b = ArgBytesLike::try_from_object(vm, arg)?;
     b.with_ref(|data| {
-        let string_length = std::cmp::min(std::cmp::min(data.len(), 255), buf.len() - 1);
+        let string_length = core::cmp::min(core::cmp::min(data.len(), 255), buf.len() - 1);
         buf[0] = string_length as u8;
         write_string(&mut buf[1..], data);
     });
@@ -689,7 +691,7 @@ fn pack_pascal(vm: &VirtualMachine, arg: PyObjectRef, buf: &mut [u8]) -> PyResul
 }
 
 fn write_string(buf: &mut [u8], data: &[u8]) {
-    let len_from_data = std::cmp::min(data.len(), buf.len());
+    let len_from_data = core::cmp::min(data.len(), buf.len());
     buf[..len_from_data].copy_from_slice(&data[..len_from_data]);
     for byte in &mut buf[len_from_data..] {
         *byte = 0
@@ -708,7 +710,7 @@ fn unpack_pascal(vm: &VirtualMachine, data: &[u8]) -> PyObjectRef {
             return vm.ctx.new_bytes(vec![]).into();
         }
     };
-    let len = std::cmp::min(len as usize, data.len());
+    let len = core::cmp::min(len as usize, data.len());
     vm.ctx.new_bytes(data[..len].to_vec()).into()
 }
 

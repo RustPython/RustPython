@@ -32,8 +32,8 @@ pub struct PyModuleSlots {
     pub exec: Option<ModuleExec>,
 }
 
-impl std::fmt::Debug for PyModuleSlots {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for PyModuleSlots {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PyModuleSlots")
             .field("create", &self.create.is_some())
             .field("exec", &self.exec.is_some())

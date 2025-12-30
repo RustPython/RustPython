@@ -5,6 +5,8 @@
 #[macro_use]
 extern crate log;
 
+extern crate alloc;
+
 type IndexMap<K, V> = indexmap::IndexMap<K, V, ahash::RandomState>;
 type IndexSet<T> = indexmap::IndexSet<T, ahash::RandomState>;
 

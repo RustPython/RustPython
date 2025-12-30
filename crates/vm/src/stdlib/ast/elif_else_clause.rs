@@ -3,7 +3,7 @@ use rustpython_compiler_core::SourceFile;
 
 pub(super) fn ast_to_object(
     clause: ruff::ElifElseClause,
-    mut rest: std::vec::IntoIter<ruff::ElifElseClause>,
+    mut rest: alloc::vec::IntoIter<ruff::ElifElseClause>,
     vm: &VirtualMachine,
     source_file: &SourceFile,
 ) -> PyObjectRef {

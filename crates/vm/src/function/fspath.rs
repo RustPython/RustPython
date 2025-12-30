@@ -5,7 +5,8 @@ use crate::{
     function::PyStr,
     protocol::PyBuffer,
 };
-use std::{borrow::Cow, ffi::OsStr, path::PathBuf};
+use alloc::borrow::Cow;
+use std::{ffi::OsStr, path::PathBuf};
 
 /// Helper to implement os.fspath()
 #[derive(Clone)]
@@ -111,8 +112,8 @@ impl FsPath {
         Ok(path)
     }
 
-    pub fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<std::ffi::CString> {
-        std::ffi::CString::new(self.as_bytes()).map_err(|e| e.into_pyexception(vm))
+    pub fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<alloc::ffi::CString> {
+        alloc::ffi::CString::new(self.as_bytes()).map_err(|e| e.into_pyexception(vm))
     }
 
     #[cfg(windows)]

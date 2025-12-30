@@ -2,6 +2,8 @@
 
 #![cfg_attr(all(target_os = "wasi", target_env = "p2"), feature(wasip2))]
 
+extern crate alloc;
+
 #[macro_use]
 mod macros;
 pub use macros::*;

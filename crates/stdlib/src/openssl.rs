@@ -522,10 +522,10 @@ mod _ssl {
     // Thread-local storage for VirtualMachine pointer during handshake
     // SNI callback is only called during handshake which is synchronous
     thread_local! {
-        static HANDSHAKE_VM: std::cell::Cell<Option<*const VirtualMachine>> = const { std::cell::Cell::new(None) };
+        static HANDSHAKE_VM: core::cell::Cell<Option<*const VirtualMachine>> = const { core::cell::Cell::new(None) };
         // SSL pointer during handshake - needed because connection lock is held during handshake
         // and callbacks may need to access SSL without acquiring the lock
-        static HANDSHAKE_SSL_PTR: std::cell::Cell<Option<*mut sys::SSL>> = const { std::cell::Cell::new(None) };
+        static HANDSHAKE_SSL_PTR: core::cell::Cell<Option<*mut sys::SSL>> = const { core::cell::Cell::new(None) };
     }
 
     // RAII guard to set/clear thread-local handshake context
@@ -1896,7 +1896,7 @@ mod _ssl {
                                                 )));
                                             return Err(openssl::error::ErrorStack::get());
                                         }
-                                        let len = std::cmp::min(pw.len(), buf.len());
+                                        let len = core::cmp::min(pw.len(), buf.len());
                                         buf[..len].copy_from_slice(&pw[..len]);
                                         Ok(len)
                                     }
@@ -2714,7 +2714,7 @@ mod _ssl {
                 // Use thread-local SSL pointer during handshake to avoid deadlock
                 let ssl_ptr = get_ssl_ptr_for_context_change(&self.connection);
                 unsafe {
-                    let mut out: *const libc::c_uchar = std::ptr::null();
+                    let mut out: *const libc::c_uchar = core::ptr::null();
                     let mut outlen: libc::c_uint = 0;
 
                     sys::SSL_get0_alpn_selected(ssl_ptr, &mut out, &mut outlen);

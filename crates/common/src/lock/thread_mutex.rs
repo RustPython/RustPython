@@ -1,14 +1,14 @@
 #![allow(clippy::needless_lifetimes)]
 
-use lock_api::{GetThreadId, GuardNoSend, RawMutex};
-use std::{
+use alloc::fmt;
+use core::{
     cell::UnsafeCell,
-    fmt,
     marker::PhantomData,
     ops::{Deref, DerefMut},
     ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering},
 };
+use lock_api::{GetThreadId, GuardNoSend, RawMutex};
 
 // based off ReentrantMutex from lock_api
 
@@ -174,7 +174,7 @@ impl<'a, R: RawMutex, G: GetThreadId, T: ?Sized> ThreadMutexGuard<'a, R, G, T> {
     ) -> MappedThreadMutexGuard<'a, R, G, U> {
         let data = f(&mut s).into();
         let mu = &s.mu.raw;
-        std::mem::forget(s);
+        core::mem::forget(s);
         MappedThreadMutexGuard {
             mu,
             data,
@@ -188,7 +188,7 @@ impl<'a, R: RawMutex, G: GetThreadId, T: ?Sized> ThreadMutexGuard<'a, R, G, T> {
         if let Some(data) = f(&mut s) {
             let data = data.into();
             let mu = &s.mu.raw;
-            std::mem::forget(s);
+            core::mem::forget(s);
             Ok(MappedThreadMutexGuard {
                 mu,
                 data,
@@ -241,7 +241,7 @@ impl<'a, R: RawMutex, G: GetThreadId, T: ?Sized> MappedThreadMutexGuard<'a, R, G
     ) -> MappedThreadMutexGuard<'a, R, G, U> {
         let data = f(&mut s).into();
         let mu = s.mu;
-        std::mem::forget(s);
+        core::mem::forget(s);
         MappedThreadMutexGuard {
             mu,
             data,
@@ -255,7 +255,7 @@ impl<'a, R: RawMutex, G: GetThreadId, T: ?Sized> MappedThreadMutexGuard<'a, R, G
         if let Some(data) = f(&mut s) {
             let data = data.into();
             let mu = s.mu;
-            std::mem::forget(s);
+            core::mem::forget(s);
             Ok(MappedThreadMutexGuard {
                 mu,
                 data,

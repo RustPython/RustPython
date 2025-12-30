@@ -1,4 +1,4 @@
-use std::ops;
+use core::ops;
 
 use crate::{IndexMap, IndexSet, error::InternalError};
 use rustpython_compiler_core::{
@@ -198,7 +198,7 @@ impl CodeInfo {
                         *arg = new_arg;
                     }
                     let (extras, lo_arg) = arg.split();
-                    locations.extend(std::iter::repeat_n(info.location, arg.instr_size()));
+                    locations.extend(core::iter::repeat_n(info.location, arg.instr_size()));
                     instructions.extend(
                         extras
                             .map(|byte| CodeUnit::new(Instruction::ExtendedArg, byte))
@@ -401,7 +401,7 @@ fn stackdepth_push(
 
 fn iter_blocks(blocks: &[Block]) -> impl Iterator<Item = (BlockIdx, &Block)> + '_ {
     let mut next = BlockIdx(0);
-    std::iter::from_fn(move || {
+    core::iter::from_fn(move || {
         if next == BlockIdx::NULL {
             return None;
         }

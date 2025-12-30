@@ -367,10 +367,10 @@ mod winreg {
                 key,
                 wide_sub_key.as_ptr(),
                 args.reserved,
-                std::ptr::null(),
+                core::ptr::null(),
                 Registry::REG_OPTION_NON_VOLATILE,
                 args.access,
-                std::ptr::null(),
+                core::ptr::null(),
                 &mut res,
                 std::ptr::null_mut(),
             )
@@ -404,7 +404,9 @@ mod winreg {
     #[pyfunction]
     fn DeleteValue(key: PyRef<PyHkey>, value: Option<String>, vm: &VirtualMachine) -> PyResult<()> {
         let wide_value = value.map(|v| v.to_wide_with_nul());
-        let value_ptr = wide_value.as_ref().map_or(std::ptr::null(), |v| v.as_ptr());
+        let value_ptr = wide_value
+            .as_ref()
+            .map_or(core::ptr::null(), |v| v.as_ptr());
         let res = unsafe { Registry::RegDeleteValueW(key.hkey.load(), value_ptr) };
         if res == 0 {
             Ok(())
@@ -713,7 +715,7 @@ mod winreg {
             let res = unsafe {
                 Registry::RegQueryValueExW(
                     target_key,
-                    std::ptr::null(), // NULL value name for default value
+                    core::ptr::null(), // NULL value name for default value
                     std::ptr::null_mut(),
                     &mut reg_type,
                     buffer.as_mut_ptr(),
@@ -871,10 +873,10 @@ mod winreg {
                     hkey,
                     wide_sub_key.as_ptr(),
                     0,
-                    std::ptr::null(),
+                    core::ptr::null(),
                     0,
                     Registry::KEY_SET_VALUE,
-                    std::ptr::null(),
+                    core::ptr::null(),
                     &mut out_key,
                     std::ptr::null_mut(),
                 )
@@ -893,7 +895,7 @@ mod winreg {
         let res = unsafe {
             Registry::RegSetValueExW(
                 target_key,
-                std::ptr::null(), // value name is NULL
+                core::ptr::null(), // value name is NULL
                 0,
                 typ,
                 wide_value.as_ptr() as *const u8,
@@ -1104,7 +1106,7 @@ mod winreg {
             }
             Ok(None) => {
                 let len = 0;
-                let ptr = std::ptr::null();
+                let ptr = core::ptr::null();
                 let wide_value_name = value_name.to_wide_with_nul();
                 let res = unsafe {
                     Registry::RegSetValueExW(

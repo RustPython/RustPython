@@ -342,7 +342,7 @@ pub(crate) fn cformat_bytes(
     let values = if let Some(tup) = values_obj.downcast_ref::<tuple::PyTuple>() {
         tup.as_slice()
     } else {
-        std::slice::from_ref(&values_obj)
+        core::slice::from_ref(&values_obj)
     };
     let mut value_iter = values.iter();
 
@@ -435,7 +435,7 @@ pub(crate) fn cformat_string(
     let values = if let Some(tup) = values_obj.downcast_ref::<tuple::PyTuple>() {
         tup.as_slice()
     } else {
-        std::slice::from_ref(&values_obj)
+        core::slice::from_ref(&values_obj)
     };
     let mut value_iter = values.iter();
 

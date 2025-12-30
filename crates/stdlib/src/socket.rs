@@ -22,15 +22,19 @@ mod _socket {
         types::{Constructor, DefaultConstructor, Initializer, Representable},
         utils::ToCString,
     };
+    use core::{
+        mem::MaybeUninit,
+        net::{Ipv4Addr, Ipv6Addr, SocketAddr},
+        time::Duration,
+    };
     use crossbeam_utils::atomic::AtomicCell;
     use num_traits::ToPrimitive;
     use socket2::Socket;
     use std::{
         ffi,
         io::{self, Read, Write},
-        mem::MaybeUninit,
-        net::{self, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, ToSocketAddrs},
-        time::{Duration, Instant},
+        net::{self, Shutdown, ToSocketAddrs},
+        time::Instant,
     };
 
     #[cfg(unix)]
@@ -934,7 +938,7 @@ mod _socket {
         sock: PyRwLock<Option<Socket>>,
     }
 
-    const _: () = assert!(std::mem::size_of::<Option<Socket>>() == std::mem::size_of::<Socket>());
+    const _: () = assert!(core::mem::size_of::<Option<Socket>>() == core::mem::size_of::<Socket>());
 
     impl Default for PySocket {
         fn default() -> Self {
@@ -1494,7 +1498,7 @@ mod _socket {
                                 Some(errcode!(ENOTSOCK)) | Some(errcode!(EBADF))
                             ) =>
                     {
-                        std::mem::forget(sock);
+                        core::mem::forget(sock);
                         return Err(e.into());
                     }
                     _ => {}
@@ -2052,7 +2056,7 @@ mod _socket {
             cmsgs: &[(i32, i32, ArgBytesLike)],
             vm: &VirtualMachine,
         ) -> PyResult<Vec<u8>> {
-            use std::{mem, ptr};
+            use core::{mem, ptr};
 
             if cmsgs.is_empty() {
                 return Ok(vec![]);
@@ -2210,7 +2214,7 @@ mod _socket {
             let buflen = buflen.unwrap_or(0);
             if buflen == 0 {
                 let mut flag: libc::c_int = 0;
-                let mut flagsize = std::mem::size_of::<libc::c_int>() as _;
+                let mut flagsize = core::mem::size_of::<libc::c_int>() as _;
                 let ret = unsafe {
                     c::getsockopt(
                         fd as _,
@@ -2270,11 +2274,11 @@ mod _socket {
                         level,
                         name,
                         val as *const i32 as *const _,
-                        std::mem::size_of::<i32>() as _,
+                        core::mem::size_of::<i32>() as _,
                     )
                 },
                 (None, OptionalArg::Present(optlen)) => unsafe {
-                    c::setsockopt(fd as _, level, name, std::ptr::null(), optlen as _)
+                    c::setsockopt(fd as _, level, name, core::ptr::null(), optlen as _)
                 },
                 _ => {
                     return Err(vm
@@ -2456,7 +2460,7 @@ mod _socket {
     }
 
     impl ToSocketAddrs for Address {
-        type Iter = std::vec::IntoIter<SocketAddr>;
+        type Iter = alloc::vec::IntoIter<SocketAddr>;
         fn to_socket_addrs(&self) -> io::Result<Self::Iter> {
             (self.host.as_str(), self.port).to_socket_addrs()
         }
@@ -2616,7 +2620,7 @@ mod _socket {
     }
 
     fn cstr_opt_as_ptr(x: &OptionalArg<ffi::CString>) -> *const libc::c_char {
-        x.as_ref().map_or_else(std::ptr::null, |s| s.as_ptr())
+        x.as_ref().map_or_else(core::ptr::null, |s| s.as_ptr())
     }
 
     #[pyfunction]
@@ -2807,7 +2811,7 @@ mod _socket {
                     vm.state
                         .codec_registry
                         .encode_text(s.to_owned(), "idna", None, vm)?;
-                let host_str = std::str::from_utf8(encoded.as_bytes())
+                let host_str = core::str::from_utf8(encoded.as_bytes())
                     .map_err(|_| vm.new_runtime_error("idna output is not utf8".to_owned()))?;
                 Some(host_str.to_owned())
             }
@@ -3183,7 +3187,7 @@ mod _socket {
             .state
             .codec_registry
             .encode_text(pyname, "idna", None, vm)?;
-        let name = std::str::from_utf8(name.as_bytes())
+        let name = core::str::from_utf8(name.as_bytes())
             .map_err(|_| vm.new_runtime_error("idna output is not utf8"))?;
         let mut res = dns_lookup::getaddrinfo(Some(name), None, Some(hints))
             .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?;
@@ -3339,7 +3343,7 @@ mod _socket {
     #[pyfunction]
     fn dup(x: PyObjectRef, vm: &VirtualMachine) -> Result<RawSocket, IoOrPyException> {
         let sock = get_raw_sock(x, vm)?;
-        let sock = std::mem::ManuallyDrop::new(sock_from_raw(sock, vm)?);
+        let sock = core::mem::ManuallyDrop::new(sock_from_raw(sock, vm)?);
         let newsock = sock.try_clone()?;
         let fd = into_sock_fileno(newsock);
         #[cfg(windows)]

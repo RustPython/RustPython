@@ -1,10 +1,10 @@
 use crate::{AsObject, PyObject, PyObjectRef, VirtualMachine};
-use itertools::Itertools;
-use std::{
+use core::{
     cell::{Cell, RefCell},
     ptr::NonNull,
-    thread_local,
 };
+use itertools::Itertools;
+use std::thread_local;
 
 thread_local! {
     pub(super) static VM_STACK: RefCell<Vec<NonNull<VirtualMachine>>> = Vec::with_capacity(1).into();

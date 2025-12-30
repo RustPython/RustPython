@@ -41,15 +41,13 @@ use libc::localeconv;
 
 #[pymodule]
 mod _locale {
+    use alloc::ffi::CString;
+    use core::{ffi::CStr, ptr};
     use rustpython_vm::{
         PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyIntRef, PyListRef, PyStrRef, PyTypeRef},
         convert::ToPyException,
         function::OptionalArg,
-    };
-    use std::{
-        ffi::{CStr, CString},
-        ptr,
     };
 
     #[cfg(all(

@@ -1,3 +1,5 @@
+use alloc::fmt;
+use core::fmt::Display as _;
 use ruff_python_ast::{
     self as ruff, Arguments, BoolOp, Comprehension, ConversionFlag, Expr, Identifier, Operator,
     Parameter, ParameterWithDefault, Parameters,
@@ -5,7 +7,6 @@ use ruff_python_ast::{
 use ruff_text_size::Ranged;
 use rustpython_compiler_core::SourceFile;
 use rustpython_literal::escape::{AsciiEscape, UnicodeEscape};
-use std::fmt::{self, Display as _};
 
 mod precedence {
     macro_rules! precedence {
@@ -51,7 +52,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
     }
 
     fn p_delim(&mut self, first: &mut bool, s: &str) -> fmt::Result {
-        self.p_if(!std::mem::take(first), s)
+        self.p_if(!core::mem::take(first), s)
     }
 
     fn write_fmt(&mut self, f: fmt::Arguments<'_>) -> fmt::Result {
@@ -575,7 +576,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         if conversion != ConversionFlag::None {
             self.p("!")?;
             let buf = &[conversion as u8];
-            let c = std::str::from_utf8(buf).unwrap();
+            let c = core::str::from_utf8(buf).unwrap();
             self.p(c)?;
         }
 
@@ -650,7 +651,7 @@ impl fmt::Display for UnparseExpr<'_> {
 }
 
 fn to_string_fmt(f: impl FnOnce(&mut fmt::Formatter<'_>) -> fmt::Result) -> String {
-    use std::cell::Cell;
+    use core::cell::Cell;
     struct Fmt<F>(Cell<Option<F>>);
     impl<F: FnOnce(&mut fmt::Formatter<'_>) -> fmt::Result> fmt::Display for Fmt<F> {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
