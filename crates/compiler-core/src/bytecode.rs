@@ -258,7 +258,7 @@ impl ConstantBag for BasicBag {
 #[derive(Clone)]
 pub struct CodeObject<C: Constant = ConstantData> {
     pub instructions: CodeUnits,
-    pub locations: Box<[SourceLocation]>,
+    pub locations: Box<[(SourceLocation, SourceLocation)]>,
     pub flags: CodeFlags,
     /// Number of positional-only arguments
     pub posonlyarg_count: u32,
@@ -1483,14 +1483,14 @@ impl<C: Constant> CodeObject<C> {
         level: usize,
     ) -> fmt::Result {
         let label_targets = self.label_targets();
-        let line_digits = (3).max(self.locations.last().unwrap().line.digits().get());
+        let line_digits = (3).max(self.locations.last().unwrap().0.line.digits().get());
         let offset_digits = (4).max(1 + self.instructions.len().ilog10() as usize);
         let mut last_line = OneIndexed::MAX;
         let mut arg_state = OpArgState::default();
         for (offset, &instruction) in self.instructions.iter().enumerate() {
             let (instruction, arg) = arg_state.get(instruction);
             // optional line number
-            let line = self.locations[offset].line;
+            let line = self.locations[offset].0.line;
             if line != last_line {
                 if last_line != OneIndexed::MAX {
                     writeln!(f)?;

@@ -467,20 +467,22 @@ impl Constructor for PyCode {
             .collect::<Vec<_>>()
             .into_boxed_slice();
 
-        // Create locations
+        // Create locations (start and end pairs)
         let row = if args.firstlineno > 0 {
             OneIndexed::new(args.firstlineno as usize).unwrap_or(OneIndexed::MIN)
         } else {
             OneIndexed::MIN
         };
-        let locations: Box<[rustpython_compiler_core::SourceLocation]> = vec![
-                rustpython_compiler_core::SourceLocation {
-                    line: row,
-                    character_offset: OneIndexed::from_zero_indexed(0),
-                };
-                instructions.len()
-            ]
-        .into_boxed_slice();
+        let loc = rustpython_compiler_core::SourceLocation {
+            line: row,
+            character_offset: OneIndexed::from_zero_indexed(0),
+        };
+        let locations: Box<
+            [(
+                rustpython_compiler_core::SourceLocation,
+                rustpython_compiler_core::SourceLocation,
+            )],
+        > = vec![(loc, loc); instructions.len()].into_boxed_slice();
 
         // Build the CodeObject
         let code = CodeObject {
