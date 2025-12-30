@@ -117,7 +117,8 @@ mod _browser {
 
     #[pyfunction]
     fn request_animation_frame(func: ArgCallable, vm: &VirtualMachine) -> PyResult {
-        use std::{cell::RefCell, rc::Rc};
+        use alloc::rc::Rc;
+        use core::cell::RefCell;
 
         // this basic setup for request_animation_frame taken from:
         // https://rustwasm.github.io/wasm-bindgen/examples/request-animation-frame.html

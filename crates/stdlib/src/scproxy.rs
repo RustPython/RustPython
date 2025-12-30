@@ -91,7 +91,7 @@ mod _scproxy {
                     .find(host_key)
                     .and_then(|v| v.downcast::<CFString>())
             {
-                let h = std::borrow::Cow::<str>::from(&host);
+                let h = alloc::borrow::Cow::<str>::from(&host);
                 let v = if let Some(port) = proxy_dict
                     .find(port_key)
                     .and_then(|v| v.downcast::<CFNumber>())

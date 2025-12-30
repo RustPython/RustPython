@@ -1304,7 +1304,7 @@ impl PyCSimple {
                 let ptr = slice.as_ptr() as *mut u8;
                 let len = slice.len().min(buffer_bytes.len());
                 unsafe {
-                    std::ptr::copy_nonoverlapping(buffer_bytes.as_ptr(), ptr, len);
+                    core::ptr::copy_nonoverlapping(buffer_bytes.as_ptr(), ptr, len);
                 }
             }
             Cow::Owned(vec) => {

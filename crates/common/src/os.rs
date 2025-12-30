@@ -89,7 +89,7 @@ pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
 
 #[cfg(not(unix))]
 pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
-    Ok(std::str::from_utf8(b)?.as_ref())
+    Ok(core::str::from_utf8(b)?.as_ref())
 }
 
 #[cfg(unix)]

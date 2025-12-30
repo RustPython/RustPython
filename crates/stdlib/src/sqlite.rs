@@ -3191,7 +3191,9 @@ mod _sqlite {
         }
 
         fn aggregate_context<T>(self) -> *mut T {
-            unsafe { sqlite3_aggregate_context(self.ctx, std::mem::size_of::<T>() as c_int).cast() }
+            unsafe {
+                sqlite3_aggregate_context(self.ctx, core::mem::size_of::<T>() as c_int).cast()
+            }
         }
 
         fn result_exception(self, vm: &VirtualMachine, exc: PyBaseExceptionRef, msg: &str) {
@@ -3297,7 +3299,7 @@ mod _sqlite {
         } else if nbytes < 0 {
             Err(vm.new_system_error("negative size with ptr"))
         } else {
-            Ok(unsafe { std::slice::from_raw_parts(p.cast(), nbytes as usize) }.to_vec())
+            Ok(unsafe { core::slice::from_raw_parts(p.cast(), nbytes as usize) }.to_vec())
         }
     }
 

@@ -1,9 +1,9 @@
+use core::ops::ControlFlow;
 use rustpython_compiler_core::bytecode::{
     CodeObject, ConstantData, Instruction, OpArg, OpArgState,
 };
 use rustpython_jit::{CompiledCode, JitType};
 use std::collections::HashMap;
-use std::ops::ControlFlow;
 
 #[derive(Debug, Clone)]
 pub struct Function {

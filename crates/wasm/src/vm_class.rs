@@ -3,6 +3,8 @@ use crate::{
     convert::{self, PyResultExt},
     js_module, wasm_builtins,
 };
+use alloc::rc::{Rc, Weak};
+use core::cell::RefCell;
 use js_sys::{Object, TypeError};
 use rustpython_vm::{
     Interpreter, PyObjectRef, PyPayload, PyRef, PyResult, Settings, VirtualMachine,
@@ -10,11 +12,7 @@ use rustpython_vm::{
     compiler::Mode,
     scope::Scope,
 };
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    rc::{Rc, Weak},
-};
+use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
 pub(crate) struct StoredVirtualMachine {

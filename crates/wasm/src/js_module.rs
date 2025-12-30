@@ -8,6 +8,7 @@ mod _js {
         vm_class::{WASMVirtualMachine, stored_vm_from_wasm},
         weak_vm,
     };
+    use core::{cell, fmt, future};
     use js_sys::{Array, Object, Promise, Reflect};
     use rustpython_vm::{
         Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
@@ -17,7 +18,6 @@ mod _js {
         protocol::PyIterReturn,
         types::{IterNext, Representable, SelfIter},
     };
-    use std::{cell, fmt, future};
     use wasm_bindgen::{JsCast, closure::Closure, prelude::*};
     use wasm_bindgen_futures::{JsFuture, future_to_promise};
 

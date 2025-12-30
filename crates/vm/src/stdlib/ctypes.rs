@@ -1180,7 +1180,7 @@ pub(crate) mod _ctypes {
         path: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        use std::ffi::CString;
+        use alloc::ffi::CString;
 
         let path = match path {
             Some(p) if !vm.is_none(&p) => p,
