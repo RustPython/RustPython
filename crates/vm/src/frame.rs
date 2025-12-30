@@ -235,6 +235,7 @@ impl Frame {
         Ok(state.stack.iter().cloned().collect())
     }
 
+    #[allow(dead_code)]
     pub(crate) fn restore_stack(
         &self,
         stack: Vec<PyObjectRef>,
@@ -458,7 +459,7 @@ impl ExecutingFrame<'_> {
             if let Some(path) = maybe_checkpoint_request(vm, op, idx as u32) {
                 let source_path = self.code.source_path.as_str();
                 let lasti = self.lasti();
-                checkpoint::save_checkpoint_from_exec(vm, source_path, lasti, self.globals, &path)?;
+                checkpoint::save_checkpoint_from_exec(vm, source_path, lasti, &self.code, self.globals, &path)?;
                 std::process::exit(0);
             }
         }

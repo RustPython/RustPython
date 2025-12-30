@@ -33,3 +33,4 @@ Lib/test/data/*
 Cargo.lock
 refs/*
 .gitignore
+examples/breakpoint_resume_demo/demo.rpsnap

@@ -7,6 +7,7 @@
 mod compile;
 mod context;
 pub(crate) mod checkpoint;
+pub(crate) mod snapshot;
 mod interpreter;
 mod method;
 mod setting;
