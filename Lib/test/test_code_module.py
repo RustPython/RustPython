@@ -64,6 +64,7 @@ class TestInteractiveConsole(unittest.TestCase, MockSys):
             raise AssertionError("no console stdout")
 
     # TODO: RUSTPYTHON
+    # AssertionError: Lists differ: ['  F[27 chars]    x = ?', '        ^', 'SyntaxError: got unexpected token ?'] != ['  F[27 chars]    x = ?', '        ^', 'SyntaxError: invalid syntax']
     @unittest.expectedFailure
     def test_syntax_error(self):
         self.infunc.side_effect = ["def f():",
@@ -86,6 +87,7 @@ class TestInteractiveConsole(unittest.TestCase, MockSys):
         self.assertIs(self.sysmod.last_exc, self.sysmod.last_value)
 
     # TODO: RUSTPYTHON
+    # AssertionError: Lists differ: ['  F[15 chars], line 1', '    1', 'IndentationError: unexpected indentation'] != ['  F[15 chars], line 1', '    1', 'IndentationError: unexpected indent']
     @unittest.expectedFailure
     def test_indentation_error(self):
         self.infunc.side_effect = ["  1", EOFError('Finished')]
@@ -104,6 +106,7 @@ class TestInteractiveConsole(unittest.TestCase, MockSys):
         self.assertIs(self.sysmod.last_exc, self.sysmod.last_value)
 
     # TODO: RUSTPYTHON
+    # AssertionError: False is not true : UnicodeDecodeError: invalid utf-8 sequence of 1 bytes from index 1
     @unittest.expectedFailure
     def test_unicode_error(self):
         self.infunc.side_effect = ["'\ud800'", EOFError('Finished')]
@@ -142,6 +145,7 @@ class TestInteractiveConsole(unittest.TestCase, MockSys):
             'ValueError: BOOM!\n'])
 
     # TODO: RUSTPYTHON
+    # AssertionError: Lists differ: ['  F[35 chars]= ?\n', '        ^\n', 'SyntaxError: got unexpected token ?\n'] != ['  F[35 chars]= ?\n', '        ^\n', 'SyntaxError: invalid syntax\n']
     @unittest.expectedFailure
     def test_sysexcepthook_syntax_error(self):
         self.infunc.side_effect = ["def f():",
@@ -167,6 +171,7 @@ class TestInteractiveConsole(unittest.TestCase, MockSys):
             'SyntaxError: invalid syntax\n'])
 
     # TODO: RUSTPYTHON
+    # AssertionError: Lists differ: ['  F[21 chars] 1\n', '    1\n', 'IndentationError: unexpected indentation\n'] != ['  F[21 chars] 1\n', '    1\n', 'IndentationError: unexpected indent\n']
     @unittest.expectedFailure
     def test_sysexcepthook_indentation_error(self):
         self.infunc.side_effect = ["  1", EOFError('Finished')]
