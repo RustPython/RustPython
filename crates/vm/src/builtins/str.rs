@@ -1946,9 +1946,7 @@ impl PyPayload for PyUtf8Str {
         ctx.types.str_type
     }
 
-    fn payload_type_id() -> core::any::TypeId {
-        core::any::TypeId::of::<PyStr>()
-    }
+    const PAYLOAD_TYPE_ID: std::any::TypeId = std::any::TypeId::of::<PyStr>();
 
     fn validate_downcastable_from(obj: &PyObject) -> bool {
         // SAFETY: we know the object is a PyStr in this context
