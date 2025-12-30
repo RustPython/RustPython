@@ -1747,16 +1747,16 @@ pub(super) mod _os {
             // We extract raw bytes and interpret as a native-endian integer.
             // Note: The value may differ across architectures due to endianness.
             let f_fsid = {
-                let ptr = std::ptr::addr_of!(st.f_fsid) as *const u8;
-                let size = std::mem::size_of_val(&st.f_fsid);
+                let ptr = core::ptr::addr_of!(st.f_fsid) as *const u8;
+                let size = core::mem::size_of_val(&st.f_fsid);
                 if size >= 8 {
-                    let bytes = unsafe { std::slice::from_raw_parts(ptr, 8) };
+                    let bytes = unsafe { core::slice::from_raw_parts(ptr, 8) };
                     u64::from_ne_bytes([
                         bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6],
                         bytes[7],
                     ]) as libc::c_ulong
                 } else if size >= 4 {
-                    let bytes = unsafe { std::slice::from_raw_parts(ptr, 4) };
+                    let bytes = unsafe { core::slice::from_raw_parts(ptr, 4) };
                     u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as libc::c_ulong
                 } else {
                     0
@@ -1784,7 +1784,7 @@ pub(super) mod _os {
     #[pyfunction]
     #[pyfunction(name = "fstatvfs")]
     fn statvfs(path: OsPathOrFd<'_>, vm: &VirtualMachine) -> PyResult {
-        let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+        let mut st: libc::statvfs = unsafe { core::mem::zeroed() };
         let ret = match &path {
             OsPathOrFd::Path(p) => {
                 let cpath = p.clone().into_cstring(vm)?;

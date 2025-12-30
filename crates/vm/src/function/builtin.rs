@@ -218,7 +218,7 @@ into_py_native_fn_tuple!(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::mem::size_of_val;
+    use core::mem::size_of_val;
 
     #[test]
     fn test_into_native_fn_noalloc() {

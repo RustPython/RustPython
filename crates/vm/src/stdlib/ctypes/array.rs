@@ -12,8 +12,8 @@ use crate::{
     protocol::{BufferDescriptor, PyBuffer, PyNumberMethods, PySequenceMethods},
     types::{AsBuffer, AsNumber, AsSequence, Constructor, Initializer},
 };
+use alloc::borrow::Cow;
 use num_traits::{Signed, ToPrimitive};
-use std::borrow::Cow;
 
 /// Get itemsize from a PEP 3118 format string
 /// Extracts the type code (last char after endianness prefix) and returns its size
@@ -890,7 +890,7 @@ impl PyCArray {
                 // Python's from_buffer requires writable buffer, so this is safe.
                 let ptr = slice.as_ptr() as *mut u8;
                 let len = slice.len();
-                let owned_slice = unsafe { std::slice::from_raw_parts_mut(ptr, len) };
+                let owned_slice = unsafe { core::slice::from_raw_parts_mut(ptr, len) };
                 Self::write_element_to_buffer(
                     owned_slice,
                     final_offset,

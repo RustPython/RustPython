@@ -1228,7 +1228,7 @@ mod _socket {
                                 .new_os_error("interface name too long".to_owned())
                                 .into());
                         }
-                        let cstr = std::ffi::CString::new(ifname)
+                        let cstr = alloc::ffi::CString::new(ifname)
                             .map_err(|_| vm.new_os_error("invalid interface name".to_owned()))?;
                         let idx = unsafe { libc::if_nametoindex(cstr.as_ptr()) };
                         if idx == 0 {
@@ -1238,7 +1238,7 @@ mod _socket {
                     };
 
                     // Create sockaddr_can
-                    let mut storage: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
+                    let mut storage: libc::sockaddr_storage = unsafe { core::mem::zeroed() };
                     let can_addr =
                         &mut storage as *mut libc::sockaddr_storage as *mut libc::sockaddr_can;
                     unsafe {
@@ -1294,7 +1294,7 @@ mod _socket {
                     }
 
                     // Create sockaddr_alg
-                    let mut storage: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
+                    let mut storage: libc::sockaddr_storage = unsafe { core::mem::zeroed() };
                     let alg_addr =
                         &mut storage as *mut libc::sockaddr_storage as *mut libc::sockaddr_alg;
                     unsafe {
@@ -1936,7 +1936,7 @@ mod _socket {
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> PyResult<PyTupleRef> {
-            use std::mem::MaybeUninit;
+            use core::mem::MaybeUninit;
 
             if bufsize < 0 {
                 return Err(vm.new_value_error("negative buffer size in recvmsg".to_owned()));
@@ -1955,7 +1955,7 @@ mod _socket {
             // Allocate buffers
             let mut data_buf: Vec<MaybeUninit<u8>> = vec![MaybeUninit::uninit(); bufsize];
             let mut anc_buf: Vec<MaybeUninit<u8>> = vec![MaybeUninit::uninit(); ancbufsize];
-            let mut addr_storage: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
+            let mut addr_storage: libc::sockaddr_storage = unsafe { core::mem::zeroed() };
 
             // Set up iovec
             let mut iov = [libc::iovec {
@@ -1964,9 +1964,9 @@ mod _socket {
             }];
 
             // Set up msghdr
-            let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
+            let mut msg: libc::msghdr = unsafe { core::mem::zeroed() };
             msg.msg_name = (&mut addr_storage as *mut libc::sockaddr_storage).cast();
-            msg.msg_namelen = std::mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
+            msg.msg_namelen = core::mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
             msg.msg_iov = iov.as_mut_ptr();
             msg.msg_iovlen = 1;
             if ancbufsize > 0 {
@@ -1990,7 +1990,7 @@ mod _socket {
             // Build data bytes
             let data = unsafe {
                 data_buf.set_len(n);
-                std::mem::transmute::<Vec<MaybeUninit<u8>>, Vec<u8>>(data_buf)
+                core::mem::transmute::<Vec<MaybeUninit<u8>>, Vec<u8>>(data_buf)
             };
 
             // Build ancdata list
@@ -1999,7 +1999,7 @@ mod _socket {
             // Build address tuple
             let address = if msg.msg_namelen > 0 {
                 let storage: socket2::SockAddrStorage =
-                    unsafe { std::mem::transmute(addr_storage) };
+                    unsafe { core::mem::transmute(addr_storage) };
                 let addr = unsafe { socket2::SockAddr::new(storage, msg.msg_namelen) };
                 get_addr_tuple(&addr, vm)
             } else {
@@ -2034,7 +2034,7 @@ mod _socket {
                 let available = ctrl_end as usize - data_ptr as usize;
                 let data_len = data_len_from_cmsg.min(available);
 
-                let data = unsafe { std::slice::from_raw_parts(data_ptr, data_len) };
+                let data = unsafe { core::slice::from_raw_parts(data_ptr, data_len) };
 
                 let tuple = vm.ctx.new_tuple(vec![
                     vm.ctx.new_int(cmsg_ref.cmsg_level).into(),
@@ -2820,13 +2820,11 @@ mod _socket {
         let host = host_encoded.as_deref();
 
         // Encode port using UTF-8
-        let port: Option<std::borrow::Cow<'_, str>> = match opts.port.as_ref() {
-            Some(Either::A(s)) => {
-                Some(std::borrow::Cow::Borrowed(s.to_str().ok_or_else(|| {
-                    vm.new_unicode_encode_error("surrogates not allowed".to_owned())
-                })?))
-            }
-            Some(Either::B(i)) => Some(std::borrow::Cow::Owned(i.to_string())),
+        let port: Option<alloc::borrow::Cow<'_, str>> = match opts.port.as_ref() {
+            Some(Either::A(s)) => Some(alloc::borrow::Cow::Borrowed(s.to_str().ok_or_else(
+                || vm.new_unicode_encode_error("surrogates not allowed".to_owned()),
+            )?)),
+            Some(Either::B(i)) => Some(alloc::borrow::Cow::Owned(i.to_string())),
             None => None,
         };
         let port = port.as_ref().map(|p| p.as_ref());

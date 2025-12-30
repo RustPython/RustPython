@@ -360,9 +360,9 @@ pub mod module {
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     fn getgroups_impl() -> nix::Result<Vec<Gid>> {
+        use core::ptr;
         use libc::{c_int, gid_t};
         use nix::errno::Errno;
-        use std::ptr;
         let ret = unsafe { libc::getgroups(0, ptr::null_mut()) };
         let mut groups = Vec::<Gid>::with_capacity(Errno::result(ret)? as usize);
         let ret = unsafe {
@@ -1825,7 +1825,7 @@ pub mod module {
     #[cfg(target_os = "macos")]
     #[pyfunction]
     fn _fcopyfile(in_fd: i32, out_fd: i32, flags: i32, vm: &VirtualMachine) -> PyResult<()> {
-        let ret = unsafe { fcopyfile(in_fd, out_fd, std::ptr::null_mut(), flags as u32) };
+        let ret = unsafe { fcopyfile(in_fd, out_fd, core::ptr::null_mut(), flags as u32) };
         if ret < 0 {
             Err(vm.new_last_errno_error())
         } else {
