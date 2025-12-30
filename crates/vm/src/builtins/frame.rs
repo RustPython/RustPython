@@ -64,7 +64,13 @@ impl Frame {
 
     #[pygetset]
     pub fn f_lineno(&self) -> usize {
-        self.current_location().line.get()
+        // If lasti is 0, execution hasn't started yet - use first line number
+        // Similar to PyCode_Addr2Line which returns co_firstlineno for addr_q < 0
+        if self.lasti() == 0 {
+            self.code.first_line_number.map(|n| n.get()).unwrap_or(1)
+        } else {
+            self.current_location().line.get()
+        }
     }
 
     #[pygetset]
