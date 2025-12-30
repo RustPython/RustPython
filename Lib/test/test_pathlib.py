@@ -1,6 +1,7 @@
 # TODO: RUSTPYTHON
 # Has not been tested with Windows style paths
-# os.mkfifo() required
+# Have not tested symlinks + readlink tests
+# os.mkfifo() required differs from C implementation
 import io
 import os
 import sys
