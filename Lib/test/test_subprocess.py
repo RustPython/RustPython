@@ -800,8 +800,7 @@ class ProcessTestCase(BaseTestCase):
             stdout, stderr = p.communicate()
             self.assertEqual(stdout, b"orange")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipUnless(sys.platform == "win32", "Windows only issue")
     def test_win32_duplicate_envs(self):
         newenv = os.environ.copy()
@@ -1292,8 +1291,7 @@ class ProcessTestCase(BaseTestCase):
         # to stderr at exit of subprocess.
         self.assertTrue(stderr.startswith("eline2\neline6\neline7\n"))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_universal_newlines_communicate_encodings(self):
         # Check that universal newlines mode works for various encodings,
         # in particular for encodings in the UTF-16 and UTF-32 families.
@@ -2276,16 +2274,14 @@ class POSIXProcessTestCase(BaseTestCase):
         with self.assertRaises(ValueError):
             subprocess.check_call(ZERO_RETURN_CMD, group=65535)
 
-    # TODO: RUSTPYTHON, observed gids do not match expected gids
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; observed gids do not match expected gids
     @unittest.skipUnless(hasattr(os, 'setgroups'), 'no setgroups() on platform')
     def test_extra_groups(self):
         gid = os.getegid()
         group_list = [65534 if gid != 65534 else 65533]
         self._test_extra_groups_impl(gid=gid, group_list=group_list)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipUnless(hasattr(os, 'setgroups'), 'no setgroups() on platform')
     def test_extra_groups_empty_list(self):
         self._test_extra_groups_impl(gid=os.getegid(), group_list=[])
@@ -2321,8 +2317,8 @@ class POSIXProcessTestCase(BaseTestCase):
                 subprocess.check_call(ZERO_RETURN_CMD,
                                       extra_groups=[name_group])
 
-    @unittest.skip("TODO: RUSTPYTHON; clarify failure condition")
     # No skip necessary, this test won't make it to a setgroup() call.
+    @unittest.skip('TODO: RUSTPYTHON; clarify failure condition')
     def test_extra_groups_invalid_gid_t_values(self):
         with self.assertRaises(ValueError):
             subprocess.check_call(ZERO_RETURN_CMD, extra_groups=[-1])
@@ -2449,8 +2445,7 @@ class POSIXProcessTestCase(BaseTestCase):
                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE, preexec_fn=raise_it)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_preexec_gc_module_failure(self):
         # This tests the code that disables garbage collection if the child
         # process will execute any Python.
@@ -3021,7 +3016,7 @@ class POSIXProcessTestCase(BaseTestCase):
         p1.stdout.close()
         p2.stdout.close()
 
-    @unittest.skip("TODO: RUSTPYTHON, flaky test")
+    @unittest.skip('TODO: RUSTPYTHON; flaky test')
     def test_close_fds(self):
         fd_status = support.findfile("fd_status.py", subdir="subprocessdata")
 
@@ -3149,11 +3144,11 @@ class POSIXProcessTestCase(BaseTestCase):
                          msg="Some fds were left open.")
 
 
-    @unittest.skip("TODO: RUSTPYTHON, flaky test")
     # Mac OS X Tiger (10.4) has a kernel bug: sometimes, the file
     # descriptor of a pipe closed in the parent process is valid in the
     # child process according to fstat(), but the mode of the file
     # descriptor is invalid, and read or write raise an error.
+    @unittest.skip('TODO: RUSTPYTHON; flaky test')
     @support.requires_mac_ver(10, 5)
     def test_pass_fds(self):
         fd_status = support.findfile("fd_status.py", subdir="subprocessdata")
@@ -3566,8 +3561,7 @@ class POSIXProcessTestCase(BaseTestCase):
             except subprocess.TimeoutExpired:
                 pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_preexec_at_exit(self):
         code = f"""if 1:
         import atexit

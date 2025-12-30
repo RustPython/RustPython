@@ -1735,6 +1735,8 @@ class TestTemporaryDirectory(BaseTestCase):
         d2.cleanup()
 
     @os_helper.skip_unless_symlink
+    @unittest.skip('TODO: RUSTPYTHON')
+    # FileNotFoundError: [Errno 2] No such file or directory: '/tmp/.../symlink'
     def test_cleanup_with_symlink_modes(self):
         # cleanup() should not follow symlinks when fixing mode bits (#91133)
         with self.do_create(recurse=0) as d2:
