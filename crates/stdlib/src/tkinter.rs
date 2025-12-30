@@ -4,8 +4,9 @@ pub(crate) use self::_tkinter::make_module;
 
 #[pymodule]
 mod _tkinter {
+    use rustpython_vm::convert::IntoPyException;
     use rustpython_vm::types::Constructor;
-    use rustpython_vm::{PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
+    use rustpython_vm::{Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 
     use rustpython_vm::builtins::{PyInt, PyStr, PyType};
     use std::{ffi, ptr};
@@ -138,10 +139,10 @@ mod _tkinter {
         type Args = TkAppConstructorArgs;
 
         fn py_new(
-            _zelf: PyRef<PyType>,
+            _cls: &Py<PyType>,
             args: Self::Args,
             vm: &VirtualMachine,
-        ) -> PyResult<PyObjectRef> {
+        ) -> PyResult<Self> {
             create(args, vm)
         }
     }
@@ -180,7 +181,7 @@ mod _tkinter {
     // TODO: DISALLOW_INSTANTIATION
     #[pyclass(with(Constructor))]
     impl TkApp {
-        fn from_bool(&self, obj: *mut tk_sys::Tcl_Obj) -> bool {
+        fn tcl_obj_to_bool(&self, obj: *mut tk_sys::Tcl_Obj) -> bool {
             let mut res = -1;
             unsafe {
                 if tk_sys::Tcl_GetBooleanFromObj(self.interpreter, obj, &mut res)
@@ -193,16 +194,16 @@ mod _tkinter {
             res != 0
         }
 
-        fn from_object(
+        fn tcl_obj_to_pyobject(
             &self,
             obj: *mut tk_sys::Tcl_Obj,
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
             let type_ptr = unsafe { (*obj).typePtr };
-            if type_ptr == ptr::null() {
+            if type_ptr.is_null() {
                 return self.unicode_from_object(obj, vm);
             } else if type_ptr == self.old_boolean_type || type_ptr == self.boolean_type {
-                return Ok(vm.ctx.new_bool(self.from_bool(obj)).into());
+                return Ok(vm.ctx.new_bool(self.tcl_obj_to_bool(obj)).into());
             } else if type_ptr == self.string_type
                 || type_ptr == self.utf32_string_type
                 || type_ptr == self.pixel_type
@@ -211,7 +212,7 @@ mod _tkinter {
             }
             // TODO: handle other types
 
-            return Ok(TclObject { value: obj }.into_pyobject(vm));
+            Ok(TclObject { value: obj }.into_pyobject(vm))
         }
 
         fn unicode_from_string(
@@ -235,8 +236,8 @@ mod _tkinter {
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
             let type_ptr = unsafe { (*obj).typePtr };
-            if type_ptr != ptr::null()
-                && self.interpreter != ptr::null_mut()
+            if !type_ptr.is_null()
+                && !self.interpreter.is_null()
                 && (type_ptr == self.string_type || type_ptr == self.utf32_string_type)
             {
                 let len = ptr::null_mut();
@@ -257,7 +258,7 @@ mod _tkinter {
         }
 
         fn var_invoke(&self) {
-            if self.threaded && self.thread_id != unsafe { tk_sys::Tcl_GetCurrentThread() } {
+            if self.threaded && self.thread_id != Some(unsafe { tk_sys::Tcl_GetCurrentThread() }) {
                 // TODO: do stuff
             }
         }
@@ -272,8 +273,9 @@ mod _tkinter {
             // TODO: technically not thread safe
             let name = varname_converter(name, vm)?;
 
-            let name = ffi::CString::new(name)?;
-            let name2 = ffi::CString::new(name2.unwrap_or_default())?;
+            let name = ffi::CString::new(name).map_err(|e| e.into_pyexception(vm))?;
+            let name2 =
+                ffi::CString::new(name2.unwrap_or_default()).map_err(|e| e.into_pyexception(vm))?;
             let name2_ptr = if name2.is_empty() {
                 ptr::null()
             } else {
@@ -287,7 +289,7 @@ mod _tkinter {
                     flags as _,
                 )
             };
-            if res == ptr::null_mut() {
+            if res.is_null() {
                 // TODO: Should be tk error
                 unsafe {
                     let err_obj = tk_sys::Tcl_GetObjResult(self.interpreter);
@@ -297,7 +299,7 @@ mod _tkinter {
                 }
             }
             let res = if self.want_objects {
-                self.from_object(res, vm)
+                self.tcl_obj_to_pyobject(res, vm)
             } else {
                 self.unicode_from_object(res, vm)
             }?;
@@ -348,11 +350,10 @@ mod _tkinter {
                 && !QUIT_MAIN_LOOP.load(Ordering::Relaxed)
                 && !ERROR_IN_CMD.load(Ordering::Relaxed)
             {
-                let mut result = 0;
                 if self.threaded {
-                    result = unsafe { tk_sys::Tcl_DoOneEvent(0 as _) } as i32;
+                    unsafe { tk_sys::Tcl_DoOneEvent(0 as _) };
                 } else {
-                    result = unsafe { tk_sys::Tcl_DoOneEvent(tk_sys::TCL_DONT_WAIT as _) } as i32;
+                    unsafe { tk_sys::Tcl_DoOneEvent(tk_sys::TCL_DONT_WAIT as _) };
                     // TODO: sleep for the proper time
                     std::thread::sleep(std::time::Duration::from_millis(1));
                 }
@@ -367,15 +368,15 @@ mod _tkinter {
     }
 
     #[pyfunction]
-    fn create(args: TkAppConstructorArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn create(args: TkAppConstructorArgs, vm: &VirtualMachine) -> PyResult<TkApp> {
         unsafe {
             let interp = tk_sys::Tcl_CreateInterp();
             let want_objects = args.wantobjects != 0;
-            let threaded = {
+            let threaded = !{
                 let part1 = String::from("tcl_platform");
                 let part2 = String::from("threaded");
-                let part1 = ffi::CString::new(part1)?;
-                let part2 = ffi::CString::new(part2)?;
+                let part1 = ffi::CString::new(part1).map_err(|e| e.into_pyexception(vm))?;
+                let part2 = ffi::CString::new(part2).map_err(|e| e.into_pyexception(vm))?;
                 let part1_ptr = part1.as_ptr();
                 let part2_ptr = part2.as_ptr();
                 tk_sys::Tcl_GetVar2Ex(
@@ -384,7 +385,8 @@ mod _tkinter {
                     part2_ptr as _,
                     tk_sys::TCL_GLOBAL_ONLY as ffi::c_int,
                 )
-            } != ptr::null_mut();
+            }
+            .is_null();
             let thread_id = tk_sys::Tcl_GetCurrentThread();
             let dispatching = false;
             let trace = None;
@@ -409,8 +411,8 @@ mod _tkinter {
             let double_type = tk_sys::Tcl_GetObjType(double_str.as_ptr() as _);
             let int_str = String::from("int");
             let int_type = tk_sys::Tcl_GetObjType(int_str.as_ptr() as _);
-            let int_type = if int_type == ptr::null() {
-                let mut value = *tk_sys::Tcl_NewIntObj(0);
+            let int_type = if int_type.is_null() {
+                let mut value = *tk_sys::Tcl_NewWideIntObj(0);
                 let res = value.typePtr;
                 tk_sys::Tcl_DecrRefCount(&mut value);
                 res
@@ -444,33 +446,37 @@ mod _tkinter {
             }
 
             if args.interactive != 0 {
-                tk_sys::Tcl_SetVar(
+                tk_sys::Tcl_SetVar2(
                     interp,
                     "tcl_interactive".as_ptr() as _,
+                    ptr::null(),
                     "1".as_ptr() as _,
                     tk_sys::TCL_GLOBAL_ONLY as i32,
                 );
             } else {
-                tk_sys::Tcl_SetVar(
+                tk_sys::Tcl_SetVar2(
                     interp,
                     "tcl_interactive".as_ptr() as _,
+                    ptr::null(),
                     "0".as_ptr() as _,
                     tk_sys::TCL_GLOBAL_ONLY as i32,
                 );
             }
 
             let argv0 = args.class_name.clone().to_lowercase();
-            tk_sys::Tcl_SetVar(
+            tk_sys::Tcl_SetVar2(
                 interp,
                 "argv0".as_ptr() as _,
+                ptr::null(),
                 argv0.as_ptr() as _,
                 tk_sys::TCL_GLOBAL_ONLY as i32,
             );
 
             if !args.want_tk {
-                tk_sys::Tcl_SetVar(
+                tk_sys::Tcl_SetVar2(
                     interp,
                     "_tkinter_skip_tk_init".as_ptr() as _,
+                    ptr::null(),
                     "1".as_ptr() as _,
                     tk_sys::TCL_GLOBAL_ONLY as i32,
                 );
@@ -488,11 +494,12 @@ mod _tkinter {
                     argv.push_str("-use ");
                     argv.push_str(&args.use_.unwrap());
                 }
-                argv.push_str("\0");
+                argv.push('\0');
                 let argv_ptr = argv.as_ptr() as *mut *mut i8;
-                tk_sys::Tcl_SetVar(
+                tk_sys::Tcl_SetVar2(
                     interp,
                     "argv".as_ptr() as _,
+                    ptr::null(),
                     argv_ptr as *const i8,
                     tk_sys::TCL_GLOBAL_ONLY as i32,
                 );
@@ -530,8 +537,7 @@ mod _tkinter {
                 string_type,
                 utf32_string_type,
                 pixel_type,
-            }
-            .into_pyobject(vm))
+            })
         }
     }
 
