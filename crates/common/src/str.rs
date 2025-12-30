@@ -4,8 +4,8 @@ use crate::format::CharLen;
 use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 use ascii::{AsciiChar, AsciiStr, AsciiString};
 use core::fmt;
+use core::ops::{Bound, RangeBounds};
 use core::sync::atomic::Ordering::Relaxed;
-use std::ops::{Bound, RangeBounds};
 
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(non_camel_case_types)]
@@ -22,7 +22,7 @@ pub enum StrKind {
     Wtf8,
 }
 
-impl std::ops::BitOr for StrKind {
+impl core::ops::BitOr for StrKind {
     type Output = Self;
 
     fn bitor(self, other: Self) -> Self {
@@ -128,7 +128,7 @@ impl From<usize> for StrLen {
 }
 
 impl fmt::Debug for StrLen {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let len = self.0.load(Relaxed);
         if len == usize::MAX {
             f.write_str("<uncomputed>")
@@ -262,7 +262,7 @@ impl StrData {
     pub fn as_str(&self) -> Option<&str> {
         self.kind
             .is_utf8()
-            .then(|| unsafe { std::str::from_utf8_unchecked(self.data.as_bytes()) })
+            .then(|| unsafe { core::str::from_utf8_unchecked(self.data.as_bytes()) })
     }
 
     pub fn as_ascii(&self) -> Option<&AsciiStr> {
@@ -282,7 +282,7 @@ impl StrData {
                 PyKindStr::Ascii(unsafe { AsciiStr::from_ascii_unchecked(self.data.as_bytes()) })
             }
             StrKind::Utf8 => {
-                PyKindStr::Utf8(unsafe { std::str::from_utf8_unchecked(self.data.as_bytes()) })
+                PyKindStr::Utf8(unsafe { core::str::from_utf8_unchecked(self.data.as_bytes()) })
             }
             StrKind::Wtf8 => PyKindStr::Wtf8(&self.data),
         }
@@ -327,8 +327,8 @@ impl StrData {
     }
 }
 
-impl std::fmt::Display for StrData {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for StrData {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.data.fmt(f)
     }
 }
@@ -421,7 +421,7 @@ pub fn zfill(bytes: &[u8], width: usize) -> Vec<u8> {
         };
         let mut filled = Vec::new();
         filled.extend_from_slice(sign);
-        filled.extend(std::iter::repeat_n(b'0', width - bytes.len()));
+        filled.extend(core::iter::repeat_n(b'0', width - bytes.len()));
         filled.extend_from_slice(s);
         filled
     }
@@ -465,7 +465,8 @@ impl fmt::Display for UnicodeEscapeCodepoint {
 }
 
 pub mod levenshtein {
-    use std::{cell::RefCell, thread_local};
+    use core::cell::RefCell;
+    use std::thread_local;
 
     pub const MOVE_COST: usize = 2;
     const CASE_COST: usize = 1;
@@ -524,9 +525,9 @@ pub mod levenshtein {
         }
 
         if b_end < a_end {
-            std::mem::swap(&mut a_bytes, &mut b_bytes);
-            std::mem::swap(&mut a_begin, &mut b_begin);
-            std::mem::swap(&mut a_end, &mut b_end);
+            core::mem::swap(&mut a_bytes, &mut b_bytes);
+            core::mem::swap(&mut a_begin, &mut b_begin);
+            core::mem::swap(&mut a_end, &mut b_end);
         }
 
         if (b_end - a_end) * MOVE_COST > max_cost {

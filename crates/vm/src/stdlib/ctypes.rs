@@ -15,11 +15,11 @@ use crate::{
     class::PyClassImpl,
     types::TypeDataRef,
 };
-use std::ffi::{
+use core::ffi::{
     c_double, c_float, c_int, c_long, c_longlong, c_schar, c_short, c_uchar, c_uint, c_ulong,
     c_ulonglong, c_ushort,
 };
-use std::mem;
+use core::mem;
 use widestring::WideChar;
 
 pub use array::PyCArray;
@@ -387,7 +387,7 @@ pub(crate) mod _ctypes {
     const RTLD_GLOBAL: i32 = 0;
 
     #[pyattr]
-    const SIZEOF_TIME_T: usize = std::mem::size_of::<libc::time_t>();
+    const SIZEOF_TIME_T: usize = core::mem::size_of::<libc::time_t>();
 
     #[pyattr]
     const CTYPES_MAX_ARGCOUNT: usize = 1024;
@@ -535,11 +535,11 @@ pub(crate) mod _ctypes {
                 {
                     return Ok(super::get_size(type_str.as_ref()));
                 }
-                return Ok(std::mem::size_of::<usize>());
+                return Ok(core::mem::size_of::<usize>());
             }
             // Pointer types
             if type_obj.fast_issubclass(PyCPointer::static_type()) {
-                return Ok(std::mem::size_of::<usize>());
+                return Ok(core::mem::size_of::<usize>());
             }
             return Err(vm.new_type_error("this type has no size"));
         }
@@ -550,7 +550,7 @@ pub(crate) mod _ctypes {
             return Ok(cdata.size());
         }
         if obj.fast_isinstance(PyCPointer::static_type()) {
-            return Ok(std::mem::size_of::<usize>());
+            return Ok(core::mem::size_of::<usize>());
         }
 
         Err(vm.new_type_error("this type has no size"))
@@ -596,13 +596,17 @@ pub(crate) mod _ctypes {
             }
             None => {
                 // dlopen(NULL, mode) to get the current process handle (for pythonapi)
-                let handle = unsafe { libc::dlopen(std::ptr::null(), mode) };
+                let handle = unsafe { libc::dlopen(core::ptr::null(), mode) };
                 if handle.is_null() {
                     let err = unsafe { libc::dlerror() };
                     let msg = if err.is_null() {
                         "dlopen() error".to_string()
                     } else {
-                        unsafe { std::ffi::CStr::from_ptr(err).to_string_lossy().into_owned() }
+                        unsafe {
+                            core::ffi::CStr::from_ptr(err)
+                                .to_string_lossy()
+                                .into_owned()
+                        }
                     };
                     return Err(vm.new_os_error(msg));
                 }
@@ -641,7 +645,7 @@ pub(crate) mod _ctypes {
         name: crate::builtins::PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let symbol_name = std::ffi::CString::new(name.as_str())
+        let symbol_name = alloc::ffi::CString::new(name.as_str())
             .map_err(|_| vm.new_value_error("symbol name contains null byte"))?;
 
         // Clear previous error
@@ -652,7 +656,11 @@ pub(crate) mod _ctypes {
         // Check for error via dlerror first
         let err = unsafe { libc::dlerror() };
         if !err.is_null() {
-            let msg = unsafe { std::ffi::CStr::from_ptr(err).to_string_lossy().into_owned() };
+            let msg = unsafe {
+                core::ffi::CStr::from_ptr(err)
+                    .to_string_lossy()
+                    .into_owned()
+            };
             return Err(vm.new_os_error(msg));
         }
 
@@ -851,7 +859,7 @@ pub(crate) mod _ctypes {
         }
         if obj.fast_isinstance(PyCPointer::static_type()) {
             // Pointer alignment is always pointer size
-            return Ok(std::mem::align_of::<usize>());
+            return Ok(core::mem::align_of::<usize>());
         }
         if obj.fast_isinstance(PyCUnion::static_type()) {
             // Calculate alignment from _fields_
@@ -914,7 +922,7 @@ pub(crate) mod _ctypes {
 
     #[pyfunction]
     fn resize(obj: PyObjectRef, size: isize, vm: &VirtualMachine) -> PyResult<()> {
-        use std::borrow::Cow;
+        use alloc::borrow::Cow;
 
         // 1. Get StgInfo from object's class (validates ctypes instance)
         let stg_info = obj
@@ -1148,8 +1156,8 @@ pub(crate) mod _ctypes {
         }
         let raw_ptr = ptr as *mut crate::object::PyObject;
         unsafe {
-            let obj = crate::PyObjectRef::from_raw(std::ptr::NonNull::new_unchecked(raw_ptr));
-            let obj = std::mem::ManuallyDrop::new(obj);
+            let obj = crate::PyObjectRef::from_raw(core::ptr::NonNull::new_unchecked(raw_ptr));
+            let obj = core::mem::ManuallyDrop::new(obj);
             Ok((*obj).clone())
         }
     }
@@ -1172,7 +1180,7 @@ pub(crate) mod _ctypes {
         path: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        use std::ffi::CString;
+        use alloc::ffi::CString;
 
         let path = match path {
             Some(p) if !vm.is_none(&p) => p,
@@ -1208,12 +1216,12 @@ pub(crate) mod _ctypes {
                 FORMAT_MESSAGE_ALLOCATE_BUFFER
                     | FORMAT_MESSAGE_FROM_SYSTEM
                     | FORMAT_MESSAGE_IGNORE_INSERTS,
-                std::ptr::null(),
+                core::ptr::null(),
                 error_code,
                 0,
                 &mut buffer as *mut *mut u16 as *mut u16,
                 0,
-                std::ptr::null(),
+                core::ptr::null(),
             )
         };
 
@@ -1280,7 +1288,7 @@ pub(crate) mod _ctypes {
                 let vtable = *iunknown;
                 debug_assert!(!vtable.is_null(), "IUnknown vtable is null");
                 let addref_fn: extern "system" fn(*mut std::ffi::c_void) -> u32 =
-                    std::mem::transmute(*vtable.add(1)); // AddRef is index 1
+                    core::mem::transmute(*vtable.add(1)); // AddRef is index 1
                 addref_fn(src_ptr as *mut std::ffi::c_void);
             }
         }

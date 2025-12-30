@@ -5,12 +5,13 @@ use crate::{
     marshal::MarshalError,
     {OneIndexed, SourceLocation},
 };
+use alloc::{collections::BTreeSet, fmt};
 use bitflags::bitflags;
+use core::{hash, marker::PhantomData, mem, num::NonZeroU8, ops::Deref};
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
-use std::{collections::BTreeSet, fmt, hash, marker::PhantomData, mem, num::NonZeroU8, ops::Deref};
 
 /// Oparg values for [`Instruction::ConvertValue`].
 ///
@@ -257,7 +258,7 @@ impl ConstantBag for BasicBag {
 #[derive(Clone)]
 pub struct CodeObject<C: Constant = ConstantData> {
     pub instructions: CodeUnits,
-    pub locations: Box<[SourceLocation]>,
+    pub locations: Box<[(SourceLocation, SourceLocation)]>,
     pub flags: CodeFlags,
     /// Number of positional-only arguments
     pub posonlyarg_count: u32,
@@ -506,7 +507,7 @@ impl<T: OpArgType> Eq for Arg<T> {}
 
 impl<T: OpArgType> fmt::Debug for Arg<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Arg<{}>", std::any::type_name::<T>())
+        write!(f, "Arg<{}>", core::any::type_name::<T>())
     }
 }
 
@@ -880,7 +881,7 @@ impl From<Instruction> for u8 {
     #[inline]
     fn from(ins: Instruction) -> Self {
         // SAFETY: there's no padding bits
-        unsafe { std::mem::transmute::<Instruction, Self>(ins) }
+        unsafe { core::mem::transmute::<Instruction, Self>(ins) }
     }
 }
 
@@ -890,7 +891,7 @@ impl TryFrom<u8> for Instruction {
     #[inline]
     fn try_from(value: u8) -> Result<Self, MarshalError> {
         if value <= u8::from(LAST_INSTRUCTION) {
-            Ok(unsafe { std::mem::transmute::<u8, Self>(value) })
+            Ok(unsafe { core::mem::transmute::<u8, Self>(value) })
         } else {
             Err(MarshalError::InvalidBytecode)
         }
@@ -1027,7 +1028,7 @@ impl PartialEq for ConstantData {
             (Boolean { value: a }, Boolean { value: b }) => a == b,
             (Str { value: a }, Str { value: b }) => a == b,
             (Bytes { value: a }, Bytes { value: b }) => a == b,
-            (Code { code: a }, Code { code: b }) => std::ptr::eq(a.as_ref(), b.as_ref()),
+            (Code { code: a }, Code { code: b }) => core::ptr::eq(a.as_ref(), b.as_ref()),
             (Tuple { elements: a }, Tuple { elements: b }) => a == b,
             (None, None) => true,
             (Ellipsis, Ellipsis) => true,
@@ -1053,7 +1054,7 @@ impl hash::Hash for ConstantData {
             Boolean { value } => value.hash(state),
             Str { value } => value.hash(state),
             Bytes { value } => value.hash(state),
-            Code { code } => std::ptr::hash(code.as_ref(), state),
+            Code { code } => core::ptr::hash(code.as_ref(), state),
             Tuple { elements } => elements.hash(state),
             None => {}
             Ellipsis => {}
@@ -1482,14 +1483,14 @@ impl<C: Constant> CodeObject<C> {
         level: usize,
     ) -> fmt::Result {
         let label_targets = self.label_targets();
-        let line_digits = (3).max(self.locations.last().unwrap().line.digits().get());
+        let line_digits = (3).max(self.locations.last().unwrap().0.line.digits().get());
         let offset_digits = (4).max(1 + self.instructions.len().ilog10() as usize);
         let mut last_line = OneIndexed::MAX;
         let mut arg_state = OpArgState::default();
         for (offset, &instruction) in self.instructions.iter().enumerate() {
             let (instruction, arg) = arg_state.get(instruction);
             // optional line number
-            let line = self.locations[offset].line;
+            let line = self.locations[offset].0.line;
             if line != last_line {
                 if last_line != OneIndexed::MAX {
                     writeln!(f)?;

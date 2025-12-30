@@ -8,6 +8,7 @@ mod _lzma {
         CompressFlushKind, CompressState, CompressStatusKind, Compressor, DecompressArgs,
         DecompressError, DecompressState, DecompressStatus, Decompressor,
     };
+    use alloc::fmt;
     #[pyattr]
     use lzma_sys::{
         LZMA_CHECK_CRC32 as CHECK_CRC32, LZMA_CHECK_CRC64 as CHECK_CRC64,
@@ -38,7 +39,6 @@ mod _lzma {
     use rustpython_vm::function::ArgBytesLike;
     use rustpython_vm::types::Constructor;
     use rustpython_vm::{Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
-    use std::fmt;
     use xz2::stream::{Action, Check, Error, Filters, LzmaOptions, Status, Stream};
 
     #[cfg(windows)]

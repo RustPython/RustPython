@@ -359,7 +359,7 @@ mod decl {
                     }
                     _ => unsafe {
                         // quad_pos is only assigned in this match statement to constants
-                        std::hint::unreachable_unchecked()
+                        core::hint::unreachable_unchecked()
                     },
                 }
             }

@@ -230,12 +230,12 @@ impl OsPath {
         self.path.into_encoded_bytes()
     }
 
-    pub fn to_string_lossy(&self) -> std::borrow::Cow<'_, str> {
+    pub fn to_string_lossy(&self) -> alloc::borrow::Cow<'_, str> {
         self.path.to_string_lossy()
     }
 
-    pub fn into_cstring(self, vm: &VirtualMachine) -> PyResult<std::ffi::CString> {
-        std::ffi::CString::new(self.into_bytes()).map_err(|err| err.to_pyexception(vm))
+    pub fn into_cstring(self, vm: &VirtualMachine) -> PyResult<alloc::ffi::CString> {
+        alloc::ffi::CString::new(self.into_bytes()).map_err(|err| err.to_pyexception(vm))
     }
 
     #[cfg(windows)]

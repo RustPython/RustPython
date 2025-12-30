@@ -5,7 +5,7 @@
 
 use std::{io, path::Path};
 
-type OtherError = Box<dyn std::error::Error>;
+type OtherError = Box<dyn core::error::Error>;
 type OtherResult<T> = Result<T, OtherError>;
 
 pub enum ReadlineResult {

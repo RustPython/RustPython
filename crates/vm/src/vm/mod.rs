@@ -33,6 +33,11 @@ use crate::{
     signal, stdlib,
     warn::WarningsState,
 };
+use alloc::borrow::Cow;
+use core::{
+    cell::{Cell, Ref, RefCell},
+    sync::atomic::AtomicBool,
+};
 use crossbeam_utils::atomic::AtomicCell;
 #[cfg(unix)]
 use nix::{
@@ -40,11 +45,8 @@ use nix::{
     unistd::getpid,
 };
 use std::{
-    borrow::Cow,
-    cell::{Cell, Ref, RefCell},
     collections::{HashMap, HashSet},
     ffi::{OsStr, OsString},
-    sync::atomic::AtomicBool,
 };
 
 pub use context::Context;
@@ -506,6 +508,7 @@ impl VirtualMachine {
     pub fn compile_opts(&self) -> crate::compiler::CompileOpts {
         crate::compiler::CompileOpts {
             optimize: self.state.config.settings.optimize,
+            debug_ranges: self.state.config.settings.code_debug_ranges,
         }
     }
 
@@ -789,14 +792,14 @@ impl VirtualMachine {
 
     pub(crate) fn push_exception(&self, exc: Option<PyBaseExceptionRef>) {
         let mut excs = self.exceptions.borrow_mut();
-        let prev = std::mem::take(&mut *excs);
+        let prev = core::mem::take(&mut *excs);
         excs.prev = Some(Box::new(prev));
         excs.exc = exc
     }
 
     pub(crate) fn pop_exception(&self) -> Option<PyBaseExceptionRef> {
         let mut excs = self.exceptions.borrow_mut();
-        let cur = std::mem::take(&mut *excs);
+        let cur = core::mem::take(&mut *excs);
         *excs = *cur.prev.expect("pop_exception() without nested exc stack");
         cur.exc
     }
@@ -811,7 +814,7 @@ impl VirtualMachine {
 
     pub(crate) fn set_exception(&self, exc: Option<PyBaseExceptionRef>) {
         // don't be holding the RefCell guard while __del__ is called
-        let prev = std::mem::replace(&mut self.exceptions.borrow_mut().exc, exc);
+        let prev = core::mem::replace(&mut self.exceptions.borrow_mut().exc, exc);
         drop(prev);
     }
 
@@ -984,7 +987,7 @@ impl AsRef<Context> for VirtualMachine {
 }
 
 fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
-    let iter = std::iter::empty();
+    let iter = core::iter::empty();
     macro_rules! ext_modules {
         ($iter:ident, $($t:tt)*) => {
             let $iter = $iter.chain(py_freeze!($($t)*));

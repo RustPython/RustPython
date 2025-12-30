@@ -146,8 +146,8 @@ macro_rules! match_class {
     };
     (match ($obj:expr) { ref $binding:ident @ $class:ty => $expr:expr, $($rest:tt)* }) => {
         match $obj.downcast_ref::<$class>() {
-            ::std::option::Option::Some($binding) => $expr,
-            ::std::option::Option::None => $crate::match_class!(match ($obj) { $($rest)* }),
+            core::option::Option::Some($binding) => $expr,
+            core::option::Option::None => $crate::match_class!(match ($obj) { $($rest)* }),
         }
     };
 

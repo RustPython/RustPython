@@ -12,9 +12,9 @@ mod _json {
         protocol::PyIterReturn,
         types::{Callable, Constructor},
     };
+    use core::str::FromStr;
     use malachite_bigint::BigInt;
     use rustpython_common::wtf8::Wtf8Buf;
-    use std::str::FromStr;
 
     #[pyattr(name = "make_scanner")]
     #[pyclass(name = "Scanner", traverse)]
@@ -216,7 +216,7 @@ mod _json {
         let mut buf = Vec::<u8>::with_capacity(s.len() + 2);
         machinery::write_json_string(s, ascii_only, &mut buf)
             // SAFETY: writing to a vec can't fail
-            .unwrap_or_else(|_| unsafe { std::hint::unreachable_unchecked() });
+            .unwrap_or_else(|_| unsafe { core::hint::unreachable_unchecked() });
         // SAFETY: we only output valid utf8 from write_json_string
         unsafe { String::from_utf8_unchecked(buf) }
     }

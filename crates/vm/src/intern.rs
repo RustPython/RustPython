@@ -6,10 +6,8 @@ use crate::{
     common::lock::PyRwLock,
     convert::ToPyObject,
 };
-use std::{
-    borrow::{Borrow, ToOwned},
-    ops::Deref,
-};
+use alloc::borrow::ToOwned;
+use core::{borrow::Borrow, ops::Deref};
 
 #[derive(Debug)]
 pub struct StringPool {
@@ -86,8 +84,8 @@ pub struct CachedPyStrRef {
     inner: PyRefExact<PyStr>,
 }
 
-impl std::hash::Hash for CachedPyStrRef {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl core::hash::Hash for CachedPyStrRef {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.inner.as_wtf8().hash(state)
     }
 }
@@ -100,7 +98,7 @@ impl PartialEq for CachedPyStrRef {
 
 impl Eq for CachedPyStrRef {}
 
-impl std::borrow::Borrow<Wtf8> for CachedPyStrRef {
+impl core::borrow::Borrow<Wtf8> for CachedPyStrRef {
     #[inline]
     fn borrow(&self) -> &Wtf8 {
         self.as_wtf8()
@@ -119,7 +117,7 @@ impl CachedPyStrRef {
     /// the given cache must be alive while returned reference is alive
     #[inline]
     const unsafe fn as_interned_str(&self) -> &'static PyStrInterned {
-        unsafe { std::mem::transmute_copy(self) }
+        unsafe { core::mem::transmute_copy(self) }
     }
 
     #[inline]
@@ -135,7 +133,7 @@ pub struct PyInterned<T> {
 impl<T: PyPayload> PyInterned<T> {
     #[inline]
     pub fn leak(cache: PyRef<T>) -> &'static Self {
-        unsafe { std::mem::transmute(cache) }
+        unsafe { core::mem::transmute(cache) }
     }
 
     #[inline]
@@ -163,9 +161,9 @@ impl<T: PyPayload> Borrow<PyObject> for PyInterned<T> {
 
 // NOTE: std::hash::Hash of Self and Self::Borrowed *must* be the same
 // This is ok only because PyObject doesn't implement Hash
-impl<T: PyPayload> std::hash::Hash for PyInterned<T> {
+impl<T: PyPayload> core::hash::Hash for PyInterned<T> {
     #[inline(always)]
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.get_id().hash(state)
     }
 }
@@ -188,15 +186,15 @@ impl<T> Deref for PyInterned<T> {
 impl<T: PyPayload> PartialEq for PyInterned<T> {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self, other)
+        core::ptr::eq(self, other)
     }
 }
 
 impl<T: PyPayload> Eq for PyInterned<T> {}
 
-impl<T: std::fmt::Debug + PyPayload> std::fmt::Debug for PyInterned<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(&**self, f)?;
+impl<T: core::fmt::Debug + PyPayload> core::fmt::Debug for PyInterned<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(&**self, f)?;
         write!(f, "@{:p}", self.as_ptr())
     }
 }
@@ -308,7 +306,7 @@ impl MaybeInternedString for Py<PyStr> {
     #[inline(always)]
     fn as_interned(&self) -> Option<&'static PyStrInterned> {
         if self.as_object().is_interned() {
-            Some(unsafe { std::mem::transmute::<&Self, &PyInterned<PyStr>>(self) })
+            Some(unsafe { core::mem::transmute::<&Self, &PyInterned<PyStr>>(self) })
         } else {
             None
         }

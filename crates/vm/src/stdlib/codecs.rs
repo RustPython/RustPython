@@ -270,7 +270,7 @@ mod _codecs {
                 wide.len() as i32,
                 std::ptr::null_mut(),
                 0,
-                std::ptr::null(),
+                core::ptr::null(),
                 std::ptr::null_mut(),
             )
         };
@@ -291,7 +291,7 @@ mod _codecs {
                 wide.len() as i32,
                 buffer.as_mut_ptr().cast(),
                 size,
-                std::ptr::null(),
+                core::ptr::null(),
                 if errors == "strict" {
                     &mut used_default_char
                 } else {
@@ -472,7 +472,7 @@ mod _codecs {
                 wide.len() as i32,
                 std::ptr::null_mut(),
                 0,
-                std::ptr::null(),
+                core::ptr::null(),
                 std::ptr::null_mut(),
             )
         };
@@ -493,7 +493,7 @@ mod _codecs {
                 wide.len() as i32,
                 buffer.as_mut_ptr().cast(),
                 size,
-                std::ptr::null(),
+                core::ptr::null(),
                 if errors == "strict" {
                     &mut used_default_char
                 } else {

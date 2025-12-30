@@ -17,9 +17,9 @@ use crate::{
     types::slot_defs::{SlotAccessor, find_slot_defs_by_name},
     vm::Context,
 };
+use core::{any::Any, any::TypeId, borrow::Borrow, cmp::Ordering, ops::Deref};
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
-use std::{any::Any, any::TypeId, borrow::Borrow, cmp::Ordering, ops::Deref};
 
 /// Type-erased storage for extension module data attached to heap types.
 pub struct TypeDataSlot {
@@ -71,7 +71,7 @@ impl<'a, T: Any + 'static> TypeDataRef<'a, T> {
     }
 }
 
-impl<T: Any + 'static> std::ops::Deref for TypeDataRef<'_, T> {
+impl<T: Any + 'static> core::ops::Deref for TypeDataRef<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -96,7 +96,7 @@ impl<'a, T: Any + 'static> TypeDataRefMut<'a, T> {
     }
 }
 
-impl<T: Any + 'static> std::ops::Deref for TypeDataRefMut<'_, T> {
+impl<T: Any + 'static> core::ops::Deref for TypeDataRefMut<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -104,7 +104,7 @@ impl<T: Any + 'static> std::ops::Deref for TypeDataRefMut<'_, T> {
     }
 }
 
-impl<T: Any + 'static> std::ops::DerefMut for TypeDataRefMut<'_, T> {
+impl<T: Any + 'static> core::ops::DerefMut for TypeDataRefMut<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.guard
     }
@@ -203,8 +203,8 @@ impl PyTypeSlots {
     }
 }
 
-impl std::fmt::Debug for PyTypeSlots {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for PyTypeSlots {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("PyTypeSlots")
     }
 }
@@ -760,8 +760,9 @@ impl PyType {
                         let in_self = cmp_names.iter().any(|n| attrs.contains_key(*n));
                         drop(attrs);
 
+                        // mro[0] is self, so skip it since we already checked self above
                         in_self
-                            || self.mro.read().iter().any(|cls| {
+                            || self.mro.read()[1..].iter().any(|cls| {
                                 let attrs = cls.attributes.read();
                                 cmp_names.iter().any(|n| {
                                     if let Some(attr) = attrs.get(*n) {
@@ -1273,8 +1274,8 @@ impl PyType {
             return None;
         }
 
-        // Look up in MRO
-        for cls in self.mro.read().iter() {
+        // Look up in MRO (mro[0] is self, so skip it)
+        for cls in self.mro.read()[1..].iter() {
             if let Some(attr) = cls.attributes.read().get(name).cloned() {
                 if let Some(func) = try_extract(&attr) {
                     return Some(func);
@@ -1310,7 +1311,7 @@ impl PyType {
 /// - Special class type handling (e.g., `PyType` and its metaclasses)
 /// - Post-creation mutations that require `PyRef`
 #[pyclass]
-pub trait Constructor: PyPayload + std::fmt::Debug {
+pub trait Constructor: PyPayload + core::fmt::Debug {
     type Args: FromArgs;
 
     /// The type slot for `__new__`. Override this only when you need special
@@ -1328,7 +1329,7 @@ pub trait Constructor: PyPayload + std::fmt::Debug {
     fn py_new(cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self>;
 }
 
-pub trait DefaultConstructor: PyPayload + Default + std::fmt::Debug {
+pub trait DefaultConstructor: PyPayload + Default + core::fmt::Debug {
     fn construct_and_init(args: Self::Args, vm: &VirtualMachine) -> PyResult<PyRef<Self>>
     where
         Self: Initializer,
@@ -1862,7 +1863,7 @@ pub trait Iterable: PyPayload {
     fn extend_slots(_slots: &mut PyTypeSlots) {}
 }
 
-// `Iterator` fits better, but to avoid confusion with rust std::iter::Iterator
+// `Iterator` fits better, but to avoid confusion with rust core::iter::Iterator
 #[pyclass(with(Iterable))]
 pub trait IterNext: PyPayload + Iterable {
     #[pyslot]

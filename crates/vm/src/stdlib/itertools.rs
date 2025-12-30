@@ -25,8 +25,8 @@ mod decl {
     use malachite_bigint::BigInt;
     use num_traits::One;
 
+    use alloc::fmt;
     use num_traits::{Signed, ToPrimitive};
-    use std::fmt;
 
     fn pickle_deprecation(vm: &VirtualMachine) -> PyResult<()> {
         warnings::warn(
@@ -1320,7 +1320,7 @@ mod decl {
             for arg in iterables.iter() {
                 pools.push(arg.try_to_value(vm)?);
             }
-            let pools = std::iter::repeat_n(pools, repeat)
+            let pools = core::iter::repeat_n(pools, repeat)
                 .flatten()
                 .collect::<Vec<Vec<PyObjectRef>>>();
 

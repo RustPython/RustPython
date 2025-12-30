@@ -1,4 +1,4 @@
-use std::ops::{self, Range};
+use core::ops::{self, Range};
 
 use num_traits::ToPrimitive;
 
@@ -260,7 +260,7 @@ pub mod errors {
     use crate::str::UnicodeEscapeCodepoint;
 
     use super::*;
-    use std::fmt::Write;
+    use core::fmt::Write;
 
     pub struct Strict;
 

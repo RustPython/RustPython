@@ -9,7 +9,7 @@ pub struct StringCursor {
 impl Default for StringCursor {
     fn default() -> Self {
         Self {
-            ptr: std::ptr::null(),
+            ptr: core::ptr::null(),
             position: 0,
         }
     }

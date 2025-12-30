@@ -14,15 +14,15 @@ pub fn hash_iter<'a, I: IntoIterator<Item = &'a PyObjectRef>>(
     vm.state.hash_secret.hash_iter(iter, |obj| obj.hash(vm))
 }
 
-impl ToPyObject for std::convert::Infallible {
+impl ToPyObject for core::convert::Infallible {
     fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {}
     }
 }
 
 pub trait ToCString: AsRef<Wtf8> {
-    fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<std::ffi::CString> {
-        std::ffi::CString::new(self.as_ref().as_bytes()).map_err(|err| err.to_pyexception(vm))
+    fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<alloc::ffi::CString> {
+        alloc::ffi::CString::new(self.as_ref().as_bytes()).map_err(|err| err.to_pyexception(vm))
     }
     fn ensure_no_nul(&self, vm: &VirtualMachine) -> PyResult<()> {
         if self.as_ref().as_bytes().contains(&b'\0') {
@@ -45,7 +45,7 @@ pub(crate) fn collection_repr<'a, I>(
     vm: &VirtualMachine,
 ) -> PyResult<String>
 where
-    I: std::iter::Iterator<Item = &'a PyObjectRef>,
+    I: core::iter::Iterator<Item = &'a PyObjectRef>,
 {
     let mut repr = String::new();
     if let Some(name) = class_name {

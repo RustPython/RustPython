@@ -21,7 +21,8 @@ use crate::{
     utils::collection_repr,
     vm::VirtualMachine,
 };
-use std::{fmt, sync::LazyLock};
+use alloc::fmt;
+use std::sync::LazyLock;
 
 #[pyclass(module = false, name = "tuple", traverse)]
 pub struct PyTuple<R = PyObjectRef> {
@@ -158,7 +159,7 @@ impl<R> AsRef<[R]> for PyTuple<R> {
     }
 }
 
-impl<R> std::ops::Deref for PyTuple<R> {
+impl<R> core::ops::Deref for PyTuple<R> {
     type Target = [R];
 
     fn deref(&self) -> &[R] {
@@ -166,18 +167,18 @@ impl<R> std::ops::Deref for PyTuple<R> {
     }
 }
 
-impl<'a, R> std::iter::IntoIterator for &'a PyTuple<R> {
+impl<'a, R> core::iter::IntoIterator for &'a PyTuple<R> {
     type Item = &'a R;
-    type IntoIter = std::slice::Iter<'a, R>;
+    type IntoIter = core::slice::Iter<'a, R>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-impl<'a, R> std::iter::IntoIterator for &'a Py<PyTuple<R>> {
+impl<'a, R> core::iter::IntoIterator for &'a Py<PyTuple<R>> {
     type Item = &'a R;
-    type IntoIter = std::slice::Iter<'a, R>;
+    type IntoIter = core::slice::Iter<'a, R>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -200,7 +201,7 @@ impl<R> PyTuple<R> {
     }
 
     #[inline]
-    pub fn iter(&self) -> std::slice::Iter<'_, R> {
+    pub fn iter(&self) -> core::slice::Iter<'_, R> {
         self.elements.iter()
     }
 }
@@ -249,15 +250,15 @@ impl<T> PyTuple<PyRef<T>> {
         // SAFETY: PyRef<T> has the same layout as PyObjectRef
         unsafe {
             let elements: Vec<PyObjectRef> =
-                std::mem::transmute::<Vec<PyRef<T>>, Vec<PyObjectRef>>(elements);
+                core::mem::transmute::<Vec<PyRef<T>>, Vec<PyObjectRef>>(elements);
             let tuple = PyTuple::<PyObjectRef>::new_ref(elements, ctx);
-            std::mem::transmute::<PyRef<PyTuple>, PyRef<Self>>(tuple)
+            core::mem::transmute::<PyRef<PyTuple>, PyRef<Self>>(tuple)
         }
     }
 }
 
 #[pyclass(
-    itemsize = std::mem::size_of::<crate::PyObjectRef>(),
+    itemsize = core::mem::size_of::<crate::PyObjectRef>(),
     flags(BASETYPE, SEQUENCE, _MATCH_SELF),
     with(AsMapping, AsSequence, Hashable, Comparable, Iterable, Constructor, Representable)
 )]
@@ -489,21 +490,21 @@ impl PyRef<PyTuple<PyObjectRef>> {
             <PyRef<T> as TransmuteFromObject>::check(vm, elem)?;
         }
         // SAFETY: We just verified all elements are of type T
-        Ok(unsafe { std::mem::transmute::<Self, PyRef<PyTuple<PyRef<T>>>>(self) })
+        Ok(unsafe { core::mem::transmute::<Self, PyRef<PyTuple<PyRef<T>>>>(self) })
     }
 }
 
 impl<T: PyPayload> PyRef<PyTuple<PyRef<T>>> {
     pub fn into_untyped(self) -> PyRef<PyTuple> {
         // SAFETY: PyTuple<PyRef<T>> has the same layout as PyTuple
-        unsafe { std::mem::transmute::<Self, PyRef<PyTuple>>(self) }
+        unsafe { core::mem::transmute::<Self, PyRef<PyTuple>>(self) }
     }
 }
 
 impl<T: PyPayload> Py<PyTuple<PyRef<T>>> {
     pub fn as_untyped(&self) -> &Py<PyTuple> {
         // SAFETY: PyTuple<PyRef<T>> has the same layout as PyTuple
-        unsafe { std::mem::transmute::<&Self, &Py<PyTuple>>(self) }
+        unsafe { core::mem::transmute::<&Self, &Py<PyTuple>>(self) }
     }
 }
 

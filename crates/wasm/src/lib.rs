@@ -1,3 +1,5 @@
+extern crate alloc;
+
 pub mod browser_module;
 pub mod convert;
 pub mod js_module;

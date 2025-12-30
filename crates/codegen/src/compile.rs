@@ -16,6 +16,7 @@ use crate::{
     symboltable::{self, CompilerScope, SymbolFlags, SymbolScope, SymbolTable},
     unparse::UnparseExpr,
 };
+use alloc::borrow::Cow;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex;
@@ -42,7 +43,7 @@ use rustpython_compiler_core::{
     },
 };
 use rustpython_wtf8::Wtf8Buf;
-use std::{borrow::Cow, collections::HashSet};
+use std::collections::HashSet;
 
 const MAXBLOCKS: usize = 20;
 
@@ -114,11 +115,22 @@ enum DoneWithFuture {
     Yes,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct CompileOpts {
     /// How optimized the bytecode output should be; any optimize > 0 does
     /// not emit assert statements
     pub optimize: u8,
+    /// Include column info in bytecode (-X no_debug_ranges disables)
+    pub debug_ranges: bool,
+}
+
+impl Default for CompileOpts {
+    fn default() -> Self {
+        Self {
+            optimize: 0,
+            debug_ranges: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -293,7 +305,7 @@ fn compiler_unwrap_option<T>(zelf: &Compiler, o: Option<T>) -> T {
     o.unwrap()
 }
 
-// fn compiler_result_unwrap<T, E: std::fmt::Debug>(zelf: &Compiler, result: Result<T, E>) -> T {
+// fn compiler_result_unwrap<T, E: core::fmt::Debug>(zelf: &Compiler, result: Result<T, E>) -> T {
 //     if result.is_err() {
 //         eprintln!("=== CODEGEN PANIC INFO ===");
 //         eprintln!("This IS an internal error, an result was unwrapped during codegen");
@@ -858,7 +870,7 @@ impl Compiler {
         let pop = self.code_stack.pop();
         let stack_top = compiler_unwrap_option(self, pop);
         // No parent scope stack to maintain
-        unwrap_internal(self, stack_top.finalize_code(self.opts.optimize))
+        unwrap_internal(self, stack_top.finalize_code(&self.opts))
     }
 
     /// Push a new fblock
@@ -1485,7 +1497,9 @@ impl Compiler {
                 ..
             }) => self.compile_for(target, iter, body, orelse, *is_async)?,
             Stmt::Match(StmtMatch { subject, cases, .. }) => self.compile_match(subject, cases)?,
-            Stmt::Raise(StmtRaise { exc, cause, .. }) => {
+            Stmt::Raise(StmtRaise {
+                exc, cause, range, ..
+            }) => {
                 let kind = match exc {
                     Some(value) => {
                         self.compile_expression(value)?;
@@ -1499,6 +1513,7 @@ impl Compiler {
                     }
                     None => bytecode::RaiseKind::Reraise,
                 };
+                self.set_source_range(*range);
                 emit!(self, Instruction::Raise { kind });
             }
             Stmt::Try(StmtTry {
@@ -1831,7 +1846,7 @@ impl Compiler {
             name.to_owned(),
         );
 
-        let args_iter = std::iter::empty()
+        let args_iter = core::iter::empty()
             .chain(&parameters.posonlyargs)
             .chain(&parameters.args)
             .map(|arg| &arg.parameter)
@@ -2438,7 +2453,7 @@ impl Compiler {
         let mut funcflags = bytecode::MakeFunctionFlags::empty();
 
         // Handle positional defaults
-        let defaults: Vec<_> = std::iter::empty()
+        let defaults: Vec<_> = core::iter::empty()
             .chain(&parameters.posonlyargs)
             .chain(&parameters.args)
             .filter_map(|x| x.default.as_deref())
@@ -2566,7 +2581,7 @@ impl Compiler {
         let mut num_annotations = 0;
 
         // Handle parameter annotations
-        let parameters_iter = std::iter::empty()
+        let parameters_iter = core::iter::empty()
             .chain(&parameters.posonlyargs)
             .chain(&parameters.args)
             .chain(&parameters.kwonlyargs)
@@ -4965,7 +4980,7 @@ impl Compiler {
                 let name = "<lambda>".to_owned();
 
                 // Prepare defaults before entering function
-                let defaults: Vec<_> = std::iter::empty()
+                let defaults: Vec<_> = core::iter::empty()
                     .chain(&params.posonlyargs)
                     .chain(&params.args)
                     .filter_map(|x| x.default.as_deref())
@@ -5638,17 +5653,15 @@ impl Compiler {
     // Low level helper functions:
     fn _emit(&mut self, instr: Instruction, arg: OpArg, target: BlockIdx) {
         let range = self.current_source_range;
-        let location = self
-            .source_file
-            .to_source_code()
-            .source_location(range.start(), PositionEncoding::Utf8);
-        // TODO: insert source filename
+        let source = self.source_file.to_source_code();
+        let location = source.source_location(range.start(), PositionEncoding::Utf8);
+        let end_location = source.source_location(range.end(), PositionEncoding::Utf8);
         self.current_block().instructions.push(ir::InstructionInfo {
             instr,
             arg,
             target,
             location,
-            // range,
+            end_location,
         });
     }
 

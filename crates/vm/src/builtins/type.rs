@@ -29,10 +29,11 @@ use crate::{
         Representable, SLOT_DEFS, SetAttr, TypeDataRef, TypeDataRefMut, TypeDataSlot,
     },
 };
+use core::{any::Any, borrow::Borrow, ops::Deref, pin::Pin, ptr::NonNull};
 use indexmap::{IndexMap, map::Entry};
 use itertools::Itertools;
 use num_traits::ToPrimitive;
-use std::{any::Any, borrow::Borrow, collections::HashSet, ops::Deref, pin::Pin, ptr::NonNull};
+use std::collections::HashSet;
 
 #[pyclass(module = false, name = "type", traverse = "manual")]
 pub struct PyType {
@@ -49,7 +50,8 @@ unsafe impl crate::object::Traverse for PyType {
     fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn<'_>) {
         self.base.traverse(tracer_fn);
         self.bases.traverse(tracer_fn);
-        self.mro.traverse(tracer_fn);
+        // mro contains self as mro[0], so skip traversing to avoid circular reference
+        // self.mro.traverse(tracer_fn);
         self.subclasses.traverse(tracer_fn);
         self.attributes
             .read_recursive()
@@ -118,14 +120,14 @@ unsafe impl Traverse for PyAttributes {
     }
 }
 
-impl std::fmt::Display for PyType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(&self.name(), f)
+impl core::fmt::Display for PyType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Display::fmt(&self.name(), f)
     }
 }
 
-impl std::fmt::Debug for PyType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for PyType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "[PyType {}]", &self.name())
     }
 }
@@ -340,6 +342,7 @@ impl PyType {
             metaclass,
             None,
         );
+        new_type.mro.write().insert(0, new_type.clone());
 
         new_type.init_slots(ctx);
 
@@ -368,7 +371,7 @@ impl PyType {
 
         // Inherit SEQUENCE and MAPPING flags from base class
         // For static types, we only have a single base
-        Self::inherit_patma_flags(&mut slots, std::slice::from_ref(&base));
+        Self::inherit_patma_flags(&mut slots, core::slice::from_ref(&base));
 
         if slots.basicsize == 0 {
             slots.basicsize = base.slots.basicsize;
@@ -392,6 +395,7 @@ impl PyType {
             metaclass,
             None,
         );
+        new_type.mro.write().insert(0, new_type.clone());
 
         // Note: inherit_slots is called in PyClassImpl::init_class after
         // slots are fully initialized by make_slots()
@@ -412,9 +416,8 @@ impl PyType {
     }
 
     pub(crate) fn init_slots(&self, ctx: &Context) {
-        // Inherit slots from MRO
-        // Note: self.mro does NOT include self, so we iterate all elements
-        let mro: Vec<_> = self.mro.read().iter().cloned().collect();
+        // Inherit slots from MRO (mro[0] is self, so skip it)
+        let mro: Vec<_> = self.mro.read()[1..].to_vec();
         for base in mro.iter() {
             self.inherit_slots(base);
         }
@@ -423,7 +426,8 @@ impl PyType {
         #[allow(clippy::mutable_key_type)]
         let mut slot_name_set = std::collections::HashSet::new();
 
-        for cls in self.mro.read().iter() {
+        // mro[0] is self, so skip it; self.attributes is checked separately below
+        for cls in self.mro.read()[1..].iter() {
             for &name in cls.attributes.read().keys() {
                 if name.as_bytes().starts_with(b"__") && name.as_bytes().ends_with(b"__") {
                     slot_name_set.insert(name);
@@ -502,18 +506,12 @@ impl PyType {
     /// Equivalent to CPython's find_name_in_mro
     /// Look in tp_dict of types in MRO - bypasses descriptors and other attribute access machinery
     fn find_name_in_mro(&self, name: &'static PyStrInterned) -> Option<PyObjectRef> {
-        // First check in our own dict
-        if let Some(value) = self.attributes.read().get(name) {
-            return Some(value.clone());
-        }
-
-        // Then check in MRO
-        for base in self.mro.read().iter() {
-            if let Some(value) = base.attributes.read().get(name) {
+        // mro[0] is self, so we just iterate through the entire MRO
+        for cls in self.mro.read().iter() {
+            if let Some(value) = cls.attributes.read().get(name) {
                 return Some(value.clone());
             }
         }
-
         None
     }
 
@@ -529,8 +527,7 @@ impl PyType {
     }
 
     pub fn get_super_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
-        self.mro
-            .read()
+        self.mro.read()[1..]
             .iter()
             .find_map(|class| class.attributes.read().get(attr_name).cloned())
     }
@@ -538,9 +535,7 @@ impl PyType {
     // This is the internal has_attr implementation for fast lookup on a class.
     pub fn has_attr(&self, attr_name: &'static PyStrInterned) -> bool {
         self.attributes.read().contains_key(attr_name)
-            || self
-                .mro
-                .read()
+            || self.mro.read()[1..]
                 .iter()
                 .any(|c| c.attributes.read().contains_key(attr_name))
     }
@@ -549,10 +544,8 @@ impl PyType {
         // Gather all members here:
         let mut attributes = PyAttributes::default();
 
-        for bc in std::iter::once(self)
-            .chain(self.mro.read().iter().map(|cls| -> &Self { cls }))
-            .rev()
-        {
+        // mro[0] is self, so we iterate through the entire MRO in reverse
+        for bc in self.mro.read().iter().map(|cls| -> &Self { cls }).rev() {
             for (name, value) in bc.attributes.read().iter() {
                 attributes.insert(name.to_owned(), value.clone());
             }
@@ -660,28 +653,27 @@ impl Py<PyType> {
     /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
     /// method.
     pub fn fast_issubclass(&self, cls: &impl Borrow<PyObject>) -> bool {
-        self.as_object().is(cls.borrow()) || self.mro.read().iter().any(|c| c.is(cls.borrow()))
+        self.as_object().is(cls.borrow()) || self.mro.read()[1..].iter().any(|c| c.is(cls.borrow()))
     }
 
     pub fn mro_map_collect<F, R>(&self, f: F) -> Vec<R>
     where
         F: Fn(&Self) -> R,
     {
-        std::iter::once(self)
-            .chain(self.mro.read().iter().map(|x| x.deref()))
-            .map(f)
-            .collect()
+        self.mro.read().iter().map(|x| x.deref()).map(f).collect()
     }
 
     pub fn mro_collect(&self) -> Vec<PyRef<PyType>> {
-        std::iter::once(self)
-            .chain(self.mro.read().iter().map(|x| x.deref()))
+        self.mro
+            .read()
+            .iter()
+            .map(|x| x.deref())
             .map(|x| x.to_owned())
             .collect()
     }
 
     pub fn iter_base_chain(&self) -> impl Iterator<Item = &Self> {
-        std::iter::successors(Some(self), |cls| cls.base.as_deref())
+        core::iter::successors(Some(self), |cls| cls.base.as_deref())
     }
 
     pub fn extend_methods(&'static self, method_defs: &'static [PyMethodDef], ctx: &Context) {
@@ -744,8 +736,11 @@ impl PyType {
         *zelf.bases.write() = bases;
         // Recursively update the mros of this class and all subclasses
         fn update_mro_recursively(cls: &PyType, vm: &VirtualMachine) -> PyResult<()> {
-            *cls.mro.write() =
+            let mut mro =
                 PyType::resolve_mro(&cls.bases.read()).map_err(|msg| vm.new_type_error(msg))?;
+            // Preserve self (mro[0]) when updating MRO
+            mro.insert(0, cls.mro.read()[0].to_owned());
+            *cls.mro.write() = mro;
             for subclass in cls.subclasses.write().iter() {
                 let subclass = subclass.upgrade().unwrap();
                 let subclass: &Py<PyType> = subclass.downcast_ref().unwrap();
@@ -846,7 +841,7 @@ impl PyType {
         // then drop the old value after releasing the lock
         let _old_qualname = {
             let mut qualname_guard = heap_type.qualname.write();
-            std::mem::replace(&mut *qualname_guard, str_value)
+            core::mem::replace(&mut *qualname_guard, str_value)
         };
         // old_qualname is dropped here, outside the lock scope
 
@@ -1012,7 +1007,7 @@ impl PyType {
         // then drop the old value after releasing the lock (similar to CPython's Py_SETREF)
         let _old_name = {
             let mut name_guard = self.heaptype_ext.as_ref().unwrap().name.write();
-            std::mem::replace(&mut *name_guard, name)
+            core::mem::replace(&mut *name_guard, name)
         };
         // old_name is dropped here, outside the lock scope
 

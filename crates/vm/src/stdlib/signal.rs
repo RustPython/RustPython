@@ -24,7 +24,7 @@ pub(crate) mod _signal {
         builtins::PyTypeRef,
         function::{ArgIntoFloat, OptionalArg},
     };
-    use std::sync::atomic::{self, Ordering};
+    use core::sync::atomic::{self, Ordering};
 
     #[cfg(any(unix, windows))]
     use libc::sighandler_t;
@@ -301,7 +301,7 @@ pub(crate) mod _signal {
             it_value: double_to_timeval(seconds),
             it_interval: double_to_timeval(interval),
         };
-        let mut old = std::mem::MaybeUninit::<libc::itimerval>::uninit();
+        let mut old = core::mem::MaybeUninit::<libc::itimerval>::uninit();
         #[cfg(any(target_os = "linux", target_os = "android"))]
         let ret = unsafe { ffi::setitimer(which, &new, old.as_mut_ptr()) };
         #[cfg(not(any(target_os = "linux", target_os = "android")))]
@@ -318,7 +318,7 @@ pub(crate) mod _signal {
     #[cfg(unix)]
     #[pyfunction]
     fn getitimer(which: i32, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
-        let mut old = std::mem::MaybeUninit::<libc::itimerval>::uninit();
+        let mut old = core::mem::MaybeUninit::<libc::itimerval>::uninit();
         #[cfg(any(target_os = "linux", target_os = "android"))]
         let ret = unsafe { ffi::getitimer(which, old.as_mut_ptr()) };
         #[cfg(not(any(target_os = "linux", target_os = "android")))]
@@ -489,7 +489,7 @@ pub(crate) mod _signal {
         if s.is_null() {
             Ok(None)
         } else {
-            let cstr = unsafe { std::ffi::CStr::from_ptr(s) };
+            let cstr = unsafe { core::ffi::CStr::from_ptr(s) };
             Ok(Some(cstr.to_string_lossy().into_owned()))
         }
     }
@@ -522,7 +522,7 @@ pub(crate) mod _signal {
         #[cfg(unix)]
         {
             // Use sigfillset to get all valid signals
-            let mut mask: libc::sigset_t = unsafe { std::mem::zeroed() };
+            let mut mask: libc::sigset_t = unsafe { core::mem::zeroed() };
             // SAFETY: mask is a valid pointer
             if unsafe { libc::sigfillset(&mut mask) } != 0 {
                 return Err(vm.new_os_error("sigfillset failed".to_owned()));
@@ -580,7 +580,7 @@ pub(crate) mod _signal {
         use crate::convert::IntoPyException;
 
         // Initialize sigset
-        let mut sigset: libc::sigset_t = unsafe { std::mem::zeroed() };
+        let mut sigset: libc::sigset_t = unsafe { core::mem::zeroed() };
         // SAFETY: sigset is a valid pointer
         if unsafe { libc::sigemptyset(&mut sigset) } != 0 {
             return Err(std::io::Error::last_os_error().into_pyexception(vm));
@@ -611,7 +611,7 @@ pub(crate) mod _signal {
         }
 
         // Call pthread_sigmask
-        let mut old_mask: libc::sigset_t = unsafe { std::mem::zeroed() };
+        let mut old_mask: libc::sigset_t = unsafe { core::mem::zeroed() };
         // SAFETY: all pointers are valid
         let err = unsafe { libc::pthread_sigmask(how, &sigset, &mut old_mask) };
         if err != 0 {

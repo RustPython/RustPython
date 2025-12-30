@@ -8,9 +8,9 @@ use crate::{
     protocol::PyNumberMethods,
     types::{AsNumber, Constructor, Representable},
 };
+use core::fmt::{Debug, Formatter};
 use malachite_bigint::Sign;
 use num_traits::Zero;
-use std::fmt::{Debug, Formatter};
 
 impl ToPyObject for bool {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -90,7 +90,7 @@ impl PyObjectRef {
 pub struct PyBool(pub PyInt);
 
 impl Debug for PyBool {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         let value = !self.0.as_bigint().is_zero();
         write!(f, "PyBool({})", value)
     }

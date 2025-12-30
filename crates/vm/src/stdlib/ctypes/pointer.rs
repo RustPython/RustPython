@@ -8,8 +8,8 @@ use crate::{
     class::StaticType,
     function::{FuncArgs, OptionalArg},
 };
+use alloc::borrow::Cow;
 use num_traits::ToPrimitive;
-use std::borrow::Cow;
 
 #[pyclass(name = "PyCPointerType", base = PyType, module = "_ctypes")]
 #[derive(Debug)]
@@ -37,7 +37,7 @@ impl Initializer for PyCPointerType {
             .and_then(|obj| obj.downcast::<PyType>().ok());
 
         // Initialize StgInfo for pointer type
-        let pointer_size = std::mem::size_of::<usize>();
+        let pointer_size = core::mem::size_of::<usize>();
         let mut stg_info = StgInfo::new(pointer_size, pointer_size);
         stg_info.proto = proto;
         stg_info.paramfunc = super::base::ParamFunc::Pointer;
@@ -232,7 +232,7 @@ impl Constructor for PyCPointer {
 
         // Create a new PyCPointer instance with NULL pointer (all zeros)
         // Initial contents is set via __init__ if provided
-        let cdata = PyCData::from_bytes(vec![0u8; std::mem::size_of::<usize>()], None);
+        let cdata = PyCData::from_bytes(vec![0u8; core::mem::size_of::<usize>()], None);
         // pointer instance has b_length set to 2 (for index 0 and 1)
         cdata.length.store(2);
         PyCPointer(cdata)
@@ -299,7 +299,7 @@ impl PyCPointer {
         let proto_type = stg_info.proto();
         let element_size = proto_type
             .stg_info_opt()
-            .map_or(std::mem::size_of::<usize>(), |info| info.size);
+            .map_or(core::mem::size_of::<usize>(), |info| info.size);
 
         // Create instance that references the memory directly
         // PyCData.into_ref_with_type works for all ctypes (simple, structure, union, array, pointer)
@@ -383,7 +383,7 @@ impl PyCPointer {
         let proto_type = stg_info.proto();
         let element_size = proto_type
             .stg_info_opt()
-            .map_or(std::mem::size_of::<usize>(), |info| info.size);
+            .map_or(core::mem::size_of::<usize>(), |info| info.size);
 
         // offset = index * iteminfo->size
         let offset = index * element_size as isize;
@@ -468,7 +468,7 @@ impl PyCPointer {
         let element_size = if let Some(ref proto_type) = stg_info.proto {
             proto_type.stg_info_opt().expect("proto has StgInfo").size
         } else {
-            std::mem::size_of::<usize>()
+            core::mem::size_of::<usize>()
         };
         let type_code = stg_info
             .proto
@@ -489,7 +489,7 @@ impl PyCPointer {
                 // Optimized contiguous copy
                 let start_addr = (ptr_value as isize + start * element_size as isize) as *const u8;
                 unsafe {
-                    result.extend_from_slice(std::slice::from_raw_parts(start_addr, len));
+                    result.extend_from_slice(core::slice::from_raw_parts(start_addr, len));
                 }
             } else {
                 let mut cur = start;
@@ -510,7 +510,7 @@ impl PyCPointer {
                 return Ok(vm.ctx.new_str("").into());
             }
             let mut result = String::with_capacity(len);
-            let wchar_size = std::mem::size_of::<libc::wchar_t>();
+            let wchar_size = core::mem::size_of::<libc::wchar_t>();
             let mut cur = start;
             for _ in 0..len {
                 let addr = (ptr_value as isize + cur * wchar_size as isize) as *const libc::wchar_t;
@@ -578,7 +578,7 @@ impl PyCPointer {
 
         let element_size = proto_type
             .stg_info_opt()
-            .map_or(std::mem::size_of::<usize>(), |info| info.size);
+            .map_or(core::mem::size_of::<usize>(), |info| info.size);
 
         // Calculate address
         let offset = index * element_size as isize;
@@ -595,7 +595,7 @@ impl PyCPointer {
             let copy_len = src_buffer.len().min(element_size);
             unsafe {
                 let dest_ptr = addr as *mut u8;
-                std::ptr::copy_nonoverlapping(src_buffer.as_ptr(), dest_ptr, copy_len);
+                core::ptr::copy_nonoverlapping(src_buffer.as_ptr(), dest_ptr, copy_len);
             }
         } else {
             // Handle z/Z specially to store converted value
@@ -641,43 +641,43 @@ impl PyCPointer {
                 // Multi-byte types need read_unaligned for safety on strict-alignment architectures
                 Some("h") => Ok(vm
                     .ctx
-                    .new_int(std::ptr::read_unaligned(ptr as *const i16) as i32)
+                    .new_int(core::ptr::read_unaligned(ptr as *const i16) as i32)
                     .into()),
                 Some("H") => Ok(vm
                     .ctx
-                    .new_int(std::ptr::read_unaligned(ptr as *const u16) as i32)
+                    .new_int(core::ptr::read_unaligned(ptr as *const u16) as i32)
                     .into()),
                 Some("i") | Some("l") => Ok(vm
                     .ctx
-                    .new_int(std::ptr::read_unaligned(ptr as *const i32))
+                    .new_int(core::ptr::read_unaligned(ptr as *const i32))
                     .into()),
                 Some("I") | Some("L") => Ok(vm
                     .ctx
-                    .new_int(std::ptr::read_unaligned(ptr as *const u32))
+                    .new_int(core::ptr::read_unaligned(ptr as *const u32))
                     .into()),
                 Some("q") => Ok(vm
                     .ctx
-                    .new_int(std::ptr::read_unaligned(ptr as *const i64))
+                    .new_int(core::ptr::read_unaligned(ptr as *const i64))
                     .into()),
                 Some("Q") => Ok(vm
                     .ctx
-                    .new_int(std::ptr::read_unaligned(ptr as *const u64))
+                    .new_int(core::ptr::read_unaligned(ptr as *const u64))
                     .into()),
                 Some("f") => Ok(vm
                     .ctx
-                    .new_float(std::ptr::read_unaligned(ptr as *const f32) as f64)
+                    .new_float(core::ptr::read_unaligned(ptr as *const f32) as f64)
                     .into()),
                 Some("d") | Some("g") => Ok(vm
                     .ctx
-                    .new_float(std::ptr::read_unaligned(ptr as *const f64))
+                    .new_float(core::ptr::read_unaligned(ptr as *const f64))
                     .into()),
                 Some("P") | Some("z") | Some("Z") => Ok(vm
                     .ctx
-                    .new_int(std::ptr::read_unaligned(ptr as *const usize))
+                    .new_int(core::ptr::read_unaligned(ptr as *const usize))
                     .into()),
                 _ => {
                     // Default: read as bytes
-                    let bytes = std::slice::from_raw_parts(ptr, size).to_vec();
+                    let bytes = core::slice::from_raw_parts(ptr, size).to_vec();
                     Ok(vm.ctx.new_bytes(bytes).into())
                 }
             }
@@ -708,7 +708,7 @@ impl PyCPointer {
                             "bytes/string or integer address expected".to_owned(),
                         ));
                     };
-                    std::ptr::write_unaligned(ptr as *mut usize, ptr_val);
+                    core::ptr::write_unaligned(ptr as *mut usize, ptr_val);
                     return Ok(());
                 }
                 _ => {}
@@ -723,19 +723,19 @@ impl PyCPointer {
                         *ptr = i.to_u8().expect("int too large");
                     }
                     2 => {
-                        std::ptr::write_unaligned(
+                        core::ptr::write_unaligned(
                             ptr as *mut i16,
                             i.to_i16().expect("int too large"),
                         );
                     }
                     4 => {
-                        std::ptr::write_unaligned(
+                        core::ptr::write_unaligned(
                             ptr as *mut i32,
                             i.to_i32().expect("int too large"),
                         );
                     }
                     8 => {
-                        std::ptr::write_unaligned(
+                        core::ptr::write_unaligned(
                             ptr as *mut i64,
                             i.to_i64().expect("int too large"),
                         );
@@ -743,7 +743,7 @@ impl PyCPointer {
                     _ => {
                         let bytes = i.to_signed_bytes_le();
                         let copy_len = bytes.len().min(size);
-                        std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, copy_len);
+                        core::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, copy_len);
                     }
                 }
                 return Ok(());
@@ -754,10 +754,10 @@ impl PyCPointer {
                 let f = float_val.to_f64();
                 match size {
                     4 => {
-                        std::ptr::write_unaligned(ptr as *mut f32, f as f32);
+                        core::ptr::write_unaligned(ptr as *mut f32, f as f32);
                     }
                     8 => {
-                        std::ptr::write_unaligned(ptr as *mut f64, f);
+                        core::ptr::write_unaligned(ptr as *mut f64, f);
                     }
                     _ => {}
                 }
@@ -767,7 +767,7 @@ impl PyCPointer {
             // Try bytes
             if let Ok(bytes) = value.try_bytes_like(vm, |b| b.to_vec()) {
                 let copy_len = bytes.len().min(size);
-                std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, copy_len);
+                core::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, copy_len);
                 return Ok(());
             }
 

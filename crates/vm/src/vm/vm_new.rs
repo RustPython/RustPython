@@ -95,7 +95,7 @@ impl VirtualMachine {
     pub fn new_exception(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyBaseExceptionRef {
         debug_assert_eq!(
             exc_type.slots.basicsize,
-            std::mem::size_of::<PyBaseException>(),
+            core::mem::size_of::<PyBaseException>(),
             "vm.new_exception() is only for exception types without additional payload. The given type '{}' is not allowed.",
             exc_type.class().name()
         );
@@ -118,7 +118,7 @@ impl VirtualMachine {
         errno: Option<i32>,
         msg: impl ToPyObject,
     ) -> PyRef<PyOSError> {
-        debug_assert_eq!(exc_type.slots.basicsize, std::mem::size_of::<PyOSError>());
+        debug_assert_eq!(exc_type.slots.basicsize, core::mem::size_of::<PyOSError>());
 
         OSErrorBuilder::with_subtype(exc_type, errno, msg, self).build(self)
     }
@@ -600,5 +600,6 @@ impl VirtualMachine {
     define_exception_fn!(fn new_zero_division_error, zero_division_error, ZeroDivisionError);
     define_exception_fn!(fn new_overflow_error, overflow_error, OverflowError);
     define_exception_fn!(fn new_runtime_error, runtime_error, RuntimeError);
+    define_exception_fn!(fn new_python_finalization_error, python_finalization_error, PythonFinalizationError);
     define_exception_fn!(fn new_memory_error, memory_error, MemoryError);
 }
