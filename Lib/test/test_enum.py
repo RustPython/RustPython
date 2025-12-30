@@ -1769,8 +1769,7 @@ class TestSpecial(unittest.TestCase):
         self.assertIs(ThreePart((3, 3.0, 'three')), ThreePart.THREE)
         self.assertIs(ThreePart(3, 3.0, 'three'), ThreePart.THREE)
 
-    # TODO: RUSTPYTHON, AssertionError: <test.test_enum.IntStooges object at 0x55c70c38a240> is not <IntStooges.MOE: 3>
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: <test.test_enum.IntStooges object at 0x55c70c38a240> is not <IntStooges.MOE: 3>
     @reraise_if_not_enum(IntStooges)
     def test_intenum_from_bytes(self):
         self.assertIs(IntStooges.from_bytes(b'\x00\x03', 'big'), IntStooges.MOE)
@@ -2131,8 +2130,7 @@ class TestSpecial(unittest.TestCase):
         test_pickle_dump_load(self.assertIs, NEI.y)
         test_pickle_dump_load(self.assertIs, NEI)
 
-    # TODO: RUSTPYTHON, fails on pickle
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; fails on pickle
     def test_subclasses_with_getnewargs_ex(self):
         class NamedInt(int):
             __qualname__ = 'NamedInt'       # needed for pickle protocol 4
@@ -3066,8 +3064,7 @@ class TestSpecial(unittest.TestCase):
                 one = '1'
                 two = b'2', 'ascii', 9
 
-    # TODO: RUSTPYTHON, fails on encoding testing : TypeError: Expected type 'str' but 'builtin_function_or_method' found
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; fails on encoding testing : TypeError: Expected type 'str' but 'builtin_function_or_method' found
     def test_custom_strenum(self):
         class CustomStrEnum(str, Enum):
             pass
@@ -4007,7 +4004,7 @@ class OldTestFlag(unittest.TestCase):
         self.assertEqual(Color.ALL.value, 7)
         self.assertEqual(str(Color.BLUE), 'blue')
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky test")
+    @unittest.skip('TODO: RUSTPYTHON; flaky test')
     @threading_helper.reap_threads
     @threading_helper.requires_working_threading()
     def test_unique_composite(self):
@@ -4169,9 +4166,7 @@ class OldTestIntFlag(unittest.TestCase):
         self.assertEqual(str(NoName.ONE & NoName.TWO), 'NoName(0)')
         self.assertEqual(str(NoName(0)), 'NoName(0)')
 
-
-    # TODO: RUSTPYTHON, format(NewPerm.R) does not use __str__
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; format(NewPerm.R) does not use __str__
     def test_format(self):
         Perm = self.Perm
         self.assertEqual(format(Perm.R, ''), '4')
@@ -4534,7 +4529,7 @@ class OldTestIntFlag(unittest.TestCase):
         self.assertEqual(Color.ALL.value, 7)
         self.assertEqual(str(Color.BLUE), 'blue')
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky test")
+    @unittest.skip('TODO: RUSTPYTHON; flaky test')
     @threading_helper.reap_threads
     @threading_helper.requires_working_threading()
     def test_unique_composite(self):
@@ -5083,8 +5078,7 @@ class TestStdLib(unittest.TestCase):
         MAGENTA = 2
         YELLOW = 3
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_pydoc(self):
         # indirectly test __objclass__
         if StrEnum.__doc__ is None:
@@ -5217,8 +5211,7 @@ class TestStdLib(unittest.TestCase):
                     ]),
                 )
 
-    # TODO: RUSTPYTHON, len is often/always > 256
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON; len is often/always > 256
     def test_test_simple_enum(self):
         @_simple_enum(Enum)
         class SimpleColor:
