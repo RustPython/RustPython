@@ -228,6 +228,10 @@ class Tracer(Bdb):
         self.process_event('exception', frame)
         self.next_set_method()
 
+    def user_opcode(self, frame):
+        self.process_event('opcode', frame)
+        self.next_set_method()
+
     def do_clear(self, arg):
         # The temporary breakpoints are deleted in user_line().
         bp_list = [self.currentbp]
@@ -366,7 +370,7 @@ class Tracer(Bdb):
         set_method = getattr(self, 'set_' + set_type)
 
         # The following set methods give back control to the tracer.
-        if set_type in ('step', 'continue', 'quit'):
+        if set_type in ('step', 'stepinstr', 'continue', 'quit'):
             set_method()
             return
         elif set_type in ('next', 'return'):
@@ -612,6 +616,16 @@ class StateTestCase(BaseTestCase):
                 with TracerRun(self) as tracer:
                     tracer.runcall(tfunc_main)
 
+    @unittest.skip("TODO: RUSTPYTHON")
+    # AssertionError: All paired tuples have not been processed, the last one was number 1 [('next',), ('quit',)]
+    def test_stepinstr(self):
+        self.expect_set = [
+            ('line',   2, 'tfunc_main'),  ('stepinstr', ),
+            ('opcode', 2, 'tfunc_main'),  ('next', ),
+            ('line',   3, 'tfunc_main'),  ('quit', ),
+        ]
+        with TracerRun(self) as tracer:
+            tracer.runcall(tfunc_main)
     @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
     def test_next(self):
         self.expect_set = [
@@ -727,6 +741,7 @@ class StateTestCase(BaseTestCase):
             tracer.runcall(tfunc_main)
 
     @unittest.skip("TODO: RUSTPYTHON, Error in atexit._run_exitfuncs")
+    @patch_list(sys.meta_path)
     def test_skip(self):
         # Check that tracing is skipped over the import statement in
         # 'tfunc_import()'.
@@ -1232,6 +1247,21 @@ class IssuesTestCase(BaseTestCase):
             ]
             with TracerRun(self) as tracer:
                 tracer.runcall(tfunc_import)
+
+    @unittest.skip("TODO: RUSTPYTHON")
+    # AssertionError: All paired tuples have not been processed, the last one was number 1 [('next',)]
+    def test_next_to_botframe(self):
+        # gh-125422
+        # Check that next command won't go to the bottom frame.
+        code = """
+            lno = 2
+        """
+        self.expect_set = [
+            ('line', 2, '<module>'),   ('step', ),
+            ('return', 2, '<module>'), ('next', ),
+        ]
+        with TracerRun(self) as tracer:
+            tracer.run(compile(textwrap.dedent(code), '<string>', 'exec'))
 
 
 class TestRegressions(unittest.TestCase):
