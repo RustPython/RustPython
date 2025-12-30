@@ -31,14 +31,5 @@ Lib/test/data/*
 !Lib/test/data/README
 
 Cargo.lock
-refs/Cowboy_An_Actor-Model_Layer1 with Verifiable_Off-Chain_Compute_CN.md
-refs/Cowboy_An_Actor-Model_Layer1 with Verifiable_Off-Chain_Compute_EN.md
-refs/Cowboy_An_Actor-Model_Layer1 with Verifiable_Off-Chain_Compute(Sugguestion-SDK Ergonomics)_v2.md
-refs/Cowboy_An_Actor-Model_Layer1 with Verifiable_Off-Chain_Compute(Sugguestion-SDK Ergonomics)_v3_EN.md
-demo.dot
-demo.png
-refs/Cowboy_PVM_Task_Plan_CN.md
+refs/*
 .gitignore
-refs/Cowboy_PVM_Task_Plan.md
-refs/Sync from source repo.md
-refs/Cowboy改造方案.md
