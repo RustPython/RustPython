@@ -1050,14 +1050,12 @@ fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
         ])
     });
 
-    let iter = iter.map(|(name, mut module)| {
+    iter.map(|(name, mut module)| {
         if let Some(origname) = aliases.get(name) {
             module.origname = *origname;
         }
         (name, module)
-    });
-
-    iter
+    })
 }
 
 #[test]
