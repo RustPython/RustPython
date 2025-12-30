@@ -18,7 +18,9 @@ assert bool() is False
 assert bool(1) is True
 assert bool({}) is False
 
-assert bool(NotImplemented) is True
+# NotImplemented cannot be used in a boolean context (Python 3.14+)
+with assert_raises(TypeError):
+    bool(NotImplemented)
 assert bool(...) is True
 
 if not 1:
