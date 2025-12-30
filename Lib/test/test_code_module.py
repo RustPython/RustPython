@@ -267,8 +267,7 @@ class TestInteractiveConsole(unittest.TestCase, MockSys):
         self.assertEqual(err_msg, ['write', (expected,), {}])
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_cause_tb(self):
         self.infunc.side_effect = ["raise ValueError('') from AttributeError",
                                     EOFError('Finished')]

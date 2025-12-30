@@ -398,8 +398,6 @@ class TestTimeZone(unittest.TestCase):
             self.assertEqual(tz.dst(t),
                              t.replace(tzinfo=tz).dst())
 
-    @unittest.skip('TODO: RUSTPYTHON')
-    # _pycodecs was deleted
     def test_pickle(self):
         for tz in self.ACDT, self.EST, timezone.min, timezone.max:
             for pickler, unpickler, proto in pickle_choices:
@@ -1521,8 +1519,7 @@ class TestDate(HarmlessMixedComparison, unittest.TestCase):
         # bpo-41260: The parameter was named "fmt" in the pure python impl.
         t.strftime(format="%f")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_strftime_trailing_percent(self):
         # bpo-35066: Make sure trailing '%' doesn't cause datetime's strftime to
         # complain. Different libcs have different handling of trailing
@@ -1623,8 +1620,7 @@ class TestDate(HarmlessMixedComparison, unittest.TestCase):
             self.assertEqual(orig, derived)
         self.assertEqual(orig.__reduce__(), orig.__reduce_ex__(2))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_compat_unpickle(self):
         tests = [
             b"cdatetime\ndate\n(S'\\x07\\xdf\\x0b\\x1b'\ntR.",
@@ -2411,8 +2407,7 @@ class TestDateTime(TestDate):
             self.assertEqual(orig, derived)
             self.assertTrue(isinstance(derived, SubclassDatetime))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_compat_unpickle(self):
         tests = [
             b'cdatetime\ndatetime\n('
@@ -3773,8 +3768,7 @@ class TestTime(HarmlessMixedComparison, unittest.TestCase):
             self.assertEqual(orig, derived)
             self.assertTrue(isinstance(derived, SubclassTime))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_compat_unpickle(self):
         tests = [
             (b"cdatetime\ntime\n(S'\\x14;\\x10\\x00\\x10\\x00'\ntR.",
@@ -4192,8 +4186,7 @@ class TestTimeTZ(TestTime, TZInfoBase, unittest.TestCase):
             self.assertEqual(derived.tzname(), 'cookie')
         self.assertEqual(orig.__reduce__(), orig.__reduce_ex__(2))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_compat_unpickle(self):
         tests = [
             b"cdatetime\ntime\n(S'\\x05\\x06\\x07\\x01\\xe2@'\n"
@@ -4659,8 +4652,7 @@ class TestDateTimeTZ(TestDateTime, TZInfoBase, unittest.TestCase):
             self.assertEqual(derived.tzname(), 'cookie')
         self.assertEqual(orig.__reduce__(), orig.__reduce_ex__(2))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_compat_unpickle(self):
         tests = [
             b'cdatetime\ndatetime\n'
