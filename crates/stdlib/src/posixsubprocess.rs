@@ -33,6 +33,18 @@ mod _posixsubprocess {
 
     #[pyfunction]
     fn fork_exec(args: ForkExecArgs<'_>, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
+        // Check for interpreter shutdown when preexec_fn is used
+        if args.preexec_fn.is_some()
+            && vm
+                .state
+                .finalizing
+                .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(vm.new_python_finalization_error(
+                "preexec_fn not supported at interpreter shutdown".to_owned(),
+            ));
+        }
+
         let extra_groups = args
             .groups_list
             .as_ref()
