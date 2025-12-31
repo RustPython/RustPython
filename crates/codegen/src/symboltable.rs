@@ -615,6 +615,8 @@ struct SymbolTableBuilder {
     source_file: SourceFile,
     // Current scope's varnames being collected (temporary storage)
     current_varnames: Vec<String>,
+    // Track if we're inside an iterable definition expression (for nested comprehensions)
+    in_iter_def_exp: bool,
 }
 
 /// Enum to indicate in what mode an expression
@@ -638,6 +640,7 @@ impl SymbolTableBuilder {
             future_annotations: false,
             source_file,
             current_varnames: Vec::new(),
+            in_iter_def_exp: false,
         };
         this.enter_scope("top", CompilerScope::Module, 0);
         this
@@ -1195,7 +1198,12 @@ impl SymbolTableBuilder {
                 range,
                 ..
             }) => {
+                let was_in_iter_def_exp = self.in_iter_def_exp;
+                if context == ExpressionContext::IterDefinitionExp {
+                    self.in_iter_def_exp = true;
+                }
                 self.scan_comprehension("genexpr", elt, None, generators, *range)?;
+                self.in_iter_def_exp = was_in_iter_def_exp;
             }
             Expr::ListComp(ExprListComp {
                 elt,
@@ -1203,7 +1211,12 @@ impl SymbolTableBuilder {
                 range,
                 node_index: _,
             }) => {
+                let was_in_iter_def_exp = self.in_iter_def_exp;
+                if context == ExpressionContext::IterDefinitionExp {
+                    self.in_iter_def_exp = true;
+                }
                 self.scan_comprehension("genexpr", elt, None, generators, *range)?;
+                self.in_iter_def_exp = was_in_iter_def_exp;
             }
             Expr::SetComp(ExprSetComp {
                 elt,
@@ -1211,7 +1224,12 @@ impl SymbolTableBuilder {
                 range,
                 node_index: _,
             }) => {
+                let was_in_iter_def_exp = self.in_iter_def_exp;
+                if context == ExpressionContext::IterDefinitionExp {
+                    self.in_iter_def_exp = true;
+                }
                 self.scan_comprehension("genexpr", elt, None, generators, *range)?;
+                self.in_iter_def_exp = was_in_iter_def_exp;
             }
             Expr::DictComp(ExprDictComp {
                 key,
@@ -1220,7 +1238,12 @@ impl SymbolTableBuilder {
                 range,
                 node_index: _,
             }) => {
+                let was_in_iter_def_exp = self.in_iter_def_exp;
+                if context == ExpressionContext::IterDefinitionExp {
+                    self.in_iter_def_exp = true;
+                }
                 self.scan_comprehension("genexpr", key, Some(value), generators, *range)?;
+                self.in_iter_def_exp = was_in_iter_def_exp;
             }
             Expr::Call(ExprCall {
                 func,
@@ -1345,8 +1368,8 @@ impl SymbolTableBuilder {
                 node_index: _,
             }) => {
                 // named expressions are not allowed in the definition of
-                // comprehension iterator definitions
-                if let ExpressionContext::IterDefinitionExp = context {
+                // comprehension iterator definitions (including nested comprehensions)
+                if context == ExpressionContext::IterDefinitionExp || self.in_iter_def_exp {
                     return Err(SymbolTableError {
                           error: "assignment expression cannot be used in a comprehension iterable expression".to_string(),
                           location: Some(self.source_file.to_source_code().source_location(target.range().start(), PositionEncoding::Utf8)),
