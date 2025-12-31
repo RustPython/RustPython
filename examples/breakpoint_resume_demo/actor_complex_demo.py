@@ -63,37 +63,37 @@ def stage_function(state: dict[str, object], messages: list[dict[str, object]]) 
 
 stage_function(actor, normalized_mailbox)
 
-# import rustpython_checkpoint as rpc  # type: ignore
+
 
 print(SEP)
-print("[2/5] loop stage")
-for idx, msg in enumerate(normalized_mailbox):
-    if msg["type"] == "transfer" and not actor.get("loop_checkpoint"):
-        actor["loop_checkpoint"] = True
-        actor["history"].append({"stage": "loop", "seq": idx})
-        print("[checkpoint #2] inside loop")
-        rpc.checkpoint(CHECKPOINT_PATH)
-        print("[resume #2] after loop checkpoint")
+# print("[2/5] loop stage")
+# for idx, msg in enumerate(normalized_mailbox):
+#     if msg["type"] == "transfer" and not actor.get("loop_checkpoint"):
+#         actor["loop_checkpoint"] = True
+#         actor["history"].append({"stage": "loop", "seq": idx})
+#         print("[checkpoint #2] inside loop")
+#         rpc.checkpoint(CHECKPOINT_PATH)
+#         print("[resume #2] after loop checkpoint")
 
-    match msg:
-        case {"type": "deposit", "amount": amt}:
-            actor["balance"] = round(actor["balance"] + amt, 2)
-        case {"type": "transfer", "amount": amt, "to": target}:
-            if actor["balance"] >= amt:
-                actor["balance"] = round(actor["balance"] - amt, 2)
-            else:
-                actor["flags"].append(f"overdraft:{target}")
-        case {"type": "adjust", "amount": amt}:
-            actor["balance"] = round(actor["balance"] + amt, 2)
-        case {"type": "query", "fields": fields}:
-            snapshot = {field: actor.get(field) for field in fields}
-            actor["history"].append({"stage": "query", "snapshot": snapshot})
-        case {"type": "noop"}:
-            actor["flags"].append("noop")
-        case _:
-            actor["flags"].append("unknown")
+#     match msg:
+#         case {"type": "deposit", "amount": amt}:
+#             actor["balance"] = round(actor["balance"] + amt, 2)
+#         case {"type": "transfer", "amount": amt, "to": target}:
+#             if actor["balance"] >= amt:
+#                 actor["balance"] = round(actor["balance"] - amt, 2)
+#             else:
+#                 actor["flags"].append(f"overdraft:{target}")
+#         case {"type": "adjust", "amount": amt}:
+#             actor["balance"] = round(actor["balance"] + amt, 2)
+#         case {"type": "query", "fields": fields}:
+#             snapshot = {field: actor.get(field) for field in fields}
+#             actor["history"].append({"stage": "query", "snapshot": snapshot})
+#         case {"type": "noop"}:
+#             actor["flags"].append("noop")
+#         case _:
+#             actor["flags"].append("unknown")
 
-# import rustpython_checkpoint as rpc  # type: ignore
+
 
 print(SEP)
 print("[3/5] if stage")
@@ -105,7 +105,7 @@ if actor["balance"] >= 0 and not actor.get("if_checkpoint"):
     actor["flags"].append("if_resumed")
     print("[resume #3] after if checkpoint")
 
-# import rustpython_checkpoint as rpc  # type: ignore
+
 
 print(SEP)
 print("[4/5] try/except stage")

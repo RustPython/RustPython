@@ -28,15 +28,15 @@ use std::sync::atomic;
 use std::{fmt, iter::zip};
 
 #[derive(Clone, Debug)]
-struct Block {
+pub(crate) struct Block {
     /// The type of block.
-    typ: BlockType,
+    pub(crate) typ: BlockType,
     /// The level of the value stack when the block was entered.
-    level: usize,
+    pub(crate) level: usize,
 }
 
 #[derive(Clone, Debug)]
-enum BlockType {
+pub(crate) enum BlockType {
     Loop,
     TryExcept {
         handler: bytecode::Label,
@@ -61,7 +61,7 @@ pub type FrameRef = PyRef<Frame>;
 /// This could be return of function, exception being
 /// raised, a break or continue being hit, etc..
 #[derive(Clone, Debug)]
-enum UnwindReason {
+pub(crate) enum UnwindReason {
     /// We are returning a value from a return statement.
     Returning { value: PyObjectRef },
 
@@ -265,6 +265,20 @@ impl Frame {
     pub(crate) fn push_stack_value(&self, value: PyObjectRef) {
         let mut state = self.state.lock();
         state.stack.push(value);
+    }
+
+    /// Push a block onto the frame's block stack
+    /// This is used when resuming from a checkpoint to restore control flow state
+    pub(crate) fn push_block(&self, block: Block) {
+        let mut state = self.state.lock();
+        state.blocks.push(block);
+    }
+
+    /// Get a clone of the current block stack
+    /// This is used when creating a checkpoint to save control flow state
+    pub(crate) fn get_blocks(&self) -> Vec<Block> {
+        let state = self.state.lock();
+        state.blocks.clone()
     }
 
     pub(crate) fn set_lasti(&self, value: u32) {
@@ -477,10 +491,28 @@ impl ExecutingFrame<'_> {
                     vm.new_runtime_error("checkpoint lasti overflow".to_owned())
                 })?;
                 
-                // Collect current frame's stack (must do this while we still hold the lock)
+                // Collect current frame's stack and blocks (must do this while we still hold the state lock)
                 let current_stack: Vec<PyObjectRef> = self.state.stack.iter().cloned().collect();
+                let current_blocks: Vec<Block> = self.state.blocks.clone();
                 
-                match checkpoint::save_checkpoint_with_lasti_and_stack(&vm, &path, resume_lasti, current_stack) {
+                // Prepare locals dict for current frame (to avoid locking fastlocals later)
+                // For now, use a minimal approach to avoid any potential deadlocks
+                let current_locals = {
+                    let locals_dict = vm.ctx.new_dict();
+                    // Try to lock fastlocals - if this fails/hangs, we have a problem
+                    if let Some(fastlocals) = self.fastlocals.try_lock() {
+                        for (idx, varname) in self.code.code.varnames.iter().enumerate() {
+                            if let Some(value) = &fastlocals[idx] {
+                                let _ = locals_dict.set_item(*varname, value.clone(), vm);
+                            }
+                        }
+                        // Note: Not handling cell/free vars for now to avoid complexity
+                    }
+                    // If try_lock fails, use empty dict
+                    Some(locals_dict.into())
+                };
+                
+                match checkpoint::save_checkpoint_with_lasti_stack_blocks_and_locals(&vm, &path, resume_lasti, current_stack, current_blocks, current_locals) {
                     Ok(_) => {
                     }
                     Err(exc) => {

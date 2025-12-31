@@ -13,7 +13,10 @@ use crate::{
     protocol::PyIterReturn,
 };
 use rustpython_compiler_core::marshal;
+use rustpython_compiler_core::bytecode;
 use std::collections::HashMap;
+
+// Block conversion functions are defined at the end of this file
 
 pub(crate) type ObjId = u32;
 
@@ -34,6 +37,50 @@ pub(crate) struct FrameState {
     pub lasti: u32,         // Instruction pointer
     pub locals: ObjId,      // Local variables dict
     pub stack: Vec<ObjId>,  // Value stack (for loop iterators, etc.)
+    pub blocks: Vec<BlockState>, // Block stack (for loops, try/except)
+}
+
+impl Default for FrameState {
+    fn default() -> Self {
+        Self {
+            code: Vec::new(),
+            lasti: 0,
+            locals: 0,
+            stack: Vec::new(),
+            blocks: Vec::new(),
+        }
+    }
+}
+
+/// Serializable representation of a block stack entry
+#[derive(Debug, Clone)]
+pub(crate) struct BlockState {
+    pub typ: BlockTypeState,
+    pub level: usize,
+}
+
+/// Serializable representation of block types
+#[derive(Debug, Clone)]
+pub(crate) enum BlockTypeState {
+    Loop,
+    TryExcept { handler: u32 },
+    Finally { handler: u32 },
+    FinallyHandler {
+        reason: Option<UnwindReasonState>,
+        prev_exc: Option<ObjId>,
+    },
+    ExceptHandler {
+        prev_exc: Option<ObjId>,
+    },
+}
+
+/// Serializable representation of unwind reasons
+#[derive(Debug, Clone)]
+pub(crate) enum UnwindReasonState {
+    Returning { value: ObjId },
+    Raising { exception: ObjId },
+    Break { target: u32 },
+    Continue { target: u32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -169,17 +216,66 @@ pub(crate) fn dump_checkpoint_frames_with_stack(
     frames: &[(&crate::frame::FrameRef, u32)],  // (frame, resume_lasti)
     innermost_stack: Vec<crate::PyObjectRef>,  // Stack of the innermost frame
 ) -> PyResult<Vec<u8>> {
+    dump_checkpoint_frames_with_stack_and_blocks(
+        vm,
+        source_path,
+        frames,
+        innermost_stack,
+        Vec::new()  // Empty blocks for compatibility
+    )
+}
+
+pub(crate) fn dump_checkpoint_frames_with_stack_and_blocks(
+    vm: &VirtualMachine,
+    source_path: &str,
+    frames: &[(&crate::frame::FrameRef, u32)],  // (frame, resume_lasti)
+    innermost_stack: Vec<crate::PyObjectRef>,  // Stack of the innermost frame
+    innermost_blocks: Vec<crate::frame::Block>,  // Blocks of the innermost frame
+) -> PyResult<Vec<u8>> {
+    // Build blocks vec with innermost blocks
+    let mut all_blocks = vec![Vec::new(); frames.len()];
+    if !frames.is_empty() {
+        all_blocks[frames.len() - 1] = innermost_blocks;
+    }
+    dump_checkpoint_frames_with_all_blocks(vm, source_path, frames, innermost_stack, all_blocks)
+}
+
+pub(crate) fn dump_checkpoint_frames_with_all_blocks(
+    vm: &VirtualMachine,
+    source_path: &str,
+    frames: &[(&crate::frame::FrameRef, u32)],  // (frame, resume_lasti)
+    innermost_stack: Vec<crate::PyObjectRef>,  // Stack of the innermost frame
+    all_blocks: Vec<Vec<crate::frame::Block>>,  // Blocks for all frames
+) -> PyResult<Vec<u8>> {
+    dump_checkpoint_frames_with_all_blocks_and_locals(
+        vm, source_path, frames, innermost_stack, all_blocks, None
+    )
+}
+
+pub(crate) fn dump_checkpoint_frames_with_all_blocks_and_locals(
+    vm: &VirtualMachine,
+    source_path: &str,
+    frames: &[(&crate::frame::FrameRef, u32)],  // (frame, resume_lasti)
+    innermost_stack: Vec<crate::PyObjectRef>,  // Stack of the innermost frame
+    all_blocks: Vec<Vec<crate::frame::Block>>,  // Blocks for all frames
+    innermost_locals: Option<crate::PyObjectRef>,  // Pre-prepared locals for innermost frame
+) -> PyResult<Vec<u8>> {
     use crate::builtins::PyDictRef;
     
     // STEP 1: Prepare all locals dicts BEFORE creating SnapshotWriter
     let mut locals_dicts = Vec::new();
     for (idx, (frame, _resume_lasti)) in frames.iter().enumerate() {
+        let is_innermost = idx == frames.len() - 1;
         let locals_dict = if idx == 0 {
             // For module-level frame (first frame), use globals as locals
             // This ensures that module-level variables defined during execution are captured
             frame.globals.clone()
+        } else if is_innermost && innermost_locals.is_some() {
+            // For innermost frame, use pre-prepared locals to avoid deadlock
+            PyDictRef::try_from_object(vm, innermost_locals.clone().unwrap())?
         } else {
-            // For function frames, create a new dict and copy fastlocals
+            // For other function frames, create a new dict and copy fastlocals
+            // This is safe because these frames are not actively executing
             let locals_dict = vm.ctx.new_dict();
             
             // Copy fastlocals into the new dict
@@ -275,11 +371,22 @@ pub(crate) fn dump_checkpoint_frames_with_stack(
             stack_ids.push(item_id);
         }
         
+        // Get blocks from frame
+        let blocks = all_blocks.get(_idx).cloned().unwrap_or_else(Vec::new);
+        
+        // Convert blocks to BlockState for serialization
+        let mut block_states = Vec::new();
+        for (_block_idx, block) in blocks.iter().enumerate() {
+            let block_state = convert_block_to_state(block, &writer)?;
+            block_states.push(block_state);
+        }
+        
         frame_states.push(FrameState {
             code: code_bytes,
             lasti: *resume_lasti,
             locals: locals_id,
             stack: stack_ids,
+            blocks: block_states,
         });
     }
     
@@ -313,6 +420,7 @@ pub(crate) fn dump_checkpoint_state(
         lasti,
         locals: root,  // For module-level, locals == globals
         stack: Vec::new(),  // Legacy path, assume empty stack
+        blocks: Vec::new(),  // Legacy path, assume empty blocks
     };
     
     let state = CheckpointState {
@@ -2386,11 +2494,18 @@ fn encode_checkpoint_state(state: &CheckpointState) -> Vec<u8> {
         let stack_array = frame_state.stack.iter()
             .map(|obj_id| CborValue::Uint(*obj_id as u64))
             .collect::<Vec<_>>();
+        
+        // Encode blocks array
+        let blocks_array = frame_state.blocks.iter().map(|block_state| {
+            encode_block_state(block_state)
+        }).collect::<Vec<_>>();
+        
         CborValue::Map(vec![
             (CborValue::Text("code".to_owned()), CborValue::Bytes(frame_state.code.clone())),
             (CborValue::Text("lasti".to_owned()), CborValue::Uint(frame_state.lasti as u64)),
             (CborValue::Text("locals".to_owned()), CborValue::Uint(frame_state.locals as u64)),
             (CborValue::Text("stack".to_owned()), CborValue::Array(stack_array)),
+            (CborValue::Text("blocks".to_owned()), CborValue::Array(blocks_array)),
         ])
     }).collect::<Vec<_>>();
     fields.push(("frames", CborValue::Array(frames_array)));
@@ -2438,6 +2553,7 @@ fn decode_checkpoint_state(data: &[u8]) -> Result<CheckpointState, SnapshotError
                     let mut f_lasti = None;
                     let mut f_locals = None;
                     let mut f_stack = None;
+                    let mut f_blocks = None;
                     for (k, v) in frame_map {
                         let k = expect_text(k)?;
                         match k.as_str() {
@@ -2452,6 +2568,14 @@ fn decode_checkpoint_state(data: &[u8]) -> Result<CheckpointState, SnapshotError
                                 }
                                 f_stack = Some(stack_ids);
                             }
+                            "blocks" => {
+                                let arr = expect_array(v)?;
+                                let mut blocks = Vec::new();
+                                for block_val in arr {
+                                    blocks.push(decode_block_state(block_val)?);
+                                }
+                                f_blocks = Some(blocks);
+                            }
                             _ => {}
                         }
                     }
@@ -2460,6 +2584,7 @@ fn decode_checkpoint_state(data: &[u8]) -> Result<CheckpointState, SnapshotError
                         lasti: f_lasti.ok_or_else(|| SnapshotError::msg("missing frame lasti"))?,
                         locals: f_locals.ok_or_else(|| SnapshotError::msg("missing frame locals"))?,
                         stack: f_stack.unwrap_or_else(Vec::new),  // For backward compatibility
+                        blocks: f_blocks.unwrap_or_else(Vec::new),  // For backward compatibility
                     });
                 }
                 frames_data = Some(frame_states);
@@ -2494,6 +2619,7 @@ fn decode_checkpoint_state(data: &[u8]) -> Result<CheckpointState, SnapshotError
             lasti,
             locals: root,  // Old format: locals == globals for module-level
             stack: Vec::new(),  // Old format: assume empty stack
+            blocks: Vec::new(),  // Old format: assume empty blocks
         }]
     };
     
@@ -2916,4 +3042,337 @@ fn map_get(map: &[(CborValue, CborValue)], key: &str) -> Result<CborValue, Snaps
         }
     }
     Err(SnapshotError::msg("missing map key"))
+}
+
+/// Encode a BlockState to CBOR
+fn encode_block_state(block_state: &BlockState) -> CborValue {
+    let mut map = vec![
+        (CborValue::Text("level".to_owned()), CborValue::Uint(block_state.level as u64)),
+    ];
+    
+    let typ_value = match &block_state.typ {
+        BlockTypeState::Loop => {
+            CborValue::Text("Loop".to_owned())
+        }
+        BlockTypeState::TryExcept { handler } => {
+            CborValue::Map(vec![
+                (CborValue::Text("type".to_owned()), CborValue::Text("TryExcept".to_owned())),
+                (CborValue::Text("handler".to_owned()), CborValue::Uint(*handler as u64)),
+            ])
+        }
+        BlockTypeState::Finally { handler } => {
+            CborValue::Map(vec![
+                (CborValue::Text("type".to_owned()), CborValue::Text("Finally".to_owned())),
+                (CborValue::Text("handler".to_owned()), CborValue::Uint(*handler as u64)),
+            ])
+        }
+        BlockTypeState::FinallyHandler { reason, prev_exc } => {
+            let mut inner_map = vec![
+                (CborValue::Text("type".to_owned()), CborValue::Text("FinallyHandler".to_owned())),
+            ];
+            if let Some(reason_state) = reason {
+                inner_map.push((CborValue::Text("reason".to_owned()), encode_unwind_reason(reason_state)));
+            }
+            if let Some(exc_id) = prev_exc {
+                inner_map.push((CborValue::Text("prev_exc".to_owned()), CborValue::Uint(*exc_id as u64)));
+            }
+            CborValue::Map(inner_map)
+        }
+        BlockTypeState::ExceptHandler { prev_exc } => {
+            let mut inner_map = vec![
+                (CborValue::Text("type".to_owned()), CborValue::Text("ExceptHandler".to_owned())),
+            ];
+            if let Some(exc_id) = prev_exc {
+                inner_map.push((CborValue::Text("prev_exc".to_owned()), CborValue::Uint(*exc_id as u64)));
+            }
+            CborValue::Map(inner_map)
+        }
+    };
+    
+    map.push((CborValue::Text("typ".to_owned()), typ_value));
+    CborValue::Map(map)
+}
+
+/// Encode an UnwindReasonState to CBOR
+fn encode_unwind_reason(reason: &UnwindReasonState) -> CborValue {
+    match reason {
+        UnwindReasonState::Returning { value } => {
+            CborValue::Map(vec![
+                (CborValue::Text("kind".to_owned()), CborValue::Text("Returning".to_owned())),
+                (CborValue::Text("value".to_owned()), CborValue::Uint(*value as u64)),
+            ])
+        }
+        UnwindReasonState::Raising { exception } => {
+            CborValue::Map(vec![
+                (CborValue::Text("kind".to_owned()), CborValue::Text("Raising".to_owned())),
+                (CborValue::Text("exception".to_owned()), CborValue::Uint(*exception as u64)),
+            ])
+        }
+        UnwindReasonState::Break { target } => {
+            CborValue::Map(vec![
+                (CborValue::Text("kind".to_owned()), CborValue::Text("Break".to_owned())),
+                (CborValue::Text("target".to_owned()), CborValue::Uint(*target as u64)),
+            ])
+        }
+        UnwindReasonState::Continue { target } => {
+            CborValue::Map(vec![
+                (CborValue::Text("kind".to_owned()), CborValue::Text("Continue".to_owned())),
+                (CborValue::Text("target".to_owned()), CborValue::Uint(*target as u64)),
+            ])
+        }
+    }
+}
+
+/// Decode a BlockState from CBOR
+fn decode_block_state(value: CborValue) -> Result<BlockState, SnapshotError> {
+    let map = expect_map(value)?;
+    let level = expect_uint(map_get(&map, "level")?)? as usize;
+    let typ_val = map_get(&map, "typ")?;
+    
+    let typ = match typ_val {
+        CborValue::Text(text) => {
+            if text == "Loop" {
+                BlockTypeState::Loop
+            } else {
+                return Err(SnapshotError::msg(format!("unknown block type: {}", text)));
+            }
+        }
+        CborValue::Map(inner_map) => {
+            let type_name = expect_text(map_get(&inner_map, "type")?)?;
+            match type_name.as_str() {
+                "TryExcept" => {
+                    let handler = expect_uint(map_get(&inner_map, "handler")?)? as u32;
+                    BlockTypeState::TryExcept { handler }
+                }
+                "Finally" => {
+                    let handler = expect_uint(map_get(&inner_map, "handler")?)? as u32;
+                    BlockTypeState::Finally { handler }
+                }
+                "FinallyHandler" => {
+                    let reason = if let Ok(reason_val) = map_get(&inner_map, "reason") {
+                        Some(decode_unwind_reason(reason_val)?)
+                    } else {
+                        None
+                    };
+                    let prev_exc = if let Ok(exc_val) = map_get(&inner_map, "prev_exc") {
+                        Some(expect_uint(exc_val)? as ObjId)
+                    } else {
+                        None
+                    };
+                    BlockTypeState::FinallyHandler { reason, prev_exc }
+                }
+                "ExceptHandler" => {
+                    let prev_exc = if let Ok(exc_val) = map_get(&inner_map, "prev_exc") {
+                        Some(expect_uint(exc_val)? as ObjId)
+                    } else {
+                        None
+                    };
+                    BlockTypeState::ExceptHandler { prev_exc }
+                }
+                _ => {
+                    return Err(SnapshotError::msg(format!("unknown block type: {}", type_name)));
+                }
+            }
+        }
+        _ => {
+            return Err(SnapshotError::msg("invalid block type format"));
+        }
+    };
+    
+    Ok(BlockState { typ, level })
+}
+
+/// Decode an UnwindReasonState from CBOR
+fn decode_unwind_reason(value: CborValue) -> Result<UnwindReasonState, SnapshotError> {
+    let map = expect_map(value)?;
+    let kind = expect_text(map_get(&map, "kind")?)?;
+    
+    match kind.as_str() {
+        "Returning" => {
+            let value_id = expect_uint(map_get(&map, "value")?)? as ObjId;
+            Ok(UnwindReasonState::Returning { value: value_id })
+        }
+        "Raising" => {
+            let exc_id = expect_uint(map_get(&map, "exception")?)? as ObjId;
+            Ok(UnwindReasonState::Raising { exception: exc_id })
+        }
+        "Break" => {
+            let target = expect_uint(map_get(&map, "target")?)? as u32;
+            Ok(UnwindReasonState::Break { target })
+        }
+        "Continue" => {
+            let target = expect_uint(map_get(&map, "target")?)? as u32;
+            Ok(UnwindReasonState::Continue { target })
+        }
+        _ => {
+            Err(SnapshotError::msg(format!("unknown unwind reason: {}", kind)))
+        }
+    }
+}
+
+// ============================================================================
+// Block Stack Conversion Functions
+// ============================================================================
+
+/// Convert frame Block to serializable BlockState
+fn convert_block_to_state(
+    block: &crate::frame::Block,
+    writer: &SnapshotWriter<'_>,
+) -> PyResult<BlockState> {
+    use crate::frame::{BlockType, UnwindReason};
+    
+    let typ_state = match &block.typ {
+        BlockType::Loop => BlockTypeState::Loop,
+        
+        BlockType::TryExcept { handler } => {
+            BlockTypeState::TryExcept {
+                handler: handler.0,
+            }
+        }
+        
+        BlockType::Finally { handler } => {
+            BlockTypeState::Finally {
+                handler: handler.0,
+            }
+        }
+        
+        BlockType::FinallyHandler { reason, prev_exc } => {
+            let reason_state = reason.as_ref()
+                .map(|r| {
+                    let value_id = match r {
+                        UnwindReason::Returning { value } => {
+                            writer.get_id(value).map(|id| UnwindReasonState::Returning { value: id })
+                        }
+                        UnwindReason::Raising { exception } => {
+                            let exc_obj = exception.as_object().to_owned();
+                            writer.get_id(&exc_obj).map(|id| UnwindReasonState::Raising { exception: id })
+                        }
+                        UnwindReason::Break { target } => {
+                            Ok(UnwindReasonState::Break { target: target.0 })
+                        }
+                        UnwindReason::Continue { target } => {
+                            Ok(UnwindReasonState::Continue { target: target.0 })
+                        }
+                    };
+                    value_id.map_err(|e| writer.vm.new_value_error(format!("Failed to serialize unwind reason: {e:?}")))
+                })
+                .transpose()?;
+            let prev_exc_id = prev_exc.as_ref()
+                .map(|exc| {
+                    let exc_obj = exc.as_object().to_owned();
+                    writer.get_id(&exc_obj).map_err(|e| writer.vm.new_value_error(format!("Failed to get exception ID: {e:?}")))
+                })
+                .transpose()?;
+            
+            BlockTypeState::FinallyHandler {
+                reason: reason_state,
+                prev_exc: prev_exc_id,
+            }
+        }
+        
+        BlockType::ExceptHandler { prev_exc } => {
+            let prev_exc_id = prev_exc.as_ref()
+                .map(|exc| {
+                    let exc_obj = exc.as_object().to_owned();
+                    writer.get_id(&exc_obj).map_err(|e| writer.vm.new_value_error(format!("Failed to get exception ID: {e:?}")))
+                })
+                .transpose()?;
+            
+            BlockTypeState::ExceptHandler {
+                prev_exc: prev_exc_id,
+            }
+        }
+    };
+    
+    Ok(BlockState {
+        typ: typ_state,
+        level: block.level,
+    })
+}
+
+/// Convert serializable BlockState to frame Block
+pub(super) fn convert_block_state_to_block(
+    block_state: &BlockState,
+    objects: &[PyObjectRef],
+    vm: &VirtualMachine,
+) -> PyResult<crate::frame::Block> {
+    use crate::frame::{Block, BlockType, UnwindReason};
+    use crate::convert::TryFromObject;
+    
+    let typ = match &block_state.typ {
+        BlockTypeState::Loop => BlockType::Loop,
+        
+        BlockTypeState::TryExcept { handler } => {
+            BlockType::TryExcept {
+                handler: bytecode::Label(*handler),
+            }
+        }
+        
+        BlockTypeState::Finally { handler } => {
+            BlockType::Finally {
+                handler: bytecode::Label(*handler),
+            }
+        }
+        
+        BlockTypeState::FinallyHandler { reason, prev_exc } => {
+            let reason_opt = reason.as_ref()
+                .map(|r| {
+                    match r {
+                        UnwindReasonState::Returning { value } => {
+                            let value_obj = objects.get(*value as usize)
+                                .cloned()
+                                .ok_or_else(|| vm.new_runtime_error(format!("return value {} not found", value)))?;
+                            Ok(UnwindReason::Returning { value: value_obj })
+                        }
+                        UnwindReasonState::Raising { exception } => {
+                            let exc_obj = objects.get(*exception as usize)
+                                .cloned()
+                                .ok_or_else(|| vm.new_runtime_error(format!("exception {} not found", exception)))?;
+                            let exc = crate::builtins::PyBaseExceptionRef::try_from_object(vm, exc_obj)?;
+                            Ok(UnwindReason::Raising { exception: exc })
+                        }
+                        UnwindReasonState::Break { target } => {
+                            Ok(UnwindReason::Break { target: bytecode::Label(*target) })
+                        }
+                        UnwindReasonState::Continue { target } => {
+                            Ok(UnwindReason::Continue { target: bytecode::Label(*target) })
+                        }
+                    }
+                })
+                .transpose()?;
+            let prev_exc_opt = prev_exc.as_ref()
+                .map(|exc_id| {
+                    let exc_obj = objects.get(*exc_id as usize)
+                        .cloned()
+                        .ok_or_else(|| vm.new_runtime_error(format!("exception {} not found", exc_id)))?;
+                    crate::builtins::PyBaseExceptionRef::try_from_object(vm, exc_obj)
+                })
+                .transpose()?;
+            
+            BlockType::FinallyHandler {
+                reason: reason_opt,
+                prev_exc: prev_exc_opt,
+            }
+        }
+        
+        BlockTypeState::ExceptHandler { prev_exc } => {
+            let prev_exc_opt = prev_exc.as_ref()
+                .map(|exc_id| {
+                    let exc_obj = objects.get(*exc_id as usize)
+                        .cloned()
+                        .ok_or_else(|| vm.new_runtime_error(format!("exception {} not found", exc_id)))?;
+                    crate::builtins::PyBaseExceptionRef::try_from_object(vm, exc_obj)
+                })
+                .transpose()?;
+            
+            BlockType::ExceptHandler {
+                prev_exc: prev_exc_opt,
+            }
+        }
+    };
+    
+    Ok(Block {
+        typ,
+        level: block_state.level,
+    })
 }
